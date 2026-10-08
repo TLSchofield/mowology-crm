@@ -268,6 +268,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                 $quote['status'] = 'accepted';
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
 
+                // A signed snow/salt contract sets itself up: per-visit contract carrying this
+                // signature + a daily route plan (SnowContractService). Runs after the commit and
+                // can never undo or fail the signature; the outcome goes in the office email below.
+                $snowSetup = null;
+                if (!empty($quote['is_contract'])) {
+                    try {
+                        require_once CRM_INCLUDES . '/functions.php';
+                        require_once CRM_INCLUDES . '/plan-functions.php';
+                        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                        $snowSetup = (new SnowContractService($db))->setupFromSignedQuote((int)$quote['id']);
+                    } catch (Throwable $e) {
+                        error_log('Snow contract auto-setup error: ' . $e->getMessage());
+                        $snowSetup = ['status' => 'failed', 'detail' => $e->getMessage()];
+                    }
+                }
+                $snowSetupHtml = '';
+                if ($snowSetup && $snowSetup['status'] === 'done') {
+                    $snowSetupHtml = "<p style='margin:20px 0 0;'><strong>Set up automatically:</strong> contract and daily Salt &amp; Snow route plan. "
+                                   . "<a href='https://mowology.ca/crm/contracts/view.php?id=" . (int)$snowSetup['contract_id'] . "'>Open the contract</a> · "
+                                   . "<a href='https://mowology.ca/crm/jobs/view.php?id=" . (int)$snowSetup['plan_id'] . "'>Open the route plan</a></p>";
+                } elseif ($snowSetup && in_array($snowSetup['status'], ['failed', 'skipped'], true)) {
+                    $snowSetupHtml = "<p style='margin:20px 0 0;color:#e85d04;'><strong>Contract NOT set up automatically</strong>: "
+                                   . htmlspecialchars((string)($snowSetup['detail'] ?? 'unknown reason')) . ". Use Create Contract on the quote.</p>";
+                }
+
                 // Send notification email to admin
                 $emailSubject = "Quote {$quote['quote_number']} Accepted!";
                 $emailBody = "
@@ -283,6 +308,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Property:</td><td>" . htmlspecialchars(trim(($quote['property_address'] ?? '') . (($quote['property_city'] ?? '') ? ', ' . $quote['property_city'] : ''))) . "</td></tr>
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Amount:</td><td style='font-size: 18px; font-weight: bold; color: #2D8659;'>$" . number_format(floatval($quote['amount']), 2) . "</td></tr>
                             </table>
+                            {$snowSetupHtml}
                             <div style='text-align: center; margin-top: 25px;'>
                                 <a href='https://mowology.ca/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
                             </div>

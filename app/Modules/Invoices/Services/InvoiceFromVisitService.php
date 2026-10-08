@@ -52,6 +52,16 @@ class InvoiceFromVisitService
         return $assignedCrewId !== null && $assignedCrewId === $userId;
     }
 
+    /** Billing for a snow & salt route stop, or null for every other visit. */
+    private function snowRouteBilling(int $visitId, int $planId, string $visitDate): ?array
+    {
+        if ($planId <= 0) {
+            return null;
+        }
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        return (new SnowContractService($this->db))->billingForVisit($visitId, $planId, $visitDate);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // EXTRAS CALC — single source of truth
     // ══════════════════════════════════════════════════════════════════════════
@@ -118,6 +128,13 @@ class InvoiceFromVisitService
         }
 
         $amount = floatval($visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount']);
+        $snowBilling = $this->snowRouteBilling($visitId, (int)$visit['plan_id'], (string)$visit['scheduled_date']);
+        if ($snowBilling !== null) {
+            if (!$snowBilling['ok']) {
+                return ['success' => false, 'error' => $snowBilling['error'], 'code' => $snowBilling['code']];
+            }
+            $amount = array_sum(array_column($snowBilling['lines'], 'line_total'));
+        }
         $addr   = trim(($visit['address'] ?? '') . ($visit['city'] ? ', ' . $visit['city'] : ''));
 
         return [
@@ -212,6 +229,16 @@ class InvoiceFromVisitService
                 $pliStmt->execute([$visit['plan_id']]);
                 $lineItems = $pliStmt->fetchAll(PDO::FETCH_ASSOC);
             } catch (PDOException $e) {}
+        }
+
+        // Snow & salt route stop: the plan holds every rate, so its lines must never be
+        // billed as-is. Bill only the service the crew recorded at this stop.
+        $snowBilling = $this->snowRouteBilling($visitId, (int)$visit['plan_id'], (string)$visit['scheduled_date']);
+        if ($snowBilling !== null) {
+            if (!$snowBilling['ok']) {
+                return ['success' => false, 'error' => $snowBilling['error'], 'code' => $snowBilling['code']];
+            }
+            $lineItems = $snowBilling['lines'];
         }
 
         // Base subtotal

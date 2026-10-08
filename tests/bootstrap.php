@@ -222,6 +222,7 @@ require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractTermsService.php';
+require_once __DIR__ . '/../app/Modules/Contracts/Services/SnowContractService.php';
 
 // Invoices
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';

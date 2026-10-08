@@ -323,6 +323,12 @@ class VisitGenerationService
      * Holiday visits are bumped to the last available working day before the holiday.
      */
     public static function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate, array $holidays = []): array {
+        // Snow & salt is weather work, not a working-day service: Christmas Day gets
+        // salted like any other day. Bumping a daily stop onto the day before (which
+        // already has one) silently dropped the holiday from the route.
+        if (in_array((string)($plan['service_type'] ?? ''), ['snow_removal', 'salt_application'], true)) {
+            $holidays = [];
+        }
         $dates = [];
         $current = new DateTime($fromDate);
         $end = new DateTime($toDate);

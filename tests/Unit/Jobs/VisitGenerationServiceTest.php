@@ -147,6 +147,46 @@ class VisitGenerationServiceTest extends TestCase
         $this->assertContains('2026-06-12', $dates);
     }
 
+    /** The Salt & Snow route plan SnowContractService creates: daily, Nov 1 → Mar 31. */
+    private function snowRoute(): array
+    {
+        return $this->plan([
+            'service_type'             => 'snow_removal',
+            'recurrence_pattern'       => 'custom',
+            'recurrence_interval'      => 1,
+            'recurrence_interval_unit' => 'days',
+            'recurrence_day_of_week'   => null,
+            'plan_start_date'          => '2026-11-01',
+        ]);
+    }
+
+    public function test_snow_route_has_a_stop_every_day_including_weekends(): void
+    {
+        $dates = VisitGenerationService::calculateRecurrenceDates($this->snowRoute(), '2026-11-01', '2026-11-14');
+        $this->assertCount(14, $dates);
+        $this->assertSame('2026-11-01', $dates[0]); // a Sunday
+    }
+
+    public function test_snow_route_keeps_christmas_day(): void
+    {
+        $dates = VisitGenerationService::calculateRecurrenceDates(
+            $this->snowRoute(), '2026-12-20', '2026-12-31',
+            ['2026-12-25' => 'Christmas Day', '2026-12-26' => 'Boxing Day']
+        );
+        $this->assertContains('2026-12-25', $dates);
+        $this->assertContains('2026-12-26', $dates);
+        $this->assertCount(12, $dates);
+    }
+
+    public function test_lawn_plans_still_bump_holidays(): void
+    {
+        $dates = VisitGenerationService::calculateRecurrenceDates(
+            $this->plan(['service_type' => 'lawn_care']), '2026-06-01', '2026-06-30',
+            ['2026-06-15' => 'Test Holiday']
+        );
+        $this->assertNotContains('2026-06-15', $dates);
+    }
+
     public function test_monthly_on_day_of_month(): void
     {
         // Start on the 1st → monthly should hit the 1st of each month in range

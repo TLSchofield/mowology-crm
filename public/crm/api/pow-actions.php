@@ -333,6 +333,23 @@ try {
                 exit;
             }
 
+            // Snow & salt route stops bill the service the crew recorded, one run per
+            // invoice (InvoiceFromVisitService). A stop-level invoice here would bill
+            // price_per_visit regardless of what was done.
+            require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+            $snowSvc = new SnowContractService($db);
+            foreach ($stopPlanIds as $spid) {
+                if ($snowSvc->isRoutePlan((int)$spid)) {
+                    echo json_encode([
+                        'success' => false,
+                        'error'   => 'Salt & snow runs are invoiced one stop at a time from what the crew recorded. '
+                                   . 'The stop is marked complete; use Create Invoice on the visit.',
+                        'code'    => 'SNOW_ROUTE',
+                    ]);
+                    exit;
+                }
+            }
+
             // Idempotency: if any visit already has an invoice (created via a
             // different path), return that invoice instead of creating a duplicate.
             $existingInvoiceIds = array_filter(array_column($completableVisits, 'invoice_id'));

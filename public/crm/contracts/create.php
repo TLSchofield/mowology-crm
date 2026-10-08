@@ -24,13 +24,14 @@ if ($quoteId) {
         SELECT q.*,
                p.address AS property_address, p.city AS property_city,
                p.site_contact_id,
-               COALESCE(qr.contact_id, p.site_contact_id) AS resolved_contact_id,
-               COALESCE(qrc.first_name, pc.first_name) AS contact_first,
-               COALESCE(qrc.last_name,  pc.last_name)  AS contact_last,
+               COALESCE(q.contact_id, qr.contact_id, p.site_contact_id) AS resolved_contact_id,
+               COALESCE(qc.first_name, qrc.first_name, pc.first_name) AS contact_first,
+               COALESCE(qc.last_name,  qrc.last_name,  pc.last_name)  AS contact_last,
                c.company_name AS quote_company_name
         FROM quotes q
         JOIN properties p ON q.property_id = p.id
         LEFT JOIN quote_requests qr  ON qr.quote_id  = q.id
+        LEFT JOIN contacts qc        ON qc.id  = q.contact_id
         LEFT JOIN contacts qrc       ON qrc.id = qr.contact_id
         LEFT JOIN contacts pc        ON pc.id  = p.site_contact_id
         LEFT JOIN companies c        ON c.id   = q.company_id
@@ -46,6 +47,20 @@ if ($quoteId) {
         if ($existingContract) {
             header("Location: view.php?id={$existingContract['id']}&from=quote");
             exit;
+        }
+
+        // Snow & salt contract quotes get the same set-up as signing online does
+        // (per-visit contract + daily route plan, one rate billed per run). The
+        // generic form would put every rate on one plan and bill the sum.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        if (SnowContractService::isSnowContractQuote($quote)) {
+            require_once CRM_INCLUDES . '/plan-functions.php';
+            $snowSetup = (new SnowContractService($db))->setupFromSignedQuote($quoteId);
+            if (!empty($snowSetup['contract_id']) && in_array($snowSetup['status'], ['done', 'already'], true)) {
+                header("Location: view.php?id={$snowSetup['contract_id']}&created=1");
+                exit;
+            }
+            $snowSetupError = 'Automatic snow & salt set-up did not finish: ' . ($snowSetup['detail'] ?? $snowSetup['status']);
         }
     }
 }
@@ -81,7 +96,7 @@ $termsSvc       = new ContractTermsService($db);
 $termsTemplates = $termsSvc->listTemplates(true);
 
 // ── POST: create contract ─────────────────────────────────────────────────
-$error = '';
+$error = $snowSetupError ?? '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $data = [
         'property_id'    => intval($_POST['property_id'] ?? 0),
@@ -147,7 +162,10 @@ $defaultPropertyId  = $quote['property_id']  ?? $directPropertyId;
 $defaultContactId   = $prefilledContactId;
 $defaultTitle       = $quote ? ($quote['title'] ?: '') : '';
 $defaultStartDate   = $quote && $quote['accepted_at'] ? date('Y-m-d', strtotime($quote['accepted_at'])) : date('Y-m-d');
-$defaultBillingAmt  = $quote ? (number_format((float)($quote['total_amount'] ?? 0), 2)) : '';
+// Quotes store their total in `amount` (total_amount was never written, so this
+// always prefilled $0.00). No thousands separator: "1,024.28" posts as 1.
+$defaultBillingAmt  = $quote ? number_format((float)($quote['amount'] ?? 0), 2, '.', '') : '';
+$defaultBillingCycle = 'monthly';
 $contactName        = $prefilledContactName;
 $propertyAddress    = $quote ? trim(($quote['property_address'] ?? '') . ', ' . ($quote['property_city'] ?? '')) : '';
 
@@ -369,11 +387,9 @@ $activePage = 'contracts';
                               <div class="mw-form-row">
                                   <label class="mw-form-label" for="billing_cycle">Billing Cycle</label>
                                   <select id="billing_cycle" name="billing_cycle" class="form-control">
-                                      <option value="monthly">Monthly</option>
-                                      <option value="per_visit">Per Visit</option>
-                                      <option value="seasonal">Seasonal</option>
-                                      <option value="annual">Annual</option>
-                                      <option value="custom">Custom</option>
+                                      <?php foreach (['monthly' => 'Monthly', 'per_visit' => 'Per Visit', 'seasonal' => 'Seasonal', 'annual' => 'Annual', 'custom' => 'Custom'] as $bcVal => $bcLabel): ?>
+                                      <option value="<?php echo $bcVal; ?>"<?php echo $bcVal === $defaultBillingCycle ? ' selected' : ''; ?>><?php echo $bcLabel; ?></option>
+                                      <?php endforeach; ?>
                                   </select>
                               </div>
 

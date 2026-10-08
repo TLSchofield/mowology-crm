@@ -96,6 +96,24 @@ if ($visitId) {
             }
         }
 
+        // Snow & salt route stop: the plan holds every rate — prefill only what the crew did.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        $snowBilling = (new SnowContractService($db))->billingForVisit((int)$visitId, (int)$visit['plan_id'], (string)$visit['scheduled_date']);
+        if ($snowBilling !== null) {
+            if (!$snowBilling['ok']) {
+                $error = $snowBilling['error'];
+                $visit = false;
+            } else {
+                $prefillLineItems = [];
+                foreach ($snowBilling['lines'] as $i => $l) {
+                    $prefillLineItems[] = $l + ['service_type' => 'snow_removal', 'unit_type' => 'visit', 'sort_order' => $i];
+                }
+                $visitAmount = array_sum(array_column($snowBilling['lines'], 'line_total'));
+            }
+        }
+    }
+
+    if ($visit) {
         $prefill = [
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
@@ -493,6 +511,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pliRows->execute([$linkedPlanId]);
                     $planLineItems = $pliRows->fetchAll(PDO::FETCH_ASSOC);
 
+                    // Snow & salt route plan: never copy every rate — only what was done at the stop.
+                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                    $snowSvc = new SnowContractService($db);
+                    if ($snowSvc->isRoutePlan($linkedPlanId)) {
+                        $vdStmt = $db->prepare("SELECT scheduled_date FROM job_visits WHERE id = ?");
+                        $vdStmt->execute([$linkedVisitId]);
+                        $snowBilling = $linkedVisitId
+                            ? $snowSvc->billingForVisit($linkedVisitId, $linkedPlanId, (string)$vdStmt->fetchColumn())
+                            : ['ok' => false, 'error' => 'A snow & salt route invoice must be made from a single stop.'];
+                        if (empty($snowBilling['ok'])) {
+                            throw new DomainException($snowBilling['error']);
+                        }
+                        $planLineItems = [];
+                        foreach ($snowBilling['lines'] as $i => $l) {
+                            $planLineItems[] = $l + ['service_type' => 'snow_removal', 'unit_type' => 'visit', 'sort_order' => $i];
+                        }
+                    }
+
                     if ($planLineItems) {
                         // Recalculate totals from actual plan items (overrides form subtotal)
                         $lineSubtotal = array_sum(array_column($planLineItems, 'line_total'));
@@ -690,7 +726,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (\Throwable $e) {
                 if ($db->inTransaction()) $db->rollBack();
                 error_log("Invoice creation error: " . $e->getMessage());
-                $error = 'Error creating invoice. Please try again.';
+                $error = $e instanceof DomainException ? $e->getMessage() : 'Error creating invoice. Please try again.';
             }
         }
     }

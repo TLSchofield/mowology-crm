@@ -40,7 +40,7 @@ try {
     }
 
     $quoteStmt = $db->prepare("
-        SELECT q.id, q.property_id, q.status, q.subtotal, q.tax_rate, q.tax_amount, q.amount
+        SELECT q.id, q.property_id, q.status, q.is_contract, q.subtotal, q.tax_rate, q.tax_amount, q.amount
         FROM quotes q
         WHERE q.access_token = ? AND q.token_expires_at > NOW()
     ");
@@ -54,6 +54,10 @@ try {
     // Allow upsell modification on both 'sent' (bundled price) and 'accepted' (regular price)
     if (!in_array($quote['status'], ['sent', 'accepted'])) {
         throw new Exception('This quote can no longer be modified');
+    }
+    // A signed contract is the agreed terms: nothing can be added to it afterwards.
+    if ($quote['status'] === 'accepted' && !empty($quote['is_contract'])) {
+        throw new Exception('This contract has been signed and can no longer be changed');
     }
     $isPostAccept = ($quote['status'] === 'accepted');
 
