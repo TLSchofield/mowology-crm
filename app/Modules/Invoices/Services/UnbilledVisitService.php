@@ -37,7 +37,7 @@
 class UnbilledVisitService
 {
     /** Billing moved from Jobber to the CRM on this day (memory: project_income_double_count_jobber_cutover). */
-    public const CUTOVER_DATE = '2026-02-25';
+    public const CUTOVER_DATE = '2026-04-01';   // Tim 2026-10-07: "jan into march jobber billing" — Jobber billed through March
 
     public const BUCKETS = ['unbilled', 'invoiced', 'contract', 'contract_gap', 'fixed_price', 'no_charge', 'before_crm', 'test'];
     public const VOID = ['void', 'voided', 'cancelled'];
@@ -185,6 +185,9 @@ class UnbilledVisitService
         }
 
         if ($v['actual_amount'] !== null && $v['actual_amount'] !== '' && abs((float)$v['actual_amount']) < 0.005) return 'no_charge';
+
+        // Work done while Jobber still did the billing (through March 2026) was billed there.
+        if ((string)($v['scheduled_date'] ?? '') !== '' && (string)$v['scheduled_date'] < self::CUTOVER_DATE) return 'before_crm';
 
         $cycle = strtolower(trim((string)($v['billing_cycle'] ?? '')));
         if (!empty($v['contract_id']) && $cycle !== '' && $cycle !== 'per_visit') {
