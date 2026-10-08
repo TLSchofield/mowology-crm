@@ -174,6 +174,32 @@ class SaltReportPdfGenerator
         $stmt->execute([$visit['plan_id']]);
         $services = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
+        // Snow & salt route stop: the plan holds every rate, but the record must show
+        // only what the crew did at this stop (visit_service_choices).
+        try {
+            if (!class_exists('SnowContractService')) {
+                require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+            }
+            $snow  = new \SnowContractService($this->db);
+            $rates = $snow->ratesForPlan((int)$visit['plan_id']);
+            if ($rates) {
+                $choice = $snow->choiceForVisit($visitId);
+                $roles  = $choice ? \SnowContractService::rolesForChoice($choice) : [];
+                $services = [];
+                foreach ($rates as $r) {
+                    if (in_array($r['role'], $roles, true)) {
+                        $services[] = [
+                            'service_type' => \SnowContractService::planLineCode($r['role']),
+                            'description'  => $r['label'],
+                            'unit_price'   => $r['unit_price'],
+                        ];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('SaltReportPdfGenerator: route choice not applied — ' . $e->getMessage());
+        }
+
         // GPS breadcrumb
         $stmt = $this->db->prepare("
             SELECT lat, lng, accuracy_m, speed_mps, ts

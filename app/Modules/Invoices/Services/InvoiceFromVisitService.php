@@ -75,6 +75,59 @@ class InvoiceFromVisitService
         }
     }
 
+    /**
+     * Absolute path of the Winter Service Record PDF for a snow & salt run invoice
+     * (generated on first send and linked in invoice_attachments), or null for any
+     * other invoice. Never blocks the send: a failure is logged and the invoice
+     * still goes out with its own PDF.
+     */
+    private function snowRunProof(array $invoice, int $userId): ?string
+    {
+        $visitId = (int)($invoice['visit_id'] ?? 0);
+        $planId  = (int)($invoice['plan_id'] ?? 0);
+        if ($visitId <= 0 || $planId <= 0) {
+            return null;
+        }
+        try {
+            require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+            if (!(new SnowContractService($this->db))->isRoutePlan($planId)) {
+                return null;
+            }
+            require_once APP_ROOT . '/Services/Salt/SaltReportPdfGenerator.php';
+            $gen = new SaltReportPdfGenerator($this->db, PUBLIC_ROOT, 'https://mowology.ca', $userId);
+            $res = $gen->generate($visitId);
+            if (empty($res['success']) || empty($res['path'])) {
+                error_log("snowRunProof: no Winter Service Record for visit {$visitId}: " . ($res['error'] ?? 'unknown'));
+                return null;
+            }
+            $dir  = defined('STORAGE_ROOT') ? STORAGE_ROOT . '/pdfs/salt-reports' : dirname(PUBLIC_ROOT) . '/storage/pdfs/salt-reports';
+            $file = $dir . '/' . basename((string)$res['path']);
+            if (!is_file($file)) {
+                return null;
+            }
+            $srId = $this->db->prepare("SELECT id FROM salt_run_reports WHERE visit_id = ? LIMIT 1");
+            $srId->execute([$visitId]);
+            $reportId = (int)($srId->fetchColumn() ?: 0);
+            if ($reportId) {
+                $dup = $this->db->prepare("SELECT id FROM invoice_attachments WHERE invoice_id = ? AND document_type = 'salt_report' AND document_id = ?");
+                $dup->execute([(int)$invoice['id'], $reportId]);
+                if (!$dup->fetchColumn()) {
+                    $this->db->prepare("
+                        INSERT INTO invoice_attachments (invoice_id, document_type, document_id, pdf_path, label, attached_by)
+                        VALUES (?, 'salt_report', ?, ?, ?, ?)
+                    ")->execute([(int)$invoice['id'], $reportId, $res['path'],
+                                 'Winter Service Record (' . ($res['report_number'] ?? 'Salt Report') . ')', $userId]);
+                    $this->db->prepare("UPDATE salt_run_reports SET invoice_id = ?, invoice_attached_at = NOW() WHERE id = ?")
+                             ->execute([(int)$invoice['id'], $reportId]);
+                }
+            }
+            return $file;
+        } catch (Throwable $e) {
+            error_log('snowRunProof: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     /** Billing for a snow & salt route stop, or null for every other visit. */
     private function snowRouteBilling(int $visitId, int $planId, string $visitDate): ?array
     {
@@ -600,6 +653,10 @@ class InvoiceFromVisitService
         }
         $pdfVanished = false;
 
+        // Snow & salt run: the Winter Service Record (weather at the go-decision, GPS
+        // track, photos, integrity hash) travels with the invoice — the run's proof.
+        $proofPath = $this->snowRunProof($invoice, $userId);
+
         // Ensure valid access token
         $accessToken = $invoice['access_token'] ?? '';
         if (empty($accessToken) || (!empty($invoice['token_expires_at']) && strtotime($invoice['token_expires_at']) < time())) {
@@ -628,6 +685,10 @@ class InvoiceFromVisitService
             ];
 
             $tpl = loadEmailTemplate('invoice_sent', $tplVars);
+            // Every invoice email names the property (owner rule 2026-10-08), so a
+            // property manager can tell a building's runs apart in the inbox.
+            require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+            $tpl['subject'] = QuoteService::subjectWithAddress((string)$tpl['subject'], (string)($invoice['service_address'] ?? ''));
 
             $billSummary  = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
             $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;width:120px;">Invoice #</td><td style="padding:6px 0;color:#0D3B2E;font-weight:700;">' . htmlspecialchars($invoice['invoice_number']) . '</td></tr>';
@@ -664,9 +725,13 @@ class InvoiceFromVisitService
                 break;
             }
 
-            $emailOk = $this->mailer
-                ? (bool)($this->mailer)($recipient['email_address'], $tpl['subject'], $body, $attachPath)
-                : sendCrmEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath);
+            if ($this->mailer) {
+                $emailOk = (bool)($this->mailer)($recipient['email_address'], $tpl['subject'], $body, $attachPath);
+            } elseif ($proofPath) {
+                $emailOk = !empty(sendEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath, 'Mowology', [$proofPath])['success']);
+            } else {
+                $emailOk = sendCrmEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath);
+            }
 
             // Only record recipients whose email actually went out — a failed
             // delivery must never be counted as "sent".
