@@ -127,7 +127,17 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 ### Otto suggestion items — `window.MwOtto`
 - **File:** `public/crm/js/otto-card.js` (loaded by `includes/otto-card.php`).
 - **Purpose:** renders one of Otto's suggestions (`/crm/api/otto.php?mode=suggestions` item) with its buttons and posts the owner's choice (`mode=decide`); handles a `redirect` in the answer. `window.MwOtto = { item(it) → element, get(params), post(body), esc }`.
-- **Used by:** Otto's dashboard card, and `/crm/ops/otto-review.php` (`otto-review.js` drops `MwOtto.item(it)` into each unscheduled-work case). A new Otto kind gets its buttons in `controls()` once, and both places have them.
+- **Used by:** Otto's dashboard card, `/crm/ops/otto-review.php` (`otto-review.js` drops `MwOtto.item(it)` into each unscheduled-work case; `otto-borders.js` on the Pins & borders view), and the schedule strip below. A new Otto kind gets its buttons in `controls()` once, and every place has them.
+
+### Otto's schedule strip — `includes/otto-schedule-strip.php`
+- **Files:** `public/crm/includes/otto-schedule-strip.php` + `public/crm/js/otto-schedule-strip.js`; data from `/crm/api/otto-schedule.php` (`OttoScheduleService`, cached 5 min in `otto_day_strip`, migration 1286).
+- **Purpose:** one line with Otto's face + how many things he has for the day(s) in view, opening to his items for that day — desk items keep their suggestion ids and get the card's buttons (`MwOtto.item`, otto-card.js loaded on demand); day checks (overbooked crew, empty stop, no border) are links.
+- **Usage:** set `$ottoStrip = ['date' => 'Y-m-d']` (one day) or `['from' => …, 'to' => …, 'focus' => ?]` (day chips, max 14) and include it. Renders nothing without `jobs.edit`.
+- **Used by:** `jobs/schedule.php` (day + week), `map_appstack.php`, `dashboard_appstack.php` (7-Day Operations).
+
+### Find missing pins — `js/otto-geocode-all.js`
+- **File:** `public/crm/js/otto-geocode-all.js` with the `#mwGeoAll` panel in `map_appstack.php`.
+- **Purpose:** geocodes every active client property with no pin in the browser (Google Geocoder, 1 every 1.2 s), saves only ROOFTOP / RANGE_INTERPOLATED non-partial matches through `/crm/api/geocode-save.php`, flags the rest for a hand fix. `?geocode=<property id>` opens it (Otto's "no pin" item).
 
 ---
 

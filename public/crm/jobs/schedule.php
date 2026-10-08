@@ -1353,6 +1353,12 @@ if ($apiKey) {
               </div>
           </div>
 
+          <?php
+          // Otto owns the schedule: his strip for the day / week in view (jobs.edit only; loads after the page).
+          $ottoStrip = $view === 'day' ? ['date' => $dayDate] : ['from' => $startDate, 'to' => $endDate];
+          include dirname(__DIR__) . '/includes/otto-schedule-strip.php';
+          ?>
+
           <!-- ═══════════════════════════════════════════════
                MISSION CONTROL HEADER (Week View Only)
                Projected revenue, labor, margin, drive time,

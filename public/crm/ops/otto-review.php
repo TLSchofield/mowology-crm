@@ -9,6 +9,9 @@
  *   ?view=durations    Real lawn-cut lengths against the plan: samples, crew- and person-minute
  *                      medians, what was dropped, the proposal; Apply / Apply all confident / Undo
  *                      (/crm/api/otto-durations.php). Plus timer coverage.
+ *   ?view=borders      Pins and borders for every active client property (PropertyBorderService):
+ *                      counts from what is stored, Otto's items with their buttons, and the default-
+ *                      border dry run → create (/crm/api/otto-borders.php, otto-borders.js).
  *
  * jobs.edit only. Logic lives in UnscheduledWorkService / VisitDurationService.
  */
@@ -21,8 +24,8 @@ if (!userHasPermission('jobs.edit')) {
     exit('You need permission to run the schedule (jobs.edit) to see this page.');
 }
 
-$view = ($_GET['view'] ?? 'unscheduled') === 'durations' ? 'durations' : 'unscheduled';
-$pageTitle = $view === 'durations' ? 'Visit lengths' : 'Unscheduled work';
+$view = in_array($_GET['view'] ?? '', ['durations', 'borders'], true) ? (string)$_GET['view'] : 'unscheduled';
+$pageTitle = ['durations' => 'Visit lengths', 'borders' => 'Pins & borders', 'unscheduled' => 'Unscheduled work'][$view];
 $activePage = 'schedule';
 
 require_once APP_ROOT . '/Modules/Operations/Services/UnscheduledWorkService.php';
@@ -33,9 +36,14 @@ $durations = [];
 $coverage = null;
 $history = [];
 $autoRows = [];
+$borders = null;
 $ready = true;
 try {
-    if ($view === 'unscheduled') {
+    if ($view === 'borders') {
+        require_once APP_ROOT . '/Modules/Operations/Services/PropertyBorderService.php';
+        $borders = (new PropertyBorderService($db))->summary();
+        $ready = $borders['ready'];
+    } elseif ($view === 'unscheduled') {
         $svc = new UnscheduledWorkService($db);
         $ready = $svc->cacheReady();
         if ($ready) {
@@ -53,6 +61,11 @@ try {
     }
 } catch (Throwable $e) {
     error_log('Otto review page: ' . $e->getMessage());
+}
+if ($view === 'borders' && !$borders) {
+    require_once APP_ROOT . '/Modules/Operations/Services/PropertyBorderRules.php';
+    $borders = PropertyBorderRules::audit([], [], [], []) + ['measured_at' => null, 'ready' => false];
+    $ready = false;
 }
 $flagged = [];
 $ignored = [];
@@ -79,6 +92,10 @@ $hm = fn($t) => date('g:i', (int)$t);
           Where the truck stopped (or the crew's phones stayed) at a client property with nothing on the schedule — or far longer than the
           scheduled visit (<?= (int)UnscheduledWorkRules::EXTRA_MIN ?> min more and at least <?= (int)UnscheduledWorkRules::EXTRA_X ?>× its planned length). A truck stop of
           <?= (int)UnscheduledWorkRules::MIN_TRUCK_MIN ?> min or more is enough; phones and clock punches back it up. Dumps, suppliers, the office and crew homes never count.
+        <?php elseif ($view === 'borders'): ?>
+          Every client property with an active plan or a visit in the last 12 months needs a map pin and an arrival border, or crews
+          can't be seen there and Otto can't tell which job they're on. A pin more than <?= (int)PropertyBorderRules::PIN_OFF_M ?> m from where the crews' phones
+          actually were is probably on the wrong spot. Nothing changes until you click.
         <?php else: ?>
           What each recurring lawn plan really takes, from the job timers (last <?= (int)VisitDurationRules::SAMPLES ?> timed visits), against the length on the plan.
           The day's capacity reads the plan length, so updating it here is how the schedule learns. Nothing changes until you click.
@@ -90,13 +107,60 @@ $hm = fn($t) => date('g:i', (int)$t);
   <nav class="mw-or-tabs" aria-label="Review">
     <a href="?view=unscheduled" class="<?= $view === 'unscheduled' ? 'is-on' : '' ?>">Unscheduled work</a>
     <a href="?view=durations" class="<?= $view === 'durations' ? 'is-on' : '' ?>">Visit lengths</a>
+    <a href="?view=borders" class="<?= $view === 'borders' ? 'is-on' : '' ?>">Pins &amp; borders</a>
   </nav>
 
   <?php if (!$ready): ?>
-    <div class="alert alert-warning">Run migration <?= $view === 'unscheduled' ? '1265' : '1266' ?> first.</div>
+    <div class="alert alert-warning">Run migration <?= ['unscheduled' => '1265', 'durations' => '1266', 'borders' => '1285'][$view] ?> first.</div>
   <?php endif; ?>
 
-  <?php if ($view === 'unscheduled'): ?>
+  <?php if ($view === 'borders'): ?>
+
+    <div class="mw-or-cov mw-ob-counts">
+      <div class="mw-otto-stat"><div class="mw-k">Active properties</div><div class="mw-v"><?= (int)$borders['active'] ?></div><div class="mw-n">Plan, or a visit in 12 months</div></div>
+      <div class="mw-otto-stat<?= $borders['without_pin'] ? ' is-alert' : '' ?>"><div class="mw-k">No pin</div><div class="mw-v"><?= (int)$borders['without_pin'] ?></div><div class="mw-n"><a href="/crm/map_appstack.php?geocode=-1">Find missing pins</a></div></div>
+      <div class="mw-otto-stat"><div class="mw-k">Drawn border</div><div class="mw-v"><?= (int)$borders['with_drawn_border'] ?></div><div class="mw-n">By a person</div></div>
+      <div class="mw-otto-stat"><div class="mw-k">Default border</div><div class="mw-v"><?= (int)$borders['with_default_border'] ?></div><div class="mw-n">Otto's — draw them</div></div>
+      <div class="mw-otto-stat<?= $borders['without_border'] ? ' is-alert' : '' ?>"><div class="mw-k">No border</div><div class="mw-v"><?= (int)$borders['without_border'] ?></div><div class="mw-n">150 m radius only</div></div>
+      <div class="mw-otto-stat<?= $borders['pin_off'] ? ' is-alert' : '' ?>"><div class="mw-k">Pin off</div><div class="mw-v"><?= (int)$borders['pin_off'] ?></div><div class="mw-n"><?= $borders['measured_at'] ? 'Measured ' . h(date('M j', strtotime($borders['measured_at']))) : 'Not measured yet' ?></div></div>
+      <div class="mw-otto-stat<?= $borders['overlaps'] ? ' is-alert' : '' ?>"><div class="mw-k">Overlaps</div><div class="mw-v"><?= (int)$borders['overlaps'] ?></div><div class="mw-n">Neighbours sharing ground</div></div>
+    </div>
+
+    <div class="card mw-ob-tools"><div class="card-body">
+      <h2 class="h6">Default borders</h2>
+      <p class="text-muted small mb-2">For each pinned property with no border: the outline of where crews' phones (and the parked truck) were during past timed visits,
+        plus <?= (int)PropertyBorderRules::BUFFER_M ?> m, at most <?= (int)PropertyBorderRules::CAP_M ?> m from the middle — or, with fewer than <?= (int)PropertyBorderRules::MIN_FIXES ?> fixes over
+        <?= (int)PropertyBorderRules::MIN_VISITS ?> visits, a ±<?= (int)PropertyBorderRules::SQUARE_HALF_M ?> m square round the pin marked "draw me". A drawn border is never touched, and drawing one replaces Otto's.</p>
+      <div class="mw-ob-btns">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-ob="preview"<?= $ready ? '' : ' disabled' ?>>Preview (dry run)</button>
+        <button type="button" class="btn btn-sm btn-success" data-ob="apply" disabled>Create them</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-ob="measure"<?= $ready ? '' : ' disabled' ?>>Re-measure where crews work</button>
+        <span class="mw-or-msg" hidden></span>
+      </div>
+      <div class="mw-ob-preview" hidden></div>
+    </div></div>
+
+    <h2 class="h6 mt-3">Otto's items</h2>
+    <div class="mw-otto-list" id="mw-ob-items"><div class="mw-otto-empty">Loading…</div></div>
+
+    <?php if ($borders['pin_off_list']): ?>
+      <details class="card mw-or-ignored"><summary class="card-body">Pins far from the work (<?= count($borders['pin_off_list']) ?>)</summary>
+        <ul><?php foreach ($borders['pin_off_list'] as $x): ?>
+          <li><a href="/crm/jobs/zone-editor.php?property_id=<?= (int)$x['id'] ?>"><?= h(PropertyBorderRules::street($x['address'])) ?></a> — <?= (int)$x['distance_m'] ?> m
+            <small class="text-muted"><?= (int)$x['fixes'] ?> fixes, <?= (int)$x['visits'] ?> visits</small></li>
+        <?php endforeach; ?></ul>
+      </details>
+    <?php endif; ?>
+    <?php if ($borders['overlap_list']): ?>
+      <details class="card mw-or-ignored"><summary class="card-body">Overlapping borders (<?= count($borders['overlap_list']) ?>)</summary>
+        <ul><?php foreach ($borders['overlap_list'] as $x): ?>
+          <li><a href="/crm/jobs/zone-editor.php?property_id=<?= (int)$x['a'] ?>"><?= h(PropertyBorderRules::street($x['a_address'])) ?></a> and
+            <a href="/crm/jobs/zone-editor.php?property_id=<?= (int)$x['b'] ?>"><?= h(PropertyBorderRules::street($x['b_address'])) ?></a></li>
+        <?php endforeach; ?></ul>
+      </details>
+    <?php endif; ?>
+
+  <?php elseif ($view === 'unscheduled'): ?>
 
     <?php if ($ready && !$flagged): ?>
       <div class="card"><div class="card-body mw-or-empty">Nothing unscheduled in the last <?= (int)UnscheduledWorkRules::LOOKBACK_DAYS ?> days.</div></div>
@@ -276,4 +340,7 @@ $hm = fn($t) => date('g:i', (int)$t);
 
 <script src="<?= function_exists('_av') ? _av('/crm/js/otto-card.js') : '/crm/js/otto-card.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/otto-review.js') : '/crm/js/otto-review.js' ?>" defer></script>
+<?php if ($view === 'borders'): ?>
+<script src="<?= function_exists('_av') ? _av('/crm/js/otto-borders.js') : '/crm/js/otto-borders.js' ?>" defer></script>
+<?php endif; ?>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

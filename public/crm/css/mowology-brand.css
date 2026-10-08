@@ -38924,3 +38924,61 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-or-say { font-size: .86rem; color: var(--mw-ink-900); margin: 0 0 6px; }
 .mw-or-ctr { font-size: .78rem; color: var(--mw-ink-700); margin: 0 0 6px; }
 .mw-or-ctr.is-auto { color: var(--mw-dark); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Otto on the schedule — the strip (includes/otto-schedule-strip.php) on the Schedule,
+   the Territory Map and the dashboard's 7-Day Operations; Pins & borders (review page);
+   the map's Find-missing-pins tool (js/otto-geocode-all.js). 2026-10-08.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mw-otto-strip { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-green);
+  border-radius: 12px; background: var(--mw-ink-0); padding: 8px 12px; margin: 0 0 14px; min-width: 0; }
+.mw-otto-strip.is-alert { border-left-color: var(--mw-orange); }
+.mw-otto-strip.is-clear { border-left-color: var(--mw-lime); }
+.mw-otto-strip-face { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 2px var(--mw-lime); }
+.mw-otto-strip-main { flex: 1; min-width: 0; }
+.mw-otto-strip-hd { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 0; border: 0; background: none;
+  text-align: left; font-size: .84rem; color: var(--mw-ink-900); cursor: pointer; }
+.mw-otto-strip-hd b { color: var(--mw-forest); font-weight: 800; flex: none; }
+.mw-otto-strip-count { font-weight: 700; color: var(--mw-forest); flex: none; }
+.mw-otto-strip.is-alert .mw-otto-strip-count { color: var(--mw-orange); }
+.mw-otto-strip-top { flex: 1; min-width: 0; color: var(--mw-ink-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-otto-strip-chev { flex: none; font-size: 1rem; color: var(--mw-ink-500); transition: transform .15s ease; }
+.mw-otto-strip.is-open .mw-otto-strip-chev { transform: rotate(180deg); }
+.mw-otto-strip.is-loading .mw-otto-strip-count { color: var(--mw-ink-500); font-weight: 600; }
+.mw-otto-strip-days { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.mw-otto-strip-day { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: var(--mw-radius-pill, 999px); padding: 3px 10px;
+  font-size: .74rem; font-weight: 600; color: var(--mw-forest); }
+.mw-otto-strip-day b { margin-left: 2px; }
+.mw-otto-strip-day.is-alert b { color: var(--mw-orange); }
+.mw-otto-strip-day.is-clear b { color: var(--mw-green); }
+.mw-otto-strip-day.is-on { background: var(--mw-light); border-color: var(--mw-green); }
+.mw-otto-strip-list { margin-top: 8px; }
+.mw-otto-item.is-link p { margin-right: 52px; }
+.mw-otto-btns a.mw-otto-btnlink { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 5px 10px; font-size: .76rem;
+  font-weight: 600; color: var(--mw-forest); text-decoration: none; }
+.mw-otto-btns a.mw-otto-btnlink.is-main { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); }
+.mw-otto-btns a.mw-otto-btnlink.is-main:hover { background: var(--mw-dark); }
+@media (max-width: 575.98px) {
+  .mw-otto-strip-top { display: none; }
+  .mw-otto-strip-hd { flex-wrap: wrap; }
+}
+
+.mw-ob-counts { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.mw-ob-tools { margin-bottom: 14px; }
+.mw-ob-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mw-ob-preview { margin-top: 10px; max-height: 360px; overflow: auto; border-top: 1px solid var(--mw-ink-200); }
+.mw-ob-preview td, .mw-ob-preview th { font-size: .78rem; }
+
+.mw-geo-all { border: 1px solid var(--mw-ink-200); border-radius: 12px; background: var(--mw-ink-0); padding: 12px 14px; margin: 0 0 14px; }
+.mw-geo-all-hd { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.mw-geo-all-hd b { display: block; color: var(--mw-forest); }
+.mw-geo-all-sub { display: block; font-size: .78rem; color: var(--mw-ink-500); max-width: 640px; }
+.mw-geo-all-btns { display: flex; gap: 6px; }
+.mw-geo-all-status { font-size: .8rem; color: var(--mw-ink-700); margin: 8px 0 6px; }
+.mw-geo-all-list { margin: 0; padding-left: 20px; max-height: 300px; overflow: auto; font-size: .8rem; }
+.mw-geo-all-list li { padding: 2px 0; color: var(--mw-ink-700); }
+.mw-geo-all-list li.is-focus .mw-geo-all-addr { font-weight: 700; }
+.mw-geo-all-res { color: var(--mw-ink-500); }
+.mw-geo-all-list li.is-ok .mw-geo-all-res { color: var(--mw-green); }
+.mw-geo-all-list li.is-manual .mw-geo-all-res, .mw-geo-all-list li.is-wait .mw-geo-all-res { color: var(--mw-orange); }
+.mw-geo-all-res a { color: var(--mw-green); font-weight: 600; }

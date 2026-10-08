@@ -336,7 +336,16 @@ function geofenceSaveZone(
         $label, $notes,
         $userId,
     ]);
-    return (int)$db->lastInsertId();
+    $newId = (int)$db->lastInsertId();
+    // A border drawn by a person replaces Otto's default ones (migration 1285) — never the other way round.
+    if ($zoneType === 'arrival_border') {
+        try {
+            $db->prepare("DELETE FROM job_geofences WHERE property_id = ? AND zone_type = 'arrival_border' AND id <> ?
+                          AND border_source IN ('default_hull', 'default_square', 'kept')")
+               ->execute([$propertyId, $newId]);
+        } catch (PDOException $e) { /* border_source column not migrated yet — nothing of Otto's to replace */ }
+    }
+    return $newId;
 }
 
 /**
@@ -378,6 +387,10 @@ function geofenceUpdateZonePolygon(int $geofenceId, array $ring): bool {
         $areaSqm,
         $geofenceId,
     ]);
+    // Edited by hand → it is a drawn border now, whatever Otto started it as (migration 1285).
+    try {
+        $db->prepare("UPDATE job_geofences SET border_source = NULL WHERE id = ?")->execute([$geofenceId]);
+    } catch (PDOException $e) { /* border_source column not migrated yet */ }
     return $stmt->rowCount() >= 0;
 }
 

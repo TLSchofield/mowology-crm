@@ -109,6 +109,22 @@
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +
                     '<button type="button" data-do="fine">It\'s fine</button></div>';
+            case 'pin_off':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="move_pin">Move the pin there</button>' +
+                    '<button type="button" data-do="dismiss">The pin is right</button></div>';
+            case 'default_border':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Draw it</a>' +
+                    '<button type="button" data-do="keep">It\'s fine as it is</button></div>';
+            case 'no_pin':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Find it on the map</a>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'border_overlap':
+                return '<div class="mw-otto-btns">' +
+                    '<a class="mw-otto-btnlink is-main" href="' + esc(it.url) + '">Redraw</a>' +
+                    '<button type="button" data-do="dismiss">They share a lot — fine</button></div>';
         }
         return '';
     }
@@ -235,6 +251,7 @@
             return decide(el, b2, btn);
         }
         if (what === 'move_date') return decide(el, { choice: 'move' }, btn);
+        if (what === 'move_pin') return decide(el, { choice: 'move_pin' }, btn);
         return decide(el, { choice: what }, btn);
     }
 

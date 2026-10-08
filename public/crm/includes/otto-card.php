@@ -123,6 +123,11 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
       <div class="mw-v"><?= (int)($__os['unscheduled'] ?? 0) ?></div>
       <div class="mw-n">Last <?= (int)UnscheduledWorkRules::LOOKBACK_DAYS ?> days · <a href="/crm/ops/otto-review.php?view=unscheduled">Review</a></div>
     </div>
+    <div class="mw-otto-stat<?= ($__os['borders'] ?? 0) > 0 ? ' is-alert' : '' ?>">
+      <div class="mw-k">Pins &amp; borders</div>
+      <div class="mw-v"><?= (int)($__os['borders'] ?? 0) ?></div>
+      <div class="mw-n"><?= (int)($__os['default_borders'] ?? 0) ?> default to draw · <a href="/crm/ops/otto-review.php?view=borders">Review</a></div>
+    </div>
     <div class="mw-otto-stat<?= ($__os['dispatch'] ?? 0) > 0 ? ' is-alert' : '' ?>">
       <div class="mw-k">Bylaws &amp; kit</div>
       <div class="mw-v"><?= (int)($__os['dispatch'] ?? 0) ?></div>

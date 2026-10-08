@@ -14,6 +14,8 @@
  *   no_time   apply → job_visits.actual_duration_minutes = his minutes; the plan's
  *                     duration lesson remembers it
  *   silent    real | fine → recorded only (true positive / false alarm)
+ *   pin_off   move_pin → properties lat/lng = the median of crew fixes (PropertyBorderService)
+ *   default_border keep → job_geofences.border_source 'kept'
  *   any       dismiss → recorded, nothing changes
  *
  * Nothing here messages a crew member. Nothing runs without the owner's click.
@@ -82,6 +84,11 @@ class OttoActionService
                 return $this->close($sug, 'accepted', ['choice' => 'move', 'from' => $propose['from'] ?? null, 'to' => $sug['for_date']], $actorId,
                     'Moved to ' . date('D M j', strtotime((string)$sug['for_date'])) . '.');
             case 'duration':    return $this->duration($sug, $propose, $choice, $in, $actorId);
+            case 'no_pin':
+            case 'pin_off':
+            case 'default_border':
+            case 'border_overlap':
+                return $this->border($sug, $propose, $choice, $actorId);
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];
     }
@@ -339,6 +346,32 @@ class OttoActionService
     }
 
     // ── Shared ──────────────────────────────────────────────────────────────
+
+    /**
+     * Pins and borders (PropertyBorderService, migration 1285).
+     *   pin_off        move_pin → the pin goes to where crews work (a default square follows it)
+     *   default_border keep     → the default stays and stops being asked about
+     *   no_pin / border_overlap → fixed on the map / in the zone editor; here only "dismiss"
+     */
+    private function border(array $sug, array $propose, string $choice, int $actorId): array
+    {
+        require_once __DIR__ . '/PropertyBorderService.php';
+        $svc = new PropertyBorderService($this->db);
+        $pid = (int)$sug['subject_id'];
+        if ($sug['kind'] === 'pin_off' && $choice === 'move_pin') {
+            $lat = (float)($propose['lat'] ?? 0);
+            $lng = (float)($propose['lng'] ?? 0);
+            $r = $svc->movePin($pid, $lat, $lng);
+            if (!$r['ok']) return ['ok' => false, 'message' => $r['message'] ?? 'Could not move the pin.'];
+            return $this->close($sug, 'accepted', ['choice' => 'move_pin', 'lat' => $lat, 'lng' => $lng, 'distance_m' => $propose['distance_m'] ?? null], $actorId,
+                'Pin moved to where the crews work' . (!empty($r['square_moved']) ? ' (the default border moved with it).' : '.'));
+        }
+        if ($sug['kind'] === 'default_border' && $choice === 'keep') {
+            $svc->keepDefault($pid);
+            return $this->close($sug, 'accepted', ['choice' => 'keep', 'source' => $propose['source'] ?? null], $actorId, 'Kept as it is. I won\'t ask again.');
+        }
+        return ['ok' => false, 'message' => $sug['kind'] === 'pin_off' ? 'Move the pin, or leave it?' : 'Open it to fix, or leave it?'];
+    }
 
     private function close(array $sug, string $status, array $outcome, int $actorId, string $message): array
     {

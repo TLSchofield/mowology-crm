@@ -264,8 +264,39 @@ $activePage = 'map';
                   <span class="badge badge-warning ml-1"><?php echo count($unscheduledProperties); ?></span>
                 <?php endif; ?>
               </button>
+              <?php if (userHasPermission('jobs.edit')): ?>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-geocode-all">
+                <i data-feather="crosshair" style="width:14px;height:14px;display:inline;"></i> Missing pins
+              </button>
+              <?php endif; ?>
             </div>
           </div>
+
+          <?php
+          // Otto owns the schedule: today's strip (or ?date=), and the geocode-all tool for client
+          // properties with no pin (jobs.edit only — both render nothing otherwise).
+          $__mapDay = (isset($_GET['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$_GET['date'])) ? (string)$_GET['date'] : date('Y-m-d');
+          $ottoStrip = ['date' => $__mapDay];
+          include __DIR__ . '/includes/otto-schedule-strip.php';
+          if (userHasPermission('jobs.edit')):
+          ?>
+          <section class="mw-geo-all" id="mwGeoAll" data-focus="<?php echo (int)($_GET['geocode'] ?? 0); ?>" hidden>
+            <div class="mw-geo-all-hd">
+              <div>
+                <b>Find missing pins</b>
+                <span class="mw-geo-all-sub">Client properties with no map pin. Google's geocoder fills each one — only an exact
+                  rooftop or street-range match is saved; anything vaguer is left for you to place by hand.</span>
+              </div>
+              <div class="mw-geo-all-btns">
+                <button type="button" class="btn btn-sm btn-primary" id="mwGeoAllRun" disabled>Find pins</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="mwGeoAllClose">Close</button>
+              </div>
+            </div>
+            <div class="mw-geo-all-status" id="mwGeoAllStatus">Loading…</div>
+            <ol class="mw-geo-all-list" id="mwGeoAllList"></ol>
+          </section>
+          <script src="/crm/js/otto-geocode-all.js?v=<?php echo (int)@filemtime(__DIR__ . '/js/otto-geocode-all.js'); ?>" defer></script>
+          <?php endif; ?>
 
           <!-- ── Summary Stats Row ──────────────────────────── -->
           <div class="row mb-3">

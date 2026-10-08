@@ -91,6 +91,12 @@ try {
         require_once APP_ROOT . '/Modules/Operations/Services/OttoActionService.php';
         $r = (new OttoActionService($db))->decide((int)($input['suggestion_id'] ?? 0), $input, (int)$user['id']);
         if (!$r['ok']) http_response_code(400);
+        if ($r['ok']) {
+            try {   // the schedule strip shows the change at once (migration 1286)
+                require_once APP_ROOT . '/Modules/Operations/Services/OttoScheduleService.php';
+                (new OttoScheduleService($db))->forget();
+            } catch (Throwable $e) { /* the cache is a bonus */ }
+        }
         echo json_encode($r);
         exit;
     }
