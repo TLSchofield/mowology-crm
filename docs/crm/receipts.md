@@ -408,3 +408,11 @@ Job attribution (`ReceiptTrailService::forReceipt`) uses the evidence in this or
 3. The truck's next client stop within 3 h of the photo, on the same day.
 
 It never guesses from the start of the day. Times outside 06:00–21:00 are flagged.
+
+## Statements check (migration 1231)
+
+`StatementCoverageService` answers "is every bank and card statement in?". It walks each account's running balance, which is kept on every imported line (`raw_line` in `bank_import_rows.raw_row`: the last CSV column after the amount, or the second of two trailing amounts on a PDF line). Each balance must equal the one before plus or minus the line. A balance that does not follow is a gap, reported with its dates and the missing amount ("TD chequing: 12–19 Feb, $1,240 missing between balances"). A line that follows a balance of its own is another account printed on the same statement, not a gap. An account whose lines carry no balance falls back to weaker signs: 14 or more days with no lines, or a month with less than half the usual count ("possible gap").
+
+`bank_statement_accounts` lists the statements expected every month. It is seeded from every account that has had an import, plus the credit card accounts, which are expected even if never imported. The owner can rename a row, switch it off, or set the statement closing day on the bank import page.
+
+The `penny_prepare` cron computes the check at most once a day and caches it in `ops_settings` (`penny_statements_check`). An import or an undo drops the cache. Penny's card shows a Statements strip. From the 3rd of the month, each expected account whose last-month statement is not in becomes a Penny brief item on the Action Board. Lines that the import preview found already in the CRM, and that were left unticked, are now counted in the session's `duplicate_count`.
