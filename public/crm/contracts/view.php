@@ -51,6 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     if ($action === 'cancel_contract') {
         $db->prepare("UPDATE contracts SET status = 'cancelled', updated_at = NOW() WHERE id = ?")
            ->execute([$contractId]);
+        // A snow contract's daily route comes off the schedule with it.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        (new SnowContractService($db))->stopRoutesForContract((int)$contractId);
         $message     = 'Contract cancelled.';
         $messageType = 'success';
         $contract    = getContractById($contractId);

@@ -277,6 +277,52 @@ class SnowContractService
         return self::billingLines($rates, $this->choiceForVisit($visitId), $visitDate);
     }
 
+    /**
+     * A cancelled snow contract takes its daily route off the schedule: the route
+     * plan is cancelled and every future scheduled stop with it. Cancelling a
+     * contract only flips contracts.status, so without this the building kept a
+     * stop on the crew's schedule every day of the season.
+     *
+     * @return int number of route plans stopped
+     */
+    public function stopRoutesForContract(int $contractId): int
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT jp.id FROM job_plans jp
+                JOIN snow_route_rates r ON r.plan_id = jp.id
+                WHERE jp.contract_id = ? AND jp.status IN ('active', 'paused')
+            ");
+            $stmt->execute([$contractId]);
+            $planIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Throwable $e) {
+            return 0;
+        }
+
+        foreach ($planIds as $planId) {
+            $stops = $this->db->prepare("
+                SELECT DISTINCT stop_id FROM job_visits
+                WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE() AND stop_id IS NOT NULL
+            ");
+            $stops->execute([$planId]);
+            $stopIds = $stops->fetchAll(PDO::FETCH_COLUMN);
+
+            $this->db->prepare("
+                UPDATE job_visits SET status = 'cancelled', status_changed_at = NOW()
+                WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()
+            ")->execute([$planId]);
+            $this->db->prepare("UPDATE job_plans SET status = 'cancelled', status_changed_at = NOW() WHERE id = ?")
+                     ->execute([$planId]);
+
+            if (class_exists('VisitLifecycleService')) {
+                foreach ($stopIds as $stopId) {
+                    VisitLifecycleService::propagateStopStatus((int)$stopId);
+                }
+            }
+        }
+        return count($planIds);
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // DB: set up a signed quote
     // ══════════════════════════════════════════════════════════════════════
