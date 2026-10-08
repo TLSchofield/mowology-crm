@@ -13,6 +13,7 @@ class MailboxReadOnlyTest extends TestCase
     /** Every file that opens or reads a mailbox. */
     private const READERS = [
         'app/Services/Mail/ImapReader.php',
+        'app/Services/Mail/ImapClient.php',
         'app/Modules/Comms/Services/IcloudInboxRouter.php',
         'app/Modules/Comms/Cron/icloud_inbox_poll.php',
         'app/Modules/Sales/Cron/sales_inbox_poll.php',
@@ -63,6 +64,43 @@ class MailboxReadOnlyTest extends TestCase
                 $this->assertMatchesRegularExpression('/FT_PEEK|peekFlag\(/', $call[2], "{$f}: imap_{$call[1]}() without FT_PEEK would mark mail read");
             }
         }
+    }
+
+    public function test_folders_are_only_switched_read_only(): void
+    {
+        foreach (self::READERS as $f) {
+            $s = $this->src($f);
+            preg_match_all('/\bimap_reopen\s*\(([^;]*);/', $s, $m);
+            foreach ($m[1] as $call) {
+                $this->assertSame('app/Services/Mail/ImapReader.php', $f, "{$f} switches folders itself — use ImapReader::reopen()");
+                $this->assertStringContainsString('$flags', $call);
+            }
+        }
+        $this->assertMatchesRegularExpression('/function reopen\([^)]*\)[^{]*\{\s*\$flags = self::readOnlyFlag\(\);/',
+            $this->src('app/Services/Mail/ImapReader.php'));
+    }
+
+    public function test_bulk_envelopes_and_headers_never_pull_the_text(): void
+    {
+        $overviews = 0;
+        foreach (self::READERS as $f) {
+            $s = $this->src($f);
+            // FT_PREFETCHTEXT makes a header fetch pull the whole text (RFC822.TEXT sets \Seen).
+            $this->assertStringNotContainsString('FT_PREFETCHTEXT', $s, "{$f}: FT_PREFETCHTEXT would read (and mark) the text");
+            preg_match_all('/\bimap_fetch_overview\s*\((.*?)\)\s*;/', $s, $m);
+            foreach ($m[1] as $call) {
+                $overviews++;
+                $this->assertMatchesRegularExpression('/,\s*FT_UID\s*$/', $call, "{$f}: imap_fetch_overview must take UID sets (FT_UID)");
+            }
+            preg_match_all('/\bimap_fetchheader\s*\(([^;]*)\)\s*;/', $s, $m);
+            foreach ($m[1] as $call) {
+                $this->assertDoesNotMatchRegularExpression('/FT_PREFETCHTEXT|FT_INTERNAL/', $call);
+            }
+        }
+        $this->assertGreaterThan(0, $overviews, 'the iCloud reader fetches envelopes in bulk');
+        // The router itself never calls imap_* per message — only through ImapClient.
+        $router = $this->src('app/Modules/Comms/Services/IcloudInboxRouter.php');
+        $this->assertDoesNotMatchRegularExpression('/\bimap_(headerinfo|msgno|fetchstructure|fetchheader|fetchbody|body)\s*\(/', $router);
     }
 
     public function test_mailbox_config_purposes_and_inert_icloud(): void

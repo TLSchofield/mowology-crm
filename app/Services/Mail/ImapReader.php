@@ -55,6 +55,17 @@ class ImapReader
         return $c;
     }
 
+    /**
+     * Switch an open connection to another folder READ-ONLY (no second login).
+     * @param resource|\IMAP\Connection $conn
+     */
+    public static function reopen($conn, array $mb, string $folder): bool
+    {
+        $flags = self::readOnlyFlag();
+        if (@imap_reopen($conn, self::serverRef($mb) . $folder, $flags)) return true;
+        return (bool)@imap_reopen($conn, self::serverRef($mb, true) . $folder, $flags);
+    }
+
     /** Folder names (server prefix stripped). */
     public static function folders($conn, array $mb): array
     {

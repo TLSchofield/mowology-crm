@@ -5,9 +5,13 @@
  * GET  ?mode=status                       Which mailboxes are configured (never passwords),
  *                                         and where the iCloud reader got to.
  * GET|POST mode=icloud_test               Log in read-only, list folders + message counts.
- * GET|POST mode=icloud_dry_run&days=30    Classify the last N days (1–90) and return counts per
- *                                         route, with subjects for enquiries and vendor mail
- *                                         only — never bodies, never personal mail.
+ * GET|POST mode=icloud_dry_run&days=7     Classify the last N days (1–90, default 7) of every
+ *                                         readable folder and return counts per route and per
+ *                                         folder, with subjects for enquiries and vendor mail
+ *                                         only — never bodies, never personal mail. Stops at
+ *                                         240 s: partial: true, remaining, and a `resume`
+ *                                         cursor ({folder: uid}) to POST back to carry on.
+ *                                         Always includes scanned + elapsed (seconds).
  *
  * Admin only. icloud_test / icloud_dry_run need the CSRF token (POST body csrf_token, or
  * the X-CSRF-Token header on a GET) — they log into a mailbox. ?mode=, not ?action= (the
@@ -74,9 +78,13 @@ try {
             break;
 
         case 'icloud_dry_run': {
-            @set_time_limit(300);
-            $days = (int)($input['days'] ?? $_GET['days'] ?? 30);
-            echo json_encode($router->poll(true, max(1, min(IcloudInboxRouter::BACKFILL_DAYS, $days))));
+            @set_time_limit(300);   // the router stops itself at DRY_RUN_BUDGET (240 s)
+            $days = (int)($input['days'] ?? $_GET['days'] ?? IcloudInboxRouter::DRY_RUN_DAYS);
+            $resume = [];
+            foreach ((array)($input['resume'] ?? []) as $folder => $uid) {
+                if (is_scalar($uid) && (int)$uid > 0) $resume[(string)$folder] = (int)$uid;
+            }
+            echo json_encode($router->poll(true, max(1, min(IcloudInboxRouter::BACKFILL_DAYS, $days)), null, $resume));
             break;
         }
 
