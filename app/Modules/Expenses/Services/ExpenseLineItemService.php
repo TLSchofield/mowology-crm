@@ -15,8 +15,13 @@
  * Deliberately does not touch the expense header's Subtotal/Total — those are
  * independently staff-verified fields (see handleUpdate()).
  *
+ * Add / update / delete go through ExpenseGate (migration 1233): the gate writes the line,
+ * keeps a split receipt's shares in step, records the audit row and does the learning
+ * (ExpenseGateHooks::learnLineOp). This service works out the values (resolveLineTotal…).
+ * Product linking (link) stays here: it moves stock and teaches the catalogue, never money.
+ *
  * Global-namespace (no production autoloader): require_once the file and
- * `new ExpenseLineItemService($db)`.
+ * `new ExpenseLineItemService($db)` — `->by($actor, $source)` names who is changing it.
  */
 
 if (!defined('APP_ROOT')) {
@@ -24,14 +29,33 @@ if (!defined('APP_ROOT')) {
 }
 require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+require_once __DIR__ . '/ExpenseGate.php';
 
 class ExpenseLineItemService
 {
     private PDO $db;
+    /** @var ExpenseGate */
+    private $gate;
+    private array $actor = ['id' => null, 'kind' => 'user'];
+    private string $source = 'line_items';
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, $gate = null)
     {
         $this->db = $db;
+        $this->gate = $gate;
+    }
+
+    /** Who is changing the lines, and from where (the gate's audit row). */
+    public function by(array $actor, string $source): self
+    {
+        $this->actor = $actor;
+        $this->source = $source;
+        return $this;
+    }
+
+    private function gate(): ExpenseGate
+    {
+        return $this->gate ?? ($this->gate = new ExpenseGate($this->db));
     }
 
     // ── Pure helpers (unit-tested) ─────────────────────────────────────
@@ -98,28 +122,11 @@ class ExpenseLineItemService
             (float)$existing['line_total']
         );
 
-        $this->db->prepare("
-            UPDATE expense_line_items
-            SET name = ?, quantity = ?, unit_price = ?, line_total = ?
-            WHERE id = ?
-        ")->execute([$name, $qty, $unitPrice, $lineTotal, $lineItemId]);
-
-        // Re-sync inventory if quantity changed on a linked product
-        if (!empty($existing['product_id'])) {
-            $qtyDelta = $qty - (float)$existing['quantity'];
-            if ($qtyDelta != 0) {
-                updateProductInventory($this->db, (int)$existing['product_id'], $qtyDelta);
-            }
-        }
-
-        // Learning: a rename teaches the parser what this OCR line really says.
-        $lesson = self::lessonForRename($existing['ocr_name'] ?? null, (string)$existing['name'], $name);
-        // Receipts with a capture baseline learn their items once, at confirmation.
-        if ($lesson && !empty($existing['vendor_id']) && !expenseHasCaptureBaseline($this->db, (int)$existing['expense_id'])) {
-            recordLineItemLesson($this->db, (int)$existing['vendor_id'], $existing['vendor_name'] ?? null, $lesson['type'], $lesson['ocr_value'], $lesson['corrected_value']);
-            updateLineItemProfileStats($this->db, (int)$existing['vendor_id'], 0, 1);
-        }
-
+        // Through the gate: the line, the inventory re-sync on a linked product, the split's
+        // shares, the audit row, and the rename lesson (ExpenseGateHooks::learnLineOp).
+        $this->gate()->apply((int)$existing['expense_id'], ['line_item' => [
+            'op' => 'update', 'id' => $lineItemId, 'name' => $name, 'quantity' => $qty, 'unit_price' => $unitPrice, 'line_total' => $lineTotal,
+        ]], $this->actor, $this->source);
         return $this->fetchJoined($lineItemId);
     }
 
@@ -144,35 +151,13 @@ class ExpenseLineItemService
         $productId = !empty($input['product_id']) ? (int)$input['product_id'] : null;
         $skuRaw    = isset($input['sku_raw']) && trim((string)$input['sku_raw']) !== '' ? mb_substr(trim((string)$input['sku_raw']), 0, 64) : null;
 
-        $sortStmt = $this->db->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM expense_line_items WHERE expense_id = ?");
-        $sortStmt->execute([$expenseId]);
-        $sortOrder = (int)$sortStmt->fetchColumn();
-
-        $this->db->prepare("
-            INSERT INTO expense_line_items (expense_id, product_id, name, quantity, unit_price, line_total, sku_raw, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ")->execute([$expenseId, $productId, $name, $qty, $unitPrice, $lineTotal, $skuRaw, $sortOrder]);
-        $newId = (int)$this->db->lastInsertId();
-
-        if ($productId) {
-            updateProductInventory($this->db, $productId, $qty);
-        }
-
-        $vendor = $this->vendorForExpense($expenseId);
-        if ($vendor['vendor_id']) {
-            if (!expenseHasCaptureBaseline($this->db, $expenseId)) {
-                recordLineItemLesson($this->db, $vendor['vendor_id'], $vendor['vendor_name'], 'line_item_missed', null, $name);
-                updateLineItemProfileStats($this->db, $vendor['vendor_id'], 0, 1);
-            }
-            if ($productId) {
-                try { teachVendorProduct($this->db, $vendor['vendor_id'], $name, $productId); } catch (Throwable $e) {}
-            }
-            if ($skuRaw !== null) {
-                recordSkuLink($this->db, $vendor['vendor_id'], $skuRaw, $productId, null, $name);
-            }
-        }
-
-        return $this->fetchJoined($newId);
+        // Through the gate: insert, stock on a linked product, the audit row, and the
+        // missed-line / catalogue / SKU lessons (ExpenseGateHooks::learnLineOp).
+        $res = $this->gate()->apply($expenseId, ['line_item' => [
+            'op' => 'add', 'name' => $name, 'quantity' => $qty, 'unit_price' => $unitPrice, 'line_total' => $lineTotal,
+            'product_id' => $productId, 'sku_raw' => $skuRaw,
+        ]], $this->actor, $this->source);
+        return $this->fetchJoined((int)($res['line_item_id'] ?? 0));
     }
 
     /**
@@ -185,23 +170,9 @@ class ExpenseLineItemService
             throw new Exception('Line item ID required');
         }
         $li = $this->fetchWithVendor($lineItemId);
-
-        if (!empty($li['product_id'])) {
-            updateProductInventory($this->db, (int)$li['product_id'], -(float)$li['quantity']);
-        }
-
-        $this->db->prepare("DELETE FROM expense_line_items WHERE id = ?")->execute([$lineItemId]);
-
-        // Only OCR-derived rows teach "noise" — a manually-added row being removed
-        // says nothing about the parser.
-        $ocrName = trim((string)($li['ocr_name'] ?? ''));
-        if ($ocrName === '' && empty($li['product_id'])) {
-            $ocrName = trim((string)$li['name']);
-        }
-        if ($ocrName !== '' && !empty($li['vendor_id']) && !expenseHasCaptureBaseline($this->db, (int)$li['expense_id'])) {
-            recordLineItemLesson($this->db, (int)$li['vendor_id'], $li['vendor_name'] ?? null, 'line_item_noise', $ocrName, null);
-            updateLineItemProfileStats($this->db, (int)$li['vendor_id'], 0, 1);
-        }
+        // Through the gate: stock reversed, the line removed, the split re-balanced, the
+        // audit row, and the "not an item" lesson for an OCR-read line.
+        $this->gate()->apply((int)$li['expense_id'], ['line_item' => ['op' => 'delete', 'id' => $lineItemId]], $this->actor, $this->source);
     }
 
     /**
@@ -291,16 +262,5 @@ class ExpenseLineItemService
         ");
         $stmt->execute([$lineItemId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    }
-
-    private function vendorForExpense(int $expenseId): array
-    {
-        $stmt = $this->db->prepare("SELECT vendor_id, vendor_name_raw FROM expenses WHERE id = ?");
-        $stmt->execute([$expenseId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        return [
-            'vendor_id'   => !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
-            'vendor_name' => $row['vendor_name_raw'] ?? null,
-        ];
     }
 }

@@ -122,12 +122,13 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
             updateEmailLog($db, $logId, 'sent');
 
             if (!empty($opts['expense_id'])) {
-                $stmt = $db->prepare("
-                    UPDATE expenses
-                    SET forwarded_to_accounting = 1, forwarded_at = NOW(), status = 'forwarded'
-                    WHERE id = ?
-                ");
-                $stmt->execute([$opts['expense_id']]);
+                // Through the expense gate (migration 1233): the audited 'forward' transition.
+                // A draft can be sent without a separate approve step ("Save & Send"), so sending
+                // is also a confirmation — the gate teaches it once (learnFromConfirmedExpense).
+                require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+                (new ExpenseGate($db))->apply((int)$opts['expense_id'], [
+                    'forwarded_to_accounting' => 1, 'forwarded_at' => 'now', 'status' => 'forwarded',
+                ], ['id' => $userId ?: null, 'kind' => 'user'], 'send_to_accounting', ['transition' => 'forward', 'allow_locked' => true]);
             }
 
             $db->commit();
@@ -135,13 +136,6 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
             if ($db->inTransaction()) $db->rollBack();
             error_log('sendReceiptToAccounting post-send commit failed: ' . $e->getMessage());
             throw $e;
-        }
-
-        // A draft can be sent without a separate approve step ("Save & Send"), so sending
-        // is also a confirmation. Idempotent — a receipt approved first was learned then.
-        if (!empty($opts['expense_id'])) {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            learnFromConfirmedExpense($db, (int)$opts['expense_id']);
         }
 
         return [

@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
  */
 class ExpenseServiceTest extends TestCase
 {
+    private ?ExpenseGateSpy $gate = null;
+
     private function makeStmt(mixed $fetchReturn = false): PDOStatement
     {
         $s = $this->createMock(PDOStatement::class);
@@ -24,7 +26,7 @@ class ExpenseServiceTest extends TestCase
 
     public function test_delete_requires_expense_id(): void
     {
-        $svc = new ExpenseService($this->createMock(PDO::class));
+        $svc = new ExpenseService($this->createMock(PDO::class), new ExpenseGateSpy());
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense ID required');
         $svc->delete(0, ['id' => 1, 'is_admin' => true]);
@@ -36,7 +38,7 @@ class ExpenseServiceTest extends TestCase
         $db->method('prepare')->willReturn($this->makeStmt([
             'id' => 42, 'created_by' => 9, 'status' => 'draft', 'forwarded_to_accounting' => 0,
         ]));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('You can only delete your own expenses');
@@ -49,7 +51,7 @@ class ExpenseServiceTest extends TestCase
         $db->method('prepare')->willReturn($this->makeStmt([
             'id' => 42, 'created_by' => 5, 'status' => 'forwarded', 'forwarded_to_accounting' => 1,
         ]));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('can no longer be deleted');
@@ -62,7 +64,7 @@ class ExpenseServiceTest extends TestCase
         $db->method('prepare')->willReturn($this->makeStmt([
             'id' => 42, 'created_by' => 5, 'status' => 'draft', 'forwarded_to_accounting' => 0,
         ]));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $result = $svc->delete(42, ['id' => 5, 'is_admin' => false]);
         $this->assertTrue($result['success']);
@@ -71,7 +73,7 @@ class ExpenseServiceTest extends TestCase
 
     public function test_update_requires_expense_id(): void
     {
-        $svc = new ExpenseService($this->createMock(PDO::class));
+        $svc = new ExpenseService($this->createMock(PDO::class), new ExpenseGateSpy());
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense ID required');
         $svc->update(0, ['id' => 1, 'is_admin' => true], []);
@@ -81,7 +83,7 @@ class ExpenseServiceTest extends TestCase
     {
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(false));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense not found');
@@ -95,7 +97,7 @@ class ExpenseServiceTest extends TestCase
             'id' => 42, 'created_by' => 9, 'status' => 'draft',
             'forwarded_to_accounting' => 0, 'vendor_id' => null, 'vendor_name_raw' => 'X',
         ]));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('You can only edit your own expenses');
@@ -109,7 +111,7 @@ class ExpenseServiceTest extends TestCase
             'id' => 42, 'created_by' => 5, 'status' => 'forwarded',
             'forwarded_to_accounting' => 1, 'vendor_id' => null, 'vendor_name_raw' => 'X',
         ]));
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('sent to accounting');
@@ -126,7 +128,7 @@ class ExpenseServiceTest extends TestCase
 
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt);
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $result = $svc->update(42, ['id' => 5, 'is_admin' => false], [
             'expense_date' => '2026-05-10', 'vendor_name_raw' => 'HOME DEPOT', 'total' => 42.50,
@@ -145,9 +147,39 @@ class ExpenseServiceTest extends TestCase
 
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt);
-        $svc = new ExpenseService($db);
+        $svc = new ExpenseService($db, $this->gate = new ExpenseGateSpy());
 
         $result = $svc->update(7, ['id' => 1, 'is_admin' => true], ['total' => 5]);
         $this->assertTrue($result['success']);
+    }
+
+    public function test_the_phone_edit_goes_through_the_gate(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt([
+            'id' => 42, 'created_by' => 5, 'status' => 'draft', 'forwarded_to_accounting' => 0,
+            'vendor_id' => 3, 'vendor_name_raw' => 'CHEVRON', 'raw_ocr_json' => 'CHEVRON DIESEL',
+        ]));
+        $svc = new ExpenseService($db, $gate = new ExpenseGateSpy());
+        $svc->update(42, ['id' => 5, 'is_admin' => false], ['vendor_name_raw' => 'CHEVRON', 'total' => 88.10, 'gst_amount' => 4.20,
+                                                           'accounting_category' => 'Fuel', 'expense_date' => '2026-10-07']);
+        $this->assertCount(1, $gate->calls);
+        $c = $gate->calls[0];
+        $this->assertSame('ios_update', $c['source']);
+        $this->assertSame(['id' => 5, 'kind' => 'user'], $c['actor']);
+        $this->assertSame(88.10, $c['changes']['total']);
+        $this->assertSame(3, $c['changes']['vendor_id'], 'unchanged vendor name keeps its link');
+        $this->assertArrayNotHasKey('notes', $c['changes'], 'the phone never wipes desktop notes');
+        $this->assertNotEmpty($c['opts']['learn_lines'], 'an OCR\'d receipt: line lessons from the save');
+    }
+
+    public function test_delete_goes_through_the_gate(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(['id' => 42, 'created_by' => 5, 'status' => 'draft', 'forwarded_to_accounting' => 0]));
+        $svc = new ExpenseService($db, $gate = new ExpenseGateSpy());
+        $svc->delete(42, ['id' => 5, 'is_admin' => false, 'source' => 'ios_delete']);
+        $this->assertSame([ExpenseGate::DELETE => true], $gate->calls[0]['changes']);
+        $this->assertSame('ios_delete', $gate->calls[0]['source']);
     }
 }

@@ -58,6 +58,7 @@ try {
     $currentUser = [
         'id'       => (int)$jwtUser['id'],
         'is_admin' => jwtIsAdmin($jwtUser['role'] ?? ''),
+        'source'   => 'ios_update',
     ];
 
     $result = (new ExpenseService(getDB()))->update($expenseId, $currentUser, $input);

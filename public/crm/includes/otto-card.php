@@ -133,6 +133,7 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
   <?php endif; ?>
 
   <?php include __DIR__ . '/otto-trips.php'; ?>
+  <?php if (is_file(__DIR__ . '/otto-care.php')) include __DIR__ . '/otto-care.php'; ?>
 
   <div class="mw-otto-qs" id="mw-otto-qs" hidden></div>
   <div class="mw-otto-list" id="mw-otto-list" aria-live="polite">

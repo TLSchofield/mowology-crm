@@ -45,6 +45,8 @@ $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260502b" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
+           . '<script src="/crm/js/label-capture.js?v=20261007" defer></script>'
+           . '<script src="/crm/js/expense-split.js?v=20261007" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -926,7 +928,13 @@ async function submitReceiptExport() {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         Manual
                     </button>
+                    <!-- Product / machine label: same upload + OCR, never an expense (label-capture.js) -->
+                    <button type="button" class="mw-mc-expense-action-chip" onclick="triggerLabelCamera()" title="Photo of a product bag or a machine's nameplate — Penny or Otto will propose adding it">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+                        Label
+                    </button>
                 </div>
+                <div class="mw-lc-status" id="mwLabelStatus" hidden></div>
             </div>
         </div>
 
@@ -1416,6 +1424,8 @@ async function submitReceiptExport() {
                             </div>
                             <div id="expLineItemsList">
                                 <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
+                                <!-- Split by line (migration 1233): drawn by /crm/js/expense-split.js -->
+                                <div id="expSplitPanel"></div>
                                 <!-- Smart Add Item Panel (hidden by default) -->
                                 <div id="expAddItemPanel" class="mw-aip" style="display:none;">
                                     <!-- Search / filter -->
@@ -3883,6 +3893,8 @@ async function submitReceiptExport() {
             if (liSection) liSection.style.display = (e.receipt_path || lineItems.length > 0) ? 'block' : 'none';
             // Cancel any in-progress add row
             cancelAddLineItem();
+            // Split by line — Penny's per-line job / category / stock, or the split saved.
+            loadExpenseSplit(e.id, e.status === 'forwarded' || !!e.forwarded_to_accounting);
 
             if (e.match_confidence > 0) {
                 document.getElementById('matchConfidenceRow').style.display = 'block';
@@ -4036,6 +4048,24 @@ async function submitReceiptExport() {
         }
     };
 
+    /** Split by line in the edit modal (shared MwExpenseSplit — the same as Penny's card). */
+    window._expSplitState = null;
+    async function loadExpenseSplit(expenseId, locked) {
+        var panel = document.getElementById('expSplitPanel');
+        window._expSplitState = null;
+        if (!panel) return;
+        panel.innerHTML = '';
+        if (!window.MwExpenseSplit) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=split&id=' + encodeURIComponent(expenseId), { cache: 'no-store' });
+            var d = await r.json();
+            if (!d || !d.success || !d.ready || String(document.getElementById('expenseId').value) !== String(expenseId)) return;
+            var cats = Array.prototype.map.call(document.getElementById('expAcctCategory').options, function (o) { return o.value; })
+                .filter(function (v) { return v; });
+            window._expSplitState = window.MwExpenseSplit.render(panel, d, { categories: cats, autoOn: false, locked: locked });
+        } catch (err) { /* the split is a bonus — the form works without it */ }
+    }
+
     window.saveExpense = async function() {
         var id = document.getElementById('expenseId').value;
         function buildData() {
@@ -4063,6 +4093,9 @@ async function submitReceiptExport() {
                 fuel_price_per_litre: document.getElementById('expFuelPrice')?.value || null,
             };
             if (id) d.id = parseInt(id);
+            // Split by line: sent when on, or to end a saved split (the expense gate skips no-ops).
+            var sv = id && window.MwExpenseSplit ? window.MwExpenseSplit.value(window._expSplitState) : null;
+            if (sv) d.split = sv;
             return d;
         }
 

@@ -201,6 +201,7 @@ $__team = [
 
       <div class="mw-et" id="mw-et" hidden aria-live="polite"></div>
       <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+      <div class="mw-bl mw-pp" id="mw-pp" hidden aria-live="polite"></div>
       <div class="mw-sc" id="mw-rb" hidden></div>
       <div class="mw-sc" id="mw-sc" hidden></div>
 
@@ -234,3 +235,4 @@ $__team = [
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/penny-bank.js') : '/crm/js/penny-bank.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-products.js') : '/crm/js/penny-products.js' ?>" defer></script>

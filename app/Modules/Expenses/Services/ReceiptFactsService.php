@@ -552,14 +552,19 @@ class ReceiptFactsService
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $fill = self::fillFromOcr($r, $r);
             if (!$fill) continue;
-            $sets = implode(', ', array_map(fn($c) => "{$c} = ?", array_keys($fill)));
-            // Guard in SQL too: only while the receipt still has no text.
-            $u = $this->db->prepare("UPDATE expenses SET {$sets} WHERE id = ? AND (raw_ocr_json IS NULL OR raw_ocr_json = '')");
-            $u->execute(array_merge(array_values($fill), [(int)$r['expense_id']]));
-            if ($u->rowCount() > 0) {
-                $this->refresh((int)$r['expense_id']);
-                $done[] = (int)$r['expense_id'];
+            // Through the expense gate (migration 1233), only while the receipt still has no text.
+            // An approved receipt only ever gets the text (fillFromOcr) — allowed past the lock.
+            require_once __DIR__ . '/ExpenseGate.php';
+            try {
+                $res = (new ExpenseGate($this->db))->apply((int)$r['expense_id'], $fill, ['id' => null, 'kind' => 'system'], 'receipt_facts', [
+                    'only_if' => function (array $e) { return trim((string)($e['raw_ocr_json'] ?? '')) === ''; },
+                    'allow_locked' => array_keys($fill) === ['raw_ocr_json'],
+                ]);
+            } catch (Throwable $e) {
+                error_log('Receipt facts adopt #' . $r['expense_id'] . ': ' . $e->getMessage());
+                continue;
             }
+            if (empty($res['noop'])) $done[] = (int)$r['expense_id'];   // the gate re-read its facts
         }
         return $done;
     }

@@ -54,7 +54,7 @@ try {
 
     $result = (new ExpenseService(getDB()))->delete(
         (int)($input['id'] ?? 0),
-        ['id' => (int)$jwtUser['id'], 'is_admin' => jwtIsAdmin($jwtUser['role'] ?? '')]
+        ['id' => (int)$jwtUser['id'], 'is_admin' => jwtIsAdmin($jwtUser['role'] ?? ''), 'source' => 'ios_delete']
     );
     echo json_encode($result);
 

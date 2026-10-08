@@ -12,13 +12,27 @@
  * Global-namespace (no production autoloader): require_once the file and `new
  * ExpenseService($db)` — matches every other service in this module.
  */
+require_once __DIR__ . '/ExpenseGate.php';
+
 class ExpenseService
 {
     private PDO $db;
+    /** @var ExpenseGate|null every write goes through the expense gate (migration 1233) */
+    private $gate;
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, $gate = null)
     {
         $this->db = $db;
+        $this->gate = $gate;
+    }
+
+    private function gate(): ExpenseGate
+    {
+        if ($this->gate === null) {
+            require_once __DIR__ . '/ExpenseGate.php';
+            $this->gate = new ExpenseGate($this->db);
+        }
+        return $this->gate;
     }
 
     /**
@@ -72,49 +86,24 @@ class ExpenseService
             ? null
             : ($expense['vendor_id'] !== null ? (int)$expense['vendor_id'] : null);
 
-        $stmt = $this->db->prepare("
-            UPDATE expenses SET
-                expense_date        = ?,
-                vendor_id           = ?,
-                vendor_name_raw     = ?,
-                description         = ?,
-                amount              = ?,
-                gst_amount          = ?,
-                total               = ?,
-                accounting_category = ?,
-                payment_method      = ?,
-                updated_at          = NOW()
-            WHERE id = ?
-        ");
-        // Note: `notes` is intentionally not touched here — the iOS client only surfaces
+        // Through the expense gate: only changed fields are written, the change is audited,
+        // the printed facts and duplicate check re-run, and the line-item lessons recorded
+        // (header / category fixes are learned once, at approval or send). A posted receipt
+        // is re-posted. `notes` is intentionally not touched — the iOS client only surfaces
         // `description`, so editing from the phone must not wipe desktop-entered notes.
-        $stmt->execute([
-            $expenseDate,
-            $vendorId,
-            $vendorRaw,
-            $this->nullIfBlank($input['description'] ?? null),
-            round((float)($input['amount'] ?? 0), 2),
-            round((float)($input['gst_amount'] ?? 0), 2),
-            round((float)($input['total'] ?? 0), 2),
-            $this->nullIfBlank($input['accounting_category'] ?? null),
-            $this->nullIfBlank($input['payment_method'] ?? null),
-            $expenseId,
+        $this->gate()->apply($expenseId, [
+            'expense_date'        => $expenseDate,
+            'vendor_id'           => $vendorId,
+            'vendor_name_raw'     => $vendorRaw,
+            'description'         => $this->nullIfBlank($input['description'] ?? null),
+            'amount'              => round((float)($input['amount'] ?? 0), 2),
+            'gst_amount'          => round((float)($input['gst_amount'] ?? 0), 2),
+            'total'               => round((float)($input['total'] ?? 0), 2),
+            'accounting_category' => $this->nullIfBlank($input['accounting_category'] ?? null),
+            'payment_method'      => $this->nullIfBlank($input['payment_method'] ?? null),
+        ], ['id' => (int)($currentUser['id'] ?? 0) ?: null, 'kind' => 'user'], (string)($currentUser['source'] ?? 'ios_update'), [
+            'learn_lines' => !empty($expense['raw_ocr_json']) ? ($input + ['vendor_name_raw' => $vendorRaw]) : null,
         ]);
-
-        // Line-item lessons only — mirrors expenses.php's handleUpdate(). Header/category
-        // fixes made from the phone are still learned: once, when the receipt is approved
-        // or sent (learnFromConfirmedExpense), against the capture baseline.
-        if (!empty($expense['raw_ocr_json'])) {
-            try {
-                require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-                recordLineItemLessons($this->db, $vendorId, $vendorRaw, $input, $expenseId);
-            } catch (Throwable $e) {
-                error_log('Receipt learning error (mobile update): ' . $e->getMessage());
-            }
-            // Edited (the date may have changed): re-read the printed facts (migration 1227).
-            require_once __DIR__ . '/ReceiptFactsService.php';
-            ReceiptFactsService::refreshQuietly($this->db, $expenseId);
-        }
 
         return ['success' => true, 'message' => 'Expense updated', 'expense_id' => $expenseId];
     }
@@ -155,12 +144,10 @@ class ExpenseService
             throw new Exception('This expense has been sent to accounting and can no longer be deleted');
         }
 
-        if (function_exists('reverseLineItemInventory')) {
-            reverseLineItemInventory($this->db, $expenseId);
-        }
-
-        $stmt = $this->db->prepare("DELETE FROM expenses WHERE id = ?");
-        $stmt->execute([$expenseId]);
+        // Through the gate: stock reversed, a posted entry reversed (append-only), the split
+        // removed, and the deleted row kept in the audit log.
+        $this->gate()->apply($expenseId, [ExpenseGate::DELETE => true],
+            ['id' => (int)($currentUser['id'] ?? 0) ?: null, 'kind' => 'user'], (string)($currentUser['source'] ?? 'delete'));
 
         return ['success' => true, 'message' => 'Expense deleted', 'expense_id' => $expenseId];
     }

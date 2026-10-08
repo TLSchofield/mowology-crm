@@ -42,6 +42,8 @@ class CharlieFactAnswerer
         'facts'    => "Otto's cost facts",
         'penny'    => "Penny's receipts",
         'schedule' => 'the schedule',
+        'products' => "Penny's products",      // ProductFactAnswerer
+        'equipment' => "Otto's equipment",     // ProductFactAnswerer
     ];
 
     /** Words that never name a place, vendor or person (function words, intents, periods). */
@@ -106,6 +108,9 @@ class CharlieFactAnswerer
         $q = self::norm($question);
         $tokens = self::tokens($q);
         if (!$tokens) return null;
+        // Stock, product costs, last purchase, service due, the kit (Penny's products / Otto's equipment).
+        $pf = $this->productFacts($question, $tokens);
+        if ($pf !== null) return $pf;
         $today = $this->today();
         $period = self::period($q, $today);
         $intent = self::intent($q);
@@ -166,6 +171,21 @@ class CharlieFactAnswerer
             return ['answer' => self::workLine($p, $w, $crew, $today) . self::suffix(['schedule']), 'head' => 'otto', 'about' => $crew ? $crew['first'] : 'visits'];
         }
         return null;
+    }
+
+    /**
+     * Products and equipment (ProductFactAnswerer, migration 1225 data): null when unsure, and
+     * never for a product-ish question that names a known place ("what does a dump run cost").
+     */
+    private function productFacts(string $question, array $tokens): ?array
+    {
+        $f = dirname(__DIR__, 2) . '/Products/Services/ProductFactAnswerer.php';
+        if (!is_file($f)) return null;
+        require_once $f;
+        $pi = ProductFactAnswerer::intent($question);
+        if ($pi === null) return null;
+        if (in_array($pi, ['cost', 'stock', 'last_bought'], true) && $this->findPlaces($tokens)) return null;
+        return (new ProductFactAnswerer($this->db, $this->today()))->answer($question);
     }
 
     /**

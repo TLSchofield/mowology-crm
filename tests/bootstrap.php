@@ -144,6 +144,13 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 // Products
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldAskService.php';
+// Label photo → product / machine; receipts → products; Otto's care view and manual reading (migration 1225)
+require_once __DIR__ . '/../app/Modules/Products/Services/LabelReaderService.php';
+require_once __DIR__ . '/../app/Modules/Products/Services/ProductProposalService.php';
+require_once __DIR__ . '/../app/Modules/Products/Services/LabelCaptureService.php';
+require_once __DIR__ . '/../app/Modules/Products/Services/ProductCareService.php';
+require_once __DIR__ . '/../app/Modules/Products/Services/ProductFactAnswerer.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoManualService.php';
 
 // Expenses
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
@@ -181,6 +188,11 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseCreateGuard.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLineItemService.php';
+// One gate for every expense change + split a receipt by line (migration 1233)
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseSplitService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGateHooks.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGate.php';
+require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RiskExplainer.php';
 

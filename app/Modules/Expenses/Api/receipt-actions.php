@@ -59,7 +59,7 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.approve required']);
                 exit;
             }
-            $result = (new ExpenseApprovalService($db))->approve($expenseId, $currentUser);
+            $result = (new ExpenseApprovalService($db))->approve($expenseId, $currentUser, ['source' => 'ios_receipt_actions']);
             echo json_encode($result);
             break;
 
@@ -72,7 +72,8 @@ try {
             $result = (new ExpenseApprovalService($db))->reject(
                 $expenseId,
                 $currentUser,
-                (string)($input['rejection_reason'] ?? '')
+                (string)($input['rejection_reason'] ?? ''),
+                ['source' => 'ios_receipt_actions']
             );
             echo json_encode($result);
             break;
@@ -96,7 +97,8 @@ try {
             $result = (new ExpenseApprovalService($db))->rejectBatch(
                 $input['expense_ids'] ?? [],
                 $currentUser,
-                (string)($input['rejection_reason'] ?? '')
+                (string)($input['rejection_reason'] ?? ''),
+                ['source' => 'ios_receipt_actions']
             );
             echo json_encode($result);
             break;

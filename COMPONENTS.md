@@ -254,6 +254,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - Server rules live in `app/Modules/Driver/Services/TripReportService.php` (shared with the iOS app): `shiftState()` = `driving | not_driving | unasked`, bounded `performed_at`, idempotent replays.
 - Differs on purpose from `OfflineActions`, which is queue-and-forget for clock/timer POSTs.
 
+### triggerLabelCamera (product / machine label photo)
+- **File:** `public/crm/js/label-capture.js` — loaded by `expenses_appstack.php` (the **Label** chip in the mobile capture row).
+- **Purpose:** photo of a product bag or a machine nameplate → `/crm/api/label-products.php` (`mode=capture`). Same upload + OCR as a receipt, **never an expense**; Penny (product) or Otto (machine) proposes it on the dashboard. Shrinks to 2000 px, attaches location, answers with `mwToast`.
+- **Usage:** `<button onclick="triggerLabelCamera()">Label</button>` on any AppStack page that has the CSRF meta / `MW_CSRF_TOKEN`. iOS uses `/api/expenses/label-upload` (JWT).
+- The proposal cards are `penny-products.js` (`#mw-pp`) and `otto-care.js` (`#mw-otto-care`, via `includes/otto-care.php`).
+
 ### MwPhotoQueue (photo queue)
 - **File:** `public/crm/js/photo-queue.js`
 - **Purpose:** Durable photo storage + upload queue engine — saves image bytes to Capacitor Filesystem (native) or IndexedDB (browser/PWA), tracks upload status in IndexedDB, and runs a retrying background uploader.
@@ -331,6 +337,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Purpose:** suggestions Penny and Yui spotted in payments and mail (strata plan numbers, job titles and firms in signatures, missing phones/emails, an accountant set up as the quote signer), each with Apply / Not right. Nothing changes a record without that click; buttons only for admins.
 - **Usage:** `<div class="mw-clues" id="mw-clues" data-contact-id="<?= (int)$contactId ?>"></div>` + the script. Leave out `data-contact-id` for every open clue (Yui's card does). Renders nothing when there are none, or before migration 1206.
 
+### Split by line (MwExpenseSplit)
+- **JS:** `public/crm/js/expense-split.js`; **CSS:** `mowology-brand.css` (`.mw-split*`); **Service:** `app/Modules/Expenses/Services/ExpenseSplitService.php` (migration 1233).
+- **Purpose:** one receipt, several destinations — each line gets For (a job, 🏪 shop stock, or no job), a category and (on Fuel) the truck / equipment tag. Penny pre-fills it; the server works the money out (GST by net, PST only on the taxable lines) and shows the job cost per destination.
+- **Usage:** `var state = MwExpenseSplit.render(el, data, { categories: [...], autoOn: true|false, state: previous, locked: bool })` with `data` from `/crm/api/expenses.php?action=split&id=N` (or Penny's queue item `.split`); send `MwExpenseSplit.value(state)` (null = send nothing) as `split` on `expenses.php` `update`, or `overrides.split` on Penny's `decide`. Both save through `ExpenseGate`.
+- **Used by:** Penny's receipt card (`bookkeeper-card.js`, loads the script itself) and the expense edit modal (`expenses_appstack.php`, `#expSplitPanel`).
+
 ---
 
-**Total: 20 components documented.**
+**Total: 21 components documented.**

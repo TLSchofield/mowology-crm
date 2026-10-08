@@ -454,6 +454,7 @@ class AccountingService
         ");
         $stmt->execute([$dateFrom, $dateTo, $dateFrom, $limit]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->withSplitReceiptShares($rows, $dateFrom, $dateTo);
 
         // Trip overhead (dump / supply runs' time + km) Penny tagged to each job — an additive
         // read from ops_trip_job_costs (migration 1218), never a journal entry. 0 before the migration.
@@ -479,6 +480,45 @@ class AccountingService
                 'profit_after_trips' => round($profit - $trip['trip_overhead'], 2),
             ]);
         }, $rows);
+    }
+
+    /**
+     * A receipt split by line (migration 1233) reaches a job through its share, not through
+     * the whole receipt on the header's job: take the whole receipt back out of each job and
+     * add the job's shares (net + PST + GST not claimable). Lawnboy #412 puts $80.00 of mulch
+     * on Oakridge and the seed on stock. Unchanged when nothing is split (or before 1233).
+     */
+    public function withSplitReceiptShares(array $rows, string $dateFrom, string $dateTo): array
+    {
+        if (!$rows) return $rows;
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            $split = new ExpenseSplitService($this->db);
+            if (!$split->ready()) return $rows;
+            $ids = array_values(array_unique(array_map('intval', array_column($rows, 'job_id'))));
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $s = $this->db->prepare("
+                SELECT t.job_id, SUM(t.amount) AS whole
+                FROM accounting_transactions t
+                WHERE t.type = 'expense' AND t.reference_type = 'expense' AND t.job_id IN ({$in})
+                  AND t.transaction_date BETWEEN ? AND ? AND t.status IN ('cleared', 'reconciled')
+                  AND t.reference_id IN (SELECT a.expense_id FROM expense_line_allocations a)
+                GROUP BY t.job_id
+            ");
+            $s->execute(array_merge($ids, [$dateFrom, $dateTo]));
+            $whole = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $whole[(int)$r['job_id']] = (float)$r['whole'];
+            $share = $split->jobCosts($ids, $dateFrom, $dateTo);
+            foreach ($rows as &$r) {
+                $j = (int)$r['job_id'];
+                $r['expenses'] = round((float)$r['expenses'] - ($whole[$j] ?? 0.0) + ($share[$j] ?? 0.0), 2);
+                if (isset($share[$j])) $r['split_receipt_cost'] = $share[$j];
+            }
+            unset($r);
+        } catch (Throwable $e) {
+            error_log('Job profitability split shares: ' . $e->getMessage());
+        }
+        return $rows;
     }
 
     /**

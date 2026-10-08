@@ -56,82 +56,88 @@ class ExpenseLineItemServiceTest extends TestCase
         $svc->update(5, ['name' => '   ']);
     }
 
+    // The write itself is the expense gate's (migration 1233): the service works the values
+    // out and hands the gate one 'line_item' change — asserted on the spy gate here; the
+    // gate's own SQL (inventory re-sync, audit, lessons) is covered in ExpenseGateTest.
+
     public function test_update_saves_corrected_fields_and_returns_joined_row(): void
     {
         $existing = ['id' => 5, 'expense_id' => 1, 'product_id' => null, 'name' => 'Discount', 'quantity' => 1, 'unit_price' => null, 'line_total' => -14.99];
         $joined   = ['id' => 5, 'name' => 'Topsoil x4', 'quantity' => 4, 'unit_price' => 11.24, 'line_total' => 44.97, 'product_name' => null, 'product_sku' => null];
 
-        $selectStmt = $this->makeStmt($existing);
-        $updateStmt = $this->makeStmt();
-        $finalStmt  = $this->makeStmt($joined);
-
         $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($selectStmt, $updateStmt, $finalStmt);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($this->makeStmt($existing), $this->makeStmt($joined));
 
-        $svc = new ExpenseLineItemService($db);
+        $svc = (new ExpenseLineItemService($db, $gate = new ExpenseGateSpy()))->by(['id' => 6, 'kind' => 'user'], 'desktop_line');
         $result = $svc->update(5, ['name' => 'Topsoil x4', 'quantity' => 4, 'unit_price' => 11.24]);
 
         $this->assertSame('Topsoil x4', $result['name']);
         $this->assertSame(44.97, $result['line_total']);
+        $this->assertCount(1, $gate->calls);
+        $this->assertSame(1, $gate->calls[0]['id'], 'the change is made on the line\'s expense');
+        $this->assertSame('desktop_line', $gate->calls[0]['source']);
+        $this->assertSame('update', $gate->calls[0]['changes']['line_item']['op']);
     }
 
     public function test_update_computes_line_total_from_unit_price_when_total_omitted(): void
     {
         $existing = ['id' => 5, 'expense_id' => 1, 'product_id' => null, 'name' => 'Topsoil', 'quantity' => 1, 'unit_price' => null, 'line_total' => 0];
-
-        $selectStmt = $this->makeStmt($existing);
-        $updateStmt = $this->createMock(PDOStatement::class);
-        // Assert the computed line_total (11.24 * 4 = 44.96) reaches the UPDATE bind params.
-        $updateStmt->expects($this->once())->method('execute')->with([
-            'Topsoil x4', 4.0, 11.24, 44.96, 5,
-        ])->willReturn(true);
-        $finalStmt = $this->makeStmt(['id' => 5, 'name' => 'Topsoil x4']);
-
         $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($selectStmt, $updateStmt, $finalStmt);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($this->makeStmt($existing), $this->makeStmt(['id' => 5, 'name' => 'Topsoil x4']));
 
-        $svc = new ExpenseLineItemService($db);
+        $svc = new ExpenseLineItemService($db, $gate = new ExpenseGateSpy());
         $svc->update(5, ['name' => 'Topsoil x4', 'quantity' => 4, 'unit_price' => 11.24]);
+
+        // 11.24 × 4 = 44.96 reaches the gate.
+        $line = $gate->calls[0]['changes']['line_item'];
+        $this->assertSame(['op' => 'update', 'id' => 5, 'name' => 'Topsoil x4', 'quantity' => 4.0, 'unit_price' => 11.24, 'line_total' => 44.96], $line);
     }
 
     public function test_update_defaults_quantity_to_existing_when_not_provided(): void
     {
         $existing = ['id' => 5, 'expense_id' => 1, 'product_id' => null, 'name' => 'Topsoil', 'quantity' => 4, 'unit_price' => 11.24, 'line_total' => 44.97];
-
-        $selectStmt = $this->makeStmt($existing);
-        $updateStmt = $this->createMock(PDOStatement::class);
-        $updateStmt->expects($this->once())->method('execute')->with([
-            'Topsoil (renamed)', 4.0, 11.24, 44.97, 5,
-        ])->willReturn(true);
-        $finalStmt = $this->makeStmt(['id' => 5, 'name' => 'Topsoil (renamed)']);
-
         $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($selectStmt, $updateStmt, $finalStmt);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($this->makeStmt($existing), $this->makeStmt(['id' => 5, 'name' => 'Topsoil (renamed)']));
 
-        $svc = new ExpenseLineItemService($db);
+        $svc = new ExpenseLineItemService($db, $gate = new ExpenseGateSpy());
         // No quantity/unit_price/line_total supplied — should fall back to existing row's values.
         $result = $svc->update(5, ['name' => 'Topsoil (renamed)']);
 
         $this->assertSame('Topsoil (renamed)', $result['name']);
+        $line = $gate->calls[0]['changes']['line_item'];
+        $this->assertSame([4.0, 11.24, 44.97], [$line['quantity'], $line['unit_price'], $line['line_total']]);
     }
 
     public function test_update_adjusts_inventory_when_quantity_changes_on_linked_product(): void
     {
-        $existing = ['id' => 5, 'expense_id' => 1, 'product_id' => 77, 'name' => 'Topsoil', 'quantity' => 2, 'unit_price' => 11.24, 'line_total' => 22.48];
+        // Real gate on SQLite: the quantity delta (4 − 2 = 2) reaches the linked product's stock.
+        $db = ExpenseGateTestDb::make();
+        $db->exec("INSERT INTO products (id, name, track_inventory, current_stock) VALUES (77, 'Topsoil', 1, 10)");
+        $db->exec("INSERT INTO expenses (id, expense_date, total, status) VALUES (1, '2026-10-07', 22.48, 'draft')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (5, 1, 77, 'Topsoil', 2, 11.24, 22.48)");
 
-        $selectStmt = $this->makeStmt($existing);
-        $updateStmt = $this->makeStmt();
-        $inventoryStmt = $this->createMock(PDOStatement::class);
-        // qty delta = 4 - 2 = 2
-        $inventoryStmt->expects($this->once())->method('execute')->with([2.0, 77]);
-        $finalStmt = $this->makeStmt(['id' => 5, 'name' => 'Topsoil', 'quantity' => 4]);
-
-        $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($selectStmt, $updateStmt, $inventoryStmt, $finalStmt);
-
-        $svc = new ExpenseLineItemService($db);
+        $svc = new ExpenseLineItemService($db, new ExpenseGate($db, new ExpenseGateHooksSpy()));
         $result = $svc->update(5, ['name' => 'Topsoil', 'quantity' => 4, 'unit_price' => 11.24]);
 
-        $this->assertSame(4, $result['quantity']);
+        $this->assertSame(4.0, (float)$result['quantity']);
+        $this->assertSame(12.0, (float)$db->query("SELECT current_stock FROM products WHERE id = 77")->fetchColumn());
+        $this->assertSame('lines', $db->query("SELECT action FROM expense_change_log WHERE expense_id = 1")->fetchColumn());
+    }
+
+    public function test_add_and_delete_go_through_the_gate(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnOnConsecutiveCalls(
+            $this->makeStmt(['id' => 78, 'name' => 'Grass seed']),                                       // fetchJoined after add
+            $this->makeStmt(['id' => 78, 'expense_id' => 412, 'name' => 'Grass seed', 'quantity' => 1]) // fetchWithVendor before delete
+        );
+        $gate = new ExpenseGateSpy();
+        $gate->extra = ['line_item_id' => 78];
+        $svc = (new ExpenseLineItemService($db, $gate))->by(['id' => 6, 'kind' => 'user'], 'ios_line');
+        $svc->add(412, ['name' => 'Grass seed', 'quantity' => 1, 'line_total' => 60]);
+        $svc->delete(78);
+        $this->assertSame(['add', 'delete'], [$gate->calls[0]['changes']['line_item']['op'], $gate->calls[1]['changes']['line_item']['op']]);
+        $this->assertSame([412, 412], [$gate->calls[0]['id'], $gate->calls[1]['id']]);
+        $this->assertSame('ios_line', $gate->calls[1]['source']);
     }
 }

@@ -28,10 +28,13 @@ class DuplicateReceiptService
     public const WAITING = ['draft', 'pending_approval'];
 
     private PDO $db;
+    /** @var ExpenseGate|null every expense write goes through the gate (migration 1233) */
+    private $gate;
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, $gate = null)
     {
         $this->db = $db;
+        $this->gate = $gate;
     }
 
     public function dismissalsReady(): bool
@@ -195,10 +198,11 @@ class DuplicateReceiptService
         $keep = $rows[$keepId] ?? null;
         if (!$copy || !$keep) return ['ok' => false, 'message' => 'Receipt not found'];
         if (!in_array($copy['status'], self::WAITING, true)) return ['ok' => false, 'message' => "That one's already approved — remove the other instead"];
+        $actor = ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'];
         if (empty($keep['receipt_media_id']) && !empty($copy['receipt_media_id']) && in_array($keep['status'], self::WAITING, true)) {
-            $this->db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")->execute([(int)$copy['receipt_media_id'], $keepId]);
+            $this->gate()->apply($keepId, ['receipt_media_id' => (int)$copy['receipt_media_id']], $actor, 'duplicates');
         }
-        (new ExpenseApprovalService($this->db))->reject($copyId, $user, 'Duplicate of receipt #' . $keepId);
+        (new ExpenseApprovalService($this->db, $this->gate()))->reject($copyId, $user, 'Duplicate of receipt #' . $keepId, ['source' => 'duplicates']);
         $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE expense_id = ? AND source = 'live' AND status IN ('pending', 'error')")
            ->execute([$copyId]);
         return ['ok' => true, 'message' => "Done — #{$copyId} is set aside as a duplicate of #{$keepId} (kept on record, not deleted)."];
@@ -250,13 +254,12 @@ class DuplicateReceiptService
                 if ($keepWaits) {
                     $fill = self::mergeFill($rows[$keepId], $rows[$copyId]);
                     if ($fill) {
-                        $sets = implode(', ', array_map(fn($c) => "{$c} = ?", array_keys($fill)));
-                        $this->db->prepare("UPDATE expenses SET {$sets} WHERE id = ?")
-                           ->execute(array_merge(array_values($fill), [$keepId]));
+                        // Through the expense gate (audited as the duplicates clean-up).
+                        $this->gate()->apply($keepId, $fill, ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'], 'duplicates');
                         $rows[$keepId] = $fill + $rows[$keepId];
                         $carried = array_merge($carried, array_keys($fill));
                     }
-                    if ($this->moveLineItemsIfMissing($copyId, $keepId)) $carried[] = 'line items';
+                    if ($this->moveLineItemsIfMissing($copyId, $keepId, $user)) $carried[] = 'line items';
                     if (empty($rows[$keepId]['receipt_media_id']) && !empty($rows[$copyId]['receipt_media_id'])) {
                         $rows[$keepId]['receipt_media_id'] = $rows[$copyId]['receipt_media_id'];   // removeCopy moves the photo
                         $carried[] = 'photo';
@@ -291,18 +294,23 @@ class DuplicateReceiptService
     }
 
     /** The copy's line items move to the kept receipt when that has none. */
-    private function moveLineItemsIfMissing(int $copyId, int $keepId): bool
+    private function moveLineItemsIfMissing(int $copyId, int $keepId, array $user = []): bool
     {
         try {
-            $c = $this->db->prepare("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = ?");
-            $c->execute([$keepId]);
-            if ((int)$c->fetchColumn() > 0) return false;
-            $u = $this->db->prepare("UPDATE expense_line_items SET expense_id = ? WHERE expense_id = ?");
-            $u->execute([$keepId, $copyId]);
-            return $u->rowCount() > 0;
+            $res = $this->gate()->apply($keepId, ['line_items_from' => $copyId], ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'], 'duplicates');
+            return !empty($res['lines_moved']);
         } catch (PDOException $e) {
             return false;   // no line-items table here — nothing to carry
         }
+    }
+
+    private function gate(): ExpenseGate
+    {
+        if ($this->gate === null) {
+            require_once __DIR__ . '/ExpenseGate.php';
+            $this->gate = new ExpenseGate($this->db);
+        }
+        return $this->gate;
     }
 
     /** Other live expenses made from the very same photo — always the same receipt. */

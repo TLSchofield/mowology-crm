@@ -287,6 +287,7 @@
         applyRotation();
         var isum = root.querySelector('.mw-rc-isum');
         if (isum && queue[idx]) isum.textContent = itemsCheck(queue[idx]);
+        drawSplit(it);
         if (window.mwInitDatePickers) {
             var before = document.querySelectorAll('.mw-datepicker-popup').length;
             window.mwInitDatePickers(root);
@@ -335,7 +336,39 @@
             (locked ? '' : '<div class="mw-rc-iactions"><button type="button" class="mw-rc-ed" data-iadd>+ Add item</button>' +
                 (differs ? '<button type="button" class="mw-rc-ed" data-ipenny title="Replace these with the ' + pi.length + ' items Penny read">⭐ Use Penny\'s items (' + pi.length + ' · ' + money(piSum) + ')</button>' : '') +
                 '<span class="mw-rc-isave"></span></div>') +
+            // Split by line (migration 1233): drawn by MwExpenseSplit after the card renders.
+            (it.split ? '<div data-split-box></div>' : '') +
           '</div>';
+    }
+
+    // ── Split by line (shared component: /crm/js/expense-split.js) ───────────────
+    function ensureSplitLib(then) {
+        if (window.MwExpenseSplit) { then(); return; }
+        if (ensureSplitLib.loading) { ensureSplitLib.loading.push(then); return; }
+        ensureSplitLib.loading = [then];
+        var s = document.createElement('script');
+        s.src = '/crm/js/expense-split.js';
+        s.onload = function () { var q = ensureSplitLib.loading; ensureSplitLib.loading = null; q.forEach(function (f) { f(); }); };
+        document.head.appendChild(s);
+    }
+    function drawSplit(it) {
+        var box = root.querySelector('[data-split-box]');
+        if (!box) return;
+        if (!it.split) { box.innerHTML = ''; it._split = null; return; }
+        ensureSplitLib(function () {
+            if (queue[idx] !== it || !box.isConnected) return;
+            it._split = window.MwExpenseSplit.render(box, it.split, { categories: CATEGORIES, autoOn: true, state: it._split, locked: it.status === 'forwarded' });
+        });
+    }
+    /** The receipt's lines changed on the card: Penny's split is read again (the lines' ids moved). */
+    function refreshSplit(it) {
+        return fetch('/crm/api/expenses.php?action=split&id=' + encodeURIComponent(it.expense_id), { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                it.split = d && d.success && d.ready && d.lines && d.lines.length >= 2 ? d : null;
+                it._split = null;
+            })
+            .catch(function () {});
     }
     /** Items vs the receipt's subtotal (total − GST − PST as typed in the fields). */
     function itemsCheck(it) {
@@ -426,7 +459,13 @@
             item.unit_price = li.unit_price != null ? parseFloat(li.unit_price) : item.unit_price;
             row.querySelector('[data-itotal]').value = Number(item.line_total).toFixed(2);
             itemSaved('Saved ✓');
+            splitAfterLines(it);
         }).catch(function (e) { itemSaved(e.message, true); });
+    }
+    /** A line changed: the split's money (and Penny's read of it) is fetched again; only the split box redraws. */
+    function splitAfterLines(it) {
+        if (!it || (!it.split && (it.items || []).length < 2)) return Promise.resolve();
+        return refreshSplit(it).then(function () { if (queue[idx] === it) drawSplit(it); });
     }
     function addItem(name, qty, total) {
         var it = queue[idx];
@@ -447,7 +486,8 @@
                          .then(function () { it.items = it.items.filter(function (x) { return x.id !== i.id; }); });
         });
         pi.forEach(function (x) { chain = chain.then(function () { return addItem(x.name, 1, Number(x.amount) || 0); }); });
-        chain.then(function () { render('Using Penny\'s items — check them before you approve'); })
+        chain.then(function () { return refreshSplit(it); })
+             .then(function () { render('Using Penny\'s items — check them before you approve'); })
              .catch(function (e) { render('Items: ' + e.message); });
     }
 
@@ -578,6 +618,9 @@
         if (busy || !queue.length) return;
         var it = queue[idx];
         var values = formValues();
+        // Split by line: sent when on, or to end a split that was saved (the gate ignores no-ops).
+        var sv = window.MwExpenseSplit && it._split ? window.MwExpenseSplit.value(it._split) : null;
+        if (sv) values.split = JSON.stringify(sv);
         busy = true;
         post({ mode: 'decide', suggestion_id: it.suggestion_id, overrides: values, save_draft: !!saveDraft })
             .then(function (d) {
@@ -647,7 +690,7 @@
 
     root.addEventListener('click', function (e) {
         if (e.target.hasAttribute && e.target.hasAttribute('data-iadd')) {
-            addItem('New item', 1, 0).then(function () {
+            addItem('New item', 1, 0).then(function () { return refreshSplit(queue[idx]); }).then(function () {
                 render();
                 var names = root.querySelectorAll('[data-iname]');
                 if (names.length) { names[names.length - 1].focus(); names[names.length - 1].select(); }
@@ -661,6 +704,7 @@
                 queue[idx].items = (queue[idx].items || []).filter(function (x) { return x.id !== delId; });
                 row.parentNode.removeChild(row);
                 itemSaved('Removed ✓');
+                splitAfterLines(queue[idx]);
             }).catch(function (err) { itemSaved(err.message, true); });
             return;
         }

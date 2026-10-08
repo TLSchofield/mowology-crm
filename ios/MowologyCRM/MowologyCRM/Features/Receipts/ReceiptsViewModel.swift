@@ -19,6 +19,8 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var isUploading   = false
     @Published var uploadError:   String?
     @Published var intakeResponse: ReceiptIntakeResponse?
+    /// Result of a "Label" capture (product bag / nameplate) — read-only on the phone.
+    @Published var labelResult: LabelCaptureResponse?
 
     // MARK: - Save state
     @Published var isSaving     = false
@@ -282,6 +284,26 @@ final class ReceiptsViewModel: ObservableObject {
             }
         } catch {
             uploadError = "Upload failed."
+        }
+        isUploading = false
+    }
+
+    /// "Label" mode: a product bag or a machine's nameplate. Never an expense and never
+    /// queued offline (it isn't money) — a failure just asks to try again.
+    func uploadLabel(_ imageData: Data, lat: Double?, lng: Double?) async {
+        isUploading = true
+        uploadError = nil
+        labelResult = nil
+        do {
+            labelResult = try await apiClient.uploadLabel(imageData: imageData, lat: lat, lng: lng)
+        } catch let err as APIError {
+            if case .networkError = err {
+                uploadError = "No connection — the label photo wasn't sent. Try again when you have signal."
+            } else {
+                uploadError = err.errorDescription ?? "Label upload failed."
+            }
+        } catch {
+            uploadError = "Label upload failed."
         }
         isUploading = false
     }

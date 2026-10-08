@@ -703,6 +703,12 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                         <label>Application Notes</label>
                         <textarea class="form-control" name="application_notes" rows="2" placeholder="Detailed application instructions, storage requirements, etc."></textarea>
                       </div>
+
+                      <!-- Storage / handling read from the label photo (migration 1225) — read-only here -->
+                      <div class="form-group" id="labelCareGroup" hidden>
+                        <label>From the label <small class="text-muted">(read from the photo, word for word)</small></label>
+                        <div class="mw-pp-care" id="labelCareText"></div>
+                      </div>
                     </div>
 
                     <!-- Seasonality & Marketing -->
@@ -1422,6 +1428,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               document.getElementById('productForm').reset();
               // reset() keeps a hidden input's value: without this, "Add" after "Edit" saves over the edited product
               document.querySelector('#productForm [name="id"]').value = '';
+              if (document.getElementById('labelCareGroup')) document.getElementById('labelCareGroup').hidden = true;
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
               resetIconSetPicker();
@@ -1512,6 +1519,11 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               updateSpreaderCalc();
               form.elements['safety_warnings'].value = product.safety_warnings || '';
               form.elements['application_notes'].value = product.application_notes || '';
+              var lcGroup = document.getElementById('labelCareGroup');
+              if (lcGroup) {
+                lcGroup.hidden = !product.care_notes;
+                document.getElementById('labelCareText').textContent = product.care_notes || '';
+              }
 
               // SDS preview
               if (product.sds_sheet_url) {

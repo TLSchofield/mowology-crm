@@ -36,11 +36,14 @@ class TripAttributionService
 
     private PDO $db;
     private ?string $today;
+    /** @var ExpenseGate|null the expense gate (tests pass a spy) */
+    private $gate;
 
-    public function __construct(PDO $db, ?string $today = null)
+    public function __construct(PDO $db, ?string $today = null, $gate = null)
     {
         $this->db = $db;
         $this->today = $today;
+        $this->gate = $gate;
     }
 
     public function ready(): bool
@@ -154,6 +157,24 @@ class TripAttributionService
         $jobLines = 0; $anyLines = false;
         foreach ($receipts as $r) {
             $lines = $r['lines'] ?? [];
+            if (!empty($r['allocations'])) {
+                // Split by the owner (ExpenseSplitService): each share goes where he put it, at its
+                // job cost (net + PST + GST not claimable). Never tagged as a whole receipt.
+                $anyLines = true;
+                foreach ($r['allocations'] as $a) {
+                    $cost = class_exists('ExpenseSplitService')
+                        ? ExpenseSplitService::jobCost((float)$a['net_amount'], (float)$a['gst_amount'], (float)$a['pst_amount'],
+                                                       strcasecmp((string)($a['accounting_category'] ?? ''), 'Meals') === 0)
+                        : (float)$a['net_amount'] + (float)$a['pst_amount'];
+                    $toJob = !empty($a['job_id']) && empty($a['is_stock']);
+                    if ($toJob && $plan && (int)$a['job_id'] === $plan) $jobLines++;
+                    if (!empty($a['is_stock'])) $stock = true;
+                    $rows[] = $row('receipt_line', $toJob ? (int)$a['job_id'] : null, $cost,
+                                   (string)$a['label'] . (!empty($a['is_stock']) ? ' — shop stock' : ''),
+                                   ['expense_id' => (int)$r['id'], 'expense_line_id' => $a['line_item_id'] ?? null, 'is_stock' => !empty($a['is_stock']) ? 1 : 0]);
+                }
+                continue;
+            }
             if (!$lines) {
                 $rows[] = $row('receipt', null, (float)$r['total'], 'Receipt has no line items — not tagged to a job', ['expense_id' => (int)$r['id']]);
                 continue;
@@ -292,6 +313,13 @@ class TripAttributionService
                 if (isset($out[(int)$line['expense_id']])) $out[(int)$line['expense_id']]['lines'][] = $line;
             }
         } catch (Throwable $e) { /* no line items table — receipts can't be split */ }
+        // The owner's split by line (migration 1233) beats the guess from the quote.
+        try {
+            require_once __DIR__ . '/ExpenseSplitService.php';
+            foreach ((new ExpenseSplitService($this->db))->forExpenses(array_keys($out)) as $eid => $allocs) {
+                if (isset($out[$eid])) $out[$eid]['allocations'] = $allocs;
+            }
+        } catch (Throwable $e) { /* before migration 1233 */ }
         return array_values($out);
     }
 
@@ -334,11 +362,19 @@ class TripAttributionService
             $ins->execute([$r['run_id'], $r['run_date'], $r['trip_key'], $r['kind'], $r['property_id'], $r['job_plan_id'], $r['visit_id'],
                            $r['source'], $r['expense_id'], $r['expense_line_id'], $r['amount'], $r['is_stock'], mb_substr((string)$r['label'], 0, 255)]);
         }
+        // Single-purpose receipts take the job — through the expense gate (audited), and only
+        // while the receipt has no job (never overwritten).
+        require_once __DIR__ . '/ExpenseGate.php';
+        $gate = $this->gate ?? new ExpenseGate($this->db);
         $tagged = 0;
-        $up = $this->db->prepare("UPDATE expenses SET job_id = ? WHERE id = ? AND job_id IS NULL");
         foreach ($b['tag'] as $expenseId => $planId) {
-            $up->execute([$planId, $expenseId]);
-            $tagged += $up->rowCount();
+            try {
+                $res = $gate->apply((int)$expenseId, ['job_id' => (int)$planId], ['id' => null, 'kind' => 'penny'], 'trip_attribution',
+                                    ['only_if' => function (array $e) { return empty($e['job_id']); }]);
+                if (empty($res['noop'])) $tagged++;
+            } catch (Throwable $e) {
+                error_log('Trip attribution tag #' . $expenseId . ': ' . $e->getMessage());
+            }
         }
         return ['rows' => count($b['rows']), 'tagged' => $tagged];
     }

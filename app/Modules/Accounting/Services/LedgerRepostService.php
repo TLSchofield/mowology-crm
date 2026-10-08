@@ -62,11 +62,16 @@ class LedgerRepostService
                                       vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
                                       (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                FROM expenses WHERE total > 0 AND status IN ('approved', 'forwarded')");
-        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $e) {
+        $expRows = $s->fetchAll(PDO::FETCH_ASSOC);
+        $split = $this->splitIds(array_column($expRows, 'id'));
+        foreach ($expRows as $e) {
             $have = $posted['expense'][(int)$e['id']] ?? null;
             if (!$have) continue;
             $amount = array_sum($have['lines']);
-            $want = [$this->map->expenseCode($e['accounting_category'], $e['asset_tag'], $e['vendor_name'] ?: $e['vendor_name_raw']) => round($amount, 2)];
+            // A receipt split by line (migration 1233) posts one line per share: compare with that recipe.
+            $want = isset($split[(int)$e['id']])
+                ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($this->sync->expenseArgs($e))))
+                : [$this->map->expenseCode($e['accounting_category'], $e['asset_tag'], $e['vendor_name'] ?: $e['vendor_name_raw']) => round($amount, 2)];
             if (!self::same($have['lines'], $want)) {
                 $expenses[] = ['id' => (int)$e['id'], 'entry_id' => $have['entry_id'], 'from' => $have['lines'], 'to' => $want,
                                'category' => $e['accounting_category']];
@@ -168,6 +173,29 @@ class LedgerRepostService
             $out[$t][$id]['lines'][$r['code']] = round(($out[$t][$id]['lines'][$r['code']] ?? 0) + $amt, 2);
         }
         return $out;
+    }
+
+    /** expense id => true for receipts split by line. */
+    private function splitIds(array $ids): array
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            return array_fill_keys((new ExpenseSplitService($this->db))->splitExpenseIds($ids), true);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** code => debits of a built expense entry's cost side — the same reading as postedCategoryLines(). Pure. */
+    public static function categoryMap(array $entry): array
+    {
+        $m = [];
+        foreach ($entry['lines'] as $l) {
+            $code = (string)($l['account'] ?? '');
+            if ($code === '' || in_array($code, self::NOT_CATEGORY, true) || (float)($l['debit'] ?? 0) <= 0) continue;
+            $m[$code] = round(($m[$code] ?? 0) + (float)$l['debit'], 2);
+        }
+        return $m;
     }
 
     private function rowsById(string $sql, array $ids): array

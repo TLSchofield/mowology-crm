@@ -38782,3 +38782,69 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sc-gaps li.is-info { color: var(--mw-ink-700); list-style: circle; }
 .mw-sc-acct + .mw-sc-acct { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mw-ink-100); }
 .mw-sc-acct h6 { font-size: .82rem; margin-bottom: 6px; }
+/* ── Label → product / machine (migration 1225): Penny's product cards (#mw-pp),
+      Otto's "looking after it" (#mw-otto-care), the Label chip status on the receipts page ── */
+.mw-pp-item { display: flex; gap: 12px; align-items: flex-start; background: var(--mw-light); border-radius: 10px; padding: 10px 12px; }
+.mw-pp-photo { flex: 0 0 auto; }
+.mw-pp-photo img, .mw-oc-prop img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); }
+.mw-pp-body { min-width: 0; flex: 1; }
+.mw-pp-say, .mw-oc-say { font-size: .88rem; font-weight: 600; color: var(--mw-forest); line-height: 1.4; overflow-wrap: anywhere; }
+.mw-pp-facts { font-size: .75rem; color: var(--mw-ink-500); margin-top: 3px; overflow-wrap: anywhere; }
+.mw-pp-care { font-size: .78rem; color: var(--mw-dark); margin-top: 5px; }
+.mw-pp-lines { list-style: none; margin: 6px 0 0; padding: 0; font-size: .75rem; color: var(--mw-ink-500); }
+.mw-pp-lines li { overflow-wrap: anywhere; }
+.mw-pp-lines a { color: var(--mw-green); font-weight: 600; }
+.mw-pp-cost { display: flex; gap: 6px; align-items: center; font-size: .8rem; color: var(--mw-forest); margin: 8px 0 0; }
+.mw-pp-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.mw-pp-btns .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 9px; padding: 7px 14px; font-weight: 700; font-size: .8rem; }
+.mw-pp-btns .mw-rc-sk { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-300); border-radius: 9px; padding: 7px 12px; font-size: .8rem; }
+.mw-pp-btns button[disabled] { opacity: .6; cursor: wait; }
+.mw-oc { margin-top: 12px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 12px 14px; background: var(--mw-ink-0); }
+.mw-oc-prop { display: flex; gap: 12px; align-items: flex-start; background: var(--mw-light); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.mw-oc-sec { margin-top: 10px; font-size: .8rem; color: var(--mw-forest); }
+.mw-oc-sec ul { margin: 4px 0 2px; padding-left: 18px; }
+.mw-oc-sec small, .mw-oc-none { color: var(--mw-ink-500); font-size: .72rem; }
+.mw-oc-machine { border-top: 1px solid var(--mw-ink-200); padding: 7px 0; }
+.mw-oc-machine summary { cursor: pointer; font-weight: 600; font-size: .82rem; color: var(--mw-forest); overflow-wrap: anywhere; }
+.mw-oc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+.mw-oc-chip { font-size: .72rem; border-radius: 999px; padding: 2px 9px; background: var(--mw-light); color: var(--mw-dark); }
+.mw-oc-chip.is-soon { background: var(--mw-ink-0); border: 1px solid var(--mw-orange); color: var(--mw-orange); }
+.mw-oc-chip.is-due { background: var(--mw-orange); color: var(--mw-ink-0); font-weight: 700; }
+.mw-oc-iv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 7px 9px; margin: 6px 0; font-size: .78rem; }
+.mw-oc-iv input[type=text] { flex: 1 1 160px; min-width: 0; }
+.mw-oc-iv input[type=number] { width: 64px; }
+.mw-oc-iv input { border: 1px solid var(--mw-ink-300); border-radius: 6px; padding: 3px 6px; font-size: .78rem; }
+.mw-oc-iv .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 8px; padding: 4px 10px; font-weight: 700; }
+.mw-oc-iv .mw-rc-sk, .mw-oc-sds .mw-rc-sk { background: var(--mw-ink-0); border: 1px solid var(--mw-ink-300); border-radius: 8px; padding: 4px 10px; }
+.mw-oc-quote { flex-basis: 100%; font-style: italic; color: var(--mw-ink-500); font-size: .74rem; }
+.mw-oc-ask { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 6px; font-size: .75rem; }
+.mw-oc-ask input[type=file] { max-width: 100%; font-size: .74rem; }
+.mw-oc-ask .mw-bl-askbtn { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-green); border-radius: 9px; padding: 5px 11px; font-size: .78rem; font-weight: 600; }
+.mw-oc-ask .mw-bl-askbtn[disabled] { opacity: .55; }
+.mw-oc-sds { display: flex; gap: 6px; margin-top: 4px; }
+.mw-oc-sds input { flex: 1; min-width: 0; border: 1px solid var(--mw-ink-300); border-radius: 6px; padding: 3px 6px; font-size: .75rem; }
+.mw-lc-status { margin-top: 8px; font-size: .8rem; color: var(--mw-dark); text-align: center; }
+
+/* ══ Split a receipt by line (MwExpenseSplit, /crm/js/expense-split.js, migration 1233) ═══
+   Penny's card (.mw-rc-items) and the expense edit modal (#expSplitPanel). */
+.mw-split { margin-top: 8px; border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 8px 10px; background: var(--mw-ink-0); }
+.mw-split.is-on { border-color: var(--mw-green); background: var(--mw-light); }
+.mw-split-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.mw-split-toggle { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: .8rem; font-weight: 700; color: var(--mw-forest); cursor: pointer; }
+.mw-split-toggle input { accent-color: var(--mw-green); width: 15px; height: 15px; }
+.mw-split-hint { font-size: .74rem; color: var(--mw-dark); }
+.mw-split-rows { margin-top: 6px; }
+.mw-split-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .9fr) auto; gap: 6px; align-items: center;
+                padding: 6px 0; border-top: 1px solid var(--mw-ink-100); }
+.mw-split-name { min-width: 0; font-size: .8rem; font-weight: 600; color: var(--mw-forest); line-height: 1.25; overflow-wrap: anywhere; }
+.mw-split-name small { display: block; font-weight: 400; font-size: .7rem; color: var(--mw-ink-500); }
+.mw-split-in { width: 100%; min-width: 0; font: inherit; font-size: .78rem; color: var(--mw-forest); background: var(--mw-ink-0);
+               border: 1px solid var(--mw-ink-300); border-radius: 7px; padding: 4px 6px; }
+.mw-split-in:focus { outline: none; border-color: var(--mw-green); box-shadow: 0 0 0 2px var(--mw-light); }
+.mw-split-why { grid-column: 1 / -1; font-size: .7rem; color: var(--mw-ink-500); margin-top: -2px; }
+.mw-split-sum { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--mw-ink-100); font-size: .76rem; color: var(--mw-forest); }
+.mw-split-sum small { color: var(--mw-ink-500); }
+@media (max-width: 575.98px) {
+  .mw-split-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .mw-split-name { grid-column: 1 / -1; }
+}
