@@ -343,6 +343,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Usage:** `var state = MwExpenseSplit.render(el, data, { categories: [...], autoOn: true|false, state: previous, locked: bool })` with `data` from `/crm/api/expenses.php?action=split&id=N` (or Penny's queue item `.split`); send `MwExpenseSplit.value(state)` (null = send nothing) as `split` on `expenses.php` `update`, or `overrides.split` on Penny's `decide`. Both save through `ExpenseGate`.
 - **Used by:** Penny's receipt card (`bookkeeper-card.js`, loads the script itself) and the expense edit modal (`expenses_appstack.php`, `#expSplitPanel`).
 
+### Department heads on the crew app (My team / Penny's crew card)
+- **Page:** `public/crm/my-team.php` (standalone crew page — no AppStack, no `MW_CSRF_TOKEN`); **partials:** `includes/penny-crew-card.php` (Penny's face + her questions), `includes/penny-crew-badge.php` (face + count, on `homebase.php`); **JS:** `public/crm/js/crew-team.js`; **CSS:** `public/crm/css/crew-team.css` (`.ct-*`, after `tokens.css`); **API:** `/crm/api/penny-chase.php`; **Service:** `MissingReceiptService` (migration 1245).
+- **Purpose:** a head asks a crew member something directly. Penny: "Hi Nigel — Lawn Boy charged $84.00 on Oct 7 at 12:34. Do you have the receipt?" → Snap it (receipt camera with `penny_missing=N`) · It's already in (pick a recent receipt) · No receipt (reason). Capture-only: nothing approves or sends.
+- **Deep link:** `/crm/my-team.php?penny=missing&id=N` — what Penny's pushes carry as `data.url`; `MwNative.push.openFromData()` in `capacitor-bridge.js` opens it on a notification tap.
+- **Adding a head:** add `['slug' => …, 'include' => …]` to `$heads` in `my-team.php` and write its partial with the `.ct-head` markup. Use the CSRF refresh-and-retry in `crew-team.js` for its POSTs.
+
 ---
 
-**Total: 21 components documented.**
+**Total: 22 components documented.**

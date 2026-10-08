@@ -47,6 +47,17 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (statements): ' . $e->getMessage());
         }
+        // Card charges with no receipt that Penny is chasing (migration 1245).
+        try {
+            $mr = APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php';
+            if (is_file($mr)) {
+                require_once $mr;
+                $mrs = new MissingReceiptService($this->db);
+                if ($mrs->ready()) $brief = self::withItems($brief, $mrs->briefItems());
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (missing receipts): ' . $e->getMessage());
+        }
         // Product proposals from label photos and receipts — priority 3 (migration 1225).
         try {
             $pp = APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';

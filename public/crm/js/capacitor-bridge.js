@@ -1077,6 +1077,13 @@
                 PushNotifications.addListener('registrationError', function(err) {
                     console.warn('[MwNative] Push registration error:', err);
                 });
+                // Tap on a notification → open its deep link in the WebView (Penny's
+                // missing-receipt pushes carry data.url = /crm/my-team.php?penny=missing&id=N).
+                // The plugin retains a tap that launched the app until this listener exists,
+                // so a cold start lands here too. Same-origin paths only.
+                PushNotifications.addListener('pushNotificationActionPerformed', function(action) {
+                    window.MwNative.push.openFromData(action && action.notification && action.notification.data);
+                });
 
                 PushNotifications.requestPermissions().then(function(result) {
                     if (result.receive === 'granted') {
@@ -1097,6 +1104,16 @@
             reregister: function() {
                 if (!this._initialized || !PushNotifications) return;
                 PushNotifications.register();
+            },
+
+            /** Navigate to a push's data.url when it is a path on this site ("/crm/…"). */
+            openFromData: function(data) {
+                var url = data && typeof data.url === 'string' ? data.url : '';
+                if (!/^\/(?!\/)[^\s]*$/.test(url)) return false;
+                var here = window.location.pathname + window.location.search;
+                if (here === url) return false;
+                window.location.href = url;
+                return true;
             },
 
             _registerToken: function(token) {

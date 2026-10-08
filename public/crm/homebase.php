@@ -215,10 +215,11 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
+    <link href="/crm/css/crew-team.css?v=20261007a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20261002a" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261007p" defer></script>
     <style>
         :root {
             /* Brand colour + shared sizing tokens come from
@@ -564,6 +565,9 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
 
     <div class="hb-content">
 
+        <!-- ── Penny (department heads on the crew app) — only when she has a question ── -->
+        <?php include __DIR__ . '/includes/penny-crew-badge.php'; ?>
+
         <!-- ── Day Summary ───────────────────────────────────────────────── -->
         <div class="hb-card">
             <div class="hb-greeting">
@@ -769,6 +773,10 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             <a href="/crm/expenses_appstack.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
                 Expenses
+            </a>
+            <a href="/crm/my-team.php" class="hb-menu-nav-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                My team
             </a>
             <div class="hb-menu-divider"></div>
             <a href="/crm/profile.php" class="hb-menu-nav-item">

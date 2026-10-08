@@ -164,6 +164,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBrainService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennySelfAuditService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/MissingReceiptService.php';   // missing-receipt chaser (1245)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankRuleLearning.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDeskService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankGuidanceService.php';

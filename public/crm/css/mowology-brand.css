@@ -38763,6 +38763,32 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-penny-statements .mw-ps-gaps li.is-weak { color: var(--mw-ink-500); }
 .mw-penny-statements .mw-ps-note { margin-top: 3px; color: var(--mw-ink-500); }
 
+/* Penny: missing receipts strip + manage panel (includes/penny-missing-strip.php, js/penny-missing.js) */
+.mw-penny-missing { margin-top: 8px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-50); border-left: 3px solid var(--mw-green); border-radius: 8px; padding: 6px 10px; }
+.mw-penny-missing.is-bad { border-left-color: var(--mw-orange); }
+.mw-penny-missing .mw-pm-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.mw-penny-missing .mw-pm-k { font-weight: 600; color: var(--mw-forest); }
+.mw-penny-missing .mw-pm-ok { color: var(--mw-green); }
+.mw-penny-missing .mw-pm-warn { color: var(--mw-color-warning); font-weight: 600; }
+.mw-penny-missing .mw-pm-sep { color: var(--mw-ink-300); }
+.mw-penny-missing .mw-pm-link { margin-left: auto; background: none; border: 0; padding: 0; color: var(--mw-green); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.mw-penny-missing .mw-pm-note { margin-top: 3px; color: var(--mw-ink-500); }
+.mw-penny-missing .mw-pm-panel { margin-top: 8px; border-top: 1px solid var(--mw-ink-200); padding-top: 6px; }
+.mw-penny-missing .mw-pm-panel h4 { font-size: .78rem; font-weight: 700; color: var(--mw-forest); margin: 10px 0 4px; }
+.mw-penny-missing .mw-pm-sum { font-weight: 600; }
+.mw-penny-missing .mw-pm-msg { color: var(--mw-green); font-weight: 600; margin-bottom: 4px; }
+.mw-penny-missing .mw-pm-msg.is-bad { color: var(--mw-color-danger); }
+.mw-penny-missing .mw-pm-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.mw-penny-missing .mw-pm-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 0; border-bottom: 1px dashed var(--mw-ink-200); }
+.mw-penny-missing .mw-pm-what { font-weight: 600; }
+.mw-penny-missing .mw-pm-who { color: var(--mw-ink-500); flex: 1; min-width: 160px; }
+.mw-penny-missing .mw-pm-rules small { color: var(--mw-ink-500); }
+.mw-penny-missing .mw-pm-x { background: none; border: 0; padding: 0; color: var(--mw-color-danger); font-size: .72rem; cursor: pointer; margin-left: auto; }
+.mw-penny-missing .mw-pm-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mw-penny-missing .mw-pm-in, .mw-penny-missing .mw-pm-select { font-size: .78rem; padding: 3px 6px; border: 1px solid var(--mw-ink-300); border-radius: 6px; background: var(--mw-ink-0); }
+.mw-penny-missing .mw-pm-in-4 { width: 64px; }
+.mw-penny-missing .mw-pm-empty { color: var(--mw-ink-500); margin: 0; }
+
 /* Bank import page section */
 .mw-sc-table td, .mw-sc-table th { vertical-align: middle; font-size: .8rem; }
 .mw-sc-table .mw-sc-day { width: 64px; }

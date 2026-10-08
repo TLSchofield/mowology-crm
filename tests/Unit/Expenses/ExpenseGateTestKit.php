@@ -144,6 +144,7 @@ class ExpenseGateHooksSpy extends ExpenseGateHooks
 
     public function facts(int $expenseId): void { $this->hit('facts', [$expenseId]); }
     public function duplicates(int $expenseId): array { $this->hit('duplicates', [$expenseId]); return []; }
+    public function chase(int $expenseId): void { $this->hit('chase', [$expenseId]); }
     public function storeBaseline(int $expenseId, $ocrParsed): void { $this->hit('storeBaseline', [$expenseId]); }
     public function learnLines(int $expenseId, array $row, array $payload): void { $this->hit('learnLines', [$expenseId]); }
     public function learnLineOp(string $op, ?array $before, ?array $after, array $expense): void { $this->hit('learnLineOp', [$op, $before, $after]); }

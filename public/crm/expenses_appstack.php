@@ -1685,6 +1685,8 @@ async function submitReceiptExport() {
     const QUICK_MODE  = <?php echo $quickMode  ? 'true' : 'false'; ?>;
     const AUTO_CAMERA = <?php echo $autoCamera ? 'true' : 'false'; ?>;
     const RETURN_TO   = '<?php echo htmlspecialchars($returnTo); ?>';
+    // Snap it from Penny's crew card (/crm/my-team.php): the receipt answers this missing-receipt item.
+    const PENNY_MISSING = <?php echo (int)($_GET['penny_missing'] ?? 0); ?>;
     var lastJobSuggestions = []; // Stored from receipt-intake response
     var selectedJobSuggestion = null; // Currently selected job pill
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
@@ -5230,6 +5232,26 @@ async function submitReceiptExport() {
             haptic('save');
             mobileToast(d.deduplicated ? 'Already saved' : (andSend ? 'Saved & sent!' : 'Expense saved!'));
             saved = true;   // the button stays disabled until the batch buttons replace it
+
+            // Penny asked for this receipt: tell her which charge it answers, then back to her card.
+            if (PENNY_MISSING && d.expense_id) {
+                try {
+                    var pr = await fetch('/crm/api/penny-chase.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'attach', csrf_token: CSRF, id: PENNY_MISSING, expense_id: d.expense_id }),
+                    });
+                    var pd = await pr.json();
+                    if (pd && pd.ok) {
+                        mobileToast('Thanks — Penny has it');
+                        setTimeout(function() { window.location.href = '/crm/my-team.php?penny=missing&id=' + PENNY_MISSING; }, 900);
+                        return;
+                    }
+                    console.warn('[penny] attach refused:', pd && (pd.message || pd.error));
+                } catch (pe) {
+                    console.warn('[penny] attach failed — the receipt is saved; Penny matches it by amount and date', pe);
+                }
+            }
 
             // Batch mode: show "Snap Another" / "Done" instead of auto-resetting
             setTimeout(function() {
