@@ -137,6 +137,9 @@ function _av(string $webPath): string {
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 
+  <!-- "Booked another day — doing it now?" sheet (mw-pull-forward.js, loaded in the footer) -->
+  <link href="<?= _av('/crm/css/mw-pull-forward.css') ?>" rel="stylesheet">
+
   <!-- Feather Icons (self-hosted — no CDN dependency) -->
   <script src="<?= _av('/crm/js/feather.min.js') ?>"></script>
 

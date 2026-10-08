@@ -215,10 +215,22 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
+    <link href="/crm/css/mw-pull-forward.css?v=20261008b" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
-    <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-sync-status.js?v=20261008a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <script src="/crm/js/capacitor-bridge.js?v=20261002a" defer></script>
+    <?php
+    // On site where the visit is booked another day → "doing it now?" (CSRF via get-csrf.php).
+    // OFF unless ops_settings pull_forward_enabled / pull_forward_user_ids (migration 1276).
+    $__pfOn = false;
+    try {
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitPullForwardService.php';
+        $__pfOn = !empty($user['id']) && VisitPullForwardService::enabledFor(getDB(), (int)$user['id']);
+    } catch (Throwable $e) { $__pfOn = false; }
+    if ($__pfOn): ?>
+    <script src="/crm/js/mw-pull-forward.js?v=20261008b" defer></script>
+    <?php endif; unset($__pfOn); ?>
     <style>
         :root {
             /* Brand colour + shared sizing tokens come from

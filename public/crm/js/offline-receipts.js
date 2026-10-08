@@ -23,6 +23,7 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'pending-receipts';
     var db = null;
+    var _storeHealed = false;
     var _isSyncing = false; // re-entrancy guard — prevents syncNow ↔ updatePendingBadge infinite loop
 
     /**
@@ -44,7 +45,21 @@
             };
 
             request.onsuccess = function(e) {
-                db = e.target.result;
+                var opened = e.target.result;
+                if (!opened.objectStoreNames.contains(STORE_NAME)) {
+                    // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
+                    // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
+                    // transaction threw "One of the specified object stores was not found". It holds
+                    // nothing, so drop it and open again (once).
+                    opened.close();
+                    if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
+                    _storeHealed = true;
+                    var del = indexedDB.deleteDatabase(DB_NAME);
+                    del.onsuccess = function () { openDB().then(resolve, reject); };
+                    del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
+                    return;
+                }
+                db = opened;
                 resolve(db);
             };
 

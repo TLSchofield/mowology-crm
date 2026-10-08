@@ -632,6 +632,14 @@ class VisitLifecycleService
             ");
             $stmt->execute($params);
 
+            // The stop it left: remove it if nothing is left on it, or the old day shows an
+            // empty card (and Otto counts work that is not there).
+            $oldStopId = (int)($visit['stop_id'] ?? 0);
+            if ($oldStopId > 0 && $oldStopId !== (int)$newStopId) {
+                require_once __DIR__ . '/CalendarStopTidyService.php';
+                CalendarStopTidyService::deleteIfEmpty($db, $oldStopId);
+            }
+
             return true;
         } catch (Exception $e) {
             error_log("moveVisit error: " . $e->getMessage());

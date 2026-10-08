@@ -206,6 +206,16 @@ try {
             ");
             $updateStmt->execute([$nextDay, $newStopId, $visit['scheduled_date'], $visitId]);
 
+            // Remove the stop it left if nothing else is on it — otherwise yesterday keeps an
+            // empty card that the cleanup below only marks 'completed' (work that never happened).
+            $oldStopId = (int)($visit['stop_id'] ?? 0);
+            if ($oldStopId > 0 && $oldStopId !== (int)$newStopId) {
+                require_once APP_ROOT . '/Modules/Jobs/Services/CalendarStopTidyService.php';
+                if (CalendarStopTidyService::deleteIfEmpty($db, $oldStopId)) {
+                    $results['stops_removed'] = ($results['stops_removed'] ?? 0) + 1;
+                }
+            }
+
             // Log activity
             if (function_exists('logActivityExtended')) {
                 logActivityExtended(

@@ -16,6 +16,8 @@
  *   /crm/api/time-clock.php   — clock in / clock out
  *   /crm/api/pow-actions.php  — start visit / end visit / save data
  *   /crm/api/job-timer.php    — start timer / stop timer
+ *   /crm/api/visit-pull-forward.php?mode=accept — move an on-site visit to today
+ *                               (mw-pull-forward.js; replayed BEFORE its job-timer start)
  *
  * Usage (automatic — no manual init required):
  *   window.OfflineActions.syncNow()         — manually trigger replay
@@ -54,10 +56,13 @@
     var QUEUED_ENDPOINTS = [
         '/crm/api/time-clock.php',
         '/crm/api/pow-actions.php',
-        '/crm/api/job-timer.php'
+        '/crm/api/job-timer.php',
+        // Only the move — offer/dryrun are reads and must not be queued.
+        '/crm/api/visit-pull-forward.php?mode=accept'
     ];
 
     var _db = null;
+    var _storeHealed = false;
 
     // ── IndexedDB helpers ────────────────────────────────────────────────────────
 
@@ -76,7 +81,21 @@
             };
 
             req.onsuccess = function (e) {
-                _db = e.target.result;
+                var opened = e.target.result;
+                if (!opened.objectStoreNames.contains(STORE_NAME)) {
+                    // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
+                    // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
+                    // transaction threw "One of the specified object stores was not found". It holds
+                    // nothing, so drop it and open again (once).
+                    opened.close();
+                    if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
+                    _storeHealed = true;
+                    var del = indexedDB.deleteDatabase(DB_NAME);
+                    del.onsuccess = function () { openDB().then(resolve, reject); };
+                    del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
+                    return;
+                }
+                _db = opened;
                 resolve(_db);
             };
 
@@ -161,6 +180,7 @@
             if (body && body.action === 'stop')  return 'Stop Timer';
             return 'Job Timer';
         }
+        if (url.indexOf('visit-pull-forward') !== -1) return 'Move Visit to Today';
         return 'Action';
     }
 
@@ -195,6 +215,10 @@
             }
             // clock_out
             return Object.assign({}, base, { clocked_in: false });
+        }
+
+        if (url.indexOf('visit-pull-forward') !== -1) {
+            return Object.assign({}, base, { already: false, visit_id: body && body.visit_id });
         }
 
         // pow-actions: start_visit, end_visit, save_notes, etc.
