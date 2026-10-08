@@ -9,7 +9,8 @@
  *   green waste / cleanup / haul-away / debris work     → Disposal run     (fact run:dump:any)
  *
  * Price = the fact's median_cost rounded UP to the next $5, only when sample_n ≥ 3; otherwise
- * "not enough runs yet (n/3)". A suggestion only: Sam never adds a line. GST is added on top of the
+ * "not enough runs yet (n/3)". A suggestion only: Sam never adds a line. No "Material pickup" when a
+ * line was priced with Sam's mulch price ("Use $X/yd" — that price already holds the haul). GST is added on top of the
  * price at invoicing, never included in it. Skipped when the quote already has that line.
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -19,6 +20,8 @@ class TripLineSuggester
 {
     public const MIN_SAMPLE = 3;
     public const MATERIAL_WORDS = ['mulch', 'soil', 'compost', 'bark', 'garden mix', 'wood chip', 'gravel', 'sod'];
+    /** A line Tim priced with Sam's mulch price (MulchPricingService::SNAPSHOT_SOURCE in pricing_snapshot) already carries the pickup trip. */
+    public const SAM_PRICE_MARK = 'sam_mulch_price';
     public const DISPOSAL_WORDS = ['green waste', 'yard waste', 'cleanup', 'clean-up', 'clean up', 'haul', 'debris', 'disposal', 'dump'];
 
     public const RULES = [
@@ -61,6 +64,7 @@ class TripLineSuggester
             $t = self::label($l);
             if (strpos($t, 'material pickup') !== false) { $already['material_pickup'] = true; continue; }
             if (strpos($t, 'disposal run') !== false) { $already['disposal_run'] = true; continue; }
+            if (strpos((string)($l['pricing_snapshot'] ?? ''), self::SAM_PRICE_MARK) !== false) $already['material_pickup'] = true;
             $shown = trim((string)($l['service_type'] ?? '')) ?: trim((string)($l['description'] ?? ''));
             if (!isset($out['material_pickup']) && self::has($t, self::MATERIAL_WORDS)) $out['material_pickup'] = $shown;
             if (!isset($out['disposal_run']) && self::has($t, self::DISPOSAL_WORDS)) $out['disposal_run'] = $shown;
@@ -105,17 +109,18 @@ class TripLineSuggester
 
     public function lines(int $quoteId): array
     {
-        try {
-            $s = $this->db->prepare("
-                SELECT q.service_type, q.description, COALESCE(p.name, '') AS product_name
-                FROM quote_line_items q LEFT JOIN products p ON p.id = q.product_id
-                WHERE q.quote_id = ? ORDER BY q.sort_order, q.id
-            ");
-            $s->execute([$quoteId]);
-            return $s->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) {
-            return [];
+        foreach (['q.pricing_snapshot', 'NULL AS pricing_snapshot'] as $snap) {   // older schemas lack pricing_snapshot
+            try {
+                $s = $this->db->prepare("
+                    SELECT q.service_type, q.description, {$snap}, COALESCE(p.name, '') AS product_name
+                    FROM quote_line_items q LEFT JOIN products p ON p.id = q.product_id
+                    WHERE q.quote_id = ? ORDER BY q.sort_order, q.id
+                ");
+                $s->execute([$quoteId]);
+                return $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* try without the snapshot */ }
         }
+        return [];
     }
 
     /** Suggestions for a quote — empty when it has no material or waste work. */

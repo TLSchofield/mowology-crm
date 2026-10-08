@@ -302,4 +302,101 @@ class MulchPricingServiceTest extends TestCase
         $this->assertSame('sam', $a['head']);
         $this->assertStringContainsString("Sam can't price bark mulch for V6K yet", $a['answer']);   // empty database: says so, no guess
     }
+
+    // ── 2026-10-07 prod miss: 0 receipt lines because expenses has gst_amount / pst_amount, not tax_amount ──
+
+    /** SQLite with the PRODUCTION shape: no expenses.tax_amount; line items carry prod-only columns. */
+    private static function prodDb(): PDO
+    {
+        $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+        $db->exec("CREATE TABLE vendors (id INTEGER PRIMARY KEY, name TEXT)");
+        $db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, expense_date TEXT, vendor_id INT, vendor_name_raw TEXT, amount REAL,
+                    gst_amount REAL, pst_amount REAL, total REAL, status TEXT)");
+        $db->exec("CREATE TABLE expense_line_items (id INTEGER PRIMARY KEY, expense_id INT, product_id INT, name TEXT, quantity REAL DEFAULT 1,
+                    unit_price REAL, original_unit_price REAL, is_adjustment INT DEFAULT 0, line_total REAL, sku_raw TEXT, sort_order INT DEFAULT 0)");
+        $db->exec("INSERT INTO vendors VALUES (7, 'LAWNBOY')");
+        // Nigel's 2026-10-07 slip, waiting for approval: "Black Composted Bark Mulch" qty 2, total 80.00, no unit price
+        $db->exec("INSERT INTO expenses VALUES (413, '2026-10-07', 7, 'LAWNBOY', 80.00, 4.00, 0, 84.00, 'pending_approval')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (230, 413, NULL, 'Black Composted Bark Mulch', 2, NULL, 80.00)");
+        // The earlier identical $84 receipts — one approved, one draft whose single line holds the GST
+        $db->exec("INSERT INTO expenses VALUES (300, '2026-09-25', 7, 'LAWNBOY', 80.00, 4.00, 0, 84.00, 'approved')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (180, 300, NULL, 'CBM', 2, 40.00, 80.00)");
+        $db->exec("INSERT INTO expenses VALUES (120, '2026-04-08', NULL, 'Lawnboy Enterprises', 80.00, 4.00, 0, 84.00, 'draft')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (90, 120, NULL, 'composted bark 2 yd', 1, NULL, 84.00)");
+        // Never counted: a rejected duplicate and a discount line
+        $db->exec("INSERT INTO expenses VALUES (414, '2026-10-07', 7, 'LAWNBOY', 80.00, 4.00, 0, 84.00, 'rejected')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (231, 414, NULL, 'Black Composted Bark Mulch', 2, NULL, 80.00)");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total, is_adjustment) VALUES (232, 413, NULL, 'Bark mulch promo', 1, NULL, -5.00, 1)");
+        // Soil words
+        $db->exec("INSERT INTO expenses VALUES (500, '2026-06-01', NULL, 'Southlands Nursery', 105.00, 5.25, 0, 110.25, 'approved')");
+        $db->exec("INSERT INTO expense_line_items (id, expense_id, product_id, name, quantity, unit_price, line_total) VALUES (300, 500, NULL, 'Premium Topsoil', 3, 35.00, 105.00)");
+        return $db;
+    }
+
+    public function test_the_real_lawnboy_line_is_found_on_the_production_schema(): void
+    {
+        $svc = new MulchPricingService(self::prodDb());
+        $lines = $svc->receiptLines('mulch', [11]);
+        $this->assertSame([], $svc->readErrors);
+        $this->assertSame([232, 230, 180, 90], array_map(fn($l) => (int)$l['id'], $lines));   // rejected 231 never read
+        $m = MulchPricingService::material($lines, 40.0, 6);
+        $this->assertSame('receipts', $m['source']);
+        $this->assertSame(3, $m['n']);
+        $this->assertSame(40.0, $m['evidence'][0]['per_yard']);   // qty 2, $80, no unit → $40/yd
+        $this->assertSame(2.0, $m['evidence'][0]['qty']);
+        $this->assertSame('pending_approval', $m['evidence'][0]['status']);
+        $this->assertSame(40.0, $m['evidence'][2]['per_yard']);   // $84 tax-in line, "2 yd" in the name → GST out → $40
+        $this->assertTrue($m['evidence'][2]['gst_removed']);
+        $this->assertSame(40.0, $m['per_yard']);
+        $this->assertSame('discount / adjustment line', $m['excluded'][0]['why']);
+        $this->assertSame('LAWNBOY', $m['usual_vendor']);
+    }
+
+    public function test_approved_counts_double_and_rejected_never(): void
+    {
+        $l = fn(string $st, float $u, int $id) => self::line($id, '2026-10-0' . $id, 'Black Composted Bark Mulch', 2, $u, $u * 2, 'LAWNBOY', ['status' => $st]);
+        $m = MulchPricingService::material([$l('pending_approval', 50, 3), $l('approved', 40, 2), $l('rejected', 20, 1)], null, 6);
+        $this->assertSame(2, $m['n']);
+        $this->assertSame(40.0, $m['per_yard']);                  // weighted 40, 40, 50 → 40
+        $this->assertSame('receipt rejected', $m['excluded'][0]['why']);
+        $this->assertSame(0, MulchPricingService::weight('deleted'));
+        $this->assertSame(2, MulchPricingService::weight('approved'));
+    }
+
+    public function test_soil_words_and_the_twenty_to_120_band(): void
+    {
+        $this->assertSame('soil', MulchPricingService::family('Premium Topsoil'));
+        $this->assertSame('soil', MulchPricingService::family('Garden mix 3 yd'));
+        $this->assertSame('mulch', MulchPricingService::family('Composted bark'));
+        $this->assertSame('compost', MulchPricingService::family('Compost'));
+        $svc = new MulchPricingService(self::prodDb());
+        $this->assertSame(35.0, MulchPricingService::material($svc->receiptLines('soil', []), null)['per_yard']);
+        $odd = MulchPricingService::material([self::line(1, '2026-10-01', 'Bark mulch', 1, 125.0, 125.0)], null);
+        $this->assertSame('none', $odd['source']);                // $125 a "yard" is not a yard
+    }
+
+    public function test_coverage_counts_the_real_lines(): void
+    {
+        $db = self::prodDb();
+        $db->exec("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, sku TEXT, base_cost REAL, base_price REAL, is_archived INT DEFAULT 0)");
+        $db->exec("INSERT INTO products VALUES (11, 'Black Composted Bark Mulch', 'CBM', 40, 0, 0)");
+        $c = (new MulchPricingService($db))->coverage();
+        $this->assertSame(4, $c['materials']['mulch']['receipt_lines']);
+        $this->assertSame(3, $c['materials']['mulch']['usable']);
+        $this->assertSame(['pending_approval' => 2, 'approved' => 1, 'draft' => 1], $c['materials']['mulch']['by_status']);
+        $this->assertSame(1, $c['materials']['soil']['usable']);
+    }
+
+    public function test_a_line_using_sams_price_drops_the_material_pickup_suggestion(): void
+    {
+        $f = $this->fake();
+        $h = MulchPricingService::hint($f->breakdown(['property_id' => self::LARCH, 'family' => 'mulch']));
+        $this->assertStringContainsString('"source":"sam_mulch_price"', $h['snapshot']);
+        $lines = [['service_type' => 'Black mulch install', 'description' => 'Front beds']];
+        $this->assertSame(['material_pickup' => 'Black mulch install'], TripLineSuggester::needs($lines));
+        $lines[0]['pricing_snapshot'] = $h['snapshot'];
+        $this->assertSame([], TripLineSuggester::needs($lines));
+        $lines[] = ['service_type' => 'Fall cleanup', 'description' => 'green waste hauled away'];
+        $this->assertSame(['disposal_run' => 'Fall cleanup'], TripLineSuggester::needs($lines));   // disposal is still suggested
+    }
 }

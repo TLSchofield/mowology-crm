@@ -43,7 +43,7 @@
             + ' <span class="mw-mulch-hint-parts">(' + parts + ' = ' + money(h.cost_per_yard) + ' cost)</span></div>'
             + '<div class="mw-mulch-hint-sub">Minimum ' + money(h.minimum_charge) + ' for a small job · material: ' + esc(h.material_basis)
             + ' · haul: ' + esc(h.haul_basis || 'none');
-        if (h.includes_pickup) html += ' · includes the pickup trip, so no separate Material pickup line';
+        if (h.includes_pickup) html += ' · includes the pickup trip — using this price drops the separate Material pickup suggestion';
         html += '</div>';
         if (h.estimated && h.estimated.length) {
             html += '<div class="mw-mulch-hint-est">Assumed, not measured: ' + esc(h.estimated.join(', ')) + '</div>';
@@ -93,6 +93,8 @@
                         box.querySelector('.mw-mulch-hint-use').addEventListener('click', function () {
                             var i = parseInt(row.dataset.index, 10);
                             updateLineItem(i, 'unit_price', h.sell_per_yard);
+                            // Marks the line as Sam-priced: the price holds the pickup trip, so no "Material pickup" suggestion
+                            if (h.snapshot) updateLineItem(i, 'pricing_snapshot', h.snapshot);
                             var li = items()[i];
                             if (li && (!li.unit_type || li.unit_type === 'each')) updateLineItem(i, 'unit_type', 'yd');
                             recalculateLineTotal(i);

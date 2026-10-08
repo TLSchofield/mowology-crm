@@ -6,8 +6,9 @@
  *
  *   cost / yd   = material + haul + labour (+ disposal, only when asked)
  *     material  = median pre-tax unit cost of the last N receipt lines for that material
- *                 (expense_line_items, linked to the product or named like it; bagged lines and
- *                 junk outside $15–$150/yd are left out and listed). Falls back to products.base_cost.
+ *                 (expense_line_items, linked to the product or named like it; any status but rejected /
+ *                 deleted, approved counting double; bagged lines and junk outside $20–$120/yd are left
+ *                 out and listed). Falls back to products.base_cost.
  *                 A line that holds the GST (the lines add up to the receipt TOTAL) has the GST taken out.
  *     haul      = one round trip supplier ↔ the property, per load, ÷ yards per load:
  *                   1. real Otto trips (ops_trip_runs) to that supplier from / back to this property
@@ -44,8 +45,8 @@ class MulchPricingService
 {
     /** Material families, checked in this order ("composted bark mulch" is mulch, not compost). */
     public const FAMILIES = [
-        'mulch'   => ['label' => 'Bark mulch', 'words' => ['mulch', 'bark', 'cbm', 'wood chip', 'woodchip', 'hog fuel']],
-        'soil'    => ['label' => 'Soil',       'words' => ['soil', 'garden mix', 'triple mix', 'planting mix', 'lawn mix', 'top dress']],
+        'mulch'   => ['label' => 'Bark mulch', 'words' => ['mulch', 'bark', 'cbm', 'composted bark', 'wood chip', 'woodchip', 'hog fuel']],
+        'soil'    => ['label' => 'Soil',       'words' => ['soil', 'topsoil', 'top soil', 'garden mix', 'triple mix', 'planting mix', 'lawn mix', 'top dress']],
         'compost' => ['label' => 'Compost',    'words' => ['compost']],
     ];
 
@@ -67,8 +68,12 @@ class MulchPricingService
     ];
 
     /** Per-yard unit costs outside this band are not bulk yards (bags, delivery fees, OCR junk). */
-    public const UNIT_LOW = 15.0;
-    public const UNIT_HIGH = 150.0;
+    public const UNIT_LOW = 20.0;
+    public const UNIT_HIGH = 120.0;
+    /** Receipt statuses that count. Rejected / deleted never do; approved counts double in the median. */
+    public const STATUS_WEIGHT = ['approved' => 2, 'forwarded' => 2, 'pending_approval' => 1, 'submitted' => 1, 'draft' => 1, '' => 1];
+    /** Marks a quote line priced by Sam (quote_line_items.pricing_snapshot) — TripLineSuggester skips "Material pickup". */
+    public const SNAPSHOT_SOURCE = 'sam_mulch_price';
     /** Fallback when the Closer's hourly cost is not set — flagged. */
     public const FALLBACK_HOURLY = 45.0;
     public const DEFAULT_PER_KM = 0.70;   // TripCostService::DEFAULT_TRUCK_PER_KM
@@ -148,7 +153,10 @@ class MulchPricingService
                 'expense_id' => (int)($l['expense_id'] ?? 0), 'date' => (string)($l['expense_date'] ?? ''),
                 'vendor' => (string)($l['vendor'] ?? ''), 'name' => (string)($l['name'] ?? ''),
                 'qty' => round($u['qty'], 2), 'per_yard' => $u['unit'], 'gst_removed' => $u['gst_removed'],
+                'status' => (string)($l['status'] ?? ''),
             ];
+            if (self::weight($row['status']) === 0) { $row['why'] = 'receipt ' . $row['status']; $excluded[] = $row; continue; }
+            if (!empty($l['is_adjustment'])) { $row['why'] = 'discount / adjustment line'; $excluded[] = $row; continue; }
             if ($u['unit'] === null || $u['unit'] < $lo || $u['unit'] > $hi) {
                 $row['why'] = $u['unit'] === null ? 'no amount' : ($u['unit'] < $lo ? 'too cheap for a yard (bagged?)' : 'too dear for a yard (delivery / OCR?)');
                 $excluded[] = $row;
@@ -166,7 +174,9 @@ class MulchPricingService
         arsort($vendors);
         $usual = $vendors ? (string)array_key_first($vendors) : null;
         if ($used) {
-            return ['per_yard' => round((float)CostFactsService::median(array_column($used, 'per_yard')), 2), 'real' => true, 'source' => 'receipts',
+            $weighted = [];
+            foreach ($used as $r) for ($w = self::weight($r['status']); $w > 0; $w--) $weighted[] = $r['per_yard'];
+            return ['per_yard' => round((float)CostFactsService::median($weighted), 2), 'real' => true, 'source' => 'receipts',
                     'n' => count($used), 'evidence' => $used, 'excluded' => $excluded, 'gst_removed' => $gst, 'usual_vendor' => $usual];
         }
         if ($productCost !== null && $productCost > 0) {
@@ -223,6 +233,14 @@ class MulchPricingService
         $perLoad = round($labour + $truck, 2);
         return $out + ['per_load' => $perLoad, 'per_yard' => round($perLoad / $ypl, 2), 'labour' => $labour, 'truck' => $truck,
                        'yards_per_load' => $ypl, 'crew' => $crew];
+    }
+
+    /** Median weight of a receipt status: approved 2, waiting / draft 1, rejected / deleted / unknown-bad 0. */
+    public static function weight(string $status): int
+    {
+        $st = strtolower(trim($status));
+        if (in_array($st, ['rejected', 'deleted', 'duplicate', 'void'], true)) return 0;
+        return self::STATUS_WEIGHT[$st] ?? 1;
     }
 
     /** Spreading labour per yard. */
@@ -393,33 +411,50 @@ class MulchPricingService
         return [];
     }
 
+    /** Errors a reader swallowed (shown on ?mode=coverage so a silent [] can't hide a schema mismatch again). */
+    public array $readErrors = [];
+
     /**
-     * Receipt lines for a family, newest first: linked to one of its products, or unlinked and named like it.
-     * Rejected / deleted receipts are left out.
+     * Receipt lines for a family, newest first: linked to one of its products, or named like it.
+     * Every status except rejected / deleted (draft and pending_approval included). Line columns via li.*
+     * (prod has original_unit_price / is_adjustment / ocr_name that older schemas lack); the receipt's
+     * tax is gst_amount + pst_amount — there is NO tax_amount column on expenses (2026-10-07: selecting
+     * it threw, the catch returned [], and coverage said 0 lines).
      */
     public function receiptLines(string $family, array $productIds): array
     {
-        try {
-            $rows = $this->db->query("
-                SELECT li.id, li.expense_id, li.product_id, li.name, li.quantity, li.unit_price, li.line_total,
-                       e.expense_date, e.amount AS receipt_amount, e.tax_amount, e.total AS receipt_total,
-                       COALESCE(v.name, e.vendor_name_raw, '') AS vendor
-                FROM expense_line_items li
-                JOIN expenses e ON e.id = li.expense_id
-                LEFT JOIN vendors v ON v.id = e.vendor_id
-                WHERE (e.status IS NULL OR e.status NOT IN ('rejected', 'deleted'))
-                ORDER BY e.expense_date DESC, li.id DESC
-                LIMIT 1500
-            ")->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) {
-            return [];
+        $variants = [
+            "e.amount AS receipt_amount, (COALESCE(e.gst_amount, 0) + COALESCE(e.pst_amount, 0)) AS tax_amount, e.total AS receipt_total",
+            "e.amount AS receipt_amount, COALESCE(e.gst_amount, 0) AS tax_amount, e.total AS receipt_total",
+            "NULL AS receipt_amount, 0 AS tax_amount, e.total AS receipt_total",
+        ];
+        $rows = null;
+        foreach ($variants as $money) {
+            try {
+                $rows = $this->db->query("
+                    SELECT li.*, e.expense_date, e.status, {$money},
+                           COALESCE(v.name, e.vendor_name_raw, '') AS vendor
+                    FROM expense_line_items li
+                    JOIN expenses e ON e.id = li.expense_id
+                    LEFT JOIN vendors v ON v.id = e.vendor_id
+                    WHERE (e.status IS NULL OR e.status NOT IN ('rejected', 'deleted'))
+                    ORDER BY e.expense_date DESC, li.id DESC
+                    LIMIT 1500
+                ")->fetchAll(PDO::FETCH_ASSOC);
+                break;
+            } catch (Throwable $e) {
+                $this->readErrors[] = 'receiptLines: ' . $e->getMessage();
+                error_log('MulchPricing receiptLines: ' . $e->getMessage());
+            }
         }
+        if ($rows === null) return [];
         $sums = [];
         foreach ($rows as $r) $sums[(int)$r['expense_id']] = ($sums[(int)$r['expense_id']] ?? 0) + (float)$r['line_total'];
         $out = [];
         foreach ($rows as $r) {
+            $name = trim((string)($r['name'] ?? '') . ' ' . (string)($r['ocr_name'] ?? '') . ' ' . (string)($r['sku_raw'] ?? ''));
             $linked = $r['product_id'] !== null && in_array((int)$r['product_id'], $productIds, true);
-            $named = $r['product_id'] === null && self::family((string)$r['name']) === $family;
+            $named = self::family($name) === $family;
             if (!$linked && !$named) continue;
             $r['lines_sum'] = round($sums[(int)$r['expense_id']] ?? 0, 2);
             $out[] = $r;
@@ -696,6 +731,13 @@ class MulchPricingService
                 : $b['material']['source'],
             'haul_basis' => $b['haul']['note'] ?? '', 'haul_tier' => $b['haul']['tier'] ?? 'none',
             'includes_pickup' => ($b['haul']['per_yard'] ?? null) !== null,
+            // Stored on the quote line when Tim clicks "Use" — TripLineSuggester then skips "Material pickup".
+            'snapshot' => $b['sell_per_yard'] === null ? null : json_encode([
+                'source' => self::SNAPSHOT_SOURCE, 'family' => $b['product']['family'], 'where' => $b['location']['label'] ?? '',
+                'sell_per_yard' => $b['sell_per_yard'], 'cost_per_yard' => $b['cost_per_yard'], 'material' => $b['material']['per_yard'],
+                'haul' => $b['haul']['per_yard'] ?? null, 'labour' => $b['labour']['per_yard'],
+                'includes_pickup' => ($b['haul']['per_yard'] ?? null) !== null, 'priced_at' => date('Y-m-d'),
+            ]),
         ];
     }
 
@@ -735,7 +777,10 @@ class MulchPricingService
             $vendors = [];
             foreach ($m['evidence'] as $e) $vendors[$e['vendor']] = ($vendors[$e['vendor']] ?? 0) + 1;
             arsort($vendors);
-            $fam[$f] = ['products' => count($ids), 'receipt_lines' => count($lines), 'usable' => count($m['evidence']),
+            $statuses = [];
+            foreach ($lines as $l) { $k = (string)($l['status'] ?? ''); $statuses[$k] = ($statuses[$k] ?? 0) + 1; }
+            $fam[$f] = ['products' => count($ids), 'receipt_lines' => count($lines), 'usable' => count($m['evidence']), 'by_status' => $statuses,
+                        'sample' => array_slice($m['evidence'], 0, 5), 'excluded_sample' => array_slice($m['excluded'], 0, 5),
                         'excluded' => count($m['excluded']), 'linked' => count(array_filter($lines, fn($l) => $l['product_id'] !== null)),
                         'median_per_yard' => $m['per_yard'], 'vendors' => $vendors,
                         'newest' => $m['evidence'][0]['date'] ?? null, 'oldest' => $m['evidence'] ? end($m['evidence'])['date'] : null];
@@ -767,6 +812,7 @@ class MulchPricingService
             'rate_card' => ['hourly_cost' => $card['hourly_cost'] ?? null, 'target_margin_pct' => $card['target_margin_pct'] ?? null,
                             'kmh' => $card['kmh'] ?? null, 'detour' => $card['detour'] ?? null, 'flags' => $card['flags'] ?? []],
             'truck_cost_per_km' => $this->perKm(),
+            'read_errors' => array_values(array_unique($this->readErrors)),
         ];
     }
 }
