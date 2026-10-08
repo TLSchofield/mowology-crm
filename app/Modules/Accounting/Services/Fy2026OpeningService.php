@@ -41,14 +41,14 @@ class Fy2026OpeningService
     public const AS_OF = '2025-12-31';
     public const OPENING_DATE = '2026-01-01';
     public const SOURCE_TYPE = 'fy_opening';
-    public const SOURCE = 'Signed FS YE2025';
+    public const SOURCE = 'Signed FS YE2025 (Updated)';
     public const CENT = 0.005;
 
-    /** The filed figures (migration 1238 seeds the same numbers into fy_filed_balances). */
+    /** The filed figures (1238 seeded them; 1242 applied the Updated FS: $86,100 dividend cleared the shareholder loan, leaving $14 due TO the shareholder = -14 here). */
     public const FILED_2025 = [
         'cash' => 11017.00, 'ar' => 51948.00, 'income_tax_receivable' => 0.00, 'ppe' => 19035.00,
-        'due_from_shareholder' => 86086.00, 'ap' => 5848.00, 'due_to_government' => 16432.00,
-        'income_tax_payable' => 10454.00, 'loan' => 23886.00, 'share_capital' => 1.00, 'retained_earnings' => 111465.00,
+        'due_from_shareholder' => -14.00, 'ap' => 5848.00, 'due_to_government' => 16432.00,
+        'income_tax_payable' => 10454.00, 'loan' => 23886.00, 'share_capital' => 1.00, 'retained_earnings' => 25365.00,
     ];
 
     /** Filed balance-sheet line → chart accounts. */

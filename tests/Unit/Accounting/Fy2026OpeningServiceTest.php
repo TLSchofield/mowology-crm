@@ -88,13 +88,13 @@ final class Fy2026OpeningServiceTest extends TestCase
 
         // Retained earnings: line = filed − CRM 3200; correction = filed − implied.
         $re = $plan['retained'];
-        $this->assertSame(111465.0, $re['after']);
+        $this->assertSame(25365.0, $re['after']);
         $this->assertTrue($re['matches_filed']);
         $this->assertSame(26300.0, $re['crm_account']);
         $this->assertSame(26619.05, $re['closing_pl']);
         $this->assertSame(52919.05, $re['implied']);
-        $this->assertSame(85165.0, $re['adjustment']);
-        $this->assertSame(58545.95, $re['unexplained']);
+        $this->assertSame(-935.0, $re['adjustment']);
+        $this->assertSame(-27554.05, $re['unexplained']);
         // The per-line effects add up to the correction.
         $sum = 0.0;
         foreach ($plan['groups'] as $g => $grp) if ($grp['re_effect'] !== null) $sum += $grp['re_effect'];
@@ -147,12 +147,12 @@ final class Fy2026OpeningServiceTest extends TestCase
 
         $bs = (new ReportingService($db))->getBalanceSheet('2026-01-01');
         $this->assertTrue($bs['balances']);
-        $this->assertSame(168086.0, $bs['total_assets']);
+        $this->assertSame(81986.0, $bs['total_assets']);
         $this->assertSame(0.0, $bs['net_income'], '2025 closed');
         $codes = [];
         foreach (array_merge($bs['assets'], $bs['liabilities'], $bs['equity']) as $a) $codes[$a['code']] = $a['balance'];
-        $this->assertSame(111465.0, $codes['3200']);
-        $this->assertSame(86086.0, $codes['1300']);
+        $this->assertSame(25365.0, $codes['3200']);
+        $this->assertSame(-14.0, $codes['1300'], '$14 owed to the shareholder (Updated FS)');
         $this->assertSame(51948.0, $codes['1100']);
         $this->assertSame(23886.0, $codes['2610']);
         $this->assertSame(0.0, $codes['2600']);
