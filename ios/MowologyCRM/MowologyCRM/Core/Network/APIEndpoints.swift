@@ -213,6 +213,17 @@ enum APIEndpoint {
     /// Body: { action: "preview"|"create"|"send", ... }
     case scheduleInvoice
 
+    /// GET /api/expenses/penny-chase-mobile?mode=mine|recent|admin[&id=N] — Penny's missing-receipt
+    /// chaser (MissingReceiptService, migration 1245) (JWT).
+    case pennyChase(query: [URLQueryItem])
+
+    /// POST /api/expenses/penny-chase-mobile — { mode: attach|no_receipt|reassign, id, … } (JWT).
+    case pennyChaseAction
+
+    /// POST /api/jobs/visit-pull-forward?mode=offer|accept — "booked another day — doing it now?"
+    /// (VisitPullForwardService). Uses `mode`, not `action`: the /api/ rewrite owns `action`.
+    case visitPullForward(mode: String)
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -482,6 +493,19 @@ enum APIEndpoint {
 
         case .scheduleInvoice:
             return URL(string: "\(baseURLString)/schedule/invoice")
+
+        case .pennyChase(let query):
+            var components = URLComponents(string: "\(baseURLString)/expenses/penny-chase-mobile")
+            components?.queryItems = query
+            return components?.url
+
+        case .pennyChaseAction:
+            return URL(string: "\(baseURLString)/expenses/penny-chase-mobile")
+
+        case .visitPullForward(let mode):
+            var components = URLComponents(string: "\(baseURLString)/jobs/visit-pull-forward")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
         }
     }
 
@@ -550,7 +574,10 @@ enum APIEndpoint {
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
-             .scheduleInvoice: return true
+             .scheduleInvoice,
+             .pennyChase,
+             .pennyChaseAction,
+             .visitPullForward: return true
         }
     }
 
@@ -622,7 +649,11 @@ enum APIEndpoint {
              .recommendationAskSend,
              .scheduleJobPhoto,
              .fieldJobAction,
-             .scheduleInvoice: return "POST"
+             .scheduleInvoice,
+             .pennyChaseAction,
+             .visitPullForward: return "POST"
+
+        case .pennyChase: return "GET"
         }
     }
 }

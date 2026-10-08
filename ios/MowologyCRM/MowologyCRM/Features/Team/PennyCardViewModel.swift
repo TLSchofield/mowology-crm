@@ -49,6 +49,8 @@ final class PennyCardViewModel: ObservableObject {
 
     // MARK: - Customer billing mail routed to Penny (tasks for Tim — she never answers them)
     @Published private(set) var messages: [PennyMessage] = []
+    /// Read-only web-card lines: look-back, deposits matched to invoices, missing receipts.
+    @Published private(set) var lines: PennyLines?
     @Published var mailNote: String?
     @Published var mailNoteIsError = false
 
@@ -95,6 +97,7 @@ final class PennyCardViewModel: ObservableObject {
 
     private func apply(_ r: BookkeeperQueueResponse) {
         messages = r.messages
+        lines = r.lines
         queue = r.queue
         dupes = r.dupes
         categories = r.categories

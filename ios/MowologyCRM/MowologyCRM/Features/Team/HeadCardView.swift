@@ -30,7 +30,10 @@ struct HeadCardView: View {
                 if vm.head == "charlie" { askSection }
                 note
                 itemsSection(card)
-                if vm.head == "otto" { unpinnedSection }
+                if vm.head == "otto" {
+                    OttoDeskSection(vm: vm)
+                    unpinnedSection
+                }
                 if vm.head == "mia" { postSection }
             }
         }

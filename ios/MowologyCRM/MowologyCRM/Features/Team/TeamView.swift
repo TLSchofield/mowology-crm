@@ -38,6 +38,8 @@ struct TeamView: View {
 
     @ObservedObject var authSession: AuthSession
     @StateObject private var penny: PennyCardViewModel
+    /// Penny's missing-receipt chaser — everyone's open items + Reassign (penny-chase-mobile).
+    @StateObject private var chase: PennyChaseViewModel
     @StateObject private var sam: SamCardViewModel
     @StateObject private var otto: HeadCardViewModel
     @StateObject private var mia: HeadCardViewModel
@@ -53,13 +55,14 @@ struct TeamView: View {
     private static let cardAnchor = "mw-team-head-card"
 
     init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
-         teamAPI: TeamHeadAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
+         teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
          showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
         self.showsAccount = showsAccount
         let client = APIClient(authSession: authSession)
         let deskAPI = api ?? LiveBookkeeperDeskAPI(client: client)
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
+        _chase = StateObject(wrappedValue: PennyChaseViewModel(api: chaseAPI ?? LivePennyChaseAPI(client: client)))
         _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
         let heads = teamAPI ?? LiveTeamHeadAPI(client: client)
         _otto = StateObject(wrappedValue: HeadCardViewModel(head: "otto", api: heads, geocoder: geocoder))
@@ -97,6 +100,8 @@ struct TeamView: View {
                                 Spacer()
                                 if penny.isLoading && penny.hasLoaded { ProgressView() }
                             }
+                            PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
+                            PennyChaseAdminSection(vm: chase)
                             PennyCardView(vm: penny)
                         }
                     }
@@ -131,8 +136,9 @@ struct TeamView: View {
                     if !head.hasLoaded { await head.load() }
                 } else if selected == "sam" {
                     if !sam.hasLoaded { await sam.load() }
-                } else if !penny.hasLoaded {
-                    await penny.load()
+                } else {
+                    if !penny.hasLoaded { await penny.load() }
+                    if !chase.adminLoaded { await chase.loadAdmin() }
                 }
             }
             .onAppear { consumeHeadRoute() }
@@ -160,7 +166,10 @@ struct TeamView: View {
     }
 
     private func reload() async {
-        if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else { await penny.load() }
+        if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else {
+            await penny.load()
+            await chase.loadAdmin()
+        }
     }
 
     /// The shared head card's model for the selected face (nil for Penny and Sam).
