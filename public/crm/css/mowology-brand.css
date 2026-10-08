@@ -38574,6 +38574,8 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-ab-later { border: 0; background: none; padding: 0; font-size: .75rem; color: var(--mw-ink-500); text-decoration: underline; cursor: pointer; }
 .mw-ab-later:hover, .mw-ab-later:focus { color: var(--mw-forest); }
 .mw-ab-later:disabled { opacity: .5; cursor: default; }
+/* "Move to…" on a customer message (InboundRouteService) */
+.mw-ab-move { width: auto; max-width: 9.5rem; height: auto; padding: 1px 22px 1px 6px; font-size: .72rem; color: var(--mw-ink-500); }
 .mw-ab-more { font-size: .75rem; color: var(--mw-ink-500); padding-left: 4px; }
 .mw-ab-msg { margin: 6px 0 0; font-size: .78rem; color: var(--mw-ink-500); }
 .mw-ab-msg:empty { display: none; }

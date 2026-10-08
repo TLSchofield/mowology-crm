@@ -19,12 +19,23 @@
  *   - not automated (no-reply senders, bounces, out-of-office).
  * One item per contact: their latest such reply. A short "yes" ranks first (isYes()).
  *
- * Two lanes (2026-10-06, Yui — comms / client relations — took over client conversations):
- *   quote  — the reply talks about a quote / estimate / proposal (aboutQuote()): Sam's, shown
- *            on his card under "Replies waiting", kind quote_reply, key sam:reply:<contact>:<hash>;
- *   client — everything else: Yui's inbox, kind client_reply, key yui:reply:<contact>:<hash>.
- * Each reply is in exactly one lane, so it is never shown twice. A key "Handled" under
- * either prefix hides the reply (Sam's old dismissals keep counting after the move).
+ * Lanes, one per department head (2026-10-08 — InboundTopicClassifier decides; before that
+ * only quote/client existed, so a billing email could only land on Sam or Yui):
+ *   quote     — Sam: about a quote / estimate / new work, or a clear yes; kind quote_reply,
+ *               key sam:reply:<contact>:<hash> (his card's "Replies waiting");
+ *   client    — Yui: client conversations; kind client_reply, key yui:reply:…;
+ *   billing   — Penny: invoices, payments, EFT / direct deposit, forms …; kind billing_reply,
+ *               key penny:reply:… (InboundRouteService turns it into Penny's task);
+ *   ops       — Otto: scheduling and site issues; kind ops_reply, key otto:reply:…;
+ *   marketing — Mia: reviews, social, referrals; kind marketing_reply, key mia:reply:….
+ * The row's stamped head (sales_messages.head, migration 1280 — set at ingest, by Tim's
+ * "Move to…", or by the re-route) decides the lane; rows read before 1280 are classified on
+ * the fly. Each reply is in exactly one lane, so it is never shown twice. A key "Handled"
+ * under any prefix hides the reply; a row marked done (handled_at) is never shown.
+ * One item per contact for the conversation lanes (quote + client: the latest reply), plus one
+ * per contact for each of billing / ops / marketing. Sam's queue, Mia's campaign replies and Ask-first notes hide
+ * only the quote and client lanes — a billing email from a customer with an open quote is
+ * still Penny's.
  *
  * Read-only and cheap: Sam's and Yui's brief() call it for Charlie. "Handled" is Charlie's
  * act/dismiss for the key (Sam's card) or Yui's own handled log (passed in as $extraHidden).
@@ -36,15 +47,43 @@ class UnclaimedReplyService
     public const WINDOW_DAYS = 14;
     public const KEY_PREFIX = 'sam:reply:';
     public const YUI_PREFIX = 'yui:reply:';
+    /** lane => item key prefix */
+    public const LANE_PREFIX = [
+        'quote'     => 'sam:reply:',
+        'client'    => 'yui:reply:',
+        'billing'   => 'penny:reply:',
+        'ops'       => 'otto:reply:',
+        'marketing' => 'mia:reply:',
+    ];
+    /** head => lane */
+    public const HEAD_LANE = ['sam' => 'quote', 'yui' => 'client', 'penny' => 'billing', 'otto' => 'ops', 'mia' => 'marketing'];
+    /** lane => item kind */
+    public const LANE_KIND = ['quote' => 'quote_reply', 'client' => 'client_reply', 'billing' => 'billing_reply',
+                              'ops' => 'ops_reply', 'marketing' => 'marketing_reply'];
     public const QUOTE_CHARS = 60;
     /** isYes(): a message longer than this is not a "short" yes. */
     public const YES_MAX_CHARS = 200;
 
     private PDO $db;
+    private ?bool $routing = null;
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    /** Migration 1280: sales_messages.head / handled_at exist. */
+    public function routingReady(): bool
+    {
+        if ($this->routing === null) {
+            try {
+                $this->db->query('SELECT head, handled_at FROM sales_messages LIMIT 0');
+                $this->routing = true;
+            } catch (Throwable $e) {
+                $this->routing = false;
+            }
+        }
+        return $this->routing;
     }
 
     public function hasTable(string $t): bool
@@ -69,8 +108,10 @@ class UnclaimedReplyService
         if (!$this->hasTable('sales_messages')) return [];
         $from = date('Y-m-d H:i:s', strtotime($now) - self::WINDOW_DAYS * 86400);
 
+        $routed = $this->routingReady();
         $s = $this->db->prepare("
-            SELECT m.message_key, m.contact_id, m.channel, m.from_addr, m.subject, m.snippet, m.sent_at, c.first_name
+            SELECT m.message_key, m.contact_id, m.channel, m.from_addr, m.subject, m.snippet, m.sent_at, c.first_name"
+            . ($routed ? ", m.head, m.handled_at" : "") . "
             FROM sales_messages m
             JOIN contacts c ON c.id = m.contact_id
             WHERE m.direction = 'inbound' AND m.contact_id IS NOT NULL AND m.sent_at >= ?
@@ -161,7 +202,8 @@ class UnclaimedReplyService
         if (!$this->hasTable('charlie_items')) return [];
         try {
             $s = $this->db->prepare("SELECT item_key FROM charlie_items
-                                     WHERE (item_key LIKE 'sam:reply:%' OR item_key LIKE 'yui:reply:%')
+                                     WHERE (item_key LIKE 'sam:reply:%' OR item_key LIKE 'yui:reply:%' OR item_key LIKE 'penny:reply:%'
+                                            OR item_key LIKE 'otto:reply:%' OR item_key LIKE 'mia:reply:%')
                                        AND (dismissed_at IS NOT NULL OR snoozed_until > ?)");
             $s->execute([substr($now, 0, 10)]);
             return $s->fetchAll(PDO::FETCH_COLUMN);
@@ -188,24 +230,34 @@ class UnclaimedReplyService
         $mia = array_flip(array_map('intval', $ctx['mia'] ?? []));
         $hidden = array_flip($ctx['hidden'] ?? []);
 
-        // Latest reply per contact that no other net has, and that a person wrote.
+        // Latest reply per contact per lane that no other net has, and that a person wrote.
         $latest = [];
         foreach ($replies as $r) {
             $cid = (int)($r['contact_id'] ?? 0);
             $t = strtotime((string)($r['sent_at'] ?? ''));
             if ($cid <= 0 || $t === false || $t < $from) continue;
-            if (isset($sam[$cid]) || isset($mia[$cid])) continue;
+            if (!empty($r['handled_at'])) continue;
             if (self::isAutomated((string)($r['from_addr'] ?? ''), (string)($r['subject'] ?? ''), (string)($r['snippet'] ?? ''))) continue;
-            if (self::coveredByAsk($cid, (string)$r['sent_at'], $ctx['asks'] ?? [], $now)) continue;
-            if (!isset($latest[$cid]) || $t > $latest[$cid]['_t']) $latest[$cid] = $r + ['_t' => $t];
+            $lane = self::laneOf($r);
+            if ($lane === 'quote' || $lane === 'client') {
+                // Sam's queue, Mia's campaign list and Ask-first show conversations — never money or site issues.
+                if (isset($sam[$cid]) || isset($mia[$cid])) continue;
+                if (self::coveredByAsk($cid, (string)$r['sent_at'], $ctx['asks'] ?? [], $now)) continue;
+            }
+            // Sam/Yui conversation: the latest reply speaks for the earlier ones. Penny / Otto / Mia: their own item.
+            $lk = $cid . '|' . (($lane === 'quote' || $lane === 'client') ? 'conv' : $lane);
+            if (!isset($latest[$lk]) || $t > $latest[$lk]['_t']) $latest[$lk] = $r + ['_t' => $t, '_lane' => $lane];
         }
 
         $items = [];
-        foreach ($latest as $cid => $r) {
+        foreach ($latest as $r) {
+            $cid = (int)$r['contact_id'];
             if (self::answered($cid, (string)$r['sent_at'], $ctx)) continue;
             $mk = (string)$r['message_key'];
-            if (isset($hidden[self::key($cid, $mk, 'quote')]) || isset($hidden[self::key($cid, $mk, 'client')])) continue;
-            $lane = self::lane((string)($r['subject'] ?? ''), (string)($r['snippet'] ?? ''));
+            foreach (array_keys(self::LANE_PREFIX) as $l) {
+                if (isset($hidden[self::key($cid, $mk, $l)])) continue 2;
+            }
+            $lane = $r['_lane'];
             $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane);
         }
         usort($items, function ($a, $b) {
@@ -242,10 +294,35 @@ class UnclaimedReplyService
         return false;
     }
 
-    /** @param string $lane 'quote' (Sam) | 'client' (Yui) */
+    /** @param string $lane 'quote' (Sam) | 'client' (Yui) | 'billing' (Penny) | 'ops' (Otto) | 'marketing' (Mia) */
     public static function key(int $cid, string $messageKey, string $lane = 'quote'): string
     {
-        return ($lane === 'client' ? self::YUI_PREFIX : self::KEY_PREFIX) . $cid . ':' . substr(sha1($messageKey), 0, 12);
+        return (self::LANE_PREFIX[$lane] ?? self::KEY_PREFIX) . $cid . ':' . substr(sha1($messageKey), 0, 12);
+    }
+
+    /** The lane an item key belongs to, or null. */
+    public static function laneOfKey(string $key): ?string
+    {
+        foreach (self::LANE_PREFIX as $lane => $p) {
+            if (strpos($key, $p) === 0) return $lane;
+        }
+        return null;
+    }
+
+    /**
+     * Whose reply is it? The head stamped on the row (ingest, Tim's "Move to…", the re-route);
+     * a row read before migration 1280 is classified now (InboundTopicClassifier, no learned rules).
+     */
+    public static function laneOf(array $r): string
+    {
+        $h = strtolower((string)($r['head'] ?? ''));
+        if (isset(self::HEAD_LANE[$h])) return self::HEAD_LANE[$h];
+        if (!class_exists('InboundTopicClassifier')) {
+            require_once dirname(__DIR__, 2) . '/Comms/Services/InboundTopicClassifier.php';
+        }
+        $d = InboundTopicClassifier::classify(['from' => (string)($r['from_addr'] ?? ''), 'subject' => (string)($r['subject'] ?? ''),
+                                               'snippet' => (string)($r['snippet'] ?? '')]);
+        return self::HEAD_LANE[$d['head']] ?? 'client';
     }
 
     /**
@@ -389,7 +466,7 @@ class UnclaimedReplyService
             . '. ' . ($yes ? ($lane === 'quote' ? 'That\'s a yes. Send the quote.' : 'That\'s a yes. Answer them.') : 'Answer them.');
         return [
             'key'        => $key,
-            'kind'       => $lane === 'client' ? 'client_reply' : 'quote_reply',
+            'kind'       => self::LANE_KIND[$lane] ?? 'quote_reply',
             'value'      => null,
             'since'      => date('Y-m-d', (int)$r['_t']),
             'text'       => $text,

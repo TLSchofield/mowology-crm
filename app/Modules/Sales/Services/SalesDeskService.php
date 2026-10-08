@@ -196,13 +196,23 @@ class SalesDeskService
 
         if ($this->hasTable('sales_messages')) {
             foreach ($this->db->query("
-                SELECT contact_id,
-                       MAX(CASE WHEN direction = 'inbound' THEN sent_at END) AS last_in,
-                       MAX(CASE WHEN direction = 'outbound' THEN sent_at END) AS last_out
-                FROM sales_messages WHERE contact_id IN ({$in}) GROUP BY contact_id
+                SELECT contact_id, MAX(sent_at) AS last_out
+                FROM sales_messages WHERE contact_id IN ({$in}) AND direction = 'outbound' GROUP BY contact_id
             ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $out[(int)$r['contact_id']]['last_in'] = $r['last_in'];
                 $out[(int)$r['contact_id']]['last_out'] = $r['last_out'];
+            }
+            // "They wrote back" counts only mail that is Sam's (or a plain conversation): a billing
+            // email, a site issue or a review routed to Penny / Otto / Mia is not a reply to a quote
+            // (2026-10-08: VML's "EFT Direct deposit form" made Sam say they were waiting on him).
+            $routed = true;
+            try { $this->db->query('SELECT head, head_source FROM sales_messages LIMIT 0'); } catch (Throwable $e) { $routed = false; }
+            foreach ($this->db->query("
+                SELECT contact_id, sent_at, from_addr, subject, snippet" . ($routed ? ", head, head_source" : "") . "
+                FROM sales_messages WHERE contact_id IN ({$in}) AND direction = 'inbound'
+            ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (!self::countsAsSamReply($r)) continue;
+                $cid = (int)$r['contact_id'];
+                if ($out[$cid]['last_in'] === null || (string)$r['sent_at'] > (string)$out[$cid]['last_in']) $out[$cid]['last_in'] = $r['sent_at'];
             }
             foreach ($this->db->query("
                 SELECT contact_id, direction, channel, subject, snippet, sent_at
@@ -387,6 +397,28 @@ class SalesDeskService
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Does this inbound message make a quote card "they replied, you haven't"?
+     *   - routed to Sam: yes;
+     *   - routed to Yui by the rules (a plain conversation — "any news?"): yes, as before;
+     *     moved to Yui by Tim or the re-route: no — he said it isn't Sam's;
+     *   - routed to Penny / Otto / Mia: no;
+     *   - read before migration 1280 (no head): classified now (InboundTopicClassifier).
+     */
+    public static function countsAsSamReply(array $r): bool
+    {
+        $head = strtolower((string)($r['head'] ?? ''));
+        if ($head === '') {
+            if (!class_exists('InboundTopicClassifier')) require_once dirname(__DIR__, 2) . '/Comms/Services/InboundTopicClassifier.php';
+            $head = InboundTopicClassifier::classify(['from' => (string)($r['from_addr'] ?? ''), 'subject' => (string)($r['subject'] ?? ''),
+                                                      'snippet' => (string)($r['snippet'] ?? '')])['head'];
+            return $head === 'sam' || $head === 'yui';
+        }
+        if ($head === 'sam') return true;
+        if ($head === 'yui') return !in_array((string)($r['head_source'] ?? ''), ['moved', 'reroute'], true);
+        return false;
+    }
 
     /** The name Sam calls the owner: first name, else the first word of the full name. */
     public static function ownerName(array $user): string

@@ -64,6 +64,10 @@ class BankInvoiceMatchService
             $payerNames['Interac email from'] = $sender;
             foreach ($this->learnedPayers($sender) as $p) $payerNames['You\'ve recorded ' . $sender . ' paying for'] = $p;
         }
+        // A bank memo that names its payer ("VML EFT …" → Vancouver Management Ltd, migration 1284).
+        foreach (self::memoPayers((string)$line['description'], $this->memoPayerRows()) as $p) {
+            $payerNames['The bank memo is from'] = $payerNames['The bank memo is from'] ?? $p;
+        }
 
         $recorded = self::pickRecorded($this->unlinkedPayments($date), $amount, $date, $email ? (int)$email['id'] : null);
         $legacy   = $recorded ? [] : $this->legacyPaid($amount, $date);
@@ -327,6 +331,36 @@ class BankInvoiceMatchService
         ");
         $s->execute([$amount, $date, $date, $date]);
         return array_map(fn($r) => $r + ['how' => 'paid directly on the invoice ' . $r['paid_on']], $s->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /** bank_memo_payers rows (migration 1284) — [] before it runs. */
+    private function memoPayerRows(): array
+    {
+        try {
+            return $this->db->query('SELECT pattern, payer_name FROM bank_memo_payers')->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Pure: the payers a bank memo names, by whole-word pattern ("VML", "VANCOUVER MANAGEMENT"),
+     * case-insensitive, longest pattern first. Separators in the memo (VML-EFT, VML*EFT) count as spaces.
+     * @param array<int, array{pattern: string, payer_name: string}> $rows
+     * @return string[]
+     */
+    public static function memoPayers(string $memo, array $rows): array
+    {
+        $memo = ' ' . strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', ' ', $memo)) . ' ';
+        usort($rows, fn($a, $b) => strlen((string)$b['pattern']) <=> strlen((string)$a['pattern']));
+        $out = [];
+        foreach ($rows as $r) {
+            $p = trim(strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', ' ', (string)$r['pattern'])));
+            $name = trim((string)$r['payer_name']);
+            if ($p === '' || $name === '' || in_array($name, $out, true)) continue;
+            if (strpos($memo, ' ' . $p . ' ') !== false) $out[] = $name;
+        }
+        return $out;
     }
 
     /** Payers this sender has been recorded paying for. */

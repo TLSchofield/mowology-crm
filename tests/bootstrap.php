@@ -58,6 +58,10 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
+// Inbound mail → the right department head (billing → Penny, "Move to…" teaches; 2026-10-08)
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundTopicClassifier.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundAttachmentService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundRouteService.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 

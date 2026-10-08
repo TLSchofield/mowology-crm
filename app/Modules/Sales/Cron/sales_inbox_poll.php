@@ -120,6 +120,14 @@ foreach ($folders as $folder) {
                 if ($svc->lastDirection === 'inbound') {
                     $sig = SalesInboxService::signature($raw);
                     if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
+                    // Billing mail routed to Penny keeps its PDF / photo (a direct-deposit form, FT_PEEK) — nothing else does.
+                    if ($svc->lastHead === 'penny') {
+                        $st = @imap_fetchstructure($mbox, $no);
+                        foreach ($st ? ImapReader::attachments($st) : [] as $a) {
+                            $bytes = ImapReader::fetchPart($mbox, $no, $a['pn'], $a['encoding']);
+                            if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
+                        }
+                    }
                 }
             }
             $counts[$res]++;

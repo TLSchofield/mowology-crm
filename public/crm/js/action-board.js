@@ -6,6 +6,9 @@
  * the page, or it's slow), the board asks /crm/api/charlie.php?mode=today itself.
  * Buttons call Charlie's own actions so he keeps learning: Open → what:'open' then go;
  * Not now → what:'snooze' (back tomorrow) and the row leaves.
+ * Move to… (customer messages only — any head's reply, Sam's "they replied" card) posts to
+ * /crm/api/inbound-route.php {mode: move}: the message goes to that head and the sender + topic
+ * is learned (InboundRouteService, 2026-10-08), and the row leaves.
  */
 (function () {
     'use strict';
@@ -31,6 +34,8 @@
         house:   { name: 'Charlie', face: 'charlie', role: 'Foreman' }
     };
     var PER_COL = 3;     // items shown under each head before "+N more"
+    var ROUTE_API = '/crm/api/inbound-route.php';
+    var MOVE_TO = ['penny', 'sam', 'otto', 'mia', 'yui'];
 
     var items = [];
     var gone = {};
@@ -74,6 +79,20 @@
             .then(function (r) { return r.json(); });
     }
 
+    /** A customer message (a reply in any head's lane, or Sam's "they replied" card) can be moved. */
+    function movable(key) {
+        return /^(sam|yui|penny|otto|mia):reply:\d+:[0-9a-f]{12}$/.test(key) || /^sam:contact:c\d+$/.test(key);
+    }
+    function moveMenu(it) {
+        var here = headKey(it.head);
+        var opts = MOVE_TO.filter(function (h) { return h !== here; }).map(function (h) {
+            return '<option value="' + h + '">' + esc(HEADS[h].name) + ' · ' + esc(HEADS[h].role) + '</option>';
+        }).join('');
+        return '<select class="custom-select custom-select-sm mw-ab-move" data-ab-move aria-label="Move this message to another head"'
+            + ' title="Wrong head? Move it — next time mail like this from the same sender goes there.">'
+            + '<option value="">Move to…</option>' + opts + '</select>';
+    }
+
     function row(it, first) {
         var u = safeUrl(it.url);
         var w = waited(it);
@@ -82,6 +101,7 @@
             +   '<div class="mw-ab-foot">'
             +     (w ? '<span class="mw-ab-wait" title="How long this has been waiting">' + esc(w) + '</span>' : '<span></span>')
             +     '<span class="mw-ab-acts">'
+            +       (movable(String(it.key)) ? moveMenu(it) : '')
             +       '<button type="button" class="mw-ab-later" data-ab-snooze title="Bring it back tomorrow">Not now</button>'
             +       (u ? '<a class="btn btn-sm btn-primary mw-ab-go" href="' + esc(u) + '" data-ab-open>' + esc(label(it)) + '</a>' : '')
             +     '</span>'
@@ -191,5 +211,31 @@
                 })
                 .then(function () { busy = false; });
         }
+    });
+
+    // "Move to…" on a customer message: it goes to that head and Charlie's team learns the sender.
+    list.addEventListener('change', function (e) {
+        var sel = e.target.closest('[data-ab-move]');
+        if (!sel || !sel.value) return;
+        var li = sel.closest('.mw-ab-row');
+        var key = li && li.getAttribute('data-key');
+        if (!key || busy) { sel.value = ''; return; }
+        busy = true;
+        sel.disabled = true;
+        fetch(ROUTE_API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                           body: JSON.stringify({ mode: 'move', key: key, to: sel.value, csrf_token: window.MW_CSRF_TOKEN || '' }) })
+            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (!r || r.ok === false) throw new Error((r && (r.message || r.error)) || 'not moved');
+                gone[key] = true;
+                msg.textContent = r.message || 'Moved.';
+                render();
+            })
+            .catch(function (err) {
+                sel.disabled = false;
+                sel.value = '';
+                msg.textContent = (err && err.message && err.message !== 'not moved') ? err.message : 'That didn\'t move. Try again.';
+            })
+            .then(function () { busy = false; });
     });
 })();

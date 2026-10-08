@@ -39,6 +39,8 @@ crm/backup/
 /app/Storage/cache/trackimo_token.json
 /app/Storage/cache/trackimo_last_position.json
 /app/Storage/logs/trackimo.log
+# Customer billing-mail attachments kept for Penny (InboundAttachmentService) — customer data, never in git
+/app/Storage/inbound-attachments/
 
 # OS files
 .DS_Store

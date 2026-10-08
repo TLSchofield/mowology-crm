@@ -12,6 +12,9 @@
  * POST {mode: 'draft_reply', card_key | reply_key}   Claude, Tim's tap only, daily-capped
  * POST {mode: 'handled', key}                         a waiting reply → Charlie's act/dismiss
  * POST {mode: 'answer', question_id, answer: lost|keep|won}
+ * POST {mode: 'move', key | card_key, to: penny|sam|otto|mia|yui}
+ *                                                     "Move to…" (admins): InboundRouteService::move —
+ *                                                     re-routes the message and learns sender + topic.
  *
  * Auth: Authorization: Bearer <jwt>; admin/manager role or the billing.edit permission
  * (no CSRF token: there is no session). Nothing sends without Tim's tap.
@@ -194,6 +197,17 @@ try {
                 $res = $f->desk->act($key, 'dismiss');
             }
             echo json_encode($res);
+            break;
+        }
+
+        case 'move': {
+            // "Move to…" on a waiting reply (key sam:reply:…) or a "they replied" card (card_key c<id>):
+            // the message goes to Penny / Otto / Mia / Yui and the sender + topic is learned (InboundRouteService).
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtIsAdmin($jwtUser['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Admins only']); break; }
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+            $key = !empty($input['card_key']) ? 'sam:contact:' . substr((string)$input['card_key'], 0, 40) : substr((string)($input['key'] ?? ''), 0, 120);
+            echo json_encode((new InboundRouteService($db))->move(['key' => $key], (string)($input['to'] ?? ''), (int)$user['id']));
             break;
         }
 

@@ -76,7 +76,35 @@ class CharlieBriefService
             require_once __DIR__ . '/HouseBriefAdapter.php';
             return (new HouseBriefAdapter())->brief($n);
         };
-        return $out;
+        return self::withRoutedMail($out, $db);
+    }
+
+    /**
+     * Customer mail routed to Penny, Otto or Mia (InboundRouteService, 2026-10-08: a billing
+     * email used to land on Sam) joins that head's brief. Sam's and Yui's replies are already in
+     * theirs. A failure costs only these items, never the head's brief.
+     */
+    private static function withRoutedMail(array $sources, PDO $db): array
+    {
+        if (!defined('APP_ROOT') || !is_file(APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php')) return $sources;
+        $route = null;
+        foreach (['penny', 'otto', 'mia'] as $head) {
+            if (!isset($sources[$head])) continue;
+            $fn = $sources[$head];
+            $sources[$head] = static function (string $n) use ($fn, $head, $db, &$route) {
+                $b = $fn($n);
+                if (!is_array($b)) return $b;   // ask() reports it as failed
+                try {
+                    require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+                    $route = $route ?? new InboundRouteService($db);
+                    $b = InboundRouteService::mergeBrief($b, $route->briefItems($head));
+                } catch (Throwable $e) {
+                    error_log("Charlie: {$head} routed mail: " . $e->getMessage());
+                }
+                return $b;
+            };
+        }
+        return $sources;
     }
 
     /**

@@ -18,6 +18,9 @@
  *                                                       post_decide (publish posts to Google; live mode only).
  * POST {mode: 'ask', question}                          Charlie answers from CRM data (CharlieAskService,
  *                                                       daily-capped, Tim's tap only).
+ * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a routed message (InboundRouteService):
+ *                                                       re-routes it and learns sender + topic → head.
+ * POST {mode: 'done', key}                              The routed message leaves every list.
  *
  * Items are the dashboard Action Board's column for that head: Charlie's ranked today() view
  * (the same call /crm/api/charlie.php?mode=today makes), via TeamCardService::column().
@@ -169,6 +172,19 @@ try {
             }
             // Exactly the web's POST mia-channels.php {mode: post_decide}.
             echo json_encode($ch->decidePost((int)($input['id'] ?? 0), $what, (int)$user['id'], isset($input['body']) ? (string)$input['body'] : null));
+            break;
+        }
+
+        case 'move':
+        case 'done': {
+            // "Move to…" / "Done" on a routed message (keys yui|otto|mia|penny|sam:reply:…) — InboundRouteService.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+            $route = new InboundRouteService($db);
+            $ref = ['key' => substr((string)($input['key'] ?? ''), 0, 120)];
+            echo json_encode($mode === 'move'
+                ? $route->move($ref, (string)($input['to'] ?? ''), (int)$user['id'])
+                : $route->done($ref, (int)$user['id']));
             break;
         }
 

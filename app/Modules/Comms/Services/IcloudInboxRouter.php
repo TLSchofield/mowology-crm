@@ -744,6 +744,14 @@ class IcloudInboxRouter
                     if ($svc->lastDirection === 'inbound') {
                         $sig = SalesInboxService::signature($plainText);
                         if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
+                        // Billing mail routed to Penny keeps its PDF / photo (a direct-deposit form) — nothing else does.
+                        if ($svc->lastHead === 'penny') {
+                            $st = $structure();
+                            foreach ($st ? ImapReader::attachments($st) : [] as $a) {
+                                $bytes = $imap->fetchPart($conn, $no, $a['pn'], $a['encoding']);
+                                if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
+                            }
+                        }
                     }
                 }
                 return $out + [$res === 'stored' ? 'stored' : 'dupe' => 1];
