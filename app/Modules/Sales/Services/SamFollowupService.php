@@ -103,6 +103,7 @@ class SamFollowupService
     /** The suggested follow-up for one card from SalesDeskService::queue(). */
     public function draft(array $card, string $owner): array
     {
+        require_once dirname(__DIR__, 2) . '/Quotes/Services/QuoteService.php';
         $key = in_array($card['template'] ?? '', self::TEMPLATE_KEYS, true) ? $card['template'] : 'first_nudge';
         $vars = self::vars($card, $owner);
         [$subject, $body, $sms] = self::TEMPLATES[$key];
@@ -115,7 +116,11 @@ class SamFollowupService
         return [
             'template'   => $key,
             'drafted_by' => $by,
-            'subject'    => self::fill($subject, $vars),
+            // Every quote email names the property in its subject (owner rule 2026-10-08);
+            // 'multi' covers several addresses and lists them in the body instead.
+            'subject'    => $key === 'multi' || ($vars['{place}'] ?? '') === 'your property'
+                ? self::fill($subject, $vars)
+                : QuoteService::subjectWithAddress(self::fill($subject, $vars), $vars['{place}'] ?? ''),
             'body'       => self::fill($body, $vars),
             'sms'        => $smsText,
         ];

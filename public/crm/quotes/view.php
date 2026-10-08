@@ -131,6 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     '{{customer_first_name}}' => $firstName,
                     '{{customer_name}}'       => $customerName ?: 'Valued Customer',
                     '{{quote_number}}'        => $quote['quote_number'],
+                    '{{property_address}}'    => (string)($quote['property_address'] ?? ''),
                     '{{quote_amount}}'        => formatCurrency($quote['amount']),
                     '{{quote_valid_until}}'   => formatDate($quote['valid_until']),
                     '{{company_name}}'        => $companyInfo['company_name'],
@@ -138,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
 
                 $tpl          = loadEmailTemplate('quote_sent', $tplVars);
-                $emailSubject = $tpl['subject'];
+                $emailSubject = QuoteService::subjectWithAddress((string)$tpl['subject'], $quote['property_address'] ?? '');
                 $isContract   = !empty($quote['is_contract']);
                 $emailBody    = EmailWrapper::wrap(
                     $tpl['body_html'] . ($isContract

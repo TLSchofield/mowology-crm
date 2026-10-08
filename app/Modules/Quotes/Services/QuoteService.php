@@ -513,6 +513,22 @@ class QuoteService
     }
 
     /**
+     * Every quote email subject names the property (owner rule 2026-10-08): a
+     * property manager receiving a dozen quotes must tell them apart from the
+     * inbox. Appended only when the editable template subject doesn't already
+     * contain the address.
+     */
+    public static function subjectWithAddress(string $subject, ?string $address): string
+    {
+        $subject = trim($subject);
+        $address = trim((string)$address);
+        if ($address === '' || stripos($subject, $address) !== false) {
+            return $subject;
+        }
+        return $subject === '' ? $address : $subject . ' - ' . $address;
+    }
+
+    /**
      * The block a contract quote's email carries below the template text.
      *
      * A contract quote is the seasonal agreement itself, and signing it online
