@@ -16,7 +16,7 @@
  * month's last payday, 2026 only, never into a locked month:
  *   DR 5100 Labour — Crew Wages              gross wages
  *   DR 5110 Employer CPP & EI                employer EI + CPP + CPP2
- *   CR 2510 Source deductions payable — CRA  employee withholdings + employer share
+ *   CR 2310 Source deductions payable — CRA  employee withholdings + employer share
  *   CR 2520 Net pay clearing — Wave          net pay
  *   (+ the shareholder sweep, below)
  *
@@ -24,12 +24,12 @@
  * ("WAVE PYRL", every pay run) and employees are paid by e-Transfer. Both sat on 5100 as
  * wages, so wages were counted twice once this entry exists. The match moves them (Penny
  * proposes, Tim approves; BankLineMoveService = reversal + repost):
- *   WAVE PYRL debits            → 2510 (subset that adds up to the month's remittance)
+ *   WAVE PYRL debits            → 2310 (subset that adds up to the month's remittance)
  *   e-Transfers to an employee  → 2520 (subset that adds up to that employee's net)
  *   WAVE payroll fee charges    → 6800 Bank Charges & Fees
  *   the shareholder's transfers to himself in the month → 2520, and the part beyond his
  *     net pay is swept DR 1300 Due from Shareholder / CR 2520 (a shortfall the other way)
- * After booking, 2510 and 2520 should be ~0 for the month; what isn't is shown for Tim.
+ * After booking, 2310 and 2520 should be ~0 for the month; what isn't is shown for Tim.
  *
  * Also: hours per pay period against the CRM time clock (read only), and Penny's brief item
  * "<Month> payroll report not imported" from the 5th.
@@ -47,7 +47,7 @@ class WavePayrollImportService
 {
     public const ACC_WAGES = '5100';
     public const ACC_EMPLOYER = '5110';
-    public const ACC_SOURCE_DEDUCTIONS = '2510';
+    public const ACC_SOURCE_DEDUCTIONS = '2310';
     public const ACC_NET_PAY = '2520';
     public const ACC_SHAREHOLDER = LedgerService::ACC_DUE_FROM_SH;   // 1300
     public const ACC_FEES = '6800';
@@ -499,7 +499,7 @@ class WavePayrollImportService
     }
 
     /**
-     * What 2510 / 2520 hold for the month once the entry and the ticked moves are booked
+     * What 2310 / 2520 hold for the month once the entry and the ticked moves are booked
      * (credit balances; ~0 is right).
      */
     public static function clearing(array $totals, array $moves, ?array $sh, ?array $tickedIds = null): array

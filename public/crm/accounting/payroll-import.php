@@ -57,7 +57,7 @@ $isAdmin    = isAdmin();
     <div class="card mw-card mb-3">
         <div class="card-header"><h5 class="card-title mb-0">The accountant's clearing</h5></div>
         <div class="card-body">
-            <p class="small text-muted mb-2">When the accountant clears the shareholder balance (a dividend or a bonus declared after the year end), enter it here from their figures — Penny doesn't guess it. Dividend: DR 3400 Dividends Declared / CR 1300. Bonus: DR 5100 wages (amount + withholdings) / CR 2510 withholdings / CR 1300.</p>
+            <p class="small text-muted mb-2">When the accountant clears the shareholder balance (a dividend or a bonus declared after the year end), enter it here from their figures — Penny doesn't guess it. Dividend: DR 3400 Dividends Declared / CR 1300. Bonus: DR 5100 wages (amount + withholdings) / CR 2310 withholdings / CR 1300.</p>
             <form id="pi-clearing" class="row g-2 align-items-end">
                 <div class="col-sm-6 col-lg-2">
                     <label class="form-label small mb-1" for="pi-cl-type">Type</label>

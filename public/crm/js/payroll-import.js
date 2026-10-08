@@ -142,7 +142,7 @@
         if (booked) {
             h += movesTable((r.booked_moves || []).map(function (m) { return { id: m.id, date: (m.date || '').slice(0, 10), description: m.description, role: m.role, employee: m.employee, amount: Number(m.amount), from: '', to: 'moved', already: false }; }), r.id, false);
             var c = r.clearing_ledger || {};
-            h += '<p class="small mt-2 mb-0">This month on the books: 2510 Source deductions <span class="' + cls(c.source_deductions) + '">' + money(c.source_deductions)
+            h += '<p class="small mt-2 mb-0">This month on the books: 2310 Source deductions <span class="' + cls(c.source_deductions) + '">' + money(c.source_deductions)
                 + '</span> · 2520 Net pay clearing <span class="' + cls(c.net_pay) + '">' + money(c.net_pay) + '</span> (credit balance moved this month; ~$0 is right).</p>';
         } else if (p) {
             h += matchSummary(p) + movesTable(p.moves, r.id, !r.bookable);
@@ -163,7 +163,7 @@
         return h + '</div></div></div>';
     }
 
-    /** Live: what 2510 / 2520 hold for the month with the current ticks. */
+    /** Live: what 2310 / 2520 hold for the month with the current ticks. */
     function updateClearing(runId) {
         var r = (data.runs || []).filter(function (x) { return x.id === runId; })[0];
         var el = $('pi-clear-' + runId);
@@ -179,7 +179,7 @@
         var sweep = r.proposal.shareholder && sh > 0 ? sh - r.proposal.shareholder.net : 0;
         var sd = r.totals.remittance - remit;
         var np = r.totals.net - net - sh + sweep;
-        el.innerHTML = 'After booking: 2510 Source deductions <span class="' + cls(sd) + '">' + money(sd) + '</span> · 2520 Net pay clearing <span class="' + cls(np) + '">'
+        el.innerHTML = 'After booking: 2310 Source deductions <span class="' + cls(sd) + '">' + money(sd) + '</span> · 2520 Net pay clearing <span class="' + cls(np) + '">'
             + money(np) + '</span>' + (sweep ? ' · ' + money(sweep) + ' to 1300 Due from Shareholder' : '') + ' (what\'s left owing for the month; ~$0 is right — anything else is for you to look at).';
     }
 

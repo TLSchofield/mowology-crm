@@ -141,7 +141,7 @@ final class WavePayrollImportServiceTest extends TestCase
         foreach ($e['lines'] as $l) $by[$l['account']] = [$l['debit'], $l['credit']];
         $this->assertEquals([5000.0, 0], $by['5100']);
         $this->assertEquals([318.14, 0], $by['5110']);
-        $this->assertEquals([0, 1383.24], $by['2510']);
+        $this->assertEquals([0, 1383.24], $by['2310']);
         $this->assertEquals([0, 3934.9], $by['2520']);
     }
 
@@ -185,7 +185,7 @@ final class WavePayrollImportServiceTest extends TestCase
         foreach ($r['moves'] as $mv) $this->assertTrue($mv['checked']);
         $to = array_column($r['moves'], 'to', 'id');
         ksort($to);
-        $this->assertSame([1 => '2510', 2 => '2510', 3 => '2520', 4 => '2520', 5 => '2520', 6 => '2520', 7 => '2520', 8 => '6800'], $to);
+        $this->assertSame([1 => '2310', 2 => '2310', 3 => '2520', 4 => '2520', 5 => '2520', 6 => '2520', 7 => '2520', 8 => '6800'], $to);
     }
 
     public function testRemittanceThatDoesNotAddUpIsOfferedUnticked(): void
@@ -223,6 +223,16 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertTrue(WavePayrollImportService::nameMatches('E-TFR JANE D', $all[2], $all), 'unique first name');
         $this->assertNull(WavePayrollImportService::subsetSum([1 => 10.0, 2 => 20.0], 25.0));
         $this->assertEqualsCanonicalizing([1, 2], WavePayrollImportService::subsetSum([1 => 10.0, 2 => 20.0, 3 => 50.0], 30.0));
+    }
+
+    public function testACodeNamedForSomethingElseIsRefused(): void
+    {
+        $ok = ['5100' => 'Labour — Crew Wages', '5110' => 'Employer CPP & EI', '2310' => 'Source deductions payable — CRA',
+               '2520' => 'Net pay clearing — Wave', '1300' => 'Due from Shareholder', '6800' => 'Bank Charges & Fees'];
+        $this->assertSame([], WavePayrollImportService::accountProblems($ok));
+        $p = WavePayrollImportService::accountProblems(['2310' => 'Income Tax Payable'] + $ok);
+        $this->assertCount(1, $p, 'income tax payable (2510 on prod) is never used for source deductions');
+        $this->assertSame('2310', WavePayrollImportService::ACC_SOURCE_DEDUCTIONS);
     }
 
     public function testBriefFromTheFifthWhenLastMonthIsMissing(): void
@@ -281,12 +291,12 @@ final class WavePayrollImportServiceTest extends TestCase
         // Wages counted once: 5100 holds the payroll entry's gross and nothing from the bank.
         $net = $this->net($db);
         $this->assertSame(5000.0, $net[$this->acct($db, '5100')]);
-        $this->assertSame(0.0, $net[$this->acct($db, '2510')] ?? 0.0, 'remittance cleared');
+        $this->assertSame(0.0, $net[$this->acct($db, '2310')] ?? 0.0, 'remittance cleared');
         $this->assertSame(0.0, $net[$this->acct($db, '2520')] ?? 0.0, 'net pay cleared');
         $this->assertSame(1213.5, $net[$this->acct($db, '1300')]);
         $this->assertSame(61.6, $net[$this->acct($db, '6800')]);
         $this->assertSame(0.0, round(array_sum($net), 2), 'the journal balances');
-        $this->assertSame('2510', $this->codeOf($db, 1));
+        $this->assertSame('2310', $this->codeOf($db, 1));
         $this->assertSame('transfer', $db->query("SELECT type FROM accounting_transactions WHERE id = 1")->fetchColumn());
 
         $this->assertFalse($svc->approve($runId, $ticks, 1)['ok'], 'booked once');
@@ -358,7 +368,7 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertTrue($b['ok'], $b['message']);
         $net = $this->net($db);
         $this->assertSame(4343.24, $net[$this->acct($db, '5100')], 'bonus gross $1,250 on top of the $3,093.24 of bank lines');
-        $this->assertSame(-250.0, $net[$this->acct($db, '2510')]);
+        $this->assertSame(-250.0, $net[$this->acct($db, '2310')]);
     }
 
     // ── SQLite fixture ──────────────────────────────────────────────────────
@@ -404,7 +414,7 @@ final class WavePayrollImportServiceTest extends TestCase
         $db = method_exists(PDO::class, 'connect') ? PDO::connect('sqlite::memory:') : new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         BankLineMoveServiceTest::schema($db);
-        foreach ([[20, '5110', 'Employer CPP & EI', 'expense'], [21, '2510', 'Source deductions payable — CRA', 'liability'],
+        foreach ([[20, '5110', 'Employer CPP & EI', 'expense'], [21, '2310', 'Source deductions payable — CRA', 'liability'],
                   [22, '2520', 'Net pay clearing — Wave', 'liability'], [23, '1300', 'Due from Shareholder', 'asset'],
                   [24, '3400', 'Dividends Declared', 'equity'], [25, '6800', 'Bank Charges & Fees', 'expense'],
                   [26, '3300', "Owner's Draw", 'equity'], [27, '3900', 'Opening Balance Equity', 'equity'], [28, '5200', 'Materials', 'expense']] as $a) {

@@ -6,9 +6,10 @@
 --   the shareholder's own transfers beyond his net pay, his repayments, personal charges, and the
 --   accountant's clearing (dividend or bonus) of the filed $86,086 opening balance.
 -- Accounts (each created only when the code is missing; an existing code is never renamed —
---   the page refuses to book if a code is named for something else):
+--   the page refuses to book if a code is named for something else). 2510 is taken by
+--   Income Tax Payable (migration 1238), so source deductions are 2310 beside 2300 PST:
 --     5110 Employer CPP & EI                (expense, beside 5100)
---     2510 Source deductions payable — CRA  (liability)
+--     2310 Source deductions payable — CRA  (liability)
 --     2520 Net pay clearing — Wave          (liability)
 --     1300 Due from Shareholder             (asset — LedgerService::ACC_DUE_FROM_SH, seeded by 1066)
 --     3400 Dividends Declared               (equity)
@@ -23,9 +24,9 @@ FROM (SELECT parent_id FROM chart_of_accounts WHERE code = '5100' ORDER BY id LI
 WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '5110') x);
 
 INSERT INTO chart_of_accounts (code, name, type, sub_type, normal_balance, parent_id, is_system, is_active, display_order, description)
-SELECT '2510', 'Source deductions payable — CRA', 'liability', 'gov_payable', 'credit', p.parent_id, 0, 1, 251, 'Payroll withholdings + employer CPP/EI owed to CRA; Wave remits it (WAVE PYRL debits)'
+SELECT '2310', 'Source deductions payable — CRA', 'liability', 'gov_payable', 'credit', p.parent_id, 0, 1, 231, 'Payroll withholdings + employer CPP/EI owed to CRA; Wave remits it (WAVE PYRL debits)'
 FROM (SELECT parent_id FROM chart_of_accounts WHERE code = '2100' ORDER BY id LIMIT 1) p
-WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '2510') x);
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '2310') x);
 
 INSERT INTO chart_of_accounts (code, name, type, sub_type, normal_balance, parent_id, is_system, is_active, display_order, description)
 SELECT '2520', 'Net pay clearing — Wave', 'liability', NULL, 'credit', p.parent_id, 0, 1, 252, 'Net pay owed to employees until their e-Transfers go out; ~0 each month'
@@ -42,7 +43,7 @@ SELECT '3400', 'Dividends Declared', 'equity', NULL, 'debit', p.parent_id, 0, 1,
 FROM (SELECT parent_id FROM chart_of_accounts WHERE code = '3200' ORDER BY id LIMIT 1) p
 WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '3400') x);
 
-UPDATE chart_of_accounts SET is_active = 1 WHERE code IN ('5110', '2510', '2520', '1300', '3400') AND is_active = 0;
+UPDATE chart_of_accounts SET is_active = 1 WHERE code IN ('5110', '2310', '2520', '1300', '3400') AND is_active = 0;
 
 -- ── Payroll runs: one per month (status preview → booked; undo puts it back to preview) ──
 CREATE TABLE IF NOT EXISTS payroll_runs (
@@ -162,4 +163,4 @@ CREATE TABLE IF NOT EXISTS shareholder_clearings (
 INSERT IGNORE INTO ops_settings (setting_key, setting_value, description)
 VALUES ('shareholder_filed_opening', '86086.00', 'Due from Shareholder per the filed FY2025 balance sheet (2025-12-31)');
 
-SELECT code, name, type FROM chart_of_accounts WHERE code IN ('1300', '1500', '2510', '2520', '3400', '5100', '5110', '6800') ORDER BY code;
+SELECT code, name, type FROM chart_of_accounts WHERE code IN ('1300', '1500', '2310', '2520', '3400', '5100', '5110', '6800') ORDER BY code;

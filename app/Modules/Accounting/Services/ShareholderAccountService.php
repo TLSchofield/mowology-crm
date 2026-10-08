@@ -11,7 +11,7 @@
  *   - the accountant's clearing of the opening balance (filed FS: $86,086 at 2025-12-31) —
  *     ONE entry from Tim's / the accountant's figures, never guessed:
  *       dividend: DR 3400 Dividends Declared / CR 1300
- *       bonus:    DR 5100 wages (amount + withholdings) / CR 2510 withholdings / CR 1300 amount
+ *       bonus:    DR 5100 wages (amount + withholdings) / CR 2310 withholdings / CR 1300 amount
  *   - the running balance by month, from the journal (1300 lines), with the year-end flag:
  *     a balance still owed at Dec 31 has tax consequences (CRA s.15(2)) — talk to the accountant.
  *
