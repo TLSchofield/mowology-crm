@@ -14,13 +14,23 @@
  * Permission checks (expenses.approve) stay in each caller, since the session vs JWT
  * checks (userHasPermission() vs jwtUserHasPermission()) are auth-mechanism-specific.
  */
+require_once __DIR__ . '/ExpenseGate.php';
+
 class ExpenseApprovalService
 {
     private PDO $db;
+    /** @var ExpenseGate|null the expense gate (migration 1233) — tests pass a spy */
+    private $gate;
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, $gate = null)
     {
         $this->db = $db;
+        $this->gate = $gate;
+    }
+
+    private function gate(): ExpenseGate
+    {
+        return $this->gate ?? ($this->gate = new ExpenseGate($this->db));
     }
 
     /** The creator can't approve their own expense unless Team management exempts them. */
@@ -40,7 +50,7 @@ class ExpenseApprovalService
      * @return array ['success' => bool, 'message' => string]
      * @throws Exception if the expense doesn't exist or the caller created it (self-approval)
      */
-    public function approve(int $expenseId, array $currentUser): array
+    public function approve(int $expenseId, array $currentUser, array $opts = []): array
     {
         if (!$expenseId) {
             throw new Exception('Expense ID required');
@@ -70,19 +80,15 @@ class ExpenseApprovalService
             throw new Exception('Cannot approve your own expense');
         }
 
-        $stmt = $this->db->prepare("
-            UPDATE expenses SET
-                status = 'approved',
-                approved_by = ?,
-                approved_at = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([$currentUser['id'], $expenseId]);
-
-        // Approval is the moment the receipt's values are confirmed — teach the parser
-        // from capture baseline vs approved values, once. Never blocks the approval.
-        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-        learnFromConfirmedExpense($this->db, $expenseId);
+        // Through the expense gate: the audited 'approve' transition. Approval is the moment
+        // the receipt's values are confirmed — the gate teaches the parser from the capture
+        // baseline vs the approved values, once (learnFromConfirmedExpense), and audits it.
+        $this->gate()->apply($expenseId, [
+            'status' => 'approved', 'approved_by' => (int)$currentUser['id'], 'approved_at' => 'now',
+        ], ['id' => (int)$currentUser['id'], 'kind' => 'user'], (string)($opts['source'] ?? 'approval'), [
+            'transition' => 'approve',
+            'learn_baseline' => $opts['learn_baseline'] ?? null,
+        ]);
 
         return ['success' => true, 'message' => 'Expense approved'];
     }
@@ -94,7 +100,7 @@ class ExpenseApprovalService
      * @return array ['success' => bool, 'message' => string]
      * @throws Exception if the expense doesn't exist or no reason was given
      */
-    public function reject(int $expenseId, array $currentUser, string $reason): array
+    public function reject(int $expenseId, array $currentUser, string $reason, array $opts = []): array
     {
         if (!$expenseId) {
             throw new Exception('Expense ID required');
@@ -112,15 +118,11 @@ class ExpenseApprovalService
             throw new Exception('Expense not found');
         }
 
-        $stmt = $this->db->prepare("
-            UPDATE expenses SET
-                status = 'rejected',
-                approved_by = ?,
-                approved_at = NOW(),
-                rejection_reason = ?
-            WHERE id = ?
-        ");
-        $stmt->execute([$currentUser['id'], $reason, $expenseId]);
+        // Through the expense gate: the audited 'reject' transition (a posted receipt's entry
+        // is reversed — append-only).
+        $this->gate()->apply($expenseId, [
+            'status' => 'rejected', 'approved_by' => (int)$currentUser['id'], 'approved_at' => 'now', 'rejection_reason' => $reason,
+        ], ['id' => (int)$currentUser['id'], 'kind' => 'user'], (string)($opts['source'] ?? 'approval'), ['transition' => 'reject']);
 
         // Notify the expense creator via activity log
         try {

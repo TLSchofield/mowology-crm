@@ -79,93 +79,29 @@ try {
         error_log('Anomaly detection error: ' . $e->getMessage());
     }
 
-    $db   = getDB();
+    $db = getDB();
+    // Through the expense gate (migration 1233): the insert, its line items, the printed
+    // facts, the duplicate check, the capture baseline + line-item lessons (when OCR'd),
+    // line prices and the audit row — the same door as the desktop save.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
     try {
-    $stmt = $db->prepare("
-        INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
-             accounting_category, gbp_category, payment_method, receipt_media_id,
-             receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-             job_id, property_id, contact_id, notes, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    $stmt->execute([
-        $expenseDate,
-        !empty($input['vendor_id'])       ? (int)$input['vendor_id']       : null,
-        $input['vendor_name_raw']         ?? null,
-        $input['description']             ?? null,
-        (float)($input['amount']          ?? 0),
-        (float)($input['gst_amount']      ?? 0),
-        (float)($input['pst_amount']      ?? 0),
-        $total,
-        $input['accounting_category']     ?? null,
-        $input['gbp_category']            ?? null,
-        $input['payment_method']          ?? null,
-        !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        !empty($input['receipt_lat'])      ? (float)$input['receipt_lat']    : null,
-        !empty($input['receipt_lng'])      ? (float)$input['receipt_lng']    : null,
-        (int)($input['match_confidence']  ?? 0),
-        $anomalyFlags ?: null,
-        $anomalyScore,
-        $input['raw_ocr_json']            ?? null,
-        !empty($input['job_id'])          ? (int)$input['job_id']           : null,
-        !empty($input['property_id'])     ? (int)$input['property_id']      : null,
-        !empty($input['contact_id'])      ? (int)$input['contact_id']       : null,
-        $input['notes']                   ?? null,
-        $status,
-        $userId,
-    ]);
-    $expenseId = (int)$db->lastInsertId();
+        $ocrd = !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']);
+        $created = (new ExpenseGate($db))->apply(null, ExpenseGate::rowFromInput($input, [
+            'expense_date'  => $expenseDate,
+            'total'         => $total,
+            'anomaly_flags' => $anomalyFlags ?: null,
+            'anomaly_score' => $anomalyScore,
+            'status'        => $status,
+            'created_by'    => $userId,
+        ]) + (!empty($input['line_items']) && is_array($input['line_items']) ? ['line_items' => $input['line_items']] : []),
+            ['id' => $userId, 'kind' => 'user'], 'ios_save', [
+            'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
+            'learn_lines' => $ocrd ? $input : null,
+            'price_intel' => true,
+        ]);
+        $expenseId = (int)$created['expense_id'];
     } finally {
         $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
-    }
-
-    // Line-item provenance ('ocr' | 'vision' | 'llm' | 'manual') — column arrives with
-    // migration 1115; never fatal before it runs.
-    if (!empty($input['line_items_source'])) {
-        try {
-            $db->prepare("UPDATE expenses SET line_items_source = ? WHERE id = ?")
-               ->execute([substr((string)$input['line_items_source'], 0, 20), $expenseId]);
-        } catch (Throwable $e) { /* pre-migration */ }
-    }
-
-    // Save line items if the OCR/review payload included them
-    if (!empty($input['line_items']) && is_array($input['line_items'])) {
-        require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
-        saveLineItems($db, $expenseId, $input['line_items']);
-
-        if (!empty($input['vendor_id'])) {
-            try {
-                require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
-                recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
-            } catch (Throwable $e) {
-                error_log('Price intelligence error: ' . $e->getMessage());
-            }
-        }
-    }
-
-    // Printed facts (time, ticket #, card) from the OCR text — receipt_facts, migration 1227.
-    if (!empty($input['raw_ocr_json'])) {
-        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
-        ReceiptFactsService::refreshQuietly($db, (int)$expenseId);
-    }
-
-    // Self-learning: keep the capture baseline for header lessons at approval time, and
-    // record the review sheet's line-item corrections now (see expenses.php handleCreate).
-    if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
-        try {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            storeCaptureBaseline($db, (int)$expenseId, $input['ocr_parsed']);
-            recordLineItemLessons(
-                $db,
-                !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                $input['vendor_name_raw'] ?? null,
-                $input,
-                (int)$expenseId
-            );
-        } catch (Throwable $e) {
-            error_log('OCR learning error: ' . $e->getMessage());
-        }
     }
 
     // "Save & Send" — same one-tap flow as the Android review card (mobileSaveExpense(true)

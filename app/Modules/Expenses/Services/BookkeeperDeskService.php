@@ -38,10 +38,28 @@ class BookkeeperDeskService
     private PDO $db;
     private ?ReceiptBookkeeperService $bookkeeper;
 
-    public function __construct(PDO $db, ?ReceiptBookkeeperService $bookkeeper = null)
+    /** @var ExpenseGate|null the one door for expense changes (migration 1233) — tests pass a spy */
+    private $gate;
+
+    public function __construct(PDO $db, ?ReceiptBookkeeperService $bookkeeper = null, $gate = null)
     {
         $this->db = $db;
         $this->bookkeeper = $bookkeeper;
+        $this->gate = $gate;
+    }
+
+    private function gate(): ExpenseGate
+    {
+        return $this->gate ?? ($this->gate = new ExpenseGate($this->db));
+    }
+
+    /**
+     * The card's "Split by line" value: null = not sent (leave the split as it is), [] = split
+     * off, else the per-line choices. Accepts the array or its JSON (the card's hidden field). Pure.
+     */
+    public static function splitChoices(array $overrides): ?array
+    {
+        return array_key_exists('split', $overrides) ? ExpenseSplitService::choices($overrides['split']) : null;
     }
 
     private function bookkeeper(): ReceiptBookkeeperService
@@ -226,9 +244,25 @@ class BookkeeperDeskService
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
                 // The owner's saved-but-not-approved edits, if any — the form reopens with them.
                 'saved_draft'   => (json_decode((string)($r['outcome_json'] ?? ''), true) ?: [])['draft'] ?? null,
+                // Split by line (migration 1233): Penny's per-line job / category / stock, and the
+                // split already saved. Only for receipts with two or more lines.
+                'split'         => count($items[(int)$r['expense_id']] ?? []) >= 2 ? $this->splitFor((int)$r['expense_id'], $jobId ? (int)$jobId : null) : null,
             ];
         }
         return $out;
+    }
+
+    /** Penny's split proposal for the card, or null before migration 1233. */
+    private function splitFor(int $expenseId, ?int $suggestedJob): ?array
+    {
+        try {
+            require_once __DIR__ . '/ExpenseSplitService.php';
+            $svc = new ExpenseSplitService($this->db);
+            return $svc->ready() ? $svc->propose($expenseId, $suggestedJob) : null;
+        } catch (Throwable $e) {
+            error_log('Penny split proposal #' . $expenseId . ': ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** Anomaly rules (AnomalyDetector) run on the receipt as it stands now: [{code, score, detail}]. */
@@ -422,6 +456,11 @@ class BookkeeperDeskService
         if ($f['asset_tag'] !== null && !in_array($f['asset_tag'], ReceiptBookkeeperRules::TAGS, true)) {
             return ['ok' => false, 'message' => 'Unknown tag'];
         }
+        foreach ((array)self::splitChoices($overrides) as $sl) {
+            if ($sl['accounting_category'] !== null && !in_array($sl['accounting_category'], EXPENSE_ACCOUNTING_CATEGORIES, true)) {
+                return ['ok' => false, 'message' => 'Unknown category on a split line'];
+            }
+        }
         // The receipt date: the owner's correction only (Penny doesn't suggest one).
         $date = self::validDate($overrides['expense_date'] ?? null);
         if (($overrides['expense_date'] ?? '') !== '' && $date === null) {
@@ -453,34 +492,28 @@ class BookkeeperDeskService
         $before = $this->db->prepare("SELECT * FROM expenses WHERE id = ?");
         $before->execute([(int)$row['expense_id']]);
         $before = $before->fetch(PDO::FETCH_ASSOC) ?: [];
+        // The owner's split by line, when the card sent one (true = keep / set it, false = end it).
+        $split = self::splitChoices($overrides);
         $this->db->beginTransaction();
         try {
-            if ($date !== null) {
-                $this->db->prepare("UPDATE expenses SET expense_date = ? WHERE id = ?")->execute([$date, (int)$row['expense_id']]);
-            }
+            // Through the expense gate (migration 1233): only what changed is written, audited
+            // as the owner's change from Penny's card; the split's shares are worked out there.
+            $changes = [
+                'asset_tag' => $f['asset_tag'],
+                'job_id'    => $f['job'],
+            ];
+            if ($date !== null) $changes['expense_date'] = $date;
             if ($vendorChanged) {
                 $v = $this->vendorFor($f['vendor'], $pickedVendor, $approve, $ownerTypedVendor);
-                if (!$v['keep']) {
-                    $this->db->prepare("UPDATE expenses SET vendor_id = ?, vendor_name_raw = ? WHERE id = ?")
-                       ->execute([$v['id'], $f['vendor'], (int)$row['expense_id']]);
-                }
+                if (!$v['keep']) { $changes['vendor_id'] = $v['id']; $changes['vendor_name_raw'] = $f['vendor']; }
             }
-            $this->db->prepare("
-                UPDATE expenses SET
-                    accounting_category = COALESCE(?, accounting_category),
-                    asset_tag = ?,
-                    job_id = ?,
-                    property_id = COALESCE(?, property_id),
-                    amount = COALESCE(?, amount),
-                    gst_amount = COALESCE(?, gst_amount),
-                    pst_amount = COALESCE(?, pst_amount),
-                    total = COALESCE(?, total),
-                    updated_at = NOW()
-                WHERE id = ?
-            ")->execute([
-                $f['accounting_category'], $f['asset_tag'], $f['job'], $propertyId,
-                $f['subtotal'], $f['gst'], $f['pst'], $f['total'], (int)$row['expense_id'],
-            ]);
+            foreach (['accounting_category' => 'accounting_category', 'property_id' => null, 'amount' => 'subtotal',
+                      'gst_amount' => 'gst', 'pst_amount' => 'pst', 'total' => 'total'] as $col => $key) {
+                $val = $key === null ? $propertyId : $f[$key];
+                if ($val !== null) $changes[$col] = $val;          // COALESCE: an empty field keeps what is stored
+            }
+            if ($split !== null) $changes['allocations'] = $split;
+            $this->gate()->apply((int)$row['expense_id'], $changes, ['id' => (int)$user['id'], 'kind' => 'user'], 'penny_card');
             if ($approve) {
                 $this->db->prepare("
                     UPDATE expense_suggestions
@@ -508,7 +541,12 @@ class BookkeeperDeskService
         // Approval is separate: the self-approval rule still applies, and approval is
         // what teaches the receipt reader.
         try {
-            (new ExpenseApprovalService($this->db))->approve((int)$row['expense_id'], $user);
+            // An emailed-in receipt has no capture baseline: the row as it was before these
+            // edits is what the approver's corrections are learned from (learnFromConfirmedExpense).
+            (new ExpenseApprovalService($this->db, $this->gate()))->approve((int)$row['expense_id'], $user, [
+                'source' => 'penny_card',
+                'learn_baseline' => ($before['source'] ?? '') === 'email_inbox' ? baselineFromExpenseRow($before) : null,
+            ]);
             $this->afterInboxApproval((int)$row['expense_id'], $before);
             return ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
         } catch (Throwable $e) {
@@ -559,12 +597,9 @@ class BookkeeperDeskService
     {
         if (($before['source'] ?? '') !== 'email_inbox') return;
         try {
+            // (Its lessons were taught by the gate on approval, from this same baseline.)
             $this->db->prepare("UPDATE receipt_inbox_messages SET outcome = 'auto_posted' WHERE expense_id = ? AND outcome = 'pending'")
                ->execute([$expenseId]);
-            if (!function_exists('learnFromConfirmedExpense')) {
-                require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            }
-            learnFromConfirmedExpense($this->db, $expenseId, baselineFromExpenseRow($before));
         } catch (Throwable $e) {
             error_log('Penny inbox close-out failed for expense ' . $expenseId . ': ' . $e->getMessage());
         }

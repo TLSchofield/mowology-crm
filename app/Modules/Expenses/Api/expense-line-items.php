@@ -42,7 +42,7 @@ try {
     $userId  = (int)$jwtUser['id'];
     $isAdmin = jwtIsAdmin($jwtUser['role'] ?? '');
     $db      = getDB();
-    $svc     = new ExpenseLineItemService($db);
+    $svc     = (new ExpenseLineItemService($db))->by(['id' => $userId, 'kind' => 'user'], 'ios_line');
 
     $assertCanEdit = static function (int $expenseId) use ($db, $userId, $isAdmin): void {
         $stmt = $db->prepare("SELECT created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");

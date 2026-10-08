@@ -25,7 +25,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_approve_requires_expense_id(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense ID required');
@@ -36,7 +36,7 @@ class ExpenseApprovalServiceTest extends TestCase
     {
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(false));
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense not found');
@@ -48,7 +48,7 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(['id' => 42, 'status' => 'forwarded', 'created_by' => 9]));
         $this->expectExceptionMessage('Already sent to accounting');
-        (new ExpenseApprovalService($db))->approve(42, ['id' => 5]);
+        (new ExpenseApprovalService($db, new ExpenseGateSpy()))->approve(42, ['id' => 5]);
     }
 
     public function test_self_approval_check_is_answerable_before_approving(): void
@@ -70,7 +70,7 @@ class ExpenseApprovalServiceTest extends TestCase
     {
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(['id' => 42, 'status' => 'draft', 'created_by' => 5]));
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Cannot approve your own expense');
@@ -85,11 +85,31 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt);
 
-        $svc = new ExpenseApprovalService($db);
+        $gate = new ExpenseGateSpy();
+        $svc = new ExpenseApprovalService($db, $gate);
         $result = $svc->approve(42, ['id' => 9]);
 
         $this->assertTrue($result['success']);
         $this->assertSame('Expense approved', $result['message']);
+        // The write is the gate's audited 'approve' transition (which also does the learning).
+        $this->assertCount(1, $gate->calls);
+        $this->assertSame(42, $gate->calls[0]['id']);
+        $this->assertSame('approved', $gate->calls[0]['changes']['status']);
+        $this->assertSame(9, $gate->calls[0]['changes']['approved_by']);
+        $this->assertSame('approve', $gate->calls[0]['opts']['transition']);
+    }
+
+    public function test_reject_goes_through_the_gate_as_the_reject_transition(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($this->makeStmt(['id' => 42, 'created_by' => 5]), $this->makeStmt());
+        $gate = new ExpenseGateSpy();
+        (new ExpenseApprovalService($db, $gate))->reject(42, ['id' => 9], 'Personal purchase', ['source' => 'ios_receipt_actions']);
+        $this->assertCount(1, $gate->calls);
+        $this->assertSame('rejected', $gate->calls[0]['changes']['status']);
+        $this->assertSame('Personal purchase', $gate->calls[0]['changes']['rejection_reason']);
+        $this->assertSame('reject', $gate->calls[0]['opts']['transition']);
+        $this->assertSame('ios_receipt_actions', $gate->calls[0]['source']);
     }
 
     private function makeColumnStmt(mixed $columnReturn): PDOStatement
@@ -109,7 +129,7 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $flagStmt, $updateStmt);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->approve(42, ['id' => 5]); // same user created + approves
 
         $this->assertTrue($result['success']);
@@ -124,7 +144,7 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $flagStmt);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Cannot approve your own expense');
@@ -136,7 +156,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_reject_requires_expense_id(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense ID required');
@@ -146,7 +166,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_reject_requires_a_non_empty_reason(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Rejection reason is required');
@@ -157,7 +177,7 @@ class ExpenseApprovalServiceTest extends TestCase
     {
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(false));
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Expense not found');
@@ -173,7 +193,7 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt, $activityLogStmt);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->reject(42, ['id' => 9], 'Missing GST breakdown');
 
         $this->assertTrue($result['success']);
@@ -190,11 +210,11 @@ class ExpenseApprovalServiceTest extends TestCase
         $db->method('prepare')->willReturnCallback(function () use (&$callCount, $checkStmt, $updateStmt) {
             $callCount++;
             if ($callCount === 1) return $checkStmt;
-            if ($callCount === 2) return $updateStmt;
+            // (the status write is the gate's — ExpenseGateSpy here)
             throw new PDOException('activity_log missing');
         });
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->reject(42, ['id' => 9], 'Missing GST breakdown');
 
         $this->assertTrue($result['success']);
@@ -205,7 +225,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_approveBatch_requires_expense_ids(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('expense_ids array is required');
@@ -215,7 +235,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_approveBatch_caps_at_fifty(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Maximum 50 expenses per batch');
@@ -233,9 +253,9 @@ class ExpenseApprovalServiceTest extends TestCase
         $flag43   = $this->makeColumnStmt(0);
 
         $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($check42, $update42, $check43, $flag43);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($check42, $check43, $flag43);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->approveBatch([42, 43], ['id' => 9]);
 
         $this->assertTrue($result['success']);
@@ -254,7 +274,7 @@ class ExpenseApprovalServiceTest extends TestCase
         // Duplicate 42s and a zero/negative id collapse to a single real lookup pair.
         $db->method('prepare')->willReturnOnConsecutiveCalls($check42, $update42);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->approveBatch([42, 42, 0, -1], ['id' => 9]);
 
         $this->assertSame([42], $result['approved']);
@@ -264,7 +284,7 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_rejectBatch_requires_expense_ids(): void
     {
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('expense_ids array is required');
@@ -276,7 +296,7 @@ class ExpenseApprovalServiceTest extends TestCase
         // reject() validates the reason before touching the DB, so an empty reason
         // fails every item in the batch without any prepare() calls happening.
         $db = $this->createMock(PDO::class);
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
 
         $result = $svc->rejectBatch([1, 2], ['id' => 9], '   ');
 
@@ -295,7 +315,7 @@ class ExpenseApprovalServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($check1, $update1, $activityLog1);
 
-        $svc = new ExpenseApprovalService($db);
+        $svc = new ExpenseApprovalService($db, new ExpenseGateSpy());
         $result = $svc->rejectBatch([1], ['id' => 9], 'Bad receipt');
 
         $this->assertTrue($result['success']);

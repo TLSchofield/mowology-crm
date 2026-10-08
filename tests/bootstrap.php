@@ -186,6 +186,11 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseCreateGuard.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLineItemService.php';
+// One gate for every expense change + split a receipt by line (migration 1233)
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseSplitService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGateHooks.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGate.php';
+require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RiskExplainer.php';
 

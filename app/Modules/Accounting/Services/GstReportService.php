@@ -136,7 +136,50 @@ class GstReportService
             ORDER BY e.expense_date ASC, e.id ASC
         ");
         $stmt->execute(array_merge([$from, $to], self::ITC_STATUSES));
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->bySplitShare($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * A receipt split by line (migration 1233) counts by its shares — a coffee on a Chevron fill-up
+     * is a Meals share, limited, while the diesel's GST is claimed in full. Unsplit rows pass through.
+     */
+    private function bySplitShare(array $rows): array
+    {
+        if (!$rows) return $rows;
+        try {
+            $f = dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            if (!class_exists('ExpenseSplitService')) {
+                if (!is_file($f)) return $rows;
+                require_once $f;
+            }
+            $split = (new ExpenseSplitService($this->db))->forExpenses(array_column($rows, 'id'));
+        } catch (Throwable $e) {
+            return $rows;
+        }
+        return self::expandSplits($rows, $split);
+    }
+
+    /** Pure: replace each split receipt by one row per share (its GST, its category). */
+    public static function expandSplits(array $rows, array $splitByExpense): array
+    {
+        if (!$splitByExpense) return $rows;
+        $out = [];
+        foreach ($rows as $r) {
+            $shares = $splitByExpense[(int)$r['id']] ?? [];
+            if (!$shares) { $out[] = $r; continue; }
+            foreach ($shares as $a) {
+                if ((float)$a['gst_amount'] == 0.0) continue;
+                $out[] = array_merge($r, [
+                    'description' => $a['label'],
+                    'amount'      => (float)$a['net_amount'],
+                    'gst_amount'  => (float)$a['gst_amount'],
+                    'total'       => round((float)$a['net_amount'] + (float)$a['gst_amount'] + (float)$a['pst_amount'], 2),
+                    'category'    => $a['accounting_category'] ?? $r['category'],
+                    'split_share' => true,
+                ]);
+            }
+        }
+        return $out;
     }
 
     // ── The calculation ──────────────────────────────────────────────────────

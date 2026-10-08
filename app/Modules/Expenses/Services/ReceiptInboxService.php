@@ -366,38 +366,36 @@ class ReceiptInboxService
             return ['status' => 'duplicate', 'expense_id' => $existing, 'note' => 'already expense #' . $existing, 'high_confidence' => false];
         }
         $note = $msg['subject'] ? ('Emailed receipt: ' . $msg['subject']) : 'Emailed receipt';
-        $ins = $this->db->prepare("
-            INSERT INTO expenses
-                (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
-                 accounting_category, gbp_category, payment_method, receipt_media_id,
-                 match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-                 notes, status, source, created_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ");
-        $ins->execute([
-            $expDate,
-            $vendorId,
-            $suggestions['vendor_name'] ?? ($parsed['vendor_hint'] ?? null),
-            $parsed['vendor_hint'] ?? null,
-            $amount,
-            $gst,
-            0.0,
-            $total,
-            $category,
-            $suggestions['gbp_category'] ?? null,
-            $parsed['payment_method'] ?? null,
-            $mediaId,
-            $confidence,
-            $anomalyFlags,
-            $anomalyScore,
-            $ocr['ocr_text'] !== '' ? json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']]) : null,
-            $note,
-            $status,
-            'email_inbox',
-            $systemUserId,
-        ]);
-        $expenseId = (int) $this->db->lastInsertId();
-        $guard->release($mediaId);
+        // Through the expense gate (migration 1233): audited as the inbox's create; the gate
+        // re-reads the printed facts and runs the duplicate check.
+        require_once __DIR__ . '/ExpenseGate.php';
+        try {
+            $created = (new ExpenseGate($this->db))->apply(null, [
+                'expense_date'        => $expDate,
+                'vendor_id'           => $vendorId,
+                'vendor_name_raw'     => $suggestions['vendor_name'] ?? ($parsed['vendor_hint'] ?? null),
+                'description'         => $parsed['vendor_hint'] ?? null,
+                'amount'              => $amount,
+                'gst_amount'          => $gst,
+                'pst_amount'          => 0.0,
+                'total'               => $total,
+                'accounting_category' => $category,
+                'gbp_category'        => $suggestions['gbp_category'] ?? null,
+                'payment_method'      => $parsed['payment_method'] ?? null,
+                'receipt_media_id'    => $mediaId,
+                'match_confidence'    => $confidence,
+                'anomaly_flags'       => $anomalyFlags,
+                'anomaly_score'       => $anomalyScore,
+                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']]) : null,
+                'notes'               => $note,
+                'status'              => $status,
+                'source'              => 'email_inbox',
+                'created_by'          => $systemUserId,
+            ], ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
+        } finally {
+            $guard->release($mediaId);
+        }
+        $expenseId = (int) $created['expense_id'];
 
         // Its parsed lines (kept in raw_ocr_json) feed the product catalogue — proposals on
         // Penny's card only, nothing created (ProductProposalService, migration 1225).
@@ -604,33 +602,45 @@ class ReceiptInboxService
             return ['ok' => false, 'message' => 'Total must be greater than zero'];
         }
 
-        $this->db->prepare("
-            UPDATE expenses
-               SET vendor_id = ?, expense_date = ?, amount = ?, gst_amount = ?, pst_amount = ?,
-                   total = ?, accounting_category = ?, status = 'approved', updated_at = NOW()
-             WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')
-        ")->execute([$vendorId, $date, $amount, $gst, $pst, $total, $category, $expenseId]);
+        // Through the expense gate: the edits and the audited 'approve' transition in one change.
+        // An emailed receipt's extraction was written straight into the row, so the row as
+        // loaded (before these edits) is the baseline the approver's corrections are learned
+        // from — the gate teaches it once (learnFromConfirmedExpense).
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        require_once __DIR__ . '/ExpenseGate.php';
+        $res = (new ExpenseGate($this->db))->apply($expenseId, [
+            'vendor_id' => $vendorId, 'expense_date' => $date, 'amount' => $amount, 'gst_amount' => $gst, 'pst_amount' => $pst,
+            'total' => $total, 'accounting_category' => $category,
+            'status' => 'approved', 'approved_by' => $userId ?: null, 'approved_at' => 'now',
+        ], ['id' => $userId ?: null, 'kind' => 'user'], 'email_inbox_review', [
+            'transition'     => 'approve',
+            'learn_baseline' => baselineFromExpenseRow($exp),
+            'only_if'        => function (array $e) { return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ['draft', 'pending_approval'], true); },
+        ]);
+        if (!empty($res['noop'])) {
+            return ['ok' => false, 'message' => 'Receipt not found or already handled'];
+        }
 
         $this->db->prepare(
             "UPDATE receipt_inbox_messages SET outcome = 'auto_posted' WHERE expense_id = ? AND outcome = 'pending'"
         )->execute([$expenseId]);
-
-        // An emailed receipt's extraction was written straight into the row, so the row as
-        // loaded (before these edits) is the baseline the approver's corrections are learned from.
-        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-        learnFromConfirmedExpense($this->db, $expenseId, baselineFromExpenseRow($exp));
 
         return ['ok' => true, 'message' => 'Approved — will post to the books on next sync'];
     }
 
     public function dismiss(int $expenseId, int $userId): array
     {
-        $upd = $this->db->prepare(
-            "UPDATE expenses SET status = 'cancelled', updated_at = NOW()
-              WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
-        );
-        $upd->execute([$expenseId]);
-        if ($upd->rowCount() === 0) {
+        // Through the expense gate: the audited 'cancel' transition, only while it still waits.
+        require_once __DIR__ . '/ExpenseGate.php';
+        try {
+            $res = (new ExpenseGate($this->db))->apply($expenseId, ['status' => 'cancelled'], ['id' => $userId ?: null, 'kind' => 'user'],
+                'email_inbox_review', ['transition' => 'cancel', 'only_if' => function (array $e) {
+                    return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ['draft', 'pending_approval'], true);
+                }]);
+        } catch (Exception $e) {
+            $res = ['noop' => true];
+        }
+        if (!empty($res['noop'])) {
             return ['ok' => false, 'message' => 'Nothing to dismiss'];
         }
         $this->db->prepare(

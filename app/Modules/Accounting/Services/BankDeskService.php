@@ -389,8 +389,14 @@ class BankDeskService
             $label = null;
             foreach (EXPENSE_ACCOUNTING_CATEGORIES as $known) if (strtolower($known) === $cats[0]) $label = $known;
             if (!$label) return;
-            $this->db->prepare("UPDATE expenses SET accounting_category = ? WHERE id = ? AND COALESCE(forwarded_to_accounting, 0) = 0 AND accounting_category <> ?")
-               ->execute([$label, $expenseId, $label]);
+            // Through the expense gate (migration 1233), never on a receipt sent to accounting.
+            // Source 'bank_desk': the gate doesn't teach a bank rule back from this (it came from one).
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ExpenseGate.php';
+            (new ExpenseGate($this->db))->apply($expenseId, ['accounting_category' => $label], ['id' => null, 'kind' => 'penny'], 'bank_desk', [
+                'only_if' => function (array $e) use ($label) {
+                    return (int)($e['forwarded_to_accounting'] ?? 0) === 0 && ($e['status'] ?? '') !== 'forwarded' && (string)$e['accounting_category'] !== $label;
+                },
+            ]);
         } catch (Throwable $e) {
             error_log('Penny receipt category align failed for expense ' . $expenseId . ': ' . $e->getMessage());
         }

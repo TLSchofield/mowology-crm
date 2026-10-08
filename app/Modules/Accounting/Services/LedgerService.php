@@ -275,6 +275,9 @@ class LedgerService
      */
     public function buildExpenseEntry(array $exp): array
     {
+        if (!empty($exp['allocations']) && is_array($exp['allocations'])) {
+            return $this->buildSplitExpenseEntry($exp);
+        }
         $net = round((float)$exp['net'], 2);
         $gst = round((float)($exp['gst'] ?? 0), 2);
         $pst = round((float)($exp['pst'] ?? 0), 2);
@@ -301,6 +304,78 @@ class LedgerService
             'source_id'   => $exp['id'] ?? null,
             'lines'       => $lines,
         ];
+    }
+
+    /**
+     * A receipt split by line (ExpenseSplitService, migration 1233): one debit per allocation —
+     * its account, its job — carrying net + PST + the GST that can't be claimed (the meals
+     * share's GST above the ITC rate), then DR GST ITC for what can be claimed, CR funding for
+     * the receipt's total. Lawnboy #412: DR 5200 $80.00 (Oakridge) + DR 5200 $128.40 (stock,
+     * PST $8.40 in cost) + DR 2210 $10.00 / CR 2400 $218.40.
+     * @param array $exp as buildExpenseEntry + allocations: list<{account, net, gst, pst, job_id?,
+     *                   cost_type_id?, label?, meals?: bool}>, meals_itc_rate? (default 0.5)
+     */
+    public function buildSplitExpenseEntry(array $exp): array
+    {
+        $rate = isset($exp['meals_itc_rate']) ? (float)$exp['meals_itc_rate'] : 0.5;
+        $funding = $exp['funding'] ?? self::ACC_CREDIT_CARD;
+        $lines = [];
+        $itc = 0.0;
+        $total = 0.0;
+        foreach ($exp['allocations'] as $a) {
+            $net = round((float)$a['net'], 2);
+            $gst = round((float)($a['gst'] ?? 0), 2);
+            $pst = round((float)($a['pst'] ?? 0), 2);
+            $claim = !empty($a['meals']) ? round($gst * $rate, 2) : $gst;
+            $itc += $claim;
+            $total += $net + $gst + $pst;
+            $debit = round($net + $pst + $gst - $claim, 2);
+            if (abs($debit) < 0.005) continue;
+            $lines[] = [
+                // A discount line (negative) is a credit to its account.
+                'account' => $a['account'], 'debit' => max(0.0, $debit), 'credit' => max(0.0, -$debit),
+                'gst_amount' => $claim, 'pst_amount' => $pst,
+                'description' => isset($a['label']) ? mb_substr((string)$a['label'], 0, 255) : null,
+                'cost_type_id' => $a['cost_type_id'] ?? null,
+                'service_type' => $exp['service_type'] ?? null,
+                'job_id' => $a['job_id'] ?? null, 'vendor_id' => $exp['vendor_id'] ?? null,
+            ];
+        }
+        $itc = round($itc, 2);
+        if ($itc > 0) {
+            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $itc, 'credit' => 0, 'gst_amount' => $itc];
+        }
+        $lines[] = ['account' => $funding, 'debit' => 0, 'credit' => round($total, 2), 'vendor_id' => $exp['vendor_id'] ?? null];
+
+        return [
+            'entry_date'  => $exp['date'],
+            'memo'        => $exp['memo'] ?? ('Expense #' . ($exp['id'] ?? '') . ' (split by line)'),
+            'source_type' => 'expense',
+            'source_id'   => $exp['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * A split receipt's allocations onto the posting args (when the caller — the nightly sync,
+     * the repost runner — didn't bring them). Unchanged when the receipt isn't split.
+     */
+    public function withAllocations(array $exp): array
+    {
+        if (array_key_exists('allocations', $exp) || empty($exp['id'])) return $exp;
+        try {
+            $f = dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            if (!class_exists('ExpenseSplitService')) {
+                if (!is_file($f)) return $exp;
+                require_once $f;
+            }
+            $split = new ExpenseSplitService($this->db);
+            if (!$split->ready()) return $exp;
+            $args = $split->ledgerArgs((int)$exp['id'], $exp['vendor_name'] ?? null);
+            return $args ? array_merge($exp, $args) : $exp;
+        } catch (\Throwable $e) {
+            return $exp;   // never block a posting over the split read
+        }
     }
 
     /**
@@ -375,7 +450,7 @@ class LedgerService
 
     public function postInvoice(array $inv): int      { return $this->postBuilt(self::withWho($this->buildInvoiceEntry($inv), $inv)); }
     public function postPayment(array $pmt): int       { return $this->postBuilt($this->buildPaymentEntry($pmt)); }
-    public function postExpense(array $exp): int        { return $this->postBuilt(self::withWho($this->buildExpenseEntry($exp), $exp)); }
+    public function postExpense(array $exp): int        { $exp = $this->withAllocations($exp); return $this->postBuilt(self::withWho($this->buildExpenseEntry($exp), $exp)); }
 
     /** Carry who posted it (created_by) and who proposed it (proposed_by) onto the entry. */
     private static function withWho(array $entry, array $args): array
