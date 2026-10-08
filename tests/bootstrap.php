@@ -196,6 +196,9 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseSplitService.ph
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGateHooks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGate.php';
 require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
+// Penny's look-back review of 2026 (migration 1250)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/LookbackRules.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/LookbackService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RiskExplainer.php';
 

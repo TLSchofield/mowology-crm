@@ -55,6 +55,11 @@ try {
         $__scs = new StatementCoverageService(getDB());
         if ($__scs->ready()) $__scStrip = StatementCoverageService::strip($__scs->latest());   // computed once a day
     } catch (Throwable $__e) { /* statements check is a bonus (migration 1231) */ }
+    $__lookback = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+        $__lookback = (new LookbackService(getDB()))->cardLine();   // open look-back proposals (migration 1250)
+    } catch (Throwable $__e) { /* the look-back is a bonus */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -192,6 +197,12 @@ $__team = [
       <?php endif; ?>
 
       <?php include __DIR__ . '/penny-statements-strip.php'; ?>
+
+      <?php if ($__lookback): ?>
+      <div class="mw-penny-trips" title="Everything booked in 2026, re-checked with what I know now. Nothing changes until you approve it.">
+        <div>🔎 <a href="/crm/accounting/lookback.php"><?= h($__lookback['text']) ?></a></div>
+      </div>
+      <?php endif; ?>
 
       <div class="mw-pq" id="mw-pq" hidden></div>
 

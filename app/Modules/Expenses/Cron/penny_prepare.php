@@ -127,6 +127,32 @@ try {
         }
     }
 
+    // Look-back review of 2026 (migration 1250), at night: one full rules scan a day (free), then small
+    // Claude batches (5 vendors / payees a run) while some are still unasked and the budget
+    // (ops_settings penny_lookback_budget) lasts. Proposals only — nothing in the books changes here.
+    if (!$dryRun && (int)date('G') >= 1 && (int)date('G') <= 4) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $lb = new LookbackService($db);
+            if ($lb->ready()) {
+                $lastScan = (string)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'penny_lookback_last_scan'")->fetchColumn() ?: '');
+                $pendingKey = 'penny_lookback_ai_pending';
+                $pending = (int)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '{$pendingKey}'")->fetchColumn() ?: 0);
+                if (substr($lastScan, 0, 10) !== date('Y-m-d') || ($pending > 0 && $lb->canSpend())) {
+                    if (function_exists('set_time_limit')) @set_time_limit(300);
+                    $lr = $lb->scan(['ai_calls' => 5]);
+                    $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Penny look-back: vendors / payees still to ask Claude')
+                                  ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([$pendingKey, (string)$lr['ai']['pending']]);
+                    $pennyLog('Look-back: ' . $lr['proposals'] . ' found, ' . ($lr['stored']['inserted'] ?? 0) . ' new; Claude ' . $lr['ai']['calls']
+                              . ' call(s) $' . number_format($lr['ai']['cost'], 4) . ', ' . $lr['ai']['pending'] . ' still to ask.');
+                }
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Look-back scan failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
     $svc = new ReceiptBookkeeperService($db);
     $desk = new BookkeeperDeskService($db, $svc);
     if (!$desk->ready()) {
