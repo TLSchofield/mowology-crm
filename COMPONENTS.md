@@ -288,6 +288,7 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
   ```
 - **When to reach for it:** Any feature needing to capture multiple photos in one session (job visit photos, receipt batches) instead of repeatedly invoking the native single-shot file picker.
 - **Not auto-loaded** — currently included explicitly on `public/crm/jobs/schedule.php`. Add `<script src="/crm/js/batch-camera.js">` where needed.
+- **iOS counterpart:** `ios/MowologyCRM/MowologyCRM/Features/Camera/BatchCameraView.swift` (native AVFoundation; lens chips, flash, flip, pinch zoom, per-shot Before/During/After/More tag, `MarkupEditorView` flattens markup into the JPEG with EXIF kept). Used by `JobPhotoSection`; video mode exists but is gated by `BatchCameraFeatures.visitVideo` (off — server visit media is image-only). Pure logic checked by `bash ios/LogicTests/run.sh`.
 
 ### MwCameraPermission
 - **File:** `public/crm/js/mw-camera-permission.js`

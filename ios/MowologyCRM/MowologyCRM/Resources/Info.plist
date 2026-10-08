@@ -32,7 +32,9 @@
 		<false/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Used to photograph receipts for expense tracking.</string>
+	<string>Used to take before, during and after photos of each job, and to photograph receipts for expense tracking.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Records sound with job videos taken in the app's camera.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to select receipt photos from your library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

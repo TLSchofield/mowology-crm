@@ -37,6 +37,7 @@ the Bash tool with python3 to write file content directly.
 | `Core/Network/` | APIClient, APIEndpoints, APIError, VersionCheckService |
 | `Core/Offline/` | PingQueue, TransitionQueue for offline resilience |
 | `Features/Auth/` | Login view + view model |
+| `Features/Camera/` | Batch camera (AVFoundation), markup editor, EXIF/GPS helpers — pure logic in `BatchCameraModels.swift`, checked by `bash ios/LogicTests/run.sh` |
 | `Features/Schedule/` | Day/week schedule views, visit detail, job timer |
 | `Features/TimeClock/` | Crew clock-in / clock-out tab |
 

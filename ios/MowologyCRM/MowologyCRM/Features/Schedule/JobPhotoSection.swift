@@ -7,9 +7,10 @@
 //  ForEach(visits) without needing an external state manager.
 //
 //  Mirrors the Capacitor schedule-pill-workflow.js photo state machine:
-//    - Two slots: "before" and "after"
-//    - Each captured immediately on camera dismiss (no confirm step)
-//    - Upload runs in background; failures queue to JobPhotoQueue for retry
+//    - Two slots: "before" and "after", plus any number of extras
+//    - Every camera button opens the native BatchCameraView (Features/Camera): up to 10
+//      shots per batch, each tagged Before / During / After / More, optional markup
+//    - The batch uploads on Done; failures queue to JobPhotoQueue for retry
 //    - Shows thumbnail + retake button once a slot is filled
 //
 
@@ -25,11 +26,23 @@ enum JobPhotoType: String, CaseIterable, Identifiable {
     case after      = "after"
     /// Extra proof photos — any number. Same category the web app and Salt report use.
     case additional = "additional"
+    /// Mid-job photos from the batch camera. The server lists them with the extras.
+    case during     = "during"
 
     var id: String { rawValue }
 
     /// Before/after hold one photo each (a retake replaces it); extras are a list.
-    var isSingleSlot: Bool { self != .additional }
+    var isSingleSlot: Bool { self == .before || self == .after }
+
+    /// The batch camera category a slot button opens on.
+    var batchCategory: BatchShotCategory {
+        switch self {
+        case .before:     return .before
+        case .after:      return .after
+        case .during:     return .during
+        case .additional: return .additional
+        }
+    }
 }
 
 /// An extra photo taken on this phone in this session (may still be uploading or queued).
@@ -67,10 +80,6 @@ final class JobPhotoViewModel: ObservableObject {
 
     /// Active camera slot — drives the fullScreenCover in JobPhotoSection.
     @Published var captureSlot: JobPhotoType? = nil
-
-    /// Bumped after each extra capture so the camera comes straight back for the next shot.
-    @Published var cameraSession: Int = 0
-    @Published var shotsThisSession: Int = 0
 
     @Published private var uploadsInFlight: Int = 0
     var isUploading: Bool { uploadsInFlight > 0 }
@@ -115,6 +124,7 @@ final class JobPhotoViewModel: ObservableObject {
         beforePendingSync = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .before)
         afterPendingSync  = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .after)
         extrasPendingSync = JobPhotoQueue.shared.queuedCount(visitId: visitId, photoType: .additional)
+                          + JobPhotoQueue.shared.queuedCount(visitId: visitId, photoType: .during)
     }
 
     // MARK: - Computed
@@ -142,33 +152,40 @@ final class JobPhotoViewModel: ObservableObject {
     // MARK: - Capture Handling
 
     func beginCapture(_ slot: JobPhotoType) {
-        shotsThisSession = 0
         captureSlot = slot
     }
 
-    func handleCapture(_ image: UIImage, slot: JobPhotoType) {
-        switch slot {
-        case .before:
-            captureSlot = nil
-            beforeImage = image
-        case .after:
-            captureSlot = nil
-            afterImage  = image
-        case .additional:
-            // Keep shooting: the camera reopens until the crew member taps Cancel.
-            localExtras.append(LocalExtraPhoto(image: image))
-            shotsThisSession += 1
-            cameraSession    += 1
+    /// The batch camera's Done: show every shot at once, then upload them one by one —
+    /// befores first, afters last, so the implied start/finish stamps land in order.
+    func handleBatch(_ shots: [BatchShot]) {
+        captureSlot = nil
+        let photos = shots.filter { $0.kind == .photo }
+        if photos.count < shots.count {
+            // BatchCameraFeatures.visitVideo is off until the server stores visit video.
+            errorMessage = "Videos can't be saved to a visit yet — only the photos were kept."
         }
-
-        Task { await upload(image: image, slot: slot) }
+        let ordered = BatchShotCategory.uploadOrder(photos) { $0.category }
+        for shot in ordered {
+            switch shot.category {
+            case .before: beforeImage = shot.preview
+            case .after:  afterImage  = shot.preview
+            case .during, .additional: localExtras.append(LocalExtraPhoto(image: shot.preview))
+            }
+        }
+        Task {
+            for shot in ordered {
+                let slot = JobPhotoType(rawValue: shot.category.rawValue) ?? .additional
+                await upload(data: shot.uploadData, slot: slot)
+            }
+        }
     }
 
     /// Photos picked from the library, several at once.
     func addFromLibrary(_ images: [UIImage]) {
         for image in images {
             localExtras.append(LocalExtraPhoto(image: image))
-            Task { await upload(image: image, slot: .additional) }
+            guard let data = image.jpegData(compressionQuality: 0.78) else { continue }
+            Task { await upload(data: data, slot: .additional) }
         }
     }
 
@@ -178,9 +195,7 @@ final class JobPhotoViewModel: ObservableObject {
 
     // MARK: - Upload
 
-    private func upload(image: UIImage, slot: JobPhotoType) async {
-        guard let data = image.jpegData(compressionQuality: 0.78) else { return }
-
+    private func upload(data: Data, slot: JobPhotoType) async {
         uploadsInFlight += 1
         errorMessage = nil
         defer { uploadsInFlight -= 1 }
@@ -193,7 +208,7 @@ final class JobPhotoViewModel: ObservableObject {
             switch slot {
             case .before:     beforePendingSync = false
             case .after:      afterPendingSync  = false
-            case .additional: break
+            case .additional, .during: break
             }
         } catch let err as APIError {
             if case .networkError = err {
@@ -324,30 +339,16 @@ struct JobPhotoSection: View {
             extrasStrip()
         }
         .task { await vm.loadExisting() }
-        // Camera — presented when captureSlot is non-nil. For extra photos it comes straight
-        // back after every shot (.id forces a fresh camera) until the crew member taps Cancel.
+        // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
+        // category; the crew can shoot up to 10, re-tag, mark up, then Done uploads them all.
         .fullScreenCover(item: $vm.captureSlot) { slot in
-            CameraPicker(
-                onCapture: { image in vm.handleCapture(image, slot: slot) },
-                onCancel:  { vm.cancelCapture() }
+            BatchCameraView(
+                initialCategory: slot.batchCategory,
+                afterUnlocked:   isActive || vm.hasBeforePhoto,
+                allowsVideo:     BatchCameraFeatures.visitVideo,
+                onDone:   { shots in vm.handleBatch(shots) },
+                onCancel: { vm.cancelCapture() }
             )
-            .id(vm.cameraSession)
-            .ignoresSafeArea()
-            .overlay(alignment: .top) {
-                if slot == .additional {
-                    Text(vm.shotsThisSession == 0
-                         ? "Take as many as you need — Cancel when done"
-                         : "\(vm.shotsThisSession) saved — keep going, or Cancel when done")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.black.opacity(0.55))
-                        .clipShape(Capsule())
-                        .padding(.top, 54)
-                        .allowsHitTesting(false)
-                }
-            }
         }
         .onChange(of: libraryItems) { _, items in
             guard !items.isEmpty else { return }
