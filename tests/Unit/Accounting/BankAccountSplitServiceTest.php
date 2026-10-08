@@ -23,21 +23,21 @@ class BankAccountSplitServiceTest extends TestCase
     /** [session, date, desc, signed, balance, category] — chequing and GST Reserves interleaved. */
     private const FIXTURE = [
         // March statement: chequing section …
-        [1, '2026-03-03', 'DEPOSIT DORSET', 1500.00, 19500.00, self::OTHER],
-        [1, '2026-03-05', 'TRANSFER TO GST RESERVES', -500.00, 19000.00, self::MISC],
-        [1, '2026-03-18', 'DEPOSIT ABC', 300.00, 19300.00, self::OTHER],
-        [1, '2026-03-20', 'TRANSFER FROM GST RESERVES', 500.00, 19800.00, self::OTHER],
-        [1, '2026-03-31', 'SHELL', -550.14, 19249.86, self::MISC],
+        [1, '2026-03-03', 'E-TRANSFER DORSET', 1500.00, 19500.00, self::OTHER],
+        [1, '2026-03-05', 'FUNDS TRANSFER - ONLINE TO # 10100058186827', -500.00, 19000.00, self::MISC],
+        [1, '2026-03-18', 'STRIPE PAYOUT', 300.00, 19300.00, self::OTHER],
+        [1, '2026-03-20', 'FUNDS TRANSFER - ONLINE FROM # 10100058186827', 500.00, 19800.00, self::OTHER],
+        [1, '2026-03-31', 'POINT OF SALE SHELL', -550.14, 19249.86, self::MISC],
         // … then the GST RESERVES section of the same statement
-        [1, '2026-03-05', 'TRANSFER FROM CHEQUING', 500.00, 508.58, self::OTHER],
-        [1, '2026-03-20', 'TRANSFER TO CHEQUING', -500.00, 8.58, self::MISC],
+        [1, '2026-03-05', 'FUNDS TRANSFER - ONLINE FROM # 10100058186801', 500.00, 508.58, self::OTHER],
+        [1, '2026-03-20', 'FUNDS TRANSFER - ONLINE TO # 10100058186801', -500.00, 8.58, self::MISC],
         [1, '2026-03-31', 'CREDIT INTEREST', 0.01, 8.59, self::OTHER],
         // April and May: only the savings interest came in (chequing statements missing)
         [2, '2026-04-30', 'CREDIT INTEREST', 0.01, 8.60, self::OTHER],
         [3, '2026-05-31', 'CREDIT INTEREST', 0.01, 8.61, self::OTHER],
         // July: chequing again
         [4, '2026-07-03', 'POS HOME DEPOT', -100.00, 4848.15, self::MISC],
-        [4, '2026-07-10', 'DEPOSIT XYZ', 200.00, 5048.15, self::OTHER],
+        [4, '2026-07-10', 'E-TRANSFER XYZ', 200.00, 5048.15, self::OTHER],
     ];
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -48,8 +48,11 @@ class BankAccountSplitServiceTest extends TestCase
     {
         $r = BankAccountSplitService::split($this->pureLines());
 
-        $this->assertCount(1, $r['chains'], 'one other account');
-        $c = $r['chains'][0];
+        // Two segments besides chequing: the savings one, and July chequing (after the missing months).
+        $this->assertCount(2, $r['chains']);
+        [$c, $july] = $r['chains'];
+        $this->assertSame('keep', $july['suggest'], 'chequing activity after a gap is never joined to anything');
+        $this->assertSame('strong', $july['confidence']);
         $this->assertSame(5, $c['count']);
         $this->assertSame('2026-03-05', $c['from']);
         $this->assertSame('2026-05-31', $c['to']);
@@ -57,7 +60,9 @@ class BankAccountSplitServiceTest extends TestCase
         $this->assertSame(508.58, $c['max_balance']);
         $this->assertSame(8.58, $c['opening']);
         $this->assertSame(8.61, $c['closing']);
-        $this->assertSame('high', $c['confidence'], 'one chain, printed alongside chequing');
+        $this->assertSame('1020', $c['suggest'], 'transfers naming #…6801, in and out → Reserve funds guess');
+        $this->assertSame('strong', $c['confidence']);
+        $this->assertSame(2, $c['evidence']['savings_transfer']);
 
         // Without it, chequing links except where chequing statements really are missing.
         $this->assertSame([], $r['after']['other_account']);
@@ -77,7 +82,8 @@ class BankAccountSplitServiceTest extends TestCase
         foreach ($r['chains'][0]['lines'] as $l) {
             if (!empty($l['mirror'])) $mirrors[$l['description']] = $l['mirror']['description'];
         }
-        $this->assertSame(['TRANSFER FROM CHEQUING' => 'TRANSFER TO GST RESERVES', 'TRANSFER TO CHEQUING' => 'TRANSFER FROM GST RESERVES'], $mirrors);
+        $this->assertSame(['FUNDS TRANSFER - ONLINE FROM # 10100058186801' => 'FUNDS TRANSFER - ONLINE TO # 10100058186827',
+                           'FUNDS TRANSFER - ONLINE TO # 10100058186801' => 'FUNDS TRANSFER - ONLINE FROM # 10100058186827'], $mirrors);
     }
 
     public function test_statement_named_lines_go_by_their_account_not_by_guess(): void
@@ -88,7 +94,7 @@ class BankAccountSplitServiceTest extends TestCase
         $r = BankAccountSplitService::split($lines);
         $named = array_values(array_filter($r['chains'], fn($c) => $c['confidence'] === 'statement'));
         $this->assertCount(1, $named);
-        $this->assertSame('1025', $named[0]['guess']);
+        $this->assertSame('1025', $named[0]['suggest']);
         $this->assertSame('6827', $named[0]['marker']);
         $this->assertSame(3, $named[0]['count']);
     }
@@ -108,12 +114,70 @@ class BankAccountSplitServiceTest extends TestCase
         $lines = $this->pureLines();
         $id = 100;
         foreach ([['2026-03-10', -400.00, 600.69], ['2026-03-25', 0.05, 600.74]] as [$d, $s, $b]) {
-            $lines[] = $this->line(++$id, 1, $d, 'RESERVE ' . $id, $s, $b);
+            $lines[] = $this->line(++$id, 1, $d, 'FUNDS TRANSFER TO # 10100058186801 ' . $id, $s, $b);
         }
         $r = BankAccountSplitService::split($lines);
-        $this->assertCount(2, $r['chains']);
-        $this->assertSame([5, 2], array_map(fn($c) => $c['count'], $r['chains']));
-        $this->assertSame('1020', $r['chains'][1]['guess'], 'money out of it → Reserve funds');
+        $moving = array_values(array_filter($r['chains'], fn($c) => $c['suggest'] !== 'keep'));
+        $this->assertSame([5, 2], array_map(fn($c) => $c['count'], $moving));
+        $this->assertSame('1020', $moving[1]['suggest'], 'money out of it → Reserve funds');
+    }
+
+    public function test_live_case_segments_are_never_joined_across_a_gap(): void
+    {
+        // 2026-10-07 live dry run: a Nov-2025 savings segment (opens $0.05, funded from chequing)
+        // got joined to 500+ Mar–Jul 2026 chequing lines by balance size. Each segment alone now.
+        $id = 0; $lines = [];
+        foreach ([['2025-11-05', 'FUNDS TRANSFER - ONLINE FROM # 10100058186801 ($ 1,500.00)', 1500.00, 1500.05],
+                  ['2025-11-20', 'FUNDS TRANSFER - ONLINE FROM # 10100058186801', 2503.10, 4003.15],
+                  ['2025-11-30', 'FUNDS TRANSFER - ONLINE TO # 10100058186801 ($ 1,000.00)', -1000.00, 3003.15]] as [$d, $desc, $sg, $b]) {
+            $lines[] = $this->line(++$id, 10, $d, $desc, $sg, $b);
+        }
+        foreach ([['2026-03-03', 'STRIPE PAYOUT', 400.00, 21665.57], ['2026-03-10', 'ICBC PAYMENT', -1200.00, 20465.57],
+                  ['2026-03-18', 'PREAUTHORIZED DEBIT WAVE', -11081.51, 9384.06]] as [$d, $desc, $sg, $b]) {
+            $lines[] = $this->line(++$id, 11, $d, $desc, $sg, $b);
+        }
+        foreach ([['2026-03-24', 'E-TRANSFER CREDIT', 300.00, 10555.29], ['2026-03-26', 'POINT OF SALE SHELL', -55.29, 10500.00],
+                  ['2026-03-27', 'STRIPE PAYOUT', 250.00, 10750.00], ['2026-03-30', 'ICBC', -150.00, 10600.00]] as [$d, $desc, $sg, $b]) {
+            $lines[] = $this->line(++$id, 12, $d, $desc, $sg, $b);
+        }
+        $r = BankAccountSplitService::split($lines);
+        $this->assertSame('2026-03-24', $r['main_segment']['from'], 'the largest chequing-looking segment is chequing');
+        $bySuggest = [];
+        foreach ($r['chains'] as $c) $bySuggest[$c['from']] = [$c['suggest'], $c['count']];
+        $this->assertSame(['2025-11-05' => ['1020', 3], '2026-03-03' => ['keep', 3]], $bySuggest,
+            'savings segment suggested to move; the other chequing segment stays');
+        $this->assertSame(0.05, $r['chains'][0]['opening']);
+    }
+
+    public function test_membership_shares_are_never_moved(): void
+    {
+        $lines = $this->pureLines();
+        $lines[] = $this->line(200, 9, '2025-03-27', 'CLASS B MEMBERSHIP SHARES DIVIDEND', 0.29, 7.29);
+        $r = BankAccountSplitService::split($lines);
+        $shares = array_values(array_filter($r['chains'], fn($c) => $c['suggest'] === 'exclude'));
+        $this->assertCount(1, $shares);
+        $this->assertSame(1, $shares[0]['count']);
+        $this->assertSame(7.29, $shares[0]['max_balance']);
+        foreach ($r['chains'] as $c) {
+            if ($c['suggest'] !== 'exclude') $this->assertNotContains(200, array_column($c['lines'], 'id'), 'not joined to the $8.6 GST chain');
+        }
+    }
+
+    public function test_parallel_series_names_the_same_lines_read_twice(): void
+    {
+        // March read by two imports: same lines, balances $3,883.16 apart.
+        $a = []; $b = []; $bal = 19000.0;
+        foreach ([['2026-03-24', 120.00], ['2026-03-25', -40.00], ['2026-03-27', 300.00], ['2026-03-31', -80.00]] as $i => [$d, $sg]) {
+            $bal = round($bal + $sg, 2);
+            $a[] = $this->line(300 + $i, 42, $d, 'LINE ' . $i, $sg, $bal);
+            $b[] = $this->line(400 + $i, 43, $d, 'LINE ' . $i, $sg, round($bal + 3883.16, 2));
+        }
+        $p = BankAccountSplitService::parallelSeries(BankAccountSplitService::segment(StatementCoverageService::orderLines(array_merge($a, $b))));
+        $this->assertCount(1, $p);
+        $this->assertTrue($p[0]['constant']);
+        $this->assertSame(4, $p[0]['shared']);
+        $this->assertEqualsWithDelta(3883.16, abs((float)$p[0]['offset']), 0.001);
+        $this->assertSame([[42], [43]], [$p[0]['sessions_a'], $p[0]['sessions_b']]);
     }
 
     public function test_pair_mirrors(): void
@@ -142,9 +206,10 @@ class BankAccountSplitServiceTest extends TestCase
         $svc = $this->svc($db);
         $plan = $svc->plan();
         $this->assertTrue($plan['ready'], implode(' ', $plan['problems']));
-        $this->assertCount(1, $plan['chains']);
+        $this->assertCount(2, $plan['chains']);
         $key = $plan['chains'][0]['key'];
         $this->assertSame(5, $plan['chains'][0]['movable']);
+        $this->assertSame('keep', $plan['chains'][1]['suggest']);
 
         // No pick → nothing moves.
         $none = $svc->apply([$key => 'keep'], 1);
@@ -163,17 +228,17 @@ class BankAccountSplitServiceTest extends TestCase
         $this->assertEqualsWithDelta(-650.14, $net[self::BANK] ?? 0.0, 0.001);
         $this->assertEqualsWithDelta(650.14, $net[self::MISC] ?? 0.0, 0.001, 'the set-aside and its return are no longer costs');
         $this->assertEqualsWithDelta(0.0, $net[self::GSTRES] ?? 0.0, 0.001);
-        $twin = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'TRANSFER TO GST RESERVES'")->fetch(PDO::FETCH_ASSOC);
+        $twin = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'FUNDS TRANSFER - ONLINE TO # 10100058186827'")->fetch(PDO::FETCH_ASSOC);
         $this->assertSame([self::GSTRES, 'transfer'], [(int)$twin['account_id'], $twin['type']]);
-        $back = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'TRANSFER FROM GST RESERVES'")->fetch(PDO::FETCH_ASSOC);
+        $back = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'FUNDS TRANSFER - ONLINE FROM # 10100058186827'")->fetch(PDO::FETCH_ASSOC);
         $this->assertSame([self::GSTRES, 'income'], [(int)$back['account_id'], $back['type']], 'money in to chequing: DR chequing / CR savings');
-        $mirror = $db->query("SELECT account_id, type, bank_account_id FROM accounting_transactions WHERE description = 'TRANSFER TO CHEQUING'")->fetch(PDO::FETCH_ASSOC);
+        $mirror = $db->query("SELECT account_id, type, bank_account_id FROM accounting_transactions WHERE description = 'FUNDS TRANSFER - ONLINE TO # 10100058186801'")->fetch(PDO::FETCH_ASSOC);
         $this->assertSame([self::GSTRES, 'transfer', self::GSTRES], [(int)$mirror['account_id'], $mirror['type'], (int)$mirror['bank_account_id']], 'savings side posts nothing');
         $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM journal_entries WHERE status = 'deleted'")->fetchColumn());
         $this->assertGreaterThan(0, (int)$db->query("SELECT COUNT(*) FROM journal_entries WHERE source_type = 'adjusting'")->fetchColumn(), 'corrected with reversals');
 
-        // Nothing left to move; the plan sees chequing alone.
-        $this->assertSame([], $svc->plan()['chains']);
+        // Nothing left to move: only the July chequing segment, suggested to stay.
+        $this->assertSame(['keep'], array_column($svc->plan()['chains'], 'suggest'));
 
         $u = $svc->undo($r['batch'], 1);
         $this->assertTrue($u['ok'], $u['message']);
@@ -183,7 +248,7 @@ class BankAccountSplitServiceTest extends TestCase
         foreach ([self::BANK, self::MISC, self::GSTRES] as $a) {
             $this->assertEqualsWithDelta($before[$a] ?? 0.0, $after[$a] ?? 0.0, 0.001, "account $a back where it was");
         }
-        $twin = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'TRANSFER TO GST RESERVES'")->fetch(PDO::FETCH_ASSOC);
+        $twin = $db->query("SELECT account_id, type FROM accounting_transactions WHERE description = 'FUNDS TRANSFER - ONLINE TO # 10100058186827'")->fetch(PDO::FETCH_ASSOC);
         $this->assertSame([self::MISC, 'expense'], [(int)$twin['account_id'], $twin['type']]);
     }
 
@@ -200,7 +265,7 @@ class BankAccountSplitServiceTest extends TestCase
         $r = $svc->apply([$plan['chains'][0]['key'] => '1025'], 1);
         $this->assertSame(2, $r['moved'], 'April and May interest');
         $this->assertSame(3, $r['skipped_locked']);
-        $this->assertSame(1, (int)$db->query("SELECT bank_account_id FROM accounting_transactions WHERE description = 'TRANSFER TO CHEQUING'")->fetchColumn(), 'March untouched');
+        $this->assertSame(1, (int)$db->query("SELECT bank_account_id FROM accounting_transactions WHERE description = 'FUNDS TRANSFER - ONLINE TO # 10100058186801'")->fetchColumn(), 'March untouched');
     }
 
     public function test_a_line_filed_on_its_own_bank_account_posts_nothing(): void

@@ -10,14 +10,19 @@
  *
  * This service separates them by the running balance printed on each line
  * (bank_import_rows.raw_row → raw_line):
- *   1. segment()  — lines whose balances follow on from each other form a segment;
- *   2. cluster()  — segments are joined into accounts: a segment can only continue an
- *                   account that is not printing lines at the same time, and it joins the one
- *                   whose last balance is nearest in SIZE ($8.60 continues an $8.59 account,
- *                   not a $19,000 one); otherwise it starts a new account;
- *   3. the account with the most lines is chequing; every other one is a "chain" the owner
- *      assigns to 1020 Reserve funds (Savings ••6819) or 1025 GST Reserves (Savings ••6827) —
- *      the guess is shown, never applied without his pick.
+ *   1. segment()  — lines whose balances follow on from each other EXACTLY form a segment.
+ *                   Segments are never joined: the first version joined them by balance size
+ *                   and, on live data, glued 500+ Mar–Jul 2026 chequing lines onto a Nov-2025
+ *                   savings segment across a four-month gap. Each segment is decided alone.
+ *   2. evidence() — what its descriptions say: "FROM / TO # …6801" (a transfer naming
+ *                   chequing → the line is on ANOTHER account), chequing-type activity
+ *                   (Stripe, ICBC, POS, e-Transfer, pre-authorized…), interest, membership shares;
+ *   3. suggest()  — savings transfer → 1020 / 1025 (guess()); chequing activity → leave;
+ *                   shares → never moved; nothing → leave. The largest chequing-looking
+ *                   segment IS chequing. Every other segment is listed with its evidence; the
+ *                   owner picks — nothing moves without his pick.
+ *   parallelSeries() — two segments over the same days sharing lines are one account read twice
+ *                   with different balances (an import problem, not two accounts).
  * Lines imported after the importer learnt the account headers carry the account
  * ("statement_account" in raw_row) and are grouped by it directly.
  *
@@ -85,6 +90,7 @@ class BankAccountSplitService
         if (!$this->ledger->canRepostSource()) $problems[] = 'Run migration 1131 first — the books are corrected with reversing entries, never deletes.';
 
         $lines = $this->loadLines($chequingId);
+        $sessionInfo = $this->sessionInfo(array_values(array_unique(array_column($lines, 'session'))));
         $split = self::split($lines);
         $locked = $this->lockedMonths();
         $catCodes = $this->codesById();
@@ -100,7 +106,9 @@ class BankAccountSplitService
             $c['movable'] = count(array_filter($items, fn($i) => $i['movable']));
             $c['locked'] = count(array_filter($items, fn($i) => $i['locked']));
             $c['movable_amount'] = round(array_sum(array_map(fn($i) => $i['movable'] ? $i['amount'] : 0, $items)), 2);
-            unset($c['lines']);
+            if ($c['suggest'] === 'exclude') $c['movable'] = 0;
+            foreach ($c['sessions'] as &$si) $si += $sessionInfo[$si['session']] ?? [];
+            unset($si, $c['lines']);
             $chains[] = $c;
         }
 
@@ -111,6 +119,12 @@ class BankAccountSplitService
             'chequing'  => $this->account(self::SOURCE_CODE),
             'chains'    => $chains,
             'lines'     => count($lines),
+            'main_segment' => $split['main_segment'],
+            'parallel'  => array_map(function ($p) use ($sessionInfo) {
+                $p['sessions_a'] = array_map(fn($s) => ['session' => $s] + ($sessionInfo[$s] ?? []), $p['sessions_a']);
+                $p['sessions_b'] = array_map(fn($s) => ['session' => $s] + ($sessionInfo[$s] ?? []), $p['sessions_b']);
+                return $p;
+            }, $split['parallel']),
             'loose'     => $split['loose'],
             'before'    => $split['before'],
             'after'     => $split['after'],
@@ -136,6 +150,7 @@ class BankAccountSplitService
         $picked = [];
         foreach ($plan['chains'] as $c) {
             $pick = (string)($assign[$c['key']] ?? '');
+            if ($c['suggest'] === 'exclude') continue;   // membership shares: never moved
             if (isset(self::TARGETS[$pick])) $picked[] = [$c, $pick];
         }
         if (!$picked) { $out['message'] = 'Pick an account for at least one chain. Nothing was changed.'; return $out; }
@@ -372,24 +387,30 @@ class BankAccountSplitService
      */
     public static function split(array $lines): array
     {
-        // Lines that name their account (newer imports) are grouped by it.
+        // Lines that name their account (newer imports) are grouped by it; shares never move.
         $byMarker = [];
         $rest = [];
         $targetSuffixes = array_column(self::TARGETS, 'suffix');
         foreach ($lines as $l) {
             $m = (string)($l['marker'] ?? '');
-            if ($m !== '' && in_array($m, $targetSuffixes, true)) $byMarker[$m][] = $l;
+            if ($m !== '' && (in_array($m, $targetSuffixes, true) || $m === 'shares')) $byMarker[$m][] = $l;
             else $rest[] = $l;
         }
 
         $ordered = StatementCoverageService::orderLines($rest);
         $before = StatementCoverageService::walkChain(StatementCoverageService::orderLines($lines));
+        // Assigned per SEGMENT (2026-10-07, live dry run): joining segments by balance size
+        // once glued 500+ chequing lines (Mar–Jul 2026) onto a Nov-2025 savings segment
+        // across a four-month gap. A segment is only lines whose balances follow exactly.
         $segments = self::segment($ordered);
-        $accounts = self::cluster($segments);
+        foreach ($segments as &$s) $s['evidence'] = self::evidence($s['lines']);
+        unset($s);
 
+        // Chequing: the largest segment with chequing-type activity (else the largest).
         $main = null;
-        foreach ($accounts as $k => $a) {
-            if ($main === null || count($a['lines']) > count($accounts[$main]['lines'])) $main = $k;
+        foreach ($segments as $k => $s) {
+            $score = [$s['evidence']['chequing'] > 0 ? 1 : 0, $s['evidence']['savings_transfer'] === 0 ? 1 : 0, count($s['lines'])];
+            if ($main === null || $score > $mainScore) { $main = $k; $mainScore = $score; }
         }
 
         // Lines orderLines() dropped as the second print of a line (same date, amount, balance)
@@ -397,46 +418,48 @@ class BankAccountSplitService
         $inOrdered = [];
         foreach ($ordered as $l) $inOrdered[$l['id']] = true;
         $twinKey = fn($l) => $l['date'] . '|' . number_format((float)$l['amount'], 2, '.', '') . '|' . number_format(abs((float)$l['balance']), 2, '.', '');
-        $keyToAcct = [];
-        foreach ($accounts as $k => $a) foreach ($a['lines'] as $l) $keyToAcct[$twinKey($l)] = $k;
+        $keyToSeg = [];
+        foreach ($segments as $k => $s) foreach ($s['lines'] as $l) $keyToSeg[$twinKey($l)] = $k;
         foreach ($rest as $l) {
             if (isset($inOrdered[$l['id']]) || $l['balance'] === null) continue;
-            $k = $keyToAcct[$twinKey($l)] ?? null;
-            if ($k !== null && $k !== $main) $accounts[$k]['twins'][] = $l;
+            $k = $keyToSeg[$twinKey($l)] ?? null;
+            if ($k !== null) $segments[$k]['twins'][] = $l;
         }
 
         $chains = [];
         foreach ($byMarker as $suffix => $ls) {
-            $code = self::codeForSuffix((string)$suffix);
+            $suffix = (string)$suffix;
+            $code = $suffix === 'shares' ? null : self::codeForSuffix($suffix);
             usort($ls, fn($a, $b) => [$a['date'], $a['id']] <=> [$b['date'], $b['id']]);
-            $chains[] = self::describe($ls, [], 'statement', $code, 'The statement line names account ••' . $suffix . '.', (string)$suffix, false);
+            $ev = self::evidence($ls);
+            $chains[] = self::describe($ls, 'statement', $code ?? 'exclude',
+                $suffix === 'shares' ? 'Membership shares — not a bank account; never moved.' : 'The statement line names account ••' . $suffix . '.',
+                $suffix, $ev);
         }
-        $mainLines = $main !== null ? $accounts[$main]['lines'] : [];
-        $mainFrom = $mainLines ? min(array_column($mainLines, 'date')) : null;
-        $mainTo = $mainLines ? max(array_column($mainLines, 'date')) : null;
-        foreach ($accounts as $k => $a) {
+        foreach ($segments as $k => $s) {
             if ($k === $main) continue;
-            $from = min(array_column($a['lines'], 'date'));
-            $to = max(array_column($a['lines'], 'date'));
-            $interleaved = $mainFrom !== null && $from <= $mainTo && $to >= $mainFrom;
-            $n = count($a['lines']);
-            $confidence = $n === 1 ? 'low' : (count($a['segments']) === 1 && $interleaved ? 'high' : 'medium');
-            [$code, $why] = self::guess($a['lines']);
-            $chains[] = self::describe(array_merge($a['lines'], $a['twins'] ?? []), $a['joins'], $confidence, $code, $why, null, $interleaved, count($a['segments']));
+            [$suggest, $confidence, $why] = self::suggest($s['lines'], $s['evidence']);
+            $chains[] = self::describe(array_merge($s['lines'], $s['twins'] ?? []), $confidence, $suggest, $why, null, $s['evidence']);
         }
 
-        // Chequing without them: every line not in a chain, balance or not.
+        // Chequing without the lines suggested to move (and shares): what the default picks leave.
         $moved = [];
-        foreach ($chains as $c) foreach ($c['lines'] as $l) $moved[$l['id']] = true;
+        foreach ($chains as $c) {
+            if ($c['suggest'] === 'keep') continue;
+            foreach ($c['lines'] as $l) $moved[$l['id']] = true;
+        }
         $left = array_values(array_filter($lines, fn($l) => !isset($moved[$l['id']])));
 
         // A transfer between chequing and a savings account is printed in both sections, so
         // it is in chequing twice: once as the chequing line, once as the savings line. Pair
         // each savings line with its chequing twin (same day, same amount, other direction).
         $pool = [];
-        foreach ($chains as $ci => $c) foreach ($c['lines'] as $li => $l) {
-            $d = self::dirOf($l);
-            if ($d !== null) $pool['s' . $ci . '_' . $li] = ['date' => $l['date'], 'amount' => (float)$l['amount'], 'in' => $d === 1, 'other' => true];
+        foreach ($chains as $ci => $c) {
+            if (!isset(self::TARGETS[$c['suggest']]) && $c['confidence'] !== 'statement') continue;
+            foreach ($c['lines'] as $li => $l) {
+                $d = self::dirOf($l);
+                if ($d !== null) $pool['s' . $ci . '_' . $li] = ['date' => $l['date'], 'amount' => (float)$l['amount'], 'in' => $d === 1, 'other' => true];
+            }
         }
         foreach ($left as $mi => $l) {
             $d = self::dirOf($l);
@@ -450,13 +473,103 @@ class BankAccountSplitService
         $after = StatementCoverageService::walkChain(StatementCoverageService::orderLines($left));
 
         usort($chains, fn($a, $b) => [$a['from'], $a['key']] <=> [$b['from'], $b['key']]);
+        $mainLines = $main !== null ? $segments[$main]['lines'] : [];
         return [
-            'chains' => $chains,
-            'main'   => $mainLines,
-            'loose'  => count(array_filter($lines, fn($l) => $l['balance'] === null)),
-            'before' => self::chainSummary($before),
-            'after'  => self::chainSummary($after) + ['end_to_end' => !$after['breaks'] && !$after['other_account']],
+            'chains'   => $chains,
+            'main'     => $mainLines,
+            'main_segment' => $mainLines ? ['from' => min(array_column($mainLines, 'date')), 'to' => max(array_column($mainLines, 'date')),
+                                            'count' => count($mainLines), 'evidence' => $segments[$main]['evidence']] : null,
+            'parallel' => self::parallelSeries($segments),
+            'loose'    => count(array_filter($lines, fn($l) => $l['balance'] === null)),
+            'before'   => self::chainSummary($before),
+            'after'    => self::chainSummary($after) + ['end_to_end' => !$after['breaks'] && !$after['other_account']],
         ];
+    }
+
+    /** Chequing-type activity: a line like this is on the chequing account. */
+    public const CHEQUING_RE = '/STRIPE|ICBC|POINT\s*OF\s*SALE|\bPOS\b|E-?\s?TRANSFER|INTERAC|PRE-?\s?AUTH|PREAUTHORI[ZS]ED|\bPAYROLL\b|\bCHEQUE\b|BILL\s*PAYMENT|\bWAVE\b|SERVICE\s*CHARGE|ACCOUNT\s*FEE|\bATM\b|DEBIT\s*MEMO|TD\s*ON-?LINE|VISA|MASTERCARD/i';
+    /** A transfer naming the chequing account (#…6801): the line is on ANOTHER account. */
+    public const SAVINGS_TRANSFER_RE = '/(?:FROM|TO)\s*(?:ACCOUNT\s*)?#?\s*\d*6801\b|(?:FROM|TO)\s+CHEQUING\b/i';
+    public const SHARES_RE = '/\bSHARES?\b|MEMBERSHIP|DIVIDEND|\bEQUITY\b/i';
+
+    /**
+     * What a segment's descriptions say about its account. Pure.
+     * @return array{chequing: int, savings_transfer: int, interest: int, shares: int, lines: int, examples: string[]}
+     */
+    public static function evidence(array $lines): array
+    {
+        $e = ['chequing' => 0, 'savings_transfer' => 0, 'interest' => 0, 'shares' => 0, 'lines' => count($lines), 'examples' => []];
+        foreach ($lines as $l) {
+            $d = (string)($l['description'] ?? '');
+            $hit = null;
+            if (preg_match(self::SHARES_RE, $d)) { $e['shares']++; $hit = 'shares'; }
+            elseif (preg_match(self::SAVINGS_TRANSFER_RE, $d)) { $e['savings_transfer']++; $hit = 'savings'; }
+            elseif (preg_match(self::CHEQUING_RE, $d)) { $e['chequing']++; $hit = 'chequing'; }
+            if ((float)$l['amount'] <= self::INTEREST_MAX && preg_match('/INTEREST/i', $d) || ($d === '' && (float)$l['amount'] <= 0.05)) $e['interest']++;
+            if ($hit !== null && count($e['examples']) < 4) $e['examples'][] = $hit . ': ' . mb_substr($d, 0, 70);
+        }
+        return $e;
+    }
+
+    /**
+     * The default pick for one segment, from its evidence. Pure.
+     * @return array{0: string, 1: string, 2: string} [suggest ('1020'|'1025'|'keep'|'exclude'), confidence ('strong'|'weak'|'none'), why]
+     */
+    public static function suggest(array $lines, array $ev): array
+    {
+        if ($ev['shares'] > 0) {
+            return ['exclude', 'strong', 'Membership shares — not a bank account; never moved to a savings account.'];
+        }
+        if ($ev['savings_transfer'] > 0 && $ev['savings_transfer'] >= $ev['chequing']) {
+            [$code, $why] = self::guess($lines);
+            return [$code, $ev['chequing'] ? 'weak' : 'strong',
+                    sprintf('%d line(s) transfer FROM / TO chequing #…6801, so they are printed on another account. ', $ev['savings_transfer']) . $why];
+        }
+        if ($ev['chequing'] > 0) {
+            return ['keep', 'strong', sprintf('%d line(s) of chequing activity (Stripe, ICBC, POS, e-Transfer, pre-authorized…) — leave in chequing.', $ev['chequing'])];
+        }
+        if ($ev['interest'] > 0 && $ev['interest'] === $ev['lines']) {
+            return ['1025', 'weak', 'Only interest credits — the GST Reserves account (~$8.6) earns the monthly $0.01 interest; Reserve funds ($0.69) has had no activity.'];
+        }
+        return ['keep', 'none', 'Nothing in the descriptions says which account — left in chequing unless you pick.'];
+    }
+
+    /**
+     * Two segments over the same days that share lines (same date and amount) are the SAME
+     * account's lines read twice with different balances — not two accounts. A constant
+     * difference means one import read a different balance (or skipped a line before them);
+     * a varying one means the lines are in a different order. Pure.
+     * @return array<int, array{a: string, b: string, from: string, to: string, shared: int, offset: ?float, constant: bool, sessions_a: int[], sessions_b: int[]}>
+     */
+    public static function parallelSeries(array $segments): array
+    {
+        $out = [];
+        $keys = array_keys($segments);
+        foreach ($keys as $x => $ka) {
+            foreach (array_slice($keys, $x + 1) as $kb) {
+                $a = $segments[$ka]['lines']; $b = $segments[$kb]['lines'];
+                $aFrom = min(array_column($a, 'date')); $aTo = max(array_column($a, 'date'));
+                $bFrom = min(array_column($b, 'date')); $bTo = max(array_column($b, 'date'));
+                if ($aFrom > $bTo || $bFrom > $aTo) continue;
+                $byKey = [];
+                foreach ($a as $l) $byKey[$l['date'] . '|' . number_format((float)$l['amount'], 2, '.', '')][] = (float)$l['balance'];
+                $diffs = [];
+                foreach ($b as $l) {
+                    $k = $l['date'] . '|' . number_format((float)$l['amount'], 2, '.', '');
+                    if (!empty($byKey[$k])) $diffs[] = round(array_shift($byKey[$k]) - (float)$l['balance'], 2);
+                }
+                if (count($diffs) < 2) continue;
+                $constant = max($diffs) - min($diffs) < 0.015;
+                $out[] = [
+                    'a' => 'c' . min(array_column($a, 'id')), 'b' => 'c' . min(array_column($b, 'id')),
+                    'from' => max($aFrom, $bFrom), 'to' => min($aTo, $bTo), 'shared' => count($diffs),
+                    'offset' => $constant ? $diffs[0] : null, 'constant' => $constant,
+                    'sessions_a' => array_values(array_unique(array_column($a, 'session'))),
+                    'sessions_b' => array_values(array_unique(array_column($b, 'session'))),
+                ];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -498,44 +611,6 @@ class BankAccountSplitService
         }
         usort($segs, fn($a, $b) => $a['first_idx'] <=> $b['first_idx']);
         return $segs;
-    }
-
-    /**
-     * Join segments into accounts. A segment may continue an account only if that account
-     * printed nothing after the segment began (two accounts print side by side; one account
-     * doesn't), and only if its opening balance is near the account's last balance in size.
-     * @return array<int, array{lines: array, segments: array, last: float, last_idx: int, joins: array}>
-     */
-    public static function cluster(array $segments): array
-    {
-        $accts = [];
-        foreach ($segments as $s) {
-            $first = $s['first'];
-            $openings = $first['signed'] === null
-                ? [(float)$first['balance'] - (float)$first['amount'], (float)$first['balance'] + (float)$first['amount']]
-                : [(float)$first['balance'] - (float)$first['signed'], (float)$first['balance'] + (float)$first['signed']];
-            $best = null; $bestCost = null; $bestOpen = null;
-            foreach ($accts as $k => $a) {
-                if ($a['last_idx'] >= $s['first_idx']) continue;
-                foreach ($openings as $o) {
-                    $cost = abs($o - $a['last']) / max(abs($o), abs($a['last']), 1.0);
-                    if ($bestCost === null || $cost < $bestCost) { $best = $k; $bestCost = $cost; $bestOpen = $o; }
-                }
-            }
-            if ($best !== null && $bestCost < self::JOIN_MAX_REL) {
-                $accts[$best]['joins'][] = ['from' => $accts[$best]['last_date'], 'to' => $first['date'],
-                                            'before' => round($accts[$best]['last'], 2), 'after' => round($bestOpen, 2)];
-                $accts[$best]['lines'] = array_merge($accts[$best]['lines'], $s['lines']);
-                $accts[$best]['segments'][] = ['from' => $first['date'], 'to' => end($s['lines'])['date'], 'lines' => count($s['lines'])];
-                $accts[$best]['last'] = $s['last'];
-                $accts[$best]['last_idx'] = $s['last_idx'];
-                $accts[$best]['last_date'] = end($s['lines'])['date'];
-                continue;
-            }
-            $accts[] = ['lines' => $s['lines'], 'segments' => [['from' => $first['date'], 'to' => end($s['lines'])['date'], 'lines' => count($s['lines'])]],
-                        'last' => $s['last'], 'last_idx' => $s['last_idx'], 'last_date' => end($s['lines'])['date'], 'joins' => []];
-        }
-        return array_values($accts);
     }
 
     /**
@@ -602,7 +677,7 @@ class BankAccountSplitService
         return null;
     }
 
-    private static function describe(array $lines, array $joins, string $confidence, ?string $guess, string $why, ?string $marker, bool $interleaved, int $segments = 1): array
+    private static function describe(array $lines, string $confidence, string $suggest, string $why, ?string $marker, array $evidence): array
     {
         $bals = array_values(array_filter(array_column($lines, 'balance'), fn($b) => $b !== null));
         $sorted = $lines;
@@ -614,6 +689,14 @@ class BankAccountSplitService
             $d = self::dirOf($first);
             $open = $d === null ? null : round((float)$first['balance'] - $d * (float)$first['amount'], 2);
         }
+        $sessions = [];
+        foreach ($lines as $l) {
+            $sid = (int)($l['session'] ?? 0);
+            $sessions[$sid] = $sessions[$sid] ?? ['session' => $sid, 'lines' => 0, 'format' => (string)($l['format'] ?? ''), 'duplicates' => 0];
+            $sessions[$sid]['lines']++;
+            if (!empty($l['duplicate'])) $sessions[$sid]['duplicates']++;
+        }
+        [$guess] = self::guess($lines);
         return [
             'key'         => 'c' . min(array_column($lines, 'id')),
             'lines'       => $lines,
@@ -624,13 +707,15 @@ class BankAccountSplitService
             'max_balance' => $bals ? round(max($bals), 2) : null,
             'opening'     => $open,
             'closing'     => $last['balance'] !== null ? round((float)$last['balance'], 2) : null,
-            'segments'    => $segments,
-            'joins'       => $joins,
             'confidence'  => $confidence,
-            'guess'       => $guess,
+            'suggest'     => $suggest,
+            'guess'       => isset(self::TARGETS[$suggest]) ? $suggest : $guess,
             'guess_reason'=> $why,
+            'evidence'    => $evidence,
             'marker'      => $marker,
-            'interleaved' => $interleaved,
+            'sessions'    => array_values($sessions),
+            // the stored statement text of the first lines — to see how they were read
+            'samples'     => array_values(array_filter(array_map(fn($l) => (string)($l['raw_line'] ?? ''), array_slice($sorted, 0, 3)))),
         ];
     }
 
@@ -721,6 +806,8 @@ class BankAccountSplitService
             $raw = json_decode((string)$r['raw_row'], true) ?: [];
             $l = StatementCoverageService::lineFromRow($r, $raw, 'bank');
             $l['marker'] = isset($raw['statement_account']) ? (string)$raw['statement_account'] : '';
+            $l['format'] = self::lineFormat((string)($raw['raw_line'] ?? ''));
+            $l['raw_line'] = mb_substr((string)($raw['raw_line'] ?? ''), 0, 160);
             $l['tx_id'] = $r['tx_id'] !== null ? (int)$r['tx_id'] : null;
             $l['tx_bank'] = $r['tx_bank'] !== null ? (int)$r['tx_bank'] : null;
             $l['tx_type'] = $r['tx_type'];
@@ -729,6 +816,35 @@ class BankAccountSplitService
             $l['category_type'] = $r['category_type'];
             $l['matched'] = !empty($r['matched_invoice_id']) || !empty($r['matched_expense_id']);
             $out[] = $l;
+        }
+        return $out;
+    }
+
+    /** csv | pdf | none — how a stored line was read. Pure. */
+    public static function lineFormat(string $rawLine): string
+    {
+        $t = trim($rawLine);
+        if ($t === '') return 'none';
+        return count(str_getcsv($t, ',', '"', '')) >= 4 ? 'csv' : 'pdf';
+    }
+
+    /** session id => filename, bank_name, created_at, imported, duplicates, date range. */
+    private function sessionInfo(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $cols = 'id';
+        foreach (['filename', 'bank_name', 'created_at', 'imported_count', 'duplicate_count', 'date_from', 'date_to'] as $c) {
+            try { $this->db->query("SELECT {$c} FROM bank_import_sessions LIMIT 0"); $cols .= ', ' . $c; } catch (Throwable $e) { /* older schema */ }
+        }
+        $s = $this->db->prepare("SELECT {$cols} FROM bank_import_sessions WHERE id IN ($in)");
+        $s->execute($ids);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $id = (int)$r['id'];
+            unset($r['id']);
+            $out[$id] = $r;
         }
         return $out;
     }

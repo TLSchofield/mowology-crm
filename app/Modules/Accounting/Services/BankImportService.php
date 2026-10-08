@@ -1962,17 +1962,20 @@ class BankImportService
             $r = $rows[$k];
             $lines[] = StatementCoverageService::lineFromRow(
                 ['id' => $i + 1, 'session_id' => 1, 'transaction_date' => $r['date'] ?? '', 'type' => $r['type'] ?? '', 'amount' => $r['amount'] ?? 0],
-                ['amount' => $r['amount'] ?? 0, 'type' => $r['type'] ?? '', 'raw_line' => $r['raw_line'] ?? '']);
+                ['amount' => $r['amount'] ?? 0, 'type' => $r['type'] ?? '', 'raw_line' => $r['raw_line'] ?? ''])
+                + ['description' => (string)($r['description'] ?? '')];
         }
         if (count(array_filter($lines, static fn($l) => $l['balance'] !== null)) < 3) return $rows;
         $split = BankAccountSplitService::split($lines);
         foreach ($split['chains'] as $c) {
+            if ($c['suggest'] === 'keep') continue;   // chequing activity, or nothing says otherwise
             foreach ($c['lines'] as $l) {
                 $k = $keys[$l['id'] - 1] ?? null;
                 if ($k === null) continue;
                 $rows[$k]['other_account'] = [
                     'suffix'          => null,
-                    'label'           => 'follows a balance of its own (up to $' . number_format((float)($c['max_balance'] ?? 0), 2) . ') — another account?',
+                    'label'           => $c['suggest'] === 'exclude' ? 'membership shares — not a bank account; untick it'
+                                         : 'follows a balance of its own (up to $' . number_format((float)($c['max_balance'] ?? 0), 2) . ') — another account?',
                     'bank_account_id' => null,
                     'account'         => null,
                     'by'              => 'balance',

@@ -107,8 +107,21 @@ $flagText = [
     'revenue' => 'booked as revenue',
     'matched' => 'tied to an invoice / receipt (its cash posts from there)',
 ];
-$confText = ['statement' => 'the statement names the account', 'high' => 'one unbroken chain, printed alongside chequing',
-             'medium' => 'pieces joined by balance size', 'low' => 'a single line'];
+$confText = ['statement' => 'the statement names the account', 'strong' => 'strong — the descriptions say so',
+             'weak' => 'weak — mixed or thin evidence', 'none' => 'none — nothing in the descriptions'];
+$suggestText = ['1020' => 'move to 1020 Reserve funds ••6819', '1025' => 'move to 1025 GST Reserves ••6827',
+                'keep' => 'leave in chequing', 'exclude' => 'membership shares — never moved'];
+$sessionText = function (array $ss): string {
+    $out = [];
+    foreach ($ss as $s) {
+        $out[] = '#' . (int)$s['session'] . (isset($s['filename']) ? ' ' . $s['filename'] : '')
+               . (isset($s['created_at']) ? ' (imported ' . substr((string)$s['created_at'], 0, 10) . ')' : '')
+               . (isset($s['format']) && $s['format'] !== '' ? ' ' . $s['format'] : '')
+               . (isset($s['lines']) ? ': ' . (int)$s['lines'] . ' lines' : '')
+               . (!empty($s['duplicates']) ? ', ' . (int)$s['duplicates'] . ' marked duplicate' : '');
+    }
+    return implode('; ', $out);
+};
 $breakList = function (array $breaks) use ($money): string {
     if (!$breaks) return 'none';
     $out = [];
@@ -121,7 +134,7 @@ $breakList = function (array $breaks) use ($money): string {
 <body style="font-family: system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px;">
 <h2>Savings lines sitting in 1010 Chequing</h2>
 <p>Vancity prints three accounts on one statement: chequing ••6801, Reserve funds ••6819 and GST Reserves ••6827.
-   Lines that follow a running balance of their own are another account's. Pick where each chain goes — nothing moves without your pick.</p>
+   Lines that follow a running balance of their own are another account's. Pick where each segment goes — nothing moves without your pick.</p>
 <?php if ($message): ?><p><strong><?= h($message) ?></strong></p><?php endif; ?>
 <?php if ($result && !empty($result['errors'])): ?><ul><?php foreach ($result['errors'] as $e): ?><li><?= h($e) ?></li><?php endforeach; ?></ul><?php endif; ?>
 
@@ -131,31 +144,52 @@ $breakList = function (array $breaks) use ($money): string {
      Chequing chain now: <?= count($plan['before']['breaks']) ?> breaks, <?= count($plan['before']['other_account']) ?> other-account runs.
      Without the chains below: <b><?= count($plan['after']['breaks']) ?> breaks</b>
      <?= $plan['after']['end_to_end'] ? '— links end to end.' : '' ?></p>
-  <details><summary>Chequing breaks after the move</summary><p><?= $breakList($plan['after']['breaks']) ?></p></details>
+  <?php if (!empty($plan['main_segment'])): $m = $plan['main_segment']; ?>
+    <p>Chequing itself: the largest chequing-looking segment, <?= (int)$m['count'] ?> lines <?= h($m['from']) ?> → <?= h($m['to']) ?>.</p>
+  <?php endif; ?>
+  <details><summary>Chequing breaks with the suggested moves</summary><p><?= $breakList($plan['after']['breaks']) ?></p></details>
+  <?php if (!empty($plan['parallel'])): ?>
+    <h3>Same lines, two different balances</h3>
+    <p>These segments overlap in time and share lines (same date and amount) — one account read twice, not two accounts.
+       A constant difference means one import read its balances differently.</p>
+    <ul><?php foreach ($plan['parallel'] as $p): ?>
+      <li><?= h($p['a']) ?> vs <?= h($p['b']) ?>, <?= h($p['from']) ?> → <?= h($p['to']) ?>: <?= (int)$p['shared'] ?> shared lines,
+        <?= $p['constant'] ? 'balances differ by a constant ' . h($money($p['offset'])) : 'balances differ by varying amounts (different order or lines)' ?>.
+        Sessions: <?= h($sessionText($p['sessions_a'])) ?> | <?= h($sessionText($p['sessions_b'])) ?></li>
+    <?php endforeach; ?></ul>
+  <?php endif; ?>
 
   <?php if (!$plan['chains']): ?>
-    <p>No other balance chain in chequing — nothing to move.</p>
+    <p>No other balance segment in chequing — nothing to move.</p>
   <?php else: ?>
   <form method="post">
     <input type="hidden" name="csrf_token" value="<?= h($token) ?>">
     <input type="hidden" name="action" value="apply">
     <?php foreach ($plan['chains'] as $c): ?>
       <fieldset style="margin: 16px 0; padding: 12px; border: 1px solid #ccc;">
-        <legend><b>Chain <?= h($c['key']) ?></b> — <?= (int)$c['count'] ?> lines, <?= h($c['from']) ?> → <?= h($c['to']) ?>,
+        <legend><b>Segment <?= h($c['key']) ?></b> — <?= (int)$c['count'] ?> lines, <?= h($c['from']) ?> → <?= h($c['to']) ?>,
           balance <?= h($money($c['min_balance'])) ?> – <?= h($money($c['max_balance'])) ?></legend>
-        <p>Opens <?= h($money($c['opening'])) ?>, closes <?= h($money($c['closing'])) ?>; <?= (int)$c['segments'] ?> piece(s);
-           confidence: <?= h($confText[$c['confidence']] ?? $c['confidence']) ?>.
+        <p>Opens <?= h($money($c['opening'])) ?>, closes <?= h($money($c['closing'])) ?>;
+           evidence: <?= h($confText[$c['confidence']] ?? $c['confidence']) ?>
+           (<?= (int)$c['evidence']['savings_transfer'] ?> transfer(s) naming #…6801, <?= (int)$c['evidence']['chequing'] ?> chequing-type,
+           <?= (int)$c['evidence']['interest'] ?> interest, <?= (int)$c['evidence']['shares'] ?> shares).
            <?= (int)$c['movable'] ?> can move (<?= h($money($c['movable_amount'])) ?>)<?= $c['locked'] ? ', ' . (int)$c['locked'] . ' in locked months stay' : '' ?>.</p>
-        <p>Guess: <b><?= h(BankAccountSplitService::TARGETS[$c['guess']]['label'] ?? '—') ?></b> — <?= h($c['guess_reason']) ?></p>
-        <?php if ($c['joins']): ?><p>Joined across: <?= $breakList(array_map(fn($j) => $j + ['missing' => $j['after'] - $j['before']], $c['joins'])) ?></p><?php endif; ?>
+        <p>Suggested: <b><?= h($suggestText[$c['suggest']] ?? $c['suggest']) ?></b> — <?= h($c['guess_reason']) ?></p>
+        <?php if (!empty($c['evidence']['examples'])): ?><p style="font-size: 13px;"><?= h(implode(' · ', $c['evidence']['examples'])) ?></p><?php endif; ?>
+        <p style="font-size: 13px;">Sessions: <?= h($sessionText($c['sessions'])) ?></p>
+        <?php if (!empty($c['samples'])): ?><pre style="font-size: 12px; white-space: pre-wrap;"><?= h(implode("\n", $c['samples'])) ?></pre><?php endif; ?>
+        <?php if ($c['suggest'] === 'exclude'): ?>
+          <p>Not offered: membership shares are not a bank account. These lines should not be in chequing at all — remove them from the import if they are.</p>
+        <?php else: ?>
         <p>
           <?php foreach (BankAccountSplitService::TARGETS as $code => $t): ?>
             <label style="margin-right: 16px;"><input type="radio" name="pick[<?= h($c['key']) ?>]" value="<?= h($code) ?>"
-              <?= $c['confidence'] === 'statement' && $c['guess'] === (string)$code ? 'checked' : '' ?>>
+              <?= $c['suggest'] === (string)$code && in_array($c['confidence'], ['statement', 'strong'], true) ? 'checked' : '' ?>>
               <?= h($code . ' ' . ($plan['targets'][$code]['name'] ?? $t['name'])) ?></label>
           <?php endforeach; ?>
-          <label><input type="radio" name="pick[<?= h($c['key']) ?>]" value="keep"> leave in chequing</label>
+          <label><input type="radio" name="pick[<?= h($c['key']) ?>]" value="keep" <?= $c['suggest'] === 'keep' ? 'checked' : '' ?>> leave in chequing</label>
         </p>
+        <?php endif; ?>
         <details><summary>Lines</summary>
           <table border="1" cellpadding="4" style="border-collapse: collapse; width: 100%; font-size: 13px;">
             <tr><th>Date</th><th>In/out</th><th>Amount</th><th>Balance</th><th>Description</th><th>Category</th><th>Chequing twin</th><th>Notes</th></tr>
