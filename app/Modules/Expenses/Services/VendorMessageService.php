@@ -118,17 +118,43 @@ class VendorMessageService
      */
     public function store(array $m): string
     {
-        $s = $this->db->prepare("
-            INSERT IGNORE INTO vendor_messages (message_key, mailbox, vendor_id, direction, from_addr, to_addr, subject, snippet, sent_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $s->execute([
+        $vals = [
             mb_substr($m['message_key'], 0, 191), mb_substr($m['mailbox'], 0, 60), (int)$m['vendor_id'],
             $m['direction'] === 'outbound' ? 'outbound' : 'inbound',
             mb_substr($m['from'], 0, 255), mb_substr($m['to'], 0, 255), mb_substr($m['subject'], 0, 255),
             $m['snippet'], date('Y-m-d H:i:s', strtotime($m['sent_at']) ?: time()),
-        ]);
+        ];
+        // kind ('message' | 'payment') needs migration 1226; before it, the row is stored without it.
+        $kind = (string)($m['kind'] ?? 'message');
+        if ($this->hasKind()) {
+            $s = $this->db->prepare("
+                INSERT IGNORE INTO vendor_messages (message_key, mailbox, vendor_id, direction, from_addr, to_addr, subject, snippet, sent_at, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $vals[] = mb_substr($kind, 0, 20);
+        } else {
+            $s = $this->db->prepare("
+                INSERT IGNORE INTO vendor_messages (message_key, mailbox, vendor_id, direction, from_addr, to_addr, subject, snippet, sent_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+        }
+        $s->execute($vals);
         return $s->rowCount() > 0 ? 'stored' : 'dupe';
+    }
+
+    private ?bool $hasKind = null;
+
+    /** vendor_messages.kind exists (migration 1226). */
+    private function hasKind(): bool
+    {
+        if ($this->hasKind === null) {
+            try {
+                $this->hasKind = $this->db->query("SHOW COLUMNS FROM vendor_messages LIKE 'kind'")->rowCount() > 0;
+            } catch (Throwable $e) {
+                $this->hasKind = false;
+            }
+        }
+        return $this->hasKind;
     }
 
     /** One vendor's recent mail, newest first. */
