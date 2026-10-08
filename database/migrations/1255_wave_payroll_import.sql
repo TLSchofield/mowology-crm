@@ -4,7 +4,9 @@
 --   the bank lines that paid it (Wave's CRA remittance debits, the employees' e-Transfers) off
 --   5100 so wages are counted once. ShareholderAccountService keeps 1300 Due from Shareholder:
 --   the shareholder's own transfers beyond his net pay, his repayments, personal charges, and the
---   accountant's clearing (dividend or bonus) of the filed $86,086 opening balance.
+--   a future clearing (dividend or bonus) entered from the accountant's figures. The updated
+--   FY2025 FS cleared the loan with an $86,100 dividend: at 2025-12-31 the company owes the
+--   shareholder $14 (fy_filed_balances 2025 = -14, migration 1242 — read first when present).
 -- Accounts (each created only when the code is missing; an existing code is never renamed —
 --   the page refuses to book if a code is named for something else). 2510 is taken by
 --   Income Tax Payable (migration 1238), so source deductions are 2310 beside 2300 PST:
@@ -161,6 +163,7 @@ CREATE TABLE IF NOT EXISTS shareholder_clearings (
 
 -- The filed balance sheet's 2025-12-31 shareholder balance (shown beside the books' opening).
 INSERT IGNORE INTO ops_settings (setting_key, setting_value, description)
-VALUES ('shareholder_filed_opening', '86086.00', 'Due from Shareholder per the filed FY2025 balance sheet (2025-12-31)');
+VALUES ('shareholder_filed_opening', '-14.00', 'Due from Shareholder per the filed FY2025 balance sheet (2025-12-31); negative = the company owes him');
+UPDATE ops_settings SET setting_value = '-14.00' WHERE setting_key = 'shareholder_filed_opening' AND setting_value = '86086.00';
 
 SELECT code, name, type FROM chart_of_accounts WHERE code IN ('1300', '1500', '2310', '2520', '3400', '5100', '5110', '6800') ORDER BY code;

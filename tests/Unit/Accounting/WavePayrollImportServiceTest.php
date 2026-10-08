@@ -251,18 +251,29 @@ final class WavePayrollImportServiceTest extends TestCase
 
     public function testRunningBalance(): void
     {
-        $r = ShareholderAccountService::running(86086.0, [
+        // Opens with the company owing him $14 (updated FY2025 FS, after the $86,100 dividend).
+        $r = ShareholderAccountService::running(-14.0, [
             ['month' => '2026-01', 'kind' => 'withdrawal', 'amount' => 500.0],
             ['month' => '2026-01', 'kind' => 'payroll', 'amount' => 1213.5],
             ['month' => '2026-02', 'kind' => 'repayment', 'amount' => -400.0],
-            ['month' => '2026-03', 'kind' => 'clearing', 'amount' => -86086.0],
+            ['month' => '2026-03', 'kind' => 'clearing', 'amount' => -1299.5],
             ['month' => '2026-03', 'kind' => 'personal', 'amount' => 20.99],
         ], 2026);
-        $this->assertSame(87799.5, $r['months'][0]['balance']);
-        $this->assertSame(87399.5, $r['months'][1]['balance']);
-        $this->assertSame(1334.49, $r['months'][2]['balance']);
-        $this->assertSame(1334.49, $r['closing']);
+        $this->assertSame(-14.0, $r['opening']);
+        $this->assertSame(1699.5, $r['months'][0]['balance']);
+        $this->assertSame(1299.5, $r['months'][1]['balance']);
+        $this->assertSame(20.99, $r['months'][2]['balance']);
+        $this->assertSame(20.99, $r['closing']);
         $this->assertCount(12, $r['months']);
+    }
+
+    public function testACreditBalanceMeansTheCompanyOwesHimAndNoWarning(): void
+    {
+        $this->assertStringContainsString('company owes the shareholder $14.00', ShareholderAccountService::yearEndNote(-14));
+        $this->assertStringNotContainsString('15(2)', str_replace('no s.15(2) concern', '', ShareholderAccountService::yearEndNote(-14)));
+        $this->assertStringContainsString('s.15(2)', ShareholderAccountService::yearEndNote(1200));
+        $this->assertSame([], ShareholderAccountService::briefItems(-14, '2026-12-01'), 'owed TO him → nothing to clear');
+        $this->assertSame(-14.0, ShareholderAccountService::FILED_OPENING_DEFAULT);
     }
 
     // ── DB: import, approve, undo, locked, shareholder ──────────────────────
@@ -330,9 +341,18 @@ final class WavePayrollImportServiceTest extends TestCase
         $db = $this->db();
         $ledger = $this->ledger($db);
         $sh = new ShareholderAccountService($db, $ledger);
-        // Opening: the filed $86,086 (the FY2026 opening entry).
-        $db->exec("INSERT INTO journal_entries (id, entry_date, memo, source_type, status) VALUES (900, '2025-12-31', 'opening', 'opening_balance', 'posted')");
-        $db->exec("INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES (900, " . $this->acct($db, '1300') . ", 86086, 0), (900, " . $this->acct($db, '3900') . ", 0, 86086)");
+        // Opening: an old 2025 balance of $86,086, then the FY2026 opening entry (dated Jan 1, source
+        // 'fy_opening') takes it to the filed figure — the company owes him $14.
+        $db->exec("INSERT INTO journal_entries (id, entry_date, memo, source_type, status) VALUES (899, '2025-06-30', 'old', 'manual', 'posted')");
+        $db->exec("INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES (899, " . $this->acct($db, '1300') . ", 86086, 0), (899, " . $this->acct($db, '3900') . ", 0, 86086)");
+        $db->exec("INSERT INTO journal_entries (id, entry_date, memo, source_type, source_id, status, is_adjusting) VALUES (900, '2026-01-01', 'FY2026 opening', 'fy_opening', 2025, 'posted', 1)");
+        $db->exec("INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES (900, " . $this->acct($db, '1300') . ", 0, 86100), (900, " . $this->acct($db, '3900') . ", 86100, 0)");
+        // The filed figure comes from fy_filed_balances when the table is there (over ops_settings).
+        $this->assertSame(-14.0, $sh->filedOpening());
+        $db->exec("CREATE TABLE fy_filed_balances (id INTEGER PRIMARY KEY, fiscal_year INTEGER, line TEXT, amount REAL)");
+        $db->exec("INSERT INTO fy_filed_balances (fiscal_year, line, amount) VALUES (2025, 'due_from_shareholder', -14.00), (2024, 'due_from_shareholder', 71066)");
+        $db->exec("UPDATE ops_settings SET setting_value = '99' WHERE setting_key = 'shareholder_filed_opening'");
+        $this->assertSame(-14.0, $sh->filedOpening());
 
         $p = $sh->proposals();
         $this->assertSame([10], array_column($p['repayments'], 'id'));
@@ -344,24 +364,26 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertTrue($a['ok'], $a['message']);
         $this->assertSame(2, $a['moved']);
         $L = $sh->ledger();
-        $this->assertSame(86086.0, $L['opening']);
-        $this->assertNull($L['opening_note']);
+        $this->assertSame(-14.0, $L['opening']);
+        $this->assertNull($L['opening_note'], 'books agree with the filed -$14');
         $this->assertSame(-400.0, $L['months'][0]['repayment']);
         $this->assertSame(20.99, $L['months'][0]['personal']);
-        $this->assertSame(85706.99, $L['months'][0]['balance']);
+        $this->assertSame(-393.01, $L['months'][0]['balance']);
+        $this->assertStringContainsString('company owes the shareholder $393.01', $sh->report()['year_end_note']);
+        $this->assertSame([], $sh->brief('2026-12-01'));
 
         $this->assertFalse($sh->addClearing('dividend', '2026-03-31', 1000, 50, '', 1)['ok'], 'no withholdings on a dividend');
-        $c = $sh->addClearing('dividend', '2026-03-31', 85706.99, 0, 'per accountant', 1);
+        $c = $sh->addClearing('dividend', '2026-03-31', 600, 0, 'per accountant', 1);
         $this->assertTrue($c['ok'], $c['message']);
         $L = $sh->ledger();
-        $this->assertSame(-85706.99, $L['months'][2]['clearing']);
-        $this->assertSame(0.0, $L['closing']);
-        $this->assertSame(85706.99, $this->net($db)[$this->acct($db, '3400')]);
+        $this->assertSame(-600.0, $L['months'][2]['clearing']);
+        $this->assertSame(-993.01, $L['closing']);
+        $this->assertSame(600.0, $this->net($db)[$this->acct($db, '3400')]);
 
         $this->assertTrue($sh->undoClearing($c['id'], 1)['ok']);
-        $this->assertSame(85706.99, $sh->ledger()['closing']);
+        $this->assertSame(-393.01, $sh->ledger()['closing']);
         $this->assertTrue($sh->undoBatch($a['batch_id'], 1)['ok']);
-        $this->assertSame(86086.0, $sh->ledger()['closing']);
+        $this->assertSame(-14.0, $sh->ledger()['closing']);
         $this->assertSame('4900', $this->codeOf($db, 10));
 
         $b = $sh->addClearing('bonus', '2026-03-31', 1000, 250, '', 1);
@@ -437,7 +459,7 @@ final class WavePayrollImportServiceTest extends TestCase
         $db->exec("CREATE TABLE shareholder_clearings (id INTEGER PRIMARY KEY AUTOINCREMENT, clearing_type TEXT, entry_date TEXT, amount REAL, withholdings REAL,
                    note TEXT, journal_entry_id INTEGER, reversal_entry_id INTEGER, created_by INTEGER, created_at TEXT, undone_by INTEGER, undone_at TEXT)");
         $db->exec("CREATE TABLE ops_settings (id INTEGER PRIMARY KEY AUTOINCREMENT, setting_key TEXT UNIQUE, setting_value TEXT, description TEXT, updated_by INTEGER)");
-        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('payroll_shareholder_name', 'Pat Owner'), ('shareholder_filed_opening', '86086.00')");
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('payroll_shareholder_name', 'Pat Owner'), ('shareholder_filed_opening', '-14.00')");
         $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT)");
         $db->exec("INSERT INTO users (id, full_name) VALUES (1, 'Pat Owner'), (2, 'Jane Doe')");
         $db->exec("CREATE TABLE time_clock_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, clock_in TEXT, clock_out TEXT, total_minutes INTEGER, status TEXT)");

@@ -8,8 +8,11 @@
  *     month whose payroll isn't booked they wait ("waiting for the payroll report").
  *   - money IN from him → 1300 (a repayment; the deposit credits 1300).
  *   - personal charges the business paid (gym, streaming, …) → 1300, proposals only, unticked.
- *   - the accountant's clearing of the opening balance (filed FS: $86,086 at 2025-12-31) —
- *     ONE entry from Tim's / the accountant's figures, never guessed:
+ *   - the filed opening: the accountant's updated FY2025 statements declared an $86,100
+ *     dividend (T5 2025) that cleared the loan, so at 2025-12-31 the company owes Tim $14
+ *     (fy_filed_balances 2025 'due_from_shareholder' = -14, migration 1242). A negative
+ *     balance = the company owes him: no s.15(2) concern, no brief item.
+ *   - a future clearing (the form) — ONE entry from Tim's / the accountant's figures, never guessed:
  *       dividend: DR 3400 Dividends Declared / CR 1300
  *       bonus:    DR 5100 wages (amount + withholdings) / CR 2310 withholdings / CR 1300 amount
  *   - the running balance by month, from the journal (1300 lines), with the year-end flag:
@@ -28,7 +31,8 @@ class ShareholderAccountService
     public const ACC = LedgerService::ACC_DUE_FROM_SH;   // 1300
     public const ACC_DIVIDENDS = '3400';
     public const YEAR = WavePayrollImportService::BOOK_YEAR;
-    public const FILED_OPENING_DEFAULT = 86086.00;
+    /** Updated FY2025 FS: the company owes the shareholder $14 at 2025-12-31 (after the $86,100 dividend). */
+    public const FILED_OPENING_DEFAULT = -14.00;
     /** Business-paid charges that are usually personal — a proposal, never automatic. */
     public const PERSONAL_RE = '/\b(NETFLIX|SPOTIFY|DISNEY ?PLUS|DISNEYPLUS|CRAVE|PRIME ?VIDEO|APPLE\.COM\/BILL|GOODLIFE|ANYTIME FITNESS|FITNESS|GYM|YOGA|CINEPLEX|LULULEMON|SEPHORA|STEAM ?GAMES|PLAYSTATION|XBOX|NINTENDO)\b/i';
     public const BRIEF_FROM_MONTH = 11;
@@ -55,8 +59,18 @@ class ShareholderAccountService
         return ['ok' => true, 'message' => $name . ' is the shareholder.'];
     }
 
+    /**
+     * The filed balance at the start of the year (+ he owes the company, − it owes him):
+     * fy_filed_balances (migration 1238/1242) when present, else ops_settings, else the default.
+     */
     public function filedOpening(): float
     {
+        try {
+            $s = $this->db->prepare("SELECT amount FROM fy_filed_balances WHERE fiscal_year = ? AND line = 'due_from_shareholder'");
+            $s->execute([self::YEAR - 1]);
+            $a = $s->fetchColumn();
+            if ($a !== false && $a !== null) return round((float)$a, 2);
+        } catch (Throwable $e) { /* no table yet */ }
         $v = $this->setting('shareholder_filed_opening');
         return $v === null || $v === '' ? self::FILED_OPENING_DEFAULT : round((float)$v, 2);
     }
@@ -144,12 +158,15 @@ class ShareholderAccountService
         $opening = 0.0;
         $rows = [];
         if ($acct) {
+            // Opening = everything before the year + the FY opening entry (Fy2026OpeningService: dated
+            // Jan 1, source 'fy_opening', moves the balance to the filed figure) — while it stands.
+            $live = "e.reversed_by_entry_id IS NULL AND NOT EXISTS (SELECT 1 FROM journal_entries o WHERE o.reversed_by_entry_id = e.id)";
             $s = $this->db->prepare("SELECT COALESCE(SUM(l.debit - l.credit), 0) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
-                                     WHERE l.account_id = ? AND e.entry_date < ?");
-            $s->execute([$acct, $start]);
+                                     WHERE l.account_id = ? AND (e.entry_date < ? OR (e.source_type = 'fy_opening' AND e.entry_date = ? AND {$live}))");
+            $s->execute([$acct, $start, $start]);
             $opening = round((float)$s->fetchColumn(), 2);
             $s = $this->db->prepare("SELECT e.entry_date, e.source_type, e.source_id, l.debit, l.credit FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
-                                     WHERE l.account_id = ? AND e.entry_date BETWEEN ? AND ?
+                                     WHERE l.account_id = ? AND e.entry_date BETWEEN ? AND ? AND e.source_type <> 'fy_opening'
                                        AND e.reversed_by_entry_id IS NULL
                                        AND NOT EXISTS (SELECT 1 FROM journal_entries o WHERE o.reversed_by_entry_id = e.id)");
             $s->execute([$acct, $start, self::YEAR . '-12-31']);
@@ -308,7 +325,17 @@ class ShareholderAccountService
         $ledger = $this->ledger();
         return ['ledger' => $ledger, 'proposals' => $this->proposals(), 'batches' => $this->batches(), 'clearings' => $this->clearings(),
                 'goal' => 'Keep it near $0 — a balance left at Dec 31 becomes taxable again.',
-                'year_end_note' => 'A balance the shareholder still owes the company after its year end can be taxed as his income (CRA s.15(2)). Talk to your accountant before Dec 31 about clearing it — e.g. a bonus or a dividend.'];
+                'year_end_note' => self::yearEndNote((float)$ledger['closing'])];
+    }
+
+    /** Pure: what the page says about the balance (no s.15(2) warning when the company owes him). */
+    public static function yearEndNote(float $balance): string
+    {
+        if ($balance < -0.005) {
+            return 'The company owes the shareholder $' . number_format(-$balance, 2) . ' — nothing for him to repay, and no s.15(2) concern.';
+        }
+        if ($balance < 0.005) return 'The account is at $0 — nothing owed either way.';
+        return 'A balance the shareholder still owes the company after its year end can be taxed as his income (CRA s.15(2)). Talk to your accountant before Dec 31 about clearing it — e.g. a bonus or a dividend.';
     }
 
     public function brief(string $today): array

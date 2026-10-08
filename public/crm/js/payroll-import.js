@@ -205,7 +205,7 @@
         h += '<p class="small text-muted">' + esc(s.year_end_note || '') + '</p>';
         if (L.opening_note) h += '<div class="alert alert-info small">' + esc(L.opening_note) + '</div>';
         h += '<div class="mw-pi-scroll"><table class="table table-sm mw-pi-table mb-0"><thead><tr><th>Month</th><th class="mw-pi-num">Withdrawals</th><th class="mw-pi-num">Beyond net pay</th>'
-            + '<th class="mw-pi-num">Personal charges</th><th class="mw-pi-num">Repayments</th><th class="mw-pi-num">Clearing</th><th class="mw-pi-num">Other</th><th class="mw-pi-num">Balance owed</th></tr></thead><tbody>'
+            + '<th class="mw-pi-num">Personal charges</th><th class="mw-pi-num">Repayments</th><th class="mw-pi-num">Clearing</th><th class="mw-pi-num">Other</th><th class="mw-pi-num">Balance <span class="text-muted">(− = company owes him)</span></th></tr></thead><tbody>'
             + '<tr class="mw-pi-strong"><td>Opening ' + esc(L.months.length ? L.months[0].month.slice(0, 4) : '') + '</td><td colspan="6" class="small text-muted">books ' + money(L.opening) + ' · filed balance sheet ' + money(L.filed_opening) + '</td><td class="mw-pi-num">' + money(L.opening) + '</td></tr>'
             + L.months.map(function (m) {
                 return '<tr><td>' + esc(ymLabel(m.month)) + '</td><td class="mw-pi-num">' + money(m.withdrawal) + '</td><td class="mw-pi-num">' + money(m.payroll) + '</td><td class="mw-pi-num">'
