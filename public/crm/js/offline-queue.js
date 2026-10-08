@@ -62,6 +62,7 @@
     ];
 
     var _db = null;
+    var _storeHealed = false;
 
     // ── IndexedDB helpers ────────────────────────────────────────────────────────
 
@@ -80,7 +81,21 @@
             };
 
             req.onsuccess = function (e) {
-                _db = e.target.result;
+                var opened = e.target.result;
+                if (!opened.objectStoreNames.contains(STORE_NAME)) {
+                    // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
+                    // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
+                    // transaction threw "One of the specified object stores was not found". It holds
+                    // nothing, so drop it and open again (once).
+                    opened.close();
+                    if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
+                    _storeHealed = true;
+                    var del = indexedDB.deleteDatabase(DB_NAME);
+                    del.onsuccess = function () { openDB().then(resolve, reject); };
+                    del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
+                    return;
+                }
+                _db = opened;
                 resolve(_db);
             };
 

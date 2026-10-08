@@ -2,7 +2,12 @@
 /**
  * Visit Pull-Forward API — "you're at a property whose visit is on another day: doing it now?"
  *
- * POST ?mode=offer   { lat, lng, accuracy, on_open? }        → { success, offer|null, reason }
+ * OFF unless ops_settings pull_forward_enabled = '1' or the user is in pull_forward_user_ids
+ * (migration 1276) — offer answers {offer:null, reason:'disabled'}, accept 403s.
+ *
+ * POST ?mode=offer   {}  → { success, offer|null, reason } — position from the user's own recent
+ *        crew_location_history fixes (no GPS on the page). Native clients may send
+ *        { lat, lng, accuracy, on_open? } instead.
  * POST ?mode=accept  { visit_id, property_id?, request_key }  → move that visit to today
  *        The client then starts the timer through the existing path (POST /crm/api/job-timer.php
  *        action=start). Both POSTs are on the offline queue, replayed in order.
@@ -112,14 +117,32 @@ try {
 
     // ── Offer ────────────────────────────────────────────────────────────────
     if ($mode === 'offer') {
-        if (getTimeClockSetting('pull_forward_offers_enabled', '1') !== '1') {
+        if (!VisitPullForwardService::enabledFor($db, $userId)) {
             vpfRespond(['success' => true, 'offer' => null, 'reason' => 'disabled']);
         }
-        $lat = isset($input['lat']) ? (float)$input['lat'] : 0.0;
-        $lng = isset($input['lng']) ? (float)$input['lng'] : 0.0;
-        $acc = isset($input['accuracy']) ? (float)$input['accuracy'] : 50.0;
-        if (!$lat || !$lng) {
-            vpfRespond(['success' => false, 'error' => 'lat and lng required'], 400);
+        // Position: the web client sends NONE — it uses the fixes the phone already reports to
+        // crew-location.php (newest within 3 min). The page must never call the WebView's
+        // navigator.geolocation: in the Capacitor app that goes through Android's runtime
+        // permission flow (see mw-pull-forward.js). Native clients (iOS) may send lat/lng.
+        $clientFix = isset($input['lat'], $input['lng']) && (float)$input['lat'] && (float)$input['lng'];
+        if ($clientFix) {
+            $lat = (float)$input['lat'];
+            $lng = (float)$input['lng'];
+            $acc = isset($input['accuracy']) ? (float)$input['accuracy'] : 50.0;
+        } else {
+            $lf = $db->prepare("
+                SELECT latitude, longitude, accuracy_meters FROM crew_location_history
+                WHERE crew_id = ? AND timestamp >= (NOW() - INTERVAL 180 SECOND)
+                ORDER BY timestamp DESC LIMIT 1
+            ");
+            $lf->execute([$userId]);
+            $fix = $lf->fetch(PDO::FETCH_ASSOC);
+            if (!$fix) {
+                vpfRespond(['success' => true, 'offer' => null, 'reason' => 'no_recent_fix']);
+            }
+            $lat = (float)$fix['latitude'];
+            $lng = (float)$fix['longitude'];
+            $acc = $fix['accuracy_meters'] !== null ? (float)$fix['accuracy_meters'] : 50.0;
         }
         // A truck tablet has no one to ask.
         $dev = $db->prepare("SELECT IFNULL(device_type, 'personal') FROM users WHERE id = ?");
@@ -139,7 +162,7 @@ try {
 
         // Dwell for background checks: one fix inside a fence is a drive-by. Opening the app
         // on site (on_open) is deliberate, as with the auto-arrival one-shot check.
-        if ($res['offer'] && empty($input['on_open'])) {
+        if ($res['offer'] && !($clientFix && !empty($input['on_open']))) {
             $pid = (int)$res['offer']['property_id'];
             $fx = $db->prepare("
                 SELECT latitude AS lat, longitude AS lng,
@@ -162,11 +185,19 @@ try {
                 vpfRespond(['success' => true, 'offer' => null, 'reason' => 'no_dwell_yet']);
             }
         }
+        if ($res['offer']) {
+            // The fix the offer was made from — the page passes it to job-timer.php start
+            // (require_gps_for_job_start) instead of asking the WebView for GPS.
+            $res['offer']['fix'] = ['lat' => $lat, 'lng' => $lng];
+        }
         vpfRespond(['success' => true, 'offer' => $res['offer'], 'reason' => $res['reason']]);
     }
 
     // ── Accept: move the visit to today ──────────────────────────────────────
     if ($mode === 'accept') {
+        if (!VisitPullForwardService::enabledFor($db, $userId)) {
+            vpfRespond(['success' => false, 'error' => 'Moving visits from the crew app is switched off.'], 403);
+        }
         $visitId = (int)($input['visit_id'] ?? 0);
         if ($visitId < 1) {
             vpfRespond(['success' => false, 'error' => 'visit_id required'], 400);

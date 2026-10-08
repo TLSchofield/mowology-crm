@@ -3,23 +3,32 @@
  * ══════════════════════════════════════════════════════════════════════
  * Accompanies public/crm/js/mw-pull-forward.js. Loaded on every CRM page via
  * appstack_head.php and on homebase.php. Colours come from tokens.css only.
+ *
+ * 2026-10-08 incident rules: the overlay takes taps ONLY in its visible open state (no
+ * transparent full-screen phase, no slide-in waiting on an animation frame); it sits above every
+ * app shell (.mw-mc-container 1050, mobile bars 1060/1070) so it can never be hidden underneath
+ * one; nothing here styles html/body or any element outside .mw-pf-*.
  */
 
 .mw-pf-overlay {
     position: fixed;
-    inset: 0;
-    z-index: var(--mw-z-modal);
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    background: rgba(13, 59, 46, 0);
-    transition: background var(--mw-dur-base) var(--mw-ease-out);
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 1090;
+    display: none;
+    pointer-events: none;
     font-family: var(--mw-font-sans);
     -webkit-tap-highlight-color: transparent;
 }
-.mw-pf-overlay.mw-pf-open { background: rgba(13, 59, 46, 0.45); }
+.mw-pf-overlay.mw-pf-open {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    pointer-events: auto;
+    background: rgba(13, 59, 46, 0.45);
+}
 
 .mw-pf-sheet {
+    position: relative;
     width: 100%;
     max-width: 480px;
     max-height: 88vh;
@@ -28,19 +37,24 @@
     color: var(--mw-ink-900);
     border-radius: var(--mw-radius-xl) var(--mw-radius-xl) 0 0;
     box-shadow: var(--mw-shadow-lg);
-    padding: var(--mw-space-2) var(--mw-space-5) calc(var(--mw-space-5) + var(--mw-safe-bottom));
-    transform: translateY(100%);
-    transition: transform var(--mw-dur-slow) var(--mw-ease-spring);
+    padding: var(--mw-space-5) var(--mw-space-5) calc(var(--mw-space-5) + var(--mw-safe-bottom));
 }
-.mw-pf-open .mw-pf-sheet { transform: translateY(0); }
 
-.mw-pf-grab {
-    width: 40px;
-    height: 4px;
-    margin: 0 auto var(--mw-space-4);
-    border-radius: var(--mw-radius-pill);
-    background: var(--mw-ink-300);
+.mw-pf-close {
+    position: absolute;
+    top: var(--mw-space-2);
+    right: var(--mw-space-2);
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--mw-ink-500);
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
 }
+.mw-pf-close:focus-visible { outline: none; box-shadow: var(--mw-shadow-ring); }
 
 .mw-pf-eyebrow {
     display: flex;
@@ -187,6 +201,9 @@
 .mw-pf-x { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); }
 .mw-pf-note { margin: 0; font-size: var(--mw-text-sm); color: var(--mw-ink-500); }
 
+/* Room for the × close in the first line. */
+.mw-pf-body > :first-child { padding-right: 40px; }
+
 @media (prefers-reduced-motion: reduce) {
-    .mw-pf-overlay, .mw-pf-sheet, .mw-pf-btn { transition: none; }
+    .mw-pf-btn { transition: none; }
 }

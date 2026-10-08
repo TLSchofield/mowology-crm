@@ -58,6 +58,26 @@ final class VisitPullForwardServiceTest extends TestCase
         return $r ?: null;
     }
 
+    // ── switch (off by default since the 2026-10-08 incident) ─────────────────
+
+    public function testOffUnlessSwitchedOnForEveryoneOrForThisUser(): void
+    {
+        $this->assertFalse(VisitPullForwardService::isEnabledFor(null, null, 22));
+        $this->assertFalse(VisitPullForwardService::isEnabledFor('0', '', 22));
+        $this->assertFalse(VisitPullForwardService::isEnabledFor('0', '12, 34', 22));
+        $this->assertTrue(VisitPullForwardService::isEnabledFor('0', '12, 22,34', 22));
+        $this->assertTrue(VisitPullForwardService::isEnabledFor('1', '', 22));
+        $this->assertFalse(VisitPullForwardService::isEnabledFor('0', '0', 0));
+
+        // No ops_settings table / rows → off, never an exception.
+        $this->assertFalse(VisitPullForwardService::enabledFor($this->db, 22));
+        $this->db->exec("CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)");
+        $this->assertFalse(VisitPullForwardService::enabledFor($this->db, 22));
+        $this->db->exec("INSERT INTO ops_settings VALUES ('pull_forward_enabled', '0'), ('pull_forward_user_ids', '22')");
+        $this->assertTrue(VisitPullForwardService::enabledFor($this->db, 22));
+        $this->assertFalse(VisitPullForwardService::enabledFor($this->db, 10));
+    }
+
     // ── ordering ──────────────────────────────────────────────────────────────
 
     public function testOverdueBeforeUpcomingWithinSevenDaysAndNeverSkipped(): void

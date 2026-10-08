@@ -77,9 +77,11 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 ### MwPullForward ("Booked another day — doing it now?")
 - **Files:** `public/crm/js/mw-pull-forward.js`, `public/crm/css/mw-pull-forward.css`; endpoint `/crm/api/visit-pull-forward.php` (`?mode=offer|accept|dryrun`); rules in `app/Modules/Jobs/Services/VisitPullForwardService.php`.
 - **Purpose:** On a field device at a client property with no open visit today, offers that property's nearest visit (overdue first, then upcoming, ±7 days) as a bottom sheet: Start (moves it to today, then starts the timer via `job-timer.php`), A different job here, Extra work (`field-job.php` add_visit), Not now (quiet for that property today on this phone).
-- **Usage:** No JS call — self-boots on field devices (one check on page open, then every 3 min while visible). `MwPullForward.show(offer)` renders an offer without GPS/network (renders, tests). Set `window.MW_PULL_FORWARD_NO_BOOT = true` before loading to stop the automatic checks.
+- **OFF by default** (2026-10-08 incident — the first release cost Android crew every tap). The `<script>` is only emitted when `ops_settings.pull_forward_enabled = '1'` or the user is in `pull_forward_user_ids` (migration 1276); the endpoint checks the same switch.
+- **Usage:** No JS call — self-boots on field devices (a check 5 s after page open, then every 3 min while visible). It never calls `navigator.geolocation` (in the Capacitor app that runs Android's permission flow); the server uses the user's own recent `crew_location_history` pings. `MwPullForward.show(offer)` renders an offer without network. Set `window.MW_PULL_FORWARD_NO_BOOT = true` before loading to stop the automatic checks.
+- **Safety rules:** nothing in the DOM unless a sheet is visibly open (created open, no animation-frame step), z-index 1090 above every app shell, × close always works, 20 s request watchdog, closed when the page hides.
 - **CSRF:** uses `window.MW_CSRF_TOKEN` or `[data-csrf]`, else refreshes from `/crm/api/get-csrf.php` and retries — safe on crew pages that have no AppStack token.
-- **Loaded on:** every AppStack page (`appstack_head.php` CSS, `appstack_footer.php` JS) and `homebase.php`. The accept POST is on `offline-queue.js`.
+- **Loaded on:** every AppStack page (`appstack_head.php` CSS, `appstack_footer.php` JS — gated) and `homebase.php` (gated). The accept POST is on `offline-queue.js`.
 
 ---
 

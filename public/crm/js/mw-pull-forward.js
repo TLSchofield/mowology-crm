@@ -7,20 +7,30 @@
  *
  *   [Start — moves it to today]  POST visit-pull-forward.php?mode=accept, then the existing
  *                                timer path POST job-timer.php {action:'start'}. Both are on
- *                                offline-queue.js, so a dropped signal queues them in order
- *                                (server first; the queue is the backup).
+ *                                offline-queue.js, so a dropped signal queues them in order.
  *   [A different job here ▸]     the property's other plans' nearest visits (+ plans with
  *                                nothing booked → add today's visit).
  *   [Extra work (new one-off)]   field-job.php add_visit (the existing one-off flow), then start.
- *   [Not now]                    quiet for this property for the rest of the day (this phone).
+ *   [Not now] / [×]              quiet for this property for the rest of the day (this phone).
  *
- * Checks: once when a page opens on a field device (on_open — no dwell, opening the app on site
- * is deliberate) and every 3 minutes while the page is visible (server requires dwell).
+ * 2026-10-08 INCIDENT — the first release cost Android crew (Capacitor app) every tap. Rules now:
+ *   - The page NEVER calls navigator.geolocation. In the Capacitor WebView that request goes
+ *     through Android's runtime-permission flow (BridgeWebChromeClient asks for FINE+COARSE
+ *     whenever both are not already granted — e.g. a phone on "approximate" location), and it ran
+ *     on every page open and every 3 min. The server decides from the fixes the phone already
+ *     reports to crew-location.php.
+ *   - Nothing is in the DOM unless a sheet is visibly showing: the overlay is created already in
+ *     its open state (no class added on a later animation frame, no slide-in transition — a
+ *     transparent full-screen layer waiting for a frame is a tap trap), z-index above every app
+ *     shell (the schedule's .mw-mc-container is 1050) so it can never sit invisible underneath,
+ *     with a visible × close. Any render error removes it. Hidden page → closed. Every request
+ *     has a 20 s watchdog so "busy" can never strand it. No capture-phase listeners.
+ *   - Only loaded at all when ops_settings pull_forward_enabled / pull_forward_user_ids allows
+ *     this user (appstack_footer.php, homebase.php); the endpoint checks the same switch.
+ *
  * CSRF: window.MW_CSRF_TOKEN (AppStack) or [data-csrf]; a stale/missing token is refreshed from
  * /crm/api/get-csrf.php and the call retried once — crew pages without MW_CSRF_TOKEN work too.
- *
- * Styles: /crm/css/mw-pull-forward.css. Loaded by appstack_footer.php and homebase.php.
- * Test hook: window.MwPullForward.show(offer) renders an offer without GPS or network.
+ * Styles: /crm/css/mw-pull-forward.css. Test hook: MwPullForward.show(offer).
  */
 (function () {
     'use strict';
@@ -28,12 +38,13 @@
 
     var API = '/crm/api/visit-pull-forward.php';
     var CHECK_EVERY_MS = 180000;
-    var FIRST_CHECK_DELAY_MS = 4000; // let the auto-arrival one-shot run first
+    var FIRST_CHECK_DELAY_MS = 5000;
+    var REQUEST_TIMEOUT_MS = 20000;
 
     var root = null;
     var current = null;   // the offer on screen
-    var lastFix = null;   // {lat, lng, accuracy}
     var busy = false;
+    var checking = false;
     var timer = null;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -67,9 +78,12 @@
     function dismiss(propertyId) {
         try { localStorage.setItem(dismissKey(propertyId), '1'); } catch (e) { /* private mode */ }
     }
-    function toast(msg, type) {
-        if (typeof window.mwToast === 'function') window.mwToast(msg, type || 'success');
-        else if (typeof window.hbToast === 'function') window.hbToast(msg, type === 'error');
+    /** Reject after ms — so no request can leave the sheet stuck on a spinner. */
+    function withTimeout(promise, ms) {
+        return new Promise(function (resolve, reject) {
+            var t = setTimeout(function () { reject(new Error('timeout')); }, ms);
+            promise.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+        });
     }
 
     // ── CSRF: page token, else refresh-and-retry ─────────────────────────────
@@ -90,7 +104,7 @@
     /** POST JSON with the CSRF token; on a CSRF failure refresh the token and retry once. */
     function postJson(url, body, headers, retried) {
         var ready = csrf() ? Promise.resolve() : refreshCsrf();
-        return ready.then(function () {
+        var p = ready.then(function () {
             var payload = Object.assign({}, body, { csrf_token: csrf() });
             var h = Object.assign({ 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, headers || {});
             return fetch(url, { method: 'POST', credentials: 'same-origin', headers: h, body: JSON.stringify(payload) });
@@ -103,57 +117,71 @@
             }
             return res;
         });
+        return withTimeout(p, REQUEST_TIMEOUT_MS);
     }
 
-    // ── Checking ─────────────────────────────────────────────────────────────
-    function getFix() {
-        return new Promise(function (resolve) {
-            if (!navigator.geolocation) { resolve(null); return; }
-            navigator.geolocation.getCurrentPosition(function (p) {
-                resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy });
-            }, function () { resolve(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
-        });
-    }
-
-    function check(onOpen) {
-        if (root || busy || !isOnline() || document.visibilityState === 'hidden') return Promise.resolve(null);
-        return getFix().then(function (fix) {
-            if (!fix) return null;
-            lastFix = fix;
-            return postJson(API + '?mode=offer', { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, on_open: !!onOpen })
-                .then(function (res) {
-                    var offer = res.data && res.data.success ? res.data.offer : null;
-                    if (offer && offer.primary && !isDismissed(offer.property_id)) show(offer);
-                    return offer;
-                });
-        }).catch(function () { return null; });
+    // ── Checking (no GPS here — the server uses this user's own recent pings) ─
+    function check() {
+        if (root || busy || checking || !isOnline() || document.visibilityState === 'hidden') return Promise.resolve(null);
+        checking = true;
+        return postJson(API + '?mode=offer', {})
+            .then(function (res) {
+                var offer = res.data && res.data.success ? res.data.offer : null;
+                if (offer && offer.primary && !isDismissed(offer.property_id)
+                    && document.visibilityState !== 'hidden') {
+                    show(offer);
+                }
+                return offer;
+            })
+            .catch(function () { return null; })
+            .then(function (v) { checking = false; return v; });
     }
 
     // ── Sheet ────────────────────────────────────────────────────────────────
-    function mount() {
-        if (root) return;
-        root = document.createElement('div');
-        root.className = 'mw-pf-overlay';
-        root.innerHTML = '<div class="mw-pf-sheet" role="dialog" aria-modal="true" aria-labelledby="mwPfTitle">' +
-                         '<div class="mw-pf-grab" aria-hidden="true"></div><div class="mw-pf-body"></div></div>';
-        document.body.appendChild(root);
-        root.addEventListener('click', function (e) {
+    function onRootClick(e) {
+        try {
+            var btn = e.target && e.target.closest ? e.target.closest('[data-pf]') : null;
+            if (btn) { if (!busy || btn.getAttribute('data-pf') === 'close') onAction(btn.getAttribute('data-pf'), btn); return; }
             if (e.target === root && !busy) notNow();
-            var btn = e.target.closest ? e.target.closest('[data-pf]') : null;
-            if (btn && !busy) onAction(btn.getAttribute('data-pf'), btn);
-        });
-        requestAnimationFrame(function () { if (root) root.classList.add('mw-pf-open'); });
+        } catch (err) {
+            teardown();
+        }
     }
-    function close() {
-        if (!root) return;
-        var el = root;
+    function removeOverlays() {
+        var stale = document.querySelectorAll('.mw-pf-overlay');
+        for (var i = 0; i < stale.length; i++) {
+            if (stale[i].parentNode) stale[i].parentNode.removeChild(stale[i]);
+        }
+    }
+    /** Remove every trace of the sheet immediately. */
+    function teardown() {
+        removeOverlays();
         root = null; current = null; busy = false;
-        el.classList.remove('mw-pf-open');
-        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
     }
-    function body(html) {
-        if (!root) mount();
-        root.querySelector('.mw-pf-body').innerHTML = html;
+    function close() { teardown(); }
+
+    /** Render into the sheet. Only show() may create it (already open and visible); a late
+     *  callback after the crew closed it renders nothing. */
+    function body(html, create) {
+        try {
+            if (!root && !create) return;
+            if (!root) {
+                removeOverlays(); // never two; keeps `current` (show() just set it)
+                var el = document.createElement('div');
+                el.className = 'mw-pf-overlay mw-pf-open';
+                el.innerHTML = '<div class="mw-pf-sheet" role="dialog" aria-modal="true" aria-labelledby="mwPfTitle">' +
+                               '<button type="button" class="mw-pf-close" data-pf="close" aria-label="Close">&times;</button>' +
+                               '<div class="mw-pf-body"></div></div>';
+                el.addEventListener('click', onRootClick);
+                el.querySelector('.mw-pf-body').innerHTML = html;
+                document.body.appendChild(el);
+                root = el;
+            } else {
+                root.querySelector('.mw-pf-body').innerHTML = html;
+            }
+        } catch (err) {
+            teardown();
+        }
     }
 
     var PIN = '<svg class="mw-pf-pin" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>';
@@ -165,23 +193,28 @@
     }
 
     function show(offer) {
-        current = offer;
-        var v = offer.primary;
-        var what = v.service_type || v.title || 'The visit';
-        var others = (offer.others || []).length + (offer.plans_without_visit || []).length;
-        body(
-            '<div class="mw-pf-eyebrow">' + PIN + 'You\'re at ' + esc(offer.site_name || offer.address) + '</div>' +
-            '<h2 class="mw-pf-title" id="mwPfTitle">' + esc(what) + ' for ' + esc(offer.site_name || offer.address) + ' ' + whenParts(v) + '.</h2>' +
-            '<p class="mw-pf-question">Doing it now?</p>' +
-            (v.overdue ? '<div class="mw-pf-chip mw-pf-chip-late">Overdue</div>' : '<div class="mw-pf-chip">' + esc(v.title || v.plan_number) + '</div>') +
-            '<div class="mw-pf-actions">' +
-                '<button type="button" class="mw-pf-btn mw-pf-primary" data-pf="start" data-visit="' + (v.visit_id | 0) + '">' +
-                    '<span class="mw-pf-btn-main">Start</span><span class="mw-pf-btn-sub">moves it to today</span></button>' +
-                (others ? '<button type="button" class="mw-pf-btn mw-pf-secondary" data-pf="different">A different job here<span class="mw-pf-chev" aria-hidden="true">›</span></button>' : '') +
-                '<button type="button" class="mw-pf-btn mw-pf-secondary" data-pf="extra" data-plan="' + (v.plan_id | 0) + '">Extra work <span class="mw-pf-muted">(new one-off)</span></button>' +
-                '<button type="button" class="mw-pf-btn mw-pf-ghost" data-pf="notnow">Not now</button>' +
-            '</div>'
-        );
+        try {
+            current = offer;
+            var v = offer.primary;
+            var what = v.service_type || v.title || 'The visit';
+            var site = offer.site_name || offer.address;
+            var others = (offer.others || []).length + (offer.plans_without_visit || []).length;
+            body(
+                '<div class="mw-pf-eyebrow">' + PIN + 'You\'re at ' + esc(site) + '</div>' +
+                '<h2 class="mw-pf-title" id="mwPfTitle">' + esc(what) + ' for ' + esc(site) + ' ' + whenParts(v) + '.</h2>' +
+                '<p class="mw-pf-question">Doing it now?</p>' +
+                (v.overdue ? '<div class="mw-pf-chip mw-pf-chip-late">Overdue</div>' : '<div class="mw-pf-chip">' + esc(v.title || v.plan_number) + '</div>') +
+                '<div class="mw-pf-actions">' +
+                    '<button type="button" class="mw-pf-btn mw-pf-primary" data-pf="start" data-visit="' + (v.visit_id | 0) + '">' +
+                        '<span class="mw-pf-btn-main">Start</span><span class="mw-pf-btn-sub">moves it to today</span></button>' +
+                    (others ? '<button type="button" class="mw-pf-btn mw-pf-secondary" data-pf="different">A different job here<span class="mw-pf-chev" aria-hidden="true">›</span></button>' : '') +
+                    '<button type="button" class="mw-pf-btn mw-pf-secondary" data-pf="extra" data-plan="' + (v.plan_id | 0) + '">Extra work <span class="mw-pf-muted">(new one-off)</span></button>' +
+                    '<button type="button" class="mw-pf-btn mw-pf-ghost" data-pf="notnow">Not now</button>' +
+                '</div>', true
+            );
+        } catch (err) {
+            teardown();
+        }
     }
 
     function showDifferent() {
@@ -207,6 +240,7 @@
         body('<div class="mw-pf-working"><div class="mw-pf-spinner" aria-hidden="true"></div><div>' + esc(msg) + '</div></div>');
     }
     function showDone(msg, queued) {
+        busy = false;
         body('<div class="mw-pf-done"><div class="mw-pf-check" aria-hidden="true">✓</div><h2 class="mw-pf-title" id="mwPfTitle">' + esc(msg) + '</h2>' +
              (queued ? '<p class="mw-pf-note">No signal — saved on this phone. It sends when you\'re back online.</p>' : '') +
              '<div class="mw-pf-actions"><button type="button" class="mw-pf-btn mw-pf-primary" data-pf="done">Done</button></div></div>');
@@ -220,28 +254,29 @@
 
     // ── Actions ──────────────────────────────────────────────────────────────
     function onAction(kind, btn) {
-        if (kind === 'notnow') { notNow(); return; }
-        if (kind === 'back') { if (current) show(current); return; }
+        if (kind === 'close' || kind === 'notnow') { notNow(); return; }
+        if (kind === 'back') { if (current) show(current); else teardown(); return; }
         if (kind === 'different') { showDifferent(); return; }
-        if (kind === 'done') { close(); window.location.reload(); return; }
+        if (kind === 'done') { teardown(); window.location.reload(); return; }
         if (kind === 'start') { startVisit(parseInt(btn.getAttribute('data-visit'), 10)); return; }
         if (kind === 'extra') { extraWork(parseInt(btn.getAttribute('data-plan'), 10)); return; }
     }
 
     function notNow() {
         if (current) dismiss(current.property_id);
-        close();
+        teardown();
     }
 
     /** The existing timer path — job-timer.php start (offline-queued, idempotent by header). */
     function startTimer(visitId) {
         var b = { action: 'start', visit_id: visitId };
-        if (lastFix) { b.lat = lastFix.lat; b.lng = lastFix.lng; }
-        return fetch('/crm/api/job-timer.php', {
+        var fix = current && current.fix;
+        if (fix && fix.lat && fix.lng) { b.lat = fix.lat; b.lng = fix.lng; }
+        return withTimeout(fetch('/crm/api/job-timer.php', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json', 'Idempotency-Key': uuid() },
             body: JSON.stringify(b)
-        }).then(function (r) { return r.json(); });
+        }).then(function (r) { return r.json(); }), REQUEST_TIMEOUT_MS);
     }
 
     function afterStart(visitId, data, label, queuedMove) {
@@ -249,16 +284,18 @@
             showError((data && data.error) || 'The visit moved to today, but the timer did not start. Start it from the schedule.');
             return;
         }
-        if (window.MwTimeClock) {
-            if (window.MwTimeClock.notifyJobTimerStarted) window.MwTimeClock.notifyJobTimerStarted();
-            if (window.MwTimeClock.fetchStatus) window.MwTimeClock.fetchStatus();
-        }
-        document.dispatchEvent(new CustomEvent('mw-pull-forward-started', { detail: { visit_id: visitId } }));
+        try {
+            if (window.MwTimeClock) {
+                if (window.MwTimeClock.notifyJobTimerStarted) window.MwTimeClock.notifyJobTimerStarted();
+                if (window.MwTimeClock.fetchStatus) window.MwTimeClock.fetchStatus();
+            }
+            document.dispatchEvent(new CustomEvent('mw-pull-forward-started', { detail: { visit_id: visitId } }));
+        } catch (e) { /* the timer is running; UI refresh is a nicety */ }
         showDone(label, !!(data.queued || queuedMove));
     }
 
     function startVisit(visitId) {
-        if (!visitId || !current) return;
+        if (!visitId || !current || busy) return;
         busy = true;
         showWorking('Moving it to today…');
         postJson(API + '?mode=accept', { visit_id: visitId, property_id: current.property_id, request_key: uuid() })
@@ -272,7 +309,7 @@
     }
 
     function extraWork(planId) {
-        if (!planId) return;
+        if (!planId || busy) return;
         busy = true;
         showWorking('Adding a one-off visit…');
         postJson('/crm/api/field-job.php', { action: 'add_visit', plan_id: planId, client_request_id: uuid() })
@@ -289,11 +326,15 @@
     // ── Boot ─────────────────────────────────────────────────────────────────
     function boot() {
         if (!isFieldDevice()) return;
-        setTimeout(function () { check(true); }, FIRST_CHECK_DELAY_MS);
-        timer = setInterval(function () { check(false); }, CHECK_EVERY_MS);
-        window.addEventListener('pagehide', function () { clearInterval(timer); }, { once: true });
+        setTimeout(check, FIRST_CHECK_DELAY_MS);
+        timer = setInterval(check, CHECK_EVERY_MS);
+        window.addEventListener('pagehide', function () { clearInterval(timer); teardown(); }, { once: true });
+        // A hidden page must not come back to a sheet nobody asked for mid-task.
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'hidden' && root && !busy) teardown();
+        });
         // Auto-arrival started something: this sheet is no longer the question.
-        document.addEventListener('mw-proximity-auto-start', function () { if (root && !busy) close(); });
+        document.addEventListener('mw-proximity-auto-start', function () { if (root && !busy) teardown(); });
     }
 
     window.MwPullForward = { check: check, show: show, close: close };

@@ -44,6 +44,40 @@ class VisitPullForwardService
         $this->today = $today ?? date('Y-m-d');
     }
 
+    // ── Switch ─────────────────────────────────────────────────────────────────
+
+    /**
+     * OFF unless switched on (2026-10-08 incident: Android crew devices lost all taps while the
+     * sheet was live). ops_settings pull_forward_enabled = '1' → everyone; otherwise only the
+     * users listed in pull_forward_user_ids ('12,34'). No rows → off.
+     */
+    public static function isEnabledFor(?string $enabledAll, ?string $userIds, int $userId): bool
+    {
+        if (trim((string)$enabledAll) === '1') {
+            return true;
+        }
+        if ($userId < 1) {
+            return false;
+        }
+        $ids = array_filter(array_map('intval', preg_split('/[\s,]+/', (string)$userIds) ?: []));
+        return in_array($userId, $ids, true);
+    }
+
+    public static function enabledFor(PDO $db, int $userId): bool
+    {
+        try {
+            $s = $db->prepare("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('pull_forward_enabled', 'pull_forward_user_ids')");
+            $s->execute();
+            $kv = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $kv[$r['setting_key']] = (string)$r['setting_value'];
+            }
+            return self::isEnabledFor($kv['pull_forward_enabled'] ?? '0', $kv['pull_forward_user_ids'] ?? '', $userId);
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     // ── Pure rules ─────────────────────────────────────────────────────────────
 
     /**

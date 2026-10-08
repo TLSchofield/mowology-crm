@@ -99,7 +99,7 @@ session_write_close();
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
-    <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-sync-status.js?v=20261008a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <style>
         /* Brand + layout tokens come from /crm/css/tokens.css loaded
