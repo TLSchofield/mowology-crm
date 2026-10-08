@@ -1,7 +1,7 @@
 -- Migration 1298: Special request log — every SMS, push, gate block and queued-action pass
 -- Date: 2026-10-08
 -- Purpose:
---   kind: attach | sms | push | gate_block | gate_queued | ack | outcome
+--   kind: propose | attach | dismiss | sms | push | gate_block | gate_queued | gate_late | ack | outcome
 --   ok = 1 when the send went out / the action was accepted. body is the exact SMS / push text.
 -- MySQL 5.7 compatible; safe to re-run.
 
