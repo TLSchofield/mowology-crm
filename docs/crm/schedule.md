@@ -177,6 +177,17 @@ goes to (`?mode=recipients`). Plan and the owner's decisions:
   quote. No reply after 7 days = one "No reply yet" line. Asks are not yes/no
   parsed; Tim reads the reply.
 
+## Otto's strip (added 2026-10-08)
+
+`schedule.php` includes `includes/otto-schedule-strip.php` under the page header
+(`$ottoStrip` = the day in view, or the week's from/to). It loads after the page
+from `/crm/api/otto-schedule.php` (`OttoScheduleService`): Otto's desk items for
+that day (with their suggestion ids, so the card's buttons work) plus day checks —
+a crew over `StopRescheduleService::DAY_CAPACITY_MINUTES` of plan lengths, empty
+calendar stops, pinned properties with no arrival border. Never runs the GPS scan
+(desk `neverFill()`); each day is cached 5 min in `otto_day_strip` (migration 1286)
+and cleared when the owner decides one of Otto's suggestions. jobs.edit only.
+
 ## Safety net
 
 `tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting
