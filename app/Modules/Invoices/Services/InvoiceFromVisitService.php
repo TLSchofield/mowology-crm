@@ -52,6 +52,21 @@ class InvoiceFromVisitService
         return $assignedCrewId !== null && $assignedCrewId === $userId;
     }
 
+    /** Management-company billing recipients for a PM-managed property, else []. */
+    private function managementRecipients(int $propertyId): array
+    {
+        if ($propertyId <= 0) {
+            return [];
+        }
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+        try {
+            return resolveManagementBillingRecipient($propertyId);
+        } catch (Throwable $e) {
+            error_log('[InvoiceFromVisitService] PM routing failed for property ' . $propertyId . ': ' . $e->getMessage());
+            return [];
+        }
+    }
+
     /** Billing for a snow & salt route stop, or null for every other visit. */
     private function snowRouteBilling(int $visitId, int $planId, string $visitDate): ?array
     {
@@ -107,7 +122,7 @@ class InvoiceFromVisitService
         $stmt = $this->db->prepare("
             SELECT jv.id AS visit_id, jv.actual_amount, jv.plan_id, jv.scheduled_date,
                    jv.extras_minutes, jv.invoice_id AS existing_invoice_id, jv.assigned_crew_id,
-                   jp.title, jp.price_per_visit, jp.estimated_amount,
+                   jp.title, jp.price_per_visit, jp.estimated_amount, jp.property_id,
                    p.address, p.city,
                    COALESCE(con.first_name, '') AS first_name,
                    COALESCE(con.last_name, '')  AS last_name,
@@ -136,12 +151,14 @@ class InvoiceFromVisitService
             $amount = array_sum(array_column($snowBilling['lines'], 'line_total'));
         }
         $addr   = trim(($visit['address'] ?? '') . ($visit['city'] ? ', ' . $visit['city'] : ''));
+        // Show who the invoice will actually go to (PM-managed → the firm's accounts).
+        $pm = $this->managementRecipients((int)($visit['property_id'] ?? 0));
 
         return [
             'success'          => true,
             'visit_id'         => $visitId,
-            'contact_name'     => trim($visit['first_name'] . ' ' . $visit['last_name']) ?: null,
-            'contact_email'    => $visit['contact_email'] ?? null,
+            'contact_name'     => $pm ? $pm[0]['contact_name'] : (trim($visit['first_name'] . ' ' . $visit['last_name']) ?: null),
+            'contact_email'    => $pm ? $pm[0]['email_address'] : ($visit['contact_email'] ?? null),
             'amount'           => round($amount, 2),
             'plan_title'       => $visit['title'] ?? '',
             'scheduled_date'   => $visit['scheduled_date'] ?? '',
@@ -382,8 +399,21 @@ class InvoiceFromVisitService
                    ->execute([$extrasMinutes, $extrasAmount, $visitId]);
             }
 
-            // Invoice recipient
-            if ($visit['contact_id'] && $visit['contact_email']) {
+            // Invoice recipient. A PM-managed building (properties.property_manager_id)
+            // bills the management company's accounts — the same rule as
+            // contract_billing.php and the desktop invoice screen. This path used to
+            // send every run straight to the on-site contact (e.g. Dorset's property
+            // manager instead of invoices@dorsetrealty.com).
+            $pmRecipients = $this->managementRecipients((int)($visit['property_id'] ?? 0));
+            if ($pmRecipients) {
+                $icStmt = $this->db->prepare("
+                    INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address)
+                    VALUES (?, ?, ?, ?)
+                ");
+                foreach ($pmRecipients as $pr) {
+                    $icStmt->execute([$invoiceId, $pr['contact_id'] ?: null, $pr['contact_role'] ?: 'billing_contact', $pr['email_address']]);
+                }
+            } elseif ($visit['contact_id'] && $visit['contact_email']) {
                 $this->db->prepare("
                     INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address)
                     VALUES (?, ?, 'primary_recipient', ?)
