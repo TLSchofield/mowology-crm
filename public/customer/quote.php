@@ -357,8 +357,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
     }
 }
 
-function formatCurrency($amount) {
-    return '$' . number_format(floatval($amount), 2);
+// Guarded: signing a snow contract loads the CRM functions (which declare the same
+// helper) to set the contract up. An unguarded copy here is a "Cannot redeclare"
+// fatal — the signature commits, then the client sees an error page.
+if (!function_exists('formatCurrency')) {
+    function formatCurrency($amount) {
+        return '$' . number_format(floatval($amount), 2);
+    }
 }
 
 // Build display name for header
