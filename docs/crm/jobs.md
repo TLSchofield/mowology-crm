@@ -40,6 +40,8 @@ app/Modules/Jobs/
 | `VisitLifecycleService.php` | Visit status/lifecycle (incl. the revenue-critical `updateVisitStatus`), plan pause/resume, exceptions, invoice eligibility, and completion push notifications (`notifyCompletion()`, shared by both completion write paths — see [schedule.md](schedule.md#cross-platform-completion-sync-added-2026-08-12)). Since 2026-10-05 it also sends the Google review request on completion (`ReviewRequestService::maybeSend()`, every completed visit, no crew-heart gate), so the timer/iOS path asks the same as the web crew's `end_visit`. Phase 2 extraction — `Plan/VisitLifecycle.php` globals delegate here; the status/propagation/move SET builders and invoice checklist/photo checks are unit-tested. |
 | `ClusterService.php` / `ClusterDetectionService.php` | Group nearby stops into geographic clusters for route building. |
 | `VisitCompletionService.php` | Completion-side logic for finished visits. |
+| `VisitPullForwardService.php` | "Booked another day — doing it now?" (2026-10-08). At a fenced property (gps_proximity_meters radius or drawn arrival border) with no OPEN visit today, offers that property's visits within ±7 days — overdue first, then upcoming; skipped/cancelled/weather never. `pullForward()` moves ONE visit to today (joins/creates today's stop, crews the person on site so `startJobTimer` accepts them, sets `original_scheduled_date`, removes the left-behind stop, writes `visit_moves`), idempotent by request key and already-today. Never touches the plan: recurring generation is calendar-anchored (weekday/interval from `plan_start_date` behind the `visits_generated_through` watermark), so the series is not shifted. `dryRun()` reconstructs a past day. PDO-injected, SQLite-tested. |
+| `CalendarStopTidyService.php` | `deleteIfEmpty()` — removes a calendar stop that a move left with nothing but cancelled visits. Used by `moveVisit()`, `auto_rollover.php` and `pullForward()`. |
 
 > Per CLAUDE.md rule 10, new business logic belongs in a service class, not in
 > page/API files. The Plan engine predates that rule and stays procedural; the
@@ -56,7 +58,11 @@ relevant service) and returns JSON. Current endpoints:
 `api-jobs`, `assign-crew`, `calendar-stops`, `clusters`, `job-creation`,
 `job-timer`, `optimize-route`, `placement-scores`, `profit-risk-factors`,
 `reschedule-job`, `reschedule-job-simple`, `reschedule-stop`, `schedule-visit`,
-`set-route-pin`, `weather-actions`.
+`set-route-pin`, `visit-pull-forward`, `weather-actions`.
+
+`visit-pull-forward.php` — POST `?mode=offer` {lat,lng,accuracy,on_open} / `?mode=accept`
+{visit_id, property_id, request_key} (session + CSRF, or JWT); GET `?mode=dryrun&property_id=73&date=2026-10-05`
+(admin/manager, read-only; `&address=Fremlin` also works). The crew sheet is `public/crm/js/mw-pull-forward.js`.
 
 `job-timer.php` is on the **revenue-critical completion path** — it must load
 `plan-functions.php` so `updateVisitStatus()` is defined (see schedule.md).
@@ -138,7 +144,7 @@ Gotchas worth knowing before touching it:
 | Cron | Purpose |
 |------|---------|
 | `generate_visits.php` | Materialise `job_visits` ahead of the rolling horizon (calls `generateVisits()`). |
-| `auto_rollover.php` | Roll incomplete/overdue visits forward. |
+| `auto_rollover.php` | Roll incomplete/overdue visits forward. Since 2026-10-08 the stop a rolled visit leaves is deleted when nothing else is on it (`stops_removed`). |
 | `weather_schedule_guard.php` | Adjust the schedule around weather. |
 | `seasonal_outlook_refresh.php` | Daily. Rebuild the winter outlook from NOAA ONI + ECCC station data; refresh season-to-date actuals. |
 
