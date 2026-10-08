@@ -38879,3 +38879,10 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sb-head { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--mw-lime); }
 .mw-sb-head img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; border: 1px solid var(--mw-lime); }
 .sidebar.collapsed .mw-sb-head { display: none; }
+
+/* ── Snow & salt route: "What was done here?" choice in the crew invoice sheet ── */
+.mw-inv-extra-btn.mw-inv-snow-btn.is-selected {
+    background: var(--mw-green);
+    border-color: var(--mw-green);
+    color: var(--mw-light);
+}

@@ -3822,8 +3822,84 @@
                 updateStopChipSent(card);
                 showToast('Job complete — invoice already exists');
             }
+            // Snow & salt route stop with nothing recorded yet: ask what was done.
+            if (!d.success && (d.code === 'SERVICE_CHOICE_REQUIRED' || d.code === 'NOTHING_DONE')) {
+                showSnowChoice();
+            }
         })
         .catch(function() {});
+
+        /**
+         * Snow & salt route stop: the crew record what was done, and the run is
+         * invoiced at that one rate (SnowContractService). Only shown when the
+         * server says this stop needs it, so every other stop's sheet is unchanged.
+         */
+        function showSnowChoice() {
+            var step1 = document.getElementById('mw-inv-step1');
+            if (!step1 || document.getElementById('mw-inv-snow')) return;
+            var choices = [['salt', 'Salted'], ['arctic', 'Arctic salt (-5°C)'], ['snow', 'Snow cleared'], ['none', 'Nothing needed']];
+            var box = document.createElement('div');
+            box.className = 'mw-inv-section';
+            box.id = 'mw-inv-snow';
+            box.innerHTML = '<div class="mw-inv-section-label">What was done here?</div>' +
+                '<div class="mw-inv-extras-row">' +
+                choices.map(function(c) {
+                    return '<button class="mw-inv-extra-btn mw-inv-snow-btn" data-choice="' + c[0] + '">' + c[1] + '</button>';
+                }).join('') +
+                '</div>';
+            step1.insertBefore(box, step1.children[1] || null);
+            var previewBtn = document.getElementById('mw-inv-preview-btn');
+            if (previewBtn) previewBtn.disabled = true;
+
+            box.querySelectorAll('.mw-inv-snow-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var choice = btn.dataset.choice;
+                    box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) { b.disabled = true; });
+                    postSnowChoice({ visit_id: visitId, choice: choice }, false).then(function(res) {
+                        box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) {
+                            b.disabled = false;
+                            b.classList.toggle('is-selected', b === btn && !!(res && res.success));
+                        });
+                        if (!res || !res.success) {
+                            showToast((res && res.error) || 'Could not save — try again');
+                            return;
+                        }
+                        if (choice === 'none') {
+                            closeInvoiceSheet();
+                            showToast('Recorded — nothing needed, no invoice');
+                            return;
+                        }
+                        if (previewBtn) previewBtn.disabled = false;
+                    }).catch(function() {
+                        box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) { b.disabled = false; });
+                        showToast('No connection — try again');
+                    });
+                });
+            });
+        }
+
+        /** POST the stop's service choice; a stale CSRF token is refreshed and retried once. */
+        function postSnowChoice(body, isRetry) {
+            body.csrf_token = state.csrf;
+            return fetch('/crm/api/snow-route-choice.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function(r) {
+                return r.json().catch(function() { return { success: false, error: 'Server error (' + r.status + ')' }; })
+                    .then(function(data) {
+                        if (r.status === 403 && !isRetry) {
+                            return fetch('/crm/api/get-csrf.php', { method: 'GET' })
+                                .then(function(t) { return t.json(); })
+                                .then(function(c) {
+                                    if (c && c.token) state.csrf = c.token;
+                                    return postSnowChoice(body, true);
+                                });
+                        }
+                        return data;
+                    });
+            });
+        }
 
         // Extras buttons
         var extrasBtns = sheet.querySelectorAll('.mw-inv-extra-btn');
