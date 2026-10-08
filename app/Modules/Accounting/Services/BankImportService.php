@@ -2591,9 +2591,21 @@ class BankImportService
      */
     private function parseCSV(string $content, array $mapping, int $skipRows, string $kind = 'bank'): array
     {
-        // Normalize line endings
+        // Normalize line endings; drop a UTF-8 byte-order mark (Vancity's card export starts with one)
+        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
         $content = str_replace(["\r\n", "\r"], "\n", trim($content));
         $lines   = explode("\n", $content);
+
+        // Header-driven layouts. Vancity's card "Transaction history" export (2026) is
+        // Transaction Date, Posted Date, Reference Number, …, Merchant Name, …, Amount ("$75.93",
+        // payments "-$232.07") — not the date/description/debit/credit preset, which read 0 rows.
+        $head = array_map(fn($h) => strtolower(trim((string)$h)), str_getcsv($lines[0] ?? '', ',', '"', ''));
+        $col  = fn(string $name) => array_search($name, $head, true);
+        if ($col('merchant name') !== false && $col('amount') !== false && $col('transaction date') !== false) {
+            $mapping = ['date' => $col('transaction date'), 'description' => $col('merchant name'), 'amount' => $col('amount')];
+            $skipRows = max($skipRows, 1);
+            $kind = 'credit_card';
+        }
 
         $isCreditCard = ($kind === 'credit_card');
 
