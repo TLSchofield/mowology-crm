@@ -1,4 +1,4 @@
--- 1226 — vendor_messages.kind: 'message' (vendor correspondence) | 'payment' (a payment
+-- 1229 — vendor_messages.kind: 'message' (vendor correspondence) | 'payment' (a payment
 -- platform's "You received a payment" / "You've got money" notice, kept until a PayPal /
 -- Stripe / Square parser feeds Penny's payment matching). IcloudInboxRouter stores rows
 -- without the column until this runs (VendorMessageService::hasKind), so deploy order is free.
