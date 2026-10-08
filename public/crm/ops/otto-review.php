@@ -161,7 +161,11 @@ $hm = fn($t) => date('g:i', (int)$t);
         <ul class="mw-or-hist">
           <?php foreach ($autoRows as $a): ?>
             <li><?= h(date('D M j', strtotime($a['day']))) ?> · <?= h(UnscheduledWorkService::street((string)$a['address'])) ?> ·
+              <?php if (($a['kind'] ?? '') === 'move'): ?>
+                visit #<?= (int)$a['visit_id'] ?> moved here from <?= h(date('D M j', strtotime((string)$a['moved_from']))) ?> (timed this day)
+              <?php else: ?>
               <?= h(substr((string)$a['start_time'], 0, 5) . '–' . substr((string)$a['end_time'], 0, 5)) ?> (<?= h(UnscheduledWorkRules::hours((int)$a['minutes'])) ?>)
+              <?php endif; ?>
               · <?= h((string)$a['contract_number']) ?> <?= h((string)$a['plan_number']) ?><?= $a['invoice_number'] ? ' · on ' . h($a['invoice_number']) : '' ?>
               <?php if ($a['visit_id']): ?> · <a href="/crm/jobs/visit-detail.php?id=<?= (int)$a['visit_id'] ?>">visit</a><?php endif; ?>
               <?php if ($a['status'] === 'logged'): ?>

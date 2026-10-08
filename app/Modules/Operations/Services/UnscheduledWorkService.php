@@ -29,7 +29,9 @@ require_once __DIR__ . '/TripSegmentService.php';
 class UnscheduledWorkService
 {
     /** Bump when the shape of a cached day changes; older rows are recomputed. */
-    public const CACHE_VERSION = 2;   // 2: crew dwells carry a per-fix track (neighbour split)
+    public const CACHE_VERSION = 3;   // 2: crew dwells carry a per-fix track; 3: stops use every ping + list nearby lots
+    /** Must match UnscheduledWorkRules::BUILD — the dry run shows both, so a half-refreshed OPcache is visible. */
+    public const BUILD = '2026-10-08c';
     /** Uncached days filled per call from the card's API (the first run needs a few calls). */
     public const FILL_PER_CALL = 3;
     /** Phone fixes closer together than this are thinned (5 s native cadence → 1 a minute). */
@@ -76,7 +78,7 @@ class UnscheduledWorkService
         $zones = array_merge($this->placeZones($places), $this->officeZones(), $this->homeZones());
 
         $segments = $pings ? TripSegmentService::segments($pings, $properties, $places) : [];
-        $truck = UnscheduledWorkRules::truckDwells($segments, $properties, $fences, $zones);
+        $truck = UnscheduledWorkRules::truckDwells($segments, $properties, $fences, $zones, $pings);
         $crew = [];
         $meta = ['truck_pings' => count($pings), 'phone_fixes' => [], 'clock_fixes' => 0, 'timer_fixes' => 0];
         foreach ($fixes as $uid => $list) {
@@ -259,49 +261,79 @@ class UnscheduledWorkService
     // What was scheduled
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** A timer on a visit scheduled this many days either side of the day it ran = that visit was done that day. */
+    public const DONE_OTHER_DAY_DAYS = 7;
+
     /**
-     * [property_id => list of that day's visits] — a visit scheduled, started or completed that day
-     * (or completed that day). A SKIPPED or cancelled visit doesn't count (owner, 2026-10-07), and
-     * neither does a calendar stop with no visit on it (see emptyStops()). Each row says what made
-     * the property "scheduled": {visit_id, visit_number, plan_id, plan_number, service_type, status,
-     * planned_min (plan length = on-site crew time), timer_min (on-site minutes from its timers)}.
+     * [property_id => list of the visits done that day] — the ONE definition of "scheduled" every path uses
+     * (unscheduled, extra work, neighbour split, contract auto-log):
+     *   - a visit scheduled that day (scheduled / in progress / completed), or completed that day;
+     *   - a visit of the property scheduled within ±DONE_OTHER_DAY_DAYS that has a timer STARTED that day
+     *     (crew run timers on the wrong day's visit — prod: Oct 5 Oakridge timers on #2160 sched Oct 6 and
+     *     #2159 sched Oct 7) → counted as done that day, with moved_from = its scheduled date;
+     *   - NOT a visit scheduled that day whose timers all ran on another day (it was done then);
+     *   - NOT skipped / cancelled visits, and NOT a calendar stop with no visit on it (see emptyStops()).
+     * Each row: {visit_id, visit_number, plan_id, plan_number, service_type, status, planned_min (plan length =
+     * on-site crew time), timer_min (on-site minutes from that day's timers), moved_from (null or Y-m-d)}.
      */
     public function scheduledIds(string $date): array
     {
         $out = [];
         try {
+            $cols = "v.id, v.visit_number, v.status, v.scheduled_date, jp.id AS plan_id, jp.plan_number, jp.service_type, jp.title,
+                     jp.estimated_duration_minutes, jp.property_id";
             $s = $this->db->prepare("
-                SELECT v.id, v.visit_number, v.status, jp.id AS plan_id, jp.plan_number, jp.service_type, jp.title,
-                       jp.estimated_duration_minutes, jp.property_id
+                SELECT {$cols}
                 FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id
                 WHERE (v.scheduled_date = ? AND v.status IN ('scheduled', 'in_progress', 'completed'))
                    OR (v.completed_at >= ? AND v.completed_at <= ? AND v.status = 'completed')
             ");
             $s->execute([$date, $date . ' 00:00:00', $date . ' 23:59:59']);
-            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
-            $timers = $this->timerMinutes(array_map(fn($r) => (int)$r['id'], $rows));
-            foreach ($rows as $r) {
-                $out[(int)$r['property_id']][(int)$r['id']] = [
-                    'visit_id' => (int)$r['id'], 'visit_number' => (string)($r['visit_number'] ?? ''), 'status' => (string)$r['status'],
+            $rows = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] = $r;
+            // Visits of another day (±7) that were timed today.
+            $s = $this->db->prepare("
+                SELECT DISTINCT {$cols}
+                FROM job_time_entries jte
+                JOIN job_visits v ON v.id = jte.visit_id
+                JOIN job_plans jp ON jp.id = v.plan_id
+                WHERE jte.start_time BETWEEN ? AND ? AND jte.status <> 'void'
+                  AND v.scheduled_date <> ? AND v.scheduled_date BETWEEN ? AND ? AND v.status <> 'cancelled'
+            ");
+            $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date,
+                date('Y-m-d', strtotime($date . ' -' . self::DONE_OTHER_DAY_DAYS . ' days')), date('Y-m-d', strtotime($date . ' +' . self::DONE_OTHER_DAY_DAYS . ' days'))]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] ??= $r + ['_moved' => true];
+
+            $t = $this->timerDays(array_keys($rows));
+            foreach ($rows as $id => $r) {
+                $days = $t[$id]['days'] ?? [];
+                $moved = !empty($r['_moved']);
+                // Scheduled today but every timer ran on another day within the window → done that other day.
+                if (!$moved && $days && !isset($days[$date]) && (string)$r['scheduled_date'] === $date && $r['status'] !== 'completed') {
+                    $near = array_filter(array_keys($days), fn($d) => abs(strtotime($d) - strtotime($date)) <= self::DONE_OTHER_DAY_DAYS * 86400);
+                    if ($near) continue;
+                }
+                $out[(int)$r['property_id']][] = [
+                    'visit_id' => (int)$id, 'visit_number' => (string)($r['visit_number'] ?? ''), 'status' => (string)$r['status'],
                     'plan_id' => (int)$r['plan_id'], 'plan_number' => (string)($r['plan_number'] ?? ''),
                     'service_type' => (string)(($r['service_type'] ?? '') ?: ($r['title'] ?? '')),
                     'planned_min' => $r['estimated_duration_minutes'] !== null ? (int)$r['estimated_duration_minutes'] : null,
-                    'timer_min' => $timers[(int)$r['id']] ?? null,
+                    'timer_min' => $t[$id]['minutes'][$date] ?? null,
+                    'moved_from' => $moved ? (string)$r['scheduled_date'] : null,
                 ];
             }
-            foreach ($out as $pid => $v) $out[$pid] = array_values($v);
-            // An EMPTY calendar stop (no non-cancelled visit on it) does not count — prod 2026-10-05:
-            // Larch and Tisdall were hidden by stops left behind when their visits moved
-            // (VisitLifecycleService::moveVisit and auto_rollover re-home the visit, never clear the old
-            // stop). They are shown as evidence instead (emptyStops()).
         } catch (Throwable $e) {
             error_log('Otto unscheduled visits: ' . $e->getMessage());
         }
         return $out;
     }
 
-    /** [visit_id => on-site minutes] from its job timers (union of everyone's; the truck login only if alone). */
-    private function timerMinutes(array $visitIds): array
+    /**
+     * Per visit: the days its timers started on, and the on-site minutes per day (union of everyone's
+     * timers that day; the truck login only when nobody else timed it).
+     * @return array<int, array{days: array<string, true>, minutes: array<string, int>}>
+     */
+    private function timerDays(array $visitIds): array
     {
         if (!$visitIds) return [];
         require_once __DIR__ . '/VisitDurationRules.php';
@@ -313,10 +345,10 @@ class UnscheduledWorkService
                 FROM job_time_entries jte LEFT JOIN users u ON u.id = jte.user_id
                 WHERE jte.visit_id IN ({$in}) AND jte.status <> 'void'
             ");
-            $s->execute($visitIds);
+            $s->execute(array_values($visitIds));
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $st = (int)strtotime((string)$r['start_time']);
-                $by[(int)$r['visit_id']][] = ['user_id' => (int)$r['user_id'], 'truck' => $r['device_type'] === 'truck', 'start' => $st,
+                $by[(int)$r['visit_id']][date('Y-m-d', $st)][] = ['user_id' => (int)$r['user_id'], 'truck' => $r['device_type'] === 'truck', 'start' => $st,
                     // A timer still running is counted to now, never past the end of its day.
                     'end' => $r['end_time'] ? (int)strtotime((string)$r['end_time']) : min(time(), (int)strtotime(date('Y-m-d 23:59:59', $st))),
                     'duration' => null, 'auto_stopped' => false, 'end_gps' => true];
@@ -325,11 +357,54 @@ class UnscheduledWorkService
             error_log('Otto unscheduled timers: ' . $e->getMessage());
         }
         $out = [];
-        foreach ($by as $vid => $entries) {
-            $m = VisitDurationRules::visitMinutes($entries);
-            if ($m['excluded'] !== 'untimed') $out[$vid] = $m['crew_min'];
+        foreach ($by as $vid => $perDay) {
+            foreach ($perDay as $day => $entries) {
+                $out[$vid]['days'][$day] = true;
+                $m = VisitDurationRules::visitMinutes($entries);
+                if ($m['excluded'] !== 'untimed') $out[$vid]['minutes'][$day] = $m['crew_min'];
+            }
         }
         return $out;
+    }
+
+    /**
+     * Visits done on $date but scheduled for another day (see scheduledIds), for "move it" items.
+     * @return list<array> scheduledIds rows + property_id
+     */
+    public function movedVisits(string $date): array
+    {
+        $out = [];
+        foreach ($this->scheduledIds($date) as $pid => $list) {
+            foreach ($list as $v) if ($v['moved_from'] !== null) $out[] = $v + ['property_id' => (int)$pid, 'done_on' => $date];
+        }
+        return $out;
+    }
+
+    /**
+     * Move a visit's date to the day it was really done: a new (or existing) calendar stop for that day, the
+     * old stop's status recomputed. Any status but cancelled. @return bool
+     */
+    public function moveVisitDate(int $visitId, string $toDate): bool
+    {
+        $this->loadPlanFunctions();
+        $s = $this->db->prepare("
+            SELECT v.id, v.stop_id, v.assigned_crew_id, v.scheduled_date, jp.property_id, jp.default_crew_id
+            FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id WHERE v.id = ? AND v.status <> 'cancelled'
+        ");
+        $s->execute([$visitId]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v || (string)$v['scheduled_date'] === $toDate) return false;
+        $crew = $v['assigned_crew_id'] ?? $v['default_crew_id'];
+        $stop = ensureCalendarStop((int)$v['property_id'], $toDate, $crew !== null ? (int)$crew : null);
+        $u = $this->db->prepare("UPDATE job_visits SET scheduled_date = ?, stop_id = ? WHERE id = ? AND status <> 'cancelled'");
+        $u->execute([$toDate, $stop ?: null, $visitId]);
+        if ($u->rowCount() === 0) return false;
+        if (class_exists('VisitLifecycleService')) {
+            foreach (array_filter([(int)$v['stop_id'], (int)$stop]) as $sid) {
+                try { VisitLifecycleService::propagateStopStatus($sid); } catch (Throwable $e) { /* catches up later */ }
+            }
+        }
+        return true;
     }
 
     /** [property_id => true] — the owner said "not work" here twice. */
@@ -437,8 +512,36 @@ class UnscheduledWorkService
                 }
                 $out[] = $this->item($c);
             }
+            // Visits timed today but scheduled another day: move contract ones, ask about the rest.
+            foreach ($this->movedVisits($d) as $v) {
+                if ($auto) {
+                    $m = $fill ? $auto->move($v, $d) : null;
+                    if ($m && $m['done']) continue;
+                    if (!$fill && $auto->contractFor((int)$v['property_id'], $d) !== null) continue;   // moved on the next pass
+                }
+                $out[] = $this->movedItem($v, $d);
+            }
         }
         return $out;
+    }
+
+    /** "Visit #2160 (lawn maintenance, 6015 Tisdall St) was done Mon Oct 5, not Tue Oct 6 → move it." */
+    private function movedItem(array $v, string $day): array
+    {
+        $p = $this->property((int)$v['property_id']);
+        $street = self::street((string)($p['address'] ?? ''));
+        $what = strtolower(trim($v['service_type'])) ?: 'visit';
+        return [
+            'key' => 'otto:vdate:' . $v['visit_id'] . ':' . $day, 'kind' => 'visit_date', 'subject_type' => 'visit', 'subject_id' => (int)$v['visit_id'],
+            'for_date' => $day, 'user_id' => null, 'priority' => 3,
+            'text' => 'Visit #' . $v['visit_id'] . ' (' . $what . ', ' . $street . ') was done ' . date('D M j', strtotime($day))
+                . ', not ' . date('D M j', strtotime((string)$v['moved_from'])) . ' → move it.',
+            'detail' => 'Its timer ran on ' . date('D M j', strtotime($day)) . ($v['timer_min'] !== null ? ' (' . (int)$v['timer_min'] . ' min)' : '')
+                . ' · ' . $v['plan_number'] . ' · ' . $v['status'],
+            'url' => '/crm/jobs/visit-detail.php?id=' . (int)$v['visit_id'],
+            'value' => $v['timer_min'], 'since' => $day,
+            'propose' => ['visit_id' => (int)$v['visit_id'], 'to' => $day, 'from' => $v['moved_from'], 'to_label' => date('D M j', strtotime($day))],
+        ];
     }
 
     /** describe() for OttoContractLogService's daily pass. */
@@ -569,6 +672,8 @@ class UnscheduledWorkService
         $out = [];
         foreach ($rows as $r) {
             if ($r['property_id'] === null) continue;
+            // A timer on a visit scheduled within ±DONE_OTHER_DAY_DAYS explains the time (scheduledIds: done that day).
+            if ($r['visit_date'] !== null && abs(strtotime((string)$r['visit_date']) - strtotime($date)) <= self::DONE_OTHER_DAY_DAYS * 86400) continue;
             $st = (int)strtotime((string)$r['start_time']);
             $en = $r['end_time'] ? (int)strtotime((string)$r['end_time']) : null;
             $min = $r['duration_minutes'] !== null ? (int)$r['duration_minutes'] : ($en ? (int)round(($en - $st) / 60) : null);

@@ -130,6 +130,16 @@ try {
                     'from' => $hm((int)($c['site_start'] ?? $c['start'])), 'to' => $hm((int)($c['site_end'] ?? $c['end'])), 'minutes' => (int)($c['site_minutes'] ?? $c['minutes'])],
                 'explained_by_scheduled_visits' => array_map(fn($x) => $x + ['from_hm' => $hm($x['from']), 'to_hm' => $hm($x['to'])], $c['explained'] ?? []),
                 'crew_fixes_in_remainder_by_property' => $c['crew_votes'] ?? [],
+                'client_properties_within_250m' => array_map(function ($n) use ($db) {
+                    static $addr = [];
+                    if (!isset($addr[$n['id']])) {
+                        $q = $db->prepare("SELECT address FROM properties WHERE id = ?");
+                        $q->execute([$n['id']]);
+                        $addr[$n['id']] = (string)$q->fetchColumn();
+                    }
+                    return ['property_id' => $n['id'], 'address' => $addr[$n['id']], 'm_from_stop_centre' => $n['m_centroid'],
+                        'm_from_nearest_truck_ping' => $n['m_nearest'], 'included_in_site' => $n['included']];
+                }, $c['nearby'] ?? []),
                 'contract' => $c['contract'] ?? null,
                 'otto_auto_visit' => $c['auto'] ?? null,
                 'flag' => $c['flag'], 'kind' => $c['kind'] === 'extra' ? 'extra_work' : 'unscheduled', 'ignored' => $c['ignored'],
@@ -166,16 +176,24 @@ try {
                 'from_cache' => !empty($src['cached']),
             ],
             'candidates' => $cands,
+            'visits_done_this_day_but_scheduled_another' => array_map(fn($v) => ['visit_id' => $v['visit_id'], 'plan' => $v['plan_number'],
+                'service' => $v['service_type'], 'property_id' => $v['property_id'], 'scheduled' => $v['moved_from'], 'status' => $v['status'],
+                'timer_min_this_day' => $v['timer_min']], $svc->movedVisits($day['date'])),
         ];
     }
     echo json_encode([
         'ok' => true, 'read_only' => true, 'from' => $from, 'to' => $to, 'flagged' => $r['flagged'],
+        // If these differ, or differ from build_on_disk, production OPcache is serving an older copy — reset it.
+        'build' => ['rules' => UnscheduledWorkRules::BUILD, 'service' => UnscheduledWorkService::BUILD,
+            'rules_on_disk' => preg_match("/BUILD = '([^']+)'/", (string)@file_get_contents(APP_ROOT . '/Modules/Operations/Services/UnscheduledWorkRules.php'), $__m) ? $__m[1] : null,
+            'service_on_disk' => preg_match("/BUILD = '([^']+)'/", (string)@file_get_contents(APP_ROOT . '/Modules/Operations/Services/UnscheduledWorkService.php'), $__m2) ? $__m2[1] : null],
         'rules' => [
             'truck_stop_flags_alone_min' => UnscheduledWorkRules::MIN_TRUCK_MIN,
             'crew_only_flags_min' => UnscheduledWorkRules::MIN_CREW_MIN, 'crew_only_min_fixes' => UnscheduledWorkRules::MIN_CREW_FIXES,
             'property_radius_m' => UnscheduledWorkRules::RADIUS_M, 'or_inside_job_geofence' => true,
             'excluded' => 'ops_places (dump, supplier, yard, fuel), the office (ops_settings), crew homes (users.home_lat/lng)',
-            'scheduled_means' => 'a visit scheduled/in progress/completed that day (skipped and cancelled do not count), or completed that day. An empty calendar stop (no non-cancelled visit) does NOT count — it is shown as evidence',
+            'scheduled_means' => 'a visit scheduled/in progress/completed that day, completed that day, or scheduled within ±7 days and TIMED that day (done that day); skipped and cancelled do not count, nor a visit whose timers all ran on another day, nor an empty calendar stop (shown as evidence). Same rule on every path.',
+            'site' => 'truck stops and crew dwells sharing any client property within 120 m of ANY truck ping / crew fix, or a crew dwell overlapping a truck stop within 250 m',
             'extra_work_when' => 'scheduled, but the stay is >= ' . UnscheduledWorkRules::EXTRA_MIN . ' min longer than the plan length of that day\'s visit(s) and >= '
                 . UnscheduledWorkRules::EXTRA_X . 'x it (timer minutes stand in only when no plan length is set)',
         ],

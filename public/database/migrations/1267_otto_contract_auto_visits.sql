@@ -7,6 +7,8 @@
 --   invoice when there is one) so it never reaches per-visit invoicing or the unbilled lists, and
 --   nothing is sent to the client. One row per property per day (idempotent); Undo cancels the visit.
 --   A refusal (it could double-bill, no plan, no crew…) is not stored — Otto asks as usual.
+--   kind 'move': a contract visit timed on another day than scheduled (±7 days) is moved to the day it
+--   was done instead of logging a duplicate — one row per visit per day (source_visit_id); Undo moves it back.
 -- Code is guarded: nothing is auto-logged until this has run.
 -- MySQL 5.7 compatible.
 
@@ -14,7 +16,9 @@ CREATE TABLE IF NOT EXISTS otto_auto_visits (
   id INT AUTO_INCREMENT PRIMARY KEY,
   property_id INT NOT NULL,
   day DATE NOT NULL,
-  kind VARCHAR(16) NOT NULL DEFAULT 'unscheduled' COMMENT 'unscheduled | extra',
+  kind VARCHAR(16) NOT NULL DEFAULT 'unscheduled' COMMENT 'unscheduled | extra | move',
+  source_visit_id INT NOT NULL DEFAULT 0 COMMENT 'kind move: the visit moved (0 otherwise)',
+  moved_from DATE NULL COMMENT 'kind move: the date it was scheduled for',
   contract_id INT NULL,
   plan_id INT NULL,
   visit_id INT NULL,
@@ -28,6 +32,6 @@ CREATE TABLE IF NOT EXISTS otto_auto_visits (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   undone_by INT NULL,
   undone_at DATETIME NULL,
-  UNIQUE KEY uq_oav_property_day (property_id, day),
+  UNIQUE KEY uq_oav_property_day (property_id, day, kind, source_visit_id),
   INDEX idx_oav_day (day, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -46,6 +46,13 @@ class UnscheduledWorkRules
     public const OFFICE_RADIUS_M = 150;
     public const HOME_RADIUS_M   = 150;
     public const LOOKBACK_DAYS   = 14;
+    /** Shown in the dry run (with distance, included or not) — every client property this close to a site. */
+    public const NEARBY_M        = 250;
+    /** A crew dwell overlapping a truck stop in time and this close to it is part of the same site. */
+    public const SITE_JOIN_M     = 250;
+    public const SITE_JOIN_SECONDS = 300;
+    /** Bump when a rule changes, so a stale OPcache on production shows in the dry run (build vs build_on_disk). */
+    public const BUILD = '2026-10-08c';
     /** Extra work beyond a scheduled visit: the stay beats the plan by this much… */
     public const EXTRA_MIN       = 60;
     /** …and is at least this many times the plan (or the timer, when the plan has no length). */
@@ -133,9 +140,14 @@ class UnscheduledWorkRules
     /**
      * Truck stops that could be client work. From TripSegmentService::segments(): stops labelled to a
      * named place are not (dump, supplier, yard, fuel); the rest get every property they could be.
-     * @return list<array{start: int, end: int, minutes: float, lat: float, lng: float, props: list<int>, label: string}>
+     * With $pings (the day's trail the segments index into), a property counts when it is within
+     * RADIUS_M of ANY ping of the stop, not only of the stop's average point — a truck parked on a
+     * corner is near both lots (2505 W 8th + 2448 Larch, 2026-10-05). Properties are nearest-first.
+     * Each stop also lists every property within NEARBY_M ('nearby': id, m_centroid, m_nearest, included)
+     * so the dry run shows why a neighbour was or wasn't part of it.
+     * @return list<array{start: int, end: int, minutes: float, lat: float, lng: float, props: list<int>, label: string, nearby: list<array>}>
      */
-    public static function truckDwells(array $segments, array $properties, array $fences, array $zones): array
+    public static function truckDwells(array $segments, array $properties, array $fences, array $zones, array $pings = []): array
     {
         $out = [];
         foreach ($segments as $s) {
@@ -144,22 +156,56 @@ class UnscheduledWorkRules
             if (($label['type'] ?? '') === 'place') continue;
             $min = ($s['end'] - $s['start']) / 60;
             if ($min < self::KEEP_DWELL_MIN) continue;
-            if (self::excludedBy((float)$s['lat'], (float)$s['lng'], $zones) !== null) continue;
-            $props = self::propertiesAt((float)$s['lat'], (float)$s['lng'], $properties, $fences);
+            $lat = (float)$s['lat'];
+            $lng = (float)$s['lng'];
+            if (self::excludedBy($lat, $lng, $zones) !== null) continue;
+            $points = [[$lat, $lng]];
+            if ($pings && isset($s['i0'], $s['i1'])) {
+                for ($i = (int)$s['i0']; $i <= (int)$s['i1'] && $i < count($pings); $i++) $points[] = [(float)$pings[$i]['lat'], (float)$pings[$i]['lng']];
+            }
+            $in = [];
+            foreach ($points as [$y, $x]) foreach (self::propertiesAt($y, $x, $properties, $fences) as $p) $in[(int)$p] = true;
+            $nearby = self::nearby($lat, $lng, $points, $properties, $in);
+            // Nearest first (by the closest ping); a fence-only match keeps its place after the pins.
+            $props = array_column(array_filter($nearby, fn($n) => $n['included']), 'id');
+            foreach (array_keys($in) as $p) if (!in_array($p, $props, true)) $props[] = $p;
             if (!$props && ($label['type'] ?? '') === 'property' && !empty($label['id'])) $props = [(int)$label['id']];
             if (!$props) continue;
             $out[] = ['start' => (int)$s['start'], 'end' => (int)$s['end'], 'minutes' => round($min, 1),
-                      'lat' => (float)$s['lat'], 'lng' => (float)$s['lng'], 'props' => $props, 'label' => (string)($label['name'] ?? '')];
+                      'lat' => $lat, 'lng' => $lng, 'props' => array_map('intval', $props), 'label' => (string)($label['name'] ?? ''), 'nearby' => $nearby];
         }
+        return $out;
+    }
+
+    /**
+     * Client properties within NEARBY_M of a stop, included first then nearest: {id, m_centroid, m_nearest, included}.
+     * $included: [property_id => true] the ones that made it in (radius / fence of any point).
+     */
+    public static function nearby(float $lat, float $lng, array $points, array $properties, array $included): array
+    {
+        $out = [];
+        foreach ($properties as $p) {
+            $plat = (float)($p['latitude'] ?? 0);
+            $plng = (float)($p['longitude'] ?? 0);
+            if ($plat == 0.0 && $plng == 0.0) continue;
+            $mc = self::meters($lat, $lng, $plat, $plng);
+            $mn = $mc;
+            foreach ($points as [$y, $x]) $mn = min($mn, self::meters($y, $x, $plat, $plng));
+            if ($mn > self::NEARBY_M && !isset($included[(int)$p['id']])) continue;
+            $out[] = ['id' => (int)$p['id'], 'm_centroid' => (int)round($mc), 'm_nearest' => (int)round($mn), 'included' => isset($included[(int)$p['id']])];
+        }
+        usort($out, fn($a, $b) => [$b['included'], $a['m_nearest']] <=> [$a['included'], $b['m_nearest']]);
         return $out;
     }
 
     /**
      * One person's fixes (phone, clock punches, timer start/stop) clustered into dwells at a property.
      * A fix with no property inside the gap is jitter and is skipped; a fix at another property, or a
-     * gap longer than CREW_GAP_SECONDS, ends the dwell.
+     * gap longer than CREW_GAP_SECONDS, ends the dwell. 'all_props' is every property any fix of the dwell
+     * could be (site membership); 'props' the ones every fix agrees on; 'track' where each fix puts the person.
      * @param list<array{lat: float, lng: float, t: int, src: string}> $fixes
-     * @return list<array{start: int, end: int, minutes: float, fixes: int, sources: array, props: list<int>, track: list<array{0: int, 1: int}>}>
+     * @return list<array{start: int, end: int, minutes: float, fixes: int, sources: array, props: list<int>, all_props: list<int>,
+     *   lat: float, lng: float, track: list<array{0: int, 1: int}>}>
      */
     public static function crewDwells(array $fixes, array $properties, array $fences, array $zones): array
     {
@@ -169,6 +215,10 @@ class UnscheduledWorkRules
         $close = function () use (&$cur, &$out) {
             if ($cur && $cur['fixes'] >= 2) {
                 $cur['minutes'] = round(($cur['end'] - $cur['start']) / 60, 1);
+                $cur['lat'] = $cur['_lat'] / $cur['fixes'];
+                $cur['lng'] = $cur['_lng'] / $cur['fixes'];
+                $cur['all_props'] = array_keys($cur['_all']);
+                unset($cur['_lat'], $cur['_lng'], $cur['_all']);
                 if ($cur['minutes'] >= self::KEEP_DWELL_MIN) $out[] = $cur;
             }
             $cur = null;
@@ -180,10 +230,14 @@ class UnscheduledWorkRules
             if (!$props) continue;
             if ($cur && !in_array($cur['props'][0], $props, true)) $close();
             if (!$cur) {
-                $cur = ['start' => (int)$f['t'], 'end' => (int)$f['t'], 'minutes' => 0.0, 'fixes' => 0, 'sources' => [], 'props' => $props, 'track' => []];
+                $cur = ['start' => (int)$f['t'], 'end' => (int)$f['t'], 'minutes' => 0.0, 'fixes' => 0, 'sources' => [], 'props' => $props,
+                        'track' => [], '_lat' => 0.0, '_lng' => 0.0, '_all' => []];
             }
             $cur['end'] = (int)$f['t'];
             $cur['fixes']++;
+            $cur['_lat'] += (float)$f['lat'];
+            $cur['_lng'] += (float)$f['lng'];
+            foreach ($props as $p) $cur['_all'][(int)$p] = true;
             $cur['track'][] = [(int)$f['t'], (int)$props[0]];   // where this fix puts the person (nearest / inside a fence)
             $cur['sources'][$f['src']] = ($cur['sources'][$f['src']] ?? 0) + 1;
             // Keep only properties every fix agrees on (first one stays the anchor).
@@ -230,7 +284,7 @@ class UnscheduledWorkRules
         // Every dwell, then union-find on shared properties.
         $items = [];
         foreach ($truck as $d) $items[] = ['src' => 'truck', 'd' => $d, 'props' => array_map('intval', $d['props'])];
-        foreach ($crew as $uid => $dwells) foreach ($dwells as $d) $items[] = ['src' => 'crew', 'd' => $d + ['user_id' => (int)$uid], 'props' => array_map('intval', $d['props'])];
+        foreach ($crew as $uid => $dwells) foreach ($dwells as $d) $items[] = ['src' => 'crew', 'd' => $d + ['user_id' => (int)$uid], 'props' => array_map('intval', $d['all_props'] ?? $d['props'])];
         $parent = array_keys($items);
         $find = function (int $i) use (&$parent, &$find): int { return $parent[$i] === $i ? $i : ($parent[$i] = $find($parent[$i])); };
         $owner = [];
@@ -238,6 +292,18 @@ class UnscheduledWorkRules
             foreach ($it['props'] as $p) {
                 if (isset($owner[$p])) $parent[$find($i)] = $find($owner[$p]);
                 else $owner[$p] = $i;
+            }
+        }
+        // A crew dwell during a truck stop and near it is the same job, even when their lots differ
+        // (phone on 2505 W 8th, truck pinned to 2448 Larch).
+        foreach ($items as $i => $a) {
+            if ($a['src'] !== 'truck') continue;
+            foreach ($items as $j => $b) {
+                if ($b['src'] !== 'crew' || !isset($b['d']['lat'])) continue;
+                $overlap = min($a['d']['end'], $b['d']['end']) - max($a['d']['start'], $b['d']['start']);
+                if ($overlap >= self::SITE_JOIN_SECONDS && self::meters($a['d']['lat'], $a['d']['lng'], $b['d']['lat'], $b['d']['lng']) <= self::SITE_JOIN_M) {
+                    $parent[$find($j)] = $find($i);
+                }
             }
         }
         $sites = [];
@@ -259,8 +325,14 @@ class UnscheduledWorkRules
         $crewD = array_values(array_map(fn($m) => $m['d'], array_filter($members, fn($m) => $m['src'] === 'crew')));
         // Site properties, nearest first: truck stops' order, then crew dwells'.
         $props = [];
-        foreach (array_merge($truckD, $crewD) as $d) foreach ($d['props'] as $p) $props[(int)$p] = true;
+        foreach ($truckD as $d) foreach ($d['props'] as $p) $props[(int)$p] = true;
+        foreach ($crewD as $d) foreach (($d['all_props'] ?? $d['props']) as $p) $props[(int)$p] = true;
         $props = array_keys($props);
+        $nearby = [];
+        foreach ($truckD as $d) foreach ((array)($d['nearby'] ?? []) as $n) {
+            if (!isset($nearby[$n['id']]) || $n['m_nearest'] < $nearby[$n['id']]['m_nearest']) $nearby[$n['id']] = $n;
+        }
+        foreach ($nearby as $id => $n) $nearby[$id]['included'] = in_array((int)$id, $props, true);
 
         $truckMin = array_sum(array_column($truckD, 'minutes'));
         $crewWin = self::window($crewD);
@@ -371,6 +443,7 @@ class UnscheduledWorkRules
             'truck_stops' => array_map(fn($d) => ['from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'label' => $d['label']], $truckD),
             'crew' => array_map(fn($d) => ['user_id' => (int)$d['user_id'], 'from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'fixes' => $d['fixes'], 'sources' => $d['sources']], $crewD),
             'crew_votes' => $votes,
+            'nearby' => array_values($nearby),
             'basis' => $hasTruck ? ($crewD ? 'truck+crew' : 'truck') : 'crew',
             'confidence' => $confidence,
             'flag' => $ignored === null,
@@ -461,7 +534,8 @@ class UnscheduledWorkRules
             $parts[] = ($client !== '' ? $client . "'s " : $st((int)$x['property_id']) . ' ') . (strtolower(trim($x['service_type'])) ?: 'visit')
                 . ' (scheduled, ~' . self::hours((int)$x['minutes']) . ')';
         }
-        $sites = implode(' + ', array_map($st, $c['site_props']));
+        $shown = array_values(array_unique(array_merge([(int)$c['property_id']], array_map(fn($x) => (int)$x['property_id'], $c['explained']))));
+        $sites = implode(' + ', array_map($st, $shown));
         return $who . date('D', $c['site_start']) . ' ' . date('g:i', $c['site_start']) . '–' . date('g:i', $c['site_end']) . ' by ' . $sites . ': '
             . implode(', ', $parts) . ' then ~' . self::hours((int)$c['minutes']) . ' unexplained at ' . $st((int)$c['property_id']) . '.';
     }

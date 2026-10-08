@@ -96,6 +96,10 @@
             case 'unscheduled':
             case 'extra_work':
                 return unscheduledControls(p);
+            case 'visit_date':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="move_date">Move it to ' + esc(p.to_label || p.to || '') + '</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
             case 'duration':
                 return '<div class="mw-otto-btns">' +
                     '<label class="mw-otto-field">Plan length <input type="number" name="minutes" min="5" max="600" step="5" value="' + esc(p.minutes || '') + '"> min</label>' +
@@ -230,6 +234,7 @@
             if (what === 'link') b2.invoice_id = parseInt(btn.getAttribute('data-invoice'), 10);
             return decide(el, b2, btn);
         }
+        if (what === 'move_date') return decide(el, { choice: 'move' }, btn);
         return decide(el, { choice: what }, btn);
     }
 

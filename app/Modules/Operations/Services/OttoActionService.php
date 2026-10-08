@@ -73,6 +73,14 @@ class OttoActionService
                 return $this->training($sug, $propose, $choice, $actorId);
             case 'unscheduled':
             case 'extra_work':  return $this->unscheduled($sug, $in, $actorId);
+            case 'visit_date':
+                if ($choice !== 'move') return ['ok' => false, 'message' => 'Move it, or leave it?'];
+                require_once __DIR__ . '/UnscheduledWorkService.php';
+                if (!(new UnscheduledWorkService($this->db))->moveVisitDate((int)$sug['subject_id'], (string)$sug['for_date'])) {
+                    return ['ok' => false, 'message' => 'Could not move it — it may have been changed or cancelled. Open the visit.'];
+                }
+                return $this->close($sug, 'accepted', ['choice' => 'move', 'from' => $propose['from'] ?? null, 'to' => $sug['for_date']], $actorId,
+                    'Moved to ' . date('D M j', strtotime((string)$sug['for_date'])) . '.');
             case 'duration':    return $this->duration($sug, $propose, $choice, $in, $actorId);
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];

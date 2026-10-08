@@ -259,12 +259,12 @@ class UnscheduledWorkTest extends TestCase
 
     public function test_an_empty_calendar_stop_does_not_hide_the_work_and_shows_as_evidence(): void
     {
-        // Prod 2026-10-05: a stop left at Larch after its lawn-cut visit was rolled to Oct 6, with
-        // Tim's timer from that morning still on the moved visit.
+        // Prod 2026-10-05: a stop left at Larch after its lawn-cut visit was moved (to Sep 20 here — outside ±7 days, so
+        // the timer on it is stray evidence, not "done that day"), with a timer from that morning still on it.
         $db = UnscheduledDayFixture::pdo();
         $db->exec("INSERT INTO calendar_stops (id, property_id, stop_date, status, created_at) VALUES (812, 441, '" . self::D . "', 'scheduled', '2026-10-01 08:02:00')");
         $db->exec("INSERT INTO job_plans VALUES (83, 441, 'PLN-2026-0070', 'Weekly lawn', 'Lawn Cut', 1, 30, 'active')");
-        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number, stop_id) VALUES (5, 83, '2026-10-06', 'scheduled', 'PLN-2026-0070-V021', 900)");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number, stop_id) VALUES (5, 83, '2026-09-20', 'scheduled', 'PLN-2026-0070-V021', 900)");
         $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number, stop_id) VALUES (6, 83, '" . self::D . "', 'cancelled', 'PLN-2026-0070-V020', 812)");
         $db->exec("INSERT INTO job_time_entries (user_id, visit_id, start_time, end_time, status, duration_minutes) VALUES (7, 5, '" . self::D . " 08:20:00', '" . self::D . " 11:30:00', 'completed', 190)");
         $db->exec("INSERT INTO job_time_entries (user_id, visit_id, plan_id, start_time, end_time, status, duration_minutes) VALUES (7, NULL, 82, '" . self::D . " 11:00:00', '" . self::D . " 11:35:00', 'completed', 35)");
@@ -274,9 +274,9 @@ class UnscheduledWorkTest extends TestCase
         $c = $svc->review(self::D, self::D, false)['days'][0]['candidates'][0];
         $this->assertSame([441, true, 'unscheduled'], [$c['property_id'], $c['flag'], $c['kind']]);
         $this->assertSame([812], array_column($c['empty_stops'], 'id'));
-        $this->assertSame([[5, '2026-10-06', 190], [null, null, 35]], array_map(fn($t) => [$t['visit_id'], $t['visit_date'], $t['minutes']], $c['stray_timers']));
+        $this->assertSame([[5, '2026-09-20', 190], [null, null, 35]], array_map(fn($t) => [$t['visit_id'], $t['visit_date'], $t['minutes']], $c['stray_timers']));
         $this->assertStringContainsString('empty calendar stop #812 (no visit on it — made Oct 1 8:02 am;', $c['evidence']);
-        $this->assertStringContainsString("Nigel's timer 8:20–11:30 (190 min) on visit #5 scheduled Oct 6", $c['evidence']);
+        $this->assertStringContainsString("Nigel's timer 8:20–11:30 (190 min) on visit #5 scheduled Sep 20", $c['evidence']);
         $this->assertStringContainsString("Nigel's timer 11:00–11:35 (35 min) with no visit (PLN-2026-0068)", $c['evidence']);
     }
 
@@ -328,6 +328,98 @@ class UnscheduledWorkTest extends TestCase
         $c = UnscheduledWorkRules::candidates(self::D, $truck, $crew, $sched)[0];
         $this->assertFalse($c['flag']);
         $this->assertSame(['scheduled', 843], [$c['ignored'], $c['property_id']]);
+    }
+
+    // ── Prod 2026-10-08: same answer for one day alone and inside a range; empty stops never count ──
+
+    public function test_one_day_alone_and_inside_a_range_give_the_same_answer_and_an_empty_stop_never_counts(): void
+    {
+        $db = UnscheduledDayFixture::pdo();
+        $db->exec("INSERT INTO calendar_stops (id, property_id, stop_date, status, created_at) VALUES (812, 441, '" . self::D . "', 'scheduled', '2026-10-01 08:02:00')");
+        $db->exec("INSERT INTO calendar_stops (id, property_id, stop_date, status, created_at) VALUES (813, 441, '2026-10-03', 'scheduled', '2026-10-01 08:02:00')");
+        $svc = new UnscheduledWorkService($db, '2026-10-08');
+        $alone = $svc->review(self::D, self::D, false)['days'][0]['candidates'];
+        $inRange = null;
+        foreach ($svc->review('2026-09-28', '2026-10-07', false)['days'] as $day) if ($day['date'] === self::D) $inRange = $day['candidates'];
+        $this->assertSame(json_encode($alone), json_encode($inRange));
+        $larch = $alone[0];
+        $this->assertSame([441, true, 'unscheduled', []], [$larch['property_id'], $larch['flag'], $larch['kind'], $larch['scheduled_visits']]);
+        foreach ($alone as $c) {
+            foreach ($c['scheduled_visits'] as $v) $this->assertNotNull($v['visit_id'], 'no pseudo-visit for an empty stop on any path');
+        }
+        $this->assertSame([812], array_column($larch['empty_stops'], 'id'));
+    }
+
+    private static function trail(array $at, string $a, string $b, array $wobble = []): array
+    {
+        $p = [];
+        $k = 0;
+        for ($t = self::t($a); $t <= self::t($b); $t += 120, $k++) {
+            $w = $wobble ? $wobble[$k % count($wobble)] : [0, 0];
+            $p[] = ['lat' => $at[0] + $w[0], 'lng' => $at[1] + $w[1], 'speed_kph' => 0.0, 't' => $t];
+        }
+        return $p;
+    }
+
+    public function test_a_neighbour_beyond_the_radius_of_the_stop_centre_but_near_a_ping_is_in_the_site(): void
+    {
+        $bee = [UnscheduledDayFixture::LARCH[0] + 0.00135, UnscheduledDayFixture::LARCH[1]];   // ~150 m north of the stop centre
+        $props = [['id' => 441, 'latitude' => UnscheduledDayFixture::LARCH[0], 'longitude' => UnscheduledDayFixture::LARCH[1]],
+                  ['id' => 843, 'latitude' => $bee[0], 'longitude' => $bee[1]]];
+        // The truck shuffled ~45 m north a few times while parked.
+        $pings = self::trail(UnscheduledDayFixture::LARCH, '08:17', '12:02', [[0, 0], [0, 0], [0, 0], [0.0004, 0]]);
+        $seg = [['type' => 'stop', 'start' => self::t('08:17'), 'end' => self::t('12:02'), 'lat' => UnscheduledDayFixture::LARCH[0], 'lng' => UnscheduledDayFixture::LARCH[1],
+                 'label' => ['type' => 'property', 'id' => 441, 'name' => '2448 Larch'], 'i0' => 0, 'i1' => count($pings) - 1]];
+        $this->assertSame([441], UnscheduledWorkRules::truckDwells($seg, $props, [], [])[0]['props'], 'centre only: Bee is 150 m away');
+        $t = UnscheduledWorkRules::truckDwells($seg, $props, [], [], $pings)[0];
+        $this->assertSame([441, 843], $t['props']);
+        $bee843 = array_values(array_filter($t['nearby'], fn($n) => $n['id'] === 843))[0];
+        $this->assertSame([150, true], [$bee843['m_centroid'], $bee843['included']]);
+        $this->assertLessThanOrEqual(120, $bee843['m_nearest']);
+    }
+
+    public function test_a_crew_dwell_at_a_neighbour_during_the_truck_stop_joins_the_site(): void
+    {
+        $bee = [UnscheduledDayFixture::LARCH[0] + 0.0018, UnscheduledDayFixture::LARCH[1]];   // ~200 m: no truck ping is within 120 m
+        $props = [['id' => 441, 'latitude' => UnscheduledDayFixture::LARCH[0], 'longitude' => UnscheduledDayFixture::LARCH[1]],
+                  ['id' => 843, 'latitude' => $bee[0], 'longitude' => $bee[1]]];
+        $pings = self::trail(UnscheduledDayFixture::LARCH, '08:17', '12:02');
+        $seg = [['type' => 'stop', 'start' => self::t('08:17'), 'end' => self::t('12:02'), 'lat' => UnscheduledDayFixture::LARCH[0], 'lng' => UnscheduledDayFixture::LARCH[1],
+                 'label' => ['type' => 'property', 'id' => 441, 'name' => '2448 Larch'], 'i0' => 0, 'i1' => count($pings) - 1]];
+        $truck = UnscheduledWorkRules::truckDwells($seg, $props, [], [], $pings);
+        $this->assertSame([441], $truck[0]['props']);
+        $fx = array_merge(self::fixes($bee, '08:20', '09:30'), self::fixes(UnscheduledDayFixture::LARCH, '09:36', '11:58'));
+        $crew = [7 => UnscheduledWorkRules::crewDwells($fx, $props, [], [])];
+        $sched = [843 => [['visit_id' => 2478, 'plan_id' => 130, 'plan_number' => 'PLN-2026-0130', 'service_type' => 'Hedge Trimming',
+            'status' => 'completed', 'planned_min' => 90, 'timer_min' => 70, 'moved_from' => null]]];
+        $c = UnscheduledWorkRules::candidates(self::D, $truck, $crew, $sched);
+        $this->assertCount(1, $c, 'one site');
+        $this->assertSame([441, true, 155, [2478]], [$c[0]['property_id'], $c[0]['flag'], $c[0]['minutes'], array_column($c[0]['explained'], 'visit_id')]);
+    }
+
+    // ── Timers on another day's visit (prod: Oct 5 Oakridge timers on #2160 sched Oct 6, #2159 sched Oct 7) ──
+
+    public function test_a_visit_timed_today_but_scheduled_tomorrow_counts_as_done_today_and_otto_proposes_moving_it(): void
+    {
+        $db = UnscheduledDayFixture::pdo();
+        $db->exec("INSERT INTO job_plans VALUES (83, 441, 'PLN-2026-0070', 'Hedges', 'Hedge Trimming', 0, 200, 'active')");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number) VALUES (2160, 83, '2026-10-06', 'scheduled', 'PLN-2026-0070-V002')");
+        $db->exec("INSERT INTO job_time_entries (user_id, visit_id, start_time, end_time, status) VALUES (7, 2160, '" . self::D . " 08:15:00', '" . self::D . " 11:35:00', 'completed')");
+        $svc = new class($db, '2026-10-08') extends UnscheduledWorkService {
+            public function cacheReady(): bool { return true; }
+        };
+        $v = $svc->scheduledIds(self::D)[441][0];
+        $this->assertSame([2160, '2026-10-06', 200], [$v['visit_id'], $v['moved_from'], $v['timer_min']]);
+        $this->assertArrayNotHasKey(441, $svc->scheduledIds('2026-10-06'), 'on its own date it was not done');
+        $c = array_values(array_filter($svc->review(self::D, self::D, false)['days'][0]['candidates'], fn($x) => $x['property_id'] === 441))[0];
+        $this->assertFalse($c['flag'], 'the timed visit explains the morning');
+        $this->assertSame([2160], array_column($c['explained'], 'visit_id'));
+
+        $log = ini_set('error_log', '/dev/null');
+        $items = array_values(array_filter($svc->items(true), fn($i) => $i['for_date'] === self::D));
+        ini_set('error_log', (string)$log);
+        $this->assertSame(['otto:vdate:2160:' . self::D], array_column($items, 'key'));
+        $this->assertSame('Visit #2160 (hedge trimming, 2448 Larch St) was done Mon Oct 5, not Tue Oct 6 → move it.', $items[0]['text']);
     }
 
     public function test_small_helpers(): void

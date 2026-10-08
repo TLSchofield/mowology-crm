@@ -38,9 +38,10 @@ class OttoContractLogTest extends TestCase
             'ALTER TABLE job_visits ADD COLUMN completion_notes TEXT', 'ALTER TABLE job_visits ADD COLUMN is_invoiced INT DEFAULT 0',
             'ALTER TABLE job_visits ADD COLUMN invoice_id INT',
             'CREATE TABLE contracts (id INTEGER PRIMARY KEY, contract_number TEXT, title TEXT, status TEXT, billing_cycle TEXT, property_id INT, start_date TEXT, end_date TEXT)',
-            'CREATE TABLE otto_auto_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, property_id INT, day TEXT, kind TEXT, contract_id INT, plan_id INT, visit_id INT,
+            'CREATE TABLE otto_auto_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, property_id INT, day TEXT, kind TEXT, source_visit_id INT NOT NULL DEFAULT 0,
+                moved_from TEXT, contract_id INT, plan_id INT, visit_id INT,
                 invoice_id INT, start_time TEXT, end_time TEXT, minutes INT, status TEXT, reason TEXT, evidence TEXT, created_at TEXT, undone_by INT, undone_at TEXT,
-                UNIQUE (property_id, day))',
+                UNIQUE (property_id, day, kind, source_visit_id))',
         ] as $q) $db->exec($q);
         $db->exec("INSERT INTO contracts VALUES (5, 'CTR-0005', 'Building grounds', 'active', '{$cycle}', 441, '2026-03-01', NULL)");
         $db->exec("UPDATE job_plans SET contract_id = 5, default_crew_id = 7 WHERE id = 82");
@@ -56,6 +57,12 @@ class OttoContractLogTest extends TestCase
         return new class($db, '2026-10-07') extends UnscheduledWorkService {
             public function cacheReady(): bool { return true; }
             protected function captureCosts(int $visitId, int $actorId): void {}
+            public function moveVisitDate(int $visitId, string $toDate): bool
+            {
+                $u = $this->db->prepare("UPDATE job_visits SET scheduled_date = ? WHERE id = ? AND status <> 'cancelled' AND scheduled_date <> ?");
+                $u->execute([$toDate, $visitId, $toDate]);
+                return $u->rowCount() > 0;
+            }
             public function addVisitFor(int $planId, string $date, int $crewId): array
             {
                 $this->db->prepare("INSERT INTO job_visits (plan_id, scheduled_date, status) VALUES (?, ?, 'scheduled')")->execute([$planId, $date]);
@@ -153,5 +160,29 @@ class OttoContractLogTest extends TestCase
         $this->assertSame(84, (int)$auto->choosePlan(5, 441, self::D, 210)['id'], 'Mon 2026-10-05 → the Monday plan');
         $this->assertSame(82, (int)$auto->choosePlan(5, 441, '2026-10-06', 120)['id'], 'Tue → closest length');
         $this->assertSame(82, (int)$auto->choosePlan(5, 999, self::D, 60)['id'], 'not on this property → the contract\'s main plan');
+    }
+
+    public function test_a_contract_visit_timed_on_the_wrong_day_is_moved_not_duplicated_and_undo_moves_it_back(): void
+    {
+        $db = $this->db();
+        // The contract's visit was scheduled Tue Oct 6; the crew timed it Mon Oct 5 (8:15–11:35).
+        $db->exec("UPDATE job_plans SET estimated_duration_minutes = 200 WHERE id = 82");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number) VALUES (2160, 82, '2026-10-06', 'scheduled', 'PLN-2026-0068-V002')");
+        $db->exec("INSERT INTO job_time_entries (user_id, visit_id, start_time, end_time, status) VALUES (7, 2160, '" . self::D . " 08:15:00', '" . self::D . " 11:35:00', 'completed')");
+        $uw = $this->uw($db);
+        $this->assertSame([], $this->itemsFor($uw, 441), 'contract site: nothing to ask');
+        $this->assertSame([], array_values(array_filter($uw->items(true), fn($i) => $i['kind'] === 'visit_date')), 'moved, not asked');
+        $this->assertSame('2026-10-05', $db->query("SELECT scheduled_date FROM job_visits WHERE id = 2160")->fetchColumn());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM job_visits WHERE plan_id = 82")->fetchColumn(), 'no duplicate visit');
+        $row = $db->query("SELECT * FROM otto_auto_visits")->fetch();
+        $this->assertSame(['move', 2160, '2026-10-06', 'logged'], [$row['kind'], (int)$row['source_visit_id'], $row['moved_from'], $row['status']]);
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM otto_auto_visits")->fetchColumn());
+
+        $r = (new OttoContractLogService($db, $uw, '2026-10-07'))->undo((int)$row['id'], 1);
+        $this->assertTrue($r['ok']);
+        $this->assertSame('2026-10-06', $db->query("SELECT scheduled_date FROM job_visits WHERE id = 2160")->fetchColumn());
+        // After undo Otto asks instead of moving it again.
+        $ask = array_values(array_filter($uw->items(true), fn($i) => $i['kind'] === 'visit_date'));
+        $this->assertSame(['otto:vdate:2160:' . self::D], array_column($ask, 'key'));
     }
 }

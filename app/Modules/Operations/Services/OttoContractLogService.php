@@ -25,6 +25,10 @@
  * Every action is a row in otto_auto_visits (migration 1267), one per property per day; Undo cancels
  * the visit.
  *
+ * Visits timed on the wrong day (a timer today on a visit of this property scheduled within ±7 days —
+ * UnscheduledWorkService::scheduledIds) are MOVED to the day they were done (kind 'move', one row per
+ * visit per day; Undo moves it back) instead of logging a duplicate.
+ *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/UnscheduledWorkService.php';
@@ -57,7 +61,7 @@ class OttoContractLogService
     public function row(int $propertyId, string $day): ?array
     {
         if (!$this->ready()) return null;
-        $s = $this->db->prepare("SELECT * FROM otto_auto_visits WHERE property_id = ? AND day = ?");
+        $s = $this->db->prepare("SELECT * FROM otto_auto_visits WHERE property_id = ? AND day = ? AND kind <> 'move' ORDER BY id LIMIT 1");
         $s->execute([$propertyId, $day]);
         return $s->fetch(PDO::FETCH_ASSOC) ?: null;
     }
@@ -246,7 +250,37 @@ class OttoContractLogService
         }
     }
 
-    /** Undo: the visit is cancelled (kept, not deleted); Otto then asks about that day as usual. */
+    /**
+     * A contract-site visit timed on another day than it was scheduled: move it to the day it was done.
+     * Refused (null) when the property isn't a contract site that day or the visit's plan isn't contract-billed
+     * — then Otto asks ('visit_date' item). @param array $v UnscheduledWorkService::movedVisits() row
+     * @return array{done: bool, reason: string}|null
+     */
+    public function move(array $v, string $day): ?array
+    {
+        if (!$this->ready()) return null;
+        $ctr = $this->contractFor((int)$v['property_id'], $day);
+        if (!$ctr || $ctr['billing_cycle'] === 'per_visit' || !$this->contractBilled((int)$v['plan_id'])) return null;
+        $q = $this->db->prepare("SELECT status FROM otto_auto_visits WHERE kind = 'move' AND source_visit_id = ? AND day = ?");
+        $q->execute([(int)$v['visit_id'], $day]);
+        $st = $q->fetchColumn();
+        if ($st !== false) return ['done' => $st === 'logged', 'reason' => 'moved before (' . $st . ')'];
+        try {
+            $this->db->prepare("
+                INSERT INTO otto_auto_visits (property_id, day, kind, source_visit_id, moved_from, contract_id, plan_id, visit_id, minutes, status, reason)
+                VALUES (?, ?, 'move', ?, ?, ?, ?, ?, ?, 'logging', ?)
+            ")->execute([(int)$v['property_id'], $day, (int)$v['visit_id'], $v['moved_from'], (int)$ctr['id'], (int)$v['plan_id'], (int)$v['visit_id'],
+                $v['timer_min'], 'timed ' . $day . ', was scheduled ' . $v['moved_from']]);
+        } catch (PDOException $e) {
+            return ['done' => true, 'reason' => 'already moved'];
+        }
+        $id = (int)$this->db->lastInsertId();
+        $ok = $this->uw->moveVisitDate((int)$v['visit_id'], $day);
+        $this->db->prepare("UPDATE otto_auto_visits SET status = ? WHERE id = ?")->execute([$ok ? 'logged' : 'failed', $id]);
+        return ['done' => $ok, 'reason' => $ok ? 'moved to the day it was done (contract ' . $ctr['contract_number'] . ')' : 'could not move it'];
+    }
+
+    /** Undo: a logged visit is cancelled (kept, not deleted), a moved one goes back to its date; Otto then asks. */
     public function undo(int $id, int $actorId): array
     {
         $s = $this->db->prepare("SELECT * FROM otto_auto_visits WHERE id = ?");
@@ -254,6 +288,12 @@ class OttoContractLogService
         $row = $s->fetch(PDO::FETCH_ASSOC);
         if (!$row) return ['ok' => false, 'message' => 'That entry is gone.'];
         if ($row['status'] !== 'logged') return ['ok' => false, 'message' => 'Only a logged visit can be undone (this one is ' . $row['status'] . ').'];
+        if ($row['kind'] === 'move') {
+            if (!$this->uw->moveVisitDate((int)$row['visit_id'], (string)$row['moved_from'])) return ['ok' => false, 'message' => 'The visit was changed since — open it to check.'];
+            $this->db->prepare("UPDATE otto_auto_visits SET status = 'undone', undone_by = ?, undone_at = ? WHERE id = ?")
+                ->execute([$actorId ?: null, date('Y-m-d H:i:s'), $id]);
+            return ['ok' => true, 'message' => 'Moved back to ' . date('D M j', strtotime((string)$row['moved_from'])) . '. I\'ll ask about it instead.'];
+        }
         $u = $this->db->prepare("
             UPDATE job_visits SET status = 'cancelled', is_invoiced = 0, invoice_id = NULL,
                 completion_notes = CONCAT(COALESCE(completion_notes, ''), ' [Undone from Otto]')
@@ -283,7 +323,7 @@ class OttoContractLogService
      */
     public function dailyPass(?int $days = null): array
     {
-        $out = ['days' => 0, 'logged' => 0, 'asked' => 0, 'minutes' => 0];
+        $out = ['days' => 0, 'logged' => 0, 'asked' => 0, 'minutes' => 0, 'moved' => 0];
         if (!$this->ready()) return $out;
         if ($days === null) {
             $any = (int)$this->db->query("SELECT COUNT(*) FROM otto_auto_visits")->fetchColumn();
@@ -299,6 +339,10 @@ class OttoContractLogService
                 if (!empty($r['visit_id'])) { $out['logged']++; $out['minutes'] += (int)$c['minutes']; }
                 elseif ($r['asked']) $out['asked']++;
             }
+            foreach ($this->uw->movedVisits($d) as $v) {
+                $m = $this->move($v, $d);
+                if ($m && $m['done'] && $m['reason'] !== 'already moved' && strpos($m['reason'], 'moved before') !== 0) $out['moved']++;
+            }
             $out['days']++;
         }
         return $out;
@@ -310,12 +354,12 @@ class OttoContractLogService
         if (!$this->ready()) return null;
         try {
             $y = date('Y-m-d', strtotime($this->today . ' -1 day'));
-            $s = $this->db->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(minutes), 0) AS m FROM otto_auto_visits WHERE status = 'logged' AND day = ?");
+            $s = $this->db->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(minutes), 0) AS m FROM otto_auto_visits WHERE status = 'logged' AND kind <> 'move' AND day = ?");
             $s->execute([$y]);
             $r = $s->fetch(PDO::FETCH_ASSOC);
             if ((int)$r['n'] > 0) return ['n' => (int)$r['n'], 'minutes' => (int)$r['m'], 'when' => 'yesterday',
                 'line' => 'Logged ' . (int)$r['n'] . ' contract visit' . ((int)$r['n'] === 1 ? '' : 's') . ' yesterday (' . UnscheduledWorkRules::hours((int)$r['m']) . ')'];
-            $s = $this->db->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(minutes), 0) AS m FROM otto_auto_visits WHERE status = 'logged' AND day >= ?");
+            $s = $this->db->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(minutes), 0) AS m FROM otto_auto_visits WHERE status = 'logged' AND kind <> 'move' AND day >= ?");
             $s->execute([date('Y-m-d', strtotime($this->today . ' -' . UnscheduledWorkRules::LOOKBACK_DAYS . ' days'))]);
             $r = $s->fetch(PDO::FETCH_ASSOC);
             if ((int)$r['n'] > 0) return ['n' => (int)$r['n'], 'minutes' => (int)$r['m'], 'when' => 'last ' . UnscheduledWorkRules::LOOKBACK_DAYS . ' days',
