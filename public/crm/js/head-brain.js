@@ -17,6 +17,12 @@
  * as Bronze. The popup lists items by group, then tier, with a swatch and a legend.
  * Penny's card uses this too (.mw-brain[data-head]); penny-brain.js is no longer loaded.
  *
+ * Full page (2026-10-07): clicking a head's brain opens /crm/brain.php?head=<slug> (large
+ * brain, tiers, searchable list, client view) instead of the pop-up; the pop-up stays only
+ * for a head with no page. canvas[data-brain-stage] on that page is drawn large here.
+ * The pop-up's brain used to sit below the fold: the grid card inherited align-items:center
+ * from an older flex rule, so the canvas was centred against the long list (CSS, fixed).
+ *
  * Markup: <button class="mw-head-brain" data-head="Sam" data-units data-bright data-parts='[…]'
  *                 data-since data-empty="…" data-teach="…"><canvas></canvas></button>
  * No libraries — canvas 2D with a hand-rolled projection.
@@ -249,20 +255,46 @@
 
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    function draw(canvas, units, bright, items) {
+    /**
+     * Draw (and turn) a brain on a canvas. It sizes itself to the canvas's CSS box and redraws
+     * when that changes (ResizeObserver), turns only while on screen (IntersectionObserver),
+     * waits without spinning while the canvas has no size (hidden / display:none), and with
+     * prefers-reduced-motion draws one still frame (redrawn on resize).
+     * opts.scale: brain radius as a share of the smaller side (default 0.32).
+     */
+    function draw(canvas, units, bright, items, opts) {
+        opts = opts || {};
         units = Math.max(units, items.length);
         var k = Math.max(1, Math.min(SHAPES, units + 1));
         var sh = shape(k), A = assign(sh, units, items), owner = A.owner, newest = A.newest;
-        var t0 = performance.now(), alive = true, light = null;
+        var t0 = performance.now(), alive = true, light = null, raf = 0, visible = true, ro = null, io = null;
+        var scale = opts.scale || 0.32;
+        function kick() { if (!raf && alive) raf = requestAnimationFrame(frame); }
+        function stop() {
+            alive = false;
+            if (raf) cancelAnimationFrame(raf);
+            if (ro) ro.disconnect();
+            if (io) io.disconnect();
+        }
+        if (window.ResizeObserver) { ro = new ResizeObserver(kick); ro.observe(canvas); }
+        if (window.IntersectionObserver) {
+            io = new IntersectionObserver(function (es) {
+                visible = es[es.length - 1].isIntersecting;
+                if (visible) kick();
+            });
+            io.observe(canvas);
+        }
         function frame(now) {
-            if (!alive || !canvas.isConnected) return;
+            raf = 0;
+            if (!alive) return;
+            if (!canvas.isConnected) { stop(); return; }
             var dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
-            if (!W || !H) { requestAnimationFrame(frame); return; }
-            if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+            if (!W || !H) { if (!ro) setTimeout(kick, 250); return; }   // no size yet: ResizeObserver wakes us
+            if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
             if (light === null) light = onLightBg(canvas);
             var g = canvas.getContext('2d');
             g.setTransform(dpr, 0, 0, dpr, 0, 0);
-            var R = Math.min(W, H) * 0.32;
+            var R = Math.min(W, H) * scale;
             var a = still ? 0.6 : (now - t0) / 11000 * 2 * Math.PI, tilt = 0.45;
             var ca = Math.cos(a), sa = Math.sin(a), ct = Math.cos(tilt), st = Math.sin(tilt);
             function P(v) {
@@ -321,10 +353,10 @@
                 }
                 g.lineWidth = thin; g.stroke();
             }
-            if (!still) requestAnimationFrame(frame);
+            if (!still && visible) kick();
         }
-        requestAnimationFrame(frame);
-        return { shape: sh, lit: A.lit, stop: function () { alive = false; } };
+        kick();
+        return { shape: sh, lit: A.lit, stop: stop };
     }
 
     /** A small swatch of a tier's material, as an image (drawn once per tier). */
@@ -438,9 +470,29 @@
             var teach = btn.getAttribute('data-teach') || 'It glows brighter the more often it\'s right';
             btn.title = who + "'s brain: " + units + ' thing' + (units === 1 ? '' : 's') + ' learned · shape ' + view.shape.k + ' of ' + SHAPES + ' (click for more)';
             var since = btn.getAttribute('data-since') || '';
-            btn.addEventListener('click', function () { open(btn, units, bright, parts, since, who, empty, teach); });
+            var page = PAGES.indexOf(who.toLowerCase()) >= 0 ? '/crm/brain.php?head=' + who.toLowerCase() : '';
+            if (page) btn.title = btn.title.replace('(click for more)', '(click to open the full page)');
+            btn.addEventListener('click', function () {
+                if (page) { window.location.href = page; return; }   // the full page replaces the pop-up
+                open(btn, units, bright, parts, since, who, empty, teach);
+            });
+        });
+        // The full brain page (/crm/brain.php): one large brain, no click, caption filled in here.
+        document.querySelectorAll('canvas[data-brain-stage]').forEach(function (cv) {
+            if (cv.dataset.ready) return;
+            cv.dataset.ready = '1';
+            var parts = [];
+            try { parts = JSON.parse(cv.getAttribute('data-parts') || '[]'); } catch (e) {}
+            if (!Array.isArray(parts)) parts = [];
+            var units = parseInt(cv.getAttribute('data-units') || '0', 10) || 0;
+            var bright = Math.max(0, Math.min(1, parseFloat(cv.getAttribute('data-bright') || '0.5')));
+            var view = draw(cv, units, bright, parts.filter(isItem), { scale: 0.4 });
+            var cap = cv.parentElement && cv.parentElement.querySelector('[data-brain-shape]');
+            if (cap) cap.textContent = 'Shape ' + view.shape.k + ' of ' + SHAPES + ' · ' + view.shape.name + ' · ' + view.lit + ' of ' + view.shape.tris.length + ' triangles lit';
         });
     }
+    /** Heads with a full brain page (BrainPageService::HEADS). */
+    var PAGES = ['penny', 'sam', 'otto', 'mia', 'yui', 'charlie'];
     window.HeadBrain = { shape: shape, SHAPES: SHAPES, TIERS: TIERS, tierRank: tierRank, hash: hash };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

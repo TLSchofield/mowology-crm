@@ -30,6 +30,7 @@ require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteRecipientService.ph
 
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';
+require_once __DIR__ . '/../app/Services/BrainPageService.php';
 
 // Sales — Sam, the sales head
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';

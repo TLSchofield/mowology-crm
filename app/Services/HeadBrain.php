@@ -164,12 +164,13 @@ class HeadBrain
 
     /**
      * One learned item as a brain part (the shape head-brain.js reads).
-     * @param array $extra optional: group, streak, corrected_recently, at (Y-m-d H:i:s), note
+     * @param array $extra optional: group, streak, corrected_recently, at (Y-m-d H:i:s), note,
+     *                    raw (the source's own wording when the label is a cleaned/taught name)
      */
     public static function item(string $key, string $label, ?int $strength, array $extra = []): array
     {
         $p = ['key' => $key, 'label' => $label, 'strength' => $strength === null ? null : max(1, $strength)];
-        foreach (['group', 'streak', 'corrected_recently', 'at', 'note'] as $k) {
+        foreach (['group', 'streak', 'corrected_recently', 'at', 'note', 'raw'] as $k) {
             if (array_key_exists($k, $extra) && $extra[$k] !== null) $p[$k] = $extra[$k];
         }
         return $p;
@@ -233,6 +234,24 @@ class HeadBrain
                 ['group' => $group, 'streak' => $h['streak'], 'corrected_recently' => $h['corrected_recently'], 'at' => $v['at']]);
         }
         return $out;
+    }
+
+    /**
+     * Pure: how many learned items sit on each tier, all seven, strongest first
+     * (the full brain page's tier bar). Counts only items (parts with a strength key);
+     * an item whose strength isn't tracked counts as Bronze, as it is drawn.
+     * @return array<int, array{slug: string, name: string, min: int, n: int}>
+     */
+    public static function tierCounts(array $parts): array
+    {
+        $n = array_fill(0, count(self::TIERS), 0);
+        foreach ($parts as $p) {
+            if (!is_array($p) || !array_key_exists('strength', $p)) continue;
+            $n[self::tier($p['strength'] === null ? null : (int)$p['strength'])['rank']]++;
+        }
+        $out = [];
+        foreach (self::TIERS as $i => [$slug, $name, $min]) $out[] = ['slug' => $slug, 'name' => $name, 'min' => $min, 'n' => $n[$i]];
+        return array_reverse($out);
     }
 
     /** Shape number (1-based) for this many things learned: one new shape per thing, up to SHAPES. */

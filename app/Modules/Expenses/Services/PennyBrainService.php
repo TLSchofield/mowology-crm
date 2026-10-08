@@ -24,8 +24,16 @@
  *   Bank payees     — key payee:<BankImportService::descriptionKey>; strength from
  *                     bank_line_reviews (her suggestion kept = +1, account changed = drops
  *                     a tier) and, while she has never been corrected on that payee, at
- *                     least the confirmations BankRuleLearning counted on its learned rule
- *                     (transaction_rules.learned_count: imports committed unchanged).
+ *                     least the OWNER's confirmations on its learned rule
+ *                     (transaction_rules.owner_confirmations, migration 1220) — but only
+ *                     for a rule that is active and owner-confirmed (2+). learned_count is
+ *                     NOT used (2026-10-07): it counted imports nobody had looked at, which
+ *                     is how "TD ON Line Loans System · White · 28" and "Wave Pyrl · White ·
+ *                     28" showed as strong while their rules were sending loan and payroll
+ *                     lines to Credit Card Payable. A payee whose rule is switched off or
+ *                     not yet owner-confirmed, with no owner decision on Penny's card, is
+ *                     "still learning": listed apart (learned()['learning']), no triangle.
+ *                     Display names come from bank_payee_names (TLNK → TransLink) when taught.
  * A payee that is also a receipt vendor (Chevron) gets two triangles, one per skill.
  * These replace the old "vendors trusted" count; the other counts stay as they were.
  *
@@ -38,6 +46,8 @@ require_once dirname(__DIR__, 2) . '/Accounting/Services/BankImportService.php';
 class PennyBrainService
 {
     public const SHAPES = 500;
+    /** Owner confirmations that make a learned bank rule act on its own (BankRuleLearning::CONFIRMATIONS). */
+    public const OWNER_CONFIRMED = 2;
 
     private PDO $db;
 
@@ -59,7 +69,10 @@ class PennyBrainService
         ];
         $base = $this->baseline($raw);
         $brain = self::combine(self::sinceBaseline($raw, $base['counts'])) + ['since' => $base['since']];
-        return HeadBrain::withItems($brain, array_merge($this->vendorItems(), $this->payeeItems()));
+        $payees = $this->payeeItems();
+        $learning = array_values(array_filter($payees, fn($p) => !empty($p['learning'])));
+        $learned = array_values(array_filter($payees, fn($p) => empty($p['learning'])));
+        return HeadBrain::withItems($brain, array_merge($this->vendorItems(), $learned)) + ['learning' => $learning];
     }
 
     /** One item per receipt vendor, from her real decisions (oldest first). */
@@ -100,14 +113,23 @@ class PennyBrainService
             }
         } catch (Throwable $e) { /* not migrated */ }
         try {
-            $rules = $this->db->query("
-                SELECT condition_value AS `key`, MAX(learned_count) AS n
+            // Owner decisions only (migration 1220). Without the column, no rule counts — only her card's reviews.
+            foreach ($this->db->query("
+                SELECT condition_value AS k,
+                       MAX(CASE WHEN is_active = 1 THEN owner_confirmations ELSE 0 END) AS active_owner,
+                       MAX(owner_confirmations) AS owner
                 FROM transaction_rules
-                WHERE source = 'learned' AND condition_field = 'description' AND learned_count > 0
+                WHERE source = 'learned' AND condition_field = 'description'
                 GROUP BY condition_value
-            ")->fetchAll(PDO::FETCH_KEY_PAIR);
-        } catch (Throwable $e) { /* no learned rules */ }
-        return self::payeeItemsFrom($reviews, array_map('intval', $rules ?: []));
+            ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $rules[(string)$r['k']] = ['active_owner' => (int)$r['active_owner'], 'owner' => (int)$r['owner']];
+            }
+        } catch (Throwable $e) { /* not migrated: no rule counts */ }
+        $names = [];
+        try {
+            $names = $this->db->query("SELECT payee_key, display_name FROM bank_payee_names")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+        } catch (Throwable $e) { /* migration 1211 not run */ }
+        return self::payeeItemsFrom($reviews, $rules, $names);
     }
 
     /** Her start line: the counts on the day the brain was first shown (saved then). */
@@ -196,12 +218,17 @@ class PennyBrainService
 
     /**
      * Pure: bank-line reviews oldest first [key, suggested_account_id, final_account_id, outcome,
-     * decided_at] plus learned-rule confirmations [key => learned_count] → one item per payee.
+     * decided_at, description] + learned rules [key => [active_owner, owner]] (owner
+     * confirmations on the active rule / on any rule for that payee) + taught display names
+     * [key => name] → one item per payee.
      * Her suggestion kept = +1; a different account = a correction (drops a tier); a line she
      * had no suggestion for is "first seen"; lines left as they were ('kept') teach nothing.
-     * Never corrected on a payee → at least the rule's confirmations (imports left unchanged).
+     * Never corrected on a payee → at least the owner's confirmations on its ACTIVE rule
+     * (OWNER_CONFIRMED+). A payee known only from a rule that is off or not yet confirmed
+     * comes back with learning = true (1 owner confirmation) or not at all (none).
+     * Each item keeps the bank's own wording as `raw` when the display name differs.
      */
-    public static function payeeItemsFrom(array $reviews, array $ruleCounts): array
+    public static function payeeItemsFrom(array $reviews, array $rules, array $names = []): array
     {
         $by = [];
         foreach ($reviews as $r) {
@@ -212,21 +239,41 @@ class PennyBrainService
             if ($sug > 0) $by[$key]['events'][] = $sug === $fin;
             elseif (empty($by[$key]['events'])) $by[$key]['events'] = [true];   // taught her: first seen
             $by[$key]['at'] = $r['decided_at'] ?? null;
-            if (!empty($r['description'])) $by[$key]['label'] = self::payeeLabel((string)$r['description']);
+            if (!empty($r['description'])) $by[$key]['raw'] = self::payeeLabel((string)$r['description']);
         }
-        foreach ($ruleCounts as $key => $n) {
-            if (strlen((string)$key) >= 4 && $n > 0) $by[(string)$key] ??= ['events' => [], 'at' => null];
+        foreach ($rules as $key => $r) {
+            if (strlen((string)$key) >= 4) $by[(string)$key] ??= ['events' => [], 'at' => null];
         }
         $out = [];
         foreach ($by as $key => $v) {
             $key = (string)$key;
-            $h = HeadBrain::strengthFromHistory($v['events']);
-            $corrected = in_array(false, $v['events'], true);
-            $strength = $corrected ? $h['strength'] : max($h['strength'], (int)($ruleCounts[$key] ?? 0));
-            $streak = $corrected ? $h['streak'] : $strength;
+            $rule = is_array($rules[$key] ?? null) ? $rules[$key] : ['active_owner' => 0, 'owner' => 0];
+            $activeOwner = (int)($rule['active_owner'] ?? 0);
+            $trusted = $activeOwner >= self::OWNER_CONFIRMED;
+            $events = $v['events'] ?? [];
+            $learning = false;
+            if ($events) {
+                $h = HeadBrain::strengthFromHistory($events);
+                $corrected = in_array(false, $events, true);
+                $strength = (!$corrected && $trusted) ? max($h['strength'], $activeOwner) : $h['strength'];
+                $streak = $corrected ? $h['streak'] : $strength;
+                $recent = $h['corrected_recently'];
+            } elseif ($trusted) {
+                $strength = $streak = $activeOwner;
+                $recent = false;
+            } else {
+                $strength = $streak = (int)($rule['owner'] ?? 0);
+                $recent = false;
+                $learning = true;
+            }
             if ($strength < 1) continue;
-            $out[] = HeadBrain::item('payee:' . $key, $v['label'] ?? self::payeeLabel($key), $strength,
-                ['group' => 'Bank payees', 'streak' => $streak, 'corrected_recently' => $h['corrected_recently'], 'at' => $v['at']]);
+            $raw = $v['raw'] ?? self::payeeLabel($key);
+            $label = trim((string)($names[$key] ?? '')) ?: $raw;
+            $extra = ['group' => 'Bank payees', 'streak' => $streak, 'corrected_recently' => $recent, 'at' => $v['at'] ?? null];
+            if (strcasecmp($label, $raw) !== 0) $extra['raw'] = $raw;
+            $item = HeadBrain::item('payee:' . $key, $label, $strength, $extra);
+            if ($learning) $item['learning'] = true;
+            $out[] = $item;
         }
         return $out;
     }

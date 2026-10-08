@@ -331,6 +331,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Purpose:** suggestions Penny and Yui spotted in payments and mail (strata plan numbers, job titles and firms in signatures, missing phones/emails, an accountant set up as the quote signer), each with Apply / Not right. Nothing changes a record without that click; buttons only for admins.
 - **Usage:** `<div class="mw-clues" id="mw-clues" data-contact-id="<?= (int)$contactId ?>"></div>` + the script. Leave out `data-contact-id` for every open clue (Yui's card does). Renders nothing when there are none, or before migration 1206.
 
+### Head brain (3D) + brain page
+- **JS:** `public/crm/js/head-brain.js` — the turning brain of triangles for any department head. Card button: `<button class="mw-head-brain" data-head="Sam" data-units data-bright data-parts='[…]'><canvas></canvas></button>` (click opens `/crm/brain.php?head=<slug>`). Large, no click: `<canvas data-brain-stage data-units data-bright data-parts>` (+ an optional `[data-brain-shape]` caption sibling). Sizes to its CSS box, redraws on resize, turns only while on screen, still frame under reduced motion.
+- **Data:** `app/Services/HeadBrain.php` (counts, items, 7 strength tiers, `tierCounts()`); the page model is `app/Services/BrainPageService.php` (`load()` + pure `view()`, client-view redaction server side).
+- **Page:** `public/crm/brain.php?head=penny|sam|otto|mia|yui|charlie[&view=client]` + `public/crm/js/brain-page.js` (tabs, search, show more).
+- **CSS:** `mowology-brand.css` "Brain page" section (`.mw-brp-*`; tier materials as `--mw-tier-*` tokens and `.mw-tier-<slug>` setting `--t1/--t2`). Note `.mw-bp-*` is taken by an older bundle-pricing block.
+
 ---
 
-**Total: 20 components documented.**
+**Total: 21 components documented.**

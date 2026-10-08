@@ -95,7 +95,8 @@
         var more = its.length - PER_COL;
         return '<li class="mw-ab-col">'
             + '<div class="mw-ab-colhead">'
-            +   '<img class="mw-ab-face" src="/crm/img/heads/' + esc(h.face) + '.jpg" alt="" width="72" height="72" loading="lazy">'
+            +   '<a class="mw-ab-brain" href="/crm/brain.php?head=' + esc(h.face) + '" title="Open ' + esc(h.name) + '\'s brain">'
+            +     '<img class="mw-ab-face" src="/crm/img/heads/' + esc(h.face) + '.jpg" alt="' + esc(h.name) + '\'s brain" width="72" height="72" loading="lazy"></a>'
             +   '<div><b>' + esc(h.name) + '</b><span>' + esc(h.role) + '</span></div>'
             +   '<em class="mw-ab-n">' + its.length + '</em>'
             + '</div>'
