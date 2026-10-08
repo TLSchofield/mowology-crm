@@ -91,6 +91,8 @@ try {
       <div class="mw-rc-empty">Loading client conversations…</div>
     </div>
 
+    <?php $__srHead = 'yui'; if (is_file(__DIR__ . '/special-requests-panel.php')) include __DIR__ . '/special-requests-panel.php'; ?>
+
     <?php if ($__yclues): ?>
     <div class="mw-clues" id="mw-clues" aria-live="polite" data-can-decide="<?= function_exists('isAdmin') && isAdmin() ? '1' : '0' ?>"></div>
     <?php endif; ?>

@@ -290,6 +290,17 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Not auto-loaded** — currently included explicitly on `public/crm/jobs/schedule.php`. Add `<script src="/crm/js/batch-camera.js">` where needed.
 - **iOS counterpart:** `ios/MowologyCRM/MowologyCRM/Features/Camera/BatchCameraView.swift` (native AVFoundation; lens chips, flash, flip, pinch zoom, per-shot Before/During/After/More tag, `MarkupEditorView` flattens markup into the JPEG with EXIF kept). Used by `JobPhotoSection`; video mode exists but is gated by `BatchCameraFeatures.visitVideo` (off — server visit media is image-only). Pure logic checked by `bash ios/LogicTests/run.sh`.
 
+### MwSpecialRequest (client special request on a visit — crew card + "read it first" gate)
+- **File:** `public/crm/js/mw-special-request.js` — printed by `jobs/schedule.php` ONLY when `ops_settings.special_requests_enabled` applies to the user (`special_requests_user_ids` narrows it). Styles `.mw-sr-*` in `mowology-brand.css`.
+- **Purpose:** shows a client's special request (Yui/Otto, the client's words, part-of-the-work vs "extra — decide on site") inline in the job card with Done / Not done / Extra work done, and gates Start / camera / gallery until this crew member taps "Got it".
+- **Usage (synchronous, at the top of any Start / photo handler for a visit):**
+  ```js
+  if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return; // screen shown instead
+  // a 409 {code:'special_request_unacknowledged', special_requests:[…]} from the server:
+  window.MwSpecialRequest.fromServer(visitId, data.special_requests);
+  ```
+- **Rules:** the full-screen element exists only while shown (created on the tap, removed on dismiss); no capture listeners, no geolocation; never chain the camera from "Got it" — the crew tap again. Server twin: `SpecialRequestGate::enforce()` (job-timer, `/api/schedule/timer`, pow-actions start/photo, media-upload, `/api/schedule/job-photo`, auto-arrival). Office panel: `includes/special-requests-panel.php` + `special-requests-panel.js` on Yui's and Otto's cards. iOS: `Features/Schedule/SpecialRequestCard.swift`.
+
 ### MwCameraPermission
 - **File:** `public/crm/js/mw-camera-permission.js`
 - **Purpose:** Guards Android Capacitor camera-capture buttons against the WebView's cryptic "Access denied" failure by checking/caching the camera permission state and showing an actionable "Open Settings" dialog.

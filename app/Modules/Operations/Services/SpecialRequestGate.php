@@ -103,15 +103,23 @@ class SpecialRequestGate
      */
     public static function enforce(PDO $db, int $visitId, int $userId, bool $isReplay = false, $queuedAtRaw = null, string $what = 'start', string $msgKey = 'error'): void
     {
-        $r = self::check($db, $visitId, $userId, $isReplay, $queuedAtRaw, $what);
-        if ($r['allow']) return;
-        http_response_code(409);
+        $resp = self::response($db, $visitId, $userId, $isReplay, $queuedAtRaw, $what, $msgKey);
+        if ($resp === null) return;
+        http_response_code($resp['status']);
         header('Content-Type: application/json');
+        echo json_encode($resp['body']);
+        exit;
+    }
+
+    /** The HTTP answer enforce() would give: null = carry on, else ['status' => 409, 'body' => …]. */
+    public static function response(PDO $db, int $visitId, int $userId, bool $isReplay = false, $queuedAtRaw = null, string $what = 'start', string $msgKey = 'error'): ?array
+    {
+        $r = self::check($db, $visitId, $userId, $isReplay, $queuedAtRaw, $what);
+        if ($r['allow']) return null;
         $body = ['success' => false, 'ok' => false, 'code' => self::CODE, 'special_requests' => $r['requests']];
         $body[$msgKey] = self::MESSAGE;
         if ($msgKey !== 'error') $body['error'] = self::MESSAGE;
-        echo json_encode($body);
-        exit;
+        return ['status' => 409, 'body' => $body];
     }
 
     /**

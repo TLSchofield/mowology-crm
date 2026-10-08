@@ -213,6 +213,27 @@ final class SpecialRequestServiceTest extends TestCase
         $this->assertTrue(SpecialRequestGate::check($this->db, 104, 31)['allow'], 'other visits are not gated');
     }
 
+    public function testServerAnswers409WithTheRequestUntilAcked(): void
+    {
+        $srv = $this->attachMichelle();
+        $web = SpecialRequestGate::response($this->db, 101, 31, false, null, 'start', 'error');
+        $this->assertSame(409, $web['status']);
+        $this->assertSame('special_request_unacknowledged', $web['body']['code']);
+        $this->assertFalse($web['body']['success']);
+        $this->assertSame(SpecialRequestGate::MESSAGE, $web['body']['error']);
+        $this->assertSame($srv[101], $web['body']['special_requests'][0]['request_visit_id']);
+        $this->assertSame('Michelle Henry', $web['body']['special_requests'][0]['from_name']);
+
+        $ios = SpecialRequestGate::response($this->db, 101, 31, false, null, 'photo', 'message');
+        $this->assertSame(SpecialRequestGate::MESSAGE, $ios['body']['message'], 'JWT clients read `message`');
+
+        $this->assertNull(SpecialRequestGate::response($this->db, 101, 31, true, (string)(strtotime('2026-10-08 07:00:00') * 1000)), 'queued before → accepted');
+        $this->svc()->ack($srv[101], 31);
+        $this->assertNull(SpecialRequestGate::response($this->db, 101, 31), 'acked → accepted');
+        $this->flag('special_requests_enabled', '0');
+        $this->assertNull(SpecialRequestGate::response($this->db, 101, 32), 'flag off → accepted');
+    }
+
     public function testOfflineQueuedActionsAreAcceptedAndFlagged(): void
     {
         $this->attachMichelle(); // attached_at = 07:30

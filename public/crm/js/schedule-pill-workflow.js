@@ -568,6 +568,9 @@
      */
     function clockIn(visitId, opts) {
         opts = opts || {};
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
         console.log('[PillWorkflow] clockIn called for visit ' + visitId + (opts.skipBeforePrompt ? ' (skipBeforePrompt)' : ''));
         var btn = activeDrawer ? activeDrawer.querySelector('[data-action="clock-in"]') : null;
         if (btn) {
@@ -641,6 +644,12 @@
 
                     // Show the persistent active job panel
                     if (card) showActivePanel(visitId, card);
+                } else if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                    window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
+                    }
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
@@ -819,6 +828,9 @@
 
         var v = visits[visitId];
         if (!v) { console.warn('[PillWorkflow] triggerCamera: visit ' + visitId + ' not registered'); return; }
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
 
         // Bug fix: on native Android the OS camera is reached through the WebView
         // file picker, which throws "Access denied" when the app's CAMERA
@@ -983,6 +995,9 @@
     function triggerBatchCamera(visitId) {
         var v = visits[visitId];
         if (!v) return;
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
 
         if (typeof BatchCamera === 'undefined' ||
             !navigator.mediaDevices ||
@@ -1049,6 +1064,9 @@
 
         var v = visits[visitId];
         if (!v) { console.warn('[PillWorkflow] triggerGallery: visit ' + visitId + ' not registered'); return; }
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
 
         // Clean up any pending camera session to prevent ghost inputs
         if (pendingCamera) {
@@ -2252,6 +2270,8 @@
                 fd.append('gps_lng', String(item.gpsLng));
             }
             if (item.powStamp) fd.append('pow_stamp', '1');
+            // When it was taken — the special-request gate accepts a queued photo, never strands it.
+            fd.append('queued_at', String(item.createdAt || Date.now()));
 
             if (MW_PHOTO_DEBUG) {
                 console.log('[PillWorkflow:DEBUG] Uploading queued photo id=' + item.id +
@@ -3247,6 +3267,7 @@
             if (clockInBtn) {
                 clockInBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
+                    if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return; // special request gate
                     clockInBtn.disabled = true;
                     clockInBtn.innerHTML = '<span>Starting…</span>';
                     getGps(function(lat, lng) {
@@ -3277,7 +3298,11 @@
                                 if (stopId) footerSetTiming(stopId, visitId);
                                 pvSetTiming(visitId);
                             } else {
-                                showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                                if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                                    window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                                } else {
+                                    showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                                }
                                 clockInBtn.disabled = false;
                                 clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                             }
@@ -3523,6 +3548,7 @@
      * Delegates to the existing clockIn() and syncs footer state on success.
      */
     function handleFooterClockIn(stopId, visitId, footer) {
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return; // special request gate
         var clockInBtn = footer.querySelector('[data-footer-clockin]');
         if (clockInBtn) {
             clockInBtn.disabled = true;
@@ -3579,7 +3605,11 @@
                         }
                     }
                 } else {
-                    showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                    if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                        window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                    } else {
+                        showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                    }
                     if (clockInBtn) {
                         clockInBtn.disabled = false;
                         clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';

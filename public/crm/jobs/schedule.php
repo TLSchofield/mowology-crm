@@ -1242,7 +1242,7 @@ $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260929d" rel="stylesheet">';
-$extraHead .= '<script src="/crm/js/offline-queue.js?v=20260619a" defer></script>';
+$extraHead .= '<script src="/crm/js/offline-queue.js?v=20261008sr" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
@@ -3998,7 +3998,19 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260716a" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20261006a" defer></script>
+<?php
+// Special requests on arrival — printed ONLY when ops_settings.special_requests_enabled applies to
+// this user (special_requests_user_ids narrows it for testing). Off = this script is never here.
+$__srOn = false;
+try {
+    require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestService.php';
+    $__srOn = (new SpecialRequestService($db))->appliesToUser((int)($user['id'] ?? 0));
+} catch (Throwable $__e) { $__srOn = false; }
+if ($__srOn): ?>
+<script>window.MW_SR = { canAdd: <?= userHasPermission('jobs.edit') ? 'true' : 'false' ?> };</script>
+<script src="<?= _av('/crm/js/mw-special-request.js') ?>" defer></script>
+<?php endif; ?>
+<script src="../js/schedule-pill-workflow.js?v=20261008sr" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
