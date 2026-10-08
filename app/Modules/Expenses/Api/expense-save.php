@@ -144,6 +144,12 @@ try {
         }
     }
 
+    // Printed facts (time, ticket #, card) from the OCR text — receipt_facts, migration 1227.
+    if (!empty($input['raw_ocr_json'])) {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        ReceiptFactsService::refreshQuietly($db, (int)$expenseId);
+    }
+
     // Self-learning: keep the capture baseline for header lessons at approval time, and
     // record the review sheet's line-item corrections now (see expenses.php handleCreate).
     if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {

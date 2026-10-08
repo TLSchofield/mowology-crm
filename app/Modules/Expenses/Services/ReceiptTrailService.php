@@ -36,14 +36,14 @@ class ReceiptTrailService
      * @param int|null $userId     who bought it (their phone trail)
      * @return list<array{plan_id: int, property_id: int, job: string, arrived_at: string, minutes_after: int, sources: string[], why: string}>
      */
-    public function candidates(string $purchaseAt, ?int $userId): array
+    public function candidates(string $purchaseAt, ?int $userId, int $windowHours = self::WINDOW_HOURS): array
     {
         $from = strtotime($purchaseAt);
         if ($from === false) {
             return [];
         }
         $endOfDay = strtotime(date('Y-m-d 23:59:59', $from));
-        $to = min($endOfDay, $from + self::WINDOW_HOURS * 3600);
+        $to = min($endOfDay, $from + max(1, $windowHours) * 3600);
         $fromS = date('Y-m-d H:i:s', $from);
         $toS = date('Y-m-d H:i:s', $to);
 
@@ -115,6 +115,135 @@ class ReceiptTrailService
         }
         unset($c);
         return array_slice($out, 0, 4);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Which job a receipt was for — evidence in order (2026-10-07, expense #412)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** A receipt photo this close to a client property was taken at that job. */
+    public const PHOTO_RADIUS_M = 150;
+    /** No printed time: only the truck's next client stop within this of the photo counts. */
+    public const NEXT_STOP_HOURS = 3;
+    /** Work hours. A time outside them is said out loud, never used silently. */
+    public const DAY_START = '06:00';
+    public const DAY_END   = '21:00';
+
+    /**
+     * Which evidence to use, strongest first. Pure.
+     *   printed — the printed purchase time → where the truck went next that day (12 h);
+     *   photo   — no printed time, photo taken the SAME day: the photo's GPS at a client
+     *             property, else the truck's next client stop within NEXT_STOP_HOURS of it;
+     *   none    — no printed time and the photo was taken another day: no trail guess
+     *             (never "the start of the day" — the old 05:00 — and never another day).
+     * @return array{tier: string, at: ?string, window: int, note: string}
+     */
+    public static function evidencePlan(?string $date, ?string $printedTime, ?string $createdAt): array
+    {
+        $none = ['tier' => 'none', 'at' => null, 'window' => 0, 'note' => ''];
+        if (!$date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', substr($date, 0, 10))) return $none;
+        $date = substr($date, 0, 10);
+        if ($printedTime && preg_match('/^(\d{1,2}):(\d{2})/', $printedTime, $m)) {
+            $hm = sprintf('%02d:%02d', (int)$m[1], (int)$m[2]);
+            return ['tier' => 'printed', 'at' => $date . ' ' . $hm . ':00', 'window' => self::WINDOW_HOURS,
+                    'note' => self::inHours($hm) ? '' : "printed time {$hm} is outside " . self::DAY_START . '–' . self::DAY_END . ' — check it'];
+        }
+        if ($createdAt && substr($createdAt, 0, 10) === $date && strtotime($createdAt) !== false) {
+            $hm = date('H:i', strtotime($createdAt));
+            return ['tier' => 'photo', 'at' => date('Y-m-d H:i:s', strtotime($createdAt)), 'window' => self::NEXT_STOP_HOURS,
+                    'note' => self::inHours($hm) ? '' : "photo taken at {$hm}, outside " . self::DAY_START . '–' . self::DAY_END . ' — check it'];
+        }
+        return $none;
+    }
+
+    public static function inHours(string $hm): bool
+    {
+        $hm = substr($hm, 0, 5);
+        return $hm >= self::DAY_START && $hm <= self::DAY_END;
+    }
+
+    /**
+     * Jobs a receipt was probably for, by evidencePlan(). $e is the expenses row (id, created_by,
+     * created_at, receipt_lat, receipt_lng). A printed time stored in receipt_facts (migration
+     * 1227) beats the one passed in. Same shape as candidates().
+     */
+    public function forReceipt(array $e, ?string $date, ?string $printedTime): array
+    {
+        if (!empty($e['id'])) {
+            try {
+                require_once __DIR__ . '/ReceiptFactsService.php';
+                $f = (new ReceiptFactsService($this->db))->forExpense((int)$e['id']);
+                if (!empty($f['time_first'])) $printedTime = $f['time_first'];
+            } catch (Throwable $ex) { /* facts are a bonus */ }
+        }
+        $plan = self::evidencePlan($date, $printedTime, $e['created_at'] ?? null);
+        $userId = (int)($e['created_by'] ?? 0) ?: null;
+        $flag = function (array $list, string $lead) use ($plan): array {
+            foreach ($list as &$c) {
+                $c['why'] = $lead . $c['why'];
+                if ($plan['note'] !== '') $c['why'] .= ' — ' . $plan['note'];
+                $arr = substr((string)$c['arrived_at'], 11, 5);
+                if (!self::inHours($arr)) $c['why'] .= " — arrival {$arr} is outside " . self::DAY_START . '–' . self::DAY_END . ', check it';
+            }
+            unset($c);
+            return $list;
+        };
+        if ($plan['tier'] === 'printed') {
+            return $flag($this->candidates($plan['at'], $userId, $plan['window']), 'Printed time ' . substr($plan['at'], 11, 5) . ': ');
+        }
+        if ($plan['tier'] !== 'photo') return [];
+
+        $lat = is_numeric($e['receipt_lat'] ?? null) && (float)$e['receipt_lat'] != 0.0 ? (float)$e['receipt_lat'] : null;
+        $lng = is_numeric($e['receipt_lng'] ?? null) && (float)$e['receipt_lng'] != 0.0 ? (float)$e['receipt_lng'] : null;
+        if ($lat !== null && $lng !== null) {
+            $job = $this->jobAtPhoto($lat, $lng, substr((string)$date, 0, 10));
+            if ($job) {
+                return [[
+                    'plan_id' => $job['plan_id'], 'property_id' => $job['property_id'], 'job' => $job['job'],
+                    'arrived_at' => $plan['at'], 'minutes_after' => 0, 'sources' => ['photo'],
+                    'why' => 'Receipt photographed at this property (' . (int)round($job['meters']) . ' m) at ' . substr($plan['at'], 11, 5)
+                           . ($job['visit_today'] ? ', with a visit there that day' : '') . "; the purchase time isn't printed"
+                           . ($plan['note'] !== '' ? ' — ' . $plan['note'] : ''),
+                ]];
+            }
+        }
+        return $flag($this->candidates($plan['at'], $userId, $plan['window']),
+                     'No printed time; next client stop within ' . self::NEXT_STOP_HOURS . ' h of the photo (' . substr($plan['at'], 11, 5) . '): ');
+    }
+
+    /** The client property the photo was taken at (within PHOTO_RADIUS_M); a plan with a visit that day first. */
+    private function jobAtPhoto(float $lat, float $lng, string $date): ?array
+    {
+        $dLat = 0.002;
+        $dLng = 0.002 / max(0.2, cos(deg2rad($lat)));
+        $s = $this->db->prepare("
+            SELECT p.id AS property_id, p.latitude, p.longitude, p.address,
+                   (SELECT jv.plan_id FROM job_visits jv JOIN job_plans jp2 ON jp2.id = jv.plan_id
+                     WHERE jp2.property_id = p.id AND (jv.scheduled_date = ? OR DATE(jv.started_at) = ?) LIMIT 1) AS visit_plan_id,
+                   (SELECT jp.id FROM job_plans jp WHERE jp.property_id = p.id ORDER BY jp.status = 'active' DESC, jp.id DESC LIMIT 1) AS plan_id
+            FROM properties p
+            WHERE p.latitude BETWEEN ? AND ? AND p.longitude BETWEEN ? AND ?
+        ");
+        $s->execute([$date, $date, $lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+        $best = null;
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (!is_numeric($r['latitude'] ?? null) || !is_numeric($r['longitude'] ?? null)) continue;
+            $planId = (int)($r['visit_plan_id'] ?: $r['plan_id']);
+            if (!$planId) continue;
+            $m = self::meters($lat, $lng, (float)$r['latitude'], (float)$r['longitude']);
+            if ($m > self::PHOTO_RADIUS_M) continue;
+            $rank = [$r['visit_plan_id'] ? 0 : 1, $m];
+            if ($best === null || $rank < $best['_rank']) {
+                $best = ['plan_id' => $planId, 'property_id' => (int)$r['property_id'], 'address' => (string)($r['address'] ?? ''),
+                         'meters' => $m, 'visit_today' => (bool)$r['visit_plan_id'], '_rank' => $rank];
+            }
+        }
+        if (!$best) return null;
+        $t = $this->db->prepare("SELECT COALESCE(title, service_type) FROM job_plans WHERE id = ?");
+        $t->execute([$best['plan_id']]);
+        $best['job'] = trim(((string)$t->fetchColumn() ?: 'Job') . ' — ' . $best['address']);
+        unset($best['_rank']);
+        return $best;
     }
 
     /** The job plan at the nearest property within PROPERTY_RADIUS_M, if any. */

@@ -111,6 +111,9 @@ class ExpenseService
             } catch (Throwable $e) {
                 error_log('Receipt learning error (mobile update): ' . $e->getMessage());
             }
+            // Edited (the date may have changed): re-read the printed facts (migration 1227).
+            require_once __DIR__ . '/ReceiptFactsService.php';
+            ReceiptFactsService::refreshQuietly($this->db, $expenseId);
         }
 
         return ['success' => true, 'message' => 'Expense updated', 'expense_id' => $expenseId];

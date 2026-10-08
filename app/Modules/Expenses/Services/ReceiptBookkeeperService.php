@@ -397,8 +397,9 @@ TXT;
         if ($date) {
             try {
                 require_once __DIR__ . '/ReceiptTrailService.php';
-                $at = $date . ' ' . ($time ?: '05:00') . ':00';
-                foreach ((new ReceiptTrailService($this->db))->candidates($at, (int)($e['created_by'] ?? 0) ?: null) as $t) {
+                // Evidence in order: printed time → photo GPS at a client property → the truck's
+                // next client stop within 3 h of the photo, same day. Never "05:00" (2026-10-07, #412).
+                foreach ((new ReceiptTrailService($this->db))->forReceipt($e, $date, $time) as $t) {
                     $out[$t['plan_id']] = [
                         'plan_id'      => $t['plan_id'],
                         'job'          => self::withoutHouseNumber($t['job']),

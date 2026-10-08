@@ -183,6 +183,7 @@ class BookkeeperDeskService
         $jobTitles = $this->jobTitles($rows);
         $items = $this->lineItems(array_map(fn($r) => (int)$r['expense_id'], $rows));
         $bank = $this->bankMatches(array_map(fn($r) => (int)$r['expense_id'], $rows));
+        $facts = $this->factsLines(array_map(fn($r) => (int)$r['expense_id'], $rows));
         $strength = [];
         try {
             require_once __DIR__ . '/PennyBadgeService.php';
@@ -219,6 +220,8 @@ class BookkeeperDeskService
                 // Not linked yet: the bank charge that looks like this receipt — the truth
                 // when the photo is cut off or unclear (amount within 2%, ±14 days, vendor).
                 'bank_candidate' => isset($bank[(int)$r['expense_id']]) ? null : $this->bankCandidate((int)$r['expense_id']),
+                // What is printed on it: "12:22–12:39 · ticket 43176009 · ••1234" (receipt_facts, 1227).
+                'facts_line'    => $facts[(int)$r['expense_id']] ?? '',
                 'subtotal'      => $r['amount'] !== null ? (float)$r['amount'] : null,
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
                 // The owner's saved-but-not-approved edits, if any — the form reopens with them.
@@ -242,6 +245,19 @@ class BookkeeperDeskService
             $res = detectAnomalies($e, $this->db);
             return array_map(fn($d) => ['code' => $d['code'], 'score' => (int)$d['score'], 'detail' => (string)($d['detail'] ?? $d['code'])],
                              $res['details'] ?? []);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** expense id => ReceiptFactsService::line() ('' when nothing printed is known). */
+    private function factsLines(array $expenseIds): array
+    {
+        try {
+            require_once __DIR__ . '/ReceiptFactsService.php';
+            $out = [];
+            foreach ((new ReceiptFactsService($this->db))->forExpenses($expenseIds) as $id => $f) $out[$id] = ReceiptFactsService::line($f);
+            return $out;
         } catch (Throwable $e) {
             return [];
         }

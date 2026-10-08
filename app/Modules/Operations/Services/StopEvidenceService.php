@@ -28,6 +28,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/TripSegmentService.php';
+require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
 
 class StopEvidenceService
 {
@@ -74,77 +75,20 @@ class StopEvidenceService
     // Pure helpers (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Raw OCR as stored (plain text, or Vision JSON) → text. Same rules as ocrTextFromStored(). */
+    /** Raw OCR as stored (plain text, or Vision JSON) → text. Lives in ReceiptFactsService now. */
     public static function ocrText(?string $raw): string
     {
-        if ($raw === null) return '';
-        $t = ltrim($raw);
-        if ($t === '' || ($t[0] !== '{' && $t[0] !== '[')) return $raw;
-        $d = json_decode($t, true);
-        if (!is_array($d)) return '';
-        if (!empty($d['fullTextAnnotation']['text'])) return (string)$d['fullTextAnnotation']['text'];
-        if (!empty($d['responses'][0]['fullTextAnnotation']['text'])) return (string)$d['responses'][0]['fullTextAnnotation']['text'];
-        if (!empty($d['text']) && is_string($d['text'])) return $d['text'];
-        return '';
-    }
-
-    /** "09:49", "9:49 AM", "1:15" (no am/pm, before 6 = afternoon) → 'H:i', or null. */
-    private static function hm(string $h, string $m, ?string $ampm): ?string
-    {
-        $h = (int)$h; $m = (int)$m;
-        if ($m > 59) return null;
-        if ($ampm !== null && $ampm !== '') {
-            if ($h < 1 || $h > 12) return null;
-            $pm = stripos($ampm, 'p') !== false;
-            $h = $h % 12 + ($pm ? 12 : 0);
-        } else {
-            if ($h > 23) return null;
-            if ($h < 6) $h += 12;   // nobody buys mulch at 3 am: an un-suffixed 1:15 is 13:15
-        }
-        return sprintf('%02d:%02d', $h, $m);
+        return ReceiptFactsService::ocrText($raw);
     }
 
     /**
-     * Printed times and dates on a receipt.
+     * Printed times and dates on a receipt — ReceiptFactsService::parseTimes() (moved there so
+     * receipt facts, duplicates and Otto share one parser).
      * @return array{times: list<string>, in: ?string, out: ?string, dates: list<string>}
-     *   times 'H:i' (every time printed, in/out included), dates 'Y-m-d' candidates (MM/DD and DD/MM)
      */
     public static function parseTimes(string $text): array
     {
-        $tm = '(\d{1,2})[:.](\d{2})(?::\d{2})?\s*([AaPp]\.?\s?[Mm]\.?)?';
-        $in = $out = null;
-        if (preg_match('/time\s*in\b\s*[:\-]?\s*' . $tm . '/i', $text, $m)) $in = self::hm($m[1], $m[2], $m[3] ?? null);
-        if (preg_match('/time\s*out\b\s*[:\-]?\s*' . $tm . '/i', $text, $m)) $out = self::hm($m[1], $m[2], $m[3] ?? null);
-        $times = [];
-        if (preg_match_all('/(?<![\d:])(\d{1,2}):(\d{2})(?::\d{2})?(?![\d:])\s*([AaPp]\.?\s?[Mm]\.?(?![a-z]))?/', $text, $all, PREG_SET_ORDER)) {
-            foreach ($all as $m) {
-                $t = self::hm($m[1], $m[2], $m[3] ?? null);
-                if ($t !== null) $times[$t] = true;
-            }
-        }
-        foreach ([$in, $out] as $t) if ($t !== null) $times[$t] = true;
-
-        $dates = [];
-        $add = function (int $y, int $mo, int $d) use (&$dates) {
-            if ($y < 100) $y += 2000;
-            if (checkdate($mo, $d, $y)) $dates[sprintf('%04d-%02d-%02d', $y, $mo, $d)] = true;
-        };
-        if (preg_match_all('/\b(20\d{2})[\-\/.](\d{1,2})[\-\/.](\d{1,2})\b/', $text, $all, PREG_SET_ORDER)) {
-            foreach ($all as $m) $add((int)$m[1], (int)$m[2], (int)$m[3]);
-        }
-        if (preg_match_all('/(?<![\d\/\-.])(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4}|\d{2})(?![\d\/\-])/', $text, $all, PREG_SET_ORDER)) {
-            foreach ($all as $m) {
-                $add((int)$m[3], (int)$m[1], (int)$m[2]);   // MM/DD/YY
-                $add((int)$m[3], (int)$m[2], (int)$m[1]);   // DD/MM/YY
-            }
-        }
-        $months = ['jan' => 1, 'feb' => 2, 'mar' => 3, 'apr' => 4, 'may' => 5, 'jun' => 6, 'jul' => 7, 'aug' => 8, 'sep' => 9, 'oct' => 10, 'nov' => 11, 'dec' => 12];
-        if (preg_match_all('/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+(20\d{2})\b/i', $text, $all, PREG_SET_ORDER)) {
-            foreach ($all as $m) $add((int)$m[3], $months[strtolower($m[1])], (int)$m[2]);
-        }
-        $t = array_keys($times);
-        sort($t);
-        return ['times' => $t, 'in' => $in, 'out' => $out, 'dates' => array_keys($dates)];
+        return ReceiptFactsService::parseTimes($text);
     }
 
     /** Compare names loosely: "LAWN BOY", "Lawnboy", "Lawn-Boy" → "lawnboy". */
@@ -175,7 +119,14 @@ class StopEvidenceService
     {
         $name = trim((string)($r['vendor'] ?? '')) ?: trim((string)($r['vendor_name_raw'] ?? ''));
         $name = trim(preg_replace('/\s+/', ' ', $name));
-        $p = self::parseTimes(self::ocrText(isset($r['raw_ocr_json']) ? (string)$r['raw_ocr_json'] : null));
+        // Stored receipt facts (migration 1227) first; the OCR text only when none were parsed.
+        if (!empty($r['rf_time_first'])) {
+            $p = ['times' => array_values(array_filter([$r['rf_time_first'], $r['rf_time_last'] ?? null])),
+                  'in' => !empty($r['rf_time_last']) ? $r['rf_time_first'] : null, 'out' => ($r['rf_time_last'] ?? null) ?: null,
+                  'dates' => !empty($r['rf_printed_date']) ? [(string)$r['rf_printed_date']] : []];
+        } else {
+            $p = self::parseTimes(self::ocrText(isset($r['raw_ocr_json']) ? (string)$r['raw_ocr_json'] : null));
+        }
         // A printed date that isn't this day means the times aren't this day's either.
         $dateOk = !$p['dates'] || in_array($date, $p['dates'], true);
         $ts = fn(?string $hm) => $hm === null ? null : strtotime($date . ' ' . $hm . ':00');
@@ -473,11 +424,23 @@ class StopEvidenceService
         LEFT JOIN vendors v ON v.id = e.vendor_id
     ";
 
+    /** RECEIPT_SELECT, plus the stored printed times (receipt_facts) once migration 1227 has run. */
+    private function receiptSelect(): string
+    {
+        if (!(new ReceiptFactsService($this->db))->ready()) return self::RECEIPT_SELECT;
+        return str_replace(
+            ["e.raw_ocr_json\n", "LEFT JOIN vendors v ON v.id = e.vendor_id"],
+            ["e.raw_ocr_json, rf.time_first AS rf_time_first, rf.time_last AS rf_time_last, rf.printed_date AS rf_printed_date\n",
+             "LEFT JOIN vendors v ON v.id = e.vendor_id\n        LEFT JOIN receipt_facts rf ON rf.expense_id = e.id"],
+            self::RECEIPT_SELECT
+        );
+    }
+
     /** That day's non-rejected receipts as receiptFacts(). */
     public function receipts(string $date): array
     {
         try {
-            $s = $this->db->prepare(self::RECEIPT_SELECT . " WHERE e.expense_date = ? AND e.status <> 'rejected' ORDER BY e.id");
+            $s = $this->db->prepare($this->receiptSelect() . " WHERE e.expense_date = ? AND e.status <> 'rejected' ORDER BY e.id");
             $s->execute([$date]);
             return array_map(fn($r) => self::receiptFacts($r, $date), $s->fetchAll(PDO::FETCH_ASSOC));
         } catch (Throwable $e) {
@@ -673,7 +636,7 @@ class StopEvidenceService
         $days = max(1, min(120, $days));
         $from = date('Y-m-d', strtotime("-{$days} days"));
         $in = implode(',', array_fill(0, count(self::LEARN_CATEGORIES), '?'));
-        $s = $this->db->prepare(self::RECEIPT_SELECT . "
+        $s = $this->db->prepare($this->receiptSelect() . "
             WHERE e.expense_date >= ? AND e.status <> 'rejected' AND e.accounting_category IN ({$in})
             ORDER BY e.expense_date, e.id
         ");

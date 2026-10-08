@@ -78,6 +78,21 @@ $finish = function (string $status, string $summary, ?string $error = null) use 
 
 try {
     $db = getDB();
+
+    // Receipt facts backfill (migration 1227): parse printed facts for receipts that have OCR text,
+    // copy finished OCR onto never-read receipts, queue never-read receipts with a photo for OCR
+    // (ReceiptFactsService::REOCR_DAILY_CAP a day). Never blocks Penny's own work.
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        $rf = (new ReceiptFactsService($db))->backfill(ReceiptFactsService::PARSE_PER_RUN, ReceiptFactsService::REOCR_PER_RUN, $dryRun);
+        if ($rf['ready'] && ($rf['parsed'] || $rf['adopted'] || $rf['queued'])) {
+            $pennyLog('Receipt facts: parsed ' . $rf['parsed'] . ', OCR text adopted ' . count($rf['adopted'])
+                      . ', queued for OCR ' . count($rf['queued']) . ($dryRun ? ' (dry run)' : ''));
+        }
+    } catch (Throwable $e) {
+        $pennyLog('Receipt facts backfill failed (non-fatal): ' . $e->getMessage());
+    }
+
     $svc = new ReceiptBookkeeperService($db);
     $desk = new BookkeeperDeskService($db, $svc);
     if (!$desk->ready()) {

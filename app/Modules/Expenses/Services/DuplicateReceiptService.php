@@ -21,6 +21,7 @@
  */
 require_once __DIR__ . '/ExpenseLookupService.php';
 require_once __DIR__ . '/ExpenseApprovalService.php';
+require_once __DIR__ . '/ReceiptFactsService.php';
 
 class DuplicateReceiptService
 {
@@ -90,7 +91,16 @@ class DuplicateReceiptService
                 $this->samePhoto($e)
             );
         }
+        // Printed facts (receipt_facts, migration 1227): same ticket number = the same receipt;
+        // a different ticket number or printed time = two receipts (remembered, Penny stops asking).
+        [$candidates, $why, $factLines] = $this->applyReceiptFacts($mine, $candidates);
         $pairs = self::pairUp($mine, $candidates, $this->dismissed());
+        foreach ($pairs as &$p) {
+            $k = self::key((int)$p['a']['id'], (int)$p['b']['id']);
+            if (isset($why[$k])) $p['why'] = $why[$k];
+            foreach (['a', 'b'] as $side) $p[$side]['facts_line'] = $factLines[(int)$p[$side]['id']] ?? '';
+        }
+        unset($p);
         // Who sent each one in, for the side-by-side.
         $who = $this->db->prepare("SELECT u.full_name FROM expenses e LEFT JOIN users u ON u.id = e.created_by WHERE e.id = ?");
         foreach ($pairs as &$p) {
@@ -103,6 +113,44 @@ class DuplicateReceiptService
         }
         unset($p);
         return $pairs;
+    }
+
+    /**
+     * The printed-facts step of pairsFor(): adds same-vendor + same-ticket-number receipts as
+     * certain duplicates, drops (and remembers as "not a duplicate", dismissed_by NULL) pairs whose
+     * ticket numbers / printed times differ. No facts → candidates unchanged.
+     * @return array{0: array, 1: array<string,string>, 2: array<int,string>} candidates, why by pair key, facts line by id
+     */
+    private function applyReceiptFacts(array $mine, array $candidates): array
+    {
+        try {
+            $rf = new ReceiptFactsService($this->db);
+            if (!$rf->ready()) return [$candidates, [], []];
+            $ids = [];
+            foreach ($mine as $e) $ids[] = (int)$e['id'];
+            $facts = $rf->forExpenses($ids);
+            foreach ($mine as $e) {
+                $id = (int)$e['id'];
+                if (!isset($facts[$id])) continue;
+                $candidates[$id] = self::withSamePhoto($candidates[$id] ?? [], $rf->sameDocNumber($e, $facts[$id]));
+            }
+            foreach ($candidates as $rows) foreach ($rows as $c) $ids[] = (int)$c['id'];
+            $facts = $rf->forExpenses($ids);
+            $sorted = ReceiptFactsService::sortCandidates($mine, $candidates, $facts);
+            if ($sorted['dismiss'] && $this->dismissalsReady()) {
+                $ins = $this->db->prepare("INSERT IGNORE INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (?, ?, NULL)");
+                foreach ($sorted['dismiss'] as [$a, $b, $reason]) {
+                    $ins->execute([$a, $b]);
+                    error_log("Penny: #{$a} / #{$b} not duplicates — {$reason}");
+                }
+            }
+            $lines = [];
+            foreach ($facts as $id => $f) $lines[$id] = ReceiptFactsService::line($f);
+            return [$sorted['candidates'], $sorted['why'], $lines];
+        } catch (Throwable $e) {
+            error_log('DuplicateReceipt facts: ' . $e->getMessage());
+            return [$candidates, [], []];
+        }
     }
 
     /**
@@ -312,6 +360,7 @@ class DuplicateReceiptService
         foreach ($pairs as $p) {
             $root = $find((int)$p['a']['id']);
             $groups[$root]['pairs'][] = [(int)$p['a']['id'], (int)$p['b']['id']];
+            if (!empty($p['why'])) $groups[$root]['why'][$p['why']] = true;
         }
         foreach (array_keys($rows) as $id) {
             $groups[$find($id)]['members'][] = $rows[$id];
@@ -319,6 +368,7 @@ class DuplicateReceiptService
         $out = [];
         foreach ($groups as $g) {
             usort($g['members'], fn($x, $y) => (int)$x['id'] <=> (int)$y['id']);
+            $g['why'] = array_keys($g['why'] ?? []);   // e.g. "same ticket 43176009" — printed facts
             $out[] = $g;
         }
         return $out;

@@ -3891,6 +3891,22 @@ async function submitReceiptExport() {
                 document.getElementById('matchConfidenceRow').style.display = 'none';
             }
 
+            // Printed on the receipt (receipt_facts, migration 1227): "12:22–12:39 · ticket 43176009 · ••1234"
+            var factsEl = document.getElementById('expFactsLine');
+            if (!factsEl) {
+                var factsAnchor = document.getElementById('matchConfidenceRow');
+                if (factsAnchor && factsAnchor.parentNode) {
+                    factsEl = document.createElement('div');
+                    factsEl.id = 'expFactsLine';
+                    factsEl.className = 'small text-muted mb-2';
+                    factsAnchor.parentNode.insertBefore(factsEl, factsAnchor);
+                }
+            }
+            if (factsEl) {
+                factsEl.textContent = e.receipt_facts_line ? '🧾 Printed: ' + e.receipt_facts_line : '';
+                factsEl.style.display = e.receipt_facts_line ? 'block' : 'none';
+            }
+
             // Anomaly detection display
             var anomalySection = document.getElementById('expAnomalySection');
             var anomalyContent = document.getElementById('expAnomalyContent');

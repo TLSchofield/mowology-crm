@@ -458,6 +458,16 @@ function handleGet(PDO $db): void
     // Keep backward-compatible key
     $expense['parsed_line_items'] = $expense['line_items'];
 
+    // Printed facts (receipt_facts, migration 1227) — "12:22–12:39 · ticket 43176009 · ••1234".
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        $expense['receipt_facts'] = (new ReceiptFactsService($db))->forExpense($id);
+        $expense['receipt_facts_line'] = ReceiptFactsService::line($expense['receipt_facts']);
+    } catch (Throwable $e) {
+        $expense['receipt_facts'] = null;
+        $expense['receipt_facts_line'] = '';
+    }
+
     echo json_encode(['success' => true, 'expense' => $expense]);
 }
 
@@ -588,6 +598,12 @@ function handleCreate(PDO $db, ?array $input, array $user): void
                 error_log('Price intelligence error: ' . $e->getMessage());
             }
         }
+    }
+
+    // Printed facts (time, ticket #, card) from the OCR text — receipt_facts, migration 1227.
+    if (!empty($input['raw_ocr_json'])) {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        ReceiptFactsService::refreshQuietly($db, (int)$expenseId);
     }
 
     // Learning (only if receipt was OCR'd): keep what the user was shown at capture as the
@@ -787,6 +803,12 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
                 }
             }
         }
+    }
+
+    // The receipt was edited (date may have changed): re-read its printed facts.
+    if (!empty($existing['raw_ocr_json'])) {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        ReceiptFactsService::refreshQuietly($db, (int)$id);
     }
 
     // Line-item lessons only. Header/category lessons are recorded once, when the receipt
@@ -1497,6 +1519,8 @@ function handleRescan(PDO $db, ?array $input, array $user): void
         $rawJson = $ocrResult['raw_response'] ? json_encode($ocrResult['raw_response']) : $ocrText;
         $upd = $db->prepare("UPDATE expenses SET raw_ocr_json = ? WHERE id = ?");
         $upd->execute([$rawJson, $expenseId]);
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        ReceiptFactsService::refreshQuietly($db, (int)$expenseId);
     }
 
     // Re-persist line items from fresh parse — clear old OCR-derived items

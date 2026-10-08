@@ -3429,6 +3429,7 @@ class BankImportService
             ];
         }
         usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        $out = $this->receiptFactsBoost($out, null, $expenseId);
         return array_slice($out, 0, $limit);
     }
 
@@ -3485,7 +3486,22 @@ class BankImportService
             ];
         }
         usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        $out = $this->receiptFactsBoost($out, $transactionId, null);
         return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * Printed receipt facts (card last 4, printed date / time — receipt_facts, migration 1227)
+     * raise a candidate's confidence and say why. Suggestions only: nothing is matched here.
+     */
+    private function receiptFactsBoost(array $rows, ?int $transactionId, ?int $expenseId): array
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
+            return (new ReceiptFactsService($this->db))->boostBankCandidates($rows, $transactionId, $expenseId);
+        } catch (Throwable $e) {
+            return $rows;
+        }
     }
 
     /**

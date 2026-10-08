@@ -103,6 +103,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read

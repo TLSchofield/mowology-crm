@@ -225,6 +225,15 @@ foreach ($candidateIds as $jobId) {
         ]);
         $succeeded++;
         ocrLog("job #$jobId media #{$row['media_id']} → complete");
+        // A receipt queued by the receipt-facts backfill (expense_id set): copy the text onto it
+        // (an approved receipt gets the text only) and parse its printed facts.
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+            $adopted = (new ReceiptFactsService($db))->adoptFinishedJobs(1, $jobId);
+            if ($adopted) ocrLog("job #$jobId → expense #{$adopted[0]} text + receipt facts");
+        } catch (Throwable $e) {
+            ocrLog("job #$jobId receipt facts (non-fatal): " . $e->getMessage());
+        }
     } catch (Throwable $e) {
         $attempts = (int)$row['attempts'];
         markFailed($db, $jobId, $attempts, $e->getMessage());

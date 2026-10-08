@@ -100,7 +100,8 @@
             : '<div class="mw-rc-nophoto">No photo</div>';
         return '<div class="mw-rc-dup-side">' + photo +
             '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
-            '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small></div>' +
+            '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small>' +
+            (r.facts_line ? '<small class="mw-rc-facts" title="Printed on the receipt">🧾 ' + esc(r.facts_line) + '</small>' : '') + '</div>' +
             (waiting
                 ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ It\'s a copy — set aside</button>'
                 : '<div class="mw-rc-dup-note">Already ' + (r.status === 'forwarded' ? 'sent to accounting' : 'approved') + ' — this one stays</div>') +
@@ -112,7 +113,8 @@
         root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate' + (n > 2 ? 's' : '') + '</b>' + (dupes.length > 1 ? ' · group 1 of ' + dupes.length : '') +
                 ' · sorted before anything is approved</span></div>' +
             '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — ' : '') +
-                (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: same total, within 3 days. ' +
+                (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: ' +
+                (g.why && g.why.length ? esc(g.why.join('; ')) + '. ' : 'same total, within 3 days. ') +
                 'Set the copies aside and keep one — they\'re kept on record, not deleted, and a copy\'s photo moves to the one you keep if that has none.</div>' +
             '<div class="mw-rc-dup">' + g.members.map(dupCard).join('') + '</div>' +
             '<div class="mw-rc-actions">' +
@@ -249,7 +251,8 @@
         var detail = function (fullNotes) {
             return '<div class="mw-rc-meta">' +
                   (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? 'Recorded as <s>' + esc(it.vendor) + '</s>' : '') +
-                  (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
+                  (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') +
+                  (it.facts_line ? ' · <span class="mw-rc-facts" title="Printed on the receipt">🧾 ' + esc(it.facts_line) + '</span>' : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
                 itemsHtml(it) +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
