@@ -109,9 +109,21 @@ class LedgerSyncService
      * an income deposit categorised to a revenue account is a customer payment
      * already recognised on the invoice side.
      *
+     * A 'transfer' row can be money OUT (card payoff, loan payment, owner's draw) or money
+     * IN (a deposit reconciliation flipped to 'transfer' once its invoices carry it). The
+     * row's type cannot tell them apart, so the caller passes 'direction' (see
+     * transferDirection(); missing = 'out', the old behaviour) and 'settled':
+     *   OUT                  -> DR category / CR bank
+     *   IN, settled by invoice payments (allocations, "already recorded", matched)
+     *                        -> null: the invoice's payment entry already debits the bank
+     *                           (DR Bank / CR AR) — posting the deposit too doubles the cash
+     *   IN to a revenue account -> null (revenue is recognised on invoices)
+     *   IN otherwise         -> DR bank / CR category (money in from a loan, savings, owner)
+     *
      * @param array $row id, transaction_date, type, account_id, account_type (category's
      *                   chart type), account_code, bank_account_id, amount, gst_amount,
-     *                   pst_amount, description, job_id, contact_id, vendor_id
+     *                   pst_amount, description, job_id, contact_id, vendor_id,
+     *                   direction? ('in'|'out'), settled? (bool)
      * @param int   $itcId            chart id of 2210 GST ITC
      * @param int   $gstCollectedId   chart id of 2200 GST Collected
      * @param int   $defaultBankId    chart id of 1010 (fallback when bank_account_id is null)
@@ -150,6 +162,13 @@ class LedgerSyncService
                 $lines[] = ['account_id' => $itcId, 'debit' => $gst, 'credit' => 0, 'gst_amount' => $gst];
             }
             $lines[] = ['account_id' => $bankId, 'debit' => 0, 'credit' => $amount];
+        } elseif ($type === 'transfer' && ($row['direction'] ?? 'out') === 'in') {
+            if (!empty($row['settled']) || ($row['account_type'] ?? '') === 'revenue') {
+                return null;
+            }
+            $lines[] = ['account_id' => $bankId, 'debit' => $amount, 'credit' => 0];
+            $lines[] = array_merge(['account_id' => $catId, 'debit' => 0, 'credit' => $amount,
+                'description' => $row['description'] ?? null], $dims);
         } elseif ($type === 'transfer') {
             $lines[] = array_merge(['account_id' => $catId, 'debit' => $amount, 'credit' => 0,
                 'description' => $row['description'] ?? null], $dims);
@@ -172,6 +191,70 @@ class LedgerSyncService
         ];
     }
 
+    /**
+     * Which way a bank line moved money, from what the statement said — never from
+     * accounting_transactions.type, which reconciliation overwrites ('income' -> 'transfer').
+     *   - tied to invoice payments (allocation rows point at it, "Marked as already recorded",
+     *     matched_invoice_id): a customer deposit -> 'in';
+     *   - the staged statement line (bank_import_rows.type, set by the parser from the
+     *     credit / debit column) says 'income' -> 'in';
+     *   - anything else -> 'out' (card payoffs and loan payments are staged 'expense').
+     * bank_import_rows.raw_amount is NOT used: commit() stages a line already promoted to
+     * 'transfer' (a card payoff) with a positive raw_amount although the money went out.
+     * Pure.
+     * @param array $facts staged_type ?string, settled bool
+     */
+    public static function transferDirection(array $facts): string
+    {
+        if (!empty($facts['settled'])) return 'in';
+        return ($facts['staged_type'] ?? null) === 'income' ? 'in' : 'out';
+    }
+
+    /**
+     * Direction facts for bank lines: txId => [staged_type, settled]. Only rows with a fact
+     * are returned. Each source is optional (older schemas / tests) — a missing table
+     * just contributes nothing.
+     * @param int|null $txId one line, or null for every bank line
+     */
+    public function directionFacts(?int $txId = null): array
+    {
+        $facts = [];
+        $one = $txId !== null ? ' AND transaction_id = ' . (int)$txId : '';
+        try {
+            foreach ($this->db->query("SELECT transaction_id, type FROM bank_import_rows WHERE transaction_id IS NOT NULL{$one}")
+                         ->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $id = (int)$r['transaction_id'];
+                // one statement line per transaction; if two ever point at it, 'income' wins (it names a deposit)
+                if (($facts[$id]['staged_type'] ?? null) !== 'income') $facts[$id]['staged_type'] = (string)$r['type'];
+            }
+        } catch (\Throwable $e) { /* no staging table */ }
+        try {
+            foreach ($this->db->query("SELECT DISTINCT transaction_id FROM invoice_payment_allocations WHERE transaction_id IS NOT NULL{$one}")
+                         ->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                $facts[(int)$id]['settled'] = true;
+            }
+        } catch (\Throwable $e) { /* no allocations table */ }
+        try {
+            $oneAt = $txId !== null ? ' AND id = ' . (int)$txId : '';
+            foreach ($this->db->query("SELECT id FROM accounting_transactions
+                                       WHERE reference_type = 'bank_import' AND type = 'transfer'
+                                         AND (matched_invoice_id IS NOT NULL OR notes LIKE '%Marked as already recorded%'){$oneAt}")
+                         ->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                $facts[(int)$id]['settled'] = true;
+            }
+        } catch (\Throwable $e) { /* no notes / matched_invoice_id column */ }
+        return $facts;
+    }
+
+    /** $row + direction / settled from $facts (keyed by the row id). Pure. */
+    public static function withDirection(array $row, array $facts): array
+    {
+        $f = $facts[(int)($row['id'] ?? 0)] ?? [];
+        $row['settled'] = !empty($f['settled']);
+        $row['direction'] = self::transferDirection($f);
+        return $row;
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // DB SYNC (idempotent, per-record guarded)
     // ══════════════════════════════════════════════════════════════════════════
@@ -188,7 +271,9 @@ class LedgerSyncService
     /**
      * Post unmatched bank-import rows to the journal (labour, subs, payroll, fees,
      * loans, card/loan payments). Matched rows are already in the journal from the
-     * invoice/expense side and are excluded.
+     * invoice/expense side and are excluded; so are deposits settled through
+     * invoice_payment_allocations (bankRowToEntryArgs returns null for them — the
+     * invoice payment entry carries the cash).
      */
     public function syncBankImports(): array
     {
@@ -210,9 +295,10 @@ class LedgerSyncService
               AND at.matched_expense_id IS NULL
         ")->fetchAll(PDO::FETCH_ASSOC);
 
+        $facts = $this->directionFacts();
         foreach ($rows as $row) {
             try {
-                $args = $this->bankRowToEntryArgs($row, $itcId, $gstColId, $bankId, $codeToCostType);
+                $args = $this->bankRowToEntryArgs(self::withDirection($row, $facts), $itcId, $gstColId, $bankId, $codeToCostType);
                 if ($args === null) { $skipped++; continue; }
                 $this->ledger->postManual($args);
                 $posted++;
@@ -223,7 +309,7 @@ class LedgerSyncService
         return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors];
     }
 
-    /** The entry a bank line should post now (null = it shouldn't post: revenue deposit, linked, zero). */
+    /** The entry a bank line should post now (null = it shouldn't post: revenue deposit, linked or settled deposit, zero). */
     public function bankEntryArgsFor(int $transactionId): ?array
     {
         $s = $this->db->prepare("
@@ -239,6 +325,7 @@ class LedgerSyncService
         $s->execute([$transactionId]);
         $row = $s->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
+        $row = self::withDirection($row, $this->directionFacts($transactionId));
         return $this->bankRowToEntryArgs($row, $this->ledger->accountId(LedgerService::ACC_GST_ITC),
             $this->ledger->accountId(LedgerService::ACC_GST_COLLECTED), $this->ledger->accountId(LedgerService::ACC_BANK),
             $this->accountCodeToCostTypeMap());
