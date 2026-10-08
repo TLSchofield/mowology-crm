@@ -5,7 +5,9 @@
  * GET  /api/expenses/bookkeeper-mobile?mode=queue[&limit=15]
  *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}],
  *         messages[] (admins: customer billing mail routed to Penny — InboundRouteService::forApp,
- *         attachment links signed for the app; added 2026-10-08)}
+ *         attachment links signed for the app; added 2026-10-08),
+ *         lines {lookback {count, amount, gst, text, url}|null, payments {waiting, waiting_total, high, url, …}|null,
+ *                missing {open, open_amount, no_receipt, no_receipt_amount}|null} (expenses.approve; added 2026-10-08)}
  * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a message (admins)
  * POST {mode: 'message_done', key}                     "Done" on a message (admins)
  * POST {mode: 'decide', suggestion_id, overrides?: {vendor, vendor_id, expense_date,
@@ -50,6 +52,42 @@ if (!defined('APP_ROOT')) {
 }
 
 header('Content-Type: application/json');
+
+/**
+ * The read-only lines on Penny's web card, for the phone (added 2026-10-08): the look-back review
+ * (LookbackService, migration 1250), payments ↔ invoices (PaymentMatchService, migration 1260 — the
+ * cached snapshot; the 4-hourly re-match is left to the web page) and the missing-receipt chaser
+ * (MissingReceiptService, migration 1245). Each is null when its service isn't deployed / migrated.
+ */
+function bkmPennyLines(PDO $db): array
+{
+    $lines = ['lookback' => null, 'payments' => null, 'missing' => null];
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/LookbackService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $l = (new LookbackService($db))->cardLine();
+            if ($l) $lines['lookback'] = $l + ['url' => '/crm/accounting/lookback.php'];
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] lookback: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $lines['payments'] = (new PaymentMatchService($db))->cardLine(false);
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] payments: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php')) {
+            require_once APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php';
+            $m = new MissingReceiptService($db);
+            if ($m->ready()) {
+                $t = $m->totals();
+                $lines['missing'] = ['open' => (int)$t['open'], 'open_amount' => (float)$t['open_amount'],
+                                     'no_receipt' => (int)$t['no_receipt'], 'no_receipt_amount' => (float)$t['no_receipt_amount']];
+            }
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] missing: ' . $e->getMessage()); }
+    return $lines;
+}
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
@@ -134,6 +172,7 @@ try {
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
                 'asset_tags' => $tags,
                 'messages'   => $messages,
+                'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
             ]);
             break;
         }
