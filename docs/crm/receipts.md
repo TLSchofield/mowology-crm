@@ -445,3 +445,24 @@ A mixed receipt (Lawnboy #412: seed for shop stock, mulch for Oakridge Gardens) 
 - **Books:** `LedgerService::postExpense` picks the split up by itself (the nightly sync and the repost runner need no change): one debit per share with its job, GST ITC for what can be claimed (a Meals share at the GST report's ITC rate, the rest is cost), PST in cost, the total to the funding account.
 - **Job costing:** a share's job cost is net + PST + GST not claimable — Oakridge carries $80.00 of mulch (its $4 GST is an ITC), stock carries $128.40 of seed. `AccountingService::getJobProfitability` swaps the whole receipt for the job's shares; `TripAttributionService` uses the shares instead of guessing from the quote and never tags a split receipt whole; the GST report counts a split by its shares.
 - **UI:** `MwExpenseSplit` (`public/crm/js/expense-split.js`, see `COMPONENTS.md`) on Penny's card and in the edit modal; `GET /crm/api/expenses.php?action=split&id=N`.
+
+## Missing receipts — Penny chases them (migration 1245)
+Every 2026 card / bank **spending** line with no receipt becomes an item in `penny_missing_receipts`
+(`MissingReceiptService`, cron `penny_chase` hourly at :10). "No receipt" means: not linked
+(`matched_expense_id`), and no receipt that clearly fits (`candidateExpensesForTransaction` within ±3 days
+or scored ≥ 80, receipt facts included). Lines that never have a receipt are skipped by
+`penny_receipt_exempt_rules` — account code (exact or `2*` prefix), account name or bank-line text; Tim
+edits the list from **Manage** on Penny's dashboard strip.
+
+**Who is asked:** card ••last4 → `penny_card_holders` (Tim fills it on the same panel) → Otto's truck run
+that day at a place matching the vendor → the one crew member clocked in → Tim. Tim can re-assign.
+
+**Cadence:** a push the morning after the charge, a second 3 days later, then nothing but Tim's Monday
+summary ("Still missing: 6 receipts, $412"). Never 21:00–07:00 (`ops_settings penny_chase_quiet_start/_end`).
+A charge already 30+ days old when Penny first sees it is on Tim's list only — never pushed, never on a crew card.
+
+**Answering:** crew app → `/crm/my-team.php` (push deep link `?penny=missing&id=N`): *Snap it* (receipt
+camera with `penny_missing=N`, attached after save), *It's already in* (pick a recent receipt), *No receipt*
+(lost / vendor didn't give one — Penny stops, Tim sees it: no GST claim). Any receipt saved through
+`ExpenseGate` that fits an open item (same amount ±2 %, ±3 days, the only one or its saver's) closes it.
+Nothing here links the bank line or touches the books — the bank desk still does that.
