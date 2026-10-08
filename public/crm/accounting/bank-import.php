@@ -297,6 +297,19 @@ $activePage = 'accounting';
     </div>
 </div>
 
+<!-- ── Statements check (StatementCoverageService, migration 1231) ───────── -->
+<?php
+$__scReport = null;
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+    $__scs = new StatementCoverageService(getDB());
+    if ($__scs->ready()) $__scReport = $__scs->latest();
+} catch (Throwable $__e) {
+    error_log('Statements check: ' . $__e->getMessage());
+}
+include dirname(__DIR__) . '/includes/statements-check-section.php';
+?>
+
 <!-- ── Import History ─────────────────────────────────────────────────────── -->
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -382,6 +395,34 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDuplicates();
     updatePresetHint();
     initDropZone();
+});
+
+// Statements check — save an account's name / expected / closing day.
+document.addEventListener('click', async e => {
+    const btn = e.target.closest('.mw-sc-save');
+    if (!btn) return;
+    const tr = btn.closest('tr[data-sc-id]');
+    const day = tr.querySelector('.mw-sc-day').value.trim();
+    btn.disabled = true;
+    try {
+        const r = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action:        'statement_account_save',
+                id:            parseInt(tr.dataset.scId, 10),
+                label:         tr.querySelector('.mw-sc-label').value,
+                expected:      tr.querySelector('.mw-sc-expected').checked,
+                statement_day: day === '' ? null : parseInt(day, 10),
+            }),
+        });
+        const d = await r.json();
+        mwToast(d.ok ? 'Saved — the check re-runs on the next page load.' : 'Not saved: ' + (d.error || d.message), d.ok ? 'success' : 'error');
+    } catch (err) {
+        mwToast('Not saved: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 });
 
 function initDropZone() {
@@ -884,6 +925,8 @@ async function commitImport() {
 
     const rowsToImport   = selectedIdxs.map(i => previewRows[i]).filter(Boolean);
     const skipDuplicates = document.getElementById('skip-duplicates').checked;
+    // Lines the preview found already in the CRM and left unticked never reach commit — count them.
+    const alreadyInCrm   = previewRows.filter((r, i) => r && r.is_duplicate && !selectedIdxs.includes(i)).length;
 
     const r = await fetch(API, {
         method: 'POST',
@@ -894,6 +937,7 @@ async function commitImport() {
             bank_name:       resolvedPreset || document.getElementById('preset').value,
             bank_account_id: parseInt(document.getElementById('bank-account-id').value) || 0,
             skip_duplicates: skipDuplicates,
+            already_in_crm:  alreadyInCrm,
             balance_check:   lastBalanceCheck || null,
         }),
     });
@@ -911,7 +955,7 @@ async function commitImport() {
         ? ` &nbsp;·&nbsp; <strong class="text-success">${res.reconciled} reconciled ✓</strong>` : '';
     document.getElementById('done-title').textContent   = 'Import Complete';
     document.getElementById('done-body').innerHTML =
-        `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.duplicates}</strong> skipped<br>
+        `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.already_in_crm ?? res.duplicates}</strong> line${(res.already_in_crm ?? res.duplicates) === 1 ? '' : 's'} already in the CRM ${(res.already_in_crm ?? res.duplicates) === 1 ? 'was' : 'were'} skipped<br>
          <a href="/crm/accounting/transactions.php" class="text-muted small">View all transactions →</a>`;
 
     loadSessions();

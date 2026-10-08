@@ -33,6 +33,20 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (clues): ' . $e->getMessage());
         }
+        // Last month's statements not in yet (from the 3rd) — read from the once-a-day check.
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $sc = new StatementCoverageService($this->db);
+            if ($sc->ready()) {
+                $items = StatementCoverageService::briefItems($sc->latest(), date('Y-m-d'));
+                if ($items) {
+                    $brief['items'] = array_merge((array)($brief['items'] ?? []), $items);
+                    $brief['count'] = (int)($brief['count'] ?? 0) + count($items);
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (statements): ' . $e->getMessage());
+        }
         return $brief;
     }
 

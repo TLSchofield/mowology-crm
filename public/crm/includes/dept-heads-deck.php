@@ -49,6 +49,12 @@ try {
         $__tcp = new TripCostService(getDB());
         if ($__tcp->ready()) $__tripMissing = $__tcp->missingReceipts(14);   // links receipts filed since the cron
     } catch (Throwable $__e) { /* trip overhead is a bonus (migration 1216) */ }
+    $__scStrip = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+        $__scs = new StatementCoverageService(getDB());
+        if ($__scs->ready()) $__scStrip = StatementCoverageService::strip($__scs->latest());   // computed once a day
+    } catch (Throwable $__e) { /* statements check is a bonus (migration 1231) */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -184,6 +190,8 @@ $__team = [
         <?php if (count($__tripMissing) > 3): ?><div><small>+<?= count($__tripMissing) - 3 ?> more runs without a receipt</small></div><?php endif; ?>
       </div>
       <?php endif; ?>
+
+      <?php include __DIR__ . '/penny-statements-strip.php'; ?>
 
       <div class="mw-pq" id="mw-pq" hidden></div>
 

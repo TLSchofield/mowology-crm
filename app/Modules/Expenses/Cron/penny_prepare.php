@@ -93,6 +93,25 @@ try {
         $pennyLog('Receipt facts backfill failed (non-fatal): ' . $e->getMessage());
     }
 
+    // Statements check (migration 1231): is every bank / card statement in? Computed at most
+    // once a day (cached in ops_settings), whatever this cron's 15-minute cadence.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $sc = new StatementCoverageService($db);
+            if ($sc->ready()) {
+                $scRun = $sc->refreshDaily();
+                if ($scRun['ran']) {
+                    $st = StatementCoverageService::strip($scRun['report']);
+                    $pennyLog('Statements check: ' . implode(' · ', array_map(fn($a) => $a['label'] . ($a['ok'] ? ' ✓' : ' ✗ ' . $a['note']), $st['accounts']))
+                              . ($st['gaps'] ? ' · gaps: ' . (count($st['gaps']) + $st['more_gaps']) : ''));
+                }
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Statements check failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
     $svc = new ReceiptBookkeeperService($db);
     $desk = new BookkeeperDeskService($db, $svc);
     if (!$desk->ready()) {

@@ -11,6 +11,7 @@
  * GET              action=alerts   — get/run alert engine
  * POST (JSON)      action=dismiss_alert, id=X
  * POST (JSON)      action=dismiss_all_alerts
+ * POST (JSON)      action=statement_account_save, id, label, expected, statement_day — statements check list
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -177,7 +178,30 @@ try {
 
             $balanceCheck = isset($input['balance_check']) && is_array($input['balance_check']) ? $input['balance_check'] : null;
             $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId, $balanceCheck);
+            // Statements check: count the "already imported" lines the owner left unticked (they never
+            // reach commit()), and drop today's cached check — the coverage just changed.
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+                $coverage = new StatementCoverageService($db);
+                $unsent = max(0, (int)($input['already_in_crm'] ?? 0));
+                $coverage->recordSkippedDuplicates((int)$result['session_id'], $unsent);
+                $result['already_in_crm'] = (int)$result['duplicates'] + $unsent;
+                $coverage->forget();
+            } catch (Throwable $e) {
+                error_log('Statements check after import: ' . $e->getMessage());
+            }
             echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+
+        // ── Statements check — the owner's edit of an expected account ────────
+        case 'statement_account_save':
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $day = $input['statement_day'] ?? null;
+            $res = (new StatementCoverageService($db))->saveAccount(
+                (int)($input['id'] ?? 0), (string)($input['label'] ?? ''), !empty($input['expected']),
+                $day === null || $day === '' ? null : (int)$day
+            );
+            echo json_encode(['ok' => $res['ok'], 'message' => $res['message']]);
             break;
 
         // ── Rollback session ───────────────────────────────────────────────────
@@ -185,6 +209,10 @@ try {
             $sessionId = (int)($input['session_id'] ?? 0);
             if (!$sessionId) throw new Exception('Missing session_id');
             $deleted = $importer->rollback($sessionId);
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+                (new StatementCoverageService($db))->forget();
+            } catch (Throwable $e) { /* the check re-runs tomorrow anyway */ }
             echo json_encode(['ok' => true, 'deleted' => $deleted]);
             break;
 

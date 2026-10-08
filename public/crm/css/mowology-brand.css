@@ -38748,3 +38748,37 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-ct-sum { font-size: .78rem; color: var(--mw-ink-900); line-height: 1.4; overflow-wrap: anywhere; }
 .mw-ct-ev.is-in .mw-ct-sum { font-weight: 500; }
 .mw-ct-empty { padding: 10px 14px; font-size: .78rem; color: var(--mw-ink-500); }
+
+/* ══ Penny — statements check (StatementCoverageService, migration 1231) ═══ */
+/* Penny's card strip */
+.mw-penny-statements { margin-top: 8px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-50); border-left: 3px solid var(--mw-green); border-radius: 8px; padding: 6px 10px; }
+.mw-penny-statements.is-bad { border-left-color: var(--mw-color-danger); }
+.mw-penny-statements .mw-ps-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.mw-penny-statements .mw-ps-k { font-weight: 600; color: var(--mw-forest); }
+.mw-penny-statements .mw-ps-ok { color: var(--mw-green); }
+.mw-penny-statements .mw-ps-bad { color: var(--mw-color-danger); font-weight: 600; }
+.mw-penny-statements .mw-ps-sep { color: var(--mw-ink-300); }
+.mw-penny-statements .mw-ps-link { margin-left: auto; color: var(--mw-green); font-weight: 600; white-space: nowrap; }
+.mw-penny-statements .mw-ps-gaps { margin: 4px 0 0; padding-left: 16px; color: var(--mw-ink-700); }
+.mw-penny-statements .mw-ps-gaps li.is-weak { color: var(--mw-ink-500); }
+.mw-penny-statements .mw-ps-note { margin-top: 3px; color: var(--mw-ink-500); }
+
+/* Bank import page section */
+.mw-sc-table td, .mw-sc-table th { vertical-align: middle; font-size: .8rem; }
+.mw-sc-table .mw-sc-day { width: 64px; }
+.mw-sc-st { display: inline-block; padding: 1px 8px; border-radius: var(--mw-radius-pill); font-size: .72rem; font-weight: 600; white-space: nowrap; }
+.mw-sc-st.is-ok { background: var(--mw-color-success-bg); color: var(--mw-color-success); }
+.mw-sc-st.is-bad { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); }
+.mw-sc-st.is-warn { background: var(--mw-color-warning-bg); color: var(--mw-color-warning); }
+.mw-sc-st.is-off { background: var(--mw-ink-100); color: var(--mw-ink-500); }
+.mw-sc-months { display: flex; gap: 2px; flex-wrap: wrap; }
+.mw-sc-m { min-width: 30px; text-align: center; font-size: .66rem; line-height: 1.2; padding: 2px 3px; border-radius: 4px; background: var(--mw-light); color: var(--mw-forest); }
+.mw-sc-m b { display: block; font-size: .72rem; }
+.mw-sc-m.is-empty { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); }
+.mw-sc-m.is-gap { background: var(--mw-color-warning-bg); color: var(--mw-color-warning); }
+.mw-sc-gaps { margin: 0; padding-left: 18px; font-size: .8rem; }
+.mw-sc-gaps li { margin-bottom: 2px; }
+.mw-sc-gaps li.is-weak { color: var(--mw-ink-500); }
+.mw-sc-gaps li.is-info { color: var(--mw-ink-700); list-style: circle; }
+.mw-sc-acct + .mw-sc-acct { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mw-ink-100); }
+.mw-sc-acct h6 { font-size: .82rem; margin-bottom: 6px; }

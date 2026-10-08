@@ -164,6 +164,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerAccountMap.php
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerRepostService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankReceiptSweep.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementCloseService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementCoverageService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferDeskService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankInvoiceMatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/RecurringBillService.php';
