@@ -124,6 +124,9 @@
   <script src="/crm/js/time-clock-widget.min.js?v=20261002a"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20261002a"></script>
+  <!-- On site at a property whose visit is booked another day → offer to do it now (field
+       devices only). Styles: mw-pull-forward.css (appstack_head.php). -->
+  <script src="/crm/js/mw-pull-forward.js?v=20261008a" defer></script>
   <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->
   <script src="/crm/js/mw-camera-permission.js?v=20260625a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->

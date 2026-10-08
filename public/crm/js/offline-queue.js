@@ -16,6 +16,8 @@
  *   /crm/api/time-clock.php   — clock in / clock out
  *   /crm/api/pow-actions.php  — start visit / end visit / save data
  *   /crm/api/job-timer.php    — start timer / stop timer
+ *   /crm/api/visit-pull-forward.php?mode=accept — move an on-site visit to today
+ *                               (mw-pull-forward.js; replayed BEFORE its job-timer start)
  *
  * Usage (automatic — no manual init required):
  *   window.OfflineActions.syncNow()         — manually trigger replay
@@ -54,7 +56,9 @@
     var QUEUED_ENDPOINTS = [
         '/crm/api/time-clock.php',
         '/crm/api/pow-actions.php',
-        '/crm/api/job-timer.php'
+        '/crm/api/job-timer.php',
+        // Only the move — offer/dryrun are reads and must not be queued.
+        '/crm/api/visit-pull-forward.php?mode=accept'
     ];
 
     var _db = null;
@@ -161,6 +165,7 @@
             if (body && body.action === 'stop')  return 'Stop Timer';
             return 'Job Timer';
         }
+        if (url.indexOf('visit-pull-forward') !== -1) return 'Move Visit to Today';
         return 'Action';
     }
 
@@ -195,6 +200,10 @@
             }
             // clock_out
             return Object.assign({}, base, { clocked_in: false });
+        }
+
+        if (url.indexOf('visit-pull-forward') !== -1) {
+            return Object.assign({}, base, { already: false, visit_id: body && body.visit_id });
         }
 
         // pow-actions: start_visit, end_visit, save_notes, etc.

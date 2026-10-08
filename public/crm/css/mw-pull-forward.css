@@ -1,0 +1,192 @@
+/**
+ * Mowology Pull-Forward Sheet — "Booked Wed Oct 7. Doing it now?"
+ * ══════════════════════════════════════════════════════════════════════
+ * Accompanies public/crm/js/mw-pull-forward.js. Loaded on every CRM page via
+ * appstack_head.php and on homebase.php. Colours come from tokens.css only.
+ */
+
+.mw-pf-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--mw-z-modal);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(13, 59, 46, 0);
+    transition: background var(--mw-dur-base) var(--mw-ease-out);
+    font-family: var(--mw-font-sans);
+    -webkit-tap-highlight-color: transparent;
+}
+.mw-pf-overlay.mw-pf-open { background: rgba(13, 59, 46, 0.45); }
+
+.mw-pf-sheet {
+    width: 100%;
+    max-width: 480px;
+    max-height: 88vh;
+    overflow-y: auto;
+    background: var(--mw-ink-0);
+    color: var(--mw-ink-900);
+    border-radius: var(--mw-radius-xl) var(--mw-radius-xl) 0 0;
+    box-shadow: var(--mw-shadow-lg);
+    padding: var(--mw-space-2) var(--mw-space-5) calc(var(--mw-space-5) + var(--mw-safe-bottom));
+    transform: translateY(100%);
+    transition: transform var(--mw-dur-slow) var(--mw-ease-spring);
+}
+.mw-pf-open .mw-pf-sheet { transform: translateY(0); }
+
+.mw-pf-grab {
+    width: 40px;
+    height: 4px;
+    margin: 0 auto var(--mw-space-4);
+    border-radius: var(--mw-radius-pill);
+    background: var(--mw-ink-300);
+}
+
+.mw-pf-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: var(--mw-space-1);
+    font-size: var(--mw-text-sm);
+    font-weight: var(--mw-weight-semibold);
+    color: var(--mw-green);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: var(--mw-space-2);
+}
+.mw-pf-pin { width: 16px; height: 16px; fill: var(--mw-green); flex-shrink: 0; }
+
+.mw-pf-title {
+    margin: 0;
+    font-size: var(--mw-text-xl);
+    line-height: var(--mw-leading-tight);
+    font-weight: var(--mw-weight-bold);
+    color: var(--mw-forest);
+}
+.mw-pf-title strong { color: var(--mw-green); white-space: nowrap; }
+
+.mw-pf-question {
+    margin: var(--mw-space-2) 0 var(--mw-space-3);
+    font-size: var(--mw-text-lg);
+    font-weight: var(--mw-weight-semibold);
+    color: var(--mw-ink-700);
+}
+
+.mw-pf-chip {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px var(--mw-space-2);
+    border-radius: var(--mw-radius-pill);
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    font-size: var(--mw-text-xs);
+    font-weight: var(--mw-weight-semibold);
+}
+.mw-pf-chip-late { background: var(--mw-color-warning-bg); color: var(--mw-color-warning); }
+
+.mw-pf-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mw-space-2);
+    margin-top: var(--mw-space-5);
+}
+
+.mw-pf-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--mw-space-2);
+    width: 100%;
+    min-height: var(--mw-touch-min);
+    padding: var(--mw-space-3) var(--mw-space-4);
+    border: 1px solid transparent;
+    border-radius: var(--mw-radius-md);
+    font-family: inherit;
+    font-size: var(--mw-text-md);
+    font-weight: var(--mw-weight-semibold);
+    cursor: pointer;
+    transition: background var(--mw-dur-fast) var(--mw-ease-out), transform var(--mw-dur-fast) var(--mw-ease-out);
+}
+.mw-pf-btn:active { transform: scale(0.98); }
+.mw-pf-btn:focus-visible { outline: none; box-shadow: var(--mw-shadow-ring); }
+
+.mw-pf-primary { background: var(--mw-green); color: var(--mw-ink-0); flex-direction: column; gap: 0; }
+.mw-pf-primary:hover { background: var(--mw-dark); }
+.mw-pf-btn-main { font-size: var(--mw-text-lg); font-weight: var(--mw-weight-bold); }
+.mw-pf-btn-sub { font-size: var(--mw-text-xs); font-weight: var(--mw-weight-medium); opacity: 0.85; }
+
+.mw-pf-secondary {
+    background: var(--mw-ink-0);
+    color: var(--mw-forest);
+    border-color: var(--mw-ink-200);
+    justify-content: space-between;
+}
+.mw-pf-secondary:hover { background: var(--mw-ink-50); }
+.mw-pf-chev { font-size: var(--mw-text-xl); line-height: 1; color: var(--mw-ink-500); }
+.mw-pf-muted { color: var(--mw-ink-500); font-weight: var(--mw-weight-regular); }
+
+.mw-pf-ghost { background: transparent; color: var(--mw-ink-500); }
+.mw-pf-ghost:hover { color: var(--mw-ink-900); }
+
+.mw-pf-btn-sm {
+    width: auto;
+    min-width: 88px;
+    min-height: 40px;
+    padding: var(--mw-space-2) var(--mw-space-3);
+    font-size: var(--mw-text-base);
+    flex-direction: row;
+    justify-content: center;
+}
+
+.mw-pf-list { list-style: none; margin: var(--mw-space-4) 0 0; padding: 0; }
+.mw-pf-row {
+    display: flex;
+    align-items: center;
+    gap: var(--mw-space-3);
+    padding: var(--mw-space-3) 0;
+    border-bottom: 1px solid var(--mw-ink-200);
+}
+.mw-pf-row:last-child { border-bottom: 0; }
+.mw-pf-row-text { flex: 1; min-width: 0; }
+.mw-pf-row-title { font-weight: var(--mw-weight-semibold); color: var(--mw-forest); }
+.mw-pf-row-sub { font-size: var(--mw-text-sm); color: var(--mw-ink-500); }
+.mw-pf-row-sub strong { color: var(--mw-ink-700); }
+
+.mw-pf-working, .mw-pf-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--mw-space-3);
+    padding: var(--mw-space-6) 0 var(--mw-space-2);
+    text-align: center;
+    color: var(--mw-ink-700);
+}
+.mw-pf-done .mw-pf-actions { width: 100%; }
+.mw-pf-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 4px solid var(--mw-light);
+    border-top-color: var(--mw-green);
+    animation: mw-pf-spin 0.8s linear infinite;
+}
+@keyframes mw-pf-spin { to { transform: rotate(360deg); } }
+.mw-pf-check, .mw-pf-x {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: var(--mw-weight-bold);
+}
+.mw-pf-check { background: var(--mw-color-success-bg); color: var(--mw-color-success); }
+.mw-pf-x { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); }
+.mw-pf-note { margin: 0; font-size: var(--mw-text-sm); color: var(--mw-ink-500); }
+
+@media (prefers-reduced-motion: reduce) {
+    .mw-pf-overlay, .mw-pf-sheet, .mw-pf-btn { transition: none; }
+}
