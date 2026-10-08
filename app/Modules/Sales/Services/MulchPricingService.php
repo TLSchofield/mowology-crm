@@ -51,7 +51,8 @@ class MulchPricingService
     ];
 
     public const DEFAULTS = [
-        'mulch_yards_per_load'      => 2.0,   // what the truck carries; Tim's Lawnboy slips are 2 yd
+        'mulch_yards_per_load'      => 2.0,   // trailer limit 1 tonne = 2 yd of mulch (Tim, 2026-10-08)
+        'soil_yards_per_load'       => 1.0,   // 1 tonne = 1 yd of soil / top-dress / compost
         'mulch_spread_min_per_yard' => 45.0,  // person-minutes to barrow and spread one yard
         'mulch_load_min'            => 15.0,  // time at the yard to load, when Otto has no measured stop
         'mulch_haul_crew'           => 1.0,   // people in the truck on the pickup
@@ -59,7 +60,8 @@ class MulchPricingService
         'mulch_min_charge'          => 0.0,   // 0 = use the derived one-yard minimum
     ];
     public const SETTING_LABELS = [
-        'mulch_yards_per_load'      => 'Yards per load',
+        'mulch_yards_per_load'      => 'Yards per load (mulch)',
+        'soil_yards_per_load'       => 'Yards per load (soil, top-dress, compost)',
         'mulch_spread_min_per_yard' => 'Spreading minutes per yard',
         'mulch_load_min'            => 'Loading minutes at the supplier',
         'mulch_haul_crew'           => 'People in the truck',
@@ -659,7 +661,7 @@ class MulchPricingService
         $haul = self::haul($runs, $straight, $placeFact, $anyFact, [
             'hourly' => $hourly, 'crew' => $sv('mulch_haul_crew'), 'per_km' => $perKm['value'],
             'kmh' => (float)($card['kmh'] ?? DriveMinutesAdded::DEFAULT_KMH), 'detour' => (float)($card['detour'] ?? DriveMinutesAdded::DEFAULT_DETOUR),
-            'load_min' => $sv('mulch_load_min'), 'yards_per_load' => $sv('mulch_yards_per_load'),
+            'load_min' => $sv('mulch_load_min'), 'yards_per_load' => $family === 'mulch' ? $sv('mulch_yards_per_load') : $sv('soil_yards_per_load'),
         ]);
         if (!$supplier) $flags[] = 'Otto has no supplier place' . ($material['usual_vendor'] ? ' for ' . $material['usual_vendor'] : '') . ' — name the stop on Otto\'s card';
         if ($haul['tier'] === 'none') $flags[] = 'No haul: no supplier pin / address pin and no supply-run fact yet';
@@ -672,7 +674,7 @@ class MulchPricingService
             $df = $this->fact('run:dump:any');
             if ($df && (int)$df['sample_n'] > 0 && $df['median_cost'] !== null) {
                 $disposal = ['included' => true, 'per_load' => round((float)$df['median_cost'], 2),
-                             'per_yard' => round((float)$df['median_cost'] / max(0.5, $sv('mulch_yards_per_load')), 2), 'real' => true,
+                             'per_yard' => round((float)$df['median_cost'] / max(0.5, $family === 'mulch' ? $sv('mulch_yards_per_load') : $sv('soil_yards_per_load')), 2), 'real' => true,
                              'note' => 'Otto\'s median dump run (n=' . (int)$df['sample_n'] . ') incl. dump fee, per load'];
             } else {
                 $disposal['note'] = 'Asked for disposal, but Otto has no dump-run fact yet — not included';
