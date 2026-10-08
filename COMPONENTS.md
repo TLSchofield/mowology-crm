@@ -124,6 +124,11 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
   `catalog` comes from `InvoiceLineItems::catalog($db)` (`app/Modules/Invoices/Services/InvoiceLineItems.php`), which also parses the posted `li_*[]` rows (`fromPost()`).
 - **Used by:** `invoices/create.php`, `invoices/edit.php`. `quotes/create.php` still has its own older copy inline.
 
+### Otto suggestion items — `window.MwOtto`
+- **File:** `public/crm/js/otto-card.js` (loaded by `includes/otto-card.php`).
+- **Purpose:** renders one of Otto's suggestions (`/crm/api/otto.php?mode=suggestions` item) with its buttons and posts the owner's choice (`mode=decide`); handles a `redirect` in the answer. `window.MwOtto = { item(it) → element, get(params), post(body), esc }`.
+- **Used by:** Otto's dashboard card, and `/crm/ops/otto-review.php` (`otto-review.js` drops `MwOtto.item(it)` into each unscheduled-work case). A new Otto kind gets its buttons in `controls()` once, and both places have them.
+
 ---
 
 ## Layout & Navigation

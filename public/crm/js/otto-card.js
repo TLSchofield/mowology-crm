@@ -93,12 +93,44 @@
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="task">Add to the crew meeting</button>' +
                     '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'unscheduled':
+                return unscheduledControls(p);
+            case 'duration':
+                return '<div class="mw-otto-btns">' +
+                    '<label class="mw-otto-field">Plan length <input type="number" name="minutes" min="5" max="600" step="5" value="' + esc(p.minutes || '') + '"> min</label>' +
+                    '<button type="button" class="is-main" data-do="apply">Update the plan</button>' +
+                    '<button type="button" data-do="keep">Keep ' + esc(p.planned ? p.planned + ' min' : 'it') + '</button></div>';
             case 'silent':
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +
                     '<button type="button" data-do="fine">It\'s fine</button></div>';
         }
         return '';
+    }
+
+    var ONE_OFF_SERVICES = ['Hedge Trimming', 'Cleanup', 'Garden Care', 'Lawn Cut', 'Pruning', 'Other'];
+
+    /** Crew at a property with nothing scheduled: times, which plan (or a one-off), then add / invoice / link / not work. */
+    function unscheduledControls(p) {
+        var plans = p.plans || [];
+        var opts = plans.map(function (pl) {
+            return '<option value="' + pl.id + '">' + esc(pl.number + ' · ' + (pl.title || pl.service_type) + (pl.recurring ? ' (recurring)' : '')) + '</option>';
+        }).join('') + '<option value="oneoff"' + (plans.length ? '' : ' selected') + '>A one-off job</option>';
+        var svc = ONE_OFF_SERVICES.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
+        var links = (p.invoices || []).map(function (inv) {
+            return '<button type="button" data-do="link" data-invoice="' + inv.id + '">Already billed — ' + esc(inv.number) + '</button>';
+        }).join('');
+        return '<div class="mw-otto-btns mw-otto-unsched">' +
+            '<label class="mw-otto-field">From <input type="time" name="start" value="' + esc(p.start || '') + '"></label>' +
+            '<label class="mw-otto-field">to <input type="time" name="end" value="' + esc(p.end || '') + '"></label>' +
+            '<label class="mw-otto-field">On <select name="plan_id">' + opts + '</select></label>' +
+            '<span class="mw-otto-oneoff"' + (plans.length ? ' hidden' : '') + '>' +
+            '<label class="mw-otto-field"><select name="service_type">' + svc + '</select></label>' +
+            '<label class="mw-otto-field"><input type="text" name="title" placeholder="What was done (e.g. yew hedge reduction)" maxlength="120"></label></span>' +
+            '</div><div class="mw-otto-btns">' +
+            '<button type="button" class="is-main" data-do="add">Add the visit</button>' +
+            '<button type="button" data-do="add_invoice">Add + create invoice</button>' + links +
+            '<button type="button" data-do="not_work">Not work</button></div>';
     }
 
     function item(it) {
@@ -115,6 +147,11 @@
             var b = e.target.closest('button[data-do]');
             if (b) act(el, it, b.getAttribute('data-do'), b);
         });
+        el.addEventListener('change', function (e) {
+            if (e.target.name !== 'plan_id') return;
+            var o = el.querySelector('.mw-otto-oneoff');
+            if (o) o.hidden = e.target.value !== 'oneoff';
+        });
         return el;
     }
 
@@ -129,8 +166,9 @@
         el.classList.add('is-done');
         el.innerHTML = '<p class="mw-otto-done">' + esc(text) + '</p>';
         setTimeout(function () {
+            var host = el.parentNode;
             el.remove();
-            if (!list.querySelector('.mw-otto-item')) list.innerHTML = '<div class="mw-otto-empty">All caught up. Nothing needs you.</div>';
+            if (host && !host.querySelector('.mw-otto-item')) host.innerHTML = '<div class="mw-otto-empty">All caught up. Nothing needs you.</div>';
         }, 2600);
     }
 
@@ -139,6 +177,7 @@
         body.mode = 'decide';
         body.suggestion_id = parseInt(el.dataset.id, 10);
         return post(body).then(function (r) {
+            if (r.ok && r.redirect) { done(el, r.message); setTimeout(function () { window.location.href = r.redirect; }, 900); return; }
             if (r.ok) done(el, r.message);
             else { say(el, r.message || r.error || 'That didn\'t work.', true); if (btn) btn.disabled = false; }
         }).catch(function () { say(el, 'No connection. Try again.', true); if (btn) btn.disabled = false; });
@@ -165,6 +204,23 @@
             if (co) { if (!co.value) return say(el, 'Set the clock-out time first.', true); body.clock_out = co.value.replace('T', ' '); }
             if (mi) { if (!mi.value) return say(el, 'Give the minutes first.', true); body.minutes = parseInt(mi.value, 10); }
             return decide(el, body, btn);
+        }
+        if (what === 'add' || what === 'add_invoice' || what === 'link') {
+            var st = el.querySelector('input[name="start"]').value;
+            var en = el.querySelector('input[name="end"]').value;
+            if (!st || !en || en <= st) return say(el, 'Set when they started and finished.', true);
+            var plan = el.querySelector('select[name="plan_id"]').value;
+            var b2 = { start: st, end: en, then: what === 'add_invoice' ? 'invoice' : (what === 'link' ? 'link' : 'none') };
+            if (plan === 'oneoff') {
+                b2.choice = 'oneoff';
+                b2.service_type = el.querySelector('select[name="service_type"]').value;
+                b2.title = el.querySelector('input[name="title"]').value;
+            } else {
+                b2.choice = 'add_visit';
+                b2.plan_id = parseInt(plan, 10);
+            }
+            if (what === 'link') b2.invoice_id = parseInt(btn.getAttribute('data-invoice'), 10);
+            return decide(el, b2, btn);
         }
         return decide(el, { choice: what }, btn);
     }
@@ -230,6 +286,9 @@
             questions(r.questions);
         }).catch(function () { list.innerHTML = '<div class="mw-otto-empty">Otto couldn\'t load. Refresh to try again.</div>'; });
     }
+
+    // The review page (/crm/ops/otto-review.php) renders the same items with the same buttons.
+    window.MwOtto = { item: item, get: get, post: post, esc: esc };
 
     function init() {
         list = document.getElementById('mw-otto-list');

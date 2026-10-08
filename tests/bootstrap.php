@@ -106,6 +106,11 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
+// Work with nothing scheduled + real visit lengths (migrations 1265 / 1266)
+require_once __DIR__ . '/../app/Modules/Operations/Services/UnscheduledWorkRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/UnscheduledWorkService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitDurationRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitDurationService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
 require_once __DIR__ . '/../app/Modules/Operations/Services/CostFactsService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TripAttributionService.php';

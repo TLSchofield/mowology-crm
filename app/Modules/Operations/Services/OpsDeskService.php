@@ -24,7 +24,7 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'duration'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
     public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
     /** Crew training kinds (quiz + certification watched by Otto). */
@@ -120,7 +120,8 @@ class OpsDeskService
      */
     public function current(bool $persist = false): array
     {
-        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems());
+        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems(),
+            $this->unscheduledItems($persist), $this->durationItems());
         $known = $this->known();
         $open = [];
         foreach ($items as $it) {
@@ -154,6 +155,9 @@ class OpsDeskService
             'dispatch' => array_sum(array_intersect_key($by, array_flip(self::DISPATCH_KINDS))),
             'training' => array_sum(array_intersect_key($by, array_flip(self::TRAINING_KINDS))),
             'silent'  => $silent,
+            'unscheduled' => $by['unscheduled'],
+            'durations' => $by['duration'],
+            'coverage' => $this->coverage(),
             'right_first_time' => $this->rightFirstTime(),
             'outlook' => $this->outlookLine(),
         ];
@@ -475,6 +479,42 @@ class OpsDeskService
             error_log('Otto training: ' . $e->getMessage());
         }
         return $out;
+    }
+
+    // ── Work with nothing scheduled; real visit lengths (migrations 1265 / 1266) ─
+
+    /** $fill: compute up to a few uncached days (the API call), never on a page render. */
+    private function unscheduledItems(bool $fill): array
+    {
+        try {
+            require_once __DIR__ . '/UnscheduledWorkService.php';
+            return (new UnscheduledWorkService($this->db, $this->today))->items($fill);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function durationItems(): array
+    {
+        try {
+            require_once __DIR__ . '/VisitDurationService.php';
+            return (new VisitDurationService($this->db, $this->today))->items();
+        } catch (Throwable $e) {
+            error_log('Otto durations: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Share of visits completed in the last 60 days that have a job timer. */
+    public function coverage(): ?array
+    {
+        try {
+            require_once __DIR__ . '/VisitDurationService.php';
+            return (new VisitDurationService($this->db, $this->today))->coverage();
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

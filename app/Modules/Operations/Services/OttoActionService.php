@@ -71,6 +71,8 @@ class OttoActionService
             case 'training_topic':
             case 'safety_refresher':
                 return $this->training($sug, $propose, $choice, $actorId);
+            case 'unscheduled': return $this->unscheduled($sug, $in, $actorId);
+            case 'duration':    return $this->duration($sug, $propose, $choice, $in, $actorId);
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];
     }
@@ -290,6 +292,35 @@ class OttoActionService
         $outcome = ['choice' => 'task', 'task_id' => $taskId];
         if ($kind === 'safety_refresher') $outcome['before_expiry'] = ($propose['state'] ?? '') === 'due';
         return $this->close($sug, 'accepted', $outcome, $actorId, 'Task made for you, due ' . date('M j', strtotime($due)) . '.');
+    }
+
+    // ── Work with nothing scheduled / real visit lengths ────────────────────
+
+    /** Add the visit (existing plan or one-off) as done with the observed times, then invoice / link; or "not work". */
+    private function unscheduled(array $sug, array $in, int $actorId): array
+    {
+        require_once __DIR__ . '/UnscheduledWorkService.php';
+        $r = (new UnscheduledWorkService($this->db))->apply($sug, $in, $actorId);
+        if (!$r['ok']) return $r;
+        $out = $this->close($sug, $r['status'], $r['outcome'], $actorId, $r['message']);
+        if (!empty($r['redirect'])) $out['redirect'] = $r['redirect'];
+        return $out;
+    }
+
+    /** apply → the plan's length (logged, undoable); keep → the plan stays as it is. */
+    private function duration(array $sug, array $propose, string $choice, array $in, int $actorId): array
+    {
+        if ($choice === 'keep') return $this->close($sug, 'dismissed', ['choice' => 'keep', 'proposed' => $propose['minutes'] ?? null], $actorId, 'Kept the plan length.');
+        if ($choice !== 'apply') return ['ok' => false, 'message' => 'Apply the new length, or keep the plan?'];
+        require_once __DIR__ . '/VisitDurationService.php';
+        $minutes = (int)($in['minutes'] ?? 0);
+        $basis = $propose + ['proposed' => $propose['minutes'] ?? null];
+        $r = (new VisitDurationService($this->db))->apply((int)$sug['subject_id'], $minutes, $actorId, $basis, null, false);
+        if (!$r['ok']) return $r;
+        $status = isset($propose['minutes']) ? OttoRules::keptOrEdited((int)$propose['minutes'], $minutes) : 'edited';
+        $out = $this->close($sug, $status, ['choice' => 'apply', 'minutes' => $minutes, 'was' => $r['old'], 'change_id' => $r['change_id'], 'suggested' => $propose['minutes'] ?? null], $actorId, $r['message']);
+        $out['change_id'] = $r['change_id'];
+        return $out;
     }
 
     private function visitNote(int $visitId, string $text, int $actorId): void

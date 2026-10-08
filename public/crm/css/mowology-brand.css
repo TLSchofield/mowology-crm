@@ -38873,3 +38873,47 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-jbi-act { white-space: normal; }
   .mw-jbi-act .form-control { width: 100%; margin: 4px 0; }
 }
+/* ── Otto: work with nothing scheduled + real visit lengths (migrations 1265 / 1266) ──
+      card controls (.mw-otto-unsched) and the review page /crm/ops/otto-review.php (.mw-or-*) ── */
+.mw-otto-unsched { margin-bottom: 6px; }
+.mw-otto-btns select { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 6px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-0); max-width: 100%; }
+.mw-otto-btns input[type="time"] { width: 104px; }
+.mw-otto-btns input[name="title"] { width: 240px; }
+.mw-otto-oneoff { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.mw-otto-oneoff[hidden] { display: none; }
+.mw-otto-msg.is-bad, .mw-or-msg.is-bad { color: var(--mw-orange); }
+.mw-or-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.mw-or-tabs a { padding: 6px 14px; border-radius: var(--mw-radius-pill); border: 1px solid var(--mw-ink-200); font-size: .82rem; font-weight: 600; color: var(--mw-forest); background: var(--mw-ink-0); }
+.mw-or-tabs a.is-on { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); }
+.mw-or-empty { font-size: .85rem; color: var(--mw-ink-500); }
+.mw-or-case { border-left: 4px solid var(--mw-orange); }
+.mw-or-case-hd { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.mw-or-when { font-size: .78rem; color: var(--mw-ink-500); font-weight: 600; }
+.mw-or-where { font-size: 1rem; font-weight: 800; color: var(--mw-forest); overflow-wrap: anywhere; }
+.mw-or-conf { font-size: .7rem; font-weight: 700; border-radius: var(--mw-radius-pill); padding: 3px 10px; background: var(--mw-ink-50); color: var(--mw-ink-700); white-space: nowrap; }
+.mw-or-conf.is-high { background: var(--mw-light); color: var(--mw-dark); }
+.mw-or-conf.is-low { color: var(--mw-ink-500); }
+.mw-or-ev { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.mw-or-ev li { font-size: .8rem; color: var(--mw-ink-900); padding: 2px 0 2px 9px; border-left: 3px solid var(--mw-ink-200); overflow-wrap: anywhere; }
+.mw-or-ev li.is-truck { border-left-color: var(--mw-green); }
+.mw-or-ev li.is-crew { border-left-color: var(--mw-lime); }
+.mw-or-ev li.is-inv { border-left-color: var(--mw-orange); }
+.mw-or-ev li.is-none, .mw-or-ev li.is-near { color: var(--mw-ink-500); }
+.mw-or-act .mw-otto-item { border-left-color: var(--mw-green); }
+.mw-or-act .mw-otto-item > p, .mw-or-act .mw-otto-detail { display: none; }
+.mw-or-ignored summary { cursor: pointer; font-size: .85rem; font-weight: 600; color: var(--mw-forest); }
+.mw-or-ignored ul { margin: 0; padding: 0 16px 14px 32px; font-size: .78rem; color: var(--mw-ink-700); }
+.mw-or-cov { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.mw-or-bulk { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.mw-or-table td, .mw-or-table th { vertical-align: middle; font-size: .82rem; }
+.mw-or-table .text-end { white-space: nowrap; }
+.mw-or-table tr.is-prop td:first-child { border-left: 3px solid var(--mw-orange); }
+.mw-or-btns { white-space: nowrap; }
+.mw-or-btns input { width: 70px; border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 3px 6px; font-size: .8rem; margin-right: 4px; }
+.mw-or-ok { font-size: .68rem; font-weight: 700; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 1px 8px; }
+.mw-or-msg { display: inline-block; margin-left: 6px; font-size: .74rem; color: var(--mw-dark); white-space: normal; }
+.mw-or-hist { margin: 0; padding-left: 18px; font-size: .8rem; }
+@media (max-width: 575.98px) {
+  .mw-or-btns { white-space: normal; }
+  .mw-otto-btns input[name="title"] { width: 100%; }
+}
