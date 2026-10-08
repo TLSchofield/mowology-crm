@@ -837,7 +837,7 @@ class IcloudInboxRouter
             }
             case 'payment': {
                 // TODO(Penny): no PayPal/Stripe/Square parser feeds payment matching yet — kept as a
-                // vendor_messages row (kind 'payment', migration 1226) so nothing is lost until one exists.
+                // vendor_messages row (kind 'payment', migration 1229) so nothing is lost until one exists.
                 $svc = new VendorMessageService($this->db);
                 if (!$svc->ready()) return $out;
                 $res = $svc->store(['message_key' => $key, 'mailbox' => $mailbox, 'kind' => 'payment',

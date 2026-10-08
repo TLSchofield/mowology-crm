@@ -124,7 +124,7 @@ class VendorMessageService
             mb_substr($m['from'], 0, 255), mb_substr($m['to'], 0, 255), mb_substr($m['subject'], 0, 255),
             $m['snippet'], date('Y-m-d H:i:s', strtotime($m['sent_at']) ?: time()),
         ];
-        // kind ('message' | 'payment') needs migration 1226; before it, the row is stored without it.
+        // kind ('message' | 'payment') needs migration 1229; before it, the row is stored without it.
         $kind = (string)($m['kind'] ?? 'message');
         if ($this->hasKind()) {
             $s = $this->db->prepare("
@@ -144,7 +144,7 @@ class VendorMessageService
 
     private ?bool $hasKind = null;
 
-    /** vendor_messages.kind exists (migration 1226). */
+    /** vendor_messages.kind exists (migration 1229). */
     private function hasKind(): bool
     {
         if ($this->hasKind === null) {
