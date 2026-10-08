@@ -49,6 +49,13 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBrainService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/ClueService.php';
+// Tim's iCloud as a read-only source (mailbox config, read-only IMAP helpers, router, leads, vendor mail)
+require_once __DIR__ . '/../app/Services/Mail/MailboxConfig.php';
+require_once __DIR__ . '/../app/Services/Mail/ImapReader.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 

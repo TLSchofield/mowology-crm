@@ -9,7 +9,8 @@
  * YardiEftInboxService for the auto-record bar) or drops it into the same
  * "Pending e-Transfers" panel used by the Interac poller.
  *
- * Never modifies mail flags. Re-processing is prevented by the unique
+ * Never modifies mail flags (OP_READONLY + FT_PEEK since 2026-10-07; iCloud copies come
+ * through IcloudInboxRouter into the same ingest()). Re-processing is prevented by the unique
  * dedup_key (yardi:{transaction reference}:{invoice number}) in the DB, so a
  * wide SINCE window is safe.
  *
@@ -36,6 +37,8 @@ require_once APP_ROOT . '/Core/config.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/YardiEftInboxService.php';
+require_once APP_ROOT . '/Services/Mail/MailboxConfig.php';
+require_once APP_ROOT . '/Services/Mail/ImapReader.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
@@ -60,15 +63,10 @@ if (!function_exists('imap_open')) {
 $db      = getDB();
 $service = new YardiEftInboxService($db);
 
-$host   = 'mail.mowology.ca';
-$port   = 993;
 $sender = 'DoNotReply@yardi.com';
 $since  = date('d-M-Y', strtotime('-21 days'));
 
-imap_timeout(IMAP_OPENTIMEOUT,  15);
-imap_timeout(IMAP_READTIMEOUT,  20);
-imap_timeout(IMAP_WRITETIMEOUT, 20);
-imap_timeout(IMAP_CLOSETIMEOUT, 10);
+ImapReader::timeouts();
 
 // Launch floor — ignore remittances received before this feature went live.
 // Override with YARDI_EFT_POLL_FLOOR in secrets.php to backfill further.
@@ -95,7 +93,7 @@ function yardiPollWalk($mbox, int $msgNo, $part, string $pn, array &$acc): void 
         }
         return;
     }
-    $data = yardiPollDecode(imap_fetchbody($mbox, $msgNo, $pn ?: '1'), (int)($part->encoding ?? 0));
+    $data = yardiPollDecode((string)imap_fetchbody($mbox, $msgNo, $pn ?: '1', FT_PEEK), (int)($part->encoding ?? 0));
     if ($type === 'plain' && $acc['plain'] === '') { $acc['plain'] = $data; }
     elseif ($type === 'html' && $acc['html'] === '') { $acc['html'] = $data; }
 }
@@ -111,7 +109,7 @@ function yardiPollBody($mbox, int $msgNo): string {
     if (!empty($struct->parts)) {
         yardiPollWalk($mbox, $msgNo, $struct, '', $acc);
     } else {
-        $acc['plain'] = yardiPollDecode(imap_body($mbox, $msgNo), (int)($struct->encoding ?? 0));
+        $acc['plain'] = yardiPollDecode((string)imap_body($mbox, $msgNo, FT_PEEK), (int)($struct->encoding ?? 0));
     }
     return $acc['plain'] !== '' ? $acc['plain'] : $acc['html'];
 }
@@ -120,7 +118,8 @@ $seen = 0;
 $totals = ['processed' => 0, 'auto_recorded' => 0, 'pending' => 0, 'skipped_duplicate' => 0];
 $mailboxErrors = 0;
 
-if (!defined('SMTP_USER') || !defined('SMTP_PASS') || SMTP_PASS === '') {
+$office = MailboxConfig::forPurpose('yardi')[0] ?? null;   // office@ (SMTP_USER / SMTP_PASS)
+if ($office === null) {
     yardiPollLog('FATAL: office@ mailbox credentials (SMTP_USER/SMTP_PASS) not configured.');
     recordCronRun('yardi_eft_inbox_poll', 'error', 'Mailbox credentials not configured.', (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
     if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
@@ -128,19 +127,15 @@ if (!defined('SMTP_USER') || !defined('SMTP_PASS') || SMTP_PASS === '') {
     exit;
 }
 
-$ref  = "{{$host}:{$port}/imap/ssl}INBOX";
-$mbox = @imap_open($ref, SMTP_USER, SMTP_PASS, 0, 1);
-if ($mbox === false) {
-    $mbox = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}INBOX", SMTP_USER, SMTP_PASS, 0, 1);
-}
+$mbox = ImapReader::open($office, 'INBOX');   // OP_READONLY + FT_PEEK — never marks office@ mail read
 
 if ($mbox === false) {
-    yardiPollLog('ERROR: could not log into ' . SMTP_USER . ': ' . implode('; ', imap_errors() ?: ['unknown']));
+    yardiPollLog('ERROR: could not log into ' . $office['user'] . ': ' . implode('; ', imap_errors() ?: ['unknown']));
     $mailboxErrors++;
 } else {
     $hits = @imap_search($mbox, 'FROM "' . $sender . '" SINCE "' . $since . '"');
     $hits = is_array($hits) ? $hits : [];
-    yardiPollLog(SMTP_USER . ': ' . count($hits) . ' Yardi remittance email(s) in window');
+    yardiPollLog($office['user'] . ': ' . count($hits) . ' Yardi remittance email(s) in window');
 
     foreach ($hits as $msgNo) {
         $seen++;
@@ -163,7 +158,7 @@ if ($mbox === false) {
                 continue;
             }
 
-            $res = $service->ingest($parsed, SMTP_USER, $msgId, $subject, $date, $systemUserId);
+            $res = $service->ingest($parsed, $office['user'], $msgId, $subject, $date, $systemUserId);
             foreach ($totals as $k => $v) { $totals[$k] += $res[$k] ?? 0; }
             yardiPollLog("msg {$msgNo}: ref={$parsed['transaction_reference']} lines=" . count($parsed['lines'])
                 . " auto_recorded={$res['auto_recorded']} pending={$res['pending']} dup={$res['skipped_duplicate']}");

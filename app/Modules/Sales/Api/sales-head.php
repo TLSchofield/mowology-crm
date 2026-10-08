@@ -12,6 +12,9 @@
  *                          last email — Tim's click only, capped per day.
  * POST {mode: 'answer', question_id, answer: lost|keep|won, csrf_token}
  * POST {mode: 'lead_dismiss', lead_id, csrf_token}    "Not a lead" (spam, out of area…)
+ * POST {mode: 'maybe_accept'|'maybe_dismiss', candidate_id, csrf_token}   A "maybe a lead" from
+ *                          email (EmailLeadService, Tim's iCloud): make it a real lead, or not.
+ *                          The desk response carries `maybe_leads`.
  * POST {mode: 'test_push', csrf_token}   "Send me a test push": APNs configured? how many active
  *                          iOS tokens the current user has, and APNs' answer per token
  *                          (QuoteViewNotifier::testPush — the quote-opened push uses the same path).
@@ -80,6 +83,8 @@ try {
     $fu = new SamFollowupService($db);
     $sq = new SamQuestionService($db);
     $name = SalesDeskService::ownerName((array)$user);
+    require_once APP_ROOT . '/Modules/Sales/Services/EmailLeadService.php';
+    $emailLeads = new EmailLeadService($db);   // maybes() is empty until migration 1223
 
     $findCard = function (string $key) use ($desk): ?array {
         foreach ($desk->queue() as $c) if ($c['key'] === $key) return $c;
@@ -107,6 +112,7 @@ try {
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
                 'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
                 'unclaimed' => array_slice($desk->unclaimed($all), 0, 12), // replies about a quote nobody answered ("Handled" = Charlie dismiss)
+                'maybe_leads' => $emailLeads->maybes(8),                // enquiries from email the rules weren't sure about
             ]);
             break;
         }
@@ -171,6 +177,19 @@ try {
         case 'test_push': {
             require_once APP_ROOT . '/Modules/Sales/Services/QuoteViewNotifier.php';
             echo json_encode((new QuoteViewNotifier($db))->testPush((int)$user['id']));
+            break;
+        }
+
+        case 'maybe_accept': {
+            $qr = $emailLeads->accept((int)($input['candidate_id'] ?? 0), (int)$user['id']);
+            echo json_encode(['ok' => $qr !== null, 'lead_id' => $qr,
+                              'message' => $qr !== null ? 'Added to your leads.' : 'Already handled.']);
+            break;
+        }
+
+        case 'maybe_dismiss': {
+            $ok = $emailLeads->dismiss((int)($input['candidate_id'] ?? 0), (int)$user['id']);
+            echo json_encode(['ok' => $ok, 'message' => $ok ? 'Got it — not a lead.' : 'Already handled.']);
             break;
         }
 

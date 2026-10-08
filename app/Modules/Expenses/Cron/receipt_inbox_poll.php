@@ -14,7 +14,7 @@
  * Mailbox:
  *   - receipts@mowology.ca — RECEIPTS_IMAP_PASS in secrets.php
  *
- * Never modifies mail flags. Re-processing is prevented by the unique dedup_key
+ * Never modifies mail flags: every mailbox opened OP_READONLY (ImapReader), fetches FT_PEEK. Re-processing is prevented by the unique dedup_key
  * (message-id:sha256, else sha:sha256) in receipt_inbox_messages, so a wide SINCE
  * window is safe.
  *
@@ -43,6 +43,8 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
+require_once APP_ROOT . '/Services/Mail/MailboxConfig.php';
+require_once APP_ROOT . '/Services/Mail/ImapReader.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
@@ -101,16 +103,15 @@ function rpFail(string $msg): void {
 if (!function_exists('imap_open')) {
     rpFail('FATAL: PHP imap extension not available.');
 }
-if (!defined('RECEIPTS_IMAP_PASS') || RECEIPTS_IMAP_PASS === '') {
+$receiptsBox = MailboxConfig::get('receipts');
+if (!$receiptsBox || !$receiptsBox['configured']) {
     rpFail('FATAL: RECEIPTS_IMAP_PASS not configured in secrets.php.');
 }
 
 $db      = getDB();
 $service = new ReceiptInboxService($db);
 
-$host  = 'mail.mowology.ca';
-$port  = 993;
-$user  = 'receipts@mowology.ca';
+$user  = $receiptsBox['user'];
 $since = date('d-M-Y', strtotime('-21 days'));
 
 // Attribute auto-created expenses to an admin user (created_by is NOT NULL).
@@ -122,108 +123,27 @@ if ($systemUserId <= 0) {
     rpFail('FATAL: no users found to attribute expenses to.');
 }
 
-imap_timeout(IMAP_OPENTIMEOUT,  15);
-imap_timeout(IMAP_READTIMEOUT,  20);
-imap_timeout(IMAP_WRITETIMEOUT, 20);
-imap_timeout(IMAP_CLOSETIMEOUT, 10);
+ImapReader::timeouts();
 
 // Launch floor: ignore receipts received before the feature went live.
 $floorTs = strtotime((defined('RECEIPTS_POLL_FLOOR') ? RECEIPTS_POLL_FLOOR : '2026-06-19') . ' 00:00:00');
 
-/** Decode a MIME part body by its transfer-encoding. */
-function rpDecode(string $data, int $enc): string {
-    if ($enc === 3) { return base64_decode($data); }            // BASE64
-    if ($enc === 4) { return quoted_printable_decode($data); }  // QUOTED-PRINTABLE
-    return $data;
-}
-
-/** Build a MIME type string from an IMAP part's numeric type + subtype. */
-function rpMime($part): string {
-    $primary = [0 => 'text', 1 => 'multipart', 2 => 'message', 3 => 'application',
-                4 => 'audio', 5 => 'image', 6 => 'video', 7 => 'other'][(int)($part->type ?? 7)] ?? 'other';
-    $sub = strtolower((string)($part->subtype ?? ''));
-    return $primary . '/' . $sub;
-}
-
-/** Read a parameter (e.g. name / filename) from a part's parameter lists. */
-function rpParam($part, string $key): ?string {
-    foreach (['parameters' => 'ifparameters', 'dparameters' => 'ifdparameters'] as $list => $flag) {
-        if (!empty($part->$flag) && !empty($part->$list)) {
-            foreach ($part->$list as $p) {
-                if (strtolower($p->attribute) === strtolower($key)) {
-                    return $p->value;
-                }
-            }
-        }
-    }
-    return null;
-}
-
-/**
- * The email's own text part — HTML preferred, else plain — for receipts that ARE the
- * email. Returns ['pn','encoding','charset','html'] or null.
- */
-function rpBodyPart($part, string $pn = ''): ?array {
-    if (!empty($part->parts)) {
-        $plain = null;
-        foreach ($part->parts as $i => $child) {
-            $hit = rpBodyPart($child, $pn === '' ? (string)($i + 1) : $pn . '.' . ($i + 1));
-            if ($hit && $hit['html']) return $hit;
-            if ($hit && !$plain) $plain = $hit;
-        }
-        return $plain;
-    }
-    if ((int)($part->type ?? 7) !== 0) return null;
-    $sub = strtolower((string)($part->subtype ?? ''));
-    if ($sub !== 'html' && $sub !== 'plain') return null;
-    if (strtolower((string)($part->disposition ?? '')) === 'attachment') return null;
-    return ['pn' => $pn ?: '1', 'encoding' => (int)($part->encoding ?? 0),
-            'charset' => strtoupper((string)(rpParam($part, 'charset') ?? 'UTF-8')), 'html' => $sub === 'html'];
-}
-
-/**
- * Recursively collect attachment parts (PDF + images). Accumulates
- * ['pn'=>section, 'filename'=>?, 'mime'=>str, 'encoding'=>int].
- */
-function rpWalk($part, string $pn, array &$acc): void {
-    if (!empty($part->parts)) {
-        foreach ($part->parts as $i => $child) {
-            rpWalk($child, $pn === '' ? (string)($i + 1) : $pn . '.' . ($i + 1), $acc);
-        }
-        return;
-    }
-    $type = (int)($part->type ?? 7);
-    $sub  = strtolower((string)($part->subtype ?? ''));
-    $disp = strtolower((string)($part->disposition ?? ''));
-    $name = rpParam($part, 'filename') ?? rpParam($part, 'name');
-
-    $isPdf   = ($type === 3 && $sub === 'pdf');
-    $isImage = ($type === 5 && in_array($sub, ['jpeg', 'jpg', 'png', 'gif', 'webp', 'heic', 'heif'], true));
-    $looksAttached = ($disp === 'attachment' || $disp === 'inline' || $name !== null);
-
-    if (($isPdf || $isImage) && $looksAttached) {
-        $acc[] = [
-            'pn'       => $pn ?: '1',
-            'filename' => $name ?: ($isPdf ? 'receipt.pdf' : 'receipt.jpg'),
-            'mime'     => rpMime($part),
-            'encoding' => (int)($part->encoding ?? 0),
-        ];
-    }
-}
+// MIME helpers moved to ImapReader (2026-10-07) so the iCloud router walks attachments the same way.
+function rpDecode(string $data, int $enc): string { return ImapReader::decode($data, $enc); }
+function rpBodyPart($part, string $pn = ''): ?array { return ImapReader::bodyPart($part, $pn); }
+function rpWalk($part, string $pn, array &$acc): void { $acc = array_merge($acc, ImapReader::attachments($part, $pn)); }
 
 // Mailboxes: receipts@ takes everything; office@ (shared business inbox, added 2026-10-06)
 // only receipt-looking mail, read-only, from the day it was added.
-$mailboxes = [['user' => $user, 'pass' => RECEIPTS_IMAP_PASS, 'filter' => false, 'floor' => $floorTs]];
-if (defined('SMTP_USER') && defined('SMTP_PASS') && SMTP_PASS !== '' && strtolower((string)SMTP_USER) !== $user) {
-    $mailboxes[] = ['user' => SMTP_USER, 'pass' => SMTP_PASS, 'filter' => true, 'floor' => strtotime('2026-10-06 00:00:00')];
+$mailboxes = [$receiptsBox + ['filter' => false, 'floor' => $floorTs]];
+foreach (MailboxConfig::forPurpose('receipts') as $mbCfg) {
+    if ($mbCfg['key'] === 'office' && strtolower($mbCfg['user']) !== strtolower($user)) {
+        $mailboxes[] = $mbCfg + ['filter' => true, 'floor' => strtotime('2026-10-06 00:00:00')];
+    }
 }
-// Tim's personal iCloud inbox (2026-10-06, his call): same receipt-only filter, read-only,
-// from the day it was added — but a mail from himself is NOT automatically a receipt there.
-// Needs an Apple app-specific password: ICLOUD_IMAP_USER / ICLOUD_IMAP_PASS in secrets.php.
-if (defined('ICLOUD_IMAP_USER') && defined('ICLOUD_IMAP_PASS') && ICLOUD_IMAP_PASS !== '') {
-    $mailboxes[] = ['user' => ICLOUD_IMAP_USER, 'pass' => ICLOUD_IMAP_PASS, 'filter' => true, 'personal' => true,
-                    'host' => 'imap.mail.me.com', 'floor' => strtotime('2026-10-06 00:00:00')];
-}
+// Tim's personal iCloud inbox (2026-10-06, his call) is NOT read here any more (2026-10-07):
+// IcloudInboxRouter reads it once and hands receipt-looking mail to ReceiptInboxService with the
+// same personal filter (a mail from himself is not automatically a receipt there).
 $lower = fn($rows) => array_values(array_filter(array_map(fn($e) => strtolower(trim((string)$e)), $rows)));
 $ownerEmails = ['mowology@icloud.com'];
 $clientEmails = [];
@@ -238,12 +158,7 @@ $searchError  = null;
 
 foreach ($mailboxes as $mb) {
     $user = $mb['user'];
-    $mbHost = $mb['host'] ?? $host;
-    $ref  = "{{$mbHost}:{$port}/imap/ssl}INBOX";
-    $mbox = @imap_open($ref, $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
-    if ($mbox === false) {
-        $mbox = @imap_open("{{$mbHost}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
-    }
+    $mbox = ImapReader::open($mb, 'INBOX');   // OP_READONLY for every mailbox (fetches use FT_PEEK)
     if ($mbox === false) {
         if (!$mb['filter']) rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
         rpLog("WARNING: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));

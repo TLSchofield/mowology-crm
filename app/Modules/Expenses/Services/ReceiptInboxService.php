@@ -264,6 +264,12 @@ class ReceiptInboxService
         if (!$this->claim($msg, $dedup, $filename)) {
             return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
         }
+        // The same file under another Message-ID (forwarded from office@ to iCloud, a vendor's
+        // resend): already read once — never a second expense (2026-10-07, iCloud router).
+        if ($this->shaSeenElsewhere($sha256, $dedup)) {
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'same file as an earlier email');
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => 'same file as an earlier email'];
+        }
 
         try {
             return $this->processClaimedAttachment($msg, $bytes, $filename, $mime, $systemUserId, $dedup, $sha256);
@@ -271,6 +277,18 @@ class ReceiptInboxService
             $this->releaseClaim($dedup);
             throw $e;
         }
+    }
+
+    /** An earlier email (any mailbox) already carried exactly these bytes. */
+    private function shaSeenElsewhere(string $sha256, string $dedup): bool
+    {
+        $s = $this->db->prepare("
+            SELECT 1 FROM receipt_inbox_messages
+            WHERE dedup_key <> ? AND (dedup_key = ? OR dedup_key LIKE ?) AND outcome <> 'processing'
+            LIMIT 1
+        ");
+        $s->execute([$dedup, 'sha:' . $sha256, '%:' . $sha256]);
+        return (bool)$s->fetchColumn();
     }
 
     /** Does the actual store/OCR/expense-creation work for an already-claimed dedup key. */
@@ -339,7 +357,14 @@ class ReceiptInboxService
             error_log('[ReceiptInboxService] anomaly: ' . $e->getMessage());
         }
 
-        // 6) Create the expense.
+        // 6) Create the expense — through ExpenseCreateGuard like every create path: one
+        //    receipt file, one expense.
+        require_once __DIR__ . '/ExpenseCreateGuard.php';
+        $guard = new ExpenseCreateGuard($this->db);
+        if ($mediaId && ($existing = $guard->claim($mediaId)) !== null) {
+            $this->finalizeClaim($dedup, $mediaId, $existing, 'skipped', null, 'already expense #' . $existing);
+            return ['status' => 'duplicate', 'expense_id' => $existing, 'note' => 'already expense #' . $existing, 'high_confidence' => false];
+        }
         $note = $msg['subject'] ? ('Emailed receipt: ' . $msg['subject']) : 'Emailed receipt';
         $ins = $this->db->prepare("
             INSERT INTO expenses
@@ -372,6 +397,7 @@ class ReceiptInboxService
             $systemUserId,
         ]);
         $expenseId = (int) $this->db->lastInsertId();
+        $guard->release($mediaId);
 
         // 7) Finalize the claimed audit row with the outcome.
         //    'auto_posted' is now written only when the owner approves (approve() /

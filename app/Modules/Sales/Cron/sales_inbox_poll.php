@@ -30,6 +30,8 @@ require_once APP_ROOT . '/Core/config.php';
 require_once CRM_INCLUDES . '/functions.php';          // brings CrmFunctions.php → recordCronRun()
 require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Modules/Sales/Services/SalesInboxService.php';
+require_once APP_ROOT . '/Services/Mail/MailboxConfig.php';
+require_once APP_ROOT . '/Services/Mail/ImapReader.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
@@ -54,7 +56,8 @@ if (!function_exists('imap_open')) {
     $salesLog('FATAL: PHP imap extension not available.');
     $finish('error', 'PHP imap extension not available.', 'imap missing');
 }
-if (!defined('SMTP_USER') || !defined('SMTP_PASS') || SMTP_PASS === '') {
+$office = MailboxConfig::forPurpose('sales')[0] ?? null;   // office@ (SMTP_USER / SMTP_PASS)
+if ($office === null) {
     $salesLog('office@ credentials (SMTP_USER / SMTP_PASS) not configured.');
     $finish('warning', 'office@ credentials not configured — nothing read.');
 }
@@ -69,43 +72,10 @@ $first = (int)$db->query("SELECT COUNT(*) FROM sales_messages WHERE mailbox LIKE
 $backfill = $first || ($isCli ? in_array('--backfill', $argv ?? [], true) : !empty($_GET['backfill']));
 $since = date('d-M-Y', strtotime($backfill ? '-90 days' : '-3 days'));
 
-imap_timeout(IMAP_OPENTIMEOUT, 15);
-imap_timeout(IMAP_READTIMEOUT, 20);
-imap_timeout(IMAP_WRITETIMEOUT, 20);
-imap_timeout(IMAP_CLOSETIMEOUT, 10);
-
-$host = 'mail.mowology.ca';
-$port = 993;
-$open = function (string $folder) use ($host, $port) {
-    $flags = OP_READONLY;
-    $m = @imap_open("{{$host}:{$port}/imap/ssl}{$folder}", SMTP_USER, SMTP_PASS, $flags, 1);
-    if ($m === false) $m = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}{$folder}", SMTP_USER, SMTP_PASS, $flags, 1);
-    return $m;
-};
-
-/** First text/plain (else text/html) body, fetched with FT_PEEK so \Seen is never set. */
-$decode = fn(string $d, int $enc): string => $enc === 3 ? (string)base64_decode($d) : ($enc === 4 ? quoted_printable_decode($d) : $d);
-$body = function ($mbox, int $no) use ($decode): string {
-    $st = @imap_fetchstructure($mbox, $no);
-    if (!$st) return '';
-    $acc = ['plain' => '', 'html' => ''];
-    $walk = function ($part, string $pn) use (&$walk, &$acc, $mbox, $no, $decode): void {
-        if (!empty($part->parts)) {
-            foreach ($part->parts as $i => $child) $walk($child, $pn === '' ? (string)($i + 1) : $pn . '.' . ($i + 1));
-            return;
-        }
-        $type = strtolower($part->subtype ?? '');
-        if (!in_array($type, ['plain', 'html'], true) || $acc[$type] !== '') return;
-        $data = $decode((string)imap_fetchbody($mbox, $no, $pn ?: '1', FT_PEEK), (int)($part->encoding ?? 0));
-        $cs = '';
-        foreach (($part->parameters ?? []) as $p) if (strtolower($p->attribute) === 'charset') $cs = $p->value;
-        if ($cs !== '' && strtoupper($cs) !== 'UTF-8') $data = (string)@mb_convert_encoding($data, 'UTF-8', $cs);
-        $acc[$type] = $data;
-    };
-    if (!empty($st->parts)) $walk($st, '');
-    else $acc['plain'] = $decode((string)imap_body($mbox, $no, FT_PEEK), (int)($st->encoding ?? 0));
-    return $acc['plain'] !== '' ? $acc['plain'] : $acc['html'];
-};
+ImapReader::timeouts();
+// Read-only, always (ImapReader: OP_READONLY + FT_PEEK).
+$open = fn(string $folder) => ImapReader::open($office, $folder);
+$body = fn($mbox, int $no): string => ImapReader::textBody($mbox, $no);
 
 $counts = ['stored' => 0, 'dupe' => 0, 'skipped' => 0];
 $errors = 0;
@@ -117,10 +87,8 @@ if ($inbox === false) {
     $finish('error', 'Could not log into office@.', 'imap login failed');
 }
 // The Sent folder's name depends on the server (Sent, INBOX.Sent, Sent Items…).
-foreach ((array)@imap_list($inbox, "{{$host}:{$port}/imap/ssl}", '*') as $full) {
-    $name = preg_replace('/^\{[^}]*\}/', '', (string)$full);
-    if (preg_match('/(^|[.\/])Sent( Items| Messages)?$/i', $name)) { $folders[] = $name; break; }
-}
+$sent = ImapReader::pickSentFolder(ImapReader::folders($inbox, $office));
+if ($sent !== null) $folders[] = $sent;
 @imap_close($inbox);
 
 foreach ($folders as $folder) {

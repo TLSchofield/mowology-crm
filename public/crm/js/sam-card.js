@@ -5,7 +5,8 @@
  * suggested follow-up — editable — as an email or (with consent) a text. Send · Snooze ·
  * Not now. Nothing goes out without Tim's click; edits teach Sam to write it Tim's way.
  * When the customer wrote back, "Draft a reply" asks Claude for one (Tim's click only).
- * API: /crm/api/sales-head.php (?mode=desk; POST send / park / draft_reply / answer / lead_dismiss).
+ * API: /crm/api/sales-head.php (?mode=desk; POST send / park / draft_reply / answer / lead_dismiss /
+ * maybe_accept / maybe_dismiss — "maybe a lead" enquiries read from Tim's iCloud).
  *
  * Ask first (field recommendations, migration 1180): a customer who replied to an Ask-first
  * note gets a card with "Build the quote" — the quote is built on that observation (photos
@@ -37,6 +38,7 @@
     var SMS_MAX = 160;
 
     var queue = [], leads = [], questions = [];
+    var maybes = [];         // enquiries from email the rules weren't sure about (desk.maybe_leads)
     var texts = null;        // messages bridge heartbeat {at, silent, minutes}, null = not set up
     var idx = 0, busy = false;
     var edits = {};          // card key → {channel, subject, body, sms} while Tim types
@@ -86,6 +88,7 @@
                 queue = d.queue || []; leads = d.leads || []; questions = d.questions || []; texts = d.texts || null;
                 asks = d.asks || { replied: [], silent: [], drafts: 0 };
                 replies = d.unclaimed || [];
+                maybes = d.maybe_leads || [];
                 if (idx >= queue.length) idx = 0;
                 render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies();
             })
@@ -228,9 +231,9 @@
     // ── Leads ────────────────────────────────────────────────────────────
     function renderLeads(msg) {
         if (!lbox) return;
-        if (!leads.length && !msg) { lbox.hidden = true; return; }
+        if (!leads.length && !maybes.length && !msg) { lbox.hidden = true; return; }
         lbox.hidden = false;
-        lbox.innerHTML = '<div class="mw-sam-leads-head"><b>New leads</b> <small>best first — likely value, urgency and age</small></div>' +
+        lbox.innerHTML = (leads.length ? '<div class="mw-sam-leads-head"><b>New leads</b> <small>best first — likely value, urgency and age</small></div>' : '') +
             (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
             leads.slice(0, 5).map(function (l) {
                 var tags = [];
@@ -247,9 +250,31 @@
                     (l.phone ? '<a class="mw-rc-ed" href="tel:' + esc(l.phone.replace(/[^\d+]/g, '')) + '">Call</a>' : '') +
                     '<a class="mw-rc-ok" href="' + esc(l.url) + '">Start quote</a>' +
                     '<button type="button" class="mw-rc-sk" data-dismiss>Not a lead</button></div></div>';
-            }).join('');
+            }).join('') +
+            (maybes.length ? '<div class="mw-sam-leads-head"><b>Maybe a lead?</b> <small>emails that read like a job enquiry — you decide</small></div>' +
+                maybes.slice(0, 5).map(function (m) {
+                    return '<div class="mw-sam-lead" data-m="' + m.id + '">' +
+                        '<div class="mw-sam-lead-main"><b>' + esc(m.name) + '</b>' + (m.services ? ' · ' + esc(m.services) : '') +
+                        (m.address ? ' <small>· ' + esc(m.address) + '</small>' : '') +
+                        (m.snippet ? '<div class="mw-sam-next">' + esc(m.snippet.length > 220 ? m.snippet.slice(0, 219) + '…' : m.snippet) + '</div>' : '') +
+                        '<small class="mw-sam-meta">' + (m.subject ? esc(m.subject) + ' · ' : '') + esc(m.email) + ' · ' + esc(ago(m.at)) + '</small></div>' +
+                        '<div class="mw-sam-lead-act">' +
+                        '<button type="button" class="mw-rc-ok" data-maybe="maybe_accept">Make it a lead</button>' +
+                        '<button type="button" class="mw-rc-sk" data-maybe="maybe_dismiss">Not a lead</button></div></div>';
+                }).join('') : '');
     }
     if (lbox) lbox.addEventListener('click', function (e) {
+        var mb = e.target.closest('[data-maybe]');
+        if (mb && !busy) {
+            var mid = +mb.closest('[data-m]').getAttribute('data-m'), how = mb.getAttribute('data-maybe'); busy = true;
+            post({ mode: how, candidate_id: mid }).then(function (d) {
+                busy = false;
+                maybes = maybes.filter(function (m) { return m.id !== mid; });
+                if (d && d.ok && how === 'maybe_accept') return load().then(function () { renderLeads(d.message); });
+                renderLeads(d && (d.message || d.error));
+            }).catch(function () { busy = false; renderLeads('Network error — try again.'); });
+            return;
+        }
         var b = e.target.closest('[data-dismiss]'); if (!b || busy) return;
         var id = +b.closest('[data-l]').getAttribute('data-l'); busy = true;
         post({ mode: 'lead_dismiss', lead_id: id }).then(function (d) {

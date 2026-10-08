@@ -10,7 +10,9 @@
  * ignored and never stored. What's kept is the new text only (quoted history stripped),
  * up to ~800 characters: enough to see who said what last.
  *
- * Tim's personal mail (iCloud/Gmail) is NOT read.
+ * Tim's iCloud (mowology@icloud.com) is read by IcloudInboxRouter, which hands mail to or
+ * from a contact to ingest() here with mailbox 'icloud …' and ours = his iCloud address.
+ * The rest of his personal mail is never stored.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -45,7 +47,7 @@ class SalesInboxService
     }
 
     /** lowercase email => contact id (active contacts; the newest wins a shared address). */
-    private function contactMap(): array
+    public function contactMap(): array
     {
         if ($this->contacts !== null) return $this->contacts;
         $this->contacts = [];
@@ -58,11 +60,14 @@ class SalesInboxService
 
     /**
      * Store one email if it's to or from a customer. Returns 'stored', 'dupe' or 'skipped'.
-     * @param array{mailbox: string, message_id: ?string, from: string, to: string, subject: string, body: string, date: string} $m
+     * Dedupe is by Message-ID across every mailbox (unique message_key), so an email that
+     * reached both office@ and iCloud is stored once — under whichever mailbox read it first.
+     * @param array{mailbox: string, message_id: ?string, from: string, to: string, subject: string, body: string, date: string, ours?: string[]} $m
+     *        ours: extra addresses that are "us" in this mailbox (iCloud: mowology@icloud.com)
      */
     public function ingest(array $m): string
     {
-        $c = self::classify((string)$m['from'], (string)$m['to'], $this->contactMap());
+        $c = self::classify((string)$m['from'], (string)$m['to'], $this->contactMap(), (array)($m['ours'] ?? []));
         if ($c === null) return 'skipped';
         $sentAt = strtotime((string)$m['date']) ?: time();
         $key = trim((string)($m['message_id'] ?? '')) !== ''
@@ -125,9 +130,12 @@ class SalesInboxService
         return array_values(array_unique(array_map('strtolower', $m[0])));
     }
 
-    public static function isOurs(string $email): bool
+    /** Our own domain, or one of the extra addresses that are "us" in this mailbox (Tim's iCloud). */
+    public static function isOurs(string $email, array $ours = []): bool
     {
-        $d = strtolower(substr(strrchr($email, '@') ?: '', 1));
+        $email = strtolower(trim($email));
+        if ($ours && in_array($email, array_map('strtolower', $ours), true)) return true;
+        $d = substr(strrchr($email, '@') ?: '', 1);
         return in_array($d, self::OUR_DOMAINS, true);
     }
 
@@ -137,15 +145,15 @@ class SalesInboxService
      * null     — anything else (not a customer conversation)
      * @return array{direction: string, contact_id: int, from: string, to: string}|null
      */
-    public static function classify(string $from, string $to, array $contactMap): ?array
+    public static function classify(string $from, string $to, array $contactMap, array $ours = []): ?array
     {
         $f = self::addresses($from)[0] ?? '';
         if ($f === '') return null;
-        if (!self::isOurs($f)) {
+        if (!self::isOurs($f, $ours)) {
             return isset($contactMap[$f]) ? ['direction' => 'inbound', 'contact_id' => $contactMap[$f], 'from' => $f, 'to' => implode(', ', self::addresses($to))] : null;
         }
         foreach (self::addresses($to) as $t) {
-            if (!self::isOurs($t) && isset($contactMap[$t])) {
+            if (!self::isOurs($t, $ours) && isset($contactMap[$t])) {
                 return ['direction' => 'outbound', 'contact_id' => $contactMap[$t], 'from' => $f, 'to' => $t];
             }
         }

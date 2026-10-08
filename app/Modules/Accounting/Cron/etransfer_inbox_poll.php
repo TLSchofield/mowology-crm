@@ -10,7 +10,9 @@
  *   - info@mowology.ca   (auto-deposit — ETRANSFER_IMAP_PASS in secrets.php)
  *   - office@mowology.ca (manual claim — reuses SMTP_USER / SMTP_PASS)
  *
- * Never modifies mail flags — office@ is a human-read mailbox. Re-processing is
+ * Never modifies mail flags — office@ is a human-read mailbox: opened OP_READONLY, bodies
+ * fetched with FT_PEEK (before 2026-10-07 the fetch had no FT_PEEK and opened read-write,
+ * so it could mark Interac notices in office@ as read). Re-processing is
  * prevented by the unique dedup_key (Interac reference #) in the DB, so a wide
  * SINCE window is safe.
  *
@@ -37,6 +39,8 @@ require_once APP_ROOT . '/Core/config.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
+require_once APP_ROOT . '/Services/Mail/MailboxConfig.php';
+require_once APP_ROOT . '/Services/Mail/ImapReader.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
@@ -62,31 +66,22 @@ if (!function_exists('imap_open')) {
 $db      = getDB();
 $service = new EtransferInboxService($db);
 
-$host    = 'mail.mowology.ca';
-$port    = 993;
 $interac = 'notify@payments.interac.ca';
 $since   = date('d-M-Y', strtotime('-21 days'));   // IMAP date format (server-side window)
 
 // Bound every IMAP operation so an unresponsive mail server can never hang the
 // unattended cron (default is no timeout). Seconds.
-imap_timeout(IMAP_OPENTIMEOUT,  15);
-imap_timeout(IMAP_READTIMEOUT,  20);
-imap_timeout(IMAP_WRITETIMEOUT, 20);
-imap_timeout(IMAP_CLOSETIMEOUT, 10);
+ImapReader::timeouts();
 
 // Launch floor: ignore e-Transfers received before the feature went live so the
 // panel starts clean (office@ holds months of already-handled history). Override
 // with ETRANSFER_POLL_FLOOR in secrets.php to backfill further if ever needed.
 $floorTs = strtotime((defined('ETRANSFER_POLL_FLOOR') ? ETRANSFER_POLL_FLOOR : '2026-06-16') . ' 00:00:00');
 
-// Mailboxes to poll (skip any whose password constant is missing).
-$mailboxes = [];
-if (defined('ETRANSFER_IMAP_PASS') && ETRANSFER_IMAP_PASS !== '') {
-    $mailboxes[] = ['user' => 'info@mowology.ca', 'pass' => ETRANSFER_IMAP_PASS];
-}
-if (defined('SMTP_USER') && defined('SMTP_PASS') && SMTP_PASS !== '') {
-    $mailboxes[] = ['user' => SMTP_USER, 'pass' => SMTP_PASS];   // office@
-}
+// Mailboxes to poll: info@ (ETRANSFER_IMAP_PASS) + office@ (SMTP_USER / SMTP_PASS), any whose
+// password constant is missing is skipped (MailboxConfig). Tim's iCloud is read by
+// IcloudInboxRouter, which hands Interac notices to the same EtransferInboxService::ingest().
+$mailboxes = MailboxConfig::forPurpose('etransfer');
 
 /** Decode a MIME part body by its transfer-encoding. */
 function pollDecode(string $data, int $enc): string {
@@ -104,7 +99,7 @@ function pollWalk($mbox, int $msgNo, $part, string $pn, array &$acc): void {
         }
         return;
     }
-    $data = pollDecode(imap_fetchbody($mbox, $msgNo, $pn ?: '1'), (int)($part->encoding ?? 0));
+    $data = pollDecode((string)imap_fetchbody($mbox, $msgNo, $pn ?: '1', FT_PEEK), (int)($part->encoding ?? 0));
     if ($type === 'plain' && $acc['plain'] === '') { $acc['plain'] = $data; }
     elseif ($type === 'html' && $acc['html'] === '') { $acc['html'] = $data; }
 }
@@ -116,7 +111,7 @@ function pollBody($mbox, int $msgNo): string {
     if (!empty($struct->parts)) {
         pollWalk($mbox, $msgNo, $struct, '', $acc);
     } else {
-        $acc['plain'] = pollDecode(imap_body($mbox, $msgNo), (int)($struct->encoding ?? 0));
+        $acc['plain'] = pollDecode((string)imap_body($mbox, $msgNo, FT_PEEK), (int)($struct->encoding ?? 0));
     }
     return $acc['plain'] !== '' ? $acc['plain'] : strip_tags($acc['html']);
 }
@@ -126,11 +121,7 @@ $seen = 0;
 $mailboxErrors = 0;
 
 foreach ($mailboxes as $mb) {
-    $ref = "{{$host}:{$port}/imap/ssl}INBOX";
-    $mbox = @imap_open($ref, $mb['user'], $mb['pass'], 0, 1);
-    if ($mbox === false) {
-        $mbox = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}INBOX", $mb['user'], $mb['pass'], 0, 1);
-    }
+    $mbox = ImapReader::open($mb, 'INBOX');   // OP_READONLY — never marks office@ mail read
     if ($mbox === false) {
         pollLog("ERROR: could not log into {$mb['user']}: " . implode('; ', imap_errors() ?: ['unknown']));
         $mailboxErrors++;
