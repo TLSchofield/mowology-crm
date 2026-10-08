@@ -391,3 +391,20 @@ Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
 `TripAttributionService` (run nightly by `trip_runs_daily`) links the receipts on a dump or supply run to the job visited from that property that day. It sets `expenses.job_id` only when the receipt has a single purpose, and only when `job_id` is still empty. It never overwrites a job that is already there.
 
 A mixed supplier receipt is split by its line items into `ops_trip_job_costs`. For example, mulch that is on the job's quote goes to the job, and grass seed bought for the shop stays as job-less stock on 5200. A receipt with no line items is left untagged. See `heads-shared-facts.md`.
+
+## Receipt facts (migration 1227)
+
+`ReceiptFactsService` keeps what is printed on a receipt in `receipt_facts`, one row per expense: the printed date, the till time (or a scale ticket's Time In and Time Out), the ticket, invoice or transaction number, the card's last 4 and brand, the terminal and the store number. The facts are parsed whenever OCR text is saved. The `penny_prepare` cron also runs a backfill batch every time it runs. The batch parses up to 40 receipts. It queues receipts that were never OCR'd but have a photo for the OCR worker, with at most 40 a day. When a queued job finishes, its text is copied onto the receipt. An approved receipt gets only the text. A waiting receipt also gets its empty total, date and vendor filled in. You can run a batch on demand at `/crm/api/receipt-facts.php` (admin only).
+
+The facts are used in four places:
+- **Duplicates.** Two receipts from the same vendor with the same ticket number are the same receipt. A different ticket number or a printed time 2 or more minutes apart means two receipts, and the pair is remembered as not a duplicate.
+- **Bank matching.** A matching card last 4, printed date or printed time raises the candidate's confidence and adds a reason. Nothing is matched automatically from them.
+- **Otto's stop evidence.** The stored times are read first.
+- **Penny's card and the receipts page.** These show a short facts line.
+
+Job attribution (`ReceiptTrailService::forReceipt`) uses the evidence in this order:
+1. The printed time, then where the truck went next that day.
+2. The photo's GPS, within 150 m of a client property.
+3. The truck's next client stop within 3 h of the photo, on the same day.
+
+It never guesses from the start of the day. Times outside 06:00–21:00 are flagged.
