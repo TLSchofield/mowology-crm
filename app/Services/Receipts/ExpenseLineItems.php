@@ -66,6 +66,19 @@ function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
             updateProductInventory($db, $productId, $qty);
         }
     }
+
+    // Lines with no product → proposals on Penny's card (link / cost / new product).
+    // Never breaks the save; does nothing until migration 1225 has run.
+    proposeProductsForExpense($db, $expenseId);
+}
+
+/** Receipt lines feed the product catalogue (ProductProposalService, migration 1225). */
+function proposeProductsForExpense(PDO $db, int $expenseId): void
+{
+    $f = APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+    if (!is_file($f)) return;
+    require_once $f;
+    ProductProposalService::afterLineItemsSaved($db, $expenseId);
 }
 
 

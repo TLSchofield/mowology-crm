@@ -32,6 +32,11 @@ struct ReceiptsView: View {
     // "Snap Another" from the review sheet — reopen the camera once the sheet is gone.
     @State private var snapAnotherPending = false
 
+    // Label mode: the next photo is a product bag / machine nameplate, not a receipt.
+    // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
+    @State private var labelMode = false
+    @State private var showLabelResult = false
+
     // Observed so the "N pending" badge re-renders when a queue drains, instead of
     // only on unrelated redraws.
     @ObservedObject private var receiptQueue = ReceiptQueue.shared
@@ -151,6 +156,12 @@ struct ReceiptsView: View {
         } message: {
             Text(viewModel.uploadError ?? "")
         }
+        // Label result — read-only: the one-tap Add / Not now is on Penny's / Otto's web card.
+        .alert(viewModel.labelResult?.title ?? "Label read", isPresented: $showLabelResult) {
+            Button("OK") { viewModel.labelResult = nil }
+        } message: {
+            Text(viewModel.labelResult.map { $0.message + ($0.kind != nil ? "\n\n\($0.head) will ask on the dashboard — nothing is added until you tap Add there." : "") } ?? "")
+        }
         // Bulk approve/reject and archive/export are triggered from this view directly
         // (not through ReceiptDetailView's sheet), so they need their own error surface.
         .onChange(of: viewModel.actionError) { _, err in
@@ -195,6 +206,11 @@ struct ReceiptsView: View {
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
         let loc = await Self.captureFix() ?? locationManager.location
+        if labelMode {
+            await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
+            if viewModel.labelResult != nil { showLabelResult = true }
+            return
+        }
         capturedImageData = compressed
         captureLat = loc?.coordinate.latitude
         captureLng = loc?.coordinate.longitude
@@ -272,18 +288,31 @@ struct ReceiptsView: View {
     // MARK: - FAB
 
     private var captureButton: some View {
-        Button {
-            impact.impactOccurred()
-            viewModel.uploadError = nil
-            showCamera = true
-        } label: {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 60, height: 60)
-                .background(Color.MW.green)
-                .clipShape(Circle())
-                .shadow(color: Color.MW.green.opacity(0.4), radius: 8, y: 4)
+        VStack(alignment: .trailing, spacing: 10) {
+            // Receipt | Label toggle — what the next photo is.
+            Picker("Capture", selection: $labelMode) {
+                Text("Receipt").tag(false)
+                Text("Label").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 170)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityHint("Label: photo of a product bag or a machine's nameplate. It is never an expense.")
+
+            Button {
+                impact.impactOccurred()
+                viewModel.uploadError = nil
+                showCamera = true
+            } label: {
+                Image(systemName: labelMode ? "tag.fill" : "camera.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 60, height: 60)
+                    .background(Color.MW.green)
+                    .clipShape(Circle())
+                    .shadow(color: Color.MW.green.opacity(0.4), radius: 8, y: 4)
+            }
+            .accessibilityLabel(labelMode ? "Photograph a label" : "Photograph a receipt")
         }
         .padding(24)
         .contextMenu {

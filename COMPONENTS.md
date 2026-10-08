@@ -254,6 +254,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - Server rules live in `app/Modules/Driver/Services/TripReportService.php` (shared with the iOS app): `shiftState()` = `driving | not_driving | unasked`, bounded `performed_at`, idempotent replays.
 - Differs on purpose from `OfflineActions`, which is queue-and-forget for clock/timer POSTs.
 
+### triggerLabelCamera (product / machine label photo)
+- **File:** `public/crm/js/label-capture.js` — loaded by `expenses_appstack.php` (the **Label** chip in the mobile capture row).
+- **Purpose:** photo of a product bag or a machine nameplate → `/crm/api/label-products.php` (`mode=capture`). Same upload + OCR as a receipt, **never an expense**; Penny (product) or Otto (machine) proposes it on the dashboard. Shrinks to 2000 px, attaches location, answers with `mwToast`.
+- **Usage:** `<button onclick="triggerLabelCamera()">Label</button>` on any AppStack page that has the CSRF meta / `MW_CSRF_TOKEN`. iOS uses `/api/expenses/label-upload` (JWT).
+- The proposal cards are `penny-products.js` (`#mw-pp`) and `otto-care.js` (`#mw-otto-care`, via `includes/otto-care.php`).
+
 ### MwPhotoQueue (photo queue)
 - **File:** `public/crm/js/photo-queue.js`
 - **Purpose:** Durable photo storage + upload queue engine — saves image bytes to Capacitor Filesystem (native) or IndexedDB (browser/PWA), tracks upload status in IndexedDB, and runs a retrying background uploader.

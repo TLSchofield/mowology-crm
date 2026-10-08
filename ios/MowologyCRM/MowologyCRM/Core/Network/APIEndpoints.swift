@@ -115,6 +115,10 @@ enum APIEndpoint {
     /// POST /api/expenses/receipt-upload — upload a receipt image and run OCR (JWT).
     case receiptUpload
 
+    /// POST /api/expenses/label-upload — photo of a product bag / machine nameplate (JWT).
+    /// Same OCR as a receipt but never an expense: Penny or Otto proposes it on the web.
+    case labelUpload
+
     /// POST /api/expenses/expense-save — save a reviewed expense record (JWT).
     case expenseSave
 
@@ -337,6 +341,9 @@ enum APIEndpoint {
         case .receiptUpload:
             return URL(string: "\(baseURLString)/expenses/receipt-upload")
 
+        case .labelUpload:
+            return URL(string: "\(baseURLString)/expenses/label-upload")
+
         case .expenseSave:
             return URL(string: "\(baseURLString)/expenses/expense-save")
 
@@ -515,6 +522,7 @@ enum APIEndpoint {
              .scheduleInvoices,
              .scheduleQuotes,
              .receiptUpload,
+             .labelUpload,
              .expenseSave,
              .expenseList,
              .expenseUpdate,
@@ -576,6 +584,7 @@ enum APIEndpoint {
              .powActions,
              .powGpsSync,
              .receiptUpload,
+             .labelUpload,
              .expenseSave,
              .expenseUpdate,
              .receiptAction,
