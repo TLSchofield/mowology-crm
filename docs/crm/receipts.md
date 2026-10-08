@@ -81,6 +81,17 @@ Approved/forwarded expenses post to the ledger via
 `receipt_inbox_messages.dedup_key` = `message-id:sha256` (or `sha:sha256` when the
 message has no id). Same email re-polled, or the same file seen twice, collapses to
 one expense; two different attachments on one email are ingested separately.
+Since 2026-10-07 the same file under a *different* Message-ID (forwarded from office@ to
+iCloud, a vendor's resend) is also refused (`shaSeenElsewhere`, note "same file as an
+earlier email"), and the expense INSERT goes through `ExpenseCreateGuard`.
+
+### Mailboxes (2026-10-07)
+Hosts, users and secrets.php constants live in `app/Services/Mail/MailboxConfig.php`;
+every mailbox is opened read-only through `app/Services/Mail/ImapReader.php`
+(OP_READONLY + FT_PEEK). This cron reads receipts@ (everything) and office@ (receipt-looking
+mail only). Tim's iCloud is **not** read here any more: `IcloudInboxRouter`
+(`app/Modules/Comms/Cron/icloud_inbox_poll.php`) reads it once and hands receipt mail to
+the same `ingestAttachment()` / `ingestEmailBody()` — only mail dated after its first run.
 
 ## Activation checklist (one-time)
 
