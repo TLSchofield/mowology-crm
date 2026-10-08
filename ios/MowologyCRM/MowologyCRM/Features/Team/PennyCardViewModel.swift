@@ -47,6 +47,11 @@ final class PennyCardViewModel: ObservableObject {
     @Published var message: String?
     @Published var messageIsError = false
 
+    // MARK: - Customer billing mail routed to Penny (tasks for Tim — she never answers them)
+    @Published private(set) var messages: [PennyMessage] = []
+    @Published var mailNote: String?
+    @Published var mailNoteIsError = false
+
     // MARK: - Form (the current receipt's editable values)
     @Published var vendor = ""
     @Published var date = Date()
@@ -89,6 +94,7 @@ final class PennyCardViewModel: ObservableObject {
     }
 
     private func apply(_ r: BookkeeperQueueResponse) {
+        messages = r.messages
         queue = r.queue
         dupes = r.dupes
         categories = r.categories
@@ -239,6 +245,38 @@ final class PennyCardViewModel: ObservableObject {
         } else {
             index = i
             removeCurrent(r.message ?? "Approved")
+        }
+    }
+
+    // MARK: - Messages
+
+    /// "Move to…": not Penny's after all. The sender + topic is learned.
+    func moveMessage(_ m: PennyMessage, to head: String) async {
+        await mailAction(m, ["mode": "move", "key": m.key, "to": head], done: "Moved to \(MoveToMenu.name(head)).")
+    }
+
+    /// Tim dealt with it (filled in the form and sent it himself): off the list.
+    func messageDone(_ m: PennyMessage) async {
+        await mailAction(m, ["mode": "message_done", "key": m.key], done: "Done — off the list.")
+    }
+
+    private func mailAction(_ m: PennyMessage, _ body: [String: Any], done: String) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let r = try await api.send(body)
+            if r.ok {
+                messages.removeAll { $0.key == m.key }
+                mailNote = r.message ?? done
+                mailNoteIsError = false
+            } else {
+                mailNote = r.message ?? r.error ?? "That didn't work — try again."
+                mailNoteIsError = true
+            }
+        } catch {
+            mailNote = "Network error — nothing was changed. Try again."
+            mailNoteIsError = true
         }
     }
 

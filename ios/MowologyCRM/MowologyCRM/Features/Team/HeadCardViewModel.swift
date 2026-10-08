@@ -142,6 +142,15 @@ final class HeadCardViewModel: ObservableObject {
         show(r.message ?? "OK — I'll bring it back tomorrow.", error: false)
     }
 
+    /// "Move to…" on a customer message: it goes to that head, and the sender + topic is learned
+    /// so the next one like it goes there too (POST team-mobile {mode: move}).
+    func move(_ item: HeadItem, to head: String) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "move", "key": item.key, "to": head]) else { return }
+        items.removeAll { $0.key == item.key }
+        show(r.message ?? "Moved to \(MoveToMenu.name(head)).", error: false)
+    }
+
     // MARK: - Charlie: Ask
 
     var askLeftText: String? {

@@ -206,6 +206,9 @@ struct HeadCardView: View {
                 let w = HeadCardViewModel.waited(it)
                 if !w.isEmpty { Text(w).font(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
+                if MoveToMenu.isMovable(it.key) {
+                    MoveToMenu(current: vm.head, disabled: vm.isBusy) { to in Task { await vm.move(it, to: to) } }
+                }
                 if vm.card?.owner == true {
                     Button("Not now") { Task { await vm.notNow(it) } }
                         .font(.caption)
@@ -319,5 +322,48 @@ struct HeadCardView: View {
                 Button("Cancel", role: .cancel) {}
             }
         }
+    }
+}
+
+// MARK: - Move to…
+
+/// "Move to…" on a customer message — Penny, Sam, Otto, Mia or Yui (the web Action Board's
+/// select). The server re-routes it and learns sender + topic, so the next one goes there.
+/// Shared by the head cards, Sam's card and Penny's card (kept in this file so the Xcode
+/// project needs no new entry).
+struct MoveToMenu: View {
+    let current: String
+    var disabled = false
+    let onMove: (String) -> Void
+
+    static let heads: [(slug: String, name: String, role: String)] = [
+        ("penny", "Penny", "Bookkeeper"),
+        ("sam", "Sam", "Sales"),
+        ("otto", "Otto", "Operations"),
+        ("mia", "Mia", "Marketing"),
+        ("yui", "Yui", "Comms"),
+    ]
+
+    static func name(_ slug: String) -> String {
+        heads.first { $0.slug == slug }?.name ?? slug.capitalized
+    }
+
+    /// A reply in any head's lane, or Sam's "they replied" card (as action-board.js movable()).
+    static func isMovable(_ key: String) -> Bool {
+        key.range(of: #"^(sam|yui|penny|otto|mia):reply:\d+:[0-9a-f]{12}$"#, options: .regularExpression) != nil
+            || key.range(of: #"^sam:contact:c\d+$"#, options: .regularExpression) != nil
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Self.heads.filter { $0.slug != current }, id: \.slug) { h in
+                Button("\(h.name) · \(h.role)") { onMove(h.slug) }
+            }
+        } label: {
+            Label("Move to…", systemImage: "arrowshape.turn.up.right")
+                .labelStyle(.titleAndIcon)
+        }
+        .font(.caption)
+        .disabled(disabled)
     }
 }

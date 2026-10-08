@@ -268,9 +268,11 @@ struct BookkeeperQueueResponse: Decodable {
     let queue: [BookkeeperItem]
     let categories: [String]
     let assetTags: [BKTagOption]
+    /// Customer billing mail routed to Penny (admins) — older servers send none.
+    let messages: [PennyMessage]
     let error: String?
 
-    private enum CodingKeys: String, CodingKey { case ok, dupes, queue, categories, assetTags = "asset_tags", error }
+    private enum CodingKeys: String, CodingKey { case ok, dupes, queue, categories, assetTags = "asset_tags", messages, error }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -279,7 +281,59 @@ struct BookkeeperQueueResponse: Decodable {
         queue = (try? c.decodeIfPresent([BookkeeperItem].self, forKey: .queue)) ?? []
         categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? []
         assetTags = (try? c.decodeIfPresent([BKTagOption].self, forKey: .assetTags)) ?? BKTagOption.defaults
+        messages = (try? c.decodeIfPresent([PennyMessage].self, forKey: .messages)) ?? []
         error = c.bkString(.error)
+    }
+}
+
+// MARK: - Penny's messages (customer billing mail routed to her — InboundRouteService::forApp)
+
+/// "Vancouver Management wants your direct-deposit details — the form is attached; fill it in and
+/// email vidhya@vml.ca." A reminder for Tim: Penny never fills in or sends banking details.
+struct PennyMessage: Decodable, Identifiable, Equatable {
+    let key: String
+    let text: String
+    let subject: String
+    let at: String
+    let emailTo: String?
+    let note: String?
+    let contactURL: String?
+    let attachments: [PennyAttachment]
+
+    var id: String { key }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, text, subject, at, note, attachments
+        case emailTo = "email_to"
+        case contactURL = "contact_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = c.bkString(.key) ?? UUID().uuidString
+        text = c.bkString(.text) ?? ""
+        subject = c.bkString(.subject) ?? ""
+        at = c.bkString(.at) ?? ""
+        emailTo = c.bkString(.emailTo)
+        note = c.bkString(.note)
+        contactURL = c.bkString(.contactURL)
+        attachments = (try? c.decodeIfPresent([PennyAttachment].self, forKey: .attachments)) ?? []
+    }
+}
+
+/// A kept attachment with a short-lived signed link (opens in Safari / Quick Look).
+struct PennyAttachment: Decodable, Identifiable, Equatable {
+    let id: Int
+    let filename: String
+    let url: String
+
+    private enum CodingKeys: String, CodingKey { case id, filename, url }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        filename = c.bkString(.filename) ?? "attachment.pdf"
+        url = c.bkString(.url) ?? ""
     }
 }
 
