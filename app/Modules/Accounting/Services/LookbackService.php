@@ -281,8 +281,10 @@ class LookbackService
         $dir = $sync->directionFacts();
         $invoiceTotals = $this->invoiceTotals();
 
+        $booked = $this->depositBookedIds();
         $out = []; $rest = [];
         foreach ($rows as $r) {
+            if (isset($booked[(int)$r['id']])) continue;             // booked as a deposit (Jobber import / balance check) — settled there
             $r['code'] = $byId[(int)$r['account_id']] ?? '';
             $r['money_in'] = ($r['type'] ?? '') === 'income'
                 || (($r['type'] ?? '') === 'transfer' && LedgerSyncService::transferDirection($dir[(int)$r['id']] ?? []) === 'in');
@@ -385,6 +387,7 @@ class LookbackService
                                      FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id IN (%s)", $expenseIds);
         $txs = $this->rowsById("SELECT id FROM accounting_transactions WHERE id IN (%s)", $txIds);
         $sync = new LedgerSyncService($this->db, $this->ledger);
+        $depositBooked = $this->depositBookedIds();
 
         foreach ($entries as $e) {
             $id = (int)$e['id'];
@@ -421,6 +424,7 @@ class LookbackService
                         [self::kindWhy($kind), 'The entry is reversed and posted again from the receipt as it is now (append-only).'], 90, (float)$x['total']);
                 }
             } elseif ($e['source_type'] === 'bank_import') {
+                if (isset($depositBooked[(int)$e['source_id']])) continue;   // its deposit booking owns it (JobberLedgerService / 1236)
                 if (!isset($txs[(int)$e['source_id']])) {
                     $out[] = $mk('journal_orphan', $e, 'Entry #' . $id . ' books bank line #' . (int)$e['source_id'] . ', which was deleted — reverse it',
                         ['action' => 'reverse_entry', 'entry_id' => $id], ['The bank line is gone (rolled back or removed); its journal entry stayed.'], 90, $debits($ls));
@@ -1116,6 +1120,26 @@ TXT;
             }
         }
         return $this->chart;
+    }
+
+    /**
+     * Bank lines booked as a deposit by another tool — the Jobber import (journal source
+     * 'bank_deposit', jobber_ledger_log) or the bank balance check (1236). The look-back never
+     * proposes anything for them: they are settled there, and their undo lives there.
+     * @return array<int, true>
+     */
+    public function depositBookedIds(): array
+    {
+        $out = [];
+        try {
+            foreach ($this->db->query("SELECT DISTINCT source_id FROM journal_entries WHERE source_type = 'bank_deposit' AND reversed_by_entry_id IS NULL AND source_id IS NOT NULL")
+                         ->fetchAll(PDO::FETCH_COLUMN) as $id) $out[(int)$id] = true;
+        } catch (Throwable $e) { /* no journal */ }
+        try {
+            foreach ($this->db->query("SELECT DISTINCT transaction_id FROM jobber_ledger_log WHERE transaction_id IS NOT NULL AND undone_at IS NULL")
+                         ->fetchAll(PDO::FETCH_COLUMN) as $id) $out[(int)$id] = true;
+        } catch (Throwable $e) { /* before migration 1239 */ }
+        return $out;
     }
 
     /** category(lower) => code, the way the nightly sync reads it (owner map first, then chart aliases). */

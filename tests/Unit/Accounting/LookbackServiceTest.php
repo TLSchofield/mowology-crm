@@ -150,6 +150,19 @@ class LookbackServiceTest extends TestCase
         $this->assertSame(1, $calls, 'the answer is a rule now — reused, not asked again');
     }
 
+    public function test_deposits_booked_by_the_jobber_import_are_never_flagged(): void
+    {
+        $db = $this->db();
+        // A Jobber-era deposit the import booked: flipped to transfer + its own 'bank_deposit' entry; its old bank_import entry left live.
+        $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type, status) VALUES
+                   (200, '2026-03-10', 'transfer', 402.02, 'TD VISA E-TFR DEPOSIT', 7, 'bank_import', 'reconciled')");
+        $this->entry($db, '2026-03-10', 'bank_import', 200, [[1, 402.02, 0], [7, 0, 402.02]]);
+        $this->entry($db, '2026-03-10', 'bank_deposit', 200, [[1, 402.02, 0], [3, 0, 402.02]]);
+        $this->svc($db)->scan();
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM lookback_proposals WHERE subject_id = 200 AND subject_type = 'bank'")->fetchColumn());
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM lookback_proposals WHERE kind LIKE 'journal_%' AND evidence LIKE '%#200%' OR title LIKE '%#200%'")->fetchColumn());
+    }
+
     public function test_card_line_and_summary(): void
     {
         $db = $this->db();
