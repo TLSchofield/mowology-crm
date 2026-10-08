@@ -461,7 +461,14 @@ class BankImportService
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
+            $bankIds = $this->bankAccountIds();
             foreach ($rows as $row) {
+                // A line printed for another account on the same statement (a Vancity savings
+                // section) goes to that account — only ever a chart account of sub_type bank.
+                $rowBankId = $bankAccountId;
+                if (!empty($row['bank_account_id']) && in_array((int)$row['bank_account_id'], $bankIds, true)) {
+                    $rowBankId = (int)$row['bank_account_id'];
+                }
                 $rawAmount  = $row['type'] === 'expense' ? -$row['amount'] : $row['amount'];
                 // bank_import_rows.type is ENUM('income','expense'); credit-card
                 // settlement rows carry type='transfer' on the ledger — stage them
@@ -517,7 +524,7 @@ class BankImportService
                               job_id             = COALESCE(job_id, ?)
                             WHERE id = ?
                         ")->execute([
-                            $accountName, $bankAccountId ?: null, $sessionId,
+                            $accountName, $rowBankId ?: null, $sessionId,
                             $expenseId, $confidence,
                             (float)($row['gst_amount'] ?? 0),
                             !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
@@ -533,7 +540,7 @@ class BankImportService
                             $row['description'],
                             $row['auto_cat'] ? 1 : 0,
                             $row['rule_id'] ?? null,
-                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                            $accountName, $rowBankId ?: null, $sessionId, $userId,
                         ]);
                         $txId = (int)$this->db->lastInsertId();
                         // Upgrade to reconciled with match metadata
@@ -593,7 +600,7 @@ class BankImportService
                           matched_at        = NOW(),
                           matched_by        = 'auto'
                         WHERE id = ?
-                    ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
+                    ")->execute([$accountName, $rowBankId ?: null, $sessionId, $confidence, $invTxId]);
 
                     // The deposit is NOT a second income row: the invoice's own ledger
                     // row already recognizes this revenue (double-count in P&L / GST
@@ -640,7 +647,7 @@ class BankImportService
                         $row['date'], $plan['action'] === 'transfer_only' ? 'transfer' : 'income',
                         $row['account_id'], $row['amount'],
                         0, $row['description'],
-                        0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                        0, null, $accountName, $rowBankId ?: null, $sessionId, $userId,
                     ]);
                     $txId = (int)$this->db->lastInsertId();
 
@@ -707,7 +714,7 @@ class BankImportService
                         ")->execute([
                             $row['date'], $feeAcctId, $processingFee,
                             'Payment processing fee — ' . substr($row['description'], 0, 100),
-                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                            $accountName, $rowBankId ?: null, $sessionId, $userId,
                         ]);
                     }
 
@@ -746,7 +753,7 @@ class BankImportService
                     $row['description'],
                     $row['auto_cat'] ? 1 : 0,
                     $row['rule_id'] ?? null,
-                    $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                    $accountName, $rowBankId ?: null, $sessionId, $userId,
                 ]);
                 $txId = (int)$this->db->lastInsertId();
 
@@ -1557,18 +1564,44 @@ class BankImportService
         // noise (serial numbers, "continued on next page", column headers) must
         // be dropped — if joined, they corrupt the last transaction on each page
         // and cause the $ -anchored regex to fail, silently losing the row.
+        // Account sections (2026-10-07): a Vancity statement prints one section per account —
+        //   INDEPENDENT BUSINESS ACCOUNT #100058186801 (CONT.)          chequing   → the session's account
+        //   BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)   savings    → 1020
+        //   BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES)     savings    → 1025
+        //   … CLASS B MEMBERSHIP SHARES #100013640901                  shares     → never imported
+        // each with its own OPENING BALANCE. Every transaction carries the last four digits of
+        // the account it is printed under (statement_account); the section's opening balance
+        // seeds its running balance. A statement with one section is parsed exactly as before.
         $joined           = [];
+        $joinedSection    = [];
         $buf              = '';
+        $bufSection       = '';
+        $section          = '';
+        $sectionOpening   = [];
+        $sharesSections   = [];
         $noiseLinesDropped = 0;
         foreach ($lines as $raw) {
             $l = trim($raw);
             if ($l === '') {
-                if ($buf !== '') { $joined[] = $buf; $buf = ''; }
+                if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; $buf = ''; }
                 continue;
             }
-            if (preg_match($dateStartPat, $l)) {
-                if ($buf !== '') $joined[] = $buf;
+            $isDateLine = (bool)preg_match($dateStartPat, $l);
+            if (!$isDateLine) {
+                $hdr = self::accountSectionHeader($l);
+                if ($hdr !== null) {
+                    $section = $hdr['suffix'];
+                    if ($hdr['kind'] === 'shares') $sharesSections[$section] = true;
+                    if ($hdr['opening'] !== null && !isset($sectionOpening[$section])) $sectionOpening[$section] = $hdr['opening'];
+                } elseif ($section !== '' && !isset($sectionOpening[$section])
+                          && preg_match('/^OPENING\s+BALANCE\s+\$?(-?\d{1,3}(?:,\d{3})*\.\d{2})\s*$/i', $l, $ob)) {
+                    $sectionOpening[$section] = (float)str_replace(',', '', $ob[1]);
+                }
+            }
+            if ($isDateLine) {
+                if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; }
                 $buf = $l;
+                $bufSection = $section;
             } elseif ($this->isNoiseLine($l)) {
                 // Explicit noise — serial numbers, footer phrases, column headers, etc.
                 $noiseLinesDropped++;
@@ -1584,18 +1617,45 @@ class BankImportService
                 $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
             }
         }
-        if ($buf !== '') $joined[] = $buf;
+        if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; }
         $lines = $joined;
+        // The account with the most lines is the statement's own; '' = before any header.
+        $bankSections = array_values(array_filter($joinedSection, static fn($x) => !isset($sharesSections[$x])));
+        $multiSection = count(array_unique($joinedSection)) > 1;
+        $primarySection = '';
+        if ($bankSections) {
+            $counts = array_count_values($bankSections);
+            arsort($counts);
+            $primarySection = (string)array_key_first($counts);
+        }
+        $lastSection = false;
 
         // Track running balance column values (a2) to derive opening balance if
         // no explicit label was found.
         // Also track previous balance for 3-col income/expense type detection.
         $runningBalances    = [];
         $prevRunningBalance = $openingBalance;
+        $primaryLastBalance = null;
 
         // ── Parse transaction lines ───────────────────────────────────────────
-        foreach ($lines as $line) {
+        foreach ($lines as $lineIdx => $line) {
             $line = trim($line);
+            $rowSection = $joinedSection[$lineIdx] ?? '';
+            if (isset($sharesSections[$rowSection])) {
+                // Membership shares are not a bank account: never a transaction.
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'shares_section'];
+                continue;
+            }
+            $isPrimary = !$multiSection || $rowSection === $primarySection || ($rowSection === '' && $primarySection === '');
+            if ($multiSection && $rowSection !== $lastSection) {
+                // A new account's lines: read their direction from THEIR balance, not the last account's.
+                if ($lastSection !== false && !$isPrimary) {
+                    $prevRunningBalance = $sectionOpening[$rowSection] ?? null;
+                } elseif ($lastSection !== false && $isPrimary) {
+                    $prevRunningBalance = $primaryLastBalance ?? $openingBalance;
+                }
+                $lastSection = $rowSection;
+            }
             if (strlen($line) < 10) {
                 if ($debug && $line !== '') $rejectLog[] = ['line' => $line, 'reason' => 'too_short'];
                 continue;
@@ -1666,7 +1726,7 @@ class BankImportService
                         }
                         $amount = $a1;
                         if ($a2 !== null) {
-                            $runningBalances[]   = $a2;
+                            if ($isPrimary) { $runningBalances[] = $a2; $primaryLastBalance = $a2; }
                             $prevRunningBalance  = $a2;
                         }
                     } elseif ($a1 !== null && $a1 == 0 && $a2 !== null && $a2 > 0) {
@@ -1688,7 +1748,7 @@ class BankImportService
                             $type = $isCredit ? 'income' : 'expense';
                         }
                         $amount = $a1;
-                        if ($a2 !== null) { $runningBalances[] = $a2; $prevRunningBalance = $a2; }
+                        if ($a2 !== null) { if ($isPrimary) { $runningBalances[] = $a2; $primaryLastBalance = $a2; } $prevRunningBalance = $a2; }
                     } elseif ($a2 !== null && $a2 > 0) {
                         $type   = 'income';
                         $amount = $a2;
@@ -1727,6 +1787,8 @@ class BankImportService
                 'amount'          => round($amount, 2),
                 'type'            => $type,
                 'raw_line'        => $line,
+                'statement_account' => $multiSection && $rowSection !== '' ? $rowSection : null,
+                'statement_primary' => $multiSection ? $isPrimary : null,
                 'account_id'      => null,
                 'account_name'    => null,
                 'account_code'    => null,
@@ -1773,6 +1835,9 @@ class BankImportService
         if ($openingBalance === null && !empty($runningBalances) && !empty($rows)) {
             $firstBalance = $runningBalances[0];
             $firstRow     = $rows[0];
+            foreach ($rows as $r) {
+                if (($r['statement_primary'] ?? null) !== false) { $firstRow = $r; break; }
+            }
             if ($firstRow['type'] === 'income') {
                 $openingBalance = round($firstBalance - $firstRow['amount'], 2);
             } else {
@@ -1807,6 +1872,153 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * An account section header on a multi-account statement (never a transaction line), or null:
+     *   "INDEPENDENT BUSINESS ACCOUNT #100058186801 (CONT.)"               → 6801, primary
+     *   "BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)"        → 6819, savings
+     *   "BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES) OPENING BALANCE 8.58" → 6827, 8.58
+     *   "SHARES … CLASS B MEMBERSHIP SHARES #100013640901 OPENING BALANCE 7.29" → 0901, shares
+     * A header whose number didn't survive the text extraction still maps by its name
+     * (INVESTMENT SAVINGS / RESERVE FUNDS → 6819, JUMPSTART SAVINGS / GST RESERVES → 6827). Pure.
+     * @return array{suffix: string, kind: string, opening: ?float}|null kind: primary|savings|shares
+     */
+    public static function accountSectionHeader(string $line): ?array
+    {
+        $l = trim($line);
+        if ($l === '' || preg_match('/^\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i', $l)) return null;
+        $isShares = (bool)preg_match('/\bSHARES?\b/i', $l);
+        $isSavings = (bool)preg_match('/\bSAVINGS\b/i', $l);
+        $isAccount = (bool)preg_match('/\b(?:ACCOUNT|CHEQUING|CHECKING)\b/i', $l);
+        $suffix = null;
+        if (($isShares || $isSavings || $isAccount)
+            && preg_match('/#\s*(\d[\d\s\-]{2,24}\d)/', $l, $m)) {
+            $digits = preg_replace('/\D/', '', $m[1]);
+            if (strlen($digits) >= 4) $suffix = substr($digits, -4);
+        }
+        if ($suffix === null) {
+            if (preg_match('/MEMBERSHIP\s+SHARES/i', $l)) $suffix = 'shares';
+            elseif (preg_match('/JUMPSTART\s+SAVINGS|SAVINGS.*\(\s*GST\s+RESERVES?\s*\)/i', $l)) $suffix = '6827';
+            elseif (preg_match('/INVESTMENT\s+SAVINGS|SAVINGS.*\(\s*RESERVE\s+FUNDS?\s*\)/i', $l)) $suffix = '6819';
+        }
+        if ($suffix === null) return null;
+        $opening = null;
+        if (preg_match('/OPENING\s+BALANCE\s+\$?(-?\d{1,3}(?:,\d{3})*\.\d{2})/i', $l, $o)) {
+            $opening = (float)str_replace(',', '', $o[1]);
+        }
+        return ['suffix' => $suffix, 'kind' => $isShares || $suffix === 'shares' ? 'shares' : ($isSavings ? 'savings' : 'primary'), 'opening' => $opening];
+    }
+
+    /** Chart ids of every bank account (sub_type bank) — where a statement line may be routed. */
+    private function bankAccountIds(): array
+    {
+        try {
+            return array_map('intval', $this->db->query("SELECT id FROM chart_of_accounts WHERE sub_type = 'bank'")->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Lines printed for another account on the same statement get that account as their bank
+     * account (Reserve funds ••6819 → 1020, GST Reserves ••6827 → 1025, preselected) — by the
+     * section the parser saw them under. A transfer between chequing and a savings account is
+     * printed in BOTH sections; it becomes one transfer (BankAccountSplitService::pairMirrors):
+     *   the chequing line → category = the savings account (money out: type transfer, DR savings /
+     *     CR chequing; money in: DR chequing / CR savings);
+     *   the savings line  → category = its own account, type transfer: the journal posts nothing
+     *     for it (LedgerSyncService), but it stays on the savings account's list so its running
+     *     balance is complete for the statements check.
+     * Lines with no section header (photos, older formats) that follow a running balance of
+     * their own are flagged without a preselected account. Public for tests.
+     */
+    public function routeOtherAccountRows(array $rows): array
+    {
+        require_once __DIR__ . '/BankAccountSplitService.php';
+        $sectioned = array_filter($rows, static fn($r) => array_key_exists('statement_primary', $r) && $r['statement_primary'] !== null);
+        if ($sectioned && array_filter($rows, static fn($r) => ($r['statement_primary'] ?? null) === false)) {
+            foreach ($rows as &$r) {
+                if (($r['statement_primary'] ?? null) !== false) continue;
+                $sfx = (string)($r['statement_account'] ?? '');
+                $code = BankAccountSplitService::codeForSuffix($sfx);
+                $acct = $code ? $this->accountByCode($code) : null;
+                $r['other_account'] = [
+                    'suffix'          => $sfx,
+                    'label'           => $code ? BankAccountSplitService::TARGETS[$code]['label'] : 'account ••' . $sfx,
+                    'bank_account_id' => $acct ? (int)$acct['id'] : null,
+                    'account'         => $acct ? $acct['code'] . ' – ' . $acct['name'] : null,
+                    'by'              => 'statement',
+                ];
+                if ($acct) $r['bank_account_id'] = (int)$acct['id'];
+            }
+            unset($r);
+            return $this->applyMirrors($rows);
+        }
+
+        // No headers: lines that follow a running balance of their own.
+        $keys = array_keys($rows);
+        $lines = [];
+        foreach ($keys as $i => $k) {
+            $r = $rows[$k];
+            $lines[] = StatementCoverageService::lineFromRow(
+                ['id' => $i + 1, 'session_id' => 1, 'transaction_date' => $r['date'] ?? '', 'type' => $r['type'] ?? '', 'amount' => $r['amount'] ?? 0],
+                ['amount' => $r['amount'] ?? 0, 'type' => $r['type'] ?? '', 'raw_line' => $r['raw_line'] ?? '']);
+        }
+        if (count(array_filter($lines, static fn($l) => $l['balance'] !== null)) < 3) return $rows;
+        $split = BankAccountSplitService::split($lines);
+        foreach ($split['chains'] as $c) {
+            foreach ($c['lines'] as $l) {
+                $k = $keys[$l['id'] - 1] ?? null;
+                if ($k === null) continue;
+                $rows[$k]['other_account'] = [
+                    'suffix'          => null,
+                    'label'           => 'follows a balance of its own (up to $' . number_format((float)($c['max_balance'] ?? 0), 2) . ') — another account?',
+                    'bank_account_id' => null,
+                    'account'         => null,
+                    'by'              => 'balance',
+                    'guess'           => $c['guess'],
+                ];
+            }
+        }
+        return $rows;
+    }
+
+    /** Pair each routed savings line with its chequing twin and make the two one transfer. */
+    private function applyMirrors(array $rows): array
+    {
+        $pairs = BankAccountSplitService::pairMirrors(
+            array_map(static fn($r) => ['date' => $r['date'] ?? '', 'amount' => (float)($r['amount'] ?? 0),
+                                        'in' => ($r['type'] ?? '') === 'income',
+                                        'other' => !empty($r['other_account']['bank_account_id'])], $rows));
+        foreach ($pairs as $savingsKey => $chequingKey) {
+            $acctId = (int)$rows[$savingsKey]['other_account']['bank_account_id'];
+            $acct = $rows[$savingsKey]['other_account']['account'];
+            // the chequing side carries the transfer
+            $rows[$chequingKey]['account_id']   = $acctId;
+            $rows[$chequingKey]['account_name'] = $acct;
+            $rows[$chequingKey]['type']         = $rows[$chequingKey]['type'] === 'income' ? 'income' : 'transfer';
+            $rows[$chequingKey]['auto_cat']     = true;
+            $rows[$chequingKey]['internal_transfer'] = ['with' => $rows[$savingsKey]['other_account']['label'], 'side' => 'chequing'];
+            // the savings side moves nothing in the books
+            $rows[$savingsKey]['account_id']   = $acctId;
+            $rows[$savingsKey]['account_name'] = $acct;
+            $rows[$savingsKey]['type']         = 'transfer';
+            $rows[$savingsKey]['auto_cat']     = true;
+            $rows[$savingsKey]['internal_transfer'] = ['with' => 'chequing', 'side' => 'savings'];
+        }
+        return $rows;
+    }
+
+    private function accountByCode(string $code): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT id, code, name FROM chart_of_accounts WHERE code = ? LIMIT 1");
+            $s->execute([$code]);
+            return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
 
     /**
      * Returns true for lines that are page header/footer artifacts in OCR output:
@@ -1921,7 +2133,20 @@ class BankImportService
             'rows'       => count($rows),
         ];
 
+        if ($kind !== 'credit_card') $rows = $this->routeOtherAccountRows($rows);
+        $totals['other_account'] = 0;
+
         foreach ($rows as &$row) {
+            // A chequing ↔ savings transfer is already decided (routeOtherAccountRows): it is
+            // never a cost, an invoice payment or a card payoff.
+            if (!empty($row['internal_transfer'])) {
+                $row['is_duplicate'] = false; $row['duplicate_type'] = null; $row['duplicate_tx_id'] = null; $row['match_candidate'] = false;
+                $dupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'] === 'income' ? 'income' : 'expense');
+                if ($dupe) { $row['is_duplicate'] = true; $row['duplicate_type'] = 'true_duplicate'; $row['duplicate_tx_id'] = $dupe; $totals['duplicates']++; }
+                if (!empty($row['other_account'])) { $totals['other_account']++; continue; }
+                if ($row['type'] === 'income') $totals['income'] += $row['amount']; else $totals['expense'] += $row['amount'];
+                continue;
+            }
             // ── Credit-card settlement (transfer, excluded from P&L) ───────────
             //    Catches the monthly "pay credit card" debit on a bank statement
             //    and the "payment received" credit on a CC statement.
@@ -1957,6 +2182,13 @@ class BankImportService
                 $row['duplicate_tx_id'] = $trueDupe;
                 $row['match_candidate'] = false;
                 $totals['duplicates']++;
+            } elseif (!empty($row['other_account'])) {
+                // Another account's line (a savings section): never matched to a receipt or an
+                // invoice of this account.
+                $row['is_duplicate']    = false;
+                $row['duplicate_type']  = null;
+                $row['duplicate_tx_id'] = null;
+                $row['match_candidate'] = false;
             } else {
                 // Stage 2: does an approved expense receipt match this bank tx?
                 $expenseMatch = $this->findExpenseMatch(
@@ -2037,6 +2269,10 @@ class BankImportService
                 }
             }
 
+            if (!empty($row['other_account'])) {   // not this account's money: kept out of its balance check
+                $totals['other_account']++;
+                continue;
+            }
             if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
             if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
         }
@@ -2492,6 +2728,46 @@ class BankImportService
         }
         if (count($tx) < 1) return null;
 
+        // The other accounts' sections (savings, shares) after the primary one: each header,
+        // its opening balance and its transactions, so parsePdfText can route them (2026-10-07).
+        // Headers are recognised by accountSectionHeader(); anything else is skipped.
+        $subs = [];
+        for ($i = $endIdx; $i < $n; $i++) {
+            $h = self::accountSectionHeader($lines[$i]);
+            if ($h === null || $h['kind'] === 'primary') continue;
+            $open = null;
+            for ($k = $i; $k < min($i + 4, $n); $k++) {
+                if (stripos($lines[$k], 'OPENING BALANCE') === false) continue;
+                if (preg_match('/OPENING\s+BALANCE\s+(\d{1,3}(?:,\d{3})*\.\d{2})/i', $lines[$k], $om)) { $open = $om[1]; break; }
+                for ($q = $k + 1; $q < min($k + 3, $n); $q++) {
+                    if ($isNum($lines[$q])) { $open = str_replace(' ', '', $lines[$q]); break 2; }
+                }
+            }
+            $subs[] = ['idx' => $i, 'line' => $lines[$i], 'open' => $open];
+        }
+        $subTx = [];
+        foreach ($subs as $si => $sub) {
+            $to = $subs[$si + 1]['idx'] ?? $n;
+            $block = [];
+            for ($i = $sub['idx'] + 1; $i < $to; $i++) {
+                $compact = str_replace(' ', '', $lines[$i]);
+                if (!preg_match('/^(\d{1,2})(' . $monthRe . ')(.*)$/i', $compact, $x)) continue;
+                $desc = $x[3];
+                $j = $i + 1;
+                while ($j < $to && !$isNum($lines[$j]) && !$isDate($lines[$j])) { $desc .= str_replace(' ', '', $lines[$j]); $j++; }
+                $nums = [];
+                while ($j < $to && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
+                if (count($nums) < 2) continue;
+                if ($desc === '') $desc = 'TRANSACTION';
+                $block[] = sprintf('%02d %s %s %s %s', (int)$x[1], strtoupper($x[2]), $desc, $nums[0], $nums[1]);
+                $i = $j - 1;
+            }
+            $subTx[] = '';
+            $subTx[] = $sub['line'];
+            if ($sub['open'] !== null) $subTx[] = 'OPENING BALANCE ' . $sub['open'];
+            foreach ($block as $b) $subTx[] = $b;
+        }
+
         // Preserve the statement period dates so parsePdfText can date rows.
         // Only "DD MON YYYY" patterns count — those appear in the period header;
         // transaction lines have no year, and stray references (print/due dates)
@@ -2508,7 +2784,7 @@ class BankImportService
 
         $header = $yearLine . "WITHDRAWALS DEPOSITS BALANCE\n";
         if ($opening !== null) $header .= "OPENING BALANCE $opening\n";
-        return $header . implode("\n", $tx);
+        return $header . implode("\n", $tx) . ($subTx ? "\n" . implode("\n", $subTx) : '');
     }
 
     /**

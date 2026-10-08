@@ -263,15 +263,30 @@ class StatementCoverageService
 
         $lines = [];
         if ($groupOf) {
+            // A line whose CRM transaction sits on another bank account than its session's
+            // (a savings line printed on the chequing statement, moved by BankAccountSplitService
+            // or routed there at import) is walked with THAT account's lines.
+            $names = [];
+            foreach ($this->db->query("SELECT id, name FROM chart_of_accounts")->fetchAll(PDO::FETCH_ASSOC) as $c) $names[(int)$c['id']] = (string)$c['name'];
             $rows = $this->db->query("
-                SELECT r.id, r.session_id, r.transaction_date, r.type, r.amount, r.raw_amount, r.is_duplicate, r.raw_row
+                SELECT r.id, r.session_id, r.transaction_date, r.type, r.amount, r.raw_amount, r.is_duplicate, r.raw_row,
+                       t.bank_account_id AS tx_bank
                 FROM bank_import_rows r
                 JOIN bank_import_sessions s ON s.id = r.session_id AND s.status = 'imported'
+                LEFT JOIN accounting_transactions t ON t.id = r.transaction_id AND t.reference_type = 'bank_import'
                 ORDER BY r.session_id, r.id
             ");
             while ($r = $rows->fetch(PDO::FETCH_ASSOC)) {
                 $key = $groupOf[(int)$r['session_id']] ?? null;
                 if ($key === null) continue;
+                $txBank = !empty($r['tx_bank']) ? (int)$r['tx_bank'] : null;
+                if ($txBank !== null && $key !== 'a' . $txBank && $groups[$key]['account_id'] !== null) {
+                    $key = 'a' . $txBank;
+                    if (!isset($groups[$key])) {
+                        $groups[$key] = ['key' => $key, 'account_id' => $txBank, 'label' => $names[$txBank] ?? ('Account ' . $txBank),
+                                         'kind' => 'bank', 'expected' => false, 'statement_day' => null, 'list_id' => null, 'sessions' => []];
+                    }
+                }
                 $raw = json_decode((string)$r['raw_row'], true) ?: [];
                 $lines[$key][] = self::lineFromRow($r, $raw, $groups[$key]['kind']);
             }

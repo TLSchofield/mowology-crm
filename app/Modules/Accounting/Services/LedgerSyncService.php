@@ -140,6 +140,12 @@ class LedgerSyncService
         if ($amount <= 0) {
             return null;
         }
+        // A line filed on its own bank account moves nothing: the savings side of a chequing ↔
+        // savings transfer (its chequing line carries the transfer — BankImportService /
+        // BankAccountSplitService, 2026-10-07).
+        if ($catId === $bankId) {
+            return null;
+        }
 
         // Revenue is recognised on invoices — skip deposit rows hitting a revenue account.
         if ($type === 'income' && ($row['account_type'] ?? '') === 'revenue') {

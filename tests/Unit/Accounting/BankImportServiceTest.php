@@ -98,6 +98,28 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
+    public function decodeEbcdicStatement_keeps_the_savings_sections_with_their_headers(): void
+    {
+        // Sept 2026 layout: chequing, then GST RESERVES with one interest credit, then shares.
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01SEP POS GROCERY\n10.00\n90.00\n"
+               . "BUSINESS JUMPSTART SAVINGS (GST RESERVES)\nOPENING BALANCE\n8.64\n"
+               . "30SEP INTEREST CREDITED\n0.01\n8.65\n"
+               . "CLASS B MEMBERSHIP SHARES\nOPENING BALANCE\n7.29\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertStringContainsString('01 SEP POSGROCERY 10.00 90.00', $decoded);
+        $this->assertStringContainsString("BUSINESS JUMPSTART SAVINGS (GST RESERVES)\nOPENING BALANCE 8.64\n30 SEP INTERESTCREDITED 0.01 8.65", $decoded);
+        $this->assertStringContainsString('CLASS B MEMBERSHIP SHARES', $decoded);
+
+        $this->setToday('2026-10-07');
+        $rows = $this->callPrivate('parsePdfText', $decoded, false)['rows'];
+        $this->assertSame([null, '6827'], array_column($rows, 'statement_account'), 'chequing has no header here: the unnamed section is the primary');
+        $this->assertSame([true, false], array_column($rows, 'statement_primary'));
+        $this->assertSame('income', $rows[1]['type']);
+    }
+
+    /** @test */
     public function decodeEbcdicStatement_returns_null_for_non_ebcdic(): void
     {
         $this->assertNull($this->callPrivate('decodeEbcdicStatement', "01/05  GROCERY  10.00  90.00\n"));

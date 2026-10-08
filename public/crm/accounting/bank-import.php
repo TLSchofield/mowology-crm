@@ -768,8 +768,26 @@ function renderPreviewTable(rows) {
                         : row.cc_payment       ? 'text-muted'
                         : 'mw-acct-color-expense';
 
+        // A line printed for another account on the same statement (Vancity savings sections):
+        // its own bank account, preselected when the statement named the account.
+        let otherAcct = '';
+        if (row.other_account) {
+            const oa = row.other_account;
+            const bankOpts = allAccounts.filter(a => a.sub_type === 'bank')
+                .map(a => `<option value="${a.id}" ${String(row.bank_account_id || '') === String(a.id) ? 'selected' : ''}>${a.code} – ${esc(a.name)}</option>`).join('');
+            otherAcct = `<div class="mt-1"><span class="badge bg-info text-dark" style="font-size:9px">Belongs to ${esc(oa.label || '')}</span>
+                <select class="form-select form-select-sm mt-1" onchange="updateRowBank(${i}, this.value)" ${isDupe ? 'disabled' : ''}>
+                    <option value="">this statement's account</option>${bankOpts}
+                </select></div>`;
+        }
+
         let statusCell = '';
-        if (isDupe) {
+        if (row.internal_transfer) {
+            statusCell = row.internal_transfer.side === 'savings'
+                ? '<span class="badge bg-secondary" style="font-size:9px">↔ Transfer with chequing</span><div class="small text-muted mt-1" style="font-size:10px">Recorded once, on the chequing line</div>'
+                : `<span class="badge bg-secondary" style="font-size:9px">↔ Transfer with ${esc(row.internal_transfer.with || 'savings')}</span>`;
+            if (isDupe) statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
+        } else if (isDupe) {
             statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
         } else if (row.cc_payment) {
             statusCell = `<span class="badge bg-secondary" style="font-size:9px">↔ Card payment</span>
@@ -824,7 +842,7 @@ function renderPreviewTable(rows) {
             <td class="small">${row.date}</td>
             <td>
                 <div class="small fw-bold">${esc(row.description)}</div>
-                <div class="d-flex gap-1 mt-1">${autoTag}</div>
+                <div class="d-flex gap-1 mt-1">${autoTag}</div>${otherAcct}
             </td>
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td class="text-end small fw-bold ${amtClass}">${isRefund ? '+' : ''}${fmtMoney(Math.abs(row.amount))}</td>
@@ -854,6 +872,10 @@ function updateRowAccount(sel) {
     }
 }
 
+function updateRowBank(idx, value) {
+    if (previewRows[idx]) previewRows[idx].bank_account_id = parseInt(value) || null;
+}
+
 function updateManualRow(idx, field, value) {
     if (previewRows[idx]) previewRows[idx][field] = value;
     if (field === 'amount' || field === 'type') updateBalanceStrip();
@@ -865,6 +887,7 @@ function updateBalanceStrip() {
     const fmt = v => '$' + parseFloat(v).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
     let computed = parseFloat(bc.opening);
     for (const r of previewRows) {
+        if (r.other_account) continue;   // another account's line (a savings section) — not in this balance
         const amt = parseFloat(r.amount) || 0;
         computed += r.type === 'income' ? amt : -amt;
     }
