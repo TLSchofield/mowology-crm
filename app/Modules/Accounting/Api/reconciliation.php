@@ -8,6 +8,7 @@
  * POST {action:'mark_recorded', transaction_id[, note]}   — deposit's money was already recorded by hand; stop suggesting it
  * POST {action:'unmark_recorded', transaction_id}         — reverse of mark_recorded
  * POST {action:'link_recorded_payments'}                  — sweep unmatched deposits, link hand-recorded payments that sum to them
+ * POST {action:'link_recorded_for_deposit', transaction_id} — the same for ONE deposit
  * Reads require billing.view; writes require billing.edit + CSRF.
  *
  * GET  ?action=expense_candidates&expense_id=X        — scored transaction candidates for one expense
@@ -150,6 +151,28 @@ try {
             if (function_exists('logActivityExtended') && !empty($result['linked'])) {
                 logActivityExtended((int)$user['id'], 'Deposits linked',
                     count($result['linked']) . ' bank deposit(s) linked to previously recorded payments');
+            }
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+        }
+
+        case 'link_recorded_for_deposit': {
+            // ONE deposit only: link the hand-recorded payments it carried (same payer, exact
+            // sum). The full sweep can pair an old unmatched deposit with a newer payment
+            // whose own deposit hasn't been imported yet.
+            $txId = (int)($input['transaction_id'] ?? 0);
+            if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            $db->beginTransaction();
+            try {
+                $result = $svc->linkRecordedPaymentsToDeposit($txId, (int)$user['id']);
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                throw $e;
+            }
+            if ($result && function_exists('logActivityExtended')) {
+                logActivityExtended((int)$user['id'], 'Deposit linked',
+                    'Bank deposit #' . $txId . ' linked to recorded payment(s) on ' . implode(', ', $result['invoice_numbers']));
             }
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
