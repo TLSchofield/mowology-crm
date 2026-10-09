@@ -13,6 +13,9 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${TMPDIR:-/tmp}/mowology-ios-compile-check"
+# Start clean: after a version bump an incremental build can stop at the asset catalog
+# with every Swift file "up to date" and no link step — a false COMPILE FAILED.
+rm -rf "$OUT"
 mkdir -p "$OUT"
 LOG="$OUT/build.log"
 
