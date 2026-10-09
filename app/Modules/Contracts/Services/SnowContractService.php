@@ -207,6 +207,17 @@ class SnowContractService
         return ['ok' => true, 'lines' => $lines];
     }
 
+    /** "6,7,1" → [6, 7, 1] (lead first; blanks, junk and repeats dropped). */
+    public static function parseCrewIds(string $csv): array
+    {
+        $ids = [];
+        foreach (explode(',', $csv) as $p) {
+            $id = (int)trim($p);
+            if ($id > 0 && !in_array($id, $ids, true)) $ids[] = $id;
+        }
+        return $ids;
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // DB: route plans, choices, billing
     // ══════════════════════════════════════════════════════════════════════
@@ -479,6 +490,7 @@ class SnowContractService
                 ];
             }
 
+            $crew = $this->routeCrew();
             $plan = createJobPlan([
                 'property_id'              => (int)$quote['property_id'],
                 'company_id'               => $quote['company_id'] ?: null,
@@ -498,6 +510,11 @@ class SnowContractService
                 'plan_end_date'            => $season['end'],
                 'estimated_duration_minutes' => 15,
                 'horizon_days'             => 42,
+                // The winter crew (ops_settings snow_route_crew_user_ids, lead first) — set
+                // before the first stops generate, so every stop carries them.
+                'default_crew_id'          => $crew[0] ?? null,
+                'default_crew_size'        => max(1, count($crew)),
+                'crew_ids'                 => $crew,
                 'line_items'               => $planLines,
             ], (int)$quote['created_by']);
             if (empty($plan['success'])) {
@@ -528,6 +545,52 @@ class SnowContractService
             error_log("[SnowContractService] setup for quote {$quoteId} failed: " . $e->getMessage());
             return $this->record($quoteId, 'failed', $contractId, $planId, $e->getMessage());
         }
+    }
+
+    /** The winter crew from settings, active users only, lead first. */
+    public function routeCrew(): array
+    {
+        $ids = self::parseCrewIds($this->setting('snow_route_crew_user_ids', ''));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $this->db->prepare("SELECT id FROM users WHERE is_active = 1 AND id IN ({$in})");
+        $st->execute($ids);
+        $active = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        return array_values(array_filter($ids, fn($id) => in_array($id, $active, true)));
+    }
+
+    /**
+     * Put the winter crew on route plans that have none yet — the plan, its lead on every
+     * future stop, and the whole crew on those stops. Returns the plan ids changed.
+     */
+    public function assignCrewToUncrewedRoutes(): array
+    {
+        $crew = $this->routeCrew();
+        if (!$crew) return [];
+        $plans = $this->db->query("
+            SELECT jp.id FROM job_plans jp
+            WHERE jp.status = 'active'
+              AND EXISTS (SELECT 1 FROM snow_route_rates r WHERE r.plan_id = jp.id)
+              AND jp.default_crew_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM plan_crew_assignments pca WHERE pca.plan_id = jp.id)
+        ")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $done = [];
+        foreach ($plans as $planId) {
+            $planId = (int)$planId;
+            setPlanCrewAssignments($planId, $crew, $crew[0]);
+            VisitLifecycleService::propagatePlanChanges($planId, ['default_crew_id' => $crew[0]], 0);
+            $stops = $this->db->prepare("
+                SELECT DISTINCT stop_id FROM job_visits
+                WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE() AND stop_id IS NOT NULL
+            ");
+            $stops->execute([$planId]);
+            $ins = $this->db->prepare("INSERT IGNORE INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
+            foreach ($stops->fetchAll(PDO::FETCH_COLUMN) as $stopId) {
+                foreach ($crew as $uid) $ins->execute([(int)$stopId, $uid]);
+            }
+            $done[] = $planId;
+        }
+        return $done;
     }
 
     private function record(int $quoteId, string $status, ?int $contractId, ?int $planId, ?string $detail): array

@@ -139,4 +139,11 @@ class SnowContractServiceTest extends TestCase
         $this->assertFalse(SnowContractService::isSnowContractQuote(['is_contract' => 0, 'service_type' => 'snow_removal']));
         $this->assertFalse(SnowContractService::isSnowContractQuote(['is_contract' => 1, 'service_type' => 'lawn_care']));
     }
+
+    public function test_winter_crew_list_keeps_the_lead_first(): void
+    {
+        $this->assertSame([6, 7, 1], SnowContractService::parseCrewIds('6,7,1'));
+        $this->assertSame([6, 7, 1], SnowContractService::parseCrewIds(' 6, 7 ,6, x, 1,,0'));
+        $this->assertSame([], SnowContractService::parseCrewIds(''));
+    }
 }
