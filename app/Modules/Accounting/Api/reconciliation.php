@@ -8,7 +8,7 @@
  * POST {action:'mark_recorded', transaction_id[, note]}   — deposit's money was already recorded by hand; stop suggesting it
  * POST {action:'unmark_recorded', transaction_id}         — reverse of mark_recorded
  * POST {action:'link_recorded_payments'}                  — sweep unmatched deposits, link hand-recorded payments that sum to them
- * POST {action:'link_recorded_for_deposit', transaction_id} — the same for ONE deposit
+ * POST {action:'link_recorded_for_deposit', transaction_id[, invoice_numbers[]]} — the same for ONE deposit
  * Reads require billing.view; writes require billing.edit + CSRF.
  *
  * GET  ?action=expense_candidates&expense_id=X        — scored transaction candidates for one expense
@@ -162,9 +162,22 @@ try {
             // whose own deposit hasn't been imported yet.
             $txId = (int)($input['transaction_id'] ?? 0);
             if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            // invoice_numbers: name the invoices when the bank memo doesn't carry the payer
+            // (some lines hold only our own name). Still must sum exactly to the deposit.
+            $invNos = array_values(array_filter(array_map('trim', (array)($input['invoice_numbers'] ?? []))));
             $db->beginTransaction();
             try {
-                $result = $svc->linkRecordedPaymentsToDeposit($txId, (int)$user['id']);
+                if ($invNos) {
+                    $in = implode(',', array_fill(0, count($invNos), '?'));
+                    $st = $db->prepare("
+                        SELECT a.id FROM invoice_payment_allocations a JOIN invoices i ON i.id = a.invoice_id
+                        WHERE i.invoice_number IN ({$in}) AND a.transaction_id IS NULL AND a.amount > 0
+                    ");
+                    $st->execute($invNos);
+                    $result = $svc->linkAllocationsToDeposit($txId, array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)), (int)$user['id']);
+                } else {
+                    $result = $svc->linkRecordedPaymentsToDeposit($txId, (int)$user['id']);
+                }
                 $db->commit();
             } catch (Throwable $e) {
                 if ($db->inTransaction()) $db->rollBack();
