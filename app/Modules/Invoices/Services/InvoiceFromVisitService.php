@@ -45,7 +45,7 @@ class InvoiceFromVisitService
     }
 
     /**
-     * True if $userId is an admin/manager, or is the crew member assigned to
+     * True if $userId is an admin/manager or the truck login, or is the crew member assigned to
      * $assignedCrewId. Callers use this so any crew member may only preview,
      * create, or send an invoice for a visit they were actually assigned to —
      * both the session-auth desktop caller and the JWT mobile caller only
@@ -54,10 +54,25 @@ class InvoiceFromVisitService
      */
     private function isOwnerOrAdmin(int $userId, ?int $assignedCrewId): bool
     {
-        if ($this->isAdminUser($userId)) {
+        if ($this->isAdminUser($userId) || $this->isTruckUser($userId)) {
             return true;
         }
         return $assignedCrewId !== null && $assignedCrewId === $userId;
+    }
+
+    /**
+     * The truck tablet login (users.device_type = 'truck', e.g. DODGE RAM) rides along on every
+     * crew's runs and may complete and invoice them like a manager (owner, 2026-10-08).
+     */
+    private function isTruckUser(int $userId): bool
+    {
+        try {
+            $s = $this->db->prepare("SELECT device_type FROM users WHERE id = ?");
+            $s->execute([$userId]);
+            return (string)$s->fetchColumn() === 'truck';
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     /** Management-company billing recipients for a PM-managed property, else []. */

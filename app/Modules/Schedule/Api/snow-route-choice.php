@@ -13,7 +13,7 @@ declare(strict_types=1);
  *
  * The run is invoiced at the recorded rate only (SnowContractService). Same rules
  * as the web endpoint /crm/api/snow-route-choice.php; JWT here.
- * Crew may record for visits assigned to them; admin/manager for any.
+ * Crew may record for visits assigned to them; admin/manager and the truck login for any.
  */
 
 if (!defined('APP_ROOT')) {
@@ -61,7 +61,11 @@ try {
 
     if ($isPost) {
         $isAdmin = jwtIsAdmin($jwtUser['role']);
-        if (!$isAdmin && (int)($visit['assigned_crew_id'] ?? 0) !== (int)$jwtUser['id']) {
+        // Managers/admins and the truck login (device_type 'truck') may record any stop.
+        $dt = $db->prepare("SELECT device_type FROM users WHERE id = ?");
+        $dt->execute([(int)$jwtUser['id']]);
+        $isTruck = (string)$dt->fetchColumn() === 'truck';
+        if (!$isAdmin && !$isTruck && (int)($visit['assigned_crew_id'] ?? 0) !== (int)$jwtUser['id']) {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
             exit;
