@@ -756,6 +756,7 @@ class EtransferInboxService
         }
         $id = (int) $this->db->lastInsertId();
         $this->storeClaimDetails($id, $parsed);
+        $this->nudgeAddress($id, 'ingest');
 
         return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];
     }
@@ -774,6 +775,22 @@ class EtransferInboxService
             ")->execute([$parsed['deposit_url'] ?: null, $parsed['expires_on'] ?: null, $id]);
         } catch (PDOException $e) {
             // migration 1312 not run yet — alerts simply stay off
+        }
+    }
+
+    /**
+     * Penny's one-time "please e-Transfer to info@" thank-you (migration 1301) for a
+     * claim-type transfer whose payer is now known — at ingest when the invoice is
+     * identified, otherwise when the owner records/links it. Best-effort: never
+     * blocks or fails the ingest/recording. See EtransferNudgeService for the rules.
+     */
+    protected function nudgeAddress(int $notificationId, string $trigger): void
+    {
+        try {
+            require_once __DIR__ . '/EtransferNudgeService.php';
+            (new EtransferNudgeService($this->db))->onNotification($notificationId, $trigger);
+        } catch (Throwable $e) {
+            error_log('[etransfer] address nudge failed: ' . $e->getMessage());
         }
     }
 
@@ -979,6 +996,8 @@ class EtransferInboxService
             }
         }
 
+        $this->nudgeAddress($notificationId, 'recorded');
+
         $remainingAfter = round($totalAmount - $newAllocated, 2);
         $message = count($recorded) === 1
             ? sprintf('Recorded $%.2f against %s', $recorded[0]['applied'], $recorded[0]['invoice_number'])
@@ -1136,6 +1155,7 @@ class EtransferInboxService
                     allocated_amount = amount, recorded_by = ?, processed_at = NOW()
               WHERE id = ?"
         )->execute([$invoiceId, $invoiceId, $userId, $notificationId]);
+        $this->nudgeAddress($notificationId, 'merged');
 
         return [
             'ok'      => true,
