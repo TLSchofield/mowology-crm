@@ -275,13 +275,16 @@ struct BatchCameraView: View {
                 Button {
                     finish()
                 } label: {
-                    Label("Done", systemImage: "checkmark")
-                        .font(.subheadline.weight(.bold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(shots.isEmpty ? Color.white.opacity(0.15) : Color.MW.green, in: Capsule())
+                    // A big green tick circle (owner, 2026-10-08) — no text, so it can't wrap
+                    // the way the "Done" pill did at larger text sizes ("Do / ne").
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(.white)
+                        .frame(width: 60, height: 60)
+                        .background(shots.isEmpty ? Color.white.opacity(0.15) : Color.MW.green, in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(shots.isEmpty ? 0.25 : 0.9), lineWidth: 2))
                 }
+                .accessibilityLabel("Done")
                 .frame(width: 80, alignment: .trailing)
                 .disabled(shots.isEmpty || camera.isRecording || pendingShots > 0)
             }
