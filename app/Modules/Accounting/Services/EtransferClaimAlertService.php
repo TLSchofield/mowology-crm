@@ -210,6 +210,13 @@ class EtransferClaimAlertService
             require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
         }
         PushDispatcher::notifyUsers($userIds, $title, $body, $data);
+        // Send now rather than waiting for the push-drain cron: an expiring deposit is
+        // exactly the push that shouldn't sit in a queue.
+        try {
+            PushDispatcher::drainQueue();
+        } catch (Throwable $e) {
+            error_log('[penny claim alert] drain failed: ' . $e->getMessage());
+        }
     }
 
     private function enabled(): bool
