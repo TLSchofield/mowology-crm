@@ -323,6 +323,48 @@ class SnowContractService
         return count($planIds);
     }
 
+    /**
+     * Otto's card: active salt & snow routes with no crew yet, before (or on) their first
+     * stop — otherwise Otto only notices an unassigned stop the morning it's due, and a
+     * route signed in October would sit crewless until the first frost. One item per route.
+     */
+    public function ottoBriefItems(string $today): array
+    {
+        try {
+            $rows = $this->db->query("
+                SELECT jp.id, jp.plan_start_date, p.address, c.contract_number,
+                       TRIM(CONCAT(COALESCE(ct.first_name, ''), ' ', COALESCE(ct.last_name, ''))) AS who
+                FROM job_plans jp
+                JOIN properties p ON p.id = jp.property_id
+                LEFT JOIN contracts c ON c.id = jp.contract_id
+                LEFT JOIN contacts ct ON ct.id = c.contact_id
+                WHERE jp.status = 'active'
+                  AND EXISTS (SELECT 1 FROM snow_route_rates r WHERE r.plan_id = jp.id)
+                  AND jp.default_crew_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM plan_crew_assignments pca WHERE pca.plan_id = jp.id)
+                ORDER BY jp.plan_start_date, p.address
+            ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            return []; // migration 1310 not run
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $start = (string)$r['plan_start_date'];
+            $when  = $start > $today ? 'starts ' . date('M j', strtotime($start)) : 'is running';
+            $out[] = [
+                'key'      => 'otto:snow-crew:' . (int)$r['id'],
+                'kind'     => 'snow_route',
+                'text'     => 'Salt & snow route at ' . $r['address'] . ($r['who'] !== '' ? ' (' . $r['who'] . ')' : '')
+                            . ' ' . $when . ' with no crew — assign one.',
+                'url'      => '/crm/jobs/view.php?id=' . (int)$r['id'],
+                'priority' => $start <= date('Y-m-d', strtotime($today . ' +7 days')) ? 1 : 2,
+                'value'    => null,
+                'since'    => $today,
+            ];
+        }
+        return $out;
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // DB: set up a signed quote
     // ══════════════════════════════════════════════════════════════════════

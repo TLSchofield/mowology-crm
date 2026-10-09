@@ -17,6 +17,12 @@ try {
         return;
     }
     $__oItems = $__od->current(false);
+    // Salt & snow routes signed but not crewed yet — Otto otherwise sees them only on the day.
+    $__oSnow = [];
+    try {
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        $__oSnow = (new SnowContractService(getDB()))->ottoBriefItems(date('Y-m-d'));
+    } catch (Throwable $__e) { /* additive only (migration 1310) */ }
     $__os = $__od->stats($__oItems);
     $__oName = '';
     $__ou = (array)($user ?? (function_exists('getCurrentUser') ? getCurrentUser() : []) ?? []);
@@ -95,6 +101,9 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
       <div class="mw-v"><?= (int)$__oT['done'] ?><small>/<?= (int)$__oT['stops'] ?> stops</small></div>
       <div class="mw-head-bar"><span style="width: <?= $__oPct ?>%"></span></div>
       <div class="mw-n"><?= $__oCrewLine !== '' ? h($__oCrewLine) : 'No crews on the schedule' ?><?= $__oT['unassigned'] > 0 ? ' · <b>' . (int)$__oT['unassigned'] . ' with no crew</b>' : '' ?></div>
+      <?php foreach ($__oSnow as $__sr): ?>
+      <div class="mw-n"><a href="<?= h($__sr['url']) ?>"><?= h($__sr['text']) ?></a></div>
+      <?php endforeach; ?>
     </div>
     <div class="mw-otto-stat">
       <div class="mw-k">On the clock</div>

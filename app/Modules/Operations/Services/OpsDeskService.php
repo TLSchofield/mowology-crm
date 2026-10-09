@@ -187,6 +187,11 @@ class OpsDeskService
                 'text' => OttoRules::plural($n, 'stop') . ' today ' . ($n === 1 ? 'has' : 'have') . ' no crew.',
                 'url' => '/crm/jobs/schedule.php', 'priority' => 2, 'value' => $n, 'since' => $this->today];
         }
+        // Salt & snow routes signed but with no crew yet (priority 1 in the week before they start).
+        try {
+            require_once dirname(__DIR__, 2) . '/Contracts/Services/SnowContractService.php';
+            foreach ((new SnowContractService($this->db))->ottoBriefItems($this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only (migration 1310) */ }
         // Jobs whose dump / supply runs cost more than the quote allowed for trips (priority 3) — Penny's tagging.
         try {
             require_once dirname(__DIR__, 2) . '/Expenses/Services/TripAttributionService.php';
