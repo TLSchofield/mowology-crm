@@ -749,7 +749,7 @@ class IcloudInboxRouter
                 return $out + [$res === 'stored' ? 'stored' : 'dupe' => 1];
             }
             case 'interac': {
-                $parsed = EtransferInboxService::parseInteracEmail($subject, self::plain($body()));
+                $parsed = EtransferInboxService::parseInteracEmail($subject, self::plain($body()), $date);
                 $res = (new EtransferInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date);
                 return $out + [$res['inserted'] ? 'stored' : 'dupe' => 1];
             }

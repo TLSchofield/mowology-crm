@@ -158,7 +158,7 @@ foreach ($mailboxes as $mb) {
 
             $body    = pollBody($mbox, $msgNo);
 
-            $parsed = EtransferInboxService::parseInteracEmail($subject, $body);
+            $parsed = EtransferInboxService::parseInteracEmail($subject, $body, $date);
             $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date);
         } catch (\Throwable $e) {
             // One bad email must never abort the batch.
@@ -238,6 +238,18 @@ if (!empty($newItems)) {
     $to = 'mowology@icloud.com';
     $ok = sendCrmEmail($to, $subject, $html);
     pollLog("Notification email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
+}
+
+// Penny: push the owner about transfers that must be claimed by hand (deposit link +
+// expiry), remind 7 and 2 days out, stop once the bank shows it. Never fails the poll.
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/EtransferClaimAlertService.php';
+    $claims = (new EtransferClaimAlertService($db))->run();
+    if (!empty($claims['pushed']) || !empty($claims['deposited'])) {
+        pollLog("Claim alerts: {$claims['pushed']} pushed, {$claims['deposited']} now deposited.");
+    }
+} catch (\Throwable $e) {
+    pollLog('Claim alerts error: ' . $e->getMessage());
 }
 
 $count   = count($newItems);

@@ -39,7 +39,7 @@ class EtransferInboxService
      *
      * @return array{sender_name:?string,amount:?float,reference_number:?string,memo:?string,invoice_hint:?string,transfer_type:string}
      */
-    public static function parseInteracEmail(string $subject, string $body): array
+    public static function parseInteracEmail(string $subject, string $body, ?string $emailDate = null): array
     {
         $body    = str_replace("\r\n", "\n", $body);
         // Strip forwarded-message quote markers ("> ", ">> ", ...) so a
@@ -97,6 +97,10 @@ class EtransferInboxService
             $type = 'claim';
         }
 
+        // Claim-type only: where to deposit it and when it expires (Penny's deposit alerts).
+        $depositUrl = $type === 'claim' ? self::depositLink($body) : null;
+        $expiresOn  = $type === 'claim' ? self::expiryDate($subject, $body, $emailDate) : null;
+
         return [
             'sender_name'      => $sender !== '' ? $sender : null,
             'amount'           => $amount,
@@ -104,7 +108,52 @@ class EtransferInboxService
             'memo'             => $memo,
             'invoice_hint'     => $invoiceHint,
             'transfer_type'    => $type,
+            'deposit_url'      => $depositUrl,
+            'expires_on'       => $expiresOn,
         ];
+    }
+
+    /**
+     * The link that deposits a claim-type transfer. Interac lists the receiver's own bank
+     * first ("Vancity: https://etransfer.interac.ca/…?fiID=…"), then "Select a different
+     * Institution". Only https links on etransfer.interac.ca are ever returned — never the
+     * notification-preferences link, never another host.
+     */
+    public static function depositLink(string $body): ?string
+    {
+        if (!preg_match_all('#https://etransfer\.interac\.ca/[^\s<>"\'\)]+#i', $body, $m)) {
+            return null;
+        }
+        $links = array_values(array_filter(array_map(fn($u) => rtrim($u, '.,;'), $m[0]),
+            fn($u) => stripos($u, 'manageUserPr') === false && stripos($u, 'tkn=') === false));
+        foreach ($links as $u) {
+            if (stripos($u, 'fiID=') !== false) return $u;   // the receiver's own bank
+        }
+        return $links[0] ?? null;
+    }
+
+    /**
+     * Y-m-d the transfer expires: the body's "Expiry: Oct 6, 2026", else the subject's
+     * "Claim your $X from NAME by Oct 30" (year from the email date; a month already
+     * past means next year).
+     */
+    public static function expiryDate(string $subject, string $body, ?string $emailDate = null): ?string
+    {
+        $norm = static fn(string $d) => preg_replace('/\bSept\b/i', 'Sep', trim($d));
+        if (preg_match('/Expiry:\s*([A-Za-z]{3,9}\.?\s+\d{1,2},?\s*\d{4})/i', $body, $m)) {
+            $ts = strtotime($norm($m[1]));
+            if ($ts) return date('Y-m-d', $ts);
+        }
+        if (preg_match('/\bby\s+([A-Za-z]{3,9}\.?\s+\d{1,2})(?:,?\s*(\d{4}))?\s*$/i', trim($subject), $m)) {
+            $refTs = $emailDate ? (strtotime($emailDate) ?: time()) : time();
+            $year  = !empty($m[2]) ? (int)$m[2] : (int)date('Y', $refTs);
+            $ts    = strtotime($norm($m[1]) . ' ' . $year);
+            if ($ts && empty($m[2]) && $ts < $refTs - 86400) {
+                $ts = strtotime($norm($m[1]) . ' ' . ($year + 1));
+            }
+            if ($ts) return date('Y-m-d', $ts);
+        }
+        return null;
     }
 
     /**
@@ -667,6 +716,7 @@ class EtransferInboxService
         $chk = $this->db->prepare("SELECT id FROM etransfer_notifications WHERE dedup_key = ? LIMIT 1");
         $chk->execute([$dedup]);
         if ($existing = $chk->fetchColumn()) {
+            $this->storeClaimDetails((int) $existing, $parsed);   // backfill transfers seen before 1312
             return ['inserted' => false, 'id' => (int) $existing, 'row' => null];
         }
 
@@ -705,8 +755,26 @@ class EtransferInboxService
             throw $e;
         }
         $id = (int) $this->db->lastInsertId();
+        $this->storeClaimDetails($id, $parsed);
 
         return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];
+    }
+
+    /** Deposit link + expiry for a claim-type transfer (migration 1312); fills blanks only. */
+    private function storeClaimDetails(int $id, array $parsed): void
+    {
+        if (empty($parsed['deposit_url']) && empty($parsed['expires_on'])) {
+            return;
+        }
+        try {
+            $this->db->prepare("
+                UPDATE etransfer_notifications
+                   SET deposit_url = COALESCE(deposit_url, ?), expires_on = COALESCE(expires_on, ?)
+                 WHERE id = ?
+            ")->execute([$parsed['deposit_url'] ?: null, $parsed['expires_on'] ?: null, $id]);
+        } catch (PDOException $e) {
+            // migration 1312 not run yet — alerts simply stay off
+        }
     }
 
     public function find(int $id): ?array

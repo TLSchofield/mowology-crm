@@ -183,4 +183,40 @@ class EtransferInboxServiceTest extends TestCase
         $p = EtransferInboxService::parseInteracEmail('Fwd: test', $body);
         $this->assertSame('Payment for INV-2026-0096, thanks!', $p['memo']);
     }
+
+    // ── Claim deposit link + expiry (Penny's deposit alerts) ─────────────
+
+    public function test_claim_email_gives_the_bank_deposit_link_and_expiry(): void
+    {
+        $body = str_replace('https://etransfer.interac.ca/x', 'https://etransfer.interac.ca/redirectFrom?fiID=CA000809&cuID=1&pID=CAkvXmaZ&lvt=abc', self::CLAIM_BODY)
+              . "\nClick here to manage notification preferences from: https://etransfer.interac.ca/manageUserPreferences?tkn=zzz";
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, $body);
+        $this->assertSame('https://etransfer.interac.ca/redirectFrom?fiID=CA000809&cuID=1&pID=CAkvXmaZ&lvt=abc', $p['deposit_url']);
+        $this->assertSame('2026-07-03', $p['expires_on']);
+    }
+
+    public function test_without_a_bank_link_the_other_institution_link_is_used(): void
+    {
+        $this->assertSame('https://etransfer.interac.ca/x', EtransferInboxService::depositLink(self::CLAIM_BODY));
+    }
+
+    public function test_links_on_other_hosts_are_never_returned(): void
+    {
+        $this->assertNull(EtransferInboxService::depositLink("Vancity: https://etransfer.interac.ca.evil.com/x\nOther: http://etransfer.interac.ca/y"));
+    }
+
+    public function test_expiry_from_subject_when_body_has_none(): void
+    {
+        $this->assertSame('2026-10-30', EtransferInboxService::expiryDate('Interac e-Transfer: Claim your $262.50 from STRATA BCS4079 by Oct 30', '', 'Wed, 30 Sep 2026 10:00:00 -0700'));
+        $this->assertSame('2026-09-30', EtransferInboxService::expiryDate('Interac e-Transfer: Claim your $60.90 from KAMALJEET SINGH by Sept 30', '', '2026-09-01'));
+        $this->assertSame('2027-01-05', EtransferInboxService::expiryDate('Claim your $10.00 from A B by Jan 5', '', '2026-12-10'));
+    }
+
+    public function test_autodeposit_has_no_deposit_link(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail("Interac e-Transfer: You've received $66.15 from KAMALJEET SINGH and it has been automatically deposited.",
+            "Your funds have been automatically deposited into your account. https://etransfer.interac.ca/x");
+        $this->assertNull($p['deposit_url']);
+        $this->assertNull($p['expires_on']);
+    }
 }
