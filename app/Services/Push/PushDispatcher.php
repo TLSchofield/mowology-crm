@@ -205,6 +205,9 @@ class PushDispatcher
         array  $data,
         int    $badge
     ): void {
+        // Every notification names the head it is from — "Sam [Sales]", "Otto [Ops]" (PushHeads).
+        require_once __DIR__ . '/PushHeads.php';
+        [$title, $body] = PushHeads::brand($title, $body, $data);
         $title = mb_substr($title, 0, 200);
         $body  = mb_substr($body, 0, 500);
 
