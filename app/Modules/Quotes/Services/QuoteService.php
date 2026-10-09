@@ -513,6 +513,22 @@ class QuoteService
     }
 
     /**
+     * Colour a quote by where it stands (owner, 2026-10-08): green accepted, red declined,
+     * orange opened (viewed on the portal or the email was opened), '' = sent, not seen yet.
+     */
+    public static function colourState(array $q): string
+    {
+        $status = strtolower((string)($q['status'] ?? ''));
+        if ($status === 'accepted') return 'accepted';
+        if ($status === 'declined') return 'declined';
+        if ($status === 'viewed' || (int)($q['view_count'] ?? 0) > 0
+            || !empty($q['viewed_at']) || !empty($q['email_opened_at'])) {
+            return 'opened';
+        }
+        return '';
+    }
+
+    /**
      * Every quote email subject names the property (owner rule 2026-10-08): a
      * property manager receiving a dozen quotes must tell them apart from the
      * inbox. Appended only when the editable template subject doesn't already

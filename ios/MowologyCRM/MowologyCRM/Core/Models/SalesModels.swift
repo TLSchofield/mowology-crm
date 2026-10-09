@@ -83,9 +83,11 @@ struct SalesQuote: Decodable, Identifiable, Equatable {
     let sentAt: String?
     let validUntil: String?
     let views: Int
+    /// "accepted" (green), "declined" (red), "opened" (orange) or "" — QuoteService::colourState().
+    let state: String
 
     private enum CodingKeys: String, CodingKey {
-        case id, number, title, service, address, amount, views
+        case id, number, title, service, address, amount, views, state
         case sentAt = "sent_at", validUntil = "valid_until"
     }
 
@@ -100,6 +102,7 @@ struct SalesQuote: Decodable, Identifiable, Equatable {
         sentAt = c.bkString(.sentAt)
         validUntil = c.bkString(.validUntil)
         views = c.bkInt(.views) ?? 0
+        state = c.bkString(.state) ?? ""
     }
 }
 

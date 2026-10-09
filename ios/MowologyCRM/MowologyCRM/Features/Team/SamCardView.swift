@@ -239,6 +239,17 @@ struct SamCardView: View {
                         Spacer()
                         Text(SamCardViewModel.money(q.amount)).font(.caption.weight(.semibold))
                     }
+                    .padding(.vertical, 3)
+                    .padding(.leading, quoteColour(q) == nil ? 0 : 8)
+                    .background {
+                        if let col = quoteColour(q) {
+                            HStack(spacing: 0) {
+                                col.frame(width: 4)
+                                col.opacity(0.08)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+                    }
                 }
             }
             .padding(10)
@@ -332,6 +343,16 @@ struct SamCardView: View {
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background((c.replied ? Color.MW.orange : Color.MW.green).opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Orange opened, green accepted, red declined; nil = sent and not seen yet.
+    private func quoteColour(_ q: SalesQuote) -> Color? {
+        switch q.state {
+        case "accepted": return Color.MW.green
+        case "declined": return Color.MW.red
+        case "opened":   return Color.MW.orange
+        default:         return nil
+        }
     }
 
     private func quoteMeta(_ q: SalesQuote) -> String {

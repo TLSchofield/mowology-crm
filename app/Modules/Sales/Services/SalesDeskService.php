@@ -18,6 +18,8 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 2) . '/Quotes/Services/QuoteService.php'; // colourState()
+
 class SalesDeskService
 {
     public const DEFAULT_STALE_DAYS = 5;
@@ -509,6 +511,7 @@ class SalesDeskService
                     'sent_at'     => $q['sent_at'],
                     'valid_until' => $q['valid_until'],
                     'views'       => (int)($q['view_count'] ?? 0),
+                    'state'       => QuoteService::colourState($q),
                 ], $qs),
             ];
         }

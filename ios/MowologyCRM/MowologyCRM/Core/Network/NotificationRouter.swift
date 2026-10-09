@@ -11,9 +11,11 @@
 //  Local payload (GPSTrackingService auto-start): { type, visit_id } at the top level.
 //  Department-head pushes (QuoteViewNotifier — "Sam: Linda just opened QUO-…"):
 //  { aps: {...}, data: { open: "team", head: "sam", quote_id? } } → the Team tab, that head's card.
+//  Penny's unclaimed e-Transfer push adds data.url (etransfer.interac.ca only) → opened in Safari.
 //
 
 import Foundation
+import UIKit
 import UserNotifications
 
 /// Where a tapped notification wants the app to go.
@@ -82,6 +84,17 @@ final class NotificationRouter: NSObject, ObservableObject {
         return HeadRoute(head: head, quoteId: intValue(data["quote_id"]))
     }
 
+    /// Penny's "deposit this e-Transfer" push carries the Interac deposit link. Only an
+    /// https link on etransfer.interac.ca is ever opened — anything else is ignored.
+    nonisolated static func depositURL(from userInfo: [AnyHashable: Any]) -> URL? {
+        let data = (userInfo["data"] as? [AnyHashable: Any]) ?? userInfo
+        guard let raw = data["url"] as? String,
+              let url = URL(string: raw),
+              url.scheme == "https",
+              url.host?.lowercased() == "etransfer.interac.ca" else { return nil }
+        return url
+    }
+
     /// JSON numbers arrive as NSNumber, but a PHP sender can just as easily emit "123".
     private nonisolated static func intValue(_ any: Any?) -> Int? {
         if let n = any as? Int { return n }
@@ -118,6 +131,11 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
+        if let url = Self.depositURL(from: userInfo) {
+            // Open the Interac deposit page in Safari; Tim chooses his bank there.
+            await MainActor.run { UIApplication.shared.open(url) }
+            return
+        }
         let route = Self.route(from: userInfo)
         let head = route == nil ? Self.headRoute(from: userInfo) : nil
         await MainActor.run {

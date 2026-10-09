@@ -4,6 +4,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -255,12 +256,11 @@ $activePage = 'quotes';
                                       ? (int)$quote['days_since_sent'] : null;
                                   $followUpCount = (int)($quote['follow_up_count'] ?? 0);
 
-                                  // Urgency class for the row
-                                  $rowClass = '';
-                                  if ($quote['status'] === 'sent' && $daysSinceSent !== null) {
-                                      if ($daysSinceSent >= 7) $rowClass = 'mw-row-urgent';
-                                      elseif ($daysSinceSent >= 3) $rowClass = 'mw-row-warning';
-                                  }
+                                  // Row colour = where the quote stands: orange opened, green accepted,
+                                  // red declined (QuoteService::colourState). Replaces the old age tint,
+                                  // whose red/orange meant "not followed up"; age is in the follow-up column.
+                                  $__qState = QuoteService::colourState($quote);
+                                  $rowClass = $__qState !== '' ? 'mw-q-' . $__qState : '';
                                   ?>
                                   <tr class="<?php echo $rowClass; ?>" data-href="view.php?id=<?php echo (int)$quote['id']; ?>">
                                       <td>

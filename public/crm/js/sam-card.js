@@ -305,7 +305,7 @@
               (c.viewed ? ' · they opened it' : '') + '.';
 
         var quotes = c.quotes.map(function (q) {
-            return '<li><a href="/crm/quotes/view.php?id=' + q.id + '">' + esc(q.number) + '</a> · ' + esc(q.service || q.title || 'Quote') +
+            return '<li' + (q.state ? ' class="mw-sam-q-' + esc(q.state) + '"' : '') + '><a href="/crm/quotes/view.php?id=' + q.id + '">' + esc(q.number) + '</a> · ' + esc(q.service || q.title || 'Quote') +
                 (q.address ? ' · ' + esc(q.address) : '') + ' · <b>' + money(q.amount) + '</b>' +
                 '<small> sent ' + esc(shortDate(q.sent_at)) + (q.valid_until ? ', good until ' + esc(shortDate(q.valid_until)) : '') + (q.views ? ', viewed ' + q.views + '×' : '') + '</small></li>';
         }).join('');

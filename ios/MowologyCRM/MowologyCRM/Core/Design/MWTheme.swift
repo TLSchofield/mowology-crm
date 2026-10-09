@@ -27,6 +27,8 @@ extension Color {
         static let forest = Color(mwHex: 0x0D3B2E)
         /// #E85D04  --mw-orange — CTA accent (secondary)
         static let orange = Color(mwHex: 0xE85D04)
+        /// #DC2626  --mw-red    — declined / lost
+        static let red    = Color(mwHex: 0xDC2626)
     }
 }
 

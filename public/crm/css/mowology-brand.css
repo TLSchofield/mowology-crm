@@ -22,6 +22,7 @@
   --mw-light:  #E8F3F0;
   --mw-forest: #0D3B2E;
   --mw-orange: #e85d04;
+  --mw-red:    #DC2626;   /* declined / lost (was referenced but never defined) */
 }
 
 /* ══ 1. GLOBAL BASELINE ════════════════════════════════════════════════════ */
@@ -38978,3 +38979,14 @@ html.mw-sr-lock, html.mw-sr-lock body { overflow: hidden; }
 .mw-unbilled-dialog-title { font-weight: 700; font-size: 1rem; color: var(--mw-forest); margin-bottom: 8px; }
 .mw-unbilled-dialog-total { margin-top: 10px; font-size: .82rem; color: var(--mw-dark); }
 .mw-unbilled-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* ── Quote status colours: orange opened, green accepted, red declined (QuoteService::colourState) ── */
+tr.mw-q-opened   td:first-child { box-shadow: inset 4px 0 0 var(--mw-orange); }
+tr.mw-q-accepted td:first-child { box-shadow: inset 4px 0 0 var(--mw-green); }
+tr.mw-q-declined td:first-child { box-shadow: inset 4px 0 0 var(--mw-red); }
+tr.mw-q-opened   td { background: color-mix(in srgb, var(--mw-orange) 7%, transparent); }
+tr.mw-q-accepted td { background: color-mix(in srgb, var(--mw-green) 8%, transparent); }
+tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transparent); }
+.mw-sam-q-opened   { border-left: 4px solid var(--mw-orange); background: color-mix(in srgb, var(--mw-orange) 7%, transparent); padding-left: 8px; border-radius: 4px; }
+.mw-sam-q-accepted { border-left: 4px solid var(--mw-green);  background: color-mix(in srgb, var(--mw-green) 8%, transparent);  padding-left: 8px; border-radius: 4px; }
+.mw-sam-q-declined { border-left: 4px solid var(--mw-red);    background: color-mix(in srgb, var(--mw-red) 7%, transparent);    padding-left: 8px; border-radius: 4px; }
