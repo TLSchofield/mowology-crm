@@ -649,16 +649,32 @@ if (!empty($quote)) {
         <!-- Acceptance Section (sent status only) -->
         <?php if ($quote['status'] === 'sent'): ?>
             <div class="portal-info-card">
-                <div class="portal-info-card-header">Accept This Quote</div>
+                <?php $__sigAddr = trim((string)($quote['property_address'] ?? '')); ?>
+                <div class="portal-info-card-header">Accept This Quote<?php echo $__sigAddr !== '' ? ' &mdash; ' . htmlspecialchars($__sigAddr) : ''; ?></div>
                 <div class="portal-info-card-body">
                     <?php if ($isAdminPreview): ?>
                         <div style="text-align:center;padding:24px;color:var(--p-text-mid);font-style:italic;">
                             ✏️ <strong>Preview mode:</strong> The signature form appears here for your client. Disabled in this preview.
                         </div>
                     <?php else: ?>
-                        <p style="font-size:0.875rem;color:var(--p-text-mid);margin-bottom:22px;">
-                            To accept this quote, please sign below and confirm your details.
-                        </p>
+                        <?php
+                        // Plain step-by-step help: some clients (property managers in their 70s
+                        // among them) read "signature" as a digital certificate and stop here.
+                        require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+                        $__sigCo = EmailWrapper::getCompanyInfo();
+                        ?>
+                        <div style="background:var(--p-green-light, #E8F3F0);border:1px solid var(--p-green, #2D8659);border-radius:10px;padding:16px 18px;margin-bottom:22px;font-size:1.02rem;line-height:1.6;color:var(--p-text, #0D3B2E);">
+                            <div style="font-weight:700;font-size:1.1rem;margin-bottom:6px;">How to sign<?php echo $__sigAddr !== '' ? ' for ' . htmlspecialchars($__sigAddr) : ''; ?> (about one minute)</div>
+                            <div style="margin-bottom:10px;">You don't need a digital signature, a certificate or any special program. Signing here is just drawing your name in the box.</div>
+                            <ol style="margin:0 0 10px 20px;padding:0;">
+                                <li style="margin-bottom:6px;"><strong>Check your name</strong> below. It is filled in for you.</li>
+                                <li style="margin-bottom:6px;"><strong>Draw your signature in the white box.</strong> On a computer, hold the mouse button down and move the mouse. On a phone or tablet, use your finger. Any mark is fine; it doesn't need to be neat. To try again, press <em>Clear Signature</em>.</li>
+                                <li style="margin-bottom:6px;"><strong>Tick the box</strong> that says you agree to the terms.</li>
+                                <li style="margin-bottom:6px;"><strong>Press the green button</strong> at the bottom.</li>
+                            </ol>
+                            <div>A thank-you message shows when it's done. Stuck? Call <?php echo htmlspecialchars($__sigCo['company_phone'] ?? ''); ?> or reply to our email and we'll take care of it with you.</div>
+                        </div>
+                        <?php unset($__sigCo); ?>
 
                         <form method="POST" id="acceptForm">
                             <input type="hidden" name="action" value="accept">
@@ -682,7 +698,7 @@ if (!empty($quote)) {
                                 <label class="portal-form-label">Your Signature *</label>
                                 <div class="portal-sig-wrap">
                                     <canvas id="signaturePad" class="portal-sig-canvas"></canvas>
-                                    <div class="portal-sig-placeholder" id="sigPlaceholder">Sign here with mouse or finger</div>
+                                    <div class="portal-sig-placeholder" id="sigPlaceholder" style="font-size:1.05rem;">Draw your signature here: hold the mouse button down and move, or use your finger</div>
                                     <div class="portal-sig-actions">
                                         <button type="button" class="portal-sig-clear" id="clearSignature">Clear Signature</button>
                                     </div>
