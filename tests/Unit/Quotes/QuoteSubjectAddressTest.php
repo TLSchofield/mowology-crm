@@ -6,9 +6,9 @@ use PHPUnit\Framework\TestCase;
 /** Every quote email subject names the property, so a property manager can tell a dozen apart. */
 class QuoteSubjectAddressTest extends TestCase
 {
-    public function test_address_is_appended(): void
+    public function test_address_leads_the_subject(): void
     {
-        $this->assertSame('Your quote from Mowology - 1003 Wolfe Avenue',
+        $this->assertSame('1003 Wolfe Avenue - Your quote from Mowology',
             QuoteService::subjectWithAddress('Your quote from Mowology', '1003 Wolfe Avenue'));
     }
 
