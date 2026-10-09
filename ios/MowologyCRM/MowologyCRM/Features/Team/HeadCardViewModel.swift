@@ -135,6 +135,7 @@ final class HeadCardViewModel: ObservableObject {
 
     private func apply(_ r: HeadCardResponse) {
         card = r
+        if r.head == "charlie", let brain = r.brain { CharlieBrainCache.save(brain) }
         items = r.items
         unpinned = r.unpinned.filter { pinned[$0.id] == nil }
         post = r.post
