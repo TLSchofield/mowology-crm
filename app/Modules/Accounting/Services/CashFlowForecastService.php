@@ -26,9 +26,9 @@ class CashFlowForecastService
     public const DEFAULTS = [
         'cashflow_floor'          => '2000',
         'cashflow_terms_days'     => '30',
-        'cashflow_rc_instalment'  => '875',
+        'cashflow_rc_instalment'  => '0',
         'cashflow_rc_day'         => '15',
-        'cashflow_gst_instalment' => '3500',
+        'cashflow_gst_instalment' => '0',
         'cashflow_gst_day'        => '15',
         'cashflow_everyday_weekly' => '',
     ];
@@ -218,6 +218,24 @@ class CashFlowForecastService
         return 'other';
     }
 
+    /**
+     * How much could go to tax (or anything else) each week without the balance dropping under
+     * the floor in that week or any week after it — the owner pays taxes "when I can"
+     * (2026-10-10), so Penny shows when he can. $closings: weekly closing balances in order.
+     * @return float[] same order, never negative
+     */
+    public static function safeToPay(array $closings, float $floor): array
+    {
+        $out = [];
+        $minAhead = INF;
+        for ($i = count($closings) - 1; $i >= 0; $i--) {
+            $minAhead = min($minAhead, (float)$closings[$i]);
+            $out[$i] = round(max(0.0, $minAhead - $floor), 2);
+        }
+        ksort($out);
+        return array_values($out);
+    }
+
     /** CRA payments are forecast from the instalment settings, so the bank's copies don't count twice. */
     public static function isTaxPayment(string $description): bool
     {
@@ -370,6 +388,12 @@ class CashFlowForecastService
         $lyEvents = $outOnly;
         foreach ($ly as $wk => $amt) $lyEvents[] = ['date' => $wk, 'amount' => $amt, 'kind' => 'last_year', 'label' => 'Deposits, same week last year', 'why' => 'bank deposits the same week last year'];
         $f['like_last_year'] = $ly ? array_map(fn($w) => ['start' => $w['start'], 'in' => $w['in'], 'closing' => $w['closing']], self::build((float)$opening['balance'], $today, $lyEvents, $weeks, $floor)['weeks']) : [];
+        // Taxes are paid when cash allows: what each week could spare (on the "like last year" view).
+        $basis = $f['like_last_year'] ?: $f['weeks'];
+        $safe = self::safeToPay(array_column($basis, 'closing'), $floor);
+        foreach ($f['weeks'] as $i => &$w) $w['safe_to_pay'] = $safe[$i] ?? 0.0;
+        unset($w);
+        $notes[] = 'Tax is paid when cash allows, so no instalments are scheduled. "Could spare" shows what each week can put toward tax without the like-last-year balance dropping under the floor later.';
         $f['opening_as_of'] = $opening['as_of'];
         $f['opening_accounts'] = $opening['accounts'];
         $f['doubtful'] = $doubtful;

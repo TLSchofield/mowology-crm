@@ -92,7 +92,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
         <h2 class="h6 mb-2">Week by week</h2>
         <div class="table-responsive">
         <table class="table table-sm mw-cf-table">
-            <thead><tr><th>Week of</th><th class="text-end">In</th><th class="text-end">Out</th><th class="text-end">Balance (booked)</th><th class="text-end">Balance (like last year)</th><th class="mw-cf-barcol"></th></tr></thead>
+            <thead><tr><th>Week of</th><th class="text-end">In</th><th class="text-end">Out</th><th class="text-end">Balance (booked)</th><th class="text-end">Balance (like last year)</th><th class="text-end">Could spare for tax</th><th class="mw-cf-barcol"></th></tr></thead>
             <tbody>
             <?php foreach ($f['weeks'] as $w): $l = $lyBy[$w['start']] ?? null; ?>
                 <tr class="<?= $w['closing'] < $f['floor'] ? 'mw-cf-low' : '' ?>">
@@ -114,6 +114,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
                     <td class="text-end"><?= $money(-$w['out']) ?></td>
                     <td class="text-end"><b><?= $money($w['closing']) ?></b></td>
                     <td class="text-end"><?= $l ? $money($l['closing']) : '—' ?></td>
+                    <td class="text-end"><?= ($w['safe_to_pay'] ?? 0) > 0 ? '<b class="mw-cf-spare">' . $money($w['safe_to_pay']) . '</b>' : '—' ?></td>
                     <td class="mw-cf-barcol"><span class="mw-cf-bar<?= $w['closing'] < 0 ? ' is-neg' : '' ?>" style="width: <?= (int)round(min(100, abs($w['closing']) / $max * 100)) ?>%"></span></td>
                 </tr>
             <?php endforeach; ?>

@@ -96,4 +96,11 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertSame('staff', CashFlowForecastService::category('Preauthorized payment Wave PYRL', 'Tim Schofield'));
         $this->assertSame('other', CashFlowForecastService::category('Point of sale VITAL AUTO REPAIR', 'Tim Schofield'));
     }
+
+    public function test_what_each_week_could_spare_for_tax(): void
+    {
+        // balance 9k, then a dip to 3k later: only 1k can go now without breaking a 2k floor
+        $this->assertSame([1000.0, 1000.0, 2000.0, 2000.0], CashFlowForecastService::safeToPay([9000, 3000, 8000, 4000], 2000));
+        $this->assertSame([0.0, 0.0], CashFlowForecastService::safeToPay([9000, 1500], 2000));   // a later dip under the floor leaves nothing to spare
+    }
 }

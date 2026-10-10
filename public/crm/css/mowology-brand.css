@@ -39698,3 +39698,4 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-cf-barcol { width: 22%; }
 .mw-cf-bar { display: block; height: 10px; border-radius: 5px; background: var(--mw-green); margin-top: 6px; }
 .mw-cf-bar.is-neg { background: var(--mw-red); }
+.mw-cf-spare { color: var(--mw-green); }
