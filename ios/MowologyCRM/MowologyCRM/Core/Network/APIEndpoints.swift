@@ -159,6 +159,9 @@ enum APIEndpoint {
     /// Action Board's top 3 for that head, the brain, and the head's extra (Charlie's Ask status,
     /// Otto's unpinned properties, Mia's Google post draft) (JWT, admin).
     case teamHeadBrief(head: String)
+    /// GET /api/team/team-mobile?mode=brief&head=charlie&ready=1 — the copy kept ready on the server
+    /// (built every 15 min + after each read) for the opening screen; the live build takes ~7 s.
+    case teamHeadBriefReady(head: String)
     /// GET /api/team/team-mobile?mode=brains — every head's brain, for the face row's flip.
     case teamBrains
 
@@ -411,6 +414,11 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head)]
             return components?.url
+        case .teamHeadBriefReady(let head):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head),
+                                      URLQueryItem(name: "ready", value: "1")]
+            return components?.url
 
         case .teamHeadAction:
             return URL(string: "\(baseURLString)/team/team-mobile")
@@ -596,6 +604,7 @@ enum APIEndpoint {
              .salesThread,
              .salesAction,
              .teamHeadBrief,
+             .teamHeadBriefReady,
              .teamBrains,
              .teamHeadAction,
              .expenseLookup,
@@ -671,6 +680,7 @@ enum APIEndpoint {
              .salesDesk,
              .salesThread,
              .teamHeadBrief,
+             .teamHeadBriefReady,
              .teamBrains,
              .expenseLookup,
              .expenseLineItems,

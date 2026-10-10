@@ -4,9 +4,10 @@
  *
  * Every run: the urgent list (failed payments over the threshold, same-day weather) —
  * anything not yet sent goes to the owner by email at once (CharlieUrgentService).
- * Hourly (runs in the first quarter of the hour, or ?force=1): ask every head, remember
- * what they said and learn from what was dealt with (CharlieDeskService::today, via
- * CharlieForemanService so bad news leads). Then, if it's a weekday between 07:00 and
+ * Every run: ask every head, remember what they said and learn from what was dealt with
+ * (CharlieDeskService::today, via CharlieForemanService so bad news leads), and keep the brief
+ * ready for the iPhone's opening screen (HeadBriefReadyService, 2026-10-10).
+ * Hourly (first quarter of the hour, or ?force=1): if it's a weekday between 07:00 and
  * 09:59 America/Vancouver and today's brief hasn't been emailed, email it to the owner
  * (ops_settings charlie_owner_user_id → users.email) through sendEmail(). The window past
  * 07:59 only catches up a missed 7 o'clock run; the brief still goes once.
@@ -91,12 +92,21 @@ try {
     if ($u['sent'] > 0) $parts[] = $u['sent'] . ' urgent alert' . ($u['sent'] === 1 ? '' : 's') . ' emailed';
     if ($u['error']) $parts[] = 'urgent alert failed: ' . $u['error'];
 
-    // Brief — hourly, and the email once on weekday mornings.
+    // Every run: ask every head and keep the brief ready for the iPhone's opening screen
+    // (HeadBriefReadyService — building it live takes ~7 s, too long to wait for at launch).
+    $view = $f->card($name)['view'];
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+        (new HeadBriefReadyService($db))->rebuildCharlie($f, $name, $view);
+    } catch (Throwable $e) {
+        $parts[] = 'ready brief failed: ' . $e->getMessage();
+    }
+
+    // The email — once, on weekday mornings (checked at the top of the hour).
     if (!$force && (int)date('i') >= 15) {
-        $__finish($u['error'] ? 'warning' : 'success', ($parts ? implode('; ', $parts) . '; ' : '') . 'urgent check only (brief runs at the top of the hour)');
+        $__finish($u['error'] ? 'warning' : 'success', ($parts ? implode('; ', $parts) . '; ' : '') . 'brief kept ready (email checks at the top of the hour)');
         exit;
     }
-    $view = $f->card($name)['view'];
     $parts[] = $view['total'] . ' item' . ($view['total'] === 1 ? '' : 's') . ' from ' . count($view['connected']) . ' heads'
              . ($view['failed'] ? ' (' . implode(', ', array_keys($view['failed'])) . ' failed)' : '');
     $summary = implode('; ', $parts);

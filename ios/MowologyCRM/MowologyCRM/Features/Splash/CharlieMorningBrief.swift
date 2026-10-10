@@ -97,9 +97,9 @@ final class MorningBriefLoader: ObservableObject {
 
     @Published private(set) var finished = false
 
-    /// Today's brief, with the saved one meanwhile. Never cancelled: Charlie reads every head's
-    /// desk, which takes ~7 s on the server (measured 2026-10-10) — the old 2.5 s cut-off meant
-    /// the brief never arrived, so nothing was ever saved and the brief never showed.
+    /// Today's brief, with the saved one meanwhile. Never cancelled: a live build reads every head's
+    /// desk (~7 s, measured 2026-10-10) — the old 2.5 s cut-off meant the brief never arrived.
+    /// The server now keeps it ready (?ready=1, HeadBriefReadyService), so it is normally instant.
     /// The overlay decides how long to wait; this just publishes whatever arrives.
     func load(authSession: AuthSession) async {
         snapshot = MorningBriefStore.load()
@@ -107,7 +107,8 @@ final class MorningBriefLoader: ObservableObject {
         finished = false
         defer { finished = true }
         let client = APIClient(authSession: authSession)
-        let r: HeadCardResponse? = try? await client.request(.teamHeadBrief(head: "charlie"))
+        // The ready copy (served at once); an older server ignores ready=1 and builds live.
+        let r: HeadCardResponse? = try? await client.request(.teamHeadBriefReady(head: "charlie"))
         if let r, r.ok {
             if let brain = r.brain { CharlieBrainCache.save(brain) }
             let s = MorningBriefStore.build(headline: r.headline, items: r.items)

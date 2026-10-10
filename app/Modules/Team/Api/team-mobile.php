@@ -61,6 +61,17 @@ header('Content-Type: application/json');
  * it (Undo), and for "pin X m off" the property's current pin so the phone can map both.
  * null when the user lacks jobs.edit or Otto isn't set up (migrations 1150–1152). Never throws.
  */
+/** An item acted on from the app comes out of the opening screen's ready brief at once. */
+function tmDropReady(PDO $db, string $key): void
+{
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+        (new HeadBriefReadyService($db))->drop(substr($key, 0, 120));
+    } catch (Throwable $e) {
+        error_log('[team-mobile] drop ready: ' . $e->getMessage());
+    }
+}
+
 function tmOttoDesk(PDO $db, array $jwtUser): ?array
 {
     if (!jwtUserHasPermission($jwtUser, 'jobs.edit')) return null;
@@ -190,6 +201,28 @@ try {
                 echo json_encode(['ok' => false, 'error' => 'Migration 1170 has not run']);
                 break;
             }
+            if ($head === 'charlie' && $isOwner && !empty($_GET['ready'])) {
+                // The iPhone's opening screen: the copy kept ready (HeadBriefReadyService), served
+                // at once, then rebuilt behind the reply when it is more than two minutes old.
+                require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+                $ready = new HeadBriefReadyService($db);
+                $kept = $ready->get('charlie');
+                $state = HeadBriefReadyService::state($kept['built_at'] ?? null, time());
+                if ($kept && $state !== 'stale') {
+                    echo json_encode($kept['brief'] + ['built_at' => $kept['built_at']]);
+                    if ($state === 'refresh') {
+                        ignore_user_abort(true);
+                        if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                        elseif (function_exists('litespeed_finish_request')) litespeed_finish_request();
+                        try { $ready->rebuildCharlie($f, $name); }
+                        catch (Throwable $e) { error_log('[team-mobile] ready rebuild: ' . $e->getMessage()); }
+                    }
+                } else {
+                    $brief = $ready->rebuildCharlie($f, $name);
+                    echo json_encode($brief + ['built_at' => date('Y-m-d H:i:s')]);
+                }
+                break;
+            }
             if ($isOwner) {
                 // The Action Board's own call (charlie.php ?mode=today): the same ranked view.
                 $view = $f->card($name)['view'];
@@ -248,6 +281,7 @@ try {
             $what = (string)($input['what'] ?? '');
             if (!in_array($what, ['open', 'snooze'], true)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown action']); break; }
             echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
+            tmDropReady($db, (string)($input['key'] ?? ''));
             break;
         }
 
@@ -289,6 +323,7 @@ try {
             echo json_encode($mode === 'move'
                 ? $route->move($ref, (string)($input['to'] ?? ''), (int)$user['id'])
                 : $route->done($ref, (int)$user['id']));
+            tmDropReady($db, $ref['key']);
             break;
         }
 
