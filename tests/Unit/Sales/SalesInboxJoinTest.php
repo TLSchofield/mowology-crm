@@ -54,6 +54,14 @@ class SalesInboxJoinTest extends TestCase
         $this->assertSame('domain', $c['joined_by']);
     }
 
+    public function test_a_colleague_of_a_contact_with_no_quote_is_not_joined(): void
+    {
+        $join = $this->join();
+        $join['domains']['macdonaldpm.com'] = 1514;   // "Valued Customer" placeholder, no quotes
+        $this->assertNull(SalesInboxService::classifyAny('Monica Nicule <mnicule@macdonaldpm.com>', 'office@mowology.ca',
+            'Town Villa quote', $this->contacts(), $join));
+    }
+
     public function test_free_mail_domains_never_join(): void
     {
         $join = $this->join();

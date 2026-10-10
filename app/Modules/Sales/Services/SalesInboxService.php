@@ -304,7 +304,8 @@ class SalesInboxService
      * Which quote's conversation an email from a non-contact belongs to, first rule wins:
      *   quote_number — the subject names one of our quotes (QUO-2026-0073);
      *   address      — the subject carries the quote's property address (our subjects start with it);
-     *   domain       — the person writes from a company domain exactly one contact uses (never gmail…).
+     *   domain       — the person writes from a company domain exactly one contact uses, and that
+ *                  contact has a quote with us (never gmail…).
      * $join['quotes'] is newest first, so a property with several quotes joins the newest.
      * @return array{contact_id:int, quote_id:?int, joined_by:string}|null
      */
@@ -323,14 +324,15 @@ class SalesInboxService
                 return ['contact_id' => (int)$q['contact_id'], 'quote_id' => (int)$q['id'], 'joined_by' => 'address'];
             }
         }
+        // Same company: only onto a contact who has a quote with us. A placeholder at the
+        // firm ("Valued Customer", dkrental@macdonaldpm.com) is not a conversation to join
+        // (2026-10-10: Monica's "council approved" landed there instead of on Linda's quote).
         $d = self::domain($email);
         $cid = (int)(($join['domains'] ?? [])[$d] ?? 0);
         if ($d !== '' && $cid > 0 && !in_array($d, self::FREE_DOMAINS, true)) {
-            $qid = null;
             foreach ($quotes as $q) {
-                if ((int)$q['contact_id'] === $cid) { $qid = (int)$q['id']; break; }
+                if ((int)$q['contact_id'] === $cid) return ['contact_id' => $cid, 'quote_id' => (int)$q['id'], 'joined_by' => 'domain'];
             }
-            return ['contact_id' => $cid, 'quote_id' => $qid, 'joined_by' => 'domain'];
         }
         return null;
     }
