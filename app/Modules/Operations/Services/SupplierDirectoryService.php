@@ -161,8 +161,8 @@ class SupplierDirectoryService
     }
 
     /**
-     * Geocode suppliers that have an address but no point, and give each a place on Otto's map
-     * (ops_places kind 'supplier') and a link to Penny's vendor of the same name when one exists.
+     * Geocode suppliers that have an address but no point; an exact point also becomes a place on
+     * Otto's map (ops_places kind 'supplier'); link Penny's vendor of the same name when one exists.
      * Returns how many were placed.
      */
     public function placeAll(?callable $geocode = null): int
@@ -177,9 +177,14 @@ class SupplierDirectoryService
                 $p = $geocode((string)$r['address']);
                 if (!$p) continue;
                 [$lat, $lng] = [(float)$p['lat'], (float)$p['lng']];
-                $this->db->prepare("UPDATE supplier_accounts SET lat = ?, lng = ? WHERE id = ?")->execute([$lat, $lng, (int)$r['id']]);
+                $exact = !empty($p['exact']);
+                $this->db->prepare("UPDATE supplier_accounts SET lat = ?, lng = ?, geo_exact = ? WHERE id = ?")->execute([$lat, $lng, $exact ? 1 : 0, (int)$r['id']]);
+            } else {
+                $exact = !array_key_exists('geo_exact', $r) || $r['geo_exact'] === null || (int)$r['geo_exact'] === 1;   // NULL = set by hand
             }
-            if (empty($r['place_id'])) {
+            // A street-level point is fine for "nearest supplier" but would mislabel the truck's stops
+            // (places match within 150 m) — only an exact point becomes a place on Otto's map.
+            if (empty($r['place_id']) && $exact) {
                 try {
                     $name = mb_substr((string)$r['name'], 0, 120);
                     $this->db->prepare("
@@ -222,15 +227,40 @@ class SupplierDirectoryService
         return array_slice($out, 0, $limit);
     }
 
-    /** Google geocoding with the CRM's Maps key (the same call CloserService uses). */
+    /**
+     * Address → point. Google first (needs a server key: the CRM's Maps key is browser-only —
+     * "API keys with referer restrictions cannot be used with this API", found 2026-10-10), then
+     * OpenStreetMap's Nominatim (free; its policy: identify yourself, at most 1 request a second).
+     */
     public static function googleGeocode(string $address): ?array
     {
-        $key = defined('GOOGLE_MAPS_API_KEY') ? (string)GOOGLE_MAPS_API_KEY : (defined('GOOGLE_MAPS_KEY') ? (string)GOOGLE_MAPS_KEY : '');
-        if ($key === '') return null;
-        $url = 'https://maps.googleapis.com/maps/api/geocode/json?address=' . rawurlencode($address) . '&region=ca&key=' . rawurlencode($key);
-        $ctx = stream_context_create(['http' => ['timeout' => 8]]);
+        $key = defined('GOOGLE_GEOCODING_KEY') ? (string)GOOGLE_GEOCODING_KEY : (defined('GOOGLE_MAPS_API_KEY') ? (string)GOOGLE_MAPS_API_KEY : '');
+        if ($key !== '') {
+            $url = 'https://maps.googleapis.com/maps/api/geocode/json?address=' . rawurlencode($address) . '&region=ca&key=' . rawurlencode($key);
+            $j = json_decode((string)@file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 8, 'ignore_errors' => true]])), true);
+            $loc = $j['results'][0]['geometry']['location'] ?? null;
+            if ($loc) return ['lat' => (float)$loc['lat'], 'lng' => (float)$loc['lng'], 'by' => 'google',
+                              'exact' => in_array($j['results'][0]['geometry']['location_type'] ?? '', ['ROOFTOP', 'RANGE_INTERPOLATED'], true)];
+        }
+        return self::nominatim($address);
+    }
+
+    public static function nominatim(string $address): ?array
+    {
+        static $last = 0.0;
+        $wait = 1.1 - (microtime(true) - $last);
+        if ($wait > 0) usleep((int)($wait * 1e6));
+        $last = microtime(true);
+        $url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ca&q=' . rawurlencode($address);
+        $ctx = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true,
+                                                 'header' => "User-Agent: Mowology-CRM/1.0 (supplier directory; office@mowology.ca)\r\n"]]);
         $j = json_decode((string)@file_get_contents($url, false, $ctx), true);
-        $loc = $j['results'][0]['geometry']['location'] ?? null;
-        return $loc ? ['lat' => (float)$loc['lat'], 'lng' => (float)$loc['lng']] : null;
+        // place_rank 28–30 = a building or house number; lower = a street or area (km off).
+        if (!empty($j[0]['lat'])) return ['lat' => (float)$j[0]['lat'], 'lng' => (float)$j[0]['lon'], 'by' => 'osm',
+                                          'exact' => (int)($j[0]['place_rank'] ?? 0) >= 28];
+        // Unit numbers and postal codes sometimes defeat the search — retry with the street + city only.
+        $short = trim((string)preg_replace(['/^\s*#?\d+\s*[-–]\s*(?=\d)/', '/\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/i'], '', $address), ' ,');
+        if ($short !== $address) return self::nominatim($short);
+        return null;
     }
 }
