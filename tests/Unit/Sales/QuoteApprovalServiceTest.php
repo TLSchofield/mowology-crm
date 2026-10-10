@@ -74,4 +74,15 @@ class QuoteApprovalServiceTest extends TestCase
     {
         $this->assertSame('Sam: QUO-2026-0073 approved', QuoteApprovalService::summary($this->quote(), $this->lines())['push_title']);
     }
+
+    public function test_ottos_schedule_line(): void
+    {
+        $this->assertSame('Daily salt & snow route PLN-2026-0150 set up: Nov 1 – Mar 31, crew Nigel Casey.',
+            QuoteApprovalService::scheduleNote(['route_number' => 'PLN-2026-0150', 'route_start' => '2026-11-01', 'route_end' => '2027-03-31', 'crew' => 'Nigel Casey', 'is_contract' => 1]));
+        $this->assertSame("Job PLN-2026-0145 is in the Unscheduled tray — place it when you're ready.",
+            QuoteApprovalService::scheduleNote(['plan_number' => 'PLN-2026-0145']));
+        $this->assertStringStartsWith('Route not set up: no rates', QuoteApprovalService::scheduleNote(['setup_status' => 'failed', 'setup_detail' => 'no rates', 'is_contract' => 1]));
+        $this->assertSame('Daily salt & snow route PLN-1 set up: Nov 1 – Mar 31, no crew yet.',
+            QuoteApprovalService::scheduleNote(['route_number' => 'PLN-1', 'route_start' => '2026-11-01', 'route_end' => '2027-03-31', 'crew' => '']));
+    }
 }

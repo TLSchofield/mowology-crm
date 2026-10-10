@@ -116,6 +116,28 @@ class QuoteApprovalService
         ];
     }
 
+    /**
+     * Otto's line under an approval — the schedule is his job, so he says what he set up
+     * (owner, 2026-10-10). $r: plan_number, route_number, route_start, route_end, crew,
+     * setup_status, setup_detail, is_contract.
+     */
+    public static function scheduleNote(array $r): string
+    {
+        $fmt = fn($d) => $d ? date('M j', strtotime((string)$d)) : '';
+        if (!empty($r['route_number'])) {
+            $span = $r['route_start'] ? ' ' . $fmt($r['route_start']) . ' – ' . $fmt($r['route_end']) : '';
+            return 'Daily salt & snow route ' . $r['route_number'] . ' set up' . ($span !== '' ? ':' . $span : '')
+                 . (!empty($r['crew']) ? ', crew ' . $r['crew'] : ', no crew yet') . '.';
+        }
+        if (in_array($r['setup_status'] ?? '', ['failed', 'skipped'], true)) {
+            return 'Route not set up: ' . trim((string)($r['setup_detail'] ?? 'unknown reason')) . ' — use Create Contract on the quote.';
+        }
+        if (!empty($r['plan_number'])) {
+            return 'Job ' . $r['plan_number'] . " is in the Unscheduled tray — place it when you're ready.";
+        }
+        return !empty($r['is_contract']) ? 'Contract: set up from the contract.' : '';
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // DB
     // ══════════════════════════════════════════════════════════════════════
@@ -190,13 +212,26 @@ class QuoteApprovalService
     public function pending(int $limit = 10): array
     {
         if (!$this->ready()) return [];
-        $st = $this->db->prepare("
-            SELECT a.quote_id, a.plan_id, a.summary, a.job_note, a.created_at, jp.plan_number
+        $base = "
+            SELECT a.quote_id, a.plan_id, a.summary, a.job_note, a.created_at, jp.plan_number, q.is_contract%s
             FROM quote_approvals a
-            LEFT JOIN job_plans jp ON jp.id = a.plan_id
+            JOIN quotes q ON q.id = a.quote_id
+            LEFT JOIN job_plans jp ON jp.id = a.plan_id%s
             WHERE a.acknowledged_at IS NULL AND a.summary IS NOT NULL AND a.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            ORDER BY a.created_at DESC LIMIT " . max(1, min(30, $limit)));
-        $st->execute();
+            ORDER BY a.created_at DESC LIMIT " . max(1, min(30, $limit));
+        // Snow contracts: the daily route the signing set up (migration 1310), with its crew.
+        $snow = sprintf($base,
+            ", s.status AS setup_status, s.detail AS setup_detail, s.plan_id AS route_id, rp.plan_number AS route_number,
+               rp.plan_start_date AS route_start, rp.plan_end_date AS route_end, TRIM(CONCAT(COALESCE(cu.first_name, ''), ' ', COALESCE(cu.last_name, ''))) AS crew",
+            "
+            LEFT JOIN snow_contract_setups s ON s.quote_id = a.quote_id
+            LEFT JOIN job_plans rp ON rp.id = s.plan_id
+            LEFT JOIN users cu ON cu.id = rp.default_crew_id");
+        try {
+            $st = $this->db->query($snow);
+        } catch (Throwable $e) {
+            $st = $this->db->query(sprintf($base, '', ''));
+        }
         $out = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $s = json_decode((string)$r['summary'], true) ?: [];
@@ -211,6 +246,19 @@ class QuoteApprovalService
                 'approver'    => $s['approver'] ?? '',
                 'via'         => $s['via'] ?? '',
                 'job_note'    => $r['job_note'],
+                // Otto's line: what the schedule now holds (tray job or daily route).
+                'schedule'    => [
+                    'by'      => 'otto',
+                    'text'    => self::scheduleNote([
+                        'plan_number' => $r['plan_number'], 'route_number' => $r['route_number'] ?? null,
+                        'route_start' => $r['route_start'] ?? null, 'route_end' => $r['route_end'] ?? null,
+                        'crew' => ucwords(strtolower(trim((string)($r['crew'] ?? '')))),
+                        'setup_status' => $r['setup_status'] ?? null, 'setup_detail' => $r['setup_detail'] ?? null,
+                        'is_contract' => $r['is_contract'],
+                    ]),
+                    'plan_id' => isset($r['route_id']) && $r['route_id'] ? (int)$r['route_id'] : ($r['plan_id'] !== null ? (int)$r['plan_id'] : null),
+                    'face'    => '/crm/img/heads/otto.jpg',
+                ],
             ];
         }
         return $out;

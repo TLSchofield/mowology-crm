@@ -38086,6 +38086,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sam-appr-line.is-in .mw-sam-appr-mark { color: var(--mw-green); font-weight: 700; }
 .mw-sam-appr-line.is-out { color: var(--mw-red); }
 .mw-sam-appr-line.is-out .mw-sam-appr-mark { font-weight: 700; }
+.mw-sam-appr-otto { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: .8rem; }
+.mw-sam-appr-otto img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 2px solid var(--mw-lime); flex: 0 0 28px; }
+.mw-sam-appr-otto a { color: var(--mw-dark); }
 .mw-sam-appr .mw-sam-lead-act { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
 .mw-sam-reply { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
 .mw-sam-reply-main { min-width: 0; }

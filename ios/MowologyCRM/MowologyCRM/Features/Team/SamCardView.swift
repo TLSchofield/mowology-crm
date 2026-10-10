@@ -132,7 +132,19 @@ struct SamCardView: View {
                 Text("Approved by \(a.approver)" + (a.via.isEmpty || a.via == "approved" ? "" : " (\(a.via))"))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if let pn = a.planNumber, a.planId != nil {
+            // Otto's line — the schedule is his job, so his face says what he set up.
+            if !a.scheduleText.isEmpty {
+                HStack(alignment: .center, spacing: 8) {
+                    AsyncImage(url: TeamHead.all.first(where: { $0.slug == "otto" })?.faceURL) { phase in
+                        if let img = phase.image { img.resizable().scaledToFill() } else { Color.MW.light }
+                    }
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+                    .overlay(Circle().strokeBorder(Color.MW.lime, lineWidth: 2))
+                    Text(a.scheduleText).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if let pn = a.planNumber, a.planId != nil {
                 Text("Job \(pn) is in the Unscheduled tray").font(.caption).foregroundStyle(.secondary)
             } else if let n = a.jobNote, !n.isEmpty {
                 Text(n).font(.caption).foregroundStyle(.secondary)

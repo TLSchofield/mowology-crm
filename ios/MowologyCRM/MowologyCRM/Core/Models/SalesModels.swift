@@ -312,10 +312,24 @@ struct SalesApproval: Decodable, Identifiable, Equatable {
     let approver: String
     let via: String
     let jobNote: String?
+    /// Otto's line: what the schedule now holds (tray job / daily salt & snow route).
+    let scheduleText: String
+    let schedulePlanId: Int?
     var id: Int { quoteId }
 
+    private struct Schedule: Decodable {
+        let text: String
+        let planId: Int?
+        private enum CodingKeys: String, CodingKey { case text, planId = "plan_id" }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            text = c.bkString(.text) ?? ""
+            planId = c.bkInt(.planId)
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case at, headline, partial, lines, approver, via
+        case at, headline, partial, lines, approver, via, schedule
         case quoteId = "quote_id", planId = "plan_id", planNumber = "plan_number", jobNote = "job_note"
     }
     init(from decoder: Decoder) throws {
@@ -330,6 +344,9 @@ struct SalesApproval: Decodable, Identifiable, Equatable {
         approver = c.bkString(.approver) ?? ""
         via = c.bkString(.via) ?? ""
         jobNote = c.bkString(.jobNote)
+        let s = try? c.decodeIfPresent(Schedule.self, forKey: .schedule)
+        scheduleText = s?.text ?? ""
+        schedulePlanId = s?.planId
     }
 }
 

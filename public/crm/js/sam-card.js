@@ -203,13 +203,17 @@
                         ' <b>' + money(l.amount) + '</b>' + (l.approved ? '' : ' <small>not included</small>') + '</li>';
                 }).join('');
                 var who = a.approver ? 'Approved by ' + esc(a.approver) + (a.via && a.via !== 'approved' ? ' (' + esc(a.via) + ')' : '') + ' · ' : '';
-                var job = a.plan_id
-                    ? '<a class="mw-rc-ed" href="/crm/jobs/view.php?id=' + a.plan_id + '">Job ' + esc(a.plan_number || '') + ' (in the tray)</a>'
-                    : (a.job_note ? '<small>' + esc(a.job_note) + '</small>' : '');
+                // Otto's line: the schedule is his job, so he says what he set up (tray job / daily route).
+                var sc = a.schedule || {};
+                var otto = sc.text
+                    ? '<div class="mw-sam-appr-otto"><img src="' + esc(sc.face || '/crm/img/heads/otto.jpg') + '" alt="Otto" width="28" height="28">' +
+                      (sc.plan_id ? '<a href="/crm/jobs/view.php?id=' + sc.plan_id + '">' + esc(sc.text) + '</a>' : '<span>' + esc(sc.text) + '</span>') + '</div>'
+                    : '';
+                var job = '';
                 return '<div class="mw-sam-appr' + (a.partial ? ' is-partial' : '') + '" data-q="' + a.quote_id + '">' +
                     '<div class="mw-sam-appr-head"><b>' + esc(a.headline) + '</b></div>' +
                     '<ul class="mw-sam-appr-lines">' + lines + '</ul>' +
-                    '<small class="mw-sam-meta">' + who + esc(ago(a.at)) + '</small>' +
+                    '<small class="mw-sam-meta">' + who + esc(ago(a.at)) + '</small>' + otto +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="/crm/quotes/view.php?id=' + a.quote_id + '">Quote</a>' + job +
                     '<button type="button" class="mw-rc-sk" data-seen>Got it</button></div></div>';
             }).join('');
