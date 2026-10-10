@@ -14,6 +14,8 @@ import UIKit
 struct HeadCardView: View {
 
     @ObservedObject var vm: HeadCardViewModel
+    /// Tapping the brain line turns the head's face over to show the brain (TeamView).
+    var onBrainTap: (() -> Void)? = nil
     @Environment(\.openURL) private var openURL
     @FocusState private var askFocused: Bool
     @State private var confirmPublish = false
@@ -88,13 +90,17 @@ struct HeadCardView: View {
     /// The head's own turning brain sits beside the summary (owner, 2026-10-10: on brand, and
     /// smaller than a full-width graphic) — the same shape the splash screen and the web draw.
     private func brainRow(_ b: HeadBrainSummary, name: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            brainText(b, name: name)
-            // Nothing learned yet shows shape 1's outline — a single triangle, the seed.
-            BrainView(units: b.units, tiers: Dictionary(b.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
-                      label: "\(name)'s brain", onLight: true)
-                .frame(width: 84, height: 84)
+        // The brain itself shows on the face (tap a face, or this line, and it turns over);
+        // the card keeps the words — a smaller box than the drawing (owner, 2026-10-10).
+        Button { onBrainTap?() } label: {
+            HStack(alignment: .top, spacing: 8) {
+                brainText(b, name: name)
+                if onBrainTap != nil {
+                    Image(systemName: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(Color.MW.green)
+                }
+            }
         }
+        .buttonStyle(.plain)
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))

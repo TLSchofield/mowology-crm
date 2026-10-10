@@ -395,3 +395,29 @@ struct OttoDecideResponse: Decodable {
         redirect = c.bkString(.redirect)
     }
 }
+
+/// GET team-mobile?mode=brains — { slug: brain | null } for every head (the face row flips to it).
+struct TeamBrainsResponse: Decodable {
+    let ok: Bool
+    let brains: [String: HeadBrainSummary]
+
+    private struct Key: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+    private enum CodingKeys: String, CodingKey { case ok, brains }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        var out: [String: HeadBrainSummary] = [:]
+        if let b = try? c.nestedContainer(keyedBy: Key.self, forKey: .brains) {
+            for k in b.allKeys {
+                if let v = try? b.decodeIfPresent(HeadBrainSummary.self, forKey: k) { out[k.stringValue] = v }
+            }
+        }
+        brains = out
+    }
+}

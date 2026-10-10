@@ -53,6 +53,9 @@ struct TeamView: View {
     /// Bumped when a push asks for a card, so the ScrollViewReader scrolls to it.
     @State private var scrollRequest = 0
     private static let cardAnchor = "mw-team-head-card"
+    /// Every head's brain (team-mobile ?mode=brains): tapping a face flips it to show theirs.
+    @State private var brains: [String: HeadBrainSummary] = [:]
+    @State private var flipped: String?
 
     init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
@@ -86,7 +89,7 @@ struct TeamView: View {
                                 Spacer()
                                 if head.isLoading && head.hasLoaded { ProgressView() }
                             }
-                            HeadCardView(vm: head)
+                            HeadCardView(vm: head, onBrainTap: { flip(selected) })
                         } else if selected == "sam" {
                             HStack(spacing: 8) {
                                 Text("Sam's sales desk").font(.title3.bold())
@@ -131,6 +134,7 @@ struct TeamView: View {
             .refreshable { await reload() }
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
+            .task { await loadBrains() }
             .task(id: selected) {
                 if let head = headVM {
                     if !head.hasLoaded { await head.load() }
@@ -152,6 +156,23 @@ struct TeamView: View {
                 Task { await reload() }
             }
             }
+        }
+    }
+
+    /// Tap a face: it turns over to show that head's brain for a few seconds, then back.
+    private func flip(_ slug: String) {
+        withAnimation(.easeInOut(duration: 0.5)) { flipped = slug }
+        Task {
+            if brains.isEmpty { await loadBrains() }
+            try? await Task.sleep(nanoseconds: 3_200_000_000)
+            if flipped == slug { withAnimation(.easeInOut(duration: 0.5)) { flipped = nil } }
+        }
+    }
+
+    private func loadBrains() async {
+        guard showsAccount else { return }   // the static render has no session
+        if let r: TeamBrainsResponse = try? await APIClient(authSession: authSession).request(.teamBrains), r.ok {
+            brains = r.brains
         }
     }
 
@@ -195,9 +216,10 @@ struct TeamView: View {
             HStack(alignment: .top, spacing: 14) {
                 ForEach(TeamHead.all) { head in
                     Button {
-                        if head.isLive { selected = head.slug }
+                        if head.isLive { selected = head.slug; flip(head.slug) }
                     } label: {
-                        HeadFace(head: head, isSelected: head.slug == selected)
+                        HeadFace(head: head, isSelected: head.slug == selected,
+                                 brain: brains[head.slug], flipped: flipped == head.slug)
                     }
                     .buttonStyle(.plain)
                     .disabled(!head.isLive)
@@ -212,26 +234,48 @@ struct TeamView: View {
 private struct HeadFace: View {
     let head: TeamHead
     var isSelected = false
+    var brain: HeadBrainSummary? = nil
+    var flipped = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 4) {
-            AsyncImage(url: head.faceURL) { phase in
-                if let img = phase.image {
-                    img.resizable().scaledToFill()
-                } else {
-                    Text(String(head.name.prefix(1)))
-                        .font(.title2.bold())
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.MW.dark)
+            ZStack {
+                AsyncImage(url: head.faceURL) { phase in
+                    if let img = phase.image {
+                        img.resizable().scaledToFill()
+                    } else {
+                        Text(String(head.name.prefix(1)))
+                            .font(.title2.bold())
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.MW.dark)
+                    }
                 }
+                .frame(width: 62, height: 62)
+                .clipShape(Circle())
+                // strokeBorder keeps the ring inside the face: a centred stroke poked 2 pt past the
+                // frame and the scroll view clipped its top (Penny, 2026-10-10).
+                .overlay(Circle().strokeBorder(isSelected ? Color.MW.lime : (head.isLive ? Color.MW.lime.opacity(0.35) : Color.clear),
+                                         lineWidth: isSelected ? 4 : 2))
+                    .opacity(flipped ? 0 : 1)
+                // The back of the face: their brain (nothing learned yet = the seed triangle).
+                ZStack {
+                    Circle().fill(Color.MW.light)
+                    if flipped {
+                        BrainView(units: brain?.units ?? 0,
+                                  tiers: Dictionary((brain?.tiers ?? []).map { ($0.slug, $0.n) }, uniquingKeysWith: +),
+                                  label: "\(head.name)'s brain", onLight: true)
+                            .padding(4)
+                    }
+                }
+                .frame(width: 62, height: 62)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.MW.lime, lineWidth: 4))
+                .rotation3DEffect(.degrees(reduceMotion ? 0 : 180), axis: (x: 0, y: 1, z: 0))
+                .opacity(flipped ? 1 : 0)
             }
-            .frame(width: 62, height: 62)
-            .clipShape(Circle())
-            // strokeBorder keeps the ring inside the face: a centred stroke poked 2 pt past the
-            // frame and the scroll view clipped its top (Penny, 2026-10-10).
-            .overlay(Circle().strokeBorder(isSelected ? Color.MW.lime : (head.isLive ? Color.MW.lime.opacity(0.35) : Color.clear),
-                                     lineWidth: isSelected ? 4 : 2))
+            .rotation3DEffect(.degrees(flipped && !reduceMotion ? 180 : 0), axis: (x: 0, y: 1, z: 0))
             .grayscale(head.isLive ? 0 : 1)
             .opacity(head.isLive ? 1 : 0.45)
 

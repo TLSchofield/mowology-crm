@@ -159,6 +159,8 @@ enum APIEndpoint {
     /// Action Board's top 3 for that head, the brain, and the head's extra (Charlie's Ask status,
     /// Otto's unpinned properties, Mia's Google post draft) (JWT, admin).
     case teamHeadBrief(head: String)
+    /// GET /api/team/team-mobile?mode=brains — every head's brain, for the face row's flip.
+    case teamBrains
 
     /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
     /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
@@ -413,6 +415,11 @@ enum APIEndpoint {
         case .teamHeadAction:
             return URL(string: "\(baseURLString)/team/team-mobile")
 
+        case .teamBrains:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brains")]
+            return components?.url
+
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
             components?.queryItems = query
@@ -589,6 +596,7 @@ enum APIEndpoint {
              .salesThread,
              .salesAction,
              .teamHeadBrief,
+             .teamBrains,
              .teamHeadAction,
              .expenseLookup,
              .expenseDelete,
@@ -663,6 +671,7 @@ enum APIEndpoint {
              .salesDesk,
              .salesThread,
              .teamHeadBrief,
+             .teamBrains,
              .expenseLookup,
              .expenseLineItems,
              .scheduleJobs,

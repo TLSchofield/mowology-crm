@@ -158,6 +158,27 @@ try {
     $isOwner = $desk->ready() && $desk->isOwner($user);
 
     switch ($mode) {
+        case 'brains': {
+            // Every head's brain in one small read — the face row flips to show it (owner, 2026-10-10).
+            $svc = new TeamCardService($db);
+            $out = ['ok' => true, 'brains' => []];
+            foreach (array_keys(TeamCardService::HEADS) as $slug) {
+                $out['brains'][$slug] = $svc->brain($slug);
+            }
+            foreach (['penny' => ['Expenses/Services/PennyBrainService.php', 'PennyBrainService'],
+                      'sam'   => ['Sales/Services/SamBrainService.php', 'SamBrainService']] as $slug => [$file, $cls]) {
+                try {
+                    require_once APP_ROOT . '/Modules/' . $file;
+                    $out['brains'][$slug] = TeamCardService::brainSummary((new $cls($db))->learned());
+                } catch (Throwable $e) {
+                    error_log('[team-mobile] brains ' . $slug . ': ' . $e->getMessage());
+                    $out['brains'][$slug] = null;
+                }
+            }
+            echo json_encode($out);
+            break;
+        }
+
         case 'brief': {
             $head = strtolower((string)($_GET['head'] ?? ''));
             if (!TeamCardService::isHead($head)) {
