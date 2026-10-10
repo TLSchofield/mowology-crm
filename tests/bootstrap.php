@@ -40,6 +40,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
