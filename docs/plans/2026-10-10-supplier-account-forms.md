@@ -67,3 +67,19 @@ the same router is run on office@ for supplier mail (MailboxConfig 'office' is c
 4. Otto's card: answers, blanks, recipients, Send (web + iPhone), follow-up after 7 days. Buttons
    come from the server with the suggestion (`propose.buttons`), so new Otto kinds need no app update.
 5. Supplier status on the vendor record (asked / applied / account open / list received).
+
+## Status — 2026-10-10 evening (built, deployed, tested on real mail)
+- Migrations 1320 + 1321 run. Services: CompanyProfileService, CompanyDocumentService, SupplierDirectoryService,
+  SupplierFormService (Operations), SupplierInboxService (Comms; runs inside sales_inbox_poll every 15 min,
+  office@ + iCloud). Otto kinds `supplier_form`, `supplier_chase`; buttons sent by the server (web otto-card.js
+  + iOS 1.3.20). Admin PDF view: /crm/suppliers/form-pdf.php?id=N.
+- Real mail: Cedar Rim's fillable application → filled exactly as sent by hand (marked sent); Foreshore's
+  print-and-sign credit application → Otto "needs you" (SIN, bank, card, trade refs, guarantee, signature).
+- Licence 26-105147 filed (expires 2026-12-31); `licence_sender` = licenceoffice@vancouver.ca so next year's
+  is filed by Yui. Otto reminds 30 days before expiry.
+- Directory: 20 suppliers; 14 geocoded (7 building-level → ops_places, 7 street-level). The CRM's Google key is
+  browser-only, so geocoding falls back to OpenStreetMap; a server key (GOOGLE_GEOCODING_KEY in secrets.php,
+  IP-restricted, Geocoding API) would make every point exact — owner's step. Same restriction has broken
+  Sam's depot geocode (CloserService) since 2026-10-08.
+- Not built yet: directory page (view/edit suppliers, add addresses), nearest-supplier use in Otto's trip
+  planning, Penny's price comparison (needs the Inline list import).
