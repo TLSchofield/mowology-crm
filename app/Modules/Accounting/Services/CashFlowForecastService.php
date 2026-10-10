@@ -165,6 +165,26 @@ class CashFlowForecastService
         return [round($recent, 2), 'average of the last 8 weeks'];
     }
 
+    /**
+     * Visits a recurring plan will have after the last one on the calendar: the plan's own
+     * spacing (median gap between its scheduled visits, else every 14 days), up to its end date.
+     * @return string[] dates
+     */
+    public static function projectVisits(array $scheduledDates, ?string $planEnd, string $until): array
+    {
+        sort($scheduledDates);
+        if (!$scheduledDates) return [];
+        $gaps = [];
+        for ($i = 1; $i < count($scheduledDates); $i++) $gaps[] = (strtotime($scheduledDates[$i]) - strtotime($scheduledDates[$i - 1])) / 86400;
+        $gap = (int)round(self::median($gaps) ?? 14);
+        if ($gap < 1) return [];
+        $stop = $planEnd && $planEnd < $until ? $planEnd : $until;
+        $out = [];
+        $d = date('Y-m-d', strtotime(end($scheduledDates) . " +{$gap} days"));
+        while ($d <= $stop && count($out) < 60) { $out[] = $d; $d = date('Y-m-d', strtotime($d . " +{$gap} days")); }
+        return $out;
+    }
+
     /** CRA payments are forecast from the instalment settings, so the bank's copies don't count twice. */
     public static function isTaxPayment(string $description): bool
     {
@@ -253,7 +273,16 @@ class CashFlowForecastService
                          'label' => 'Visit ' . date('M j', strtotime($v['scheduled_date'])) . ' · ' . ($v['address'] ?: 'job'),
                          'why' => 'invoiced after the visit, paid ' . ($terms + $lateDays) . ' days later'];
         }
-        $notes[] = 'Salt & snow route stops are not counted: a daily stop is only billed when serviced.';
+        foreach ($this->projectedVisits($until) as $v) {
+            $key = $this->clientKey($v);
+            $lateDays = $late[$key] ?? $globalLate;
+            $date = date('Y-m-d', strtotime($v['date'] . ' +' . ($terms + $lateDays) . ' days'));
+            if ($date > $until) continue;
+            $events[] = ['date' => $date, 'amount' => (float)$v['price'], 'kind' => 'visit_projected',
+                         'label' => 'Expected visit ' . date('M j', strtotime($v['date'])) . ' · ' . ($v['address'] ?: 'job'),
+                         'why' => "projected from the plan's schedule (not on the calendar yet)"];
+        }
+        $notes[] = 'Salt & snow route stops are not counted: a daily stop is only billed when serviced. The "like last year" line covers winter income.';
 
         // ── Money out: bills ────────────────────────────────────────────────
         $billKeys = [];
@@ -301,6 +330,12 @@ class CashFlowForecastService
 
         $floor = (float)$this->setting('cashflow_floor');
         $f = self::build((float)$opening['balance'], $today, $events, $weeks, $floor);
+        // Second view: money in as it actually came in the same weeks last year (snow, new work and all).
+        $ly = $this->incomeLastYear($today, $until);
+        $outOnly = array_values(array_filter($events, fn($e) => $e['amount'] < 0));
+        $lyEvents = $outOnly;
+        foreach ($ly as $wk => $amt) $lyEvents[] = ['date' => $wk, 'amount' => $amt, 'kind' => 'last_year', 'label' => 'Deposits, same week last year', 'why' => 'bank deposits the same week last year'];
+        $f['like_last_year'] = $ly ? array_map(fn($w) => ['start' => $w['start'], 'in' => $w['in'], 'closing' => $w['closing']], self::build((float)$opening['balance'], $today, $lyEvents, $weeks, $floor)['weeks']) : [];
         $f['opening_as_of'] = $opening['as_of'];
         $f['opening_accounts'] = $opening['accounts'];
         $f['doubtful'] = $doubtful;
@@ -429,6 +464,46 @@ class CashFlowForecastService
         ");
         $st->execute([$today, $until]);
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Recurring plans' visits after the last one generated, priced, not snow routes. */
+    private function projectedVisits(string $until): array
+    {
+        $snow = '';
+        try { $this->db->query('SELECT 1 FROM snow_route_rates LIMIT 0'); $snow = ' AND NOT EXISTS (SELECT 1 FROM snow_route_rates r WHERE r.plan_id = jp.id)'; } catch (Throwable $e) {}
+        $plans = $this->db->query("
+            SELECT jp.id, jp.price_per_visit AS price, jp.plan_end_date, jp.company_id, jp.client_id, p.site_contact_id AS contact_id, p.address
+            FROM job_plans jp LEFT JOIN properties p ON p.id = jp.property_id
+            WHERE jp.status = 'active' AND jp.is_recurring = 1 AND jp.price_per_visit > 0{$snow}
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $st = $this->db->prepare("SELECT scheduled_date FROM job_visits WHERE plan_id = ? AND status IN ('scheduled', 'completed', 'in_progress') AND scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) ORDER BY scheduled_date");
+        $out = [];
+        foreach ($plans as $pl) {
+            $st->execute([(int)$pl['id']]);
+            foreach (self::projectVisits($st->fetchAll(PDO::FETCH_COLUMN) ?: [], $pl['plan_end_date'] ?: null, $until) as $d) {
+                $out[] = $pl + ['date' => $d];
+            }
+        }
+        return $out;
+    }
+
+    /** Bank deposits per forecast week, taken from the same week last year (week start => amount). */
+    private function incomeLastYear(string $today, string $until): array
+    {
+        $from = date('Y-m-d', strtotime(self::weekStart($today) . ' -1 year'));
+        $to = date('Y-m-d', strtotime($until . ' -1 year'));
+        $st = $this->db->prepare("
+            SELECT transaction_date, amount, description FROM accounting_transactions
+            WHERE reference_type = 'bank_import' AND amount > 0 AND type IN ('income', 'transfer') AND transaction_date BETWEEN ? AND ?
+        ");
+        $st->execute([$from, $to]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (RecurringBillService::isTransfer((string)$r['description'])) continue;   // money moved between our own accounts
+            $wk = self::weekStart(date('Y-m-d', strtotime($r['transaction_date'] . ' +1 year')));
+            $out[$wk] = ($out[$wk] ?? 0) + (float)$r['amount'];
+        }
+        return array_map(fn($v) => round($v, 2), $out);
     }
 
     private function bankSpending(int $days): array

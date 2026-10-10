@@ -77,4 +77,11 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertSame([1500.0, 'same month last year (Dec 2025)'], CashFlowForecastService::everydayForWeek('2026-12-07', $m, 4900));
         $this->assertSame([4900.0, 'average of the last 8 weeks'], CashFlowForecastService::everydayForWeek('2026-10-12', $m, 4900));
     }
+
+    public function test_plans_are_projected_past_the_calendar(): void
+    {
+        $this->assertSame(['2026-11-12', '2026-11-26'], CashFlowForecastService::projectVisits(['2026-10-15', '2026-10-29'], '2026-12-01', '2027-01-03'));
+        $this->assertSame([], CashFlowForecastService::projectVisits([], null, '2027-01-03'));
+        $this->assertCount(4, CashFlowForecastService::projectVisits(['2026-11-05'], null, '2026-12-31'));   // default every 14 days
+    }
 }
