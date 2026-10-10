@@ -103,4 +103,13 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertSame([1000.0, 1000.0, 2000.0, 2000.0], CashFlowForecastService::safeToPay([9000, 3000, 8000, 4000], 2000));
         $this->assertSame([0.0, 0.0], CashFlowForecastService::safeToPay([9000, 1500], 2000));   // a later dip under the floor leaves nothing to spare
     }
+
+    public function test_seasonal_layoff_window(): void
+    {
+        $this->assertSame([['name' => 'Nigel Casey', 'from' => '12-01', 'to' => '03-01']], CashFlowForecastService::parseLayoffs('Nigel Casey:12-01:03-01'));
+        $this->assertTrue(CashFlowForecastService::inSeason('2026-12-07', '12-01', '03-01'));
+        $this->assertTrue(CashFlowForecastService::inSeason('2027-02-15', '12-01', '03-01'));
+        $this->assertFalse(CashFlowForecastService::inSeason('2026-11-23', '12-01', '03-01'));
+        $this->assertFalse(CashFlowForecastService::inSeason('2027-03-01', '12-01', '03-01'));
+    }
 }

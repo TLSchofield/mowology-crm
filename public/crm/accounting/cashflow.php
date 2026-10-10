@@ -27,7 +27,7 @@ if ($isAdmin) {
     }
 }
 $money = fn($v) => ($v < 0 ? '−$' : '$') . number_format(abs((float)$v), 0);
-$kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projected' => 'Expected visit', 'bill' => 'Bill', 'tax' => 'Tax', 'everyday' => 'Everyday'];
+$kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projected' => 'Expected visit', 'bill' => 'Bill', 'tax' => 'Tax', 'everyday' => 'Everyday', 'staff' => 'Staff pay'];
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

@@ -31,6 +31,9 @@ class CashFlowForecastService
         'cashflow_gst_instalment' => '0',
         'cashflow_gst_day'        => '15',
         'cashflow_everyday_weekly' => '',
+        // Seasonal layoffs: "Name:MM-DD:MM-DD", comma-separated. Nigel is laid off Dec 1 – Mar 1 and is
+        // paid per salt / snow run in that time (owner, 2026-10-10).
+        'cashflow_layoffs'        => 'Nigel Casey:12-01:03-01',
     ];
 
     private PDO $db;
@@ -236,6 +239,23 @@ class CashFlowForecastService
         return array_values($out);
     }
 
+    /** "Nigel Casey:12-01:03-01, …" → [['name' => …, 'from' => 'MM-DD', 'to' => 'MM-DD'], …] */
+    public static function parseLayoffs(string $spec): array
+    {
+        $out = [];
+        foreach (array_filter(array_map('trim', explode(',', $spec))) as $part) {
+            if (preg_match('/^(.+?):(\d{2}-\d{2}):(\d{2}-\d{2})$/', $part, $m)) $out[] = ['name' => trim($m[1]), 'from' => $m[2], 'to' => $m[3]];
+        }
+        return $out;
+    }
+
+    /** Is a date inside a yearly MM-DD window (which may wrap the new year)? */
+    public static function inSeason(string $date, string $from, string $to): bool
+    {
+        $md = substr($date, 5, 5);
+        return $from <= $to ? ($md >= $from && $md < $to) : ($md >= $from || $md < $to);
+    }
+
     /** CRA payments are forecast from the instalment settings, so the bank's copies don't count twice. */
     public static function isTaxPayment(string $description): bool
     {
@@ -379,6 +399,15 @@ class CashFlowForecastService
             $events[] = ['date' => $d, 'amount' => -$amt, 'kind' => 'everyday', 'label' => 'Everyday spending', 'why' => $why . ': fuel, materials, wages, other'];
         }
         $weekly = $ev['recent'];
+        foreach (self::parseLayoffs($this->setting('cashflow_layoffs')) as $lo) {
+            $pay = (float)($ev['seasonal'][$lo['name']] ?? 0);
+            if ($pay <= 0) continue;
+            foreach (self::repeat(self::weekStart($today), $until, '7') as $d) {
+                if (self::inSeason($d, $lo['from'], $lo['to'])) continue;
+                $events[] = ['date' => $d, 'amount' => -$pay, 'kind' => 'staff', 'label' => 'Pay — ' . $lo['name'], 'why' => 'usual weekly pay; laid off ' . $lo['from'] . ' to ' . $lo['to']];
+            }
+            $notes[] = $lo['name'] . ' is laid off ' . date('M j', strtotime('2000-' . $lo['from'])) . ' – ' . date('M j', strtotime('2000-' . $lo['to'])) . ': his salt and snow runs then are paid per run and not counted.';
+        }
 
         $floor = (float)$this->setting('cashflow_floor');
         $f = self::build((float)$opening['balance'], $today, $events, $weeks, $floor);
@@ -603,7 +632,7 @@ class CashFlowForecastService
      */
     private function everyday(array $billKeys): array
     {
-        $out = ['recent' => 0.0, 'monthly' => [], 'top' => [], 'categories' => []];
+        $out = ['recent' => 0.0, 'monthly' => [], 'top' => [], 'categories' => [], 'seasonal' => []];
         $last = $this->db->query("SELECT MAX(transaction_date) FROM accounting_transactions WHERE reference_type = 'bank_import'")->fetchColumn();
         if (!$last) return $out;
         $st = $this->db->prepare("
@@ -614,9 +643,17 @@ class CashFlowForecastService
         $recentFrom = date('Y-m-d', strtotime($last . ' -56 days'));
         $byMonth = []; $recent = 0.0; $payees = []; $cats = [];
         $owner = $this->ownerName();
+        $layoffKeys = [];
+        foreach (self::parseLayoffs($this->setting('cashflow_layoffs')) as $lo) $layoffKeys[self::payeeKey('e-Transfer debit ' . $lo['name'])] = $lo['name'];
+        $people = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $d = (string)$r['description'];
             if (RecurringBillService::isTransfer($d) || isset($billKeys[RecurringBillService::payeeKey($d)]) || isset($billKeys[self::payeeKey($d)]) || self::isTaxPayment($d)) continue;
+            // Seasonal staff are forecast on their own (paid in season only), not inside the average.
+            if (isset($layoffKeys[self::payeeKey($d)])) {
+                if ($r['transaction_date'] > $recentFrom) $people[$layoffKeys[self::payeeKey($d)]] = ($people[$layoffKeys[self::payeeKey($d)]] ?? 0) + (float)$r['amount'];
+                continue;
+            }
             $m = substr((string)$r['transaction_date'], 0, 7);
             $byMonth[$m] = ($byMonth[$m] ?? 0) + (float)$r['amount'];
             if ($r['transaction_date'] > $recentFrom) {
@@ -636,6 +673,7 @@ class CashFlowForecastService
         foreach (array_slice($payees, 0, 8, true) as $k => $v) $out['top'][] = ['payee' => $k, 'amount' => round($v, 2)];
         $out['recent'] = round($recent / 8, 2);
         $out['categories'] = array_map(fn($v) => round($v / 8, 2), $cats);   // weekly averages
+        $out['seasonal'] = array_map(fn($v) => round($v / 8, 2), $people);  // name => weekly pay in season
         return $out;
     }
 }
