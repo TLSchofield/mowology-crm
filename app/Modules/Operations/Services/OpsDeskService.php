@@ -192,6 +192,11 @@ class OpsDeskService
             require_once dirname(__DIR__, 2) . '/Contracts/Services/SnowContractService.php';
             foreach ((new SnowContractService($this->db))->ottoBriefItems($this->today) as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only (migration 1310) */ }
+        // Shifts over 5 hours with no 30-minute break found on the phone's GPS (BreakService, BC rule).
+        try {
+            require_once __DIR__ . '/BreakService.php';
+            foreach ((new BreakService($this->db))->briefItems($this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only (migration 1318) */ }
         // Placed jobs whose bulk material should be delivered: order 3 days ahead (MaterialDeliveryService).
         try {
             require_once __DIR__ . '/MaterialDeliveryService.php';

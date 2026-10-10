@@ -92,6 +92,14 @@ try {
         foreach (['stored', 'removed', 'open', 'unnamed'] as $k) $tot[$k] += $r[$k];
         $tot['days']++;
     }
+    // Breaks from the crew phones' GPS (migration 1318) — recorded per shift; additive.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+        $brk = new BreakService(getDB());
+        for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) $brk->run(date('Y-m-d', $t));
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] breaks: ' . $e->getMessage());
+    }
     // Shared facts (migration 1218): Penny tags the runs to jobs, then Otto recomputes the medians
     // the other heads read. Additive — a failure here never loses the priced runs above.
     $__facts = '';

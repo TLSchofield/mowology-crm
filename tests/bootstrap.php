@@ -43,6 +43,8 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/MaterialDeliveryService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CashFlowForecastService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/BreakService.php';
+require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
