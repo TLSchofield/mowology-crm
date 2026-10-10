@@ -8,11 +8,14 @@
  *   material line (mulch, soil, compost, bark…)        → Material pickup  (fact run:supplier:any)
  *   green waste / cleanup / haul-away / debris work     → Disposal run     (fact run:dump:any)
  *
+ * More than one trailer load of bulk material (MaterialDeliveryService) suggests "Delivery $150"
+ * instead of a pickup: one Lawnboy drop replaces the trailer runs, and the client pays for it because
+ * fetching it ourselves costs crew time (owner, 2026-10-10) — unless a line carries Sam's mulch price,
+ * which already holds the haul.
+ *
  * Price = the fact's median_cost rounded UP to the next $5, only when sample_n ≥ 3; otherwise
- * "not enough runs yet (n/3)". More than one trailer load of bulk material (MaterialDeliveryService)
- * suggests "Delivery $150" instead of a pickup: one Lawnboy drop replaces the trailer runs, and the
- * client pays for it because fetching it ourselves costs crew time (owner, 2026-10-10).
- * A suggestion only: Sam never adds a line. GST is added on top of the
+ * "not enough runs yet (n/3)". A suggestion only: Sam never adds a line. No "Material pickup" when a
+ * line was priced with Sam's mulch price ("Use $X/yd" — that price already holds the haul). GST is added on top of the
  * price at invoicing, never included in it. Skipped when the quote already has that line.
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -23,6 +26,8 @@ class TripLineSuggester
 {
     public const MIN_SAMPLE = 3;
     public const MATERIAL_WORDS = ['mulch', 'soil', 'compost', 'bark', 'garden mix', 'wood chip', 'gravel', 'sod'];
+    /** A line Tim priced with Sam's mulch price (MulchPricingService::SNAPSHOT_SOURCE in pricing_snapshot) already carries the pickup trip. */
+    public const SAM_PRICE_MARK = 'sam_mulch_price';
     public const DISPOSAL_WORDS = ['green waste', 'yard waste', 'cleanup', 'clean-up', 'clean up', 'haul', 'debris', 'disposal', 'dump'];
 
     public const RULES = [
@@ -65,6 +70,7 @@ class TripLineSuggester
             $t = self::label($l);
             if (strpos($t, 'material pickup') !== false) { $already['material_pickup'] = true; continue; }
             if (strpos($t, 'disposal run') !== false) { $already['disposal_run'] = true; continue; }
+            if (strpos((string)($l['pricing_snapshot'] ?? ''), self::SAM_PRICE_MARK) !== false) $already['material_pickup'] = true;
             $shown = trim((string)($l['service_type'] ?? '')) ?: trim((string)($l['description'] ?? ''));
             if (!isset($out['material_pickup']) && self::has($t, self::MATERIAL_WORDS)) $out['material_pickup'] = $shown;
             if (!isset($out['disposal_run']) && self::has($t, self::DISPOSAL_WORDS)) $out['disposal_run'] = $shown;
@@ -109,17 +115,19 @@ class TripLineSuggester
 
     public function lines(int $quoteId): array
     {
-        try {
-            $s = $this->db->prepare("
-                SELECT q.service_type, q.description, q.quantity, q.unit_type, COALESCE(p.name, '') AS product_name
-                FROM quote_line_items q LEFT JOIN products p ON p.id = q.product_id
-                WHERE q.quote_id = ? ORDER BY q.sort_order, q.id
-            ");
-            $s->execute([$quoteId]);
-            return $s->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) {
-            return [];
+        // older schemas lack pricing_snapshot / quantity / unit_type (quantity sizes the bulk material)
+        foreach (['q.pricing_snapshot, q.quantity, q.unit_type', 'q.pricing_snapshot', 'NULL AS pricing_snapshot'] as $snap) {
+            try {
+                $s = $this->db->prepare("
+                    SELECT q.service_type, q.description, {$snap}, COALESCE(p.name, '') AS product_name
+                    FROM quote_line_items q LEFT JOIN products p ON p.id = q.product_id
+                    WHERE q.quote_id = ? ORDER BY q.sort_order, q.id
+                ");
+                $s->execute([$quoteId]);
+                return $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* try without the snapshot */ }
         }
+        return [];
     }
 
     /** Suggestions for a quote — empty when it has no material or waste work. */
@@ -128,18 +136,23 @@ class TripLineSuggester
         $lines = $this->lines($quoteId);
         $out = [];
         $delivery = null;
-        $hasDeliveryLine = false;
-        foreach ($lines as $l) if (strpos(self::label($l), 'deliver') !== false) $hasDeliveryLine = true;
-        try {
-            $mds = new MaterialDeliveryService($this->db);
-            $d = $mds->forLines($lines);
-            if ($d && $d['method'] === 'delivery') $delivery = self::deliverySuggestion($d, (float)$mds->setting('material_delivery_charge'));
-        } catch (Throwable $e) { /* fall back to the pickup suggestion */ }
+        $haulPaid = false;   // a delivery line already, or Sam's mulch price (it holds the haul)
+        foreach ($lines as $l) {
+            if (strpos(self::label($l), 'deliver') !== false) $haulPaid = true;
+            if (strpos((string)($l['pricing_snapshot'] ?? ''), self::SAM_PRICE_MARK) !== false) $haulPaid = true;
+        }
+        if (!$haulPaid) {
+            try {
+                $mds = new MaterialDeliveryService($this->db);
+                $d = $mds->forLines($lines);
+                if ($d && $d['method'] === 'delivery') $delivery = self::deliverySuggestion($d, (float)$mds->setting('material_delivery_charge'));
+            } catch (Throwable $e) { /* fall back to the pickup suggestion */ }
+        }
         foreach (self::needs($lines) as $key => $because) {
-            if ($key === 'material_pickup' && ($delivery || $hasDeliveryLine)) continue;   // delivered, not fetched
+            if ($key === 'material_pickup' && $delivery) continue;   // delivered, not fetched
             $out[] = self::suggestion($key, $because, $this->facts->get(self::RULES[$key]['fact']));
         }
-        if ($delivery && !$hasDeliveryLine) array_unshift($out, $delivery);
+        if ($delivery) array_unshift($out, $delivery);
         return $out;
     }
 
