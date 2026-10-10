@@ -64,6 +64,18 @@ class SalesDeskService
         }
     }
 
+    public function hasColumn(string $t, string $c): bool
+    {
+        try {
+            $t = preg_replace('/[^a-z0-9_]/', '', $t);
+            $c = preg_replace('/[^a-z0-9_]/', '', $c);
+            $this->db->query("SELECT `{$c}` FROM `{$t}` LIMIT 0");
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     public function staleDays(): int
     {
         try {
@@ -206,15 +218,22 @@ class SalesDeskService
                 $out[(int)$r['contact_id']]['last_in'] = $r['last_in'];
                 $out[(int)$r['contact_id']]['last_out'] = $r['last_out'];
             }
+            // Joined mail (migration 1314): someone else wrote about this contact's quote.
+            $joined = $this->hasColumn('sales_messages', 'joined_by');
+            $extra = $joined ? ', from_addr, from_name, joined_by' : '';
             foreach ($this->db->query("
-                SELECT contact_id, direction, channel, subject, snippet, sent_at
+                SELECT contact_id, direction, channel, subject, snippet, sent_at{$extra}
                 FROM sales_messages WHERE contact_id IN ({$in}) AND sent_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
                 ORDER BY sent_at DESC, id DESC
             ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $cid = (int)$r['contact_id'];
+                $by = ($joined && $r['direction'] === 'inbound' && !empty($r['joined_by'])) ? self::senderLabel($r) : null;
+                if ($r['direction'] === 'inbound' && !array_key_exists('last_in_by', $out[$cid])) {
+                    $out[$cid]['last_in_by'] = $by;   // newest inbound first: who wrote last
+                }
                 if (count($out[$cid]['thread']) < 4) {
                     $out[$cid]['thread'][] = ['dir' => $r['direction'], 'channel' => $r['channel'], 'subject' => $r['subject'],
-                                              'snippet' => $r['snippet'], 'at' => $r['sent_at']];
+                                              'snippet' => $r['snippet'], 'at' => $r['sent_at'], 'by' => $by];
                 }
             }
         }
@@ -230,6 +249,13 @@ class SalesDeskService
             }
         }
         return $out;
+    }
+
+    /** "Monica Nicule" — or her address — for an email someone other than the contact wrote. */
+    public static function senderLabel(array $r): string
+    {
+        $n = trim((string)($r['from_name'] ?? ''));
+        return $n !== '' ? $n : trim((string)($r['from_addr'] ?? ''));
     }
 
     /** Learned wait per service: median days sent → accepted, from accepted quotes. */
@@ -499,6 +525,7 @@ class SalesDeskService
                 'viewed'       => $viewed,
                 'valid_until'  => $soonest === '9999-12-31' ? null : $soonest,
                 'last_in'      => $lastIn ?: null,
+                'last_in_by'   => $t['last_in_by'] ?? null,   // set when someone other than the contact wrote last
                 'thread'       => $t['thread'] ?? [],
                 'label'        => count($qs) === 1 ? (string)$qs[0]['quote_number'] : count($qs) . ' quotes',
                 'quotes'       => array_map(fn($q) => [

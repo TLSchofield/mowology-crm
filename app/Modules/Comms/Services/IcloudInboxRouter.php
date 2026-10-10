@@ -151,7 +151,7 @@ class IcloudInboxRouter
         }
 
         // 2. A customer conversation, either direction.
-        $c = SalesInboxService::classify((string)$m['from'], (string)$m['to'], $contacts, $ours);
+        $c = SalesInboxService::classifyAny((string)$m['from'], (string)$m['to'], $subject, $contacts, (array)($ctx['join'] ?? []), $ours);
         if ($c !== null) {
             return ['route' => 'contact', 'reason' => 'CRM contact', 'contact_id' => $c['contact_id'], 'direction' => $c['direction']];
         }
@@ -344,7 +344,7 @@ class IcloudInboxRouter
             }
             if ($from === self::YARDI_SENDER) return ['stage' => 'final', 'route' => 'yardi', 'reason' => 'Yardi EFT remittance'];
         }
-        $c = SalesInboxService::classify((string)$m['from'], (string)$m['to'], $contacts, $ours);
+        $c = SalesInboxService::classifyAny((string)$m['from'], (string)$m['to'], $subject, $contacts, (array)($ctx['join'] ?? []), $ours);
         if ($c !== null) {
             return ['stage' => 'final', 'route' => 'contact', 'reason' => 'CRM contact', 'contact_id' => $c['contact_id'], 'direction' => $c['direction']];
         }
@@ -401,6 +401,7 @@ class IcloudInboxRouter
         $ours = [strtolower($mb['user']), 'mowology@icloud.com'];
         return [
             'contacts' => $sales->contactMap(),
+            'join'     => $sales->joinContext(),   // non-contacts writing about a quote (migration 1314)
             'vendors'  => (new VendorMessageService($this->db))->vendors(),
             'ours'     => array_values(array_unique($ours)),
         ];

@@ -160,6 +160,14 @@ function getNextScheduledVisitDate(int $propertyId): ?string {
  * Get quote line items with their conversion status.
  * Returns all items for a quote, marking which have been converted to plans.
  */
+/** Lines the client declined on the quote page never become plans (migration 1315). */
+function planNotDeclinedSql(PDO $db, string $alias): string {
+    if (!class_exists('QuoteLineChoiceService')) {
+        require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+    }
+    return QuoteLineChoiceService::notDeclinedSql($db, $alias);
+}
+
 function getQuoteLineItemsWithStatus(int $quoteId): array {
     $db = getDB();
     $stmt = $db->prepare("
@@ -168,7 +176,7 @@ function getQuoteLineItemsWithStatus(int $quoteId): array {
                jp.id AS converted_plan_id
         FROM quote_line_items qli
         LEFT JOIN job_plans jp ON qli.plan_id = jp.id
-        WHERE qli.quote_id = ?
+        WHERE qli.quote_id = ?" . planNotDeclinedSql($db, 'qli') . "
         ORDER BY qli.sort_order, qli.id
     ");
     $stmt->execute([$quoteId]);

@@ -238,7 +238,7 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
                qli.unit_type, qli.unit_price, qli.line_total, qli.sort_order
         FROM quote_line_items qli
         LEFT JOIN job_plans jp ON jp.id = qli.plan_id
-        WHERE qli.quote_id = ? AND (qli.plan_id IS NULL OR jp.id IS NULL)
+        WHERE qli.quote_id = ? AND (qli.plan_id IS NULL OR jp.id IS NULL)" . planNotDeclinedSql($db, 'qli') . "
         ORDER BY qli.sort_order, qli.id
     ");
     $uaStmt->execute([$quoteId]);

@@ -85,11 +85,23 @@ struct HeadCardView: View {
         }
     }
 
+    /// The head's own turning brain sits beside the summary (owner, 2026-10-10: on brand, and
+    /// smaller than a full-width graphic) — the same shape the splash screen and the web draw.
     private func brainRow(_ b: HeadBrainSummary, name: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            brainText(b, name: name)
+            BrainView(units: b.units, tiers: Dictionary(b.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
+                      label: "\(name)'s brain")
+                .frame(width: 84, height: 84)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func brainText(_ b: HeadBrainSummary, name: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: "brain.head.profile")
-                    .foregroundStyle(Color.MW.green)
                 Text(b.units == 0 ? "\(name)'s brain: just starting" : "\(name)'s brain: \(b.units) thing\(b.units == 1 ? "" : "s") learned")
                     .font(.caption.weight(.semibold))
                 Spacer(minLength: 0)
@@ -113,9 +125,7 @@ struct HeadCardView: View {
                     .lineLimit(1)
             }
         }
-        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// HeadBrain::TIERS, as head-brain.js colours them (approximately).

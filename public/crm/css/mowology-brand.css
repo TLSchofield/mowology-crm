@@ -8569,6 +8569,28 @@ a.mw-clock-timer-nav:hover {
 .mw-line-items-table tr.mw-li-removed td:last-child {
   text-decoration:none;
 }
+/* Quote view: lines the client unticked before signing (QuoteLineChoiceService) */
+.mw-line-items-table tr.mw-line-declined td { opacity:.55; }
+.mw-line-items-table tr.mw-line-declined td.mw-amount { text-decoration:line-through; }
+.mw-badge-declined-line {
+  margin-left:6px;
+  background:var(--mw-red);
+  color:white;
+  font-weight:600;
+}
+.mw-line-lock-form { display:inline; margin-left:6px; }
+.mw-line-lock-btn {
+  border:1px solid var(--mw-light);
+  background:transparent;
+  color:var(--mw-dark);
+  border-radius:10px;
+  font-size:.7rem;
+  padding:0 7px;
+  line-height:1.5;
+  cursor:pointer;
+}
+.mw-line-lock-btn.is-locked { background:var(--mw-light); border-color:var(--mw-green); }
+.mw-line-choice-form label { font-size:12px; color:var(--mw-dark); }
 .mw-line-items-table .mw-li-name-input {
   display:inline-block;
   width:auto;

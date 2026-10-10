@@ -331,7 +331,11 @@ struct SamCardView: View {
         let who = c.firstName.isEmpty ? c.name : c.firstName
         let text: String
         if c.replied {
-            text = "\(who) wrote back \(SamCardViewModel.ago(c.lastIn)) and hasn't heard from us since."
+            if let by = c.lastInBy, !by.isEmpty {
+                text = "\(by) wrote back \(SamCardViewModel.ago(c.lastIn)) about \(who)'s quote and hasn't heard from us since."
+            } else {
+                text = "\(who) wrote back \(SamCardViewModel.ago(c.lastIn)) and hasn't heard from us since."
+            }
         } else {
             var t = "No reply for \(c.days) days"
             if c.followups > 0 { t += " · \(c.followups) follow-up\(c.followups == 1 ? "" : "s") so far" }
@@ -492,7 +496,7 @@ struct SamBubble: View {
     }
 
     private var meta: String {
-        var p = [message.inbound ? them : "Us"]
+        var p = [message.inbound ? (message.by ?? them) : "Us"]
         if message.channel == "sms" { p.append("text") }
         p.append(SamCardViewModel.ago(message.at))
         if message.channel != "sms" && !message.subject.isEmpty { p.append(message.subject) }

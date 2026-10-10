@@ -14,6 +14,12 @@
  * from a contact to ingest() here with mailbox 'icloud …' and ours = his iCloud address.
  * The rest of his personal mail is never stored.
  *
+ * Joined mail (migration 1314, owner 2026-10-10): someone who isn't a contact can still be
+ * part of a quote's conversation — Monica at Macdonald PM wrote "council approved" about
+ * Linda's quote QUO-2026-0073. Such an email is kept under the quote's contact when it names
+ * the quote number, starts with the quote's property address (our subjects do), or comes
+ * from the same company's domain (one contact there, never gmail and the like). Rules only.
+ *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 class SalesInboxService
@@ -22,6 +28,10 @@ class SalesInboxService
     public const SNIPPET_MAX = 800;
     /** The sender's signature block, kept apart from the snippet (migration 1206) for the clues check. */
     public const SIGNATURE_MAX = 300;
+    /** Mail providers anyone can use: a shared domain here never means "same company". */
+    public const FREE_DOMAINS = ['gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.ca', 'outlook.com', 'live.com', 'live.ca',
+        'msn.com', 'yahoo.com', 'yahoo.ca', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'shaw.ca', 'telus.net', 'rogers.com',
+        'bell.net', 'sympatico.ca', 'protonmail.com', 'proton.me', 'gmx.com', 'mail.com', 'zoho.com', 'yandex.com', 'fastmail.com'];
 
     private PDO $db;
     /** @var array<string, int>|null lowercase email => contact id */
@@ -31,6 +41,9 @@ class SalesInboxService
     /** direction of the last ingest() — only inbound mail gets a signature. */
     public string $lastDirection = '';
     private ?bool $sigReady = null;
+    private ?bool $joinReady = null;
+    /** @var array{quotes: array, domains: array}|null */
+    private ?array $join = null;
 
     public function __construct(PDO $db)
     {
@@ -67,7 +80,8 @@ class SalesInboxService
      */
     public function ingest(array $m): string
     {
-        $c = self::classify((string)$m['from'], (string)$m['to'], $this->contactMap(), (array)($m['ours'] ?? []));
+        $c = self::classifyAny((string)$m['from'], (string)$m['to'], (string)($m['subject'] ?? ''),
+                               $this->contactMap(), $this->joinContext(), (array)($m['ours'] ?? []));
         if ($c === null) return 'skipped';
         $sentAt = strtotime((string)$m['date']) ?: time();
         $key = trim((string)($m['message_id'] ?? '')) !== ''
@@ -75,18 +89,80 @@ class SalesInboxService
             : 'h-' . sha1($m['mailbox'] . '|' . $m['from'] . '|' . $m['to'] . '|' . $m['subject'] . '|' . $sentAt);
         $this->lastKey = $key;
         $this->lastDirection = $c['direction'];
-        $s = $this->db->prepare("
-            INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
-            VALUES (?, ?, ?, 'email', ?, ?, ?, ?, ?, ?)
-        ");
-        $s->execute([
+        $row = [
             mb_substr((string)$m['mailbox'], 0, 60), $key, $c['direction'], $c['contact_id'],
             mb_substr($c['from'], 0, 255), mb_substr($c['to'], 0, 255),
             mb_substr(trim((string)$m['subject']), 0, 255),
             self::snippet((string)$m['body']),
             date('Y-m-d H:i:s', $sentAt),
-        ]);
+        ];
+        if ($this->joinReady()) {
+            $s = $this->db->prepare("
+                INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at,
+                                                   from_name, quote_id, joined_by)
+                VALUES (?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $name = $c['direction'] === 'inbound' ? self::senderName((string)$m['from']) : '';
+            $row[] = $name !== '' ? mb_substr($name, 0, 120) : null;
+            $row[] = $c['quote_id'] ?? null;
+            $row[] = $c['joined_by'] ?? null;
+        } else {
+            if (!empty($c['joined_by'])) return 'skipped';   // migration 1314 not run: keep the old behaviour
+            $s = $this->db->prepare("
+                INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
+                VALUES (?, ?, ?, 'email', ?, ?, ?, ?, ?, ?)
+            ");
+        }
+        $s->execute($row);
         return $s->rowCount() > 0 ? 'stored' : 'dupe';
+    }
+
+    /** Migration 1314 has added sales_messages.from_name / quote_id / joined_by. */
+    public function joinReady(): bool
+    {
+        if ($this->joinReady === null) {
+            try {
+                $this->db->query('SELECT from_name, quote_id, joined_by FROM sales_messages LIMIT 0');
+                $this->joinReady = true;
+            } catch (Throwable $e) {
+                $this->joinReady = false;
+            }
+        }
+        return $this->joinReady;
+    }
+
+    /**
+     * What joinUnknown() matches against: the last year's quotes (newest first) with their
+     * number, contact and property address; and company domains held by exactly one contact.
+     * @return array{quotes: array<int, array{id:int, number:string, contact_id:int, address_key:string}>, domains: array<string,int>}
+     */
+    public function joinContext(): array
+    {
+        if ($this->join !== null) return $this->join;
+        $this->join = ['quotes' => [], 'domains' => []];
+        try {
+            foreach ($this->db->query("
+                SELECT q.id, q.quote_number, q.contact_id, p.address
+                FROM quotes q LEFT JOIN properties p ON p.id = q.property_id
+                WHERE q.contact_id IS NOT NULL AND q.created_at >= DATE_SUB(NOW(), INTERVAL 365 DAY)
+                ORDER BY q.created_at DESC, q.id DESC
+            ")->fetchAll(PDO::FETCH_ASSOC) as $q) {
+                $this->join['quotes'][] = ['id' => (int)$q['id'], 'number' => strtoupper((string)$q['quote_number']),
+                                           'contact_id' => (int)$q['contact_id'], 'address_key' => self::addressKey((string)$q['address'])];
+            }
+        } catch (Throwable $e) {
+            error_log('[sales inbox] join quotes: ' . $e->getMessage());
+        }
+        $byDomain = [];
+        foreach ($this->contactMap() as $email => $cid) {
+            $d = self::domain($email);
+            if ($d === '' || in_array($d, self::FREE_DOMAINS, true) || in_array($d, self::OUR_DOMAINS, true)) continue;
+            $byDomain[$d][$cid] = true;
+        }
+        foreach ($byDomain as $d => $ids) {
+            if (count($ids) === 1) $this->join['domains'][$d] = (int)array_key_first($ids);
+        }
+        return $this->join;
     }
 
     /** The cron reads a customer email's text only after it knows it's customer mail. */
@@ -158,6 +234,109 @@ class SalesInboxService
             }
         }
         return null;
+    }
+
+    /**
+     * classify(), then — for a sender (or, on our mail, a recipient) who isn't a contact — the
+     * quote's conversation the email is about (joinUnknown). Joined results carry quote_id and
+     * joined_by; plain contact mail is returned exactly as classify() returns it.
+     * @param array{quotes?: array, domains?: array<string,int>} $join
+     */
+    public static function classifyAny(string $from, string $to, string $subject, array $contactMap, array $join, array $ours = []): ?array
+    {
+        $c = self::classify($from, $to, $contactMap, $ours);
+        if ($c !== null) return $c;
+        $f = self::addresses($from)[0] ?? '';
+        if ($f === '') return null;
+        if (!self::isOurs($f, $ours)) {
+            $j = self::joinUnknown($f, $subject, $join);
+            return $j ? ['direction' => 'inbound', 'contact_id' => $j['contact_id'], 'from' => $f,
+                         'to' => implode(', ', self::addresses($to)), 'quote_id' => $j['quote_id'], 'joined_by' => $j['joined_by']] : null;
+        }
+        foreach (self::addresses($to) as $t) {
+            if (self::isOurs($t, $ours)) continue;
+            $j = self::joinUnknown($t, $subject, $join);
+            if ($j) return ['direction' => 'outbound', 'contact_id' => $j['contact_id'], 'from' => $f, 'to' => $t,
+                            'quote_id' => $j['quote_id'], 'joined_by' => $j['joined_by']];
+        }
+        return null;
+    }
+
+    /**
+     * Which quote's conversation an email from a non-contact belongs to, first rule wins:
+     *   quote_number — the subject names one of our quotes (QUO-2026-0073);
+     *   address      — the subject carries the quote's property address (our subjects start with it);
+     *   domain       — the person writes from a company domain exactly one contact uses (never gmail…).
+     * $join['quotes'] is newest first, so a property with several quotes joins the newest.
+     * @return array{contact_id:int, quote_id:?int, joined_by:string}|null
+     */
+    public static function joinUnknown(string $email, string $subject, array $join): ?array
+    {
+        $quotes = (array)($join['quotes'] ?? []);
+        foreach (self::quoteRefs($subject) as $ref) {
+            foreach ($quotes as $q) {
+                if ($q['number'] === $ref) return ['contact_id' => (int)$q['contact_id'], 'quote_id' => (int)$q['id'], 'joined_by' => 'quote_number'];
+            }
+        }
+        $subj = ' ' . self::addressKey($subject, false) . ' ';
+        foreach ($quotes as $q) {
+            $k = (string)$q['address_key'];
+            if ($k !== '' && strpos($subj, ' ' . $k . ' ') !== false) {
+                return ['contact_id' => (int)$q['contact_id'], 'quote_id' => (int)$q['id'], 'joined_by' => 'address'];
+            }
+        }
+        $d = self::domain($email);
+        $cid = (int)(($join['domains'] ?? [])[$d] ?? 0);
+        if ($d !== '' && $cid > 0 && !in_array($d, self::FREE_DOMAINS, true)) {
+            $qid = null;
+            foreach ($quotes as $q) {
+                if ((int)$q['contact_id'] === $cid) { $qid = (int)$q['id']; break; }
+            }
+            return ['contact_id' => $cid, 'quote_id' => $qid, 'joined_by' => 'domain'];
+        }
+        return null;
+    }
+
+    /** Quote numbers named in a subject or text, uppercase ("QUO-2026-0073"). */
+    public static function quoteRefs(string $text): array
+    {
+        preg_match_all('/\bQUO-\d{4}-\d{3,5}\b/i', $text, $m);
+        return array_values(array_unique(array_map('strtoupper', $m[0])));
+    }
+
+    /**
+     * A street address reduced for matching: lowercase words, common words shortened
+     * ("1685 West 14th Avenue" → "1685 w 14 ave"). As a quote's key it must start with a
+     * street number and have a street name after it, or it is '' (never matched).
+     */
+    public static function addressKey(string $s, bool $asKey = true): string
+    {
+        $t = strtolower($s);
+        $t = preg_replace('/[^a-z0-9]+/', ' ', $t) ?? '';
+        $t = preg_replace('/\b(\d+)(st|nd|rd|th)\b/', '$1', $t) ?? '';
+        $short = ['avenue' => 'ave', 'av' => 'ave', 'street' => 'st', 'road' => 'rd', 'drive' => 'dr', 'boulevard' => 'blvd',
+                  'place' => 'pl', 'crescent' => 'cres', 'court' => 'ct', 'lane' => 'ln', 'highway' => 'hwy', 'parkway' => 'pkwy',
+                  'west' => 'w', 'east' => 'e', 'north' => 'n', 'south' => 's'];
+        $words = array_map(fn($w) => $short[$w] ?? $w, preg_split('/\s+/', trim($t)) ?: []);
+        $k = trim(implode(' ', array_filter($words, fn($w) => $w !== '')));
+        if (!$asKey) return $k;
+        return preg_match('/^\d+[a-z]? [a-z0-9]+ [a-z0-9]+/', $k) ? $k : '';
+    }
+
+    /** The part after @, lowercase. */
+    public static function domain(string $email): string
+    {
+        return strtolower(substr(strrchr(trim($email), '@') ?: '', 1));
+    }
+
+    /** "Monica Nicule <mnicule@x.com>" → "Monica Nicule"; '' when there is only an address. */
+    public static function senderName(string $header): string
+    {
+        if (!preg_match('/^\s*([^<]*?)\s*</', $header, $m)) return '';
+        $n = trim($m[1], "\"' ");
+        // "Nicule, Monica" → "Monica Nicule"
+        if (preg_match('/^([^,]+),\s*([^,]+)$/', $n, $p)) $n = trim($p[2]) . ' ' . trim($p[1]);
+        return $n;
     }
 
     /** The new text only: quoted history, signatures' "Sent from my iPhone" and blank runs removed. */

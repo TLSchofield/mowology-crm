@@ -25,6 +25,7 @@ unset($__dir, $__i);
 require_once PUBLIC_ROOT . '/app_config/config.php';
 require_once APP_ROOT . '/Services/MeasurementService.php';
 require_once APP_ROOT . '/Services/QuoteCalculator.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -111,7 +112,7 @@ try {
     }
 
     $quoteStmt = $db->prepare("
-        SELECT q.id, q.property_id, q.status, q.is_contract, q.subtotal, q.tax_rate, q.tax_amount, q.amount
+        SELECT q.*
         FROM quotes q
         WHERE q.access_token = ? AND q.token_expires_at > NOW()
     ");
@@ -519,6 +520,16 @@ try {
             'savings_applied'=> $isPostAccept ? 0 : round($regularTotal - (float)$lineItem['line_total'], 2),
         ]);
 
+    } elseif ($action === 'line-choice') {
+        // The client ticks / unticks one of the quote's own lines (QuoteLineChoiceService).
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new Exception('POST required');
+        $r = (new QuoteLineChoiceService($db))->setDeclined($quote, (int)($_POST['line_item_id'] ?? 0),
+                                                          !empty($_POST['declined']), (string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (empty($r['success'])) {
+            http_response_code(400);
+        }
+        echo json_encode($r);
+
     } elseif ($action === 'remove-upsell') {
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
@@ -571,7 +582,7 @@ function recalculateQuoteTotals(int $quoteId): array {
     $stmt = $db->prepare("
         SELECT SUM(line_total) as subtotal
         FROM quote_line_items
-        WHERE quote_id = ? AND is_optional = 0
+        WHERE quote_id = ? AND is_optional = 0" . QuoteLineChoiceService::notDeclinedSql($db) . "
     ");
     $stmt->execute([$quoteId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -67,7 +67,8 @@ function generateAccessToken() {
 function calculateQuoteTotals($lineItems, $taxRate = 0.05) {
     $subtotal = 0;
     foreach ($lineItems as $item) {
-        if (!($item['is_optional'] ?? false)) {
+        // Declined by the client on the quote page (migration 1315): out of the total.
+        if (!($item['is_optional'] ?? false) && empty($item['client_declined'])) {
             $subtotal += floatval($item['line_total']);
         }
     }

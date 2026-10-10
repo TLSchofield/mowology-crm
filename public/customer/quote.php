@@ -211,6 +211,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
         } elseif (!$agreedToTerms) {
             $error = 'Please agree to the terms and conditions.';
         } else {
+            // Lines the client unticked before signing (QuoteLineChoiceService): named in the
+            // activity log and the office email so nobody schedules or bills them.
+            $declinedLabels = [];
+            foreach (($lineItems ?? []) as $li) {
+                if (!empty($li['client_declined'])) $declinedLabels[] = trim((string)($li['service_type'] ?: $li['description']));
+            }
             try {
                 $db->beginTransaction();
 
@@ -255,7 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     ");
                     $stmt->execute([
                         $quote['id'],
-                        "Accepted by {$signatureName}",
+                        "Accepted by {$signatureName}" . ($declinedLabels ? ' — not included: ' . implode(', ', $declinedLabels) : ''),
                         $_SERVER['REMOTE_ADDR']
                     ]);
                 } catch (Exception $e) {
@@ -317,6 +323,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Amount:</td><td style='font-size: 18px; font-weight: bold; color: #2D8659;'>$" . number_format(floatval($quote['amount']), 2) . "</td></tr>
                             </table>
                             {$snowSetupHtml}
+                            " . ($declinedLabels ? "<p style='margin:20px 0 0;'><strong>Not included (the client unticked):</strong> " . htmlspecialchars(implode(', ', $declinedLabels)) . "</p>" : '') . "
                             <div style='text-align: center; margin-top: 25px;'>
                                 <a href='https://mowology.ca/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
                             </div>
@@ -508,13 +515,32 @@ if (!empty($quote)) {
         </div>
         <?php endif; ?>
 
+        <?php
+        // The client may untick lines before signing (QuoteLineChoiceService, migration 1315).
+        $lineChoice = false;
+        if (!$previewQuoteId && !empty($quote['id'])) {
+            try {
+                require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+                $lineChoice = (new QuoteLineChoiceService($db))->allowedFor($quote) && count($lineItems ?? []) > 1;
+            } catch (Throwable $e) {
+                error_log('[quote line choice] ' . $e->getMessage());
+            }
+        }
+        $lineCols = $lineChoice ? 4 : 3;
+        ?>
         <!-- Services / Line Items -->
         <div class="portal-info-card">
             <div class="portal-info-card-header">Services</div>
             <div class="portal-info-card-body">
-                <table class="portal-table">
+                <?php if ($lineChoice): ?>
+                <p class="portal-line-choice-hint" id="lineChoiceHint">
+                    Untick anything you don't want. The total updates, and you sign for what's ticked.
+                </p>
+                <?php endif; ?>
+                <table class="portal-table<?php echo $lineChoice ? ' portal-table-choice' : ''; ?>">
                     <thead>
                         <tr>
+                            <?php if ($lineChoice): ?><th class="portal-line-pick"><span class="sr-only">Include</span></th><?php endif; ?>
                             <th>Service</th>
                             <th>Description</th>
                             <th class="right">Amount</th>
@@ -527,7 +553,7 @@ if (!empty($quote)) {
                         foreach (($lineItems ?? []) as $li) {
                             $sn = $li['section_name'] ?? null;
                             if ($sn !== null) {
-                                $sectionTotals[$sn] = ($sectionTotals[$sn] ?? 0) + floatval($li['line_total']);
+                                $sectionTotals[$sn] = ($sectionTotals[$sn] ?? 0) + (empty($li['client_declined']) ? floatval($li['line_total']) : 0);
                             }
                         }
                         $hasSections = !empty($sectionTotals);
@@ -542,7 +568,7 @@ if (!empty($quote)) {
                                 // Emit subtotal for the section we just finished
                                 if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="<?php echo $lineCols - 1; ?>"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                                     <?php endif;
@@ -550,15 +576,30 @@ if (!empty($quote)) {
                                 $currentSectionSum = 0;
                                 if ($itemSection !== null): ?>
                             <tr class="portal-table-section-hdr">
-                                <td colspan="3"><?php echo htmlspecialchars($itemSection); ?></td>
+                                <td colspan="<?php echo $lineCols; ?>"><?php echo htmlspecialchars($itemSection); ?></td>
                             </tr>
                                     <?php endif;
                             endif;
 
-                            $currentSectionSum += floatval($item['line_total']);
+                            $isDeclined = !empty($item['client_declined']);
+                            if (!$isDeclined) $currentSectionSum += floatval($item['line_total']);
                         ?>
-                            <?php $isObsidian = stripos($item['service_type'] ?? '', 'obsidian') !== false; ?>
-                            <tr<?php echo $isObsidian ? ' class="portal-or-row"' : ''; ?>>
+                            <?php
+                            $isObsidian = stripos($item['service_type'] ?? '', 'obsidian') !== false;
+                            $rowClass = trim(($isObsidian ? 'portal-or-row' : '') . ($isDeclined ? ' is-declined' : ''));
+                            ?>
+                            <tr<?php echo $rowClass !== '' ? ' class="' . $rowClass . '"' : ''; ?>>
+                                <?php if ($lineChoice): ?>
+                                <td class="portal-line-pick">
+                                    <?php if (QuoteLineChoiceService::canDecline($item)): ?>
+                                    <input type="checkbox" class="portal-line-cb" data-line-id="<?php echo (int)$item['id']; ?>"
+                                           aria-label="Include <?php echo htmlspecialchars($item['service_type'] ?: 'this service'); ?>"
+                                           <?php echo $isDeclined ? '' : 'checked'; ?>>
+                                    <?php else: ?>
+                                    <input type="checkbox" checked disabled aria-label="Included">
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
                                 <td>
                                     <?php if ($isObsidian): ?>
                                         <div class="or-icon or-icon-full" style="width:56px;height:56px;">
@@ -568,7 +609,7 @@ if (!empty($quote)) {
                                         <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?></td>
+                                <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?><?php if ($isDeclined): ?> <span class="portal-line-declined">Not included</span><?php endif; ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
                             </tr>
                         <?php endforeach;
@@ -576,7 +617,7 @@ if (!empty($quote)) {
                         // Emit subtotal for the last section
                         if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="<?php echo $lineCols - 1; ?>"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                         <?php endif; ?>
@@ -762,6 +803,44 @@ if (!empty($quote)) {
 </div>
 
 <?php if (!empty($quote) && in_array($quote['status'], ['sent', 'accepted'])): ?>
+<?php if (!empty($lineChoice)): ?>
+<script>
+    // ── The client unticks lines they don't want (QuoteLineChoiceService) ──────
+    (function () {
+        var token = <?php echo json_encode($token ?? ''); ?>;
+        var money = function (v) { return '$' + Number(v).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+        document.querySelectorAll('.portal-line-cb').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var row = cb.closest('tr');
+                var declined = !cb.checked;
+                var fd = new FormData();
+                fd.append('token', token);
+                fd.append('action', 'line-choice');
+                fd.append('line_item_id', cb.getAttribute('data-line-id'));
+                fd.append('declined', declined ? '1' : '');
+                cb.disabled = true;
+                fetch('api/quote-upsell.php', { method: 'POST', body: fd })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d.success) throw new Error(d.error || 'Could not update the quote.');
+                        if (row) row.classList.toggle('is-declined', declined);
+                        var sub = document.getElementById('q-subtotal-val');
+                        var tax = document.getElementById('q-tax-val');
+                        var tot = document.getElementById('q-total-val');
+                        if (sub) sub.textContent = money(d.totals.subtotal);
+                        if (tax) tax.textContent = money(d.totals.tax_amount);
+                        if (tot) tot.textContent = money(d.totals.total);
+                    })
+                    .catch(function (e) {
+                        cb.checked = !declined;   // put it back
+                        alert(e.message || 'Could not update the quote. Please try again.');
+                    })
+                    .then(function () { cb.disabled = false; });
+            });
+        });
+    })();
+</script>
+<?php endif; ?>
 <script>
     // ── Signature Pad ─────────────────────────────────────────────────────────
     <?php if (!$isAdminPreview): ?>

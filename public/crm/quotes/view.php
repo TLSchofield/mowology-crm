@@ -330,6 +330,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = 'error';
     }
 
+    if ($action === 'line_choice_quote' || $action === 'line_lock') {
+        // Client tick boxes on the quote page (QuoteLineChoiceService, migration 1315).
+        require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+        $lc = new QuoteLineChoiceService($db);
+        if (QuoteLineChoiceService::ready($db)) {
+            if ($action === 'line_choice_quote') {
+                $v = (string)($_POST['allow_line_decline'] ?? '');
+                $lc->setAllowed($quoteId, $v === '' ? null : $v === '1');
+            } else {
+                $lc->setLocked($quoteId, (int)($_POST['line_item_id'] ?? 0), !empty($_POST['locked']));
+            }
+        }
+        header("Location: view.php?id={$quoteId}#lineItemsTable");
+        exit;
+    }
+
     if ($action === 'set_cc') {
         $recipientSvc->setCcEnabled($quoteId, !empty($_POST['cc_property_manager']), (int)$user['id']);
         header("Location: view.php?id={$quoteId}&recipient=1");
@@ -908,7 +924,29 @@ $activePage = 'quotes';
                   <div class="card">
                       <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0">Services</h5>
+                          <?php
+                          // Client tick boxes (QuoteLineChoiceService): off for contracts, editable until signed.
+                          require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+                          $lcReady = QuoteLineChoiceService::ready($db);
+                          $lcEditable = $lcReady && empty($quote['is_contract']) && in_array($quote['status'], ['draft', 'sent', 'viewed'], true);
+                          $lcDefault = $lcReady ? (new QuoteLineChoiceService($db))->defaultSetting() : '0';
+                          $lcOwn = $quote['allow_line_decline'] ?? null;
+                          $lcOn = $lcEditable && ($lcOwn === null ? $lcDefault === '1' : (string)$lcOwn === '1');
+                          ?>
                           <div class="d-flex align-items-center" style="gap: 12px; font-size: 12px;">
+                              <?php if ($lcEditable): ?>
+                              <form method="post" class="mw-line-choice-form">
+                                  <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                  <input type="hidden" name="action" value="line_choice_quote">
+                                  <label class="mb-0">Client can untick lines
+                                      <select name="allow_line_decline" class="form-control form-control-sm d-inline-block w-auto" onchange="this.form.submit()">
+                                          <option value="" <?php echo $lcOwn === null ? 'selected' : ''; ?>>Default (<?php echo $lcDefault === '1' ? 'on' : 'off'; ?>)</option>
+                                          <option value="1" <?php echo $lcOwn !== null && (string)$lcOwn === '1' ? 'selected' : ''; ?>>On</option>
+                                          <option value="0" <?php echo $lcOwn !== null && (string)$lcOwn === '0' ? 'selected' : ''; ?>>Off</option>
+                                      </select>
+                                  </label>
+                              </form>
+                              <?php endif; ?>
                               <span id="mw-reorder-status" class="mw-reorder-status" style="display: none;"></span>
                               <span class="text-muted mw-drag-hint">
                                   <i data-feather="move" style="width: 12px; height: 12px; vertical-align: middle;"></i> Drag to reorder
@@ -944,12 +982,29 @@ $activePage = 'quotes';
                                       </td>
                                   </tr>
                                   <?php endif; endif; ?>
-                                  <tr class="mw-sortable-row"
+                                  <tr class="mw-sortable-row<?php echo !empty($item['client_declined']) ? ' mw-line-declined' : ''; ?>"
                                       data-item-id="<?php echo (int)$item['id']; ?>"
                                       data-section="<?php echo htmlspecialchars($item['section_name'] ?? ''); ?>"
                                       draggable="true">
                                       <td class="mw-drag-col"><span class="mw-drag-handle" title="Drag to reorder">⠿</span></td>
-                                      <td><?php echo htmlspecialchars($item['service_type']); ?></td>
+                                      <td>
+                                          <?php echo htmlspecialchars($item['service_type']); ?>
+                                          <?php if (!empty($item['client_declined'])): ?>
+                                          <span class="badge mw-badge-declined-line">Declined by client</span>
+                                          <?php endif; ?>
+                                          <?php if ($lcOn && QuoteLineChoiceService::canDecline(['line_total' => $item['line_total'], 'is_upsell' => $item['is_upsell'] ?? 0, 'is_optional' => $item['is_optional'] ?? 0]) ): ?>
+                                          <form method="post" class="mw-line-lock-form">
+                                              <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                              <input type="hidden" name="action" value="line_lock">
+                                              <input type="hidden" name="line_item_id" value="<?php echo (int)$item['id']; ?>">
+                                              <input type="hidden" name="locked" value="<?php echo empty($item['client_locked']) ? '1' : ''; ?>">
+                                              <button type="submit" class="mw-line-lock-btn<?php echo !empty($item['client_locked']) ? ' is-locked' : ''; ?>"
+                                                      title="<?php echo empty($item['client_locked']) ? 'Lock: the client can\'t untick this line' : 'Locked: click to let the client untick it'; ?>">
+                                                  <?php echo empty($item['client_locked']) ? 'Lock' : 'Locked'; ?>
+                                              </button>
+                                          </form>
+                                          <?php endif; ?>
+                                      </td>
                                       <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
                                       <td><?php echo $item['quantity']; ?></td>
                                       <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>

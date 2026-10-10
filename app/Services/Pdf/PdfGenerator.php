@@ -72,6 +72,8 @@ class PdfGenerator
             $stmt = $this->db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
             $stmt->execute([$quoteId]);
             $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Lines the client declined on the quote page are not printed (migration 1315).
+            $lineItems = array_values(array_filter($lineItems, fn($li) => empty($li['client_declined'])));
 
             // Render HTML template
             $html = $this->renderTemplate('quote.php', [

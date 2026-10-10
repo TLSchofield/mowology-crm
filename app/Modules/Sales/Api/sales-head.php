@@ -164,8 +164,11 @@ try {
             // Read-only: the conversation Sam holds for one contact (office@ email + texts).
             $cid = (int)($_GET['contact_id'] ?? 0);
             if ($cid <= 0) { echo json_encode(['ok' => false, 'error' => 'contact_id required']); break; }
+            $who = $desk->hasColumn('sales_messages', 'joined_by')
+                ? ", CASE WHEN direction = 'inbound' AND joined_by IS NOT NULL THEN COALESCE(NULLIF(from_name, ''), from_addr) END AS sender"
+                : '';   // migration 1314: someone other than the contact wrote it
             $s = $db->prepare("
-                SELECT direction, channel, subject, snippet, sent_at
+                SELECT direction, channel, subject, snippet, sent_at{$who}
                 FROM sales_messages WHERE contact_id = ?
                 ORDER BY sent_at DESC, id DESC LIMIT 30
             ");

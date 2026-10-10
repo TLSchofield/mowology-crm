@@ -235,6 +235,7 @@ struct CharlieBrainCache {
 struct BrainView: View {
     let units: Int
     let tiers: [String: Int]
+    var label: String = "Charlie's brain"
 
     private struct Prepared {
         let shape: BrainShape
@@ -244,9 +245,10 @@ struct BrainView: View {
 
     private let prepared: Prepared
 
-    init(units: Int, tiers: [String: Int]) {
+    init(units: Int, tiers: [String: Int], label: String = "Charlie's brain") {
         self.units = units
         self.tiers = tiers
+        self.label = label
         let shape = BrainShape(units + 1)
         var owner = [BrainTier?](repeating: nil, count: shape.tris.count)
         // Best tiers first along the web's sweep order; the rest of the units as Bronze.
@@ -270,7 +272,7 @@ struct BrainView: View {
                 draw(g, size: size, time: tl.date.timeIntervalSinceReferenceDate)
             }
         }
-        .accessibilityLabel("Charlie's brain")
+        .accessibilityLabel(label)
     }
 
     private func draw(_ g: GraphicsContext, size: CGSize, time: Double) {

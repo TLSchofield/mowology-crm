@@ -34,7 +34,9 @@ if ($quoteId) {
     if ($quote) {
         $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
         $stmt->execute([$quoteId]);
-        $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Lines the client declined (migration 1315) are left off the edit form: saving the
+        // quote replaces its lines, so they drop off for good. The activity log keeps them.
+        $lineItems = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn($li) => empty($li['client_declined'])));
     }
 } elseif ($quoteRequestId) {
     // Load quote request data to pre-populate the form

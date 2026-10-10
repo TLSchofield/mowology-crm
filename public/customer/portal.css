@@ -949,6 +949,39 @@ a:hover { text-decoration: underline; }
   padding: 6px 12px;
 }
 
+/* ── The client unticks lines before signing (QuoteLineChoiceService) ── */
+.portal-line-choice-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--p-bg-subtle);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius-sm);
+  color: var(--p-text-mid);
+  font-size: 15px;
+}
+.portal-table .portal-line-pick { width: 44px; text-align: center; vertical-align: middle; }
+.portal-line-pick input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--p-green); cursor: pointer; }
+.portal-line-pick input[type=checkbox]:disabled { cursor: default; opacity: 0.6; }
+.portal-table tr.is-declined td { color: var(--p-text-muted); }
+.portal-table tr.is-declined td:not(.portal-line-pick) { text-decoration: line-through; }
+.portal-line-declined {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--p-bg-gray);
+  color: var(--p-text-mid);
+  font-size: 12px;
+  text-decoration: none;
+}
+.portal-table tr.is-declined .portal-line-declined { text-decoration: none; }
+@media (max-width: 480px) {
+  .portal-table-choice th, .portal-table-choice td { padding: 9px 6px; }
+  .portal-table-choice .portal-line-pick { width: 30px; padding-left: 2px; padding-right: 2px; }
+  .portal-table-choice .portal-table-num { white-space: nowrap; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+
 /* ─── Totals Block ───────────────────────────────────────────────────────── */
 .portal-totals {
   margin-top: 16px;

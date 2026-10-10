@@ -52,8 +52,10 @@ struct SalesMessage: Decodable, Identifiable, Equatable {
     let subject: String
     let snippet: String
     let at: String?
+    /// Someone other than the contact wrote it (joined by quote number / address / company, migration 1314).
+    var by: String? = nil
 
-    private enum CodingKeys: String, CodingKey { case dir, direction, channel, subject, snippet, at, sentAt = "sent_at" }
+    private enum CodingKeys: String, CodingKey { case dir, direction, channel, subject, snippet, at, sentAt = "sent_at", by, sender }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -62,6 +64,7 @@ struct SalesMessage: Decodable, Identifiable, Equatable {
         subject = c.bkString(.subject) ?? ""
         snippet = c.bkString(.snippet) ?? ""
         at = c.bkString(.at) ?? c.bkString(.sentAt)
+        by = c.bkString(.by) ?? c.bkString(.sender)
     }
 
     init(inbound: Bool, channel: String = "email", subject: String = "", snippet: String, at: String?) {
@@ -147,6 +150,8 @@ struct SalesCard: Decodable, Identifiable, Equatable {
     let viewed: Bool
     let validUntil: String?
     let lastIn: String?
+    /// Set when the last reply came from someone other than the contact (Monica writing about Linda's quote).
+    let lastInBy: String?
     let thread: [SalesMessage]
     let quotes: [SalesQuote]
     let draft: SalesDraft
@@ -156,7 +161,7 @@ struct SalesCard: Decodable, Identifiable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case key, kind, template, name, company, email, phone, amount, days, followups, viewed, thread, quotes, draft
-        case contactId = "contact_id", firstName = "first_name", validUntil = "valid_until", lastIn = "last_in", smsOK = "sms_ok"
+        case contactId = "contact_id", firstName = "first_name", validUntil = "valid_until", lastIn = "last_in", lastInBy = "last_in_by", smsOK = "sms_ok"
     }
 
     init(from decoder: Decoder) throws {
@@ -176,6 +181,7 @@ struct SalesCard: Decodable, Identifiable, Equatable {
         viewed = c.bkBool(.viewed) ?? false
         validUntil = c.bkString(.validUntil)
         lastIn = c.bkString(.lastIn)
+        lastInBy = c.bkString(.lastInBy)
         thread = (try? c.decodeIfPresent([SalesMessage].self, forKey: .thread)) ?? []
         quotes = (try? c.decodeIfPresent([SalesQuote].self, forKey: .quotes)) ?? []
         draft = (try? c.decodeIfPresent(SalesDraft.self, forKey: .draft)) ?? SalesDraft()

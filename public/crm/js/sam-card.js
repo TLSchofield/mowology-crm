@@ -300,7 +300,8 @@
         var total = queue.reduce(function (s, x) { return s + Number(x.amount || 0); }, 0);
         var replied = c.kind === 'replied';
         var why = replied
-            ? '<b>' + esc(c.first_name || c.name) + ' wrote back ' + esc(ago(c.last_in)) + '</b> and hasn\'t heard from us since.'
+            ? '<b>' + esc(c.last_in_by || c.first_name || c.name) + ' wrote back ' + esc(ago(c.last_in)) + '</b>' +
+              (c.last_in_by ? ' about ' + esc(c.first_name || c.name) + '\'s quote' : '') + ' and hasn\'t heard from us since.'
             : 'No reply for <b>' + c.days + ' days</b>' + (c.followups ? ' · ' + c.followups + ' follow-up' + (c.followups === 1 ? '' : 's') + ' so far' : '') +
               (c.viewed ? ' · they opened it' : '') + '.';
 
@@ -313,7 +314,7 @@
         var thread = (c.thread || []).length
             ? '<div class="mw-sam-thread">' + c.thread.slice(0, 3).map(function (m) {
                 var isText = m.channel === 'sms';
-                return '<div class="mw-sam-msg ' + (m.dir === 'inbound' ? 'is-in' : 'is-out') + '"><small>' + (m.dir === 'inbound' ? esc(c.first_name || 'Them') : 'Us') +
+                return '<div class="mw-sam-msg ' + (m.dir === 'inbound' ? 'is-in' : 'is-out') + '"><small>' + (m.dir === 'inbound' ? esc(m.by || c.first_name || 'Them') : 'Us') +
                     ' · ' + (isText ? 'text · ' : '') + esc(ago(m.at)) + (!isText && m.subject ? ' · ' + esc(m.subject) : '') + '</small><div>' + esc(m.snippet || '(no text)') + '</div></div>';
             }).join('') + '</div>'
             : '<div class="mw-sam-thread is-empty"><small>No emails' + (texts ? ' or texts' : '') + ' with ' + esc(c.first_name || c.name) + ' yet.</small></div>';
