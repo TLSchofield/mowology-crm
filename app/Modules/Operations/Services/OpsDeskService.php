@@ -192,6 +192,11 @@ class OpsDeskService
             require_once dirname(__DIR__, 2) . '/Contracts/Services/SnowContractService.php';
             foreach ((new SnowContractService($this->db))->ottoBriefItems($this->today) as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only (migration 1310) */ }
+        // Placed jobs whose bulk material should be delivered: order 3 days ahead (MaterialDeliveryService).
+        try {
+            require_once __DIR__ . '/MaterialDeliveryService.php';
+            foreach ((new MaterialDeliveryService($this->db))->briefItems($this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only */ }
         // Jobs whose dump / supply runs cost more than the quote allowed for trips (priority 3) — Penny's tagging.
         try {
             require_once dirname(__DIR__, 2) . '/Expenses/Services/TripAttributionService.php';

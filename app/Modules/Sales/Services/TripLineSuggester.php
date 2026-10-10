@@ -9,11 +9,15 @@
  *   green waste / cleanup / haul-away / debris work     → Disposal run     (fact run:dump:any)
  *
  * Price = the fact's median_cost rounded UP to the next $5, only when sample_n ≥ 3; otherwise
- * "not enough runs yet (n/3)". A suggestion only: Sam never adds a line. GST is added on top of the
+ * "not enough runs yet (n/3)". More than one trailer load of bulk material (MaterialDeliveryService)
+ * suggests "Delivery $150" instead of a pickup: one Lawnboy drop replaces the trailer runs, and the
+ * client pays for it because fetching it ourselves costs crew time (owner, 2026-10-10).
+ * A suggestion only: Sam never adds a line. GST is added on top of the
  * price at invoicing, never included in it. Skipped when the quote already has that line.
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once dirname(__DIR__, 2) . '/Operations/Services/CostFactsService.php';
+require_once dirname(__DIR__, 2) . '/Operations/Services/MaterialDeliveryService.php';
 
 class TripLineSuggester
 {
@@ -107,7 +111,7 @@ class TripLineSuggester
     {
         try {
             $s = $this->db->prepare("
-                SELECT q.service_type, q.description, COALESCE(p.name, '') AS product_name
+                SELECT q.service_type, q.description, q.quantity, q.unit_type, COALESCE(p.name, '') AS product_name
                 FROM quote_line_items q LEFT JOIN products p ON p.id = q.product_id
                 WHERE q.quote_id = ? ORDER BY q.sort_order, q.id
             ");
@@ -121,10 +125,33 @@ class TripLineSuggester
     /** Suggestions for a quote — empty when it has no material or waste work. */
     public function forQuote(int $quoteId): array
     {
+        $lines = $this->lines($quoteId);
         $out = [];
-        foreach (self::needs($this->lines($quoteId)) as $key => $because) {
+        $delivery = null;
+        $hasDeliveryLine = false;
+        foreach ($lines as $l) if (strpos(self::label($l), 'deliver') !== false) $hasDeliveryLine = true;
+        try {
+            $mds = new MaterialDeliveryService($this->db);
+            $d = $mds->forLines($lines);
+            if ($d && $d['method'] === 'delivery') $delivery = self::deliverySuggestion($d, (float)$mds->setting('material_delivery_charge'));
+        } catch (Throwable $e) { /* fall back to the pickup suggestion */ }
+        foreach (self::needs($lines) as $key => $because) {
+            if ($key === 'material_pickup' && ($delivery || $hasDeliveryLine)) continue;   // delivered, not fetched
             $out[] = self::suggestion($key, $because, $this->facts->get(self::RULES[$key]['fact']));
         }
+        if ($delivery && !$hasDeliveryLine) array_unshift($out, $delivery);
         return $out;
+    }
+
+    /** "Delivery $150 + GST" for a job whose material Lawnboy should drop off. */
+    public static function deliverySuggestion(array $d, float $charge): array
+    {
+        return [
+            'key' => 'delivery', 'label' => 'Delivery', 'because' => $d['what'],
+            'price' => $charge, 'sample_n' => 0, 'needed' => 0, 'ready' => true,
+            'text' => 'Delivery $' . number_format($charge, 0) . ' + GST',
+            'basis' => $d['why'] . '. ' . $d['vendor'] . ' charges us $' . number_format((float)$d['delivery_cost'], 0) . '; we charge $' . number_format($charge, 0) . '.',
+            'why' => 'More than a trailer load — ' . $d['vendor'] . ' delivers it in one drop',
+        ];
     }
 }
