@@ -235,9 +235,13 @@ class HeadBrain
         return $out;
     }
 
-    /** Shape number (1-based) for this many things learned: one new shape per thing, up to SHAPES. */
+    /**
+     * Shape number (1-based) for this many things learned: one new shape per thing, up to SHAPES.
+     * Shape 1 is a single triangle — the first thing learned lights it; with nothing learned it
+     * shows as an outline, the seed (owner, 2026-10-10).
+     */
     public static function shapeNumber(int $units): int
     {
-        return max(1, min(self::SHAPES, $units + 1));
+        return max(1, min(self::SHAPES, $units));
     }
 }

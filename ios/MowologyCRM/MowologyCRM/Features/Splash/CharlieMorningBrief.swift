@@ -120,7 +120,8 @@ final class MorningBriefLoader: ObservableObject {
 struct OpeningOverlay: View {
     enum Phase { case splash, brief, done }
 
-    let showBrief: Bool                 // admin + first open today
+    /// Asked when the spin ends (not at launch: the login may still be loading then).
+    let wantsBrief: () -> Bool?         // admin + first open today; nil = login still loading
     @ObservedObject var loader: MorningBriefLoader
     var onFinish: () -> Void
 
@@ -150,8 +151,15 @@ struct OpeningOverlay: View {
                         .padding(.top, top + 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                if phase == .splash {
+                    OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: bigSize * 0.62)
+                        .frame(width: bigSize * 1.4, height: bigSize * 1.4)
+                        .position(center)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
                 if phase != .done {
-                    BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain")
+                    BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
                         .frame(width: phase == .splash ? bigSize : small, height: phase == .splash ? bigSize : small)
                         .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
                         .position(phase == .splash ? center : corner)
@@ -165,13 +173,16 @@ struct OpeningOverlay: View {
 
     private func run() async {
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        if showBrief {
-            // Give a slow network a moment more, then use the saved brief (or skip it).
-            var waited = 0.0
-            while !loader.isFresh && waited < 1.0 {
-                try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2
-            }
+        // The login and today's brief get up to 2 s more (the dots keep circling), then the
+        // saved brief is used — or the brief is skipped.
+        // Everyone else goes straight in — only an admin (or a login not loaded yet) waits.
+        var waited = 0.0
+        while waited < 2.0 {
+            let want = wantsBrief()
+            if want == false || (want == true && loader.isFresh) { break }
+            try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2
         }
+        let showBrief = wantsBrief() == true
         if showBrief, let s = loader.snapshot, !s.headline.isEmpty || !s.lines.isEmpty {
             MorningBriefStore.markShown()
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .brief }
@@ -267,5 +278,32 @@ struct OpeningOverlay: View {
                 .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
         )
         .gesture(DragGesture(minimumDistance: 20).onEnded { v in if v.translation.height < -30 { close() } })
+    }
+}
+
+// MARK: - Three dots circling while the brief loads
+
+struct OrbitDots: View {
+    let color: Color
+    let radius: CGFloat
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            Canvas { g, size in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                for i in 0..<3 {
+                    // Three dots a third of a turn apart, on a slightly tilted ellipse, gently breathing.
+                    let a = t * 1.6 + Double(i) * 2 * .pi / 3
+                    let x = c.x + CGFloat(cos(a)) * radius
+                    let y = c.y + CGFloat(sin(a)) * radius * 0.42
+                    let front = sin(a) > 0
+                    let r: CGFloat = (front ? 5 : 3.5) + CGFloat(0.8 * sin(t * 3 + Double(i)))
+                    g.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                           with: .color(color.opacity(front ? 0.95 : 0.45)))
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }

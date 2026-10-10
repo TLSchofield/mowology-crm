@@ -90,12 +90,10 @@ struct HeadCardView: View {
     private func brainRow(_ b: HeadBrainSummary, name: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             brainText(b, name: name)
-            // Nothing learned yet = nothing to light up: no empty box (Otto, 2026-10-10).
-            if b.units > 0 {
-                BrainView(units: b.units, tiers: Dictionary(b.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
-                          label: "\(name)'s brain")
-                    .frame(width: 84, height: 84)
-            }
+            // Nothing learned yet shows shape 1's outline — a single triangle, the seed.
+            BrainView(units: b.units, tiers: Dictionary(b.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
+                      label: "\(name)'s brain", onLight: true)
+                .frame(width: 84, height: 84)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

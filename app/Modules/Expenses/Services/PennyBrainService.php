@@ -257,6 +257,6 @@ class PennyBrainService
     /** Shape number (1-based) for this many things learned: one new shape per thing, up to SHAPES. */
     public static function shapeNumber(int $units): int
     {
-        return max(1, min(self::SHAPES, $units + 1));
+        return max(1, min(self::SHAPES, $units));   // shape 1 = one triangle (owner, 2026-10-10)
     }
 }

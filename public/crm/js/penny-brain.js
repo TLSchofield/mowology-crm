@@ -86,7 +86,8 @@
     function shape(k) {
         var need = k + 3, r = rng(k * 7919), fam, tris, name;
         if (k === 1) {
-            tris = geodesic('tetra', 1); name = 'tetrahedron'; fam = 'geo';
+            // A single triangle — the seed (owner, 2026-10-10).
+            tris = [[[0, 1, 0], [-0.866, -0.5, 0], [0.866, -0.5, 0]]]; name = 'triangle'; fam = 'geo';
         } else if (k <= 90 && k % 3 !== 0) {
             if (k % 3 === 1) { var n = Math.max(3, Math.ceil(need / 2)); tris = bipyramid(n); name = n + '-sided double pyramid'; }
             else { var m = Math.max(3, Math.ceil(need / 4)); tris = gyrobipyramid(m); name = m + '-sided twisted double pyramid'; }
@@ -138,7 +139,7 @@
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     function draw(canvas, units, bright) {
-        var k = Math.max(1, Math.min(SHAPES, units + 1));
+        var k = Math.max(1, Math.min(SHAPES, units));   // shape 1 = one triangle: the first thing learned
         var sh = shape(k), order = lightOrder(sh.tris), litN = Math.min(units, sh.tris.length);
         var lit = new Uint8Array(sh.tris.length);
         order.slice(0, litN).forEach(function (i) { lit[i] = 1; });

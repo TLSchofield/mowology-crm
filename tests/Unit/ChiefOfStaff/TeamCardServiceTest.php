@@ -85,7 +85,7 @@ class TeamCardServiceTest extends TestCase
         ]);
         $s = TeamCardService::brainSummary($b);
         $this->assertSame(5, $s['units']);
-        $this->assertSame(6, $s['shape']);
+        $this->assertSame(5, $s['shape']);   // shape = things learned (shape 1 = one triangle)
         $this->assertSame('2026-10-01', $s['since']);
         $this->assertSame(['Mowing in rain', 'Hedges in rain', 'Aeration', '2 questions answered'], array_column($s['parts'], 'label'));
         $this->assertSame(['Gold', 'Bronze', 'Obsidian', null], array_column($s['parts'], 'tier'));

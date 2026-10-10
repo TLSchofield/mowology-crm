@@ -8,9 +8,11 @@ struct RootView: View {
     /// brief landing in the app — OpeningOverlay / CharlieMorningBrief.swift.
     @State private var showSplash = true
     @StateObject private var briefLoader = MorningBriefLoader()
-    /// An admin who hasn't had today's brief yet (read when the opening screen starts).
-    private var showBrief: Bool {
-        authSession.isAuthenticated && authSession.user?.isAdmin == true && !MorningBriefStore.shownToday
+    /// An admin who hasn't had today's brief yet. nil = signed in but the user isn't loaded yet.
+    private var showBrief: Bool? {
+        guard authSession.isAuthenticated else { return false }
+        guard let user = authSession.user else { return nil }
+        return user.isAdmin && !MorningBriefStore.shownToday
     }
 
     var body: some View {
@@ -28,7 +30,7 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
 
             if showSplash {
-                OpeningOverlay(showBrief: showBrief, loader: briefLoader) {
+                OpeningOverlay(wantsBrief: { showBrief }, loader: briefLoader) {
                     showSplash = false
                 }
                 .zIndex(1)

@@ -18,7 +18,7 @@ class PennyBrainServiceTest extends TestCase
     public function test_one_new_shape_per_thing_learned_up_to_500(): void
     {
         $this->assertSame(1, PennyBrainService::shapeNumber(0));
-        $this->assertSame(24, PennyBrainService::shapeNumber(23));
+        $this->assertSame(23, PennyBrainService::shapeNumber(23));   // shape = things learned; shape 1 = one triangle
         $this->assertSame(500, PennyBrainService::shapeNumber(9999));
     }
 

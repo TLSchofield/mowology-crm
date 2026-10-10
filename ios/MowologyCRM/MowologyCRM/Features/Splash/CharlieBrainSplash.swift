@@ -112,7 +112,8 @@ struct BrainShape {
         var r = RNG(seed: k * 7919)
         var tris: [[V]]
         if k == 1 {
-            tris = Self.geodesic("tetra", 1)
+            // A single triangle — the seed (owner, 2026-10-10). Same as head-brain.js.
+            tris = [[V(0, 1, 0), V(-0.866, -0.5, 0), V(0.866, -0.5, 0)]]
         } else if k <= 90 && k % 3 != 0 {
             if k % 3 == 1 { tris = Self.bipyramid(max(3, Int((Double(need) / 2).rounded(.up)))) }
             else { tris = Self.gyrobipyramid(max(3, Int((Double(need) / 4).rounded(.up)))) }
@@ -236,6 +237,8 @@ struct BrainView: View {
     let units: Int
     let tiers: [String: Int]
     var label: String = "Charlie's brain"
+    /// On a light background the unlit outline is drawn in forest, not pale mint (else it vanishes).
+    var onLight: Bool = false
 
     private struct Prepared {
         let shape: BrainShape
@@ -245,11 +248,13 @@ struct BrainView: View {
 
     private let prepared: Prepared
 
-    init(units: Int, tiers: [String: Int], label: String = "Charlie's brain") {
+    init(units: Int, tiers: [String: Int], label: String = "Charlie's brain", onLight: Bool = false) {
         self.units = units
         self.tiers = tiers
         self.label = label
-        let shape = BrainShape(units + 1)
+        self.onLight = onLight
+        // Shape = things learned; shape 1 is one triangle (nothing learned = its outline, the seed).
+        let shape = BrainShape(max(1, units))
         var owner = [BrainTier?](repeating: nil, count: shape.tris.count)
         // Best tiers first along the web's sweep order; the rest of the units as Bronze.
         var queue: [BrainTier] = []
@@ -321,7 +326,9 @@ struct BrainView: View {
                     g.stroke(path, with: .color(Self.c(T.edge(n), 0.16)), lineWidth: thin)
                 }
             } else {
-                g.stroke(path, with: .color(Color(red: 232 / 255, green: 243 / 255, blue: 240 / 255).opacity(f.front ? 0.26 : 0.07)), lineWidth: thin)
+                let outline = onLight ? Color(red: 13 / 255, green: 59 / 255, blue: 46 / 255).opacity(f.front ? 0.35 : 0.12)
+                                      : Color(red: 232 / 255, green: 243 / 255, blue: 240 / 255).opacity(f.front ? 0.26 : 0.07)
+                g.stroke(path, with: .color(outline), lineWidth: onLight ? max(thin, 1) : thin)
             }
         }
     }
