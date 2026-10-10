@@ -95,17 +95,20 @@ final class MorningBriefLoader: ObservableObject {
     @Published private(set) var snapshot: MorningBriefSnapshot?
     @Published private(set) var isFresh = false
 
-    /// Today's brief, or the saved one if the network is slow. Also refreshes the brain cache.
-    func load(authSession: AuthSession, wait: Double = 2.5) async {
+    @Published private(set) var finished = false
+
+    /// Today's brief, with the saved one meanwhile. Never cancelled: Charlie reads every head's
+    /// desk, which takes ~7 s on the server (measured 2026-10-10) — the old 2.5 s cut-off meant
+    /// the brief never arrived, so nothing was ever saved and the brief never showed.
+    /// The overlay decides how long to wait; this just publishes whatever arrives.
+    func load(authSession: AuthSession) async {
         snapshot = MorningBriefStore.load()
         isFresh = false
+        finished = false
+        defer { finished = true }
         let client = APIClient(authSession: authSession)
-        let fetch = Task { () -> HeadCardResponse? in
-            try? await client.request(.teamHeadBrief(head: "charlie"))
-        }
-        let timeout = Task { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)); fetch.cancel() }
-        if let r = await fetch.value, r.ok {
-            timeout.cancel()
+        let r: HeadCardResponse? = try? await client.request(.teamHeadBrief(head: "charlie"))
+        if let r, r.ok {
             if let brain = r.brain { CharlieBrainCache.save(brain) }
             let s = MorningBriefStore.build(headline: r.headline, items: r.items)
             MorningBriefStore.save(s)
@@ -118,7 +121,9 @@ final class MorningBriefLoader: ObservableObject {
 // MARK: - The opening overlay
 
 struct OpeningOverlay: View {
-    enum Phase { case splash, brief, done }
+    /// waiting = the splash has gone and the app is usable; Charlie's small brain sits top left
+    /// with the dots until his brief arrives, then the card lands.
+    enum Phase { case splash, waiting, brief, done }
 
     /// Asked when the spin ends (not at launch: the login may still be loading then).
     let wantsBrief: () -> Bool?         // admin + first open today; nil = login still loading
@@ -151,10 +156,11 @@ struct OpeningOverlay: View {
                         .padding(.top, top + 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                if phase == .splash {
-                    OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: bigSize * 0.62)
-                        .frame(width: bigSize * 1.4, height: bigSize * 1.4)
-                        .position(center)
+                if phase == .splash || phase == .waiting {
+                    let big = phase == .splash
+                    OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: (big ? bigSize : small) * 0.62)
+                        .frame(width: (big ? bigSize : small) * 1.4, height: (big ? bigSize : small) * 1.4)
+                        .position(big ? center : corner)
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
@@ -173,8 +179,7 @@ struct OpeningOverlay: View {
 
     private func run() async {
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        // The login and today's brief get up to 2 s more (the dots keep circling), then the
-        // saved brief is used — or the brief is skipped.
+        // The login and today's brief get up to 2 s more (the dots keep circling).
         // Everyone else goes straight in — only an admin (or a login not loaded yet) waits.
         var waited = 0.0
         while waited < 2.0 {
@@ -183,6 +188,15 @@ struct OpeningOverlay: View {
             try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2
         }
         let showBrief = wantsBrief() == true
+        if showBrief && !loader.isFresh {
+            // Not here yet: open the app and keep Charlie thinking in the corner (up to 20 s more).
+            // A saved brief is the fallback only when today's never comes.
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .waiting }
+            var more = 0.0
+            while more < 20 && !loader.isFresh && !loader.finished {
+                try? await Task.sleep(nanoseconds: 250_000_000); more += 0.25
+            }
+        }
         if showBrief, let s = loader.snapshot, !s.headline.isEmpty || !s.lines.isEmpty {
             MorningBriefStore.markShown()
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .brief }
