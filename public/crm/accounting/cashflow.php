@@ -125,7 +125,9 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
     <div class="row g-3">
         <div class="col-md-6"><div class="card"><div class="card-body">
             <h2 class="h6 mb-2">Everyday spending — biggest payees, last 8 weeks</h2>
-            <p class="small text-muted">About <?= $money($f['everyday_weekly']) ?> a week recently. Winter weeks use the same month last year when the bank history has it.</p>
+            <p class="small text-muted">About <?= $money($f['everyday_weekly']) ?> a week recently, not counting the bills and tax listed separately. Winter weeks use the same month last year when the bank history has it.</p>
+            <?php $catNames = ['staff' => 'Staff pay (e-Transfers, Wave payroll)', 'owner' => 'Transfers to you', 'other' => 'Everything else (fuel, materials, repairs…)']; ?>
+            <ul class="small"><?php foreach ($catNames as $ck => $cn): if (!isset($f['everyday_categories'][$ck])) continue; ?><li><?= h($cn) ?>: <b><?= $money($f['everyday_categories'][$ck]) ?></b> a week</li><?php endforeach; ?></ul>
             <ul class="small mb-0"><?php foreach ($f['everyday_top'] as $t): ?><li><?= h($t['payee']) ?> — <?= $money($t['amount']) ?></li><?php endforeach; ?></ul>
         </div></div></div>
         <div class="col-md-6"><div class="card"><div class="card-body">

@@ -33,20 +33,6 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (clues): ' . $e->getMessage());
         }
-        // Last month's statements not in yet (from the 3rd) — read from the once-a-day check.
-        try {
-            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
-            $sc = new StatementCoverageService($this->db);
-            if ($sc->ready()) {
-                $items = StatementCoverageService::briefItems($sc->latest(), date('Y-m-d'));
-                if ($items) {
-                    $brief['items'] = array_merge((array)($brief['items'] ?? []), $items);
-                    $brief['count'] = (int)($brief['count'] ?? 0) + count($items);
-                }
-            }
-        } catch (Throwable $e) {
-            error_log('Penny brief (statements): ' . $e->getMessage());
-        }
         // Cash-flow forecast: the "like last year" view dipping under the floor (priority 1–2).
         try {
             require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
@@ -64,6 +50,47 @@ class PennyBriefAdapter
             }
         } catch (Throwable $e) {
             error_log('Penny brief (products): ' . $e->getMessage());
+        }
+        // Last month's statements not in yet (from the 3rd) — read from the once-a-day check.
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $sc = new StatementCoverageService($this->db);
+            if ($sc->ready()) {
+                $items = StatementCoverageService::briefItems($sc->latest(), date('Y-m-d'));
+                if ($items) {
+                    $brief['items'] = array_merge((array)($brief['items'] ?? []), $items);
+                    $brief['count'] = (int)($brief['count'] ?? 0) + count($items);
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (statements): ' . $e->getMessage());
+        }
+        // Last month's Wave payroll report not imported (from the 5th); the shareholder balance
+        // in Nov–Dec (migration 1255). Read only.
+        try {
+            $wp = APP_ROOT . '/Modules/Accounting/Services/WavePayrollImportService.php';
+            if (is_file($wp)) {
+                require_once $wp;
+                require_once APP_ROOT . '/Modules/Accounting/Services/ShareholderAccountService.php';
+                $pay = new WavePayrollImportService($this->db);
+                if ($pay->ready()) {
+                    $brief = self::withItems($brief, array_merge($pay->brief(date('Y-m-d')),
+                                                                 (new ShareholderAccountService($this->db))->brief(date('Y-m-d'))));
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (payroll): ' . $e->getMessage());
+        }
+        // Card charges with no receipt that Penny is chasing (migration 1245).
+        try {
+            $mr = APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php';
+            if (is_file($mr)) {
+                require_once $mr;
+                $mrs = new MissingReceiptService($this->db);
+                if ($mrs->ready()) $brief = self::withItems($brief, $mrs->briefItems());
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (missing receipts): ' . $e->getMessage());
         }
         return $brief;
     }

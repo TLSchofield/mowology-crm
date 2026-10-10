@@ -126,7 +126,7 @@ class CashFlowForecastService
         $by = [];
         foreach ($lines as $l) {
             if (!class_exists('RecurringBillService')) break;
-            $k = RecurringBillService::payeeKey((string)$l['description']);
+            $k = self::payeeKey((string)$l['description']);
             if (strlen($k) < 4 || RecurringBillService::isTransfer((string)$l['description']) || (float)$l['amount'] < 1) continue;
             $by[$k][] = $l;
         }
@@ -145,8 +145,8 @@ class CashFlowForecastService
             $lastL = end($ls);
             $next = date('Y-m-d', strtotime($lastL['transaction_date'] . ' +14 days'));
             while ($next < $today) $next = date('Y-m-d', strtotime($next . ' +14 days'));
-            $out[] = ['label' => RecurringBillService::label((string)$lastL['description']), 'amount' => round($usual, 2),
-                      'last' => $lastL['transaction_date'], 'next' => $next, 'key' => RecurringBillService::payeeKey((string)$lastL['description'])];
+            $out[] = ['label' => self::payee((string)$lastL['description']), 'amount' => round($usual, 2),
+                      'last' => $lastL['transaction_date'], 'next' => $next, 'key' => self::payeeKey((string)$lastL['description'])];
         }
         return $out;
     }
@@ -183,6 +183,39 @@ class CashFlowForecastService
         $d = date('Y-m-d', strtotime(end($scheduledDates) . " +{$gap} days"));
         while ($d <= $stop && count($out) < 60) { $out[] = $d; $d = date('Y-m-d', strtotime($d . " +{$gap} days")); }
         return $out;
+    }
+
+    /**
+     * One name per payee: e-Transfers are grouped by the person ("e-Transfer debit Ref 2026…
+     * Nigel Casey Nigel" and "… Nigel Casey" are both "E-transfer to Nigel Casey") — counting
+     * the two spellings separately counted Nigel's pay twice (owner, 2026-10-10).
+     */
+    public static function payee(string $description): string
+    {
+        $t = trim((string)preg_replace('/\s+/', ' ', $description));
+        if (preg_match('/e-?\s?transfer\s+debit(?:\s+ref)?\s*[0-9]*\s*(.*)$/i', $t, $m)) {
+            $w = preg_split('/\s+/', trim($m[1])) ?: [];
+            for ($n = 1; $n < count($w); $n++) {
+                $rest = array_slice($w, $n, $n);
+                if (strtolower(implode(' ', $rest)) === strtolower(implode(' ', array_slice($w, 0, count($rest))))) { $w = array_slice($w, 0, $n); break; }
+            }
+            return 'E-transfer to ' . ucwords(strtolower(implode(' ', array_slice($w, 0, 3))));
+        }
+        return class_exists('RecurringBillService') ? RecurringBillService::label($t) : $t;
+    }
+
+    public static function payeeKey(string $description): string
+    {
+        return strtoupper((string)preg_replace('/[^A-Za-z]/', '', self::payee($description)));
+    }
+
+    /** staff | owner | other — what the spending is, for the page's breakdown. */
+    public static function category(string $description, string $ownerName): string
+    {
+        $p = self::payee($description);
+        if ($ownerName !== '' && stripos($p, 'E-transfer to ' . $ownerName) === 0) return 'owner';
+        if (str_starts_with($p, 'E-transfer to ') || preg_match('/\bWAVE\s*PYRL|PAYROLL\b/i', $description)) return 'staff';
+        return 'other';
     }
 
     /** CRA payments are forecast from the instalment settings, so the bank's copies don't count twice. */
@@ -291,6 +324,7 @@ class CashFlowForecastService
             foreach ((new RecurringBillService($this->db))->bills($today) as $b) {
                 if (in_array('stopped', (array)$b['status'], true)) continue;
                 $billKeys[$b['key']] = true;
+                $billKeys[self::payeeKey((string)$b['payee'])] = true;
                 $first = (string)$b['next'];
                 while ($first < $today) $first = date('Y-m-d', strtotime($first . ' +1 month'));
                 foreach (self::repeat($first, $until, 'month') as $d) {
@@ -341,6 +375,7 @@ class CashFlowForecastService
         $f['doubtful'] = $doubtful;
         $f['everyday_weekly'] = round($weekly, 2);
         $f['everyday_top'] = $ev['top'];
+        $f['everyday_categories'] = $ev['categories'];
         $f['notes'] = $notes;
         $f['chase'] = $this->chaseList($events, $f);
         return $f;
@@ -476,6 +511,17 @@ class CashFlowForecastService
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    /** The owner's name as it appears on e-Transfers (first admin). */
+    private function ownerName(): string
+    {
+        try {
+            $n = $this->db->query("SELECT TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1")->fetchColumn();
+            return ucwords(strtolower((string)$n));
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
     /** Recurring plans' visits after the last one generated, priced, not snow routes. */
     private function projectedVisits(string $until): array
     {
@@ -533,7 +579,7 @@ class CashFlowForecastService
      */
     private function everyday(array $billKeys): array
     {
-        $out = ['recent' => 0.0, 'monthly' => [], 'top' => []];
+        $out = ['recent' => 0.0, 'monthly' => [], 'top' => [], 'categories' => []];
         $last = $this->db->query("SELECT MAX(transaction_date) FROM accounting_transactions WHERE reference_type = 'bank_import'")->fetchColumn();
         if (!$last) return $out;
         $st = $this->db->prepare("
@@ -542,16 +588,19 @@ class CashFlowForecastService
         ");
         $st->execute([$last]);
         $recentFrom = date('Y-m-d', strtotime($last . ' -56 days'));
-        $byMonth = []; $recent = 0.0; $payees = [];
+        $byMonth = []; $recent = 0.0; $payees = []; $cats = [];
+        $owner = $this->ownerName();
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $d = (string)$r['description'];
-            if (RecurringBillService::isTransfer($d) || isset($billKeys[RecurringBillService::payeeKey($d)]) || self::isTaxPayment($d)) continue;
+            if (RecurringBillService::isTransfer($d) || isset($billKeys[RecurringBillService::payeeKey($d)]) || isset($billKeys[self::payeeKey($d)]) || self::isTaxPayment($d)) continue;
             $m = substr((string)$r['transaction_date'], 0, 7);
             $byMonth[$m] = ($byMonth[$m] ?? 0) + (float)$r['amount'];
             if ($r['transaction_date'] > $recentFrom) {
                 $recent += (float)$r['amount'];
-                $k = RecurringBillService::label($d);
+                $k = self::payee($d);
                 $payees[$k] = ($payees[$k] ?? 0) + (float)$r['amount'];
+                $c = self::category($d, $owner);
+                $cats[$c] = ($cats[$c] ?? 0) + (float)$r['amount'];
             }
         }
         $lastMonth = substr((string)$last, 0, 7);
@@ -562,6 +611,7 @@ class CashFlowForecastService
         arsort($payees);
         foreach (array_slice($payees, 0, 8, true) as $k => $v) $out['top'][] = ['payee' => $k, 'amount' => round($v, 2)];
         $out['recent'] = round($recent / 8, 2);
+        $out['categories'] = array_map(fn($v) => round($v / 8, 2), $cats);   // weekly averages
         return $out;
     }
 }

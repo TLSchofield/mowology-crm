@@ -84,4 +84,16 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertSame([], CashFlowForecastService::projectVisits([], null, '2027-01-03'));
         $this->assertCount(4, CashFlowForecastService::projectVisits(['2026-11-05'], null, '2026-12-31'));   // default every 14 days
     }
+
+    public function test_two_spellings_of_one_person_are_one_payee(): void
+    {
+        $a = CashFlowForecastService::payee('e-Transfer debit Ref 20260828142613669027 Nigel Casey Nigel ');
+        $b = CashFlowForecastService::payee('e-Transfer debit Ref 20260925193121667684 Nigel Casey');
+        $this->assertSame('E-transfer to Nigel Casey', $a);
+        $this->assertSame($a, $b);
+        $this->assertSame('owner', CashFlowForecastService::category('e-Transfer debit Ref 2026 Tim Schofield Tim ', 'Tim Schofield'));
+        $this->assertSame('staff', CashFlowForecastService::category('e-Transfer debit Ref 2026 Katrenna Marenych', 'Tim Schofield'));
+        $this->assertSame('staff', CashFlowForecastService::category('Preauthorized payment Wave PYRL', 'Tim Schofield'));
+        $this->assertSame('other', CashFlowForecastService::category('Point of sale VITAL AUTO REPAIR', 'Tim Schofield'));
+    }
 }
