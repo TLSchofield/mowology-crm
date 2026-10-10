@@ -4,8 +4,14 @@ struct RootView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @State private var updateResult: VersionCheckResult? = nil
-    /// Charlie's brain on the opening screen (CharlieBrainSplash), briefly, then fades.
+    /// Charlie's brain on the opening screen, then (admins, first open of the day) his morning
+    /// brief landing in the app — OpeningOverlay / CharlieMorningBrief.swift.
     @State private var showSplash = true
+    @StateObject private var briefLoader = MorningBriefLoader()
+    /// An admin who hasn't had today's brief yet (read when the opening screen starts).
+    private var showBrief: Bool {
+        authSession.isAuthenticated && authSession.user?.isAdmin == true && !MorningBriefStore.shownToday
+    }
 
     var body: some View {
         ZStack {
@@ -22,9 +28,10 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
 
             if showSplash {
-                CharlieBrainSplash()
-                    .transition(.opacity)
-                    .zIndex(1)
+                OpeningOverlay(showBrief: showBrief, loader: briefLoader) {
+                    showSplash = false
+                }
+                .zIndex(1)
             }
         }
         .task {
@@ -33,18 +40,10 @@ struct RootView: View {
                 updateResult = result
             }
         }
-        .task {
-            try? await Task.sleep(nanoseconds: 1_800_000_000)
-            withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
-        }
         .task(id: authSession.isAuthenticated) {
-            // Keep the opening screen's brain current for next launch.
+            // Charlie's brief (and the brain for next launch). Bounded wait inside the loader.
             guard authSession.isAuthenticated else { return }
-            let client = APIClient(authSession: authSession)
-            if let r: HeadCardResponse = try? await client.request(.teamHeadBrief(head: "charlie")),
-               r.ok, let brain = r.brain {
-                CharlieBrainCache.save(brain)
-            }
+            await briefLoader.load(authSession: authSession)
         }
     }
 }

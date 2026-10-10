@@ -126,6 +126,7 @@
 		705F25D41EECFD486B870624 /* UnbilledWorkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5176DEFAC3397210A09818BD /* UnbilledWorkModels.swift */; };
 		F59DCDC04D91B5A56504B13B /* UnbilledWorkSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860BC924D1E18395DC0120F1 /* UnbilledWorkSection.swift */; };
 		10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */; };
+		4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -250,6 +251,7 @@
 		5176DEFAC3397210A09818BD /* UnbilledWorkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnbilledWorkModels.swift; sourceTree = "<group>"; };
 		860BC924D1E18395DC0120F1 /* UnbilledWorkSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnbilledWorkSection.swift; sourceTree = "<group>"; };
 		4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieBrainSplash.swift; sourceTree = "<group>"; };
+		12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieMorningBrief.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -544,6 +546,7 @@
 			isa = PBXGroup;
 			children = (
 				4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */,
+				12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */,
 			);
 			path = Splash;
 			sourceTree = "<group>";
@@ -732,6 +735,7 @@
 				705F25D41EECFD486B870624 /* UnbilledWorkModels.swift in Sources */,
 				F59DCDC04D91B5A56504B13B /* UnbilledWorkSection.swift in Sources */,
 				10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */,
+				4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -805,7 +809,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.14;
+				MARKETING_VERSION = 1.3.15;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -891,7 +895,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.14;
+				MARKETING_VERSION = 1.3.15;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

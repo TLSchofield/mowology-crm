@@ -25,6 +25,9 @@ extension Color {
         static let light  = Color(mwHex: 0xE8F3F0)
         /// #0D3B2E  --mw-forest — sidebar background, deepest dark
         static let forest = Color(mwHex: 0x0D3B2E)
+        /// Warm off-white behind Charlie's brain on the opening screen — pure white washes out
+        /// the brain's palest facets (owner, 2026-10-10).
+        static let paper  = Color(mwHex: 0xF7F4EE)
         /// #E85D04  --mw-orange — CTA accent (secondary)
         static let orange = Color(mwHex: 0xE85D04)
         /// #DC2626  --mw-red    — declined / lost
