@@ -1241,13 +1241,9 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$crewLite  = !empty($_COOKIE['mw_native']); // Android app — see appstack_head.php
-// _av() lives in appstack_head.php, which is included below — bust the cache by mtime here.
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=' . (@filemtime(dirname(__DIR__) . '/css/mobile-cards.css') ?: time()) . '" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260929d" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20261008c" defer></script>';
-if (!$crewLite) {
-// Prefetch every day visible in the strip so any day tap is instant (office/PWA only —
-// on the crew app over LTE these seven ~250 KB fetches cost more than the tap they save)
+// Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
         $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($_sd['date']) . $filterQueryStr . '">';
@@ -1263,7 +1259,6 @@ $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($s
 $extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
 $extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
 $extraHead .= '<link rel="prefetch" href="/crm/timeclock/my-timesheet.php">';
-}
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -1357,12 +1352,6 @@ if ($apiKey) {
                   <?php endif; ?>
               </div>
           </div>
-
-          <?php
-          // Otto owns the schedule: his strip for the day / week in view (jobs.edit only; loads after the page).
-          $ottoStrip = $view === 'day' ? ['date' => $dayDate] : ['from' => $startDate, 'to' => $endDate];
-          include dirname(__DIR__) . '/includes/otto-schedule-strip.php';
-          ?>
 
           <!-- ═══════════════════════════════════════════════
                MISSION CONTROL HEADER (Week View Only)
@@ -2615,8 +2604,189 @@ if ($apiKey) {
               <?php if (empty($user['is_driver'])): ?>
               <div class="mw-ds-wrap<?php echo $isClockedIn ? ' mw-ds-wrap-active' : ''; ?>">
 
-                  <!-- Greeting metrics card + AM/PM weather row removed 2026-10-08: Home Base shows them;
-                       the strip header above keeps progress + today's temperature. -->
+                  <!-- Metrics card -->
+                  <div class="mw-ds-card" id="mwGreetingCard">
+                      <div class="mw-ds-greeting">
+                          <span class="mw-ds-hi"><?php echo htmlspecialchars($dayGreeting . ', ' . $greetingFirstName); ?></span>
+                          <span class="mw-ds-date-lbl"><?php echo date('l, F j', strtotime($mobileDate)); ?></span>
+                      </div>
+                      <?php if ($sc['show_job_count'] || ($sc['show_revenue'] && $summaryRevenue > 0) || ($sc['show_total_time'] && $summaryMinutes > 0)): ?>
+                      <div class="mw-ds-metrics">
+                          <?php if ($sc['show_job_count']): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval"><?php echo $totalStops; ?></span>
+                              <span class="mw-ds-mlbl"><?php echo $totalStops === 1 ? 'Stop' : 'Stops'; ?></span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($sc['show_revenue'] && $summaryRevenue > 0): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval">$<?php echo number_format($summaryRevenue, 0); ?></span>
+                              <span class="mw-ds-mlbl">Est. Revenue</span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($sc['show_total_time'] && $summaryMinutes > 0): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval"><?php echo $summaryMinutes >= 60 ? round($summaryMinutes / 60, 1) . 'h' : $summaryMinutes . 'm'; ?></span>
+                              <span class="mw-ds-mlbl">Est. Time</span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($completedStops > 0 && $totalStops > 0): ?>
+                          <div class="mw-ds-metric mw-ds-metric-done">
+                              <span class="mw-ds-mval"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
+                              <span class="mw-ds-mlbl">Done</span>
+                          </div>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                  </div>
+                  <script>
+                  (function () {
+                      var STORAGE_KEY = 'mw_greeting_dismissed_<?php echo date('Y-m-d'); ?>';
+                      var card = document.getElementById('mwGreetingCard');
+                      if (!card) return;
+
+                      // Already dismissed today — hide immediately with no animation
+                      if (localStorage.getItem(STORAGE_KEY)) {
+                          card.style.display = 'none';
+                          return;
+                      }
+
+                      function dismissCard() {
+                          card.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease, padding .35s ease';
+                          card.style.overflow   = 'hidden';
+                          card.style.maxHeight  = card.offsetHeight + 'px';
+                          requestAnimationFrame(function () {
+                              card.style.opacity      = '0';
+                              card.style.maxHeight    = '0';
+                              card.style.marginBottom = '0';
+                              card.style.padding      = '0';
+                          });
+                          setTimeout(function () { card.style.display = 'none'; }, 380);
+                          localStorage.setItem(STORAGE_KEY, '1');
+                      }
+
+                      var startX = 0, startY = 0, tracking = false;
+                      card.addEventListener('touchstart', function (e) {
+                          startX = e.touches[0].clientX;
+                          startY = e.touches[0].clientY;
+                          tracking = true;
+                          card.style.transition = 'none';
+                          card.style.willChange = 'transform, opacity';
+                          e.stopPropagation();
+                      }, { passive: true });
+
+                      card.addEventListener('touchmove', function (e) {
+                          if (!tracking) return;
+                          var dx = e.touches[0].clientX - startX;
+                          var dy = e.touches[0].clientY - startY;
+                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; card.style.transform = ''; card.style.opacity = ''; return; }
+                          e.stopPropagation();
+                          card.style.transform = 'translateX(' + dx + 'px)';
+                          card.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
+                      }, { passive: false });
+
+                      card.addEventListener('touchend', function (e) {
+                          if (!tracking) return;
+                          tracking = false;
+                          e.stopPropagation();
+                          var dx = e.changedTouches[0].clientX - startX;
+                          if (Math.abs(dx) > 80) {
+                              card.style.transition = 'transform .25s ease, opacity .25s ease';
+                              card.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
+                              card.style.opacity    = '0';
+                              setTimeout(dismissCard, 240);
+                          } else {
+                              card.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
+                              card.style.transform  = '';
+                              card.style.opacity    = '';
+                          }
+                          card.style.willChange = '';
+                      }, { passive: true });
+                  })();
+                  </script>
+
+                  <!-- Weather AM / PM split -->
+                  <?php if ($sc['show_morning_weather'] || $sc['show_afternoon_weather']): ?>
+                  <div class="mw-ds-weather-row" id="mwWeatherRow">
+                      <?php if ($sc['show_morning_weather']): ?>
+                      <div class="mw-ds-wx mw-ds-wx-am">
+                          <span class="mw-ds-wx-label">Morning</span>
+                          <span class="mw-ds-wx-icon"><?php echo $weatherAM['icon'] ?? '☀️'; ?></span>
+                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherAM['temp_c'] ?? 8)); ?>&deg;</span>
+                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherAM['condition'] ?? 'Clear'))); ?></span>
+                          <?php if (!empty($weatherAM['precip_chance_pct']) && (int)$weatherAM['precip_chance_pct'] > 10): ?>
+                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherAM['precip_chance_pct']; ?>%</span>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                      <?php if ($sc['show_afternoon_weather']): ?>
+                      <div class="mw-ds-wx mw-ds-wx-pm">
+                          <span class="mw-ds-wx-label">Afternoon</span>
+                          <span class="mw-ds-wx-icon"><?php echo $weatherPM['icon'] ?? '⛅'; ?></span>
+                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherPM['temp_c'] ?? 12)); ?>&deg;</span>
+                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherPM['condition'] ?? 'Clear'))); ?></span>
+                          <?php if (!empty($weatherPM['precip_chance_pct']) && (int)$weatherPM['precip_chance_pct'] > 10): ?>
+                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherPM['precip_chance_pct']; ?>%</span>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                  </div>
+                  <?php endif; ?>
+                  <script>
+                  (function () {
+                      var STORAGE_KEY = 'mw_weather_dismissed_<?php echo date('Y-m-d'); ?>';
+                      var row = document.getElementById('mwWeatherRow');
+                      if (!row) return;
+                      if (localStorage.getItem(STORAGE_KEY)) { row.style.display = 'none'; return; }
+
+                      function dismissRow() {
+                          row.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease';
+                          row.style.overflow   = 'hidden';
+                          row.style.maxHeight  = row.offsetHeight + 'px';
+                          requestAnimationFrame(function () {
+                              row.style.opacity      = '0';
+                              row.style.maxHeight    = '0';
+                              row.style.marginBottom = '0';
+                          });
+                          setTimeout(function () { row.style.display = 'none'; }, 380);
+                          localStorage.setItem(STORAGE_KEY, '1');
+                      }
+
+                      var startX = 0, startY = 0, tracking = false;
+                      row.addEventListener('touchstart', function (e) {
+                          startX = e.touches[0].clientX;
+                          startY = e.touches[0].clientY;
+                          tracking = true;
+                          row.style.transition = 'none';
+                          e.stopPropagation();
+                      }, { passive: true });
+                      row.addEventListener('touchmove', function (e) {
+                          if (!tracking) return;
+                          var dx = e.touches[0].clientX - startX;
+                          var dy = e.touches[0].clientY - startY;
+                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; row.style.transform = ''; row.style.opacity = ''; return; }
+                          e.stopPropagation();
+                          row.style.transform = 'translateX(' + dx + 'px)';
+                          row.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
+                      }, { passive: false });
+                      row.addEventListener('touchend', function (e) {
+                          if (!tracking) return;
+                          tracking = false;
+                          e.stopPropagation();
+                          var dx = e.changedTouches[0].clientX - startX;
+                          if (Math.abs(dx) > 80) {
+                              row.style.transition = 'transform .25s ease, opacity .25s ease';
+                              row.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
+                              row.style.opacity    = '0';
+                              setTimeout(dismissRow, 240);
+                          } else {
+                              row.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
+                              row.style.transform  = '';
+                              row.style.opacity    = '';
+                          }
+                      }, { passive: true });
+                  })();
+                  </script>
 
                   <!-- Clock in/out card — only shown when not clocked in (bottom nav handles the clocked-in state) -->
                   <?php if ($sc['show_clock_card'] && !$isClockedIn): ?>

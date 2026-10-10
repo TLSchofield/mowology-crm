@@ -321,6 +321,12 @@ $activePage = 'team';
                    class="btn btn-sm btn-outline-secondary" title="View Timesheets">
                     <i data-feather="clock" style="width:13px;height:13px;"></i>
                 </a>
+                <?php if ($user['role'] === 'admin' || $user['role'] === 'manager'): ?>
+                <a href="/crm/timeclock/crew-schedule-edit.php?user_id=<?php echo (int)$emp['id']; ?>"
+                   class="btn btn-sm btn-outline-secondary" title="Set Work Schedule">
+                    <i data-feather="calendar" style="width:13px;height:13px;"></i>
+                </a>
+                <?php endif; ?>
                 <a href="/crm/team/profile.php?id=<?php echo (int)$emp['id']; ?>"
                    class="btn btn-sm btn-outline-secondary" title="HR Profile">
                     <i data-feather="user" style="width:13px;height:13px;"></i>
