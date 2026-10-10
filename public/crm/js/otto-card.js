@@ -98,6 +98,15 @@
                     '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +
                     '<button type="button" data-do="fine">It\'s fine</button></div>';
         }
+        // Any kind the server sends its own buttons for (supplier forms, 2026-10-10) — no JS change
+        // needed when Otto learns something new.
+        if (Array.isArray(p.buttons) && p.buttons.length) {
+            var lines = Array.isArray(p.answers) && p.answers.length
+                ? '<small class="mw-otto-detail">' + p.answers.map(esc).join('<br>') + '</small>' : '';   // existing style: brand.css is shared
+            return lines + '<div class="mw-otto-btns">' + p.buttons.map(function (b) {
+                return '<button type="button"' + (b.main ? ' class="is-main"' : '') + ' data-do="' + esc(b.choice) + '">' + esc(b.label) + '</button>';
+            }).join('') + '</div>';
+        }
         return '';
     }
 

@@ -132,5 +132,26 @@ foreach ($folders as $folder) {
 }
 
 $summary = "Read " . implode(' + ', $folders) . ": {$counts['stored']} new customer email(s), {$counts['dupe']} already kept, {$counts['skipped']} not customer mail.";
+
+// Yui's supplier rule (SupplierInboxService, migration 1320): supplier mail at office@ and iCloud —
+// account applications go to Otto to fill, the city's licence email is filed. Additive: never
+// fails Sam's poll.
+try {
+    $supFile = APP_ROOT . '/Modules/Comms/Services/SupplierInboxService.php';
+    if (is_file($supFile)) {
+        require_once $supFile;
+        $sup = new SupplierInboxService(getDB());
+        $budget = microtime(true) + 25;
+        $tot = ['heard' => 0, 'forms' => 0, 'licences' => 0];
+        foreach (array_filter([['office@', $office], ['icloud', MailboxConfig::icloud()]], fn($m) => $m[1] !== null) as [$lab, $mb]) {
+            $r = $sup->poll($mb, $lab, $budget);
+            foreach ($tot as $k => $v) $tot[$k] += $r[$k];
+            if ($r['errors'] > 0) { $errors += $r['errors']; $salesLog("Suppliers {$lab}: {$r['errors']} error(s) {$r['note']}"); }
+        }
+        if (array_sum($tot) > 0) $summary .= " Suppliers: {$tot['heard']} email(s), {$tot['forms']} account form(s) for Otto, {$tot['licences']} licence(s) filed.";
+    }
+} catch (Throwable $e) {
+    $salesLog('Suppliers: ' . $e->getMessage());
+}
 $salesLog($summary);
 $finish($errors > 0 ? 'warning' : 'success', $summary, $errors > 0 ? "{$errors} error(s)" : null);

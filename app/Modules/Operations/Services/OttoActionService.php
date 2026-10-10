@@ -47,6 +47,11 @@ class OttoActionService
         $choice = (string)($in['choice'] ?? '');
         $propose = json_decode((string)$sug['suggestion_json'], true) ?: [];
         if ($choice === 'dismiss') {
+            if ($sug['kind'] === 'supplier_form') {
+                require_once __DIR__ . '/SupplierFormService.php';
+                (new SupplierFormService($this->db))->decline((int)$sug['subject_id']);
+                return $this->close($sug, 'dismissed', ['choice' => 'dismiss'], $actorId, "Left for you — the form is in the supplier's email.");
+            }
             return $this->close($sug, 'dismissed', ['choice' => 'dismiss'], $actorId, 'Left as it is.');
         }
         switch ($sug['kind']) {
@@ -66,6 +71,22 @@ class OttoActionService
                 require_once __DIR__ . '/EquipmentService.php';
                 (new EquipmentService($this->db))->retire((int)$sug['subject_id']);
                 return $this->close($sug, 'accepted', ['choice' => 'retire'], $actorId, 'Retired in the register.');
+            case 'supplier_form': {
+                if ($choice !== 'send') return ['ok' => false, 'message' => 'Send it, or do it yourself?'];
+                require_once __DIR__ . '/SupplierFormService.php';
+                $r = (new SupplierFormService($this->db))->send((int)$sug['subject_id']);
+                if (empty($r['ok'])) return $r;
+                return $this->close($sug, 'accepted', ['choice' => 'send'], $actorId, $r['message']);
+            }
+            case 'supplier_chase': {
+                require_once __DIR__ . '/SupplierDirectoryService.php';
+                if ($choice === 'open') {
+                    (new SupplierDirectoryService($this->db))->setStatus((int)$sug['subject_id'], 'open');
+                    return $this->close($sug, 'accepted', ['choice' => 'open'], $actorId, 'Marked as an open account.');
+                }
+                if ($choice !== 'ack') return ['ok' => false, 'message' => 'Chase them, or is the account open?'];
+                return $this->close($sug, 'accepted', ['choice' => 'ack'], $actorId, 'Noted — chase them when you can.');
+            }
             case 'training_gap':
             case 'training_quality':
             case 'training_topic':

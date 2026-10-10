@@ -4,7 +4,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 /**
- * Fixtures (tests/Fixtures/pdf) were made with PyMuPDF: the same 4-field form saved two ways —
+ * Fixtures (tests/fixtures/pdf) were made with PyMuPDF: the same 4-field form saved two ways —
  * a classic xref table, and object streams + an xref stream (the kind free FPDI can't open).
  * Both were also checked by hand in Apple PDFKit and PyMuPDF after filling (2026-10-10).
  */
@@ -12,7 +12,7 @@ final class PdfFormFillerTest extends TestCase
 {
     private static function fixture(string $name): string
     {
-        return (string)file_get_contents(__DIR__ . '/../../Fixtures/pdf/' . $name);
+        return (string)file_get_contents(__DIR__ . '/../../fixtures/pdf/' . $name);
     }
 
     public static function forms(): array

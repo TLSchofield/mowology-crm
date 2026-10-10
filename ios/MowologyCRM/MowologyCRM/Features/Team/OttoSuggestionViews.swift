@@ -198,7 +198,22 @@ struct OttoSuggestionRow: View {
         case "silent":
             buttons([("It's a problem — I'll call", "real", true), ("It's fine", "fine", false)])
         default:
-            linkAnd("Open", [("Leave it", "dismiss")])
+            if !s.serverButtons.isEmpty {
+                // Kinds the server sends buttons for (supplier forms…) — no app update per new kind.
+                VStack(alignment: .leading, spacing: 6) {
+                    let lines = s.strings("answers")
+                    if !lines.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
+                                Text(l).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    buttons(s.serverButtons)
+                }
+            } else {
+                linkAnd("Open", [("Leave it", "dismiss")])
+            }
         }
     }
 

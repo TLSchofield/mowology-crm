@@ -24,7 +24,7 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'supplier_form', 'supplier_chase'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
     public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
     /** Crew training kinds (quiz + certification watched by Otto). */
@@ -120,7 +120,7 @@ class OpsDeskService
      */
     public function current(bool $persist = false): array
     {
-        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems());
+        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems(), $this->supplierItems());
         $known = $this->known();
         $open = [];
         foreach ($items as $it) {
@@ -192,6 +192,11 @@ class OpsDeskService
             require_once dirname(__DIR__, 2) . '/Contracts/Services/SnowContractService.php';
             foreach ((new SnowContractService($this->db))->ottoBriefItems($this->today) as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only (migration 1310) */ }
+        // Business licence / insurance expiring within 30 days (CompanyDocumentService, migration 1320).
+        try {
+            require_once __DIR__ . '/CompanyDocumentService.php';
+            foreach ((new CompanyDocumentService($this->db))->briefItems($this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only (migration 1320) */ }
         // Shifts over 5 hours with no 30-minute break found on the phone's GPS (BreakService, BC rule).
         try {
             require_once __DIR__ . '/BreakService.php';
@@ -466,6 +471,19 @@ class OpsDeskService
     // ── Dispatcher: bylaw hours, West End, Might-E range, maintenance, packs ─
 
     /** From the rule tables and equipment register; nothing until migrations 1153–1157 have run. */
+    /** Supplier account forms ready to send + applications nobody answered (SupplierFormService, 1320). */
+    private function supplierItems(): array
+    {
+        try {
+            if (!is_file(__DIR__ . '/SupplierFormService.php')) return [];
+            require_once __DIR__ . '/SupplierFormService.php';
+            return (new SupplierFormService($this->db))->ottoItems($this->today);
+        } catch (Throwable $e) {
+            error_log('Otto suppliers: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     private function dispatchItems(): array
     {
         $out = [];

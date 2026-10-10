@@ -315,6 +315,19 @@ struct OttoSuggestion: Decodable, Identifiable, Equatable {
         default: return false
         }
     }
+    /// propose[k] as a list of strings (a supplier form's answers).
+    func strings(_ k: String) -> [String] {
+        guard case .array(let a) = propose[k] else { return [] }
+        return a.compactMap { $0.text }
+    }
+    /// Buttons the server sends with the suggestion: [{label, choice, main}] (2026-10-10).
+    var serverButtons: [(String, String, Bool)] {
+        objects("buttons").compactMap { o in
+            guard let l = o["label"]?.text, let c = o["choice"]?.text else { return nil }
+            if case .bool(let m)? = o["main"] { return (l, c, m) }
+            return (l, c, false)
+        }
+    }
     /// propose[k] as a list of objects (plans, invoices).
     func objects(_ k: String) -> [[String: BKValue]] {
         guard case .array(let a) = propose[k] else { return [] }
