@@ -37,6 +37,7 @@ class BreakServiceTest extends TestCase
     public function test_bc_meal_break_rule(): void
     {
         $this->assertNull(BreakService::complianceGap(290, []));            // under 5 h
+        $this->assertNull(BreakService::complianceGap(720, []));            // 12 h = a forgotten clock-out, not a long day
         $this->assertNull(BreakService::complianceGap(510, [32]));
         $this->assertStringContainsString('no break found', BreakService::complianceGap(510, []));
         $this->assertStringContainsString('longest break found was 22 min', BreakService::complianceGap(510, [22]));

@@ -24,6 +24,8 @@ class BreakService
     public const BC_BREAK_MINUTES  = 30;
     /** Ignore stops this close to clock in / out (loading up, the drive home). */
     public const EDGE_MINUTES      = 15;
+    /** A shift this long is a forgotten clock-out (Otto flags those already), not a long day. */
+    public const FORGOT_CLOCK_OUT_MINUTES = 690;
     /** Places that are work, not a break. */
     public const WORK_PLACE_KINDS  = ['dump', 'supplier', 'yard', 'shop', 'fuel'];
 
@@ -62,7 +64,7 @@ class BreakService
     /** BC: a shift over 5 hours needs a 30-minute meal break. Null when fine, else the reason. */
     public static function complianceGap(int $shiftMinutes, array $breakMinutes): ?string
     {
-        if ($shiftMinutes <= self::BC_SHIFT_MINUTES) return null;
+        if ($shiftMinutes <= self::BC_SHIFT_MINUTES || $shiftMinutes >= self::FORGOT_CLOCK_OUT_MINUTES) return null;
         if ($breakMinutes && max($breakMinutes) >= self::BC_BREAK_MINUTES) return null;
         $h = floor($shiftMinutes / 60) . ' h ' . ($shiftMinutes % 60) . ' min';
         return $breakMinutes
@@ -73,6 +75,18 @@ class BreakService
     // ══════════════════════════════════════════════════════════════════════
     // DB
     // ══════════════════════════════════════════════════════════════════════
+
+    private function setting(string $key, string $default): string
+    {
+        try {
+            $st = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $st->execute([$key]);
+            $v = $st->fetchColumn();
+            return $v === false || $v === null ? $default : (string)$v;
+        } catch (Throwable $e) {
+            return $default;
+        }
+    }
 
     public function ready(): bool
     {
@@ -92,9 +106,11 @@ class BreakService
         if (!class_exists('TripSegmentService')) require_once __DIR__ . '/TripSegmentService.php';
         $trip = new TripSegmentService($this->db);
         $places = $trip->places();
+        // People only — the truck login (device_type 'truck') is a vehicle, not someone who takes breaks.
         $st = $this->db->prepare("
-            SELECT id, user_id, clock_in, clock_out FROM time_clock_entries
-            WHERE DATE(clock_in) = ? AND clock_out IS NOT NULL AND status IN ('completed', 'edited', 'active')
+            SELECT e.id, e.user_id, e.clock_in, e.clock_out FROM time_clock_entries e
+            JOIN users u ON u.id = e.user_id AND COALESCE(u.device_type, 'personal') <> 'truck'
+            WHERE DATE(e.clock_in) = ? AND e.clock_out IS NOT NULL AND e.status IN ('completed', 'edited', 'active')
         ");
         $st->execute([$date]);
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $e) {
@@ -127,7 +143,9 @@ class BreakService
     /** Otto's items: shifts in the last 7 days over 5 hours with no 30-minute break found. */
     public function briefItems(string $today): array
     {
-        if (!$this->ready()) return [];
+        // Off until breaks can be tapped in the crew app: GPS can't see a lunch taken on the job
+        // site, so most shifts would be flagged wrongly (first run 2026-10-10: 19 of 24).
+        if (!$this->ready() || $this->setting('break_flags_enabled', '0') !== '1') return [];
         try {
             $rows = $this->db->query("
                 SELECT e.id, e.clock_in, e.break_note, TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS who
