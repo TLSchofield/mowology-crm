@@ -635,6 +635,33 @@ function dpToggleAck() {
     label.textContent = checked ? 'Safe to Drive — Confirmed ✓' : 'Safe to Drive — I confirm';
 }
 
+// ── Time clock POST ──────────────────────────────────────────────────────────
+// time-clock.php refuses a POST without the session's security token (since 2026-10-02).
+// Send this page's token; if it has gone stale (the page sat open, or the app served a
+// cached copy), fetch the current one and try once more. Nigel's Clock In failed with
+// "Invalid CSRF token" on 2026-10-09 because this page sent no token at all.
+function dpTimeClockPost(payload) {
+    var send = function (token) {
+        return fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token || ''},
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); });
+    };
+    return send(window.MW_CSRF_TOKEN || DP.csrf).then(function (data) {
+        if (data && !data.success && data.error && String(data.error).indexOf('CSRF') !== -1) {
+            return fetch('/crm/api/get-csrf.php', {credentials: 'same-origin', cache: 'no-store'})
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && d.token) { window.MW_CSRF_TOKEN = d.token; DP.csrf = d.token; }
+                    return send(window.MW_CSRF_TOKEN || DP.csrf);
+                });
+        }
+        return data;
+    });
+}
+
 // ── Clock In ─────────────────────────────────────────────────────────────────
 function dpClockIn() {
     var btn = document.getElementById('dpClockInBtn');
@@ -647,14 +674,8 @@ function dpClockIn() {
         var perms = (window.MwNative && window.MwNative.trackingPermissions)
             ? window.MwNative.trackingPermissions() : Promise.resolve(null);
         perms.then(function(trackingPerms) {
-            return fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({action: 'clock_in', lat: lat, lng: lng, tracking_perms: trackingPerms})
-            });
+            return dpTimeClockPost({action: 'clock_in', lat: lat, lng: lng, tracking_perms: trackingPerms});
         })
-        .then(function(r){ return r.json(); })
         .then(function(data) {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in! Complete your vehicle inspection.');
@@ -712,15 +733,10 @@ function dpClockOut() {
 
     var lat = null, lng = null;
     function doClockOut() {
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'clock_out', lat: lat, lng: lng})
-        })
-        .then(function(r){ return r.json(); })
+        dpTimeClockPost({action: 'clock_out', lat: lat, lng: lng})
         .then(function(data) {
-            if (data.success || !data.clocked_in) {
+            // An error reply (e.g. the security token) is NOT a clock-out — it used to count as one.
+            if (data.success || (!data.error && !data.clocked_in)) {
                 // Stop the native MwTracking resilience service (wake lock, Activity
                 // Recognition, boot-restart flag) started on clock-in — previously never
                 // called here, so tracking kept running after clock-out.

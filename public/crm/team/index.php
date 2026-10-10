@@ -516,7 +516,7 @@ $activePage = 'team';
         fetch('/crm/api/time-clock.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ action: 'clock_in', user_id: empId })
         })
         .then(function(r) { return r.json(); })
@@ -537,7 +537,7 @@ $activePage = 'team';
         fetch('/crm/api/time-clock.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ action: 'clock_out', user_id: empId })
         })
         .then(function(r) { return r.json(); })
