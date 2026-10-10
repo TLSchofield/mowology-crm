@@ -204,6 +204,7 @@ struct TeamView: View {
                 }
             }
             .padding(.horizontal, 2)
+            .padding(.vertical, 2)
         }
     }
 }
@@ -227,7 +228,9 @@ private struct HeadFace: View {
             }
             .frame(width: 62, height: 62)
             .clipShape(Circle())
-            .overlay(Circle().stroke(isSelected ? Color.MW.lime : (head.isLive ? Color.MW.lime.opacity(0.35) : Color.clear),
+            // strokeBorder keeps the ring inside the face: a centred stroke poked 2 pt past the
+            // frame and the scroll view clipped its top (Penny, 2026-10-10).
+            .overlay(Circle().strokeBorder(isSelected ? Color.MW.lime : (head.isLive ? Color.MW.lime.opacity(0.35) : Color.clear),
                                      lineWidth: isSelected ? 4 : 2))
             .grayscale(head.isLive ? 0 : 1)
             .opacity(head.isLive ? 1 : 0.45)
