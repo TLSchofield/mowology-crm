@@ -131,6 +131,8 @@ class HeadBriefReadyService
      */
     public static function buildCharlie(PDO $db, CharlieForemanService $f, string $name, ?array $view = null): array
     {
+        // The cron doesn't load it (team-mobile does) — "Class TeamCardService not found", 2026-10-10.
+        if (!class_exists('TeamCardService')) require_once __DIR__ . '/TeamCardService.php';
         $view = $view ?? $f->card($name)['view'];
         $col = TeamCardService::column($view, 'charlie');
         $out = [
