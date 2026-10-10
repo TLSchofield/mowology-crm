@@ -60,6 +60,21 @@ function generateContractNumber() {
 }
 
 /**
+ * Sam's pipeline stage hook: recompute everyone a contract / quote / invoice / job_plan /
+ * contact touches. Fire-and-forget — never throws, never blocks the caller.
+ */
+if (!function_exists('pipelineStageEvent')) {
+    function pipelineStageEvent(string $entity, int $id): void {
+        try {
+            require_once dirname(__DIR__) . '/Modules/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent(getDB(), $entity, $id);
+        } catch (Throwable $e) {
+            error_log("[pipeline] {$entity}#{$id}: " . $e->getMessage());
+        }
+    }
+}
+
+/**
  * Create a new contract.
  * Returns ['success', 'contract_id', 'contract_number', 'errors']
  */
@@ -127,6 +142,8 @@ function createContract(array $data, int $userId): array {
                 error_log('createContract terms/renew not applied: ' . $e->getMessage());
             }
         }
+
+        pipelineStageEvent('contract', $contractId);
 
         return ['success' => true, 'contract_id' => $contractId, 'contract_number' => $contractNumber, 'errors' => []];
     } catch (PDOException $e) {
@@ -1294,6 +1311,7 @@ function updateCompanyLifecycleStage($companyId, $newStage, $userId) {
         $result = $stmt->execute([$newStage, $companyId]);
 
         if ($result) {
+            setCompanyLifecyclePinned((int)$companyId, true);   // hand-set: Sam's rules leave it alone
             logActivityExtended($userId, 'Company lifecycle stage changed', "Changed to {$newStage}", $companyId);
         }
 
@@ -1399,6 +1417,45 @@ function deleteLifecycleStage($stageId) {
 }
 
 /**
+ * Pin / unpin a contact's or company's lifecycle stage (migration 1192). A pinned stage was set
+ * by a person and Sam's pipeline rules never change it. Unpinning hands it back to the rules
+ * and recomputes at once. No-op (false) before the migration has run.
+ */
+function setContactLifecyclePinned(int $contactId, bool $pinned): bool {
+    return setLifecyclePinned('contacts', 'contact', $contactId, $pinned);
+}
+
+function setCompanyLifecyclePinned(int $companyId, bool $pinned): bool {
+    return setLifecyclePinned('companies', 'company', $companyId, $pinned);
+}
+
+function setLifecyclePinned(string $table, string $entity, int $id, bool $pinned): bool {
+    if (!in_array($table, ['contacts', 'companies'], true) || $id <= 0) return false;
+    $db = getDB();
+    try {
+        $db->query("SELECT lifecycle_pinned FROM {$table} LIMIT 0");
+    } catch (Throwable $e) {
+        return false;   // migration 1192 not run yet
+    }
+    try {
+        $db->prepare("UPDATE {$table} SET lifecycle_pinned = ? WHERE id = ?")->execute([$pinned ? 1 : 0, $id]);
+    } catch (Throwable $e) {
+        error_log("setLifecyclePinned {$table}#{$id}: " . $e->getMessage());
+        return false;
+    }
+    if (!$pinned) {
+        try {
+            require_once dirname(__DIR__) . '/Modules/Sales/Services/PipelineStageService.php';
+            $svc = new PipelineStageService($db);
+            $entity === 'company' ? $svc->recomputeCompany($id) : $svc->recompute($id);
+        } catch (Throwable $e) {
+            error_log("[pipeline] unpin {$entity}#{$id}: " . $e->getMessage());
+        }
+    }
+    return true;
+}
+
+/**
  * Get a contact's current lifecycle stage
  * @param int $contactId
  * @return string|null Stage key or null if not found
@@ -1458,6 +1515,9 @@ function updateContactLifecycleStage($contactId, $newStage, $userId) {
 
                 if ($stageValid) {
                     $db->prepare("UPDATE contacts SET lifecycle_stage = ? WHERE id = ?")->execute([$newStage, $contactId]);
+                    // A person chose this stage: pin it so Sam's rules leave it alone
+                    // (migration 1192; "Unpin (let Sam manage it)" on the edit form undoes it).
+                    setContactLifecyclePinned((int)$contactId, true);
                 }
             }
         } catch (Exception $e) {
@@ -2469,17 +2529,13 @@ function getWorkQueueItems() {
         }
     } catch (Exception $e) {}
 
-    // Unbilled completed visits
+    // Unbilled completed visits — UnbilledVisitService is the one definition (2026-10-07: the old
+    // query counted every contract-billed visit, "186 unbilled"). Breakdown: /crm/api/otto.php?mode=unbilled_check
     try {
-        $row = $db->query("
-            SELECT COUNT(*) as cnt,
-                   SUM(COALESCE(jv.actual_amount, jp.price_per_visit, 0)) as total
-            FROM job_visits jv
-            JOIN job_plans jp ON jv.plan_id = jp.id
-            WHERE jv.status = 'completed'
-            AND (jv.is_invoiced = 0 OR jv.invoice_id IS NULL)
-        ")->fetch(PDO::FETCH_ASSOC);
-        if ($row && $row['cnt'] > 0) {
+        require_once __DIR__ . '/../Modules/Invoices/Services/UnbilledVisitService.php';
+        $ub = (new UnbilledVisitService($db))->summary();
+        $row = ['cnt' => $ub['count'], 'total' => $ub['amount']];
+        if ($row['cnt'] > 0) {
             $items[] = [
                 'category'    => 'critical',
                 'icon'        => 'dollar-sign',

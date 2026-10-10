@@ -40,10 +40,14 @@ class SalesInboxService
     public string $lastKey = '';
     /** direction of the last ingest() — only inbound mail gets a signature. */
     public string $lastDirection = '';
+    /** head of the last stored inbound message ('' if not routed) — penny / sam / otto / mia / yui. */
+    public string $lastHead = '';
     private ?bool $sigReady = null;
     private ?bool $joinReady = null;
     /** @var array{quotes: array, domains: array}|null */
     private ?array $join = null;
+    /** @var InboundRouteService|null */
+    private $router = null;
 
     public function __construct(PDO $db)
     {
@@ -114,7 +118,10 @@ class SalesInboxService
             ");
         }
         $s->execute($row);
-        return $s->rowCount() > 0 ? 'stored' : 'dupe';
+        $stored = $s->rowCount() > 0;
+        $this->lastHead = '';
+        if ($stored && $c['direction'] === 'inbound') $this->route($key);
+        return $stored ? 'stored' : 'dupe';
     }
 
     /** Migration 1314 has added sales_messages.from_name / quote_id / joined_by. */
@@ -171,6 +178,37 @@ class SalesInboxService
         if ($key === '' || $snippet === '') return;
         $this->db->prepare("UPDATE sales_messages SET snippet = ? WHERE message_key = ? AND (snippet IS NULL OR snippet = '')")
            ->execute([$snippet, $key]);
+        $this->route($key);   // the words are in now: decide again (inbound only; Tim's moves are kept)
+    }
+
+    /**
+     * Which department head owns an inbound message (InboundRouteService::stamp — migration 1280;
+     * before it, nothing happens). Sets lastHead for the reader (Penny's mail keeps its attachments).
+     */
+    private function route(string $key): void
+    {
+        try {
+            if ($this->router === null) {
+                require_once dirname(__DIR__, 2) . '/Comms/Services/InboundRouteService.php';
+                $this->router = new InboundRouteService($this->db);
+            }
+            $d = $this->router->stamp($key);
+            if ($d !== null) $this->lastHead = $d['head'];
+        } catch (Throwable $e) {
+            error_log('Inbound routing (' . $key . '): ' . $e->getMessage());   // routing is a bonus — never lose the mail
+        }
+    }
+
+    /** Keep a stored inbound email's PDF / photo attachments when it is Penny's (migration 1283). */
+    public function keepAttachment(string $key, string $filename, string $mime, string $bytes): ?int
+    {
+        if ($this->lastHead !== 'penny' || $this->router === null) return null;
+        try {
+            return $this->router->attachments()->store($key, $filename, $mime, $bytes);
+        } catch (Throwable $e) {
+            error_log('Inbound attachment (' . $key . '): ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** Migration 1206 has added sales_messages.signature. */

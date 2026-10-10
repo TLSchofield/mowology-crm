@@ -195,6 +195,14 @@ function createJobPlan(array $planData, int $userId): array {
             generateVisits($planId);
         }
 
+        // Sam's pipeline stage (an active job plan makes a client). Never blocks the plan.
+        try {
+            require_once dirname(__DIR__, 3) . '/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent($db, 'job_plan', $planId);
+        } catch (Throwable $e) {
+            error_log('[pipeline] job_plan#' . $planId . ': ' . $e->getMessage());
+        }
+
         return ['success' => true, 'plan_id' => $planId, 'plan_number' => $planNumber, 'errors' => []];
 
     } catch (Exception $e) {

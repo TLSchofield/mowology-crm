@@ -10,11 +10,17 @@
  *              → EtransferInboxService::parseInteracEmail() + ingest()        (Penny)
  *   yardi    — Yardi EFT remittance (DoNotReply@yardi.com, as yardi_eft_inbox_poll)
  *              → YardiEftInboxService::parseRemittanceEmail() + ingest()      (Penny)
+ *   (payment platforms — PayPal, Stripe, Square, Wise, Wave: never an enquiry)
+ *              "You sent a payment" / "Receipt for your payment" → receipt (vendor = the payee)
+ *   payment  — "You received a payment" / "You've got money" from a platform
+ *              → vendor_messages kind 'payment' (no PayPal parser for Penny's matching yet)
+ *              anything else from a platform → ignore
  *   contact  — to or from a CRM contact → sales_messages, mailbox 'icloud …'  (Sam / Yui)
  *   receipt  — a PDF/photo with invoice/receipt words, or a known vendor's e-receipt
  *              → ReceiptInboxService (a pending/draft expense, never approved) (Penny)
  *   vendor   — other mail to/from a known vendor → vendor_messages
- *   lead     — an enquiry from an unknown sender (EmailLeadService::score; robots excluded)
+ *   lead     — an enquiry from an unknown sender (EmailLeadService::score: customer intent +
+ *              a service; robots, payment platforms and cold sales pitches excluded)
  *              → strong: a quote_requests lead; weak: "maybe a lead" on Sam's card
  *   ignore   — everything else: personal mail, NOT stored. Only counts are logged.
  *
@@ -70,7 +76,9 @@ class IcloudInboxRouter
     public const CHUNK = 200;
     public const INTERAC_SENDER = 'notify@payments.interac.ca';
     public const YARDI_SENDER = 'donotreply@yardi.com';
-    public const ROUTES = ['contact', 'interac', 'yardi', 'receipt', 'vendor', 'lead', 'ignore'];
+    /** Pitch signals readable from the envelope alone (sender domain, subject). */
+    private const ENVELOPE_PITCH = ['pitch in subject', 'marketing sender'];
+    public const ROUTES = ['contact', 'interac', 'yardi', 'payment', 'receipt', 'vendor', 'lead', 'ignore'];
 
     private PDO $db;
     /** @var callable(string): void */
@@ -148,6 +156,22 @@ class IcloudInboxRouter
             if ($from === self::YARDI_SENDER) {
                 return ['route' => 'yardi', 'reason' => 'Yardi EFT remittance'];
             }
+            // Payment platforms (PayPal, Stripe, Square, Wise, Wave) are never enquiries.
+            $platform = EmailLeadService::paymentPlatform($from);
+            if ($platform !== null) {
+                $kind = EmailLeadService::paymentKind($subject);
+                if ($kind === 'sent') {
+                    $body = $m['body'] ?? '';
+                    $payee = EmailLeadService::paymentPayee($subject, self::plain(is_callable($body) ? (string)$body() : (string)$body));
+                    return ['route' => 'receipt', 'reason' => $platform . ' payment sent — a receipt' . ($payee !== '' ? ' (payee: ' . $payee . ')' : ''),
+                            'receipt_kind' => 'body', 'vendor_id' => $payee !== '' ? VendorMessageService::matchVendor('', $payee, $vendors) : null,
+                            'payee' => $payee, 'platform' => $platform];
+                }
+                if ($kind === 'received') {
+                    return ['route' => 'payment', 'reason' => $platform . ' payment received', 'platform' => $platform];
+                }
+                return ['route' => 'ignore', 'reason' => 'payment platform notice (' . $platform . ')'];
+            }
         }
 
         // 2. A customer conversation, either direction.
@@ -192,13 +216,20 @@ class IcloudInboxRouter
             return ['route' => 'vendor', 'reason' => 'vendor correspondence', 'vendor_id' => $vendorId, 'direction' => 'inbound'];
         }
 
-        // 5. A work enquiry from someone new.
+        // 5. A work enquiry from someone new: customer intent + a service, and not a pitch.
+        $pitch = array_values(array_intersect(EmailLeadService::pitchSignals($subject, '', $from), self::ENVELOPE_PITCH));
+        if ($pitch) {
+            return ['route' => 'ignore', 'reason' => 'cold sales pitch (' . implode(', ', $pitch) . ')', 'pitch' => true];
+        }
         $body = $m['body'] ?? '';
         $text = is_callable($body) ? (string)$body() : (string)$body;
         // Only the new text counts (quoted history stripped), so an old thread can't make a lead.
-        $score = EmailLeadService::score($subject, SalesInboxService::snippet(self::plain($text)));
+        $score = EmailLeadService::score($subject, SalesInboxService::snippet(self::plain($text)), $from, $headers);
         if ($score['strength'] !== null) {
-            return ['route' => 'lead', 'reason' => $score['strength'] . ' enquiry', 'lead' => $score];
+            return ['route' => 'lead', 'reason' => $score['strength'] . ' enquiry — ' . $score['why'], 'lead' => $score];
+        }
+        if ($score['pitch'] && $score['services'] && $score['intent']) {
+            return ['route' => 'ignore', 'reason' => 'cold sales pitch — ' . $score['why'], 'pitch' => true];
         }
 
         return ['route' => 'ignore', 'reason' => 'personal / not business'];
@@ -302,7 +333,7 @@ class IcloudInboxRouter
     public static function folderHint(string $folder, array $vendors = []): ?string
     {
         $leaf = (string)preg_replace('#^.*/#', '', $folder);
-        if (preg_match('/payment|e-?transfer|interac|\beft\b|remittance/i', $folder)) return 'payments';
+        if (preg_match('/payment|e-?transfer|interac|\beft\b|remittance|\bmoney\b/i', $folder)) return 'payments';
         if (preg_match('/receipt|invoice|expense|\bbills?\b/i', $folder)) return 'receipts';
         if (preg_match('/client|customer/i', $folder)) return 'clients';
         if ($folder !== 'INBOX' && $vendors && VendorMessageService::matchVendor('', $leaf, $vendors) !== null) return 'receipts';
@@ -343,6 +374,13 @@ class IcloudInboxRouter
                 return ['stage' => 'final', 'route' => 'interac', 'reason' => 'Interac e-Transfer notice'];
             }
             if ($from === self::YARDI_SENDER) return ['stage' => 'final', 'route' => 'yardi', 'reason' => 'Yardi EFT remittance'];
+            $platform = EmailLeadService::paymentPlatform($from);
+            if ($platform !== null) {
+                $kind = EmailLeadService::paymentKind($subject);
+                if ($kind === 'sent') return ['stage' => 'full'];   // a receipt: classify() reads the payee from the body
+                if ($kind === 'received') return ['stage' => 'final', 'route' => 'payment', 'reason' => $platform . ' payment received', 'platform' => $platform];
+                return ['stage' => 'final', 'route' => 'ignore', 'reason' => 'payment platform notice (' . $platform . ')'];
+            }
         }
         $c = SalesInboxService::classifyAny((string)$m['from'], (string)$m['to'], $subject, $contacts, (array)($ctx['join'] ?? []), $ours);
         if ($c !== null) {
@@ -355,6 +393,10 @@ class IcloudInboxRouter
         }
         if (ReceiptInboxService::isOfficeReceipt($from, $subject, '', [], array_keys($contacts))) return ['stage' => 'full'];
         if (EmailLeadService::isAutomated($from, '')) return ['stage' => 'final', 'route' => 'ignore', 'reason' => 'automated / newsletter'];
+        // A marketing-looking sender domain or "… for MOWOLOGY" in the subject: a pitch, decided
+        // from the envelope — no header or body round trip.
+        $pitch = array_values(array_intersect(EmailLeadService::pitchSignals($subject, '', $from), self::ENVELOPE_PITCH));
+        if ($pitch) return ['stage' => 'final', 'route' => 'ignore', 'reason' => 'cold sales pitch (' . implode(', ', $pitch) . ')', 'pitch' => true];
         return ['stage' => 'header'];
     }
 
@@ -549,7 +591,8 @@ class IcloudInboxRouter
 
         $ctx = $this->context ?? $this->context($mb);
         $sys = $this->systemUserId();
-        $samples = ['lead' => [], 'vendor' => []];
+        $samples = ['lead' => [], 'vendor' => [], 'payment' => [], 'pitch' => []];
+        $decided = ['envelope' => 0, 'header' => 0, 'body' => 0];
         $errors = 0;
         $now = (int)$this->now();
 
@@ -610,8 +653,10 @@ class IcloudInboxRouter
                             $res = $this->handle($conn, $rows[$uid], $kind, $folder, $p['hint'], $ctx, $sys, $p['floor'], $dryRun);
                             $fc[$res['route']]++;
                             foreach (['stored', 'dupe', 'held', 'leads_made', 'maybe_leads'] as $k) $fc[$k] += (int)($res[$k] ?? 0);
-                            if ($dryRun && isset($samples[$res['route']]) && count($samples[$res['route']]) < 25) {
-                                $samples[$res['route']][] = ['subject' => $res['subject'], 'from' => $res['from'], 'why' => $res['reason'], 'folder' => $folder];
+                            $decided[$res['decided_at']]++;
+                            $bucket = !empty($res['pitch']) ? 'pitch' : $res['route'];
+                            if ($dryRun && isset($samples[$bucket]) && count($samples[$bucket]) < 25) {
+                                $samples[$bucket][] = ['subject' => $res['subject'], 'from' => $res['from'], 'why' => $res['reason'], 'folder' => $folder];
                             }
                             $scanned++;
                             $per[$folder]['scanned']++;
@@ -644,7 +689,9 @@ class IcloudInboxRouter
         $msg = self::summary($counts) . sprintf('; %d scanned in %ss', $scanned, $elapsed)
              . ($partial ? "; stopped at the time limit, {$remaining} left for the next run" : '');
         $out = ['ok' => $errors === 0, 'message' => $msg, 'counts' => $counts, 'errors' => $errors, 'partial' => $partial,
-                'scanned' => $scanned, 'remaining' => $remaining, 'elapsed' => $elapsed, 'folders' => $per] + $base;
+                'scanned' => $scanned, 'remaining' => $remaining, 'elapsed' => $elapsed, 'folders' => $per,
+                // How far each message had to be read: envelope only (bulk), + header block, + body/attachments.
+                'decided_at' => $decided] + $base;
         if ($dryRun) {
             $out['samples'] = $samples;
             if ($partial) $out['resume'] = $cursorOut;
@@ -655,8 +702,8 @@ class IcloudInboxRouter
     /** Counts only — never names, subjects or text. */
     public static function summary(array $c): string
     {
-        return sprintf('%d customer, %d e-Transfer, %d Yardi, %d receipt, %d vendor, %d enquiry (%d lead(s), %d maybe), %d ignored; %d stored, %d already kept, %d held (older than the first run)',
-            $c['contact'], $c['interac'], $c['yardi'], $c['receipt'], $c['vendor'], $c['lead'], $c['leads_made'], $c['maybe_leads'],
+        return sprintf('%d customer, %d e-Transfer, %d Yardi, %d platform payment, %d receipt, %d vendor, %d enquiry (%d lead(s), %d maybe), %d ignored; %d stored, %d already kept, %d held (older than the first run)',
+            $c['contact'], $c['interac'], $c['yardi'], $c['payment'] ?? 0, $c['receipt'], $c['vendor'], $c['lead'], $c['leads_made'], $c['maybe_leads'],
             $c['ignore'], $c['stored'], $c['dupe'], $c['held']);
     }
 
@@ -709,11 +756,14 @@ class IcloudInboxRouter
         };
 
         $t = self::triage(['folder' => $kind, 'from' => $from, 'to' => $to, 'subject' => $subject], $ctx, $hint);
+        $decidedAt = 'body';
         if ($t['stage'] === 'final') {
             unset($t['stage']);
             $r = $t;
+            $decidedAt = 'envelope';
         } elseif ($t['stage'] === 'header' && EmailLeadService::isAutomated($fromAddr, $header())) {
             $r = ['route' => 'ignore', 'reason' => 'automated / newsletter'];
+            $decidedAt = 'header';
         } else {
             $to = $withCc();
             $st = $kind === 'sent' ? null : $structure();   // our sent mail is never a receipt
@@ -722,14 +772,14 @@ class IcloudInboxRouter
                 'headers' => $header(), 'attachments' => $st ? ImapReader::attachments($st) : [], 'body' => $body,
             ], $ctx);
         }
-        $out = $r + ['subject' => $subject, 'from' => $fromAddr];
+        $out = $r + ['subject' => $subject, 'from' => $fromAddr, 'decided_at' => $decidedAt];
         if ($dryRun || $r['route'] === 'ignore') return $out;
 
         $mailbox = self::mailboxLabel($folder, $kind);
         if ($r['route'] === 'contact' && $raw === null) $to = $withCc();
         $key = self::messageKey($msgId, $fromAddr, $to, $subject, $date);
         $sentTs = strtotime($date) ?: (int)$this->now();
-        $money = in_array($r['route'], ['interac', 'yardi', 'receipt'], true);
+        $money = in_array($r['route'], ['interac', 'yardi', 'payment', 'receipt'], true);
         if ($money && $sentTs < $floor) return $out + ['held' => 1];
 
         switch ($r['route']) {
@@ -745,6 +795,14 @@ class IcloudInboxRouter
                     if ($svc->lastDirection === 'inbound') {
                         $sig = SalesInboxService::signature($plainText);
                         if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
+                        // Billing mail routed to Penny keeps its PDF / photo (a direct-deposit form) — nothing else does.
+                        if ($svc->lastHead === 'penny') {
+                            $st = $structure();
+                            foreach ($st ? ImapReader::attachments($st) : [] as $a) {
+                                $bytes = $imap->fetchPart($conn, $no, $a['pn'], $a['encoding']);
+                                if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
+                            }
+                        }
                     }
                 }
                 return $out + [$res === 'stored' ? 'stored' : 'dupe' => 1];
@@ -764,6 +822,7 @@ class IcloudInboxRouter
                 if ($sys <= 0) return $out;
                 $svc = new ReceiptInboxService($this->db);
                 $meta = ['message_id' => $msgId, 'sender_email' => $fromAddr, 'subject' => $subject, 'email_date' => $date];
+                if (!empty($r['payee'])) $meta['payee'] = (string)$r['payee'];   // PayPal & co: the vendor is who was paid
                 $stored = 0; $dupe = 0;
                 $st = $structure();
                 if (($r['receipt_kind'] ?? '') === 'body') {
@@ -784,6 +843,18 @@ class IcloudInboxRouter
                     }
                 }
                 return $out + ['stored' => $stored, 'dupe' => $dupe];
+            }
+            case 'payment': {
+                // TODO(Penny): no PayPal/Stripe/Square parser feeds payment matching yet — kept as a
+                // vendor_messages row (kind 'payment', migration 1229) so nothing is lost until one exists.
+                $svc = new VendorMessageService($this->db);
+                if (!$svc->ready()) return $out;
+                $res = $svc->store(['message_key' => $key, 'mailbox' => $mailbox, 'kind' => 'payment',
+                                    'vendor_id' => (int)(VendorMessageService::matchVendor($fromAddr, self::displayName($from), (array)($ctx['vendors'] ?? [])) ?? 0),
+                                    'direction' => 'inbound', 'from' => $fromAddr,
+                                    'to' => implode(', ', SalesInboxService::addresses($to)), 'subject' => $subject,
+                                    'snippet' => SalesInboxService::snippet(self::plain($body())), 'sent_at' => $date]);
+                return $out + [$res === 'stored' ? 'stored' : 'dupe' => 1];
             }
             case 'vendor': {
                 $svc = new VendorMessageService($this->db);

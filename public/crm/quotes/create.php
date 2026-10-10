@@ -1450,9 +1450,12 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 rules.forEach(rule => {
                     const price = calculatePreviewPrice(rule, totalUnits);
                     const freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                    const yp = rule.pricing_model === 'per_yard_area' ? mwYardRuleParams(rule) : null;
                     const rateInfo = rule.pricing_model === 'flat'
                         ? 'Flat rate'
-                        : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+                        : (yp
+                            ? mwYardsFromArea(totalUnits, yp.depth, yp.min) + ' yd × $' + parseFloat(rule.price_per_unit).toFixed(2) + ' (' + yp.depth + ' in deep, ' + yp.min + ' yd min)'
+                            : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft'));
 
                     rulesHtml += `
                         <label class="mw-service-option">
@@ -1501,8 +1504,35 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 case 'min_plus_linear_ft':
                     price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
                     break;
+                case 'per_yard_area': {
+                    const p = mwYardRuleParams(rule);
+                    price = mwYardsFromArea(totalUnits, p.depth, p.min) * perUnit;
+                    break;
+                }
             }
             return Math.round(price * 100) / 100;
+        }
+
+        // JS/PHP PARITY: mirrors QuoteCalculator::yardsFromArea() and ::yardRuleParams() in
+        // app/Services/QuoteCalculator.php (and the copy in quote-workflow.php). Change all three
+        // together. Integer maths in hundredths: 216 sq ft at 3 in is exactly 2 yd, not 3.
+        function mwYardsFromArea(sqft, depthIn, minYards) {
+            depthIn = parseFloat(depthIn);
+            if (!(depthIn > 0)) depthIn = 3;
+            minYards = Math.max(0, parseInt(minYards, 10) || 0);
+            const area  = Math.round(Math.max(0, parseFloat(sqft) || 0) * 100);
+            const depth = Math.round(depthIn * 100);
+            const den   = 324 * 10000;
+            const yards = Math.floor((area * depth + den - 1) / den);
+            return Math.max(minYards, yards);
+        }
+        function mwYardRuleParams(rule) {
+            const depth = parseFloat(rule.depth_inches);
+            const min = rule.min_units;
+            return {
+                depth: depth > 0 ? depth : 3,
+                min: (min === null || min === undefined || min === '') ? 2 : Math.max(0, parseInt(min, 10) || 0)
+            };
         }
 
         function updateAddButtonState() {
@@ -2357,5 +2387,8 @@ document.addEventListener('keydown', (e) => {
     }
 })();
 </script>
+
+<!-- Sam's mulch price per yard under mulch / soil / compost lines (read-only hint; "Use" sets the line price) -->
+<script src="<?php echo function_exists('_av') ? _av('/crm/js/sam-mulch-hint.js') : '/crm/js/sam-mulch-hint.js'; ?>" defer></script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
