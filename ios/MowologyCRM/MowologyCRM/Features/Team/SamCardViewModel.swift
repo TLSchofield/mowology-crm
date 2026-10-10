@@ -64,6 +64,8 @@ final class SamCardViewModel: ObservableObject {
     @Published private(set) var leads: [SalesLead] = []
     @Published private(set) var questions: [SalesQuestion] = []
     @Published private(set) var replies: [SalesReply] = []
+    @Published private(set) var approved: [SalesApproval] = []
+    @Published private(set) var approvedMessage: String?
     @Published private(set) var texts: SalesTextBridge?
     @Published private(set) var index = 0
     @Published private(set) var isLoading = false
@@ -131,6 +133,7 @@ final class SamCardViewModel: ObservableObject {
         leads = r.leads
         questions = r.questions
         replies = r.unclaimed
+        approved = r.approved
         texts = r.texts
         if index >= queue.count { index = 0 }
         let keys = Set(queue.map(\.key))
@@ -246,6 +249,15 @@ final class SamCardViewModel: ObservableObject {
     }
 
     func cancelReplyDraft(_ reply: SalesReply) { replyDrafts[reply.key] = nil }
+
+    /// "Got it" on a Just approved item.
+    func approvalSeen(_ a: SalesApproval) async {
+        guard !isBusy else { return }
+        guard await perform(["mode": "approval_seen", "quote_id": a.quoteId],
+                            onError: { self.approvedMessage = $0 }) != nil else { return }
+        approved.removeAll { $0.quoteId == a.quoteId }
+        approvedMessage = nil
+    }
 
     func handled(_ reply: SalesReply) async {
         guard !isBusy else { return }

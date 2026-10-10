@@ -142,7 +142,7 @@ function getUnscheduledVisits(): array
                 jp.recurrence_interval,
                 jp.recurrence_interval_unit,
                 jp.recurrence_day_of_week,
-                jp.start_date      AS plan_start_date,
+                jp.plan_start_date AS plan_start_date,
                 (SELECT MAX(jv2.completed_at)
                  FROM job_visits jv2
                  WHERE jv2.plan_id = jp.id

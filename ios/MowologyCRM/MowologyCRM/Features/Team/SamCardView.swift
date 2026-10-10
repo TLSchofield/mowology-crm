@@ -25,6 +25,7 @@ struct SamCardView: View {
                 errorState(err)
             } else if vm.hasLoaded {
                 statsStrip
+                approvedSection
                 repliesSection
                 followupSection
                 leadsSection
@@ -90,6 +91,59 @@ struct SamCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Just approved
+
+    /// Every line of an approved quote, ✓ or ✗ — a line the client left out is named, never
+    /// silently missing (owner, 2026-10-10).
+    @ViewBuilder
+    private var approvedSection: some View {
+        if !vm.approved.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHead("Just approved", "what the client said yes to, line by line")
+                note(vm.approvedMessage, error: true)
+                ForEach(vm.approved) { a in
+                    approvedRow(a)
+                    if a.id != vm.approved.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private func approvedRow(_ a: SalesApproval) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(a.headline).font(.subheadline.bold()).fixedSize(horizontal: false, vertical: true)
+            ForEach(a.lines, id: \.self) { l in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: l.approved ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(l.approved ? Color.MW.green : Color.MW.red)
+                    Text(l.label).font(.subheadline)
+                        .foregroundStyle(l.approved ? Color.primary : Color.MW.red)
+                    Spacer(minLength: 4)
+                    Text(String(format: "$%.2f", l.amount)).font(.subheadline.monospacedDigit())
+                        .foregroundStyle(l.approved ? Color.primary : Color.MW.red)
+                }
+                if !l.approved {
+                    Text("Not included").font(.caption).foregroundStyle(Color.MW.red).padding(.leading, 26)
+                }
+            }
+            if !a.approver.isEmpty {
+                Text("Approved by \(a.approver)" + (a.via.isEmpty || a.via == "approved" ? "" : " (\(a.via))"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let pn = a.planNumber, a.planId != nil {
+                Text("Job \(pn) is in the Unscheduled tray").font(.caption).foregroundStyle(.secondary)
+            } else if let n = a.jobNote, !n.isEmpty {
+                Text(n).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Got it") { Task { await vm.approvalSeen(a) } }
+                    .buttonStyle(.bordered)
+                    .disabled(vm.isBusy)
+            }
+        }
     }
 
     // MARK: - Replies waiting

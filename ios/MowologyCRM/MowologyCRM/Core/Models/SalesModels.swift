@@ -287,6 +287,52 @@ struct SalesTextBridge: Decodable, Equatable {
     }
 }
 
+/// A quote just approved — every line ✓ / ✗ so a line the client left out never looks like a
+/// bug (QuoteApprovalService, migration 1316). Stays on Sam's card until "Got it".
+struct SalesApproval: Decodable, Identifiable, Equatable {
+    struct Line: Decodable, Equatable, Hashable {
+        let label: String
+        let amount: Double
+        let approved: Bool
+        private enum CodingKeys: String, CodingKey { case label, amount, approved }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            label = c.bkString(.label) ?? "Service"
+            amount = c.bkDouble(.amount) ?? 0
+            approved = c.bkBool(.approved) ?? true
+        }
+    }
+    let quoteId: Int
+    let planId: Int?
+    let planNumber: String?
+    let at: String?
+    let headline: String
+    let partial: Bool
+    let lines: [Line]
+    let approver: String
+    let via: String
+    let jobNote: String?
+    var id: Int { quoteId }
+
+    private enum CodingKeys: String, CodingKey {
+        case at, headline, partial, lines, approver, via
+        case quoteId = "quote_id", planId = "plan_id", planNumber = "plan_number", jobNote = "job_note"
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        quoteId = c.bkInt(.quoteId) ?? 0
+        planId = c.bkInt(.planId)
+        planNumber = c.bkString(.planNumber)
+        at = c.bkString(.at)
+        headline = c.bkString(.headline) ?? ""
+        partial = c.bkBool(.partial) ?? false
+        lines = (try? c.decodeIfPresent([Line].self, forKey: .lines)) ?? []
+        approver = c.bkString(.approver) ?? ""
+        via = c.bkString(.via) ?? ""
+        jobNote = c.bkString(.jobNote)
+    }
+}
+
 struct SalesDeskResponse: Decodable {
     let ok: Bool
     let error: String?
@@ -297,8 +343,9 @@ struct SalesDeskResponse: Decodable {
     let questions: [SalesQuestion]
     let unclaimed: [SalesReply]
     let texts: SalesTextBridge?
+    let approved: [SalesApproval]
 
-    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts }
+    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts, approved }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -311,6 +358,7 @@ struct SalesDeskResponse: Decodable {
         questions = (try? c.decodeIfPresent([SalesQuestion].self, forKey: .questions)) ?? []
         unclaimed = (try? c.decodeIfPresent([SalesReply].self, forKey: .unclaimed)) ?? []
         texts = try? c.decodeIfPresent(SalesTextBridge.self, forKey: .texts)
+        approved = (try? c.decodeIfPresent([SalesApproval].self, forKey: .approved)) ?? []
     }
 }
 
