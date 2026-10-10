@@ -62,6 +62,29 @@ class SalesInboxJoinTest extends TestCase
             'Town Villa quote', $this->contacts(), $join));
     }
 
+    public function test_the_buildings_property_manager_joins_the_strata_reps_open_quote(): void
+    {
+        $join = $this->join();
+        $join['pm'][77] = [['id' => 73, 'number' => 'QUO-2026-0073', 'contact_id' => 41, 'address_key' => SalesInboxService::addressKey('1685 West 14th Avenue')]];
+        $contacts = $this->contacts() + ['mnicule@macdonaldpm.com' => 77];
+        $c = SalesInboxService::classifyAny('Monica Nicule <mnicule@macdonaldpm.com>', 'office@mowology.ca', 'Town Villa quote', $contacts, $join);
+        $this->assertSame(41, $c['contact_id']);
+        $this->assertSame(73, $c['quote_id']);
+        $this->assertSame('manager', $c['joined_by']);
+    }
+
+    public function test_a_manager_of_several_buildings_needs_the_subject_to_say_which(): void
+    {
+        $join = $this->join();
+        $join['pm'][77] = [
+            ['id' => 80, 'number' => 'QUO-2026-0080', 'contact_id' => 12, 'address_key' => SalesInboxService::addressKey('1003 Wolfe Avenue')],
+            ['id' => 73, 'number' => 'QUO-2026-0073', 'contact_id' => 41, 'address_key' => SalesInboxService::addressKey('1685 West 14th Avenue')],
+        ];
+        $contacts = $this->contacts() + ['pm@firm.ca' => 77];
+        $this->assertSame(77, SalesInboxService::classifyAny('pm@firm.ca', 'office@mowology.ca', 'Hello', $contacts, $join)['contact_id']);
+        $this->assertSame(73, SalesInboxService::classifyAny('pm@firm.ca', 'office@mowology.ca', 'Re: 1685 W 14th Ave', $contacts, $join)['quote_id']);
+    }
+
     public function test_free_mail_domains_never_join(): void
     {
         $join = $this->join();

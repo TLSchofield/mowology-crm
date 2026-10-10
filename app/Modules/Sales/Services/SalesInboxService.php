@@ -18,7 +18,8 @@
  * part of a quote's conversation — Monica at Macdonald PM wrote "council approved" about
  * Linda's quote QUO-2026-0073. Such an email is kept under the quote's contact when it names
  * the quote number, starts with the quote's property address (our subjects do), or comes
- * from the same company's domain (one contact there, never gmail and the like). Rules only.
+ * from the same company's domain (one contact there, never gmail and the like) — or, for a
+ * known contact, when they manage the building of an open quote (joinAsManager). Rules only.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -146,7 +147,7 @@ class SalesInboxService
     public function joinContext(): array
     {
         if ($this->join !== null) return $this->join;
-        $this->join = ['quotes' => [], 'domains' => []];
+        $this->join = ['quotes' => [], 'domains' => [], 'pm' => []];
         try {
             foreach ($this->db->query("
                 SELECT q.id, q.quote_number, q.contact_id, p.address
@@ -159,6 +160,23 @@ class SalesInboxService
             }
         } catch (Throwable $e) {
             error_log('[sales inbox] join quotes: ' . $e->getMessage());
+        }
+        // Property managers: contacts whose employer company manages a building with an open quote.
+        try {
+            foreach ($this->db->query("
+                SELECT ct.id AS manager_id, q.id, q.quote_number, q.contact_id, p.address
+                FROM contacts ct
+                JOIN properties p ON p.property_manager_id = ct.employer_company_id
+                JOIN quotes q ON q.property_id = p.id
+                WHERE ct.employer_company_id IS NOT NULL AND q.contact_id IS NOT NULL
+                  AND q.status IN ('sent', 'viewed')
+                ORDER BY q.created_at DESC, q.id DESC
+            ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $this->join['pm'][(int)$r['manager_id']][] = ['id' => (int)$r['id'], 'number' => strtoupper((string)$r['quote_number']),
+                    'contact_id' => (int)$r['contact_id'], 'address_key' => self::addressKey((string)$r['address'])];
+            }
+        } catch (Throwable $e) {
+            error_log('[sales inbox] join managers: ' . $e->getMessage());
         }
         $byDomain = [];
         foreach ($this->contactMap() as $email => $cid) {
@@ -283,7 +301,13 @@ class SalesInboxService
     public static function classifyAny(string $from, string $to, string $subject, array $contactMap, array $join, array $ours = []): ?array
     {
         $c = self::classify($from, $to, $contactMap, $ours);
-        if ($c !== null) return $c;
+        if ($c !== null) {
+            if ($c['direction'] === 'inbound') {
+                $pm = self::joinAsManager((int)$c['contact_id'], $subject, $join);
+                if ($pm) return array_merge($c, $pm);
+            }
+            return $c;
+        }
         $f = self::addresses($from)[0] ?? '';
         if ($f === '') return null;
         if (!self::isOurs($f, $ours)) {
@@ -333,6 +357,33 @@ class SalesInboxService
             foreach ($quotes as $q) {
                 if ((int)$q['contact_id'] === $cid) return ['contact_id' => $cid, 'quote_id' => (int)$q['id'], 'joined_by' => 'domain'];
             }
+        }
+        return null;
+    }
+
+    /**
+     * A known contact who manages buildings (their company is a property's manager) writing
+     * about one of those buildings' open quotes joins that quote's conversation — Monica at
+     * Macdonald Realty answering for council on Linda's QUO-2026-0073 (Linda = strata rep).
+     * Which quote: the one the subject names (number or address), else the only open one.
+     * $join['pm'][contact_id] = that manager's buildings' open quotes, newest first.
+     * @return array{contact_id:int, quote_id:int, joined_by:string}|null
+     */
+    public static function joinAsManager(int $contactId, string $subject, array $join): ?array
+    {
+        $quotes = (array)(($join['pm'] ?? [])[$contactId] ?? []);
+        $quotes = array_values(array_filter($quotes, fn($q) => (int)$q['contact_id'] !== $contactId));
+        if (!$quotes) return null;
+        $refs = self::quoteRefs($subject);
+        $subj = ' ' . self::addressKey($subject, false) . ' ';
+        foreach ($quotes as $q) {
+            $k = (string)($q['address_key'] ?? '');
+            if (in_array($q['number'], $refs, true) || ($k !== '' && strpos($subj, ' ' . $k . ' ') !== false)) {
+                return ['contact_id' => (int)$q['contact_id'], 'quote_id' => (int)$q['id'], 'joined_by' => 'manager'];
+            }
+        }
+        if (count($quotes) === 1) {
+            return ['contact_id' => (int)$quotes[0]['contact_id'], 'quote_id' => (int)$quotes[0]['id'], 'joined_by' => 'manager'];
         }
         return null;
     }
