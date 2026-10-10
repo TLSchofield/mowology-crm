@@ -70,4 +70,11 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertTrue(CashFlowForecastService::isTaxPayment('RECEIVER GENERAL GST'));
         $this->assertFalse(CashFlowForecastService::isTaxPayment('CHEVRON 16&MACDONALD'));
     }
+
+    public function test_winter_uses_last_winters_spending(): void
+    {
+        $m = ['2025-12' => 1500.0, '2025-08' => 5000.0];
+        $this->assertSame([1500.0, 'same month last year (Dec 2025)'], CashFlowForecastService::everydayForWeek('2026-12-07', $m, 4900));
+        $this->assertSame([4900.0, 'average of the last 8 weeks'], CashFlowForecastService::everydayForWeek('2026-10-12', $m, 4900));
+    }
 }

@@ -30,6 +30,7 @@ class CashFlowForecastService
         'cashflow_rc_day'         => '15',
         'cashflow_gst_instalment' => '3500',
         'cashflow_gst_day'        => '15',
+        'cashflow_everyday_weekly' => '',
     ];
 
     private PDO $db;
@@ -148,6 +149,20 @@ class CashFlowForecastService
                       'last' => $lastL['transaction_date'], 'next' => $next, 'key' => RecurringBillService::payeeKey((string)$lastL['description'])];
         }
         return $out;
+    }
+
+    /**
+     * Everyday spending for a forecast week: the same month last year when the bank history has
+     * it (winter is cheaper than August), else the recent 8-week average.
+     * $monthly: ['YYYY-MM' => weekly average that month].
+     */
+    public static function everydayForWeek(string $weekStart, array $monthly, float $recent): array
+    {
+        $ly = date('Y-m', strtotime($weekStart . ' -1 year'));
+        if (isset($monthly[$ly]) && $monthly[$ly] > 0) {
+            return [round($monthly[$ly], 2), 'same month last year (' . date('M Y', strtotime($ly . '-01')) . ')'];
+        }
+        return [round($recent, 2), 'average of the last 8 weeks'];
     }
 
     /** CRA payments are forecast from the instalment settings, so the bank's copies don't count twice. */
@@ -275,12 +290,14 @@ class CashFlowForecastService
         }
 
         // ── Money out: everyday spending ────────────────────────────────────
-        $weekly = $this->everydayWeekly($billKeys);
-        if ($weekly > 0) {
-            foreach (self::repeat(self::weekStart($today), $until, '7') as $d) {
-                $events[] = ['date' => $d, 'amount' => -$weekly, 'kind' => 'everyday', 'label' => 'Everyday spending (average)', 'why' => 'average of the last 8 weeks: fuel, materials, wages, other'];
-            }
+        $ev = $this->everyday($billKeys);
+        $override = (float)$this->setting('cashflow_everyday_weekly');
+        foreach (self::repeat(self::weekStart($today), $until, '7') as $d) {
+            [$amt, $why] = $override > 0 ? [$override, 'your setting'] : self::everydayForWeek($d, $ev['monthly'], $ev['recent']);
+            if ($amt <= 0) continue;
+            $events[] = ['date' => $d, 'amount' => -$amt, 'kind' => 'everyday', 'label' => 'Everyday spending', 'why' => $why . ': fuel, materials, wages, other'];
         }
+        $weekly = $ev['recent'];
 
         $floor = (float)$this->setting('cashflow_floor');
         $f = self::build((float)$opening['balance'], $today, $events, $weeks, $floor);
@@ -288,6 +305,7 @@ class CashFlowForecastService
         $f['opening_accounts'] = $opening['accounts'];
         $f['doubtful'] = $doubtful;
         $f['everyday_weekly'] = round($weekly, 2);
+        $f['everyday_top'] = $ev['top'];
         $f['notes'] = $notes;
         $f['chase'] = $this->chaseList($events, $f);
         return $f;
@@ -337,8 +355,11 @@ class CashFlowForecastService
                     if ($l['balance'] !== null) { $bal = (float)$l['balance']; $date = substr((string)$l['date'], 0, 10); break; }
                 }
                 if ($bal === null) continue;
+                // A statement older than 45 days isn't today's money — shown, not counted.
+                $fresh = $date >= date('Y-m-d', strtotime('-45 days'));
+                $out['accounts'][] = ['name' => $accounts[$aid]['name'], 'balance' => round($bal, 2), 'as_of' => $date, 'counted' => $fresh];
+                if (!$fresh) continue;
                 $out['balance'] += $bal;
-                $out['accounts'][] = ['name' => $accounts[$aid]['name'], 'balance' => round($bal, 2), 'as_of' => $date];
                 if ($out['as_of'] === null || $date < $out['as_of']) $out['as_of'] = $date;
             }
         } catch (Throwable $e) {
@@ -421,23 +442,41 @@ class CashFlowForecastService
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /** Average weekly bank spending over the 8 weeks before the last import, minus bills and transfers. */
-    private function everydayWeekly(array $billKeys): float
+    /**
+     * Bank spending that isn't a bill, a transfer or tax: the recent 8-week weekly average, a
+     * weekly average for each of the last 15 months, and the biggest payees in the 8 weeks.
+     */
+    private function everyday(array $billKeys): array
     {
+        $out = ['recent' => 0.0, 'monthly' => [], 'top' => []];
         $last = $this->db->query("SELECT MAX(transaction_date) FROM accounting_transactions WHERE reference_type = 'bank_import'")->fetchColumn();
-        if (!$last) return 0.0;
+        if (!$last) return $out;
         $st = $this->db->prepare("
-            SELECT amount, description FROM accounting_transactions
-            WHERE reference_type = 'bank_import' AND type = 'expense'
-              AND transaction_date > DATE_SUB(?, INTERVAL 56 DAY) AND transaction_date <= ?
+            SELECT transaction_date, amount, description FROM accounting_transactions
+            WHERE reference_type = 'bank_import' AND type = 'expense' AND transaction_date > DATE_SUB(?, INTERVAL 15 MONTH)
         ");
-        $st->execute([$last, $last]);
-        $sum = 0.0;
+        $st->execute([$last]);
+        $recentFrom = date('Y-m-d', strtotime($last . ' -56 days'));
+        $byMonth = []; $recent = 0.0; $payees = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $d = (string)$r['description'];
             if (RecurringBillService::isTransfer($d) || isset($billKeys[RecurringBillService::payeeKey($d)]) || self::isTaxPayment($d)) continue;
-            $sum += (float)$r['amount'];
+            $m = substr((string)$r['transaction_date'], 0, 7);
+            $byMonth[$m] = ($byMonth[$m] ?? 0) + (float)$r['amount'];
+            if ($r['transaction_date'] > $recentFrom) {
+                $recent += (float)$r['amount'];
+                $k = RecurringBillService::label($d);
+                $payees[$k] = ($payees[$k] ?? 0) + (float)$r['amount'];
+            }
         }
-        return round($sum / 8, 2);
+        $lastMonth = substr((string)$last, 0, 7);
+        foreach ($byMonth as $m => $sum) {
+            if ($m === $lastMonth) continue;   // a part month isn't a month
+            $out['monthly'][$m] = round($sum / ((int)date('t', strtotime($m . '-01')) / 7), 2);
+        }
+        arsort($payees);
+        foreach (array_slice($payees, 0, 8, true) as $k => $v) $out['top'][] = ['payee' => $k, 'amount' => round($v, 2)];
+        $out['recent'] = round($recent / 8, 2);
+        return $out;
     }
 }
