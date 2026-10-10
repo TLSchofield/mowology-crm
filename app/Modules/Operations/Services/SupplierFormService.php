@@ -49,6 +49,30 @@ class SupplierFormService
         return $fieldCount >= 5;
     }
 
+    /** By its name or subject, an application — even when it is a flat PDF nobody can type into. */
+    public static function looksLikeApplication(string $fileName, string $subject): bool
+    {
+        return (bool)preg_match('/applic|credit|new account|account (form|set ?up)/i', $fileName . ' ' . $subject)
+            && !preg_match('/\b(invoice|statement|receipt)\b/i', $fileName);
+    }
+
+    /** What on a form only the owner can give — named so he knows before he opens it. */
+    public static function ownerAsks(string $text): array
+    {
+        $t = ' ' . strtolower((string)preg_replace('/\s+/', ' ', $text)) . ' ';
+        $asks = [
+            'your SIN'             => '/\bs\.?i\.?n\.?\b|social insurance/',
+            'a bank reference'     => '/bank reference|\bbank:|a\/c #|account #|transit/',
+            'a credit card'        => '/credit card/',
+            'trade references'     => '/trade references?/',
+            'a personal guarantee' => '/guarantee|guarantor/',
+            'a signature'          => '/signature|signed/',
+        ];
+        $out = [];
+        foreach ($asks as $label => $re) if (preg_match($re, $t)) $out[] = $label;
+        return $out;
+    }
+
     /** The form or the email asks for a copy of the business licence. */
     public static function wantsLicence(string $text): bool
     {
@@ -134,9 +158,16 @@ class SupplierFormService
             $filler = new PdfFormFiller($bytes);
             $fields = $filler->fields();
         } catch (Throwable $e) {
-            return null;   // unreadable or not a form
+            $filler = null;
+            $fields = [];
         }
-        if (!self::looksLikeForm($fileName, (string)($msg['subject'] ?? ''), (string)($msg['body'] ?? ''), count($fields))) return null;
+        if ($filler === null || !self::looksLikeForm($fileName, (string)($msg['subject'] ?? ''), (string)($msg['body'] ?? ''), count($fields))) {
+            // A flat (print-and-sign) application: nothing to fill, but the owner must know it came
+            // and what it asks for (Foreshore's credit application, 2026-10-10: SIN, bank, card, guarantee).
+            if (!self::looksLikeApplication($fileName, (string)($msg['subject'] ?? ''))) return null;
+            return $this->record($supplier, $msg, $fileName, $bytes, null, ['answers' => [], 'blanks' => [],
+                                 'yours' => self::ownerAsks(CompanyDocumentService::pdfText($bytes))], 'unfillable', null);
+        }
 
         $profile = (new CompanyProfileService($this->db))->profile();
         $a = CompanyProfileService::answer($fields, $profile);
@@ -149,6 +180,13 @@ class SupplierFormService
             $status = 'failed';
             $err = mb_substr($e->getMessage(), 0, 255);
         }
+        self::dir();
+        return $this->record($supplier, $msg, $fileName, $bytes, $filled, $a, $status, $err);
+    }
+
+    /** Keep the original (and filled) copy and the row Otto reads. */
+    private function record(array $supplier, array $msg, string $fileName, string $bytes, ?string $filled, array $a, string $status, ?string $err): int
+    {
         self::dir();
         $stamp = date('Ymd-His') . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
         $safe = (string)preg_replace('/[^A-Za-z0-9._-]+/', '-', $fileName);
@@ -170,8 +208,9 @@ class SupplierFormService
             (string)($msg['received_at'] ?? date('Y-m-d H:i:s')), $orig, mb_substr($fileName, 0, 160), $filledRel,
             json_encode($a['answers']), json_encode(['blank' => $a['blanks'], 'yours' => $a['yours']]), $wants, $status, $err,
         ]);
+        $id = (int)$this->db->lastInsertId();   // read before the next statement: an UPDATE resets it to 0
         (new SupplierDirectoryService($this->db))->heardFrom((int)$supplier['id'], (string)($msg['received_at'] ?? date('Y-m-d H:i:s')));
-        return (int)$this->db->lastInsertId();
+        return $id;
     }
 
     /** Otto's suggestions: forms ready to send, and applications nobody has answered. */
@@ -180,7 +219,22 @@ class SupplierFormService
         if (!$this->ready()) return [];
         $out = [];
         $ours = self::ours();
-        foreach ($this->db->query("SELECT f.*, s.name AS supplier_name FROM supplier_forms f JOIN supplier_accounts s ON s.id = f.supplier_id WHERE f.status = 'ready' ORDER BY f.received_at")->fetchAll(PDO::FETCH_ASSOC) as $f) {
+        foreach ($this->db->query("SELECT f.*, s.name AS supplier_name FROM supplier_forms f JOIN supplier_accounts s ON s.id = f.supplier_id WHERE f.status IN ('ready', 'unfillable') ORDER BY f.received_at")->fetchAll(PDO::FETCH_ASSOC) as $f) {
+            if ($f['status'] === 'unfillable') {
+                $asks = (json_decode((string)$f['blanks_json'], true) ?: [])['yours'] ?? [];
+                $what = preg_match('/credit/i', $f['original_name'] . ' ' . $f['subject']) ? 'a credit application' : 'an account application';
+                $out[] = [
+                    'kind' => 'supplier_form', 'subject_type' => 'supplier_form', 'subject_id' => (int)$f['id'],
+                    'for_date' => substr((string)$f['received_at'], 0, 10), 'priority' => 2,
+                    'key' => 'otto:supplier_form:' . (int)$f['id'],
+                    'text' => $f['supplier_name'] . ' sent ' . $what . ' — it needs you (a print-and-sign form, nothing to type into).',
+                    'detail' => ($asks ? 'It asks for ' . self::listing($asks) . '. ' : '') . 'From ' . $f['from_addr'] . '.',
+                    'url' => '/crm/suppliers/form-pdf.php?id=' . (int)$f['id'],
+                    'since' => substr((string)$f['received_at'], 0, 10),
+                    'propose' => ['buttons' => [['label' => "I'll handle it", 'choice' => 'dismiss', 'main' => true]]],
+                ];
+                continue;
+            }
             $r = self::recipients((string)$f['from_addr'], (string)$f['cc_addrs'], $ours);
             $b = json_decode((string)$f['blanks_json'], true) ?: [];
             $answers = json_decode((string)$f['answers_json'], true) ?: [];
@@ -281,6 +335,14 @@ class SupplierFormService
 
     public function decline(int $id): void
     {
-        $this->db->prepare("UPDATE supplier_forms SET status = 'declined' WHERE id = ? AND status = 'ready'")->execute([$id]);
+        $this->db->prepare("UPDATE supplier_forms SET status = 'declined' WHERE id = ? AND status IN ('ready', 'unfillable')")->execute([$id]);
+    }
+
+    /** "a, b and c" */
+    public static function listing(array $items): string
+    {
+        $items = array_values($items);
+        if (count($items) <= 1) return (string)($items[0] ?? '');
+        return implode(', ', array_slice($items, 0, -1)) . ' and ' . end($items);
     }
 }

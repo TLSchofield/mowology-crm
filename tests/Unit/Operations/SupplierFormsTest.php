@@ -66,6 +66,17 @@ final class SupplierFormsTest extends TestCase
         $this->assertFalse(SupplierFormService::wantsLicence('Thanks for your order'));
     }
 
+    public function testFlatApplications(): void
+    {
+        $this->assertTrue(SupplierFormService::looksLikeApplication('Foreshore Equipment and Supply - Credit Application.pdf', 'Re: Commercial account'));
+        $this->assertFalse(SupplierFormService::looksLikeApplication('Wholesale Availability.pdf', 'Re: Contractor wholesale program'));
+        $this->assertFalse(SupplierFormService::looksLikeApplication('Credit memo invoice 12.pdf', ''));
+        $text = 'CREDIT APPLICATION Name of Applicant: S.I.N. #: Trade References: Bank Reference: Bank: A/C #: Credit Card #: The applicant hereby guarantees';
+        $this->assertSame(['your SIN', 'a bank reference', 'a credit card', 'trade references', 'a personal guarantee'], SupplierFormService::ownerAsks($text));
+        $this->assertSame('a, b and c', SupplierFormService::listing(['a', 'b', 'c']));
+        $this->assertSame('a', SupplierFormService::listing(['a']));
+    }
+
     public function testRecipients(): void
     {
         $r = SupplierFormService::recipients('Jon <jon@cedarrim.com>', 'mowology@icloud.com, Accounting <accounting@cedarrim.com>, jon@cedarrim.com, office@mowology.ca',
