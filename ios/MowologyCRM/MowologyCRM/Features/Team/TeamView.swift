@@ -29,7 +29,7 @@ struct TeamHead: Identifiable, Hashable {
         TeamHead(slug: "sam",     name: "Sam",     role: "Sales",          isLive: true),
         TeamHead(slug: "otto",    name: "Otto",    role: "Operations",     isLive: true),
         TeamHead(slug: "mia",     name: "Mia",     role: "Marketing",      isLive: true),
-        TeamHead(slug: "yui",     name: "Yui",     role: "Communications", isLive: true),
+        TeamHead(slug: "yui",     name: "Yui",     role: "Comms", isLive: true),
         TeamHead(slug: "charlie", name: "Charlie", role: "Chief of Staff", isLive: true),
     ]
 }
@@ -240,6 +240,8 @@ private struct HeadFace: View {
                 .foregroundStyle(head.isLive ? .primary : .secondary)
             Text(head.isLive ? head.role : "Coming soon")
                 .font(.system(size: 10))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(head.isLive ? Color.MW.green : .secondary)
         }
         .frame(width: 76)
