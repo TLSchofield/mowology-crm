@@ -355,7 +355,17 @@ class CashFlowForecastService
             error_log('[cashflow] brief: ' . $e->getMessage());
             return [];
         }
-        if (!$f['below_floor'] || !$f['low']) return [];
+        // Alert on the "like last year" view when there is one — the committed-only view always
+        // dips in winter because snow and new work aren't booked yet.
+        $ly = $f['like_last_year'] ?? [];
+        if ($ly) {
+            $lowLy = null;
+            foreach ($ly as $w) if ($lowLy === null || $w['closing'] < $lowLy['closing']) $lowLy = $w;
+            if ($lowLy['closing'] >= $f['floor']) return [];
+            $f['low'] = ['start' => $lowLy['start'], 'closing' => $lowLy['closing']];
+        } elseif (!$f['below_floor'] || !$f['low']) {
+            return [];
+        }
         $chase = array_slice($f['chase'], 0, 3);
         $text = 'Cash dips to $' . number_format($f['low']['closing'], 0) . ' the week of ' . date('M j', strtotime($f['low']['start']))
               . ($chase ? '. Chase ' . implode(', ', array_map(fn($c) => $c['label'] . ' ($' . number_format($c['amount'], 0) . ')', $chase)) : '') . '.';

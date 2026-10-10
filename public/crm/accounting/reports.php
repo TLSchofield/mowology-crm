@@ -15,6 +15,7 @@ $activePage = 'accounting';
         <p class="text-muted mb-0 small">Profit &amp; Loss · Cash Flow · GST Filing · Job Profitability · Budget vs Actual · Crew</p>
     </div>
     <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+    <a href="/crm/accounting/cashflow.php" class="btn btn-sm btn-outline-primary">Cash-flow forecast</a>
 </div>
 
 <!-- ── Report Tabs ──────────────────────────────────────────────────────────── -->

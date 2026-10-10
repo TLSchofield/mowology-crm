@@ -47,6 +47,14 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (statements): ' . $e->getMessage());
         }
+        // Cash-flow forecast: the "like last year" view dipping under the floor (priority 1–2).
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/CashFlowForecastService.php';
+            $brief = self::withItems($brief, (new CashFlowForecastService($this->db))->briefItems());
+        } catch (Throwable $e) {
+            error_log('Penny brief (cash flow): ' . $e->getMessage());
+        }
         // Product proposals from label photos and receipts — priority 3 (migration 1225).
         try {
             $pp = APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';

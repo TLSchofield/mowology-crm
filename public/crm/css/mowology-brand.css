@@ -39679,3 +39679,22 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-sam-q-accepted { border-left: 4px solid var(--mw-green);  background: color-mix(in srgb, var(--mw-green) 8%, transparent);  padding-left: 8px; border-radius: 4px; }
 .mw-sam-q-declined { border-left: 4px solid var(--mw-red);    background: color-mix(in srgb, var(--mw-red) 7%, transparent);    padding-left: 8px; border-radius: 4px; }
 =======
+
+/* ── Cash-flow forecast (Penny, 2026-10-10) ───────────────────────────── */
+.mw-cf-stat .mw-cf-k { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-dark); }
+.mw-cf-stat .mw-cf-v { font-size: 1.6rem; font-weight: 700; color: var(--mw-forest); }
+.mw-cf-stat .mw-cf-n { font-size: .78rem; color: var(--mw-dark); }
+.mw-cf-stat.is-alert { border-left: 4px solid var(--mw-red); }
+.mw-cf-stat.is-alert .mw-cf-v { color: var(--mw-red); }
+.mw-cf-table td, .mw-cf-table th { vertical-align: top; }
+.mw-cf-table tr.mw-cf-low td { background: rgba(220, 38, 38, .05); }
+.mw-cf-week summary { cursor: pointer; font-weight: 600; color: var(--mw-dark); }
+.mw-cf-items { list-style: none; padding: 6px 0 0; margin: 0; font-size: .8rem; min-width: 320px; }
+.mw-cf-items li { padding: 2px 0; }
+.mw-cf-items li.is-in b { color: var(--mw-green); }
+.mw-cf-items li.is-out b { color: var(--mw-red); }
+.mw-cf-items small { display: block; }
+.mw-cf-kind { display: inline-block; min-width: 92px; font-size: .7rem; text-transform: uppercase; color: var(--mw-dark); }
+.mw-cf-barcol { width: 22%; }
+.mw-cf-bar { display: block; height: 10px; border-radius: 5px; background: var(--mw-green); margin-top: 6px; }
+.mw-cf-bar.is-neg { background: var(--mw-red); }
