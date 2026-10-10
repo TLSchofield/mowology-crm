@@ -28,11 +28,28 @@ for Tim to copy.
 - Onboarding asks for the documents once (OnboardingQuestions registry) and Otto reminds
   before each expires (licence renews every Dec 31).
 
+## Supplier directory — one list for Otto and Penny (Tim, 2026-10-10)
+"Otto and Penny can have a directory; if their locations are geocoded both become more efficient."
+- `supplier_accounts` (private per company): name, email, domain, phone, website, address, what they
+  sell (nursery / soil & aggregate / sod / seed / equipment / chemicals), account status
+  (asked → applied → open), price-list kind (priced list / stock only / quote per job), linked
+  `vendors` row (Penny's books) and `ops_places` row (Otto's map, kind 'supplier', lat/lng).
+- Geocoded from the address with the CRM's existing geocoder (`LocationFunctions`); the place is
+  what Otto's trip reader already labels stops with, so a stop at Cedar Rim reads as a supplier
+  run, not a break, and Otto can pick the nearest supplier that stocks the item for a job.
+- Penny: receipts already match `vendors`; the directory adds which supplier is cheapest for an
+  item (from price lists) and how far it is (from the place) — trade price + drive time.
+- Seeded from the 20 suppliers asked 2026-10-10.
+
+## Mailboxes
+Suppliers now reply to office@ (the follow-up asked them to). Yui's router runs on iCloud today;
+the same router is run on office@ for supplier mail (MailboxConfig 'office' is configured).
+
 ## Unknowns → how each is settled (cheapest first)
-1. **Can PHP on cPanel fill a PDF form?** No pdftk / Python there. Test a minimal pure-PHP
-   AcroForm filler (set each field's /V + NeedAppearances, incremental update) on Cedar Rim's
-   form; open the result in Preview and Acrobat-style viewers. Fallback: fill on the iMac
-   (PyMuPDF, proven today) as a queue job. Settled before anything else is built.
+1. ~~Can PHP on cPanel fill a PDF form?~~ **Settled 2026-10-10:** `app/Services/Pdf/PdfFormFiller.php`
+   (pure PHP, zlib only) fills Cedar Rim's form on production byte-identical to the Mac, 32 ms;
+   checked in Apple PDFKit and PyMuPDF. Free FPDI could not (xref streams); Apple refuses a
+   classic xref table appended to an xref-stream file, so the update matches the original's format.
 2. **Where documents live.** Outside the web root (the licence is not public). Check the
    existing receipt/media storage path convention on prod and reuse it.
 3. **How Yui recognises a form.** Rules, no AI: sender is a vendor or an outreach recipient, has a
@@ -42,9 +59,11 @@ for Tim to copy.
    blank and shown to Tim, and his answer is learned (shared: the field name; private: the value).
 
 ## Steps (each proved before the next)
-1. Company documents: table + upload on Settings, licence stored with its expiry; Otto reminder.
-2. Form filler service (pure PHP, unit-tested on Cedar Rim's PDF; round-trip check that fields
-   read back).
+1. Company documents: table + store, licence stored with its number + expiry (parsed from the City's
+   PDF); Yui files the City's licence email automatically each year; Otto reminds before expiry.
+2. ~~Form filler~~ — done, deployed, tested (`PdfFormFiller`, 9 unit tests).
+2b. Supplier directory (`supplier_accounts` + ops_places link + geocode), seeded with the 20.
 3. Yui rule → Otto item "account application from X" with the filled PDF.
-4. Otto's card: preview, recipients, Send (web + iPhone), follow-up after 7 days.
+4. Otto's card: answers, blanks, recipients, Send (web + iPhone), follow-up after 7 days. Buttons
+   come from the server with the suggestion (`propose.buttons`), so new Otto kinds need no app update.
 5. Supplier status on the vendor record (asked / applied / account open / list received).
