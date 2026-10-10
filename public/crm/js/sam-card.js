@@ -29,6 +29,8 @@
     var lbox = document.getElementById('mw-sam-leads');
     var abox = document.getElementById('mw-sam-asks');
     var rbox = document.getElementById('mw-sam-replies');
+    var apbox = document.getElementById('mw-sam-approved');
+    var approved = [];       // quotes just approved — every line ✓ / ✗ (QuoteApprovalService)
     var replies = [];        // unclaimed customer replies (desk.unclaimed)
     var CHARLIE = '/crm/api/charlie.php';
     var asks = { replied: [], silent: [], drafts: 0 };
@@ -89,8 +91,9 @@
                 asks = d.asks || { replied: [], silent: [], drafts: 0 };
                 replies = d.unclaimed || [];
                 maybes = d.maybe_leads || [];
+                approved = d.approved || [];
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies();
+                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved();
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
     }
@@ -182,6 +185,43 @@
             }
             renderAsks(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.');
         }).catch(function () { busy = false; renderAsks('Network error — nothing was sent. Try again.'); });
+    });
+
+    // ── Just approved ────────────────────────────────────────────────────
+    // Every line of an approved quote, ticked or not, so a line the client left out never
+    // looks like the system dropped it (owner, 2026-10-10). Stays until "Got it".
+    function renderApproved(msg) {
+        if (!apbox) return;
+        if (!approved.length && !msg) { apbox.hidden = true; return; }
+        apbox.hidden = false;
+        apbox.innerHTML = '<div class="mw-sam-leads-head"><b>Just approved</b> <small>what the client said yes to, line by line</small></div>' +
+            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
+            approved.map(function (a) {
+                var lines = (a.lines || []).map(function (l) {
+                    return '<li class="mw-sam-appr-line ' + (l.approved ? 'is-in' : 'is-out') + '">' +
+                        '<span class="mw-sam-appr-mark">' + (l.approved ? '✓' : '✗') + '</span> ' + esc(l.label) +
+                        ' <b>' + money(l.amount) + '</b>' + (l.approved ? '' : ' <small>not included</small>') + '</li>';
+                }).join('');
+                var who = a.approver ? 'Approved by ' + esc(a.approver) + (a.via && a.via !== 'approved' ? ' (' + esc(a.via) + ')' : '') + ' · ' : '';
+                var job = a.plan_id
+                    ? '<a class="mw-rc-ed" href="/crm/jobs/view.php?id=' + a.plan_id + '">Job ' + esc(a.plan_number || '') + ' (in the tray)</a>'
+                    : (a.job_note ? '<small>' + esc(a.job_note) + '</small>' : '');
+                return '<div class="mw-sam-appr' + (a.partial ? ' is-partial' : '') + '" data-q="' + a.quote_id + '">' +
+                    '<div class="mw-sam-appr-head"><b>' + esc(a.headline) + '</b></div>' +
+                    '<ul class="mw-sam-appr-lines">' + lines + '</ul>' +
+                    '<small class="mw-sam-meta">' + who + esc(ago(a.at)) + '</small>' +
+                    '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="/crm/quotes/view.php?id=' + a.quote_id + '">Quote</a>' + job +
+                    '<button type="button" class="mw-rc-sk" data-seen>Got it</button></div></div>';
+            }).join('');
+    }
+    if (apbox) apbox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-seen]'); if (!b || busy) return;
+        var qid = +b.closest('[data-q]').getAttribute('data-q'); busy = true; b.disabled = true;
+        post({ mode: 'approval_seen', quote_id: qid }).then(function (d) {
+            busy = false;
+            approved = approved.filter(function (a) { return a.quote_id !== qid; });
+            renderApproved(d && d.ok ? '' : 'That didn\'t work — try again.');
+        }).catch(function () { busy = false; b.disabled = false; renderApproved('Network error — try again.'); });
     });
 
     // ── Replies waiting ──────────────────────────────────────────────────

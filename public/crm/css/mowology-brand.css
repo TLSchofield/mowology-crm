@@ -38078,6 +38078,15 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sam-lead-act .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .75rem; }
 
 /* Replies waiting — customer replies no other list caught ("Handled" = Charlie dismiss) */
+/* Sam — Just approved: every line of an approved quote, ✓ or ✗ (QuoteApprovalService) */
+.mw-sam-appr { padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
+.mw-sam-appr-head { margin-bottom: 4px; }
+.mw-sam-appr-lines { list-style: none; margin: 0 0 4px; padding: 0; }
+.mw-sam-appr-line { padding: 1px 0; }
+.mw-sam-appr-line.is-in .mw-sam-appr-mark { color: var(--mw-green); font-weight: 700; }
+.mw-sam-appr-line.is-out { color: var(--mw-red); }
+.mw-sam-appr-line.is-out .mw-sam-appr-mark { font-weight: 700; }
+.mw-sam-appr .mw-sam-lead-act { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
 .mw-sam-reply { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
 .mw-sam-reply-main { min-width: 0; }
 .mw-sam-reply-main q { color: var(--mw-ink-700); font-style: italic; }

@@ -84,6 +84,8 @@ try {
     }
     $fu = new SamFollowupService($db);
     $sq = new SamQuestionService($db);
+    require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+    $approvals = new QuoteApprovalService($db);
     $name = SalesDeskService::ownerName($user);
     $gone = ['ok' => false, 'message' => 'That customer is no longer waiting — pull to refresh.'];
 
@@ -116,10 +118,17 @@ try {
                 'queue'     => $cards,
                 'leads'     => $desk->leads(8),
                 'questions' => $sq->open($name),
+                'approved'  => $approvals->pending(),   // just-approved quotes, every line ✓ / ✗ (migration 1316)
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),
                 'unclaimed' => array_slice($desk->unclaimed($all), 0, 12),
             ]);
+            break;
+        }
+
+        case 'approval_seen': {
+            // "Got it" on a Just approved item.
+            echo json_encode(['ok' => $approvals->acknowledge((int)($input['quote_id'] ?? 0), (int)$user['id'])]);
             break;
         }
 

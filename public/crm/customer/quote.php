@@ -117,6 +117,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($quote) && $quote['status'] !
                 ]);
 
                 $db->commit();
+                // Sam's line-by-line summary + a job in the Unscheduled tray (QuoteApprovalService).
+                // After the commit; never blocks or undoes the acceptance.
+                try {
+                    if (!defined('APP_ROOT')) {
+                        foreach ([dirname(__DIR__, 3), dirname(__DIR__, 2)] as $__r) {
+                            if (is_file($__r . '/app/Core/paths.php')) { require_once $__r . '/app/Core/paths.php'; break; }
+                        }
+                    }
+                    require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+                    (new QuoteApprovalService($db))->afterApproval((int)$quote['id']);
+                } catch (Throwable $e) {
+                    error_log('[quote approval] legacy portal: ' . $e->getMessage());
+                }
 
                 $quote['status'] = 'accepted';
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';

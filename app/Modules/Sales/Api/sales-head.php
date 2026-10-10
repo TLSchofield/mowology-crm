@@ -82,6 +82,8 @@ try {
     $asks = new FieldAskService($db);
     $fu = new SamFollowupService($db);
     $sq = new SamQuestionService($db);
+    require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+    $approvals = new QuoteApprovalService($db);
     $name = SalesDeskService::ownerName((array)$user);
     require_once APP_ROOT . '/Modules/Sales/Services/EmailLeadService.php';
     $emailLeads = new EmailLeadService($db);   // maybes() is empty until migration 1223
@@ -108,6 +110,7 @@ try {
                 'queue'     => $cards,
                 'leads'     => $desk->leads(8),
                 'questions' => $sq->open($name),
+                'approved'  => $approvals->pending(),   // just-approved quotes, every line ✓ / ✗ (migration 1316)
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
                 'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
@@ -157,6 +160,12 @@ try {
 
         case 'answer': {
             echo json_encode($sq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id'], $name));
+            break;
+        }
+
+        case 'approval_seen': {
+            // "Got it" on a Just approved item.
+            echo json_encode(['ok' => $approvals->acknowledge((int)($input['quote_id'] ?? 0), (int)$user['id'])]);
             break;
         }
 

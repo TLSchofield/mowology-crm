@@ -247,6 +247,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'accepted', $user['id']);
             logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['name']}", null, null, $quoteId);
             $quote['status'] = 'accepted';
+            // Sam's line-by-line summary + a job in the Unscheduled tray (QuoteApprovalService).
+            try {
+                require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+                (new QuoteApprovalService($db))->afterApproval($quoteId);
+            } catch (Throwable $e) {
+                error_log('[quote approval] verbal: ' . $e->getMessage());
+            }
             $message         = "Quote approved (verbal confirmation from {$approverName}).";
             $messageType     = 'success';
         } catch (Exception $e) {

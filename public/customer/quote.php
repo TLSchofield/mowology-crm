@@ -297,6 +297,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                         $snowSetup = ['status' => 'failed', 'detail' => $e->getMessage()];
                     }
                 }
+                // Sam's line-by-line summary + a job in the Unscheduled tray (QuoteApprovalService).
+                // After the commit; never blocks or undoes the acceptance.
+                try {
+                    require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+                    (new QuoteApprovalService($db))->afterApproval((int)$quote['id']);
+                } catch (Throwable $e) {
+                    error_log('[quote approval] portal: ' . $e->getMessage());
+                }
                 $snowSetupHtml = '';
                 if ($snowSetup && $snowSetup['status'] === 'done') {
                     $snowSetupHtml = "<p style='margin:20px 0 0;'><strong>Set up automatically:</strong> contract and daily Salt &amp; Snow route plan. "

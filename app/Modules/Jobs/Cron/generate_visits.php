@@ -124,6 +124,17 @@ try {
         error_log('[generate_visits cron] snow statements: ' . $e->getMessage());
     }
 
+    // Approved quotes that no hook caught get Sam's summary + a tray job (QuoteApprovalService).
+    try {
+        require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+        $appr = (new QuoteApprovalService(getDB()))->sweep();
+        if (!empty($appr['done'])) {
+            error_log(sprintf('[generate_visits cron] approved quotes: %d summarised / tray jobs', $appr['done']));
+        }
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] approved quotes: ' . $e->getMessage());
+    }
+
     $hasErrors = !empty($result['errors']);
     recordCronRun(
         'generate_visits',
