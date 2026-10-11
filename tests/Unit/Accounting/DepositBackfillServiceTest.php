@@ -63,15 +63,36 @@ final class DepositBackfillServiceTest extends TestCase
 
     public function testDoubt(): void
     {
-        $dep = ['transaction_date' => '2026-04-23', 'amount' => 1194.39, 'description' => 'CHEQUE DEPOSIT - BRANCH'];
-        $pick = [self::c('crm10', 'crm', 1194.39, 'cheque', '2026-04-23')];
-        $this->assertNull(DepositBackfillService::doubt($dep, $pick, $pick));
-        // Same client, same amount, the month before: not certain.
-        $all = array_merge($pick, [self::c('crm7', 'crm', 1194.39, 'cheque', '2026-03-24')]);
-        $this->assertStringContainsString('same amount', (string)DepositBackfillService::doubt($dep, $pick, $all));
+        $dep = ['id' => 1, 'transaction_date' => '2026-08-12', 'amount' => 9590.41, 'description' => 'Cheque deposit-branch OAKRIDGE GARDENS'];
+        $pick = [self::c('crm214', 'crm', 9590.41, 'cheque', '2026-08-12')];
+        // Last month's identical invoice is outside the window: still certain.
+        $all = array_merge($pick, [self::c('crm90', 'crm', 9590.41, 'cheque', '2026-06-16')]);
+        $this->assertNull(DepositBackfillService::doubt($dep, $pick, $all, [$dep]));
+        // Another same-amount payment inside the window: not certain.
+        $all[] = self::c('crm296', 'crm', 9590.41, 'cheque', '2026-08-14');
+        $this->assertStringContainsString('same amount', (string)DepositBackfillService::doubt($dep, $pick, $all, [$dep]));
+        // Another same-amount DEPOSIT near the payment: not certain.
+        $other = ['id' => 2, 'transaction_date' => '2026-08-13', 'amount' => 9590.41, 'description' => 'x'];
+        $this->assertStringContainsString('another deposit', (string)DepositBackfillService::doubt($dep, $pick, $pick, [$dep, $other]));
         // Recorded 10 days from the deposit: not certain.
-        $late = [self::c('crm11', 'crm', 1194.39, 'cheque', '2026-04-13')];
-        $this->assertStringContainsString('10 days', (string)DepositBackfillService::doubt($dep, $late, $late));
+        $late = [self::c('crm11', 'crm', 9590.41, 'cheque', '2026-08-02')];
+        $this->assertStringContainsString('10 days', (string)DepositBackfillService::doubt($dep, $late, $late, [$dep]));
+    }
+
+    public function testMonthlyContractPairsWithTheSameDayPayment(): void
+    {
+        $dep = ['transaction_date' => '2026-08-28', 'amount' => 9590.41, 'description' => 'Cheque deposit-branch VANCOUVER MANAGEMENT LTD'];
+        $m = DepositBackfillService::match($dep, [self::c('crm296', 'crm', 9590.41, 'cheque', '2026-08-28'), self::c('crm214', 'crm', 9590.41, 'cheque', '2026-08-12')]);
+        $this->assertSame('single', $m['class']);
+        $this->assertSame('crm296', $m['pick'][0]['key']);
+    }
+
+    public function testTeachPattern(): void
+    {
+        $this->assertSame('OBSIDIAN', DepositBackfillService::teachPattern('OBSIDIAN - 71', 'Cheque deposit-branch OBSIDIAN - 71'));
+        $this->assertNull(DepositBackfillService::teachPattern('2380 41ST WEST AVENUE Vancou ABM VSCU5815', 'ATM Cheque Deposit 2380 41ST WEST AVENUE Vancou ABM VSCU5815'));
+        $this->assertSame('MCR ITF S TRATA PLAN VR1540', DepositBackfillService::teachPattern('MCR ITF S TRATA PLAN VR1540', 'CHEQUE DEPOSIT - BRANCH (MCR ITF S TRATA PLAN VR1540)'));
+        $this->assertNull(DepositBackfillService::teachPattern('VCH', 'CHEQUE DEPOSIT - BRANCH (VCH)'));
     }
 
     public function testGroupAndPlanActions(): void

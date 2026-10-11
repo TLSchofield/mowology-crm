@@ -32,7 +32,9 @@ class DepositBackfillService
     /** Certain = the payment was recorded within this many days of the deposit … */
     public const CERTAIN_DAYS = 3;
     /** … and no other payment of the same amount lies within this many days of it. */
-    public const UNIQUE_DAYS = 60;
+    public const UNIQUE_DAYS = 60;   // (kept for reference; pairing now uses CERTAIN_DAYS — see doubt())
+    /** A bank wording is taught to Penny only when at least this many certain links agree. */
+    public const TEACH_MIN = 2;
 
     private PDO $db;
 
@@ -99,6 +101,10 @@ class DepositBackfillService
         $exact = array_values(array_filter($pool, fn($c) => abs(round((float)$c['amount'], 2) - $amt) <= 0.01));
         if (count($exact) === 1) return ['class' => 'single', 'pick' => $exact];
         if (count($exact) > 1) {
+            // Monthly contracts repeat the amount: the one recorded within CERTAIN_DAYS is the pair
+            // (doubt() then checks nothing else competes inside that window).
+            $near = array_values(array_filter($exact, fn($c) => abs(strtotime((string)$c['date']) - $dt) <= self::CERTAIN_DAYS * 86400));
+            if (count($near) === 1) return ['class' => 'single', 'pick' => $near];
             $words = InvoiceReconciliationService::bankMemoWords((string)$dep['description']);
             $named = $words ? array_values(array_filter($exact, fn($c) => !empty($c['name']) && InvoiceReconciliationService::payerMatchesWords((string)$c['name'], $words))) : [];
             return count($named) === 1 ? ['class' => 'single', 'pick' => $named] : ['class' => 'ambiguous', 'pick' => $exact];
@@ -111,25 +117,31 @@ class DepositBackfillService
     }
 
     /**
-     * Is this match beyond doubt? Every payment recorded within CERTAIN_DAYS of the deposit,
-     * and (for a single payment) no OTHER payment of the same amount within UNIQUE_DAYS — a
-     * client paying the same amount every month (Macdonald $1,194.39, Dorset $402.02) must not
-     * be linked to the wrong month. Null = certain, else the reason.
+     * Is this match beyond doubt? One-to-one pairing within CERTAIN_DAYS: every payment recorded
+     * within CERTAIN_DAYS of the deposit; for a single payment, no OTHER payment of that amount
+     * within CERTAIN_DAYS of the deposit, and no OTHER orphan deposit of that amount within
+     * CERTAIN_DAYS of the payment. (Monthly contracts — Macdonald $1,194.39, VML $9,590.41 — repeat
+     * the amount every month, so "unique in 60 days" rejected same-day pairs; competition inside
+     * the window is what makes a pairing uncertain.) Null = certain, else the reason.
      */
-    public static function doubt(array $dep, array $pick, array $allCands): ?string
+    public static function doubt(array $dep, array $pick, array $allCands, array $allDeps = []): ?string
     {
         $dt = strtotime((string)$dep['transaction_date']);
+        $win = self::CERTAIN_DAYS * 86400;
         foreach ($pick as $p) {
             $gap = abs(strtotime((string)$p['date']) - $dt) / 86400;
             if ($gap > self::CERTAIN_DAYS) return sprintf('%s was recorded %d days from the deposit', $p['ref'], (int)round($gap));
         }
         if (count($pick) === 1) {
             $amt = round((float)$pick[0]['amount'], 2);
+            $pt = strtotime((string)$pick[0]['date']);
             foreach ($allCands as $c) {
                 if ($c['key'] === $pick[0]['key'] || abs(round((float)$c['amount'], 2) - $amt) > 0.01 || empty($c['date'])) continue;
-                if (abs(strtotime((string)$c['date']) - $dt) <= self::UNIQUE_DAYS * 86400) {
-                    return sprintf('%s is the same amount, %s', $c['ref'], $c['date']);
-                }
+                if (abs(strtotime((string)$c['date']) - $dt) <= $win) return sprintf('%s is the same amount, %s', $c['ref'], $c['date']);
+            }
+            foreach ($allDeps as $o) {
+                if ((int)($o['id'] ?? 0) === (int)($dep['id'] ?? -1) || abs(round((float)$o['amount'], 2) - $amt) > 0.01) continue;
+                if (abs(strtotime((string)$o['transaction_date']) - $pt) <= $win) return sprintf('another deposit of the same amount on %s', $o['transaction_date']);
             }
         }
         return null;
@@ -151,7 +163,7 @@ class DepositBackfillService
             $action = 'none';
             $why = null;
             if (in_array($m['class'], ['single', 'subset'], true)) {
-                $why = self::doubt($d, $m['pick'], $cands);
+                $why = self::doubt($d, $m['pick'], $cands, $deposits);
                 if ($why === null && count($srcs) > 1) $why = 'mixes CRM and Jobber payments';
                 $action = $why !== null ? 'review' : ($srcs === ['crm'] ? 'link_crm' : 'source_jobber');
                 if ($action !== 'review') foreach ($m['pick'] as $p) $used[$p['key']] = true;
@@ -308,12 +320,13 @@ class DepositBackfillService
         $by = [];
         foreach ($plan as $r) {
             if (!in_array($r['action'], ['link_crm', 'source_jobber'], true) || empty($r['memo_payer'])) continue;
-            $pattern = trim(strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', ' ', (string)$r['memo_payer'])));
-            if ($pattern === '' || strlen($pattern) > 80) continue;
+            $pattern = self::teachPattern((string)$r['memo_payer'], (string)$r['deposit']['description']);
+            if ($pattern === null) continue;
             foreach ($r['pick'] as $p) {
                 [$name, $companyId] = $p['src'] === 'crm' ? $this->invoicePayer((int)$p['id']) : [trim((string)$p['name']), null];
                 if ($name === '') continue;
-                $by[$pattern][strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name))] = [$name, $companyId];
+                $k = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name));
+                $by[$pattern][$k] = [$name, $companyId, ($by[$pattern][$k][2] ?? 0) + 1];
             }
         }
         $taught = [];
@@ -321,7 +334,8 @@ class DepositBackfillService
         $ins = $this->db->prepare("INSERT IGNORE INTO bank_memo_payers (pattern, payer_name, company_id, note, created_at) VALUES (?, ?, ?, ?, NOW())");
         foreach ($by as $pattern => $payers) {
             if (count($payers) !== 1) { $several[$pattern] = array_values(array_map(fn($x) => $x[0], $payers)); continue; }
-            [$name, $companyId] = array_values($payers)[0];
+            [$name, $companyId, $times] = array_values($payers)[0];
+            if ($times < self::TEACH_MIN) { $several[$pattern] = ['only ' . $times . ' confirmed link — not taught yet']; continue; }
             try {
                 $ins->execute([$pattern, mb_substr($name, 0, 255), $companyId, 'Learned from confirmed deposits (backfill ' . date('Y-m-d') . ', user #' . $userId . ')']);
                 if ($ins->rowCount() > 0) $taught[$pattern] = $name;
@@ -330,6 +344,19 @@ class DepositBackfillService
             }
         }
         return ['taught' => $taught, 'several' => $several];
+    }
+
+    /**
+     * The wording worth teaching, or null: no ATM/ABM lines (they name the machine's location, not
+     * the payer), trailing cheque numbers dropped ("OBSIDIAN - 71" → "OBSIDIAN"), at least 4 letters.
+     */
+    public static function teachPattern(string $memoPayer, string $memo): ?string
+    {
+        if (preg_match('/\b(ATM|ABM)\b/i', $memo)) return null;
+        $p = trim(strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', ' ', $memoPayer)));
+        $p = trim((string)preg_replace('/(\s+\d+)+$/', '', $p));
+        if (strlen((string)preg_replace('/[^A-Z]/', '', $p)) < 4 || strlen($p) > 80) return null;
+        return $p;
     }
 
     /** The payer as invoices name it (the matcher compares against these). */
