@@ -26,7 +26,7 @@ cd "$(git rev-parse --show-toplevel)"
 SNIP="${1:?usage: scripts/prod-run.sh snippet.php [--commit]}"
 COMMIT=0; [ "${2:-}" = "--commit" ] && COMMIT=1
 [ -f "$SNIP" ] || { echo "no such snippet: $SNIP" >&2; exit 1; }
-if [ $COMMIT -eq 0 ] && grep -Eiq '\b(CREATE|ALTER|DROP|TRUNCATE|RENAME)[[:space:]]+(TABLE|INDEX|DATABASE|VIEW)' "$SNIP"; then
+if [ $COMMIT -eq 0 ] && grep -Eiq "[\"'][[:space:]]*(CREATE|ALTER|DROP|TRUNCATE|RENAME)[[:space:]]+(TABLE|INDEX|DATABASE|VIEW)" "$SNIP"; then
   echo "refused: DDL commits implicitly in MySQL — run it with --commit on purpose, or move it to a migration" >&2; exit 2
 fi
 if grep -q '^<?php' "$SNIP"; then echo "remove the opening <?php from the snippet" >&2; exit 1; fi

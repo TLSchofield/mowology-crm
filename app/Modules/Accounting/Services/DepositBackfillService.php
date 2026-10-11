@@ -23,7 +23,6 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/InvoiceReconciliationService.php';
-require_once __DIR__ . '/EtransferInboxService.php';
 
 class DepositBackfillService
 {
@@ -248,7 +247,7 @@ class DepositBackfillService
     public function apply(array $plan, int $userId): array
     {
         $rec = new InvoiceReconciliationService($this->db);
-        $out = ['linked' => 0, 'sourced' => 0, 'taught' => 0, 'income_removed' => 0.0, 'skipped' => []];
+        $out = ['linked' => 0, 'sourced' => 0, 'income_removed' => 0.0, 'skipped' => []];
         foreach ($plan as $r) {
             $tx = (int)$r['deposit']['id'];
             if ($r['action'] === 'link_crm') {
@@ -260,11 +259,6 @@ class DepositBackfillService
                     $this->db->prepare("UPDATE accounting_transactions SET notes = CONCAT_WS('\n', NULLIF(TRIM(notes), ''), ?) WHERE id = ?")
                         ->execute(['Linked by the deposit backfill ' . date('Y-m-d') . ' — paid ' . implode(', ', array_column($r['pick'], 'ref')), $tx]);
                     $this->db->commit();
-                    // Teach Penny who this bank wording is (same memory as the Interac learning).
-                    if (!empty($r['memo_payer'])) {
-                        (new EtransferInboxService($this->db))->learnSender($r['memo_payer'], array_map(fn($p) => (int)$p['id'], $r['pick']));
-                        $out['taught']++;
-                    }
                     $out['linked']++;
                     $out['income_removed'] = round($out['income_removed'] + (float)$r['deposit']['amount'], 2);
                 } catch (Throwable $e) {
@@ -293,11 +287,6 @@ class DepositBackfillService
                         WHERE id = ?
                     ")->execute([mb_substr($refs, 0, 100), count($contacts) === 1 ? $contacts[0] : null,
                                  'Jobber-era payment: ' . $refs . ($payer !== '' ? ' — ' . $payer : '') . ' (deposit backfill ' . date('Y-m-d') . ')', $tx]);
-                    // Teach Penny: this bank wording pays for this (Jobber-era) client.
-                    if (!empty($r['memo_payer']) && $payer !== '') {
-                        $this->learnPayer($r['memo_payer'], $payer);
-                        $out['taught']++;
-                    }
                     $out['sourced']++;
                 } catch (Throwable $e) {
                     $out['skipped'][] = ['deposit' => $tx, 'why' => $e->getMessage()];
@@ -307,20 +296,54 @@ class DepositBackfillService
         return $out;
     }
 
-    /** Bank wording → payer name, in etransfer_sender_payers (the matcher reads it by sender). */
-    private function learnPayer(string $sender, string $payer): void
+    /**
+     * Teach Penny the bank wordings these certain links prove (bank_memo_payers, migration 1284 —
+     * the table her bank card already reads: "VML" → Vancouver Management Ltd). A wording is taught
+     * only when EVERY certain link carrying it points to ONE payer: a property manager's wording
+     * ("DORSET REALTY GROUP CANADA LTD") pays for many stratas and must not be pinned to one.
+     * Existing patterns are never overwritten. Returns [taught, several].
+     */
+    public function teachMemoPayers(array $plan, int $userId): array
     {
-        $k = fn(string $n) => strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $n));
-        if ($k($sender) === '' || $k($payer) === '' || $k($sender) === $k($payer)) return;
-        try {
-            $this->db->prepare("
-                INSERT INTO etransfer_sender_payers (sender_key, payer_key, sender_name, payer_name, times, last_seen)
-                VALUES (?, ?, ?, ?, 1, NOW())
-                ON DUPLICATE KEY UPDATE times = times + 1, last_seen = NOW()
-            ")->execute([$k($sender), $k($payer), mb_substr($sender, 0, 255), mb_substr($payer, 0, 255)]);
-        } catch (Throwable $e) {
-            error_log('[deposit backfill] learnPayer: ' . $e->getMessage());
+        $by = [];
+        foreach ($plan as $r) {
+            if (!in_array($r['action'], ['link_crm', 'source_jobber'], true) || empty($r['memo_payer'])) continue;
+            $pattern = trim(strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', ' ', (string)$r['memo_payer'])));
+            if ($pattern === '' || strlen($pattern) > 80) continue;
+            foreach ($r['pick'] as $p) {
+                [$name, $companyId] = $p['src'] === 'crm' ? $this->invoicePayer((int)$p['id']) : [trim((string)$p['name']), null];
+                if ($name === '') continue;
+                $by[$pattern][strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name))] = [$name, $companyId];
+            }
         }
+        $taught = [];
+        $several = [];
+        $ins = $this->db->prepare("INSERT IGNORE INTO bank_memo_payers (pattern, payer_name, company_id, note, created_at) VALUES (?, ?, ?, ?, NOW())");
+        foreach ($by as $pattern => $payers) {
+            if (count($payers) !== 1) { $several[$pattern] = array_values(array_map(fn($x) => $x[0], $payers)); continue; }
+            [$name, $companyId] = array_values($payers)[0];
+            try {
+                $ins->execute([$pattern, mb_substr($name, 0, 255), $companyId, 'Learned from confirmed deposits (backfill ' . date('Y-m-d') . ', user #' . $userId . ')']);
+                if ($ins->rowCount() > 0) $taught[$pattern] = $name;
+            } catch (Throwable $e) {
+                error_log('[deposit backfill] teach ' . $pattern . ': ' . $e->getMessage());
+            }
+        }
+        return ['taught' => $taught, 'several' => $several];
+    }
+
+    /** The payer as invoices name it (the matcher compares against these). */
+    private function invoicePayer(int $invoiceId): array
+    {
+        $s = $this->db->prepare("
+            SELECT COALESCE(NULLIF(i.bill_to_name, ''), co.company_name, NULLIF(TRIM(CONCAT(COALESCE(ct.first_name,''), ' ', COALESCE(ct.last_name,''))), '')) AS n,
+                   i.company_id
+            FROM invoices i LEFT JOIN companies co ON co.id = i.company_id LEFT JOIN contacts ct ON ct.id = i.contact_id
+            WHERE i.id = ?
+        ");
+        $s->execute([$invoiceId]);
+        $r = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [trim((string)($r['n'] ?? '')), isset($r['company_id']) ? (int)$r['company_id'] : null];
     }
 
     /**
