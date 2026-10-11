@@ -187,8 +187,28 @@ final class ReceiptsViewModel: ObservableObject {
         try? await apiClient.request(.bookkeeperRisk(expenseId: expenseId))
     }
 
-    func loadLineItems(expenseId: Int) async -> LineItemsResponse? {
-        try? await apiClient.request(.expenseLineItems(expenseId: expenseId))
+    /// The saved items, or the reason they couldn't be loaded — never a silent empty list
+    /// (a failed load used to read "No line items recorded").
+    func loadLineItems(expenseId: Int) async -> Result<LineItemsResponse, Error> {
+        do {
+            let r: LineItemsResponse = try await apiClient.request(.expenseLineItems(expenseId: expenseId))
+            return .success(r)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Read the receipt photo again (server OCR, up to ~45 s). Only unlinked lines are replaced.
+    func rescanLineItems(expenseId: Int) async -> Result<LineItemRescanResponse, Error> {
+        do {
+            let r: LineItemRescanResponse = try await apiClient.request(.expenseLineItemAction,
+                                                                        body: ["op": "rescan", "expense_id": expenseId],
+                                                                        timeout: 75)
+            if r.success { return .success(r) }
+            return .failure(APIError.serverError(r.error ?? "The rescan failed."))
+        } catch {
+            return .failure(error)
+        }
     }
 
     private func lineItemMutation(_ body: [String: Any]) async -> LineItemMutationResponse? {

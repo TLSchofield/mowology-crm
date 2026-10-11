@@ -384,6 +384,62 @@ function recordLineItemLessonsAtConfirmation(PDO $db, int $expenseId, int $vendo
  * @param array|null $fallbackBaseline Used when ocr_parsed_json is empty (emailed receipts)
  * @return bool Whether lessons were recorded
  */
+/** Once per receipt: true for the caller that set learning_recorded_at. */
+function claimReceiptLearning(PDO $db, int $expenseId): bool
+{
+    $claim = $db->prepare("UPDATE expenses SET learning_recorded_at = NOW() WHERE id = ? AND learning_recorded_at IS NULL");
+    $claim->execute([$expenseId]);
+    return $claim->rowCount() > 0;
+}
+
+/**
+ * Pure: the SKU → name pairs an approved receipt confirms. Adjustments (discounts, deposits),
+ * blank or over-long SKUs and nameless lines teach nothing.
+ * @return array<int, array{sku: string, name: string, product_id: ?int}>
+ */
+function confirmedSkuPairs(array $items): array
+{
+    $out = [];
+    $seen = [];
+    foreach ($items as $it) {
+        if (!is_array($it) || !empty($it['is_adjustment'])) continue;
+        $sku = trim((string)($it['sku_raw'] ?? ''));
+        $name = trim((string)($it['name'] ?? ''));
+        if ($sku === '' || strlen($sku) > 64 || $name === '' || isset($seen[$sku])) continue;
+        $seen[$sku] = true;
+        $out[] = ['sku' => $sku, 'name' => mb_substr($name, 0, 255), 'product_id' => !empty($it['product_id']) ? (int)$it['product_id'] : null];
+    }
+    return $out;
+}
+
+/**
+ * Approving a receipt confirms its item names (owner, 2026-10-11): each SKU line's name as
+ * approved is remembered with times_confirmed + 1 (migration 1322), and the next receipt from
+ * this vendor uses it (getVendorLineItemProfile 'sku_names'). Never fatal.
+ */
+function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
+{
+    try {
+        $stmt = $db->prepare("SELECT name, sku_raw, product_id, is_adjustment FROM expense_line_items WHERE expense_id = ?");
+        $stmt->execute([$expenseId]);
+        $pairs = confirmedSkuPairs($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $up = $db->prepare("
+            INSERT INTO vendor_product_skus (vendor_id, sku_raw, product_id, item_name, times_seen, times_confirmed, last_seen_at)
+            VALUES (?, ?, ?, ?, 1, 1, NOW())
+            ON DUPLICATE KEY UPDATE
+                times_confirmed = times_confirmed + 1,
+                item_name       = VALUES(item_name),
+                product_id      = COALESCE(VALUES(product_id), product_id),
+                last_seen_at    = NOW()
+        ");
+        foreach ($pairs as $p) $up->execute([$vendorId, $p['sku'], $p['product_id'], $p['name']]);
+        return count($pairs);
+    } catch (Throwable $e) {
+        error_log('recordConfirmedSkuNames #' . $expenseId . ': ' . $e->getMessage());   // pre-1322 / pre-1115
+        return 0;
+    }
+}
+
 function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null): bool
 {
     try {
@@ -403,22 +459,29 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         }
 
         $baseline = captureBaseline($row['ocr_parsed_json'] ?? null) ?? $fallbackBaseline;
+        $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
         if (!$baseline) {
-            return false;   // nothing trustworthy to compare against; leave unclaimed
-        }
-
-        // Claim the receipt first so a concurrent approve/send can't double-count it.
-        $claim = $db->prepare("UPDATE expenses SET learning_recorded_at = NOW() WHERE id = ? AND learning_recorded_at IS NULL");
-        $claim->execute([$expenseId]);
-        if ($claim->rowCount() === 0) {
+            // No first read to compare against — but the approved item names are still right:
+            // confirm their SKUs (once per receipt, same claim as the lessons).
+            if ($vendorId && claimReceiptLearning($db, $expenseId)) {
+                recordConfirmedSkuNames($db, $expenseId, $vendorId);
+                return true;
+            }
             return false;
         }
 
-        $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
+        // Claim the receipt first so a concurrent approve/send can't double-count it.
+        if (!claimReceiptLearning($db, $expenseId)) {
+            return false;
+        }
+
         $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
         recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
         if ($vendorId && !empty($row['ocr_parsed_json']) && is_array($baseline['line_items'] ?? null)) {
             recordLineItemLessonsAtConfirmation($db, $expenseId, $vendorId, $vendorName, $baseline['line_items']);
+        }
+        if ($vendorId) {
+            recordConfirmedSkuNames($db, $expenseId, $vendorId);
         }
         // Where the receipt was photographed teaches where this vendor's store is.
         if ($vendorId && is_numeric($row['receipt_lat'] ?? null) && is_numeric($row['receipt_lng'] ?? null)
@@ -1209,7 +1272,7 @@ function recordSkuLink(PDO $db, int $vendorId, string $skuRaw, ?int $productId, 
 function getVendorLineItemProfile(?int $vendorId): array
 {
     static $cache = [];
-    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => []];
+    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'sku_names' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => []];
     if (!$vendorId) return $empty;
     if (isset($cache[$vendorId])) return $cache[$vendorId];
 
@@ -1236,6 +1299,15 @@ function getVendorLineItemProfile(?int $vendorId): array
                 $out['skus'][trim($row['sku_raw'])] = (int)$row['product_id'];
             }
         } catch (Throwable $e) { /* pre-migration */ }
+
+        // Names an approval confirmed for a SKU (migration 1322) — "FELCO4" → "Felco Pruner #4".
+        try {
+            $stmt = $db->prepare("SELECT sku_raw, item_name FROM vendor_product_skus WHERE vendor_id = ? AND times_confirmed >= 1 AND item_name IS NOT NULL AND item_name <> ''");
+            $stmt->execute([$vendorId]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $out['sku_names'][trim($row['sku_raw'])] = (string)$row['item_name'];
+            }
+        } catch (Throwable $e) { /* pre-1322 */ }
 
         $stmt = $db->prepare("SELECT name, ocr_aliases, product_id FROM vendor_products WHERE vendor_id = ? AND is_active = 1 AND product_id IS NOT NULL");
         $stmt->execute([$vendorId]);
@@ -1313,6 +1385,13 @@ function applyLineItemLearning(int $vendorId, array $parsed): array
         if ($key !== '' && isset($p['name_map'][$key])) {
             $item['name']        = $p['name_map'][$key];
             $item['name_source'] = 'learned';
+        } else {
+            // A name the owner approved for this SKU before (vendor_product_skus.times_confirmed).
+            $skuKey = trim((string)($item['sku_raw'] ?? ''));
+            if ($skuKey !== '' && isset($p['sku_names'][$skuKey]) && strcasecmp($p['sku_names'][$skuKey], $orig) !== 0) {
+                $item['name']        = $p['sku_names'][$skuKey];
+                $item['name_source'] = 'confirmed';
+            }
         }
 
         if (empty($item['product_id'])) {

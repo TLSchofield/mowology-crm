@@ -9,6 +9,8 @@
  *      { op: 'add',    expense_id, name, quantity?, unit_price?, line_total?, product_id?, sku_raw? }
  *      { op: 'delete', line_item_id }
  *      { op: 'link',   line_item_id, product_id|null }
+ *      { op: 'rescan', expense_id }  → re-read the photo (ExpenseRescanService); returns
+ *                                      { success, line_items, line_items_source, ocr_source, found }
  *      → { success, line_item? }
  *
  * Mirrors the web edit modal's line-item actions through the shared
@@ -129,6 +131,27 @@ try {
             $assertCanEdit($expenseId);
             echo json_encode(['success' => true, 'line_item' => $svc->add($expenseId, $input)]);
             break;
+
+        case 'rescan': {
+            // Re-read the saved photo (OCR can take ~30 s). Only unlinked lines are replaced.
+            $expenseId = (int)($input['expense_id'] ?? 0);
+            $assertCanEdit($expenseId);
+            @set_time_limit(90);
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseRescanService.php';
+            $r = (new ExpenseRescanService($db))->rescan($expenseId, ['id' => $userId, 'kind' => 'user'], 'ios_rescan');
+            $source = null;
+            try {
+                $s = $db->prepare("SELECT line_items_source FROM expenses WHERE id = ?");
+                $s->execute([$expenseId]);
+                $source = $s->fetchColumn() ?: null;
+            } catch (Throwable $e) { /* migration 1115 */ }
+            $items = $svc->listForExpense($expenseId);
+            echo json_encode(['success' => true, 'line_items' => $items, 'line_items_source' => $source,
+                              'ocr_source' => $r['ocr_source'], 'found' => count($r['parsed']['line_items'] ?? []),
+                              'message' => !$r['ocr_available'] ? "Couldn't read the photo — it may be too blurry. Add the items by hand."
+                                         : (empty($r['line_items_stored']) ? 'Read the photo but found no item lines.' : null)]);
+            break;
+        }
 
         case 'delete':
             $assertCanEdit($expenseIdFor($lineItemId));

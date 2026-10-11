@@ -66,13 +66,16 @@ final class APIClient: ObservableObject {
         _ endpoint: APIEndpoint,
         method: String? = nil,
         body: [String: Any]? = nil,
-        extraHeaders: [String: String] = [:]
+        extraHeaders: [String: String] = [:],
+        timeout: TimeInterval? = nil
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
         }
 
         var urlRequest = URLRequest(url: url)
+        // A longer ceiling for slow server work (a receipt rescan runs OCR: up to ~45 s).
+        if let timeout { urlRequest.timeoutInterval = timeout }
         urlRequest.httpMethod = method ?? endpoint.httpMethod
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")

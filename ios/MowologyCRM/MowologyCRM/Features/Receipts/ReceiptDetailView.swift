@@ -36,6 +36,9 @@ struct ReceiptDetailView: View {
     @State private var lineItems: [StoredLineItem] = []
     @State private var lineItemsSource: String?
     @State private var lineItemsLoaded = false
+    @State private var lineItemsError: String?
+    @State private var rescanning = false
+    @State private var rescanNote: String?
     @State private var renameItem: StoredLineItem?
     @State private var renameText = ""
     @State private var linkItem: StoredLineItem?
@@ -153,11 +156,30 @@ struct ReceiptDetailView: View {
     // MARK: - Line items
 
     private func loadLineItems() async {
-        if let r = await viewModel.loadLineItems(expenseId: expense.id) {
+        switch await viewModel.loadLineItems(expenseId: expense.id) {
+        case .success(let r):
             lineItems = r.lineItems
             lineItemsSource = r.lineItemsSource
+            lineItemsError = nil
+        case .failure(let e):
+            lineItemsError = (e as? APIError)?.errorDescription ?? e.localizedDescription
         }
         lineItemsLoaded = true
+    }
+
+    private func rescan() async {
+        rescanning = true
+        rescanNote = nil
+        defer { rescanning = false }
+        switch await viewModel.rescanLineItems(expenseId: expense.id) {
+        case .success(let r):
+            if let items = r.lineItems { lineItems = items }
+            lineItemsSource = r.lineItemsSource
+            lineItemsError = nil
+            rescanNote = r.message ?? (lineItems.isEmpty ? "No item lines found on the photo." : "Read again — check the items below.")
+        case .failure(let e):
+            rescanNote = (e as? APIError)?.errorDescription ?? e.localizedDescription
+        }
     }
 
     private func replaceLineItem(_ updated: StoredLineItem) {
@@ -170,6 +192,13 @@ struct ReceiptDetailView: View {
         Section {
             if !lineItemsLoaded {
                 HStack { Spacer(); ProgressView(); Spacer() }
+            } else if let err = lineItemsError {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Couldn't load the items: \(err)", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Color.MW.orange)
+                    Button("Try again") { Task { lineItemsLoaded = false; await loadLineItems() } }
+                        .font(.caption.weight(.semibold)).buttonStyle(.borderless)
+                }
             } else if lineItems.isEmpty {
                 Text("No line items recorded").font(.caption).foregroundStyle(.secondary)
             }
@@ -238,6 +267,23 @@ struct ReceiptDetailView: View {
                     Label("Add missed item", systemImage: "plus.circle")
                         .font(.subheadline)
                         .foregroundStyle(Color.MW.green)
+                }
+                if receiptURL != nil {
+                    Button {
+                        Task { await rescan() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if rescanning { ProgressView().controlSize(.small) }
+                            Label(rescanning ? "Reading the photo…" : (lineItems.isEmpty ? "Read the items from the photo" : "Rescan the photo"),
+                                  systemImage: "doc.text.viewfinder")
+                                .font(.subheadline)
+                                .foregroundStyle(Color.MW.green)
+                        }
+                    }
+                    .disabled(rescanning)
+                    if let note = rescanNote {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         } header: {

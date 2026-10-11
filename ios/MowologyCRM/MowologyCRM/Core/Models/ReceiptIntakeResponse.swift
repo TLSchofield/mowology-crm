@@ -230,6 +230,23 @@ struct LineItemsResponse: Decodable {
     }
 }
 
+/// op 'rescan' on expense-line-items: the photo read again (ExpenseRescanService).
+struct LineItemRescanResponse: Decodable {
+    let success: Bool
+    let lineItems: [StoredLineItem]?
+    let lineItemsSource: String?
+    let ocrSource: String?
+    let found: Int?
+    let message: String?
+    let error: String?
+    enum CodingKeys: String, CodingKey {
+        case success, found, message, error
+        case lineItems       = "line_items"
+        case lineItemsSource = "line_items_source"
+        case ocrSource       = "ocr_source"
+    }
+}
+
 struct LineItemMutationResponse: Decodable {
     let success: Bool
     let lineItem: StoredLineItem?
