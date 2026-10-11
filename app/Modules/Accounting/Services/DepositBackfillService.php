@@ -322,10 +322,13 @@ class DepositBackfillService
             if (!in_array($r['action'], ['link_crm', 'source_jobber'], true) || empty($r['memo_payer'])) continue;
             $pattern = self::teachPattern((string)$r['memo_payer'], (string)$r['deposit']['description']);
             if ($pattern === null) continue;
+            $seenHere = [];   // a deposit with several payments is ONE confirmation per payer
             foreach ($r['pick'] as $p) {
                 [$name, $companyId] = $p['src'] === 'crm' ? $this->invoicePayer((int)$p['id']) : [trim((string)$p['name']), null];
                 if ($name === '') continue;
                 $k = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name));
+                if (isset($seenHere[$k])) continue;
+                $seenHere[$k] = true;
                 $by[$pattern][$k] = [$name, $companyId, ($by[$pattern][$k][2] ?? 0) + 1];
             }
         }
