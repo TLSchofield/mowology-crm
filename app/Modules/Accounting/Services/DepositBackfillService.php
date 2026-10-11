@@ -233,6 +233,19 @@ class DepositBackfillService
                     foreach ($r['pick'] as $p) {
                         $ins->execute([$tx, $p['id'], $p['contact_id'] ?? null, mb_substr((string)$p['name'], 0, 255), mb_substr((string)$p['method'], 0, 30), round((float)$p['amount'], 2), $userId]);
                     }
+                    // The bank line says what it paid (owner, 2026-10-11): Jobber invoice number(s) and payer.
+                    // It stays income — only the reference, the note and (when empty) the contact change.
+                    $refs = implode(', ', array_column($r['pick'], 'ref'));
+                    $payer = implode(' / ', array_unique(array_filter(array_map(fn($p) => trim((string)$p['name']), $r['pick']))));
+                    $contacts = array_values(array_unique(array_filter(array_map(fn($p) => $p['contact_id'] ?? null, $r['pick']))));
+                    $this->db->prepare("
+                        UPDATE accounting_transactions SET
+                            payment_reference = COALESCE(NULLIF(payment_reference, ''), ?),
+                            contact_id = COALESCE(contact_id, ?),
+                            notes = CONCAT_WS('\n', NULLIF(TRIM(notes), ''), ?)
+                        WHERE id = ?
+                    ")->execute([mb_substr($refs, 0, 100), count($contacts) === 1 ? $contacts[0] : null,
+                                 'Jobber-era payment: ' . $refs . ($payer !== '' ? ' — ' . $payer : '') . ' (deposit backfill ' . date('Y-m-d') . ')', $tx]);
                     $out['sourced']++;
                 } catch (Throwable $e) {
                     $out['skipped'][] = ['deposit' => $tx, 'why' => $e->getMessage()];
@@ -240,6 +253,53 @@ class DepositBackfillService
             }
         }
         return $out;
+    }
+
+    /**
+     * Undo this backfill for one deposit. NOT InvoiceReconciliationService::detach() — that is
+     * for deposits attached to unpaid invoices and takes the payment off the invoice (it turned
+     * INV-2026-0010 back to "overdue" in the 2026-10-11 pilot). Here the invoice was paid before
+     * and stays paid: only the backfill's own allocation rows are removed and the deposit is
+     * restored as income; Jobber sources and the note are removed.
+     */
+    public function undo(int $transactionId): array
+    {
+        $this->db->beginTransaction();
+        try {
+            $del = $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE transaction_id = ? AND notes LIKE 'Deposit backfill %'");
+            $del->execute([$transactionId]);
+            $allocs = $del->rowCount();
+            $left = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
+            $left->execute([$transactionId]);
+            if ($allocs > 0 && (int)$left->fetchColumn() === 0) {
+                // Linked through linkAllocationsToDeposit → the row is a transfer; put it back as income.
+                $this->db->prepare("
+                    UPDATE accounting_transactions SET type = 'income', status = 'cleared',
+                           matched_invoice_id = NULL, match_confidence = NULL, matched_at = NULL, matched_by = NULL
+                    WHERE id = ? AND type = 'transfer'
+                ")->execute([$transactionId]);
+            }
+            $src = $this->db->prepare("DELETE FROM bank_deposit_sources WHERE transaction_id = ?");
+            $src->execute([$transactionId]);
+            // Take the backfill's own note lines and Jobber reference off the bank line (PHP, not
+            // REGEXP_REPLACE — MySQL 5.7-safe).
+            $row = $this->db->prepare("SELECT notes, payment_reference FROM accounting_transactions WHERE id = ?");
+            $row->execute([$transactionId]);
+            if ($t = $row->fetch(PDO::FETCH_ASSOC)) {
+                $lines = array_filter(preg_split('/\R/', (string)$t['notes']), fn($l) => trim($l) !== ''
+                    && strpos($l, 'Linked by the deposit backfill') !== 0 && strpos($l, 'Jobber-era payment:') !== 0);
+                $ref = str_starts_with((string)$t['payment_reference'], 'Jobber #') ? null : $t['payment_reference'];
+                $this->db->prepare("UPDATE accounting_transactions SET notes = ?, payment_reference = ? WHERE id = ?")
+                    ->execute([$lines ? implode("\n", $lines) : null, $ref, $transactionId]);
+            }
+            $this->db->prepare("UPDATE bank_import_rows SET match_status = 'unmatched' WHERE transaction_id = ? AND match_status <> 'unmatched'")
+                ->execute([$transactionId]);
+            $this->db->commit();
+            return ['allocations_removed' => $allocs, 'sources_removed' => $src->rowCount()];
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /**
