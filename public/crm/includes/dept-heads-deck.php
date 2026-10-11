@@ -68,6 +68,7 @@ $__team = [
     ['otto',    'Otto',    'Operations',                ["Today's crew & route", 'Weather changes', 'GPS / timesheet gaps']],
     ['mia',     'Mia',     'Marketing & relationships', ['Who to reconnect with', 'Quiet property managers', 'Reviews & referrals']],
     ['yui',     'Yui',     'Comms · client relations',  ['Client replies waiting on you', 'Approvals with no accepted quote', 'Renewals, check-ins & arrears notes']],
+    ['ada',     'Ada',     'Technology',                ['Scheduled jobs failing or missed', 'Connections down (Google, Meta, Apple, Stripe)', 'Unused logins']],
     ['charlie', 'Charlie', 'Chief of Staff',            ['The one thing that needs you today', '7 am brief from every head']],
 ];
 ?>

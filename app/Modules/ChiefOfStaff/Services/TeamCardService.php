@@ -53,7 +53,7 @@ class TeamCardService
     public static function headKey(?string $slug): string
     {
         $k = strtolower((string)$slug);
-        return in_array($k, ['penny', 'sam', 'otto', 'mia', 'yui', 'charlie'], true) ? $k : 'charlie';
+        return in_array($k, ['penny', 'sam', 'otto', 'mia', 'yui', 'ada', 'charlie'], true) ? $k : 'charlie';
     }
 
     /**

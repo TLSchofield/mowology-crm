@@ -28,6 +28,7 @@
         otto:    { name: 'Otto',    face: 'otto',    role: 'Operations' },
         mia:     { name: 'Mia',     face: 'mia',     role: 'Marketing' },
         yui:     { name: 'Yui',     face: 'yui',     role: 'Comms' },
+        ada:     { name: 'Ada',     face: 'ada',     role: 'Technology' },
         house:   { name: 'Charlie', face: 'charlie', role: 'Foreman' }
     };
     var PER_COL = 3;     // items shown under each head before "+N more"

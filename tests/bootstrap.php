@@ -49,6 +49,10 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
 
+// Ada — head of Technology
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRules.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaDeskService.php';
+
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';

@@ -39699,3 +39699,40 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-cf-bar { display: block; height: 10px; border-radius: 5px; background: var(--mw-green); margin-top: 6px; }
 .mw-cf-bar.is-neg { background: var(--mw-red); }
 .mw-cf-spare { color: var(--mw-green); }
+
+/* ── Ada — head of Technology (card + System Health page) ─────────────────── */
+.mw-ada { display: grid; grid-template-columns: 150px 1fr; gap: 18px; border-color: var(--mw-light); }
+.mw-ada-photo img { width: 120px; height: 120px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-ada-body { min-width: 0; }
+.mw-ada-stats { grid-template-columns: repeat(4, 1fr); }
+.mw-ada-list, .mw-ada-rows { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mw-ada-row { display: flex; gap: 10px; align-items: flex-start; font-size: .875rem; line-height: 1.35; }
+.mw-ada-row a { color: inherit; }
+.mw-ada-more { font-size: .8rem; padding-left: 20px; }
+.mw-ada-dot { flex: 0 0 10px; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--mw-ink-300); }
+.is-red > .mw-ada-dot { background: var(--mw-red); }
+.is-amber > .mw-ada-dot { background: var(--mw-color-warning); }
+.is-green > .mw-ada-dot { background: var(--mw-green); }
+.is-unknown > .mw-ada-dot { background: var(--mw-ink-300); }
+.is-info > .mw-ada-dot { background: var(--mw-light); border: 1px solid var(--mw-ink-300); }
+.mw-ada-page-head { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.mw-ada-page-head img { border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 3px var(--mw-lime); }
+.mw-ada-tally { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.mw-ada-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--mw-light); font-size: .85rem; }
+.mw-ada-chip .mw-ada-dot { margin-top: 0; }
+.mw-ada-group .mw-ada-rows { margin: 0; padding: 8px 16px 14px; gap: 0; }
+.mw-ada-group .mw-ada-row { padding: 10px 0; border-bottom: 1px solid var(--mw-ink-200); }
+.mw-ada-group .mw-ada-row:last-child { border-bottom: 0; }
+.mw-ada-group .mw-ada-row:target { background: var(--mw-light); }
+.mw-ada-main { min-width: 0; flex: 1; }
+.mw-ada-name { font-weight: 600; color: var(--mw-forest); }
+.mw-ada-state { font-weight: 400; color: var(--mw-ink-500); margin-left: 6px; }
+.mw-ada-evidence { margin-top: 2px; }
+.mw-ada-when { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
+.mw-ada-handoff { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
+.mw-ada-to { font-weight: 600; color: var(--mw-dark); }
+.mw-ada-task { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .mw-ada { grid-template-columns: 1fr; }
+  .mw-ada-stats { grid-template-columns: repeat(2, 1fr); }
+}

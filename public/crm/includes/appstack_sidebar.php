@@ -206,6 +206,12 @@ $navItems = [
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'admin'): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'system-health') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/ada_appstack.php">
+                    <i class="align-middle" data-feather="activity"></i>
+                    <span class="align-middle">System Health</span>
+                </a>
+            </li>
             <li class="sidebar-item<?php echo ($activePage === 'system-log') ? ' active' : ''; ?>">
                 <a class="sidebar-link" href="/crm/system-log_appstack.php">
                     <i class="align-middle" data-feather="alert-circle"></i>

@@ -18,6 +18,7 @@ final class PushHeads
         'penny'   => ['Penny', 'Books'],
         'mia'     => ['Mia', 'Marketing'],
         'yui'     => ['Yui', 'Comms'],
+        'ada'     => ['Ada', 'Tech'],
     ];
 
     /** "Sam [Sales]" for a head slug; null when unknown. */
