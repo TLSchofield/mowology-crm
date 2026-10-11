@@ -1,6 +1,17 @@
 ---
 name: penny-bc-bookkeeping
 description: Use BEFORE touching anything money-related in the Mowology CRM / Ittai — Penny (the AI bookkeeper), receipts and OCR, expenses, GST/PST/ITCs, invoices and payments, bank or credit-card statements, deposits, Stripe payouts, e-Transfers, Yardi/SparcPay remittances, the ledger/journal, cash-flow forecast, payroll remittances, ROEs, T4s, WorkSafeBC, year-end, or any question about Tim's books. Also when Tim asks "how much…", "why is income…", "is this paid…", or reports a wrong flag on a receipt. Holds British Columbia bookkeeping rules, how this ledger works (and where it already double-counted), how Penny is allowed to operate, the single source of truth for each job, and the traps already hit.
+covers:
+  - app/Modules/Accounting/*
+  - app/Modules/Expenses/*
+  - app/Services/Receipts/*
+  - app/Services/Pdf/PdfFormFiller.php
+  - app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php
+  - public/crm/accounting/*
+  - public/crm/expenses_appstack.php
+  - public/crm/invoices/*
+  - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
+  - database/migrations/*
 metadata:
   version: 1.0.0
   created: 2026-10-11
@@ -15,7 +26,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 
 | Task | Read |
 |---|---|
-| GST/PST/ITCs, receipts, payroll deadlines, ROE, T4, WorkSafeBC | `references/bc-rules.md` |
+| GST/PST/ITCs, payroll, ROE, T4, WorkSafeBC — the rules themselves | the shared `regions` skill (`.claude/skills/regions/`) |
+| What Penny does with those rules | `references/bc-rules.md` |
 | Income, deposits, payments, Stripe, Jobber era, journal vs P&L, tables | `references/ledger.md` |
 | What Penny may do, learn, flag, chase; approvals | `references/operating-rules.md` |
 | Traps already hit (read before ANY write to the books) | `references/traps.md` |
@@ -40,7 +52,7 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 2. A Penny feature changed on one surface → update `references/surfaces.md` (and the other
    surfaces, or record the gap there).
 3. Names, paths or rules in this skill changed → update the skill in the same commit
-   (`tests/Unit/Docs/PennySkillTest.php` fails otherwise).
+   (`tests/Unit/Docs/HeadSkillsTest.php` fails otherwise).
 4. `/obsidian` (bare) at the end of the session writes the rest back.
 
 ## The five rules that are never broken
@@ -87,9 +99,11 @@ one BC tax-rules module every caller asks. Until then, a GST rule change means f
 
 ## Keeping this skill true
 
-- `tests/Unit/Docs/PennySkillTest.php` fails the test suite when a file, class or function this
-  skill names no longer exists, or when a dated rule in `references/bc-rules.md` is past its
-  review date. Fix the skill in the same commit as the code.
+- `tests/Unit/Docs/HeadSkillsTest.php` fails the test suite when a file, class or function this
+  skill names no longer exists, when a region rule is past its review date, or when the skill
+  loses its Obsidian + Graphify section or its `covers:` list. Fix the skill in the same commit as the code.
+- At the end of any session that changed code listed in `covers:`, the Stop hook
+  (`~/.claude/hooks/vault-writeback.py`) names this skill and the changed files, and sends you to update it.
 - When a mistake is found in Tim's books or in Penny's behaviour, add it to `references/traps.md`
   the same day (what happened, the signature, the rule that prevents it).
 - Tax facts carry a source and a `verified`/`review by` date. Rates and deadlines are re-checked

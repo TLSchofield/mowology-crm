@@ -21,10 +21,14 @@ groceries, deposits) were flagged (Chevron $0.12). Fixed to "at most 5%" in `che
 and `ReceiptBookkeeperService::check()`; 14 stored false flags cleared through the gate.
 **Rule:** tax rules belong in one place (see SKILL.md "Not yet central").
 
-## 2026-10-11 — Yardi remittance reader scans nothing
-`yardi_eft_inbox_poll` ran 2,663 times reporting "Scanned 0 email(s)" while office@ held 5 Yardi
-remittances (May–Jul) and info@ had forwarded Dorset ones. **Open** — remittances are not being
-used. A poller that always finds zero is a broken poller, not a quiet inbox.
+## 2026-10-11 — Remittance emails are mostly not read (coverage gap; "broken" was an overclaim)
+`yardi_eft_inbox_poll` ran 2,663 times reporting "Scanned 0 email(s)". First read as broken; the
+likelier cause (from its code, not yet checked against the mailbox): it only searches exact
+DoNotReply@yardi.com mail in office@, looks back 21 days and ignores anything before 2026-08-05 —
+the office@ Yardi remittances are all May–Jul. It never opens info@ or iCloud (where Dorset's land),
+and nothing reads SparcPay (strata BCS4428). **Rule:** a poller reporting zero needs its search
+window and mailbox checked before it is called broken; and the remittances that name invoice numbers
+are not being used yet.
 
 ## 2026-10-05 — Future-dated bank rows
 A December 2025 statement imported before the year fix was dated 2026 (session 13, 122 rows).

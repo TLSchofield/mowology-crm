@@ -1,0 +1,73 @@
+# Silent failures that justify Ada — read before building any check
+
+Each entry: date, what happened, the signature, the check that would have caught it.
+Add a new entry the same day one is found. Sources: "verified 2026-10-11" = checked in a session
+that day (reported by the session that commissioned this skill); "memory" / "Obsidian" = taken
+from that note, dated by the note.
+
+## 2026-10-11 — "0 found" read as "broken" (Yardi remittance reader)
+`yardi_eft_inbox_poll` (`app/Modules/Accounting/Cron/yardi_eft_inbox_poll.php`) ran 2,663 times,
+every summary "Scanned 0 email(s)", while office@ held 5 Yardi remittances (May–Jul). It was called
+broken; the likelier cause (from its code, not yet checked against the mailbox) is its window: exact
+DoNotReply@yardi.com sender, 21-day look-back, nothing before 2026-08-05 — and it never opens info@
+or iCloud (Dorset's remittances), and nothing reads SparcPay. **Rule for Ada:** before calling a
+quiet poller broken, compare its search window and mailboxes with where the mail actually is; report
+"coverage gap" or "broken" accordingly.
+
+## 2026-10-08 → 2026-10-11 — Google Maps key refuses every server geocode (verified 2026-10-11)
+The CRM's Maps key is restricted to browser referers, so server calls get "API keys with referer
+restrictions cannot be used with this API". `CloserService::depot()` swallows it and writes
+"Depot geocode failed <date>" into `ops_settings` once a day — broken since 2026-10-08, no alert.
+**Check:** outside connections — any stored "failed <date>" marker; plus the general rule that a
+browser key must not be used server-side (Tim's console, not code). Open.
+
+## 2026-10-11 — Charlie's ready brief stopped rebuilding (verified 2026-10-11)
+`charlie_morning_brief` failed to rebuild the ready copy with "Class TeamCardService not found"
+(a missing `require_once`) until someone looked. **Check:** scheduled jobs — error status; and
+age of the `head_brief_ready` row above `HeadBriefReadyService::MAX_AGE_SECONDS`.
+
+## 2026-06-18 → 2026-09-25 — Facebook / Instagram publishing dead (memory
+`project_social_meta_publishing_dead_keymig.md`; Obsidian Known-Failure-Patterns)
+An encryption-key change left stored tokens undecryptable; the error read "no page token" and
+the accounts kept a "Verified" badge. Three months of lost posts, found by accident.
+`SocialAccountHealth` was built afterwards. Tech-Debt-Map (2026-09-26) says the Facebook Page
+still needed reconnecting — current state unverified. **Check:** read
+`social_accounts.meta_json['health']`; never trust the badge.
+
+## Ongoing — production OPcache serves stale PHP (memory `feedback_production_opcache_stale.md`)
+The host caches PHP with timestamp checks off (see `public/crm/api/opcache-reset.php`), so an
+overwritten file keeps running its old code until a reset — once for hours. **Check:** deploys —
+staleness detection is unverified; until then, every deploy hand-off ends with "reset OPcache".
+
+## 2026-09-19 — Production ahead of the repo (memory `project_prod_ahead_of_repo_drift.md`;
+Obsidian "Deploying any `app/` file → production may be AHEAD of the repo")
+55 files existed only on production and ~27 had live code the repo lacked; deploying the repo
+copy would have deleted live features. `public/` never fully audited. **Check:** deploys — drift
+(Mac-side today: `scripts/prod-drift.sh`).
+
+## 2026-09-25 — "Never run" was a lie (Obsidian Known-Failure-Patterns)
+Crons that do not call `recordCronRun()` (or call it under a different key, e.g.
+`stop_orphaned_timers` vs `stop_orphaned_job_timers`) show "Never run" while working — and
+look identical to "not scheduled". `auto_clockout` was fine all along; the crontab told the
+truth, the dashboard did not. Twelve cron files still lack the call (list in `checks.md`).
+**Check:** scheduled jobs — "never reports" and "wrong key" are their own states.
+
+## 2026-09-25 — Truck tablets were invisible to the silent-GPS sweep (Obsidian)
+`TrackingHealthService::clockedInTrackedUsers()` excluded trucks, so a 21-hour blackout raised
+nothing. **Rule for Ada:** exclude a device from being *messaged*, never from being *seen*.
+
+## 2026-09-24 — CSRF token missing on crew pages silently killed Android GPS (memory
+`feedback_mw_csrf_token_appstack_only.md`)
+Fetches got 403, tracking start returned null with no log. Diagnosed from scratch while the
+matching note existed. **Check:** apps / tracking — `device_tracking_health.last_point_at` age
+for clocked-in users (already watched by `tracking_silent_alert`).
+
+## Migrations shipped but never run (Tech-Debt-Map, several)
+e.g. `media_assets` archival columns referenced by code but never migrated (2026-07-19) — the
+iOS Receipts list went silently empty. **Check:** deploys — migration files on the server with
+no `migrations_log` row.
+
+## Pattern behind all of them
+Every one ran "successfully" or showed a reassuring badge. The fix was always a **second
+source**: the mailbox vs the poller, the crontab vs the dashboard, the decrypt vs the badge.
+Ada's checks are pairs, not single readings.

@@ -20,6 +20,7 @@ class MailboxReadOnlyTest extends TestCase
         'app/Modules/Expenses/Cron/receipt_inbox_poll.php',
         'app/Modules/Accounting/Cron/etransfer_inbox_poll.php',
         'app/Modules/Accounting/Cron/yardi_eft_inbox_poll.php',
+        'app/Modules/Comms/Services/SupplierInboxService.php',
     ];
 
     private function src(string $f): string

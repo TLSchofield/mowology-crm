@@ -67,13 +67,16 @@ This is a critical constraint for all SQL queries and schema changes:
 
 ---
 
-## 1a. Money work → the Penny skill
+## 1a. Head skills — load the one for the area first
 
 Anything touching receipts, expenses, GST/PST, invoices/payments, deposits, Stripe, bank
 statements, the ledger, payroll or Penny: load the `penny-bc-bookkeeping` skill first
 (`.claude/skills/penny-bc-bookkeeping/`). It holds BC rules, how this ledger works, Penny's
 operating rules, the one place for each job, iPhone/Android/web parity, and traps already hit.
-`tests/Unit/Docs/PennySkillTest.php` keeps it in step with the code.
+Every head has one: `penny-bc-bookkeeping`, `charlie-chief-of-staff`, `sam-sales`, `otto-operations`,
+`mia-marketing`, `yui-comms`, `ada-technology`; location rules (country/province/city) are in the
+shared `regions` skill. `tests/Unit/Docs/HeadSkillsTest.php` keeps them in step with the code, and
+the end-of-session hook names the skills whose code changed.
 
 ---
 
