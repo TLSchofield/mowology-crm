@@ -180,6 +180,20 @@ class ReceiptFactsService
                 }
             }
         }
+        // Numbered receipt pads (Lawnboy, 2026-10-11): a stamped "Nº 003", often read as "No" on
+        // one line and "003" on the next. Only a line that is JUST the label (or label + number)
+        // counts, so "No signature required" never does. Different numbers = two receipts.
+        if ($out['doc_number'] === null) {
+            $label = '/^(?:N[oº°]\.?|№)$/u';
+            foreach ($lines as $i => $l) {
+                if (preg_match('/^(?:N[oº°]\.?|№)[ \t]*:?[ \t]*(\d{2,7})$/u', $l, $m)
+                    || (preg_match($label, $l) && isset($lines[$i + 1]) && preg_match('/^(\d{2,7})$/', $lines[$i + 1], $m))) {
+                    $out['doc_number'] = $m[1];
+                    $out['doc_kind'] = 'receipt';
+                    break;
+                }
+            }
+        }
 
         // Card last 4 (cashier / employee ids are masked too — skip those lines)
         $cardPatterns = [
@@ -266,7 +280,9 @@ class ReceiptFactsService
     /** Same length and one character different — an OCR misread, not proof of anything. */
     private static function nearMiss(string $a, string $b): bool
     {
-        if (strlen($a) !== strlen($b)) return false;
+        // One misread digit is plausible in a long ticket number (43176009), not in a short stamped
+        // pad number: "003" vs "006" are two receipts (Lawnboy, 2026-10-11).
+        if (strlen($a) !== strlen($b) || strlen($a) < 5) return false;
         $diff = 0;
         for ($i = 0, $n = strlen($a); $i < $n; $i++) if ($a[$i] !== $b[$i]) $diff++;
         return $diff <= 1;

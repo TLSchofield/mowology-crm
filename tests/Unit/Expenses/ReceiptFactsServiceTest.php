@@ -76,6 +76,18 @@ class ReceiptFactsServiceTest extends TestCase
         $this->assertSame('invoice 88120', ReceiptFactsService::line($f));
     }
 
+    public function test_numbered_pad_receipt_number_on_the_next_line(): void
+    {
+        // The exact OCR of Lawnboy #413 and #417 (2026-10-07): same day, same $84 — stamped Nº 003 and 006.
+        $a = ReceiptFactsService::parse("Lawnboy\nENTERPRISES Ltd.\n8655 Cambie St., Van. BC V6P 3J9\nTel: 604.322.8771 ST#858578578RT Date: 007 07/26\nAddress:\n1\n2\nZen CBM\n12\nNo\n003\nGST\n4~\nPST\nTOTAL\n84", '2026-10-07');
+        $b = ReceiptFactsService::parse("Lawnboy\nENTERPRISES Ltd.\nGST#858578578RT Date:\nAddress:\n001 07/26\n1\n2\n2m\n2 CBM\n80\n12\nNo\n006\nGST\nPST\nTOTAL\n45\n84", '2026-10-07');
+        $this->assertSame('003', $a['doc_number']);
+        $this->assertSame('006', $b['doc_number']);
+        $this->assertSame('different', ReceiptFactsService::duplicateVerdict($a, $b)['verdict']);
+        $this->assertSame('017', ReceiptFactsService::parse("Nº 017\nTOTAL 20")['doc_number']);
+        $this->assertNull(ReceiptFactsService::parse("No signature required\n12345")['doc_number'], 'a sentence starting "No" is not a label');
+    }
+
     public function test_empty_text_and_stored_formats(): void
     {
         $this->assertNull(ReceiptFactsService::parse('')['doc_number']);
