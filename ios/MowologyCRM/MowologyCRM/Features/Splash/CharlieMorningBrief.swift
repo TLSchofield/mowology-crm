@@ -134,6 +134,11 @@ struct OpeningOverlay: View {
     @AppStorage("mw.opening.lightBackground") private var light = true
     @State private var phase: Phase = .splash
     @State private var revealed = 0
+    /// The intro (owner, 2026-10-11): the brain grows in, then ITTAI, then the strapline; then the
+    /// brain moves to the top left and the brief lands beside it.
+    @State private var intro = 0
+    static let productName = "ITTAI"
+    static let strapline = "One business, working as one."
     private let snap = CharlieBrainCache.load() ?? .init(units: 0, tiers: [:])
 
     private var background: Color { light ? Color.MW.paper : Color.MW.forest }
@@ -144,7 +149,8 @@ struct OpeningOverlay: View {
             let top = geo.safeAreaInsets.top
             let small: CGFloat = 56
             let bigSize = min(geo.size.width * 0.72, 300)
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            // The brain sits a little above the middle so the name and strapline fit beneath it.
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2 - 48)
             let corner = CGPoint(x: 16 + 16 + small / 2, y: top + 12 + 16 + small / 2)
 
             ZStack(alignment: .top) {
@@ -165,11 +171,32 @@ struct OpeningOverlay: View {
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
+                if phase == .splash {
+                    VStack(spacing: 10) {
+                        Text(Self.productName)
+                            .font(.system(size: 34, weight: .semibold))
+                            .tracking(12)
+                            .foregroundStyle(ink)
+                            .opacity(intro >= 2 ? 1 : 0)
+                            .offset(y: intro >= 2 ? 0 : 8)
+                        Text(Self.strapline)
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(ink.opacity(0.7))
+                            .opacity(intro >= 3 ? 1 : 0)
+                    }
+                    .multilineTextAlignment(.center)
+                    .position(x: center.x, y: center.y + bigSize / 2 + 70)
+                    .accessibilityElement(children: .combine)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
                 if phase != .done {
                     BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
                         .frame(width: phase == .splash ? bigSize : small, height: phase == .splash ? bigSize : small)
                         .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
                         .position(phase == .splash ? center : corner)
+                        .scaleEffect(phase == .splash && intro < 1 ? 0.82 : 1)
+                        .opacity(phase == .splash && intro < 1 ? 0 : 1)
                         .allowsHitTesting(false)
                 }
             }
@@ -179,7 +206,13 @@ struct OpeningOverlay: View {
     }
 
     private func run() async {
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        // The intro: brain (0 s), ITTAI (0.45 s), strapline (0.9 s), held so it can be read (to 2.2 s).
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { intro = 1 }
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        withAnimation(.easeOut(duration: 0.5)) { intro = 2 }
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        withAnimation(.easeOut(duration: 0.5)) { intro = 3 }
+        try? await Task.sleep(nanoseconds: 1_300_000_000)
         // The login and today's brief get up to 2 s more (the dots keep circling).
         // Everyone else goes straight in — only an admin (or a login not loaded yet) waits.
         var waited = 0.0
