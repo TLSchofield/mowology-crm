@@ -921,6 +921,36 @@ class InvoiceReconciliationService
     }
 
     /**
+     * The payer's name as the bank prints it, or null: "CHEQUE DEPOSIT - BRANCH (MCR ITF S TRATA …)"
+     * → "MCR ITF S TRATA …"; "Preauthorized credit DORSET REALTY GROUP CANADA LTD" → "DORSET REALTY
+     * GROUP CANADA LTD". e-Transfer lines carry only OUR name (TD), so they give none.
+     * Learned payers are keyed by it (etransfer_sender_payers) — DepositBackfillService teaches,
+     * BankInvoiceMatchService reads (2026-10-11).
+     */
+    public static function memoPayer(string $memo): ?string
+    {
+        $m = trim(preg_replace('/\s+/', ' ', $memo));
+        if ($m === '') return null;
+        if (preg_match('/\(([^)]+)\)/', $m, $x)) {
+            $name = $x[1];
+        } else {
+            $name = preg_replace('/^(cheque\s*deposit\s*-?\s*branch|chequedeposit-branch|preauthori[sz]ed\s*credit|preauthorizedcredit|mobile\s*deposit|atm\s*cheque(\s*deposit)?|e-?transfer\s*credit)\s*/i', '', $m);
+            if ($name === $m) return null;   // not a deposit wording we know
+        }
+        $name = trim((string)preg_replace('/\b(ref|reference)\b.*$/i', '', (string)$name), " -");
+        // Repeated names ("OBSIDIAN PROPERTY MANAGEMENT OBSIDIAN PROPERTY MANAGEMENT") → once.
+        $words = preg_split('/\s+/', $name);
+        $half = intdiv(count($words), 2);
+        for ($k = $half; $k >= 2; $k--) {
+            if (implode(' ', array_slice($words, 0, $k)) === implode(' ', array_slice($words, $k, $k))) { $words = array_slice($words, 0, $k); break; }
+        }
+        $name = trim(implode(' ', $words), " -");
+        $key = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name));
+        if (strlen($key) < 4 || str_contains($key, 'MOWOLOGY') || preg_match('/^\d+$/', $key)) return null;
+        return $name;
+    }
+
+    /**
      * Does the memo name this invoice? Full number ("INV-2026-0036", separators
      * optional) or its sequence as a standalone token ("0036"/"36"). Digit runs
      * inside longer numbers never count — Interac refs begin with the date

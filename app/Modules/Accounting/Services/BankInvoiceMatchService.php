@@ -64,6 +64,12 @@ class BankInvoiceMatchService
             $payerNames['Interac email from'] = $sender;
             foreach ($this->learnedPayers($sender) as $p) $payerNames['You\'ve recorded ' . $sender . ' paying for'] = $p;
         }
+        // Cheques and EFTs print the payer on the bank line ("MCR ITF STRATA PLAN VR1540"): who that
+        // wording has paid for before (taught by confirmed links — DepositBackfillService, 2026-10-11).
+        $memoPayer = InvoiceReconciliationService::memoPayer((string)$line['description']);
+        if ($memoPayer !== null) {
+            foreach ($this->learnedPayers($memoPayer) as $p) $payerNames['The bank line ("' . $memoPayer . '") has paid for'] = $p;
+        }
 
         $recorded = self::pickRecorded($this->unlinkedPayments($date), $amount, $date, $email ? (int)$email['id'] : null);
         $legacy   = $recorded ? [] : $this->legacyPaid($amount, $date);

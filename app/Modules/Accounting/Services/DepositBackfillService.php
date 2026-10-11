@@ -23,12 +23,17 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/InvoiceReconciliationService.php';
+require_once __DIR__ . '/EtransferInboxService.php';
 
 class DepositBackfillService
 {
     public const SINCE = '2026-02-25';
     public const DAYS_BEFORE = 30;
     public const DAYS_AFTER = 5;
+    /** Certain = the payment was recorded within this many days of the deposit … */
+    public const CERTAIN_DAYS = 3;
+    /** … and no other payment of the same amount lies within this many days of it. */
+    public const UNIQUE_DAYS = 60;
 
     private PDO $db;
 
@@ -56,6 +61,12 @@ class DepositBackfillService
     public static function methodForKind(string $kind): string
     {
         return ['cheque' => 'cheque', 'e_transfer' => 'e_transfer', 'stripe' => 'credit_card'][$kind] ?? 'other';
+    }
+
+    /** The payer's name as the bank prints it (shared with Penny's bank card). */
+    public static function memoPayer(string $memo): ?string
+    {
+        return InvoiceReconciliationService::memoPayer($memo);
     }
 
     /** Can a payment recorded with $method arrive as a deposit of this kind? */
@@ -101,8 +112,34 @@ class DepositBackfillService
     }
 
     /**
+     * Is this match beyond doubt? Every payment recorded within CERTAIN_DAYS of the deposit,
+     * and (for a single payment) no OTHER payment of the same amount within UNIQUE_DAYS — a
+     * client paying the same amount every month (Macdonald $1,194.39, Dorset $402.02) must not
+     * be linked to the wrong month. Null = certain, else the reason.
+     */
+    public static function doubt(array $dep, array $pick, array $allCands): ?string
+    {
+        $dt = strtotime((string)$dep['transaction_date']);
+        foreach ($pick as $p) {
+            $gap = abs(strtotime((string)$p['date']) - $dt) / 86400;
+            if ($gap > self::CERTAIN_DAYS) return sprintf('%s was recorded %d days from the deposit', $p['ref'], (int)round($gap));
+        }
+        if (count($pick) === 1) {
+            $amt = round((float)$pick[0]['amount'], 2);
+            foreach ($allCands as $c) {
+                if ($c['key'] === $pick[0]['key'] || abs(round((float)$c['amount'], 2) - $amt) > 0.01 || empty($c['date'])) continue;
+                if (abs(strtotime((string)$c['date']) - $dt) <= self::UNIQUE_DAYS * 86400) {
+                    return sprintf('%s is the same amount, %s', $c['ref'], $c['date']);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Run the deposits in date order; a candidate is used once. Each row gets an action:
-     * link_crm (all picks CRM), source_jobber (all picks Jobber), review (mixed / ambiguous), none.
+     * link_crm (all picks CRM, certain), source_jobber (all picks Jobber, certain),
+     * review (mixed, ambiguous or not certain — with the reason), none.
      */
     public static function plan(array $deposits, array $cands): array
     {
@@ -113,13 +150,18 @@ class DepositBackfillService
             $m = self::match($d, $free);
             $srcs = array_values(array_unique(array_column($m['pick'], 'src')));
             $action = 'none';
+            $why = null;
             if (in_array($m['class'], ['single', 'subset'], true)) {
-                $action = $srcs === ['crm'] ? 'link_crm' : ($srcs === ['jobber'] ? 'source_jobber' : 'review');
+                $why = self::doubt($d, $m['pick'], $cands);
+                if ($why === null && count($srcs) > 1) $why = 'mixes CRM and Jobber payments';
+                $action = $why !== null ? 'review' : ($srcs === ['crm'] ? 'link_crm' : 'source_jobber');
                 if ($action !== 'review') foreach ($m['pick'] as $p) $used[$p['key']] = true;
             } elseif ($m['class'] === 'ambiguous') {
                 $action = 'review';
+                $why = count($m['pick']) . ' payments of this amount';
             }
-            $out[] = ['deposit' => $d, 'class' => $m['class'], 'action' => $action, 'pick' => $m['pick'], 'kind' => self::kindOf((string)$d['description'])];
+            $out[] = ['deposit' => $d, 'class' => $m['class'], 'action' => $action, 'why' => $why, 'pick' => $m['pick'],
+                      'kind' => self::kindOf((string)$d['description']), 'memo_payer' => self::memoPayer((string)$d['description'])];
         }
         return $out;
     }
@@ -206,7 +248,7 @@ class DepositBackfillService
     public function apply(array $plan, int $userId): array
     {
         $rec = new InvoiceReconciliationService($this->db);
-        $out = ['linked' => 0, 'sourced' => 0, 'income_removed' => 0.0, 'skipped' => []];
+        $out = ['linked' => 0, 'sourced' => 0, 'taught' => 0, 'income_removed' => 0.0, 'skipped' => []];
         foreach ($plan as $r) {
             $tx = (int)$r['deposit']['id'];
             if ($r['action'] === 'link_crm') {
@@ -218,6 +260,11 @@ class DepositBackfillService
                     $this->db->prepare("UPDATE accounting_transactions SET notes = CONCAT_WS('\n', NULLIF(TRIM(notes), ''), ?) WHERE id = ?")
                         ->execute(['Linked by the deposit backfill ' . date('Y-m-d') . ' — paid ' . implode(', ', array_column($r['pick'], 'ref')), $tx]);
                     $this->db->commit();
+                    // Teach Penny who this bank wording is (same memory as the Interac learning).
+                    if (!empty($r['memo_payer'])) {
+                        (new EtransferInboxService($this->db))->learnSender($r['memo_payer'], array_map(fn($p) => (int)$p['id'], $r['pick']));
+                        $out['taught']++;
+                    }
                     $out['linked']++;
                     $out['income_removed'] = round($out['income_removed'] + (float)$r['deposit']['amount'], 2);
                 } catch (Throwable $e) {
@@ -246,6 +293,11 @@ class DepositBackfillService
                         WHERE id = ?
                     ")->execute([mb_substr($refs, 0, 100), count($contacts) === 1 ? $contacts[0] : null,
                                  'Jobber-era payment: ' . $refs . ($payer !== '' ? ' — ' . $payer : '') . ' (deposit backfill ' . date('Y-m-d') . ')', $tx]);
+                    // Teach Penny: this bank wording pays for this (Jobber-era) client.
+                    if (!empty($r['memo_payer']) && $payer !== '') {
+                        $this->learnPayer($r['memo_payer'], $payer);
+                        $out['taught']++;
+                    }
                     $out['sourced']++;
                 } catch (Throwable $e) {
                     $out['skipped'][] = ['deposit' => $tx, 'why' => $e->getMessage()];
@@ -253,6 +305,22 @@ class DepositBackfillService
             }
         }
         return $out;
+    }
+
+    /** Bank wording → payer name, in etransfer_sender_payers (the matcher reads it by sender). */
+    private function learnPayer(string $sender, string $payer): void
+    {
+        $k = fn(string $n) => strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $n));
+        if ($k($sender) === '' || $k($payer) === '' || $k($sender) === $k($payer)) return;
+        try {
+            $this->db->prepare("
+                INSERT INTO etransfer_sender_payers (sender_key, payer_key, sender_name, payer_name, times, last_seen)
+                VALUES (?, ?, ?, ?, 1, NOW())
+                ON DUPLICATE KEY UPDATE times = times + 1, last_seen = NOW()
+            ")->execute([$k($sender), $k($payer), mb_substr($sender, 0, 255), mb_substr($payer, 0, 255)]);
+        } catch (Throwable $e) {
+            error_log('[deposit backfill] learnPayer: ' . $e->getMessage());
+        }
     }
 
     /**

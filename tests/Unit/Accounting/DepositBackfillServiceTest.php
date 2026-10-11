@@ -50,6 +50,30 @@ final class DepositBackfillServiceTest extends TestCase
         $this->assertSame('ambiguous', DepositBackfillService::match($dep, $two)['class']);
     }
 
+    public function testMemoPayer(): void
+    {
+        $this->assertSame('MCR ITF S TRATA PLAN VR1540', DepositBackfillService::memoPayer('CHEQUE DEPOSIT - BRANCH (MCR ITF S TRATA PLAN VR1540)'));
+        $this->assertSame('DORSET REALTY GROUP CANADA LTD', DepositBackfillService::memoPayer('Preauthorized credit DORSET REALTY GROUP CANADA LTD'));
+        $this->assertSame('OBSIDIAN PROPERTY MANAGEMENT', DepositBackfillService::memoPayer('Preauthorized credit OBSIDIAN PROPERTY MANAGEMENT OBSIDIAN PROPERTY MANAGEMENT'));
+        $this->assertSame('MCR ITF - STRATA PLAN VR 15 40', DepositBackfillService::memoPayer('Cheque deposit-branch MCR ITF - STRATA PLAN VR 15 40'));
+        $this->assertNull(DepositBackfillService::memoPayer('CHEQUE DEPOSIT - BRANCH'));
+        $this->assertNull(DepositBackfillService::memoPayer('e-Transfer credit Ref 20260323183229668329 MOWOLOGY LAWNS AND LANDSCAPES LTD'));
+        $this->assertNull(DepositBackfillService::memoPayer('INTEREST CREDITED TO ACCOUNT'));
+    }
+
+    public function testDoubt(): void
+    {
+        $dep = ['transaction_date' => '2026-04-23', 'amount' => 1194.39, 'description' => 'CHEQUE DEPOSIT - BRANCH'];
+        $pick = [self::c('crm10', 'crm', 1194.39, 'cheque', '2026-04-23')];
+        $this->assertNull(DepositBackfillService::doubt($dep, $pick, $pick));
+        // Same client, same amount, the month before: not certain.
+        $all = array_merge($pick, [self::c('crm7', 'crm', 1194.39, 'cheque', '2026-03-24')]);
+        $this->assertStringContainsString('same amount', (string)DepositBackfillService::doubt($dep, $pick, $all));
+        // Recorded 10 days from the deposit: not certain.
+        $late = [self::c('crm11', 'crm', 1194.39, 'cheque', '2026-04-13')];
+        $this->assertStringContainsString('10 days', (string)DepositBackfillService::doubt($dep, $late, $late));
+    }
+
     public function testGroupAndPlanActions(): void
     {
         $deps = [
