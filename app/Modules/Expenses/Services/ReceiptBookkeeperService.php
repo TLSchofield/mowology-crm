@@ -505,7 +505,9 @@ TXT;
         if ($sub !== null && $gst !== null && $pst !== null && $tot !== null) {
             $add('sum', abs($sub + $gst + $pst - $tot) <= 0.03, sprintf('Subtotal %.2f + GST %.2f + PST %.2f vs total %.2f', $sub, $gst, $pst, $tot));
             if ($gst > 0 && $sub > 0) {
-                $add('gst_rate', abs($gst - $sub * 0.05) <= max(0.06, $sub * 0.002), sprintf('GST %.2f vs 5%% of %.2f', $gst, $sub));
+                // At most 5%, like PST below: zero-rated groceries and deposits make it lower (Chevron
+                // 2026-09-22: $0.12 on a $2.49 hot drink in a $15.57 basket); only more is wrong.
+                $add('gst_rate', $gst <= $sub * 0.05 + max(0.06, $sub * 0.002), sprintf('GST %.2f vs at most 5%% of %.2f', $gst, $sub));
             }
             if ($pst > 0 && $sub > 0) {
                 $add('pst_rate', $pst <= $sub * 0.07 + 0.06, sprintf('PST %.2f vs at most 7%% of %.2f', $pst, $sub));

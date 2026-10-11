@@ -61,6 +61,13 @@ class ReceiptBookkeeperServiceTest extends TestCase
         $this->assertSame([false], $this->checksByName($r['checks'])['gst_rate']);
     }
 
+    public function test_gst_below_5_percent_is_fine_for_a_mixed_basket(): void
+    {
+        // Zero-rated items (bottled water, deposits) share the subtotal: GST under 5% is normal.
+        $r = ReceiptBookkeeperService::check($this->suggestion(['gst' => $this->f(0.12), 'total' => $this->f(100.12)]), $this->ctx());
+        $this->assertSame([true], $this->checksByName($r['checks'])['gst_rate']);
+    }
+
     public function test_firm_owner_rule_overrides_the_model(): void
     {
         $hits = [['field' => 'asset_tag', 'value' => 'truck', 'reason' => 'Diesel is for the Dodge Ram truck', 'rule' => 'fuel_diesel_truck', 'strength' => 'firm']];
