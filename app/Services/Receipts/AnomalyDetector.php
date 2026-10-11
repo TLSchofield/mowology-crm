@@ -312,7 +312,11 @@ function checkSplitSuspicion(array $e, PDO $db): ?array
 }
 
 
-// ── Rule 8: GST Mismatch — GST is not ~5% of subtotal ───────────────
+// ── Rule 8: GST Mismatch — GST MORE than 5% of the subtotal ─────────
+// GST below 5% is normal: zero-rated basic groceries (bottled water, snacks), exempt items and
+// bottle deposits sit in the same subtotal (Chevron 2026-09-22: $0.12 GST on a $2.49 hot drink in
+// a $15.57 basket was right, and was flagged). GST above 5% of the pre-tax subtotal cannot come
+// from GST alone — a misread or PST read as GST — so only that is flagged (owner, 2026-10-11).
 
 function checkGstMismatch(array $e, PDO $db): ?array
 {
@@ -349,12 +353,12 @@ function checkGstMismatch(array $e, PDO $db): ?array
     $expectedGst = round($amount * 0.05, 2);
     $tolerance = max(0.10, $amount * 0.005); // $0.10 or 0.5%, whichever is larger
 
-    if ($gst > 0 && abs($gst - $expectedGst) > $tolerance) {
+    if ($gst > $expectedGst + $tolerance) {
         return [
             'code'   => 'GST_MISMATCH',
             'score'  => 20,
             'detail' => sprintf(
-                'GST $%.2f is not ~5%% of subtotal $%.2f (expected ~$%.2f)',
+                'GST $%.2f is more than 5%% of subtotal $%.2f (at most ~$%.2f)',
                 $gst, $amount, $expectedGst
             ),
         ];

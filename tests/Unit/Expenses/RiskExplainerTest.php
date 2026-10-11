@@ -39,7 +39,7 @@ class RiskExplainerTest extends TestCase
     public function test_gst_mismatch_names_both_amounts(): void
     {
         $line = RiskExplainer::say('GST_MISMATCH', $this->esso(['amount' => '150.00', 'gst_amount' => '9.52']));
-        $this->assertSame('GST is $9.52, but 5% of the subtotal would be $7.50. Worth a look.', $line);
+        $this->assertSame("GST is \$9.52 — more than 5% of the subtotal (\$7.50). GST alone can't be more; check it was read right (PST read as GST?).", $line);
         $this->assertStringContainsString('GST-exempt', RiskExplainer::say('GST_MISMATCH', $this->esso(), 'GST charged at a GST-exempt vendor'));
     }
 

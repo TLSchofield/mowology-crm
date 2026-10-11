@@ -106,9 +106,9 @@ class RiskExplainer
                     return 'GST was charged, but ' . $vendor . ' is set up as GST-exempt. Worth a look.';
                 }
                 if ($sub > 0 && $gst > 0) {
-                    return 'GST is ' . self::money($gst) . ', but 5% of the subtotal would be ' . self::money(round($sub * 0.05, 2)) . '. Worth a look.';
+                    return 'GST is ' . self::money($gst) . ' — more than 5% of the subtotal (' . self::money(round($sub * 0.05, 2)) . '). GST alone can\'t be more; check it was read right (PST read as GST?).';
                 }
-                return "The GST doesn't look like 5% of the subtotal. Worth a look.";
+                return "The GST is more than 5% of the subtotal — check it was read right.";
             case 'WEEKEND_EXPENSE':
                 $ts = strtotime((string)($e['expense_date'] ?? ''));
                 return 'Bought on a ' . ($ts ? date('l', $ts) : 'weekend') . '.';
