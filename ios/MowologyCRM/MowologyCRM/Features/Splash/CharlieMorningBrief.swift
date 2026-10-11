@@ -49,7 +49,10 @@ enum MorningBriefStore {
         return f.string(from: d)
     }
 
-    static var shownToday: Bool { UserDefaults.standard.string(forKey: shownKey) == dayString() }
+    /// Owner, 2026-10-11: the brief plays on EVERY open until he says to go back to once a day.
+    /// Set to true to restore the once-a-day rule.
+    static let oncePerDay = false
+    static var shownToday: Bool { oncePerDay && UserDefaults.standard.string(forKey: shownKey) == dayString() }
     static func markShown() { UserDefaults.standard.set(dayString(), forKey: shownKey) }
 
     static func load() -> MorningBriefSnapshot? {
@@ -206,13 +209,14 @@ struct OpeningOverlay: View {
     }
 
     private func run() async {
-        // The intro: brain (0 s), ITTAI (0.45 s), strapline (0.9 s), held so it can be read (to 2.2 s).
+        // The intro: brain (0 s), ITTAI (0.45 s), strapline (0.9 s), held so it can be read — ~2.8 s in all
+        // (owner, 2026-10-11: a 5-word line needs ~1.5–2 s on screen to land; past ~3 s it feels like waiting).
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { intro = 1 }
         try? await Task.sleep(nanoseconds: 450_000_000)
         withAnimation(.easeOut(duration: 0.5)) { intro = 2 }
         try? await Task.sleep(nanoseconds: 450_000_000)
         withAnimation(.easeOut(duration: 0.5)) { intro = 3 }
-        try? await Task.sleep(nanoseconds: 1_300_000_000)
+        try? await Task.sleep(nanoseconds: 1_900_000_000)
         // The login and today's brief get up to 2 s more (the dots keep circling).
         // Everyone else goes straight in — only an admin (or a login not loaded yet) waits.
         var waited = 0.0
