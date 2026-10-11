@@ -1,4 +1,4 @@
-# Ada's checks — PLANNED, NOT BUILT
+# Ada's checks — (1), (2) and the logins check BUILT 2026-10-11; the rest PLANNED
 
 Every check below is PLANNED. The data source named for each is EXISTING (verified 2026-10-11
 in this repo unless marked). Production can differ from the repo — confirm with
@@ -7,7 +7,21 @@ in this repo unless marked). Production can differ from the repo — confirm wit
 Each check produces: system, state (green / amber / red), "last worked" date, one evidence line,
 and — when not green — a hand-off (see `operating-rules.md`).
 
-## (1) Scheduled jobs — BUILD FIRST
+## (1) Scheduled jobs — BUILT 2026-10-11
+
+Built in `AdaRules::cronCheck()` / `AdaDeskService` exactly as the table below, with these
+decisions settled on production data (2026-10-11):
+- the registry is read as TEXT from the live page (`AdaRules::parseRegistry()`), never executed;
+- interval comes from `expr` only — `ran_at` is ~3 h behind the cPanel clock, so time of day is unusable;
+- missed = no run for 2 intervals + 10 min; recovered = failed within 3 days, now working (amber);
+- "does it record" = the script text calls `recordCronRun(` or names table `cron_runs`
+  (`cron_runs_log` does not count). Text without it but with runs on record still reports
+  through a shim — runs on record win;
+- a job that keeps no record but whose work shows elsewhere is green by proxy
+  (`AdaRules::PROXIES`: trackimo_poll → truck positions, push_drain → Apple push);
+- never ran + records → amber "probably not in the cPanel schedule". Weak for scripts that exit
+  before recording when idle (reconsent_sender does) — the wording says so.
+
 
 Sources: table `cron_runs` (written only by `recordCronRun()` in `app/Services/CrmFunctions.php`)
 and the registry `$crons` in `public/crm/database_appstack.php` (key, expr, app path).
@@ -37,7 +51,7 @@ the one-line fix; she does not guess from symptoms.
 - `charlie_morning_brief` → age of the `head_brief_ready` row (older than
   `HeadBriefReadyService::MAX_AGE_SECONDS` = 3600 s means the rebuild is failing).
 
-## (2) Outside connections — BUILD SECOND
+## (2) Outside connections — BUILT 2026-10-11 (Google Maps and mailbox logins still PLANNED)
 
 | Connection | Signal Ada reads | Source (existing) | Gap |
 |---|---|---|---|
@@ -85,7 +99,7 @@ is owed. The live file was not checked. Ada compares offered vs run, not repo vs
 |---|---|
 | Secrets outside `secrets.php` | file scan of the repo for credential-shaped strings (planned); report location only |
 | `DEPLOYMENT.md` FTP password | Directions note (2026-10-03) says a live FTP password is committed there. In this branch (checked 2026-10-11) the file points to `.git/config` instead and its only commit (f8d8d0d0) says the same — the claim is **unverified** for other checkouts. Settle before reporting |
-| Unused logins | `users.last_login` (set in `app/Core/Auth/auth.php`), `cms_site_users.last_login_at` |
+| Unused logins — BUILT (`AdaRules::loginsCheck()`) | `users.last_login` (set in `app/Core/Auth/auth.php` and `public/api/auth/token.php`) AND phone seen in `device_tracking_health.last_seen_at` — an app login can stay signed in for months, so login alone is not evidence; truck tablets excluded |
 | Admin-only endpoints still guarded | cron web shims use a shared `_guard.php` (Tech-Debt-Map, 2026-06-18); recheck unverified |
 
 ## Per tenant (Ittai) — later

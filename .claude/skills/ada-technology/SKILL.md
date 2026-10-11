@@ -2,6 +2,9 @@
 name: ada-technology
 description: Use BEFORE answering "is X working?" or touching system health in the Mowology CRM / Ittai — scheduled jobs (crons, cron_runs, the Database Manager registry), outside connections (Stripe, Google Maps / Search Console / Business Profile, Meta, Apple push, IMAP mailboxes, Trackimo), crew app versions, TestFlight builds, crash reports, deploys, OPcache, production-vs-repo drift, migrations shipped but never run, schema drift, secrets in the wrong place, unused logins. Also when building Ada herself (the planned head of Technology) or her health page. Holds what Ada will check, the exact table or file each check reads, how she is allowed to act, and the silent failures that justify her.
 covers:
+  - app/Modules/Technology/*
+  - public/crm/ada_appstack.php
+  - public/crm/includes/ada-card.php
   - app/Services/CrmFunctions.php
   - app/Core/CronLock.php
   - app/Modules/Database/*
@@ -22,16 +25,19 @@ covers:
 metadata:
   version: 1.0.0
   created: 2026-10-11
-  status: planned
+  status: built (phase 1, 2026-10-11)
   owner: Tim Schofield (Mowology)
 ---
 
-# Ada — head of Technology (PLANNED, NOT BUILT)
+# Ada — head of Technology (phase 1 BUILT 2026-10-11)
 
-> **Status 2026-10-11: Ada does not exist in code.** No service, cron, card, page or table of
-> hers exists. Everything described as Ada's (her checks, her health page, her brief line) is
-> PLANNED and is written in plain words, never in backticks. Everything in backticks is
-> EXISTING and was checked against this repo on 2026-10-11 — those are the places she will read.
+> **Built (2026-10-11, commit 418aeb74):** `AdaRules` (pure, `tests/Unit/Technology/AdaRulesTest.php`)
+> and `AdaDeskService` in `app/Modules/Technology/Services/`; her line in Charlie's brief
+> (`CharlieBriefService` desks list); her card `public/crm/includes/ada-card.php`; the System Health
+> page `public/crm/ada_appstack.php` (admin only, sidebar "System Health"). Checks built: scheduled
+> jobs, connections (Meta, Google Business, Search Console, Apple push, Stripe, Trackimo), unused
+> logins. Everything else in `references/checks.md` marked PLANNED is still planned — plain words,
+> never backticks, until it exists.
 
 Agreed with Tim 2026-10-11: Ada keeps the system working and tells Charlie when it is not.
 She runs on **rules, not AI** (reads tables that already exist — costs nothing), reports
@@ -46,7 +52,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | Where Ada will appear (Charlie's brief, health page, iPhone) | `references/surfaces.md` |
 | The silent failures that justify her (read before building any check) | `references/traps.md` |
 
-**Build order (agreed):** (1) scheduled jobs, then (2) outside connections. The rest waits.
+**Build order (agreed):** (1) scheduled jobs and (2) outside connections — BUILT; first security slice (unused logins) — BUILT. Next: apps, deploys, migrations never run, data soundness, the rest of security.
 
 **Location rules** (taxes, payroll, CASL/SMS, bylaws, licences — by country/province/city) live in the shared
 `regions` skill (`.claude/skills/regions/`), not here. Read the file for the place the job is in.
