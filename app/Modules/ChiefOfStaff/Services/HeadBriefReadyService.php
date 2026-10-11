@@ -149,6 +149,9 @@ class HeadBriefReadyService
         ];
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
         $out['ask'] = (new CharlieAskService($db))->status();
+        // A line for the foot of the brief (owner, 2026-10-11) — the same for everyone today.
+        require_once __DIR__ . '/DailyQuote.php';
+        $out['quote'] = DailyQuote::forDate(date('Y-m-d'));
         return $out;
     }
 

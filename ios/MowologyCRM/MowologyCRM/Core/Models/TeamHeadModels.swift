@@ -27,6 +27,8 @@ struct HeadCardResponse: Decodable {
     let items: [HeadItem]
     // Charlie
     let ask: HeadAskStatus?
+    /// Charlie's brief only: the day's quote for the foot of the opening card (2026-10-11).
+    let quote: BriefQuote?
     // Otto
     let unpinned: [UnpinnedProperty]
     /// Otto's suggestions with their buttons + the contract auto-log (jobs.edit; older servers send none).
@@ -37,7 +39,7 @@ struct HeadCardResponse: Decodable {
     let canApprove: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto
+        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
@@ -55,6 +57,7 @@ struct HeadCardResponse: Decodable {
         brain = try? c.decodeIfPresent(HeadBrainSummary.self, forKey: .brain)
         items = (try? c.decodeIfPresent([HeadItem].self, forKey: .items)) ?? []
         ask = try? c.decodeIfPresent(HeadAskStatus.self, forKey: .ask)
+        quote = try? c.decodeIfPresent(BriefQuote.self, forKey: .quote)
         unpinned = (try? c.decodeIfPresent([UnpinnedProperty].self, forKey: .unpinned)) ?? []
         otto = try? c.decodeIfPresent(OttoDesk.self, forKey: .otto)
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
@@ -433,4 +436,11 @@ struct TeamBrainsResponse: Decodable {
         }
         brains = out
     }
+}
+
+
+/// A short quote and its credit ("Voltaire, Candide") — DailyQuote on the server.
+struct BriefQuote: Decodable, Equatable {
+    let text: String
+    let by: String
 }

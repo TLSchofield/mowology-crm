@@ -137,6 +137,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefServic
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DailyQuote.php';
 require_once __DIR__ . '/../app/Services/Pdf/PdfFormFiller.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/DepositBackfillService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CompanyProfileService.php';

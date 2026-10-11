@@ -33,6 +33,9 @@ struct MorningBriefSnapshot: Codable, Equatable {
     var headline: String
     var lines: [Line]
     var ongoing: Int
+    /// The day's quote (optional: briefs saved before 1.3.25 have none).
+    var quote: String? = nil
+    var quoteBy: String? = nil
 }
 
 enum MorningBriefStore {
@@ -76,7 +79,7 @@ enum MorningBriefStore {
     }
 
     /// New first (by priority), then the rest; at most maxLines shown, the others counted as ongoing.
-    static func build(headline: String, items: [HeadItem], now: Date = Date()) -> MorningBriefSnapshot {
+    static func build(headline: String, items: [HeadItem], quote: BriefQuote? = nil, now: Date = Date()) -> MorningBriefSnapshot {
         let yesterday = dayString(Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now)
         let seen = seenKeys
         let lines = items.map { it -> MorningBriefSnapshot.Line in
@@ -87,7 +90,8 @@ enum MorningBriefStore {
         let ordered = lines.filter(\.isNew).sorted { $0.priority < $1.priority }
                     + lines.filter { !$0.isNew }.sorted { $0.priority < $1.priority }
         let shown = Array(ordered.prefix(maxLines))
-        return MorningBriefSnapshot(fetchedAt: now, headline: headline, lines: shown, ongoing: max(0, ordered.count - shown.count))
+        return MorningBriefSnapshot(fetchedAt: now, headline: headline, lines: shown, ongoing: max(0, ordered.count - shown.count),
+                                    quote: quote?.text, quoteBy: quote?.by)
     }
 }
 
@@ -114,7 +118,7 @@ final class MorningBriefLoader: ObservableObject {
         let r: HeadCardResponse? = try? await client.request(.teamHeadBriefReady(head: "charlie"))
         if let r, r.ok {
             if let brain = r.brain { CharlieBrainCache.save(brain) }
-            let s = MorningBriefStore.build(headline: r.headline, items: r.items)
+            let s = MorningBriefStore.build(headline: r.headline, items: r.items, quote: r.quote)
             MorningBriefStore.save(s)
             snapshot = s
             isFresh = true
@@ -332,6 +336,20 @@ struct OpeningOverlay: View {
                 .buttonStyle(.plain)
                 .opacity(revealed >= i + 2 ? 1 : 0)
                 .offset(y: revealed >= i + 2 ? 0 : 6)
+            }
+
+            if let q = s.quote, !q.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\u{201C}\(q)\u{201D}")
+                        .font(.subheadline.italic())
+                        .foregroundStyle(ink.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let by = s.quoteBy, !by.isEmpty {
+                        Text("— \(by)").font(.caption).foregroundStyle(ink.opacity(0.55))
+                    }
+                }
+                .padding(.top, 4)
+                .opacity(revealed >= s.lines.count + 2 ? 1 : 0)
             }
 
             HStack {
