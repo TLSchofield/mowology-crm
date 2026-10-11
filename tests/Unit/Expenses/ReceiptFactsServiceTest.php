@@ -86,6 +86,14 @@ class ReceiptFactsServiceTest extends TestCase
         $this->assertSame('different', ReceiptFactsService::duplicateVerdict($a, $b)['verdict']);
         $this->assertSame('017', ReceiptFactsService::parse("Nº 017\nTOTAL 20")['doc_number']);
         $this->assertNull(ReceiptFactsService::parse("No signature required\n12345")['doc_number'], 'a sentence starting "No" is not a label');
+        // Reused pads: the same short number is the same receipt only on the same printed date.
+        $x = ['doc_number' => '018', 'doc_kind' => 'receipt', 'printed_date' => '2026-03-02'];
+        $this->assertSame('different', ReceiptFactsService::duplicateVerdict($x, ['printed_date' => '2026-05-06'] + $x)['verdict']);
+        $this->assertSame('same', ReceiptFactsService::duplicateVerdict($x, $x)['verdict']);
+        $this->assertSame('unknown', ReceiptFactsService::duplicateVerdict($x, ['printed_date' => null] + $x)['verdict']);
+        // Long ticket numbers keep the old rule.
+        $t = ['doc_number' => '43176009', 'doc_kind' => 'ticket', 'printed_date' => null];
+        $this->assertSame('same', ReceiptFactsService::duplicateVerdict($t, $t)['verdict']);
     }
 
     public function test_empty_text_and_stored_formats(): void

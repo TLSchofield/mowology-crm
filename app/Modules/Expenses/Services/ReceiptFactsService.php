@@ -302,7 +302,16 @@ class ReceiptFactsService
         $da = self::normDoc($a['doc_number'] ?? null);
         $db = self::normDoc($b['doc_number'] ?? null);
         if ($da !== '' && $da === $db) {
-            return ['verdict' => 'same', 'why' => 'same ' . self::kindWord($a['doc_kind'] ?? null) . ' ' . $a['doc_number']];
+            // Numbered pads are reused (Lawnboy's run 1–100 again and again): a short number only
+            // proves the same receipt when the printed date matches too (owner, 2026-10-10/11).
+            $short = strlen($da) < 5;
+            if (!$short || (!empty($a['printed_date']) && ($a['printed_date'] ?? null) === ($b['printed_date'] ?? null))) {
+                return ['verdict' => 'same', 'why' => 'same ' . self::kindWord($a['doc_kind'] ?? null) . ' ' . $a['doc_number']];
+            }
+            if (!empty($a['printed_date']) && !empty($b['printed_date'])) {
+                return ['verdict' => 'different', 'why' => 'different ticket/time: same pad number ' . $a['doc_number'] . ', printed ' . $a['printed_date'] . ' vs ' . $b['printed_date']];
+            }
+            return ['verdict' => 'unknown', 'why' => ''];
         }
         if ($da !== '' && $db !== '' && !self::nearMiss($da, $db)) {
             return ['verdict' => 'different', 'why' => 'different ticket/time: ' . self::kindWord($a['doc_kind'] ?? null) . ' '
