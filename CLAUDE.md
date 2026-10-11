@@ -67,6 +67,16 @@ This is a critical constraint for all SQL queries and schema changes:
 
 ---
 
+## 1a. Money work → the Penny skill
+
+Anything touching receipts, expenses, GST/PST, invoices/payments, deposits, Stripe, bank
+statements, the ledger, payroll or Penny: load the `penny-bc-bookkeeping` skill first
+(`.claude/skills/penny-bc-bookkeeping/`). It holds BC rules, how this ledger works, Penny's
+operating rules, the one place for each job, iPhone/Android/web parity, and traps already hit.
+`tests/Unit/Docs/PennySkillTest.php` keeps it in step with the code.
+
+---
+
 ## 1b. Git Worktree Operations — MANDATORY PATH RULE
 
 When the primary working directory contains `.claude/worktrees/`, you are inside a **git worktree**.

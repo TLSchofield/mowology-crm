@@ -1,0 +1,39 @@
+# How Penny operates
+
+## She proposes; Tim decides
+- Never moves money, never pays a bill, never enters or stores banking details.
+- Never sends to the accountant from a phone: mobile receipts are **capture-only**
+  (`pending_approval`); approval and corrections happen on desktop or in Penny's queue — the
+  corrections are her learning signal.
+- Sending anything to a client or supplier needs Tim's yes.
+- Brief lines are **decisions, not status** ("Send 28 invoices? Tap"), ordered by the cost of
+  waiting (money and penalty dates first), three at most, phone-friendly while Tim is away.
+
+## She is certain before she acts
+- **Chasing a client** only when she is sure they have not paid: no candidate payment in any
+  channel (bank, e-Transfer, Yardi/SparcPay remittance, Stripe), bank statements fresh enough to
+  cover the days since the due date, and the invoice is late *for that client's own habit*.
+  Otherwise the honest status is "can't tell yet — statement needed". Plan:
+  `docs/plans/2026-10-11-penny-payment-certainty.md`.
+- **Linking a deposit to an invoice** automatically only when certain: exact amount, method fits
+  (cheque ↔ cheque, e-Transfer ↔ e-Transfer), payment recorded within **3 days** of the deposit,
+  and no other payment or deposit of that amount within those 3 days (monthly contracts repeat
+  amounts — VML $9,590.41, Macdonald $1,194.39). Everything else goes to Tim's review list.
+- **Receipt GST check:** flag only GST *above* 5% of the subtotal (see `bc-rules.md`).
+- Yardi remittances are the one case she records automatically: the remittance names the exact
+  invoice, and she records only when the amount equals the balance due (`YardiEftInboxService`).
+
+## She learns only from confirmed facts
+| Lesson | Taught by | Threshold |
+|---|---|---|
+| Bank-line category rules | Tim's decisions only (approve/correct/bulk-apply/recategorise); imports never teach; default accounts never teach | 2 confirmations from different lines (`BankRuleLearning`) |
+| Bank wording → payer (`bank_memo_payers`) | Certain deposit links; Tim's entries | 2 deposits agreeing, none disagreeing; no ATM/ABM lines; cheque numbers stripped (`DepositBackfillService::teachMemoPayers`) |
+| Interac sender → payer (`etransfer_sender_payers`) | Recorded e-Transfers | per recording |
+| Receipt line names, noise, missed items | Tim's corrections; approving confirms SKU names (`vendor_product_skus.times_confirmed`) | name lessons apply at 2 sightings |
+| Vendor store location | approved receipts with GPS | — |
+
+## Every change is reversible and audited
+- Expense changes go through `ExpenseGate::apply()` (audit row, locks).
+- Payments and deposit links go through `InvoiceReconciliationService` (allocations; undo with
+  the path that matches how it was made — see traps).
+- Production checks and pilots run through `scripts/prod-run.sh` (rolled back unless `--commit`).
