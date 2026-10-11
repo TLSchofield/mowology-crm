@@ -279,6 +279,14 @@ class DepositBackfillService
                     WHERE id = ? AND type = 'transfer'
                 ")->execute([$transactionId]);
             }
+            // The contact the backfill set from the Jobber payment comes off with it.
+            $cs = $this->db->prepare("SELECT DISTINCT contact_id FROM bank_deposit_sources WHERE transaction_id = ? AND contact_id IS NOT NULL");
+            $cs->execute([$transactionId]);
+            $srcContacts = array_map('intval', $cs->fetchAll(PDO::FETCH_COLUMN));
+            if (count($srcContacts) === 1) {
+                $this->db->prepare("UPDATE accounting_transactions SET contact_id = NULL WHERE id = ? AND contact_id = ?")
+                    ->execute([$transactionId, $srcContacts[0]]);
+            }
             $src = $this->db->prepare("DELETE FROM bank_deposit_sources WHERE transaction_id = ?");
             $src->execute([$transactionId]);
             // Take the backfill's own note lines and Jobber reference off the bank line (PHP, not
