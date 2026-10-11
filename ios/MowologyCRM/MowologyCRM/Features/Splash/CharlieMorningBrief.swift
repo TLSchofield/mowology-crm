@@ -140,6 +140,8 @@ struct OpeningOverlay: View {
     /// The intro (owner, 2026-10-11): the brain grows in, then ITTAI, then the strapline; then the
     /// brain moves to the top left and the brief lands beside it.
     @State private var intro = 0
+    /// Once the brain has landed top left it flips to Charlie's face (as on the Team tab); a tap flips it back.
+    @State private var showFace = false
     static let productName = "ITTAI"
     static let strapline = "One business, working as one."
     private let snap = CharlieBrainCache.load() ?? .init(units: 0, tiers: [:])
@@ -194,13 +196,30 @@ struct OpeningOverlay: View {
                     .transition(.opacity)
                 }
                 if phase != .done {
-                    BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
-                        .frame(width: phase == .splash ? bigSize : small, height: phase == .splash ? bigSize : small)
-                        .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
-                        .position(phase == .splash ? center : corner)
-                        .scaleEffect(phase == .splash && intro < 1 ? 0.82 : 1)
-                        .opacity(phase == .splash && intro < 1 ? 0 : 1)
-                        .allowsHitTesting(false)
+                    let side = phase == .splash ? bigSize : small
+                    ZStack {
+                        BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
+                            .opacity(showFace ? 0 : 1)
+                        // The back: his face, drawn mirrored so it reads the right way round once flipped.
+                        HeadFaceView(slug: "charlie", name: "Charlie", size: side, ring: Color.MW.lime)
+                            .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                            .opacity(showFace ? 1 : 0)
+                    }
+                    .frame(width: side, height: side)
+                    .rotation3DEffect(.degrees(showFace ? 180 : 0), axis: (x: 0, y: 1, z: 0))
+                    // The tap belongs to the face's own square, set before .position — after it the
+                    // view fills the screen and could swallow taps meant for the brief.
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        guard phase == .brief else { return }
+                        withAnimation(.easeInOut(duration: 0.45)) { showFace.toggle() }
+                    }
+                    .allowsHitTesting(phase == .brief)
+                    .accessibilityLabel(showFace ? "Charlie" : "Charlie's brain")
+                    .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
+                    .position(phase == .splash ? center : corner)
+                    .scaleEffect(phase == .splash && intro < 1 ? 0.82 : 1)
+                    .opacity(phase == .splash && intro < 1 ? 0 : 1)
                 }
             }
             .ignoresSafeArea()
@@ -238,6 +257,11 @@ struct OpeningOverlay: View {
         if showBrief, let s = loader.snapshot, !s.headline.isEmpty || !s.lines.isEmpty {
             MorningBriefStore.markShown()
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .brief }
+            // Landed: the brain turns over to show who is talking.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(.easeInOut(duration: 0.5)) { showFace = true }
+            }
             for i in 1...(s.lines.count + 2) {
                 try? await Task.sleep(nanoseconds: 260_000_000)
                 withAnimation(.easeOut(duration: 0.35)) { revealed = i }

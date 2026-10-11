@@ -61,6 +61,8 @@ struct HeadFaceView: View {
     let slug: String
     let name: String
     let size: CGFloat
+    /// The ring round the face (orange where crews see it; lime on the opening brief).
+    var ring: Color = Color.MW.orange
 
     @State private var image: UIImage?
 
@@ -79,7 +81,7 @@ struct HeadFaceView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(Color.MW.orange, lineWidth: size > 60 ? 4 : 2))
+        .overlay(Circle().strokeBorder(ring, lineWidth: size > 60 ? 4 : 2))
         .accessibilityLabel(Text(name))
         .task(id: slug) {
             image = HeadFaceCache.shared.cached(slug)
