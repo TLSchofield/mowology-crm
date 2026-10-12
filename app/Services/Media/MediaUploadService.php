@@ -233,6 +233,18 @@ function createMediaLink(int $mediaId, string $contextType, int $contextId, ?str
 {
     try {
         $db = getDB();
+        // Already linked the same way → nothing to add. A phone that re-sends a photo after a
+        // lost answer (or two offline drains at once) sends the same bytes, which resolve to the
+        // same media_id; inserting again doubled the visit's before/after rows (2026-10-12).
+        $exists = $db->prepare('
+            SELECT 1 FROM media_links
+            WHERE media_id = ? AND context_type = ? AND context_id = ? AND category <=> ?
+            LIMIT 1
+        ');
+        $exists->execute([$mediaId, $contextType, $contextId, $category]);
+        if ($exists->fetchColumn()) {
+            return true;
+        }
         $stmt = $db->prepare('
             INSERT INTO media_links (media_id, context_type, context_id, category, visibility, linked_by)
             VALUES (?, ?, ?, ?, ?, ?)
