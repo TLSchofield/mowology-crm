@@ -294,13 +294,15 @@ function userIsCrewOnVisit(int $visitId, int $userId): bool {
 /**
  * Start a job timer. $at ('Y-m-d H:i:s', server zone) is when the phone says the start was
  * tapped — an offline start replayed later (OfflineTime decides whether to trust it); null = now.
+ * $gpsOptional: a start replayed from the phone's offline queue may have no fix — record it
+ * (the endpoint notes "No location (offline)") rather than refuse it and lose the job's time.
  */
-function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null) {
+function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
     $db = getDB();
 
     // Geofence auto-starts already imply a real GPS fix (that's what triggered them) —
     // only enforce this on a manual start, where the setting previously did nothing.
-    if (!$autoStarted
+    if (!$autoStarted && !$gpsOptional
         && getTimeClockSetting('require_gps_for_job_start', '1') === '1'
         && ($lat === null || $lng === null)) {
         throw new Exception('Location is required to start a job timer. Enable location services and try again.');
@@ -508,8 +510,8 @@ function getLiveJobTimer(int $userId, int $maxHours = 16): ?array {
 }
 
 /** @see startJobTimer() — alias using visit terminology */
-function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null) {
-    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted, $at);
+function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
+    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional);
 }
 
 /** @see stopJobTimer() — alias using visit terminology */

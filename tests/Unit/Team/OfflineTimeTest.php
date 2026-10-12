@@ -40,11 +40,28 @@ class OfflineTimeTest extends TestCase
         $this->assertSame('phone clock ahead', $r['flag']);
     }
 
-    public function test_a_time_from_days_ago_is_not_trusted(): void
+    public function test_a_shift_synced_the_next_morning_keeps_its_phone_time_flagged(): void
     {
         $r = OfflineTime::accept('2026-10-10T07:30:00-07:00', '2026-10-12 07:46:00');
+        $this->assertTrue($r['from_phone']);
+        $this->assertSame('2026-10-10 07:30:00', $r['at']);
+        $this->assertSame('older than 24 h', $r['flag']);
+        $this->assertFalse($r['reject']);
+    }
+
+    public function test_a_time_over_seven_days_old_is_rejected_not_recorded(): void
+    {
+        $r = OfflineTime::accept('2026-10-04T07:30:00-07:00', '2026-10-12 07:46:00');
         $this->assertFalse($r['from_phone']);
+        $this->assertTrue($r['reject']);
         $this->assertSame('too old to trust', $r['flag']);
+    }
+
+    public function test_every_answer_says_whether_it_was_rejected(): void
+    {
+        foreach ([null, 'garbage', '2026-10-12T09:00:00-07:00', '2026-10-12T07:40:00-07:00'] as $ct) {
+            $this->assertArrayHasKey('reject', OfflineTime::accept($ct, '2026-10-12 07:46:00'), (string)$ct);
+        }
     }
 
     public function test_a_clock_out_before_its_clock_in_is_not_trusted(): void

@@ -33,6 +33,8 @@ try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
+    require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -47,6 +49,23 @@ try {
     }
 
     $db = getDB();
+
+    // A queued punch resent twice (two resends racing, a retry after a lost response) must
+    // record once: the phone sends the same Idempotency-Key every time (ClockQueue item id).
+    $idempKey = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
+    if ($idempKey !== '' && in_array($action, ['clock_in', 'clock_out'], true)) {
+        $cached = idempotencyCheck($db, $idempKey, $userId);
+        if ($cached !== null) { echo $cached; exit; }
+    }
+    // A punch the phone queued offline carries client_time. It may have no location (no fix in
+    // a dead zone) — it is still recorded, noted, rather than refused and lost.
+    // `queued` is sent only on a replay from the phone's queue (a live tap sends client_time too).
+    $queued = !empty($input['queued']);
+    $clockReply = function (array $payload) use ($db, $idempKey, $userId, $action): void {
+        $json = json_encode($payload);
+        if ($idempKey !== '') idempotencyStore($db, $idempKey, $userId, 'clock', $action, $json);
+        echo $json;
+    };
 
     switch ($action) {
 
@@ -115,15 +134,21 @@ try {
             // instead of reimplementing the INSERT — keeps the GPS-ping-to-crew-map
             // side effect in sync with the desktop path too.
             // Queued offline? Record when it was tapped, not when it arrived (OfflineTime).
-            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
             $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'));
-            $entryId = clockIn($userId, $lat, $lng, true, $when['from_phone'] ? $when['at'] : null);
-            if ($when['note']) {
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($userId, null, 'clock_in_not_recorded', $when['note']);
+                $clockReply(['success' => true, 'recorded' => false, 'clocked_in' => false,
+                             'time_flag' => $when['flag'], 'message' => $when['note']]);
+                break;
+            }
+            $entryId = clockIn($userId, $lat, $lng, !$queued, $when['from_phone'] ? $when['at'] : null);
+            $note = trim(($when['note'] ?? '') . ($queued && ($lat === null || $lng === null) ? ' No location (offline).' : ''));
+            if ($note !== '') {
                 getDB()->prepare("UPDATE time_clock_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
-                       ->execute([$when['note'], $entryId]);
+                       ->execute([$note, $entryId]);
             }
 
-            echo json_encode([
+            $clockReply([
                 'success'    => true,
                 'clocked_in' => true,
                 'entry_id'   => $entryId,
@@ -153,12 +178,17 @@ try {
             // and skipped ensureTimesheetExists() — a mobile-only clock-out never created
             // or updated the weekly timesheet row, so the shift could never surface for
             // approval or payroll. Calling the shared function fixes that.
-            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
             $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'), (string)$entry['clock_in']);
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($userId, null, 'clock_out_not_recorded', $when['note']);
+                $clockReply(['success' => true, 'recorded' => false, 'clocked_in' => true,
+                             'time_flag' => $when['flag'], 'message' => $when['note']]);
+                break;
+            }
             if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
             $total = clockOut($userId, $lat, $lng, $notes, $when['from_phone'] ? $when['at'] : null);
 
-            echo json_encode([
+            $clockReply([
                 'success'         => true,
                 'clocked_in'      => false,
                 'entry_id'        => (int)$entry['id'],

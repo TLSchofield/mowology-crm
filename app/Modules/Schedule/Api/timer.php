@@ -106,8 +106,19 @@ try {
             // Queued offline? Record when it was tapped, not when it arrived (OfflineTime).
             require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
             $when    = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'));
+            if ($when['reject']) {   // over 7 days old: record nothing (the office enters it by hand)
+                if (function_exists('logActivity')) logActivity($userId, null, 'job_start_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
             $tapped  = $when['from_phone'] ? $when['at'] : null;
-            $entryId = startVisitTimer($visitId, $userId, $lat, $lng, $autoStarted, $tapped);
+            // A start replayed from the phone's queue may have no location (no fix in a dead zone):
+            // record it, noted, instead of refusing it and losing the job's time.
+            $queued  = !empty($input['queued']);
+            $entryId = startVisitTimer($visitId, $userId, $lat, $lng, $autoStarted, $tapped, $queued);
+            if ($queued && ($lat === null || $lng === null)) {
+                $when['note'] = trim(($when['note'] ?? '') . ' No location (offline).');
+            }
             if ($when['note']) {
                 getDB()->prepare("UPDATE job_time_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
                        ->execute([$when['note'], $entryId]);
@@ -174,6 +185,11 @@ try {
             $ownStart->execute([$visitId, $userId]);
             $startedAt = $ownStart->fetchColumn() ?: null;
             $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'), $startedAt ? (string)$startedAt : null);
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($userId, null, 'job_stop_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
             if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
 
             $duration = stopVisitTimer($visitId, $userId, $lat, $lng, $notes, (bool)$completeVisit,
