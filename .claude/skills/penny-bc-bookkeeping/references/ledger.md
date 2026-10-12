@@ -24,6 +24,11 @@ payer missed the increase (Quay Pacific paid INV-0088/0089 at $855.11, $42.76 ea
 **SparcPay = Quay Pacific** (Laburnum Heights' manager, registered Aug 27 2026) and BCS4428 (The Mix);
 remittances come from noreply@sparchub.net.
 
+**Refunds to clients are not expenses** (2026-10-12): Macdonald Realty paid 4 months on Aug 27–28 for 2
+due (incl. a 3-month "MCR ITF – 1262" cheque, $3,583.17); the 2 extra months ($2,388.78) were refunded
+Sep 18 by e-Transfer. Book the overpayment to 2160 Customer Deposits and the refund out of 2160 — never
+6900. "MCR ITF" cheques are Macdonald Realty's strata trust accounts (VR1450/VR1540, $1,194.39/month).
+
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
 
