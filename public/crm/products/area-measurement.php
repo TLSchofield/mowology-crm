@@ -14,6 +14,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 if (defined('APP_ROOT')) {
     require_once APP_ROOT . '/Services/MeasurementService.php';
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 }
 
 requireLogin();
@@ -401,6 +402,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
           </div>
 
     <script>
+        const MW_GST_RATE = <?= json_encode(TaxEngine::gstRate($db)) ?>; // one GST rate: Settings → business settings
         let map;                 // google.maps.Map (owned by MapDrawTool)
         let tool = null;         // MapDrawTool — the shared drawing engine
         let currentMetrics = null;
@@ -833,7 +835,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
             }
 
             const subtotal = totalSqFt * rate;
-            const gst = subtotal * 0.05;
+            const gst = subtotal * MW_GST_RATE;
             const total = subtotal + gst;
 
             document.getElementById('pricingArea').textContent = totalSqFt.toLocaleString() + ' sq ft';

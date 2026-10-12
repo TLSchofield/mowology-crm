@@ -1,6 +1,7 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('expenses.view');
@@ -267,6 +268,7 @@ $csrfToken  = generateCSRFToken();
 </div>
 
 <script>
+const MW_GST_RATE = <?= json_encode(TaxEngine::gstRate(getDB())) ?>; // one GST rate: Settings → business settings
 const API_TX  = '/crm/api/accounting-transactions.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
 const CSRF    = '<?= htmlspecialchars($csrfToken) ?>';
@@ -591,7 +593,7 @@ function openAddModal() {
 
 function calcTax() {
     const amt = parseFloat(document.getElementById('tx-amount').value) || 0;
-    const gst = Math.round(amt * 0.05 * 100) / 100;
+    const gst = Math.round(amt * MW_GST_RATE * 100) / 100;
     document.getElementById('tx-gst').value = gst.toFixed(2);
 }
 

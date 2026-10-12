@@ -47,7 +47,27 @@ class TaxEngine
         foreach ($rows as $row) {
             $rates[$row['code']] = (float)$row['rate'];
         }
+        // GST has one home: the rate on the Settings page (business_settings.gst_rate), which the
+        // invoice screens already charge with. The ledger and GST report follow it (2026-10-11).
+        $rates['GST'] = self::gstRate($this->db);
         return $rates;
+    }
+
+    /**
+     * The GST rate as a fraction (0.05), from the one editable place — business_settings.gst_rate
+     * (a percent). Falls back to tax_rates, then 5%. Use this anywhere GST is charged or shown.
+     */
+    public static function gstRate(PDO $db): float
+    {
+        try {
+            $pct = $db->query("SELECT gst_rate FROM business_settings LIMIT 1")->fetchColumn();
+            if ($pct !== false && $pct !== null && is_numeric($pct) && (float)$pct > 0) return round((float)$pct / 100, 4);
+        } catch (Throwable $e) { /* older schema without the column */ }
+        try {
+            $r = $db->query("SELECT rate FROM tax_rates WHERE code = 'GST' AND is_active = 1 ORDER BY id LIMIT 1")->fetchColumn();
+            if ($r !== false && is_numeric($r) && (float)$r > 0) return (float)$r;
+        } catch (Throwable $e) { /* no tax_rates table */ }
+        return 0.05;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
