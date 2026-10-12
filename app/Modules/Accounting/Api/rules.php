@@ -4,7 +4,7 @@
  *
  * GET  ?action=list
  * GET  ?action=preview&description=...&vendor_name=...&type=expense
- * GET  ?action=apply    — run rules engine against all eligible transactions
+ * POST {action: 'apply', force?}  — run rules engine against all eligible transactions (POST since 2026-10-12)
  * POST {action: 'create', name, priority, applies_to, condition_field,
  *               condition_operator, condition_value, account_id, transaction_type}
  * POST {action: 'update', id, ...fields}
@@ -43,13 +43,14 @@ try {
     } else {
         // Must run before session_write_close() below — verifyCSRFToken() reads
         // $_SESSION, which session_write_close() clears from memory.
-        $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        if (!verifyCSRFToken($csrfToken)) {
-            http_response_code(400);
+        require_once APP_ROOT . '/Core/ApiResponse.php';
+        $input  = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!is_array($input)) $input = [];
+        if (!verifyCSRFToken(ApiResponse::csrfToken($input))) {
+            http_response_code(403);
             echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
             exit;
         }
-        $input  = json_decode(file_get_contents('php://input'), true) ?? [];
         $action = $input['action'] ?? '';
     }
 
@@ -76,8 +77,10 @@ try {
             break;
 
         case 'apply':
-            if (!$canEdit) throw new Exception('Permission denied');
-            $force = !empty($_GET['force']) || !empty($input['force']);
+            // Re-categorises the books: never on a GET (a link or prefetch could run it).
+            if ($method !== 'POST') throw new Exception('Apply changes transactions — send it as a POST.', 405);
+            if (!$canEdit) throw new Exception('Permission denied', 403);
+            $force = !empty($input['force']);
             $count = $engine->applyAll((bool)$force);
             echo json_encode(['ok' => true, 'updated' => $count, 'message' => "$count transactions recategorized"]);
             break;
@@ -124,7 +127,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'rules.php')]);
 }

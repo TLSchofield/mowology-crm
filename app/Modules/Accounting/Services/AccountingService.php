@@ -56,6 +56,7 @@ class AccountingService
                 $journalResult = (new LedgerSyncService($this->db, new LedgerService($this->db)))->syncAll();
             }
         } catch (\Throwable $e) {
+            error_log('AccountingService::syncAll journal: ' . $e->getMessage());
             $journalResult = ['error' => $e->getMessage()];
         }
 
@@ -68,6 +69,20 @@ class AccountingService
             'journal'          => $journalResult,
             'removed_orphans'  => $removed,
         ];
+    }
+
+    /**
+     * What the cron must report about the journal part of syncAll() (pure — tested):
+     * ['error', msg] when the journal sync threw, ['warning', msg] when bank lines failed to post,
+     * null when it ran clean. It used to be recorded as 'success' either way (review round 2).
+     */
+    public static function journalProblem($journal): ?array
+    {
+        if (!is_array($journal)) return null;
+        if (!empty($journal['error'])) return ['error', 'Journal sync failed: ' . $journal['error']];
+        $n = (int)($journal['bank_imports']['errors'] ?? 0);
+        if ($n > 0) return ['warning', $n . ' bank line(s) could not be posted to the journal'];
+        return null;
     }
 
     /**
@@ -768,6 +783,94 @@ class AccountingService
             'UPDATE accounting_transactions SET ' . implode(', ', $fields) . ' WHERE id = ?'
         );
         return $stmt->execute($params);
+    }
+
+    /** A line copied from a bank statement, invoice or expense: these come from the source, not the edit screen. */
+    public const SOURCE_FIELDS = ['amount', 'gst_amount', 'pst_amount', 'transaction_date', 'status'];
+
+    /**
+     * Which source fields an edit would change on a non-manual line (pure — tested).
+     * The edit modal sends every field, so unchanged values are not a change.
+     */
+    public static function blockedChanges(array $current, array $data): array
+    {
+        if (($current['reference_type'] ?? 'manual') === 'manual') return [];
+        $blocked = [];
+        foreach (self::SOURCE_FIELDS as $f) {
+            if (!array_key_exists($f, $data)) continue;
+            $new = $data[$f];
+            $old = $current[$f] ?? null;
+            if (in_array($f, ['amount', 'gst_amount', 'pst_amount'], true)) {
+                if (abs((float)($new === '' || $new === null ? 0 : $new) - (float)($old ?? 0)) < 0.005) continue;
+            } elseif ((string)$new === (string)$old) {
+                continue;
+            }
+            $blocked[] = $f;
+        }
+        return $blocked;
+    }
+
+    private function refuseLocked(?string $date): void
+    {
+        if ($date === null || $date === '') return;
+        require_once __DIR__ . '/LedgerService.php';
+        if ((new LedgerService($this->db))->isLocked($date)) {
+            throw new Exception(substr($date, 0, 7) . " is locked — this transaction can't be changed.", 409);
+        }
+    }
+
+    /** Create a manual line — refused in a locked month. */
+    public function createManualChecked(array $data, int $userId): int
+    {
+        $this->refuseLocked((string)($data['transaction_date'] ?? ''));
+        return $this->createManualTransaction($data, $userId);
+    }
+
+    /**
+     * The edit screen's update (review round 2, 2026-10-12). A locked month can't change; a line from a
+     * bank statement / invoice / expense keeps its amount, tax, date and status (those come from the
+     * source — changing them here bypassed the journal), and a bank line's account moves with its
+     * journal entry through BankLineMoveService.
+     */
+    public function editTransaction(int $id, array $data, int $userId): void
+    {
+        $s = $this->db->prepare("SELECT * FROM accounting_transactions WHERE id = ?");
+        $s->execute([$id]);
+        $cur = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$cur) throw new Exception('Transaction not found', 404);
+        $this->refuseLocked((string)$cur['transaction_date']);
+        if (isset($data['transaction_date']) && $data['transaction_date'] !== '') $this->refuseLocked((string)$data['transaction_date']);
+
+        $blocked = self::blockedChanges($cur, $data);
+        if ($blocked) {
+            throw new Exception('This line comes from a ' . str_replace('_', ' ', (string)$cur['reference_type'])
+                . ' — its ' . implode(', ', str_replace('_', ' ', $blocked))
+                . " can't be edited here. Change the source record (or use Recategorize for the account).", 400);
+        }
+        if (($cur['reference_type'] ?? 'manual') !== 'manual') {
+            foreach (self::SOURCE_FIELDS as $f) unset($data[$f]);
+        }
+        if (($cur['reference_type'] ?? '') === 'bank_import' && isset($data['account_id'])
+            && (int)$data['account_id'] > 0 && (int)$data['account_id'] !== (int)$cur['account_id']) {
+            require_once __DIR__ . '/LedgerService.php';
+            require_once __DIR__ . '/LedgerSyncService.php';
+            require_once __DIR__ . '/BankLineMoveService.php';
+            $moved = (new BankLineMoveService($this->db))->move($id, (int)$data['account_id'], $userId);
+            if (empty($moved['ok'])) throw new Exception($moved['message'] ?? 'Could not move this line', 400);
+        }
+        if (($cur['reference_type'] ?? '') === 'bank_import') unset($data['account_id']);
+        $this->updateTransaction($id, $data);
+    }
+
+    /** Delete a manual line — refused in a locked month. */
+    public function deleteChecked(int $id): bool
+    {
+        $s = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id = ? AND reference_type = 'manual'");
+        $s->execute([$id]);
+        $d = $s->fetchColumn();
+        if ($d === false) return false;
+        $this->refuseLocked((string)$d);
+        return $this->deleteTransaction($id);
     }
 
     public function deleteTransaction(int $id): bool

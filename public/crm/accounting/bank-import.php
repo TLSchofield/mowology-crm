@@ -407,7 +407,7 @@ document.addEventListener('click', async e => {
     try {
         const r = await fetch(API, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({
                 action:        'statement_account_save',
                 id:            parseInt(tr.dataset.scId, 10),
@@ -583,7 +583,7 @@ async function uploadAndPreview() {
     }, 1000);
 
     try {
-        const r = await fetch(API, { method: 'POST', body: form });
+        const r = await fetch(API, { method: 'POST', body: form, headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         if (!r.ok && r.status === 0) throw new Error('Network error — check your connection.');
         const text = await r.text();
         let d;
@@ -955,7 +955,7 @@ async function commitImport() {
 
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({
             action:          'commit',
             rows:            rowsToImport,
@@ -990,7 +990,7 @@ async function undoImport() {
     if (!lastSessionId || !confirm('Undo this import? All imported transactions will be deleted.')) return;
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'rollback', session_id: lastSessionId }),
     });
     const d = await r.json();
@@ -1049,7 +1049,7 @@ async function rollbackSession(sessionId) {
     if (!confirm('Undo this import batch? All imported transactions will be deleted.')) return;
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'rollback', session_id: sessionId }),
     });
     const d = await r.json();
@@ -1114,7 +1114,7 @@ async function submitVerification() {
     if (!csv.trim()) { mwToast('Paste the statement CSV first.', 'error'); return; }
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'verify_statement', csv }),
     });
     const d = await r.json();
@@ -1152,7 +1152,7 @@ async function removeDuplicate(rowId, btn) {
     btn.textContent = 'Removing…';
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'remove_duplicate', row_id: rowId }),
     });
     const d = await r.json();
@@ -1199,7 +1199,7 @@ async function runDebugOcr() {
 
     let data;
     try {
-        const resp = await fetch(API, { method: 'POST', body: fd });
+        const resp = await fetch(API, { method: 'POST', body: fd, headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         data = await resp.json();
     } catch (err) {
         loading.classList.add('d-none');

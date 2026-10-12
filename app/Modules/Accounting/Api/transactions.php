@@ -5,7 +5,7 @@
  * GET  ?action=list[&type=&date_from=&date_to=&account_id=&status=&source=&search=&page=]
  * GET  ?action=get&id=X
  * GET  ?action=find_match&id=X  — find matching expense/invoice for a bank import tx
- * GET  ?action=sync          — sync invoices + expenses into ledger
+ * POST {action: 'sync'}      — sync invoices + expenses into ledger (was a GET until 2026-10-12)
  * GET  ?action=dashboard     — real-time dashboard metrics
  * POST {action: 'create', ...}
  * POST {action: 'update', id, ...}
@@ -37,6 +37,20 @@ try {
     requirePermission('expenses.view');
 
     $canEdit = userHasPermission('expenses.edit');
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = [];
+    if ($method !== 'GET') {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!is_array($input)) $input = [];
+        // Every POST changes the books — token checked before session_write_close() empties $_SESSION.
+        if (!verifyCSRFToken(ApiResponse::csrfToken($input))) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Your session token expired — refresh the page and try again.']);
+            exit;
+        }
+    }
 
     $db = getDB();
     session_write_close(); // release session lock — heavy queries ahead
@@ -47,13 +61,7 @@ try {
 
     $svc = new AccountingService($db);
 
-    $method = $_SERVER['REQUEST_METHOD'];
-    if ($method === 'GET') {
-        $action = $_GET['action'] ?? 'list';
-    } else {
-        $input  = json_decode(file_get_contents('php://input'), true) ?? [];
-        $action = $input['action'] ?? '';
-    }
+    $action = $method === 'GET' ? ($_GET['action'] ?? 'list') : ($input['action'] ?? '');
 
     switch ($action) {
 
@@ -95,6 +103,7 @@ try {
 
         // ── Sync from invoices + expenses ────────────────────────────────────
         case 'sync':
+            if ($method !== 'POST') throw new Exception('Sync changes the ledger — send it as a POST.', 405);
             if (!$canEdit) throw new Exception('Permission denied', 403);
             $result = $svc->syncAll();
             echo json_encode(['ok' => true, 'result' => $result]);
@@ -115,7 +124,7 @@ try {
                 if (empty($input[$f])) throw new Exception("Missing required field: $f");
             }
 
-            $id = $svc->createManualTransaction($input, (int)$user['id']);
+            $id = $svc->createManualChecked($input, (int)$user['id']);
             echo json_encode(['ok' => true, 'id' => $id, 'message' => 'Transaction created']);
             break;
 
@@ -124,7 +133,9 @@ try {
             if (!$canEdit) throw new Exception('Permission denied', 403);
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Missing id');
-            $svc->updateTransaction($id, $input);
+            // Locked months refused; bank/invoice/expense lines keep their amounts, date and status,
+            // and a bank line's account moves with its journal entry (AccountingService::editTransaction).
+            $svc->editTransaction($id, $input, (int)$user['id']);
             echo json_encode(['ok' => true, 'message' => 'Transaction updated']);
             break;
 
@@ -133,7 +144,7 @@ try {
             if (!$canEdit) throw new Exception('Permission denied', 403);
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Missing id');
-            $ok = $svc->deleteTransaction($id);
+            $ok = $svc->deleteChecked($id);
             if (!$ok) throw new Exception('Cannot delete — only manual transactions can be deleted');
             echo json_encode(['ok' => true, 'message' => 'Transaction deleted']);
             break;
@@ -184,7 +195,7 @@ try {
             $id   = (int)($input['id']   ?? 0);
             $flag = (int)($input['flag'] ?? 1);
             if (!$id) throw new Exception('Missing id');
-            $svc->updateTransaction($id, ['needs_review' => $flag]);
+            $svc->updateTransaction($id, ['needs_review' => $flag ? 1 : 0]);
             echo json_encode(['ok' => true, 'flagged' => (bool)$flag]);
             break;
 
@@ -193,7 +204,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'transactions.php')]);
 }

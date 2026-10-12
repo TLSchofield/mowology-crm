@@ -76,14 +76,22 @@ $durationMs = (int)(round(microtime(true) - $cronStart, 3) * 1000);
 $summary    = 'Invoices: ' . ($output['invoices_synced'] ?? 0)
             . ', Expenses: ' . ($output['expenses_synced'] ?? 0)
             . ', Alerts: ' . ($output['alerts_active'] ?? 0);
+// The journal half of syncAll() catches its own exception — report it, never as 'success'.
+$status  = $success ? 'success' : 'error';
+$errText = $success ? null : ($output['error'] ?? null);
+if ($success && ($jp = AccountingService::journalProblem($output['journal'] ?? null))) {
+    [$status, $errText] = $jp;
+    $summary .= ' — ' . $errText;
+    if ($status === 'error') $success = false;
+}
 // Defensive: a missing run-tracker must never fatal the actual sync.
 if (function_exists('recordCronRun')) {
     recordCronRun(
         'sync_ledger',
-        $success ? 'success' : 'error',
+        $status,
         $summary,
         $durationMs,
-        $success ? null : ($output['error'] ?? null),
+        $errText,
         php_sapi_name() !== 'cli'
     );
 } else {

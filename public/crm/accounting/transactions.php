@@ -616,7 +616,7 @@ async function saveTx() {
 
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify(data),
     });
     const d = await r.json();
@@ -638,7 +638,7 @@ async function saveRecat() {
     const accountId = document.getElementById('recat-account').value;
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'recategorize', id, account_id: accountId }),
     });
     const d = await r.json();
@@ -751,7 +751,7 @@ async function attachTxToExpense(txId, expenseId) {
     try {
         const r = await fetch('/crm/api/accounting-reconciliation.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ action: 'attach_expense', csrf_token: CSRF, transaction_id: txId, expense_id: expenseId }),
         });
         const d = await r.json();
@@ -766,7 +766,7 @@ async function attachTxToExpense(txId, expenseId) {
 async function toggleReview(id, flag) {
     await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'flag_review', id, flag }),
     });
     loadTransactions();
@@ -777,7 +777,7 @@ async function deleteTx(id) {
     if (!confirm('Delete this manual transaction? This cannot be undone.')) return;
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'delete', id }),
     });
     const d = await r.json();
@@ -788,7 +788,7 @@ async function deleteTx(id) {
 // ── Sync ──────────────────────────────────────────────────────────────────────
 async function syncLedger() {
     if (!confirm('Sync ledger? This will import any new paid invoices and expenses.')) return;
-    const r = await fetch(API_TX + '?action=sync');
+    const r = await fetch(API_TX, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' }, body: JSON.stringify({ action: 'sync' }) });
     const d = await r.json();
     if (d.ok) {
         const res = d.result;

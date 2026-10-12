@@ -32,7 +32,21 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('expenses.edit');
+    require_once APP_ROOT . '/Core/ApiResponse.php';
 
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = [];
+    if ($method !== 'GET' && empty($_FILES)) {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!is_array($input)) $input = [];
+    }
+    // Every POST changes something (or spends OCR time): the session token is required, read
+    // BEFORE session_write_close() empties $_SESSION (review round 2, 2026-10-12).
+    if ($method !== 'GET' && !verifyCSRFToken(ApiResponse::csrfToken($input))) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Your session token expired — refresh the page and try again.']);
+        exit;
+    }
 
     $db = getDB();
     session_write_close();
@@ -44,17 +58,14 @@ try {
     $importer = new BankImportService($db);
     $alertEng = new AlertEngine($db);
 
-    $method = $_SERVER['REQUEST_METHOD'];
     if ($method === 'GET') {
         $action = $_GET['action'] ?? 'sessions';
+    } elseif (!empty($_FILES)) {
+        $action = $_POST['action'] ?? 'preview';
     } else {
-        // May be multipart (file upload) or JSON
-        if (!empty($_FILES)) {
-            $action = $_POST['action'] ?? 'preview';
-        } else {
-            $input  = json_decode(file_get_contents('php://input'), true) ?? [];
-            $action = $input['action'] ?? '';
-        }
+        // JSON body; a form post (the dashboard's alert buttons) carries action in the query string
+        $input  = $input ?: $_POST;
+        $action = $input['action'] ?? $_GET['action'] ?? '';
     }
 
     switch ($action) {
@@ -206,6 +217,8 @@ try {
 
         // ── Rollback session ───────────────────────────────────────────────────
         case 'rollback':
+            // Deletes a whole statement's transactions (and their journal entries): billing-level only.
+            if (!userHasPermission('billing.edit')) throw new Exception('Only the office (billing) can undo an import.', 403);
             $sessionId = (int)($input['session_id'] ?? 0);
             if (!$sessionId) throw new Exception('Missing session_id');
             $deleted = $importer->rollback($sessionId);
@@ -312,8 +325,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $rawCode = (int)$e->getCode(); // PDOException::getCode() returns SQLSTATE string; cast to int first
-    $code    = ($rawCode >= 400 && $rawCode < 600) ? $rawCode : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bank-import.php')]);
 }

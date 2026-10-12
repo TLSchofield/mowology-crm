@@ -481,7 +481,7 @@ async function dismissAlert(id) {
     try {
         const fd = new FormData();
         fd.append('id', id);
-        const r = await fetch(API_BI + '?action=dismiss_alert', { method: 'POST', body: fd });
+        const r = await fetch(API_BI + '?action=dismiss_alert', { method: 'POST', body: fd, headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         const d = await r.json();
         if (!d.ok) throw new Error(d.error);
 
@@ -503,7 +503,7 @@ async function dismissAlert(id) {
 
 async function dismissAllAlerts() {
     try {
-        const r = await fetch(API_BI + '?action=dismiss_all_alerts', { method: 'POST' });
+        const r = await fetch(API_BI + '?action=dismiss_all_alerts', { method: 'POST', headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         const d = await r.json();
         if (!d.ok) throw new Error(d.error);
         loadAlerts(false);
@@ -656,7 +656,7 @@ async function syncLedger() {
     msg.textContent = 'Syncing ledger from invoices and expenses…';
 
     try {
-        const r = await fetch(API_TX + '?action=sync');
+        const r = await fetch(API_TX, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' }, body: JSON.stringify({ action: 'sync' }) });
         const d = await r.json();
 
         if (!d.ok) throw new Error(d.error);
@@ -681,7 +681,7 @@ async function syncLedger() {
 // manually clicked "Sync Ledger".
 async function autoSyncThenLoad() {
     try {
-        await fetch(API_TX + '?action=sync');
+        await fetch(API_TX, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' }, body: JSON.stringify({ action: 'sync' }) });
     } catch (e) {
         console.warn('Auto-sync failed (continuing with cached data):', e);
     }

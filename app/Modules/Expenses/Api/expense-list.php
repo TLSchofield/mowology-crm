@@ -139,6 +139,7 @@ try {
     ]);
 
 } catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expense-list.php')]);
 }

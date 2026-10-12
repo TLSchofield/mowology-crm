@@ -413,7 +413,8 @@ try {
             echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
     }
 } catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
     error_log('bookkeeper.php: ' . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bookkeeper.php')]);
 }

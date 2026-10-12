@@ -308,7 +308,7 @@ async function saveCoa() {
 
     const r = await fetch(API_ACC, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify(data),
     });
     const d = await r.json();
