@@ -146,11 +146,12 @@ class DepartureAutoStopService
         $stmt = $db->prepare("
             SELECT UNIX_TIMESTAMP(timestamp) AS ts, latitude, longitude, accuracy_meters
             FROM crew_location_history
-            WHERE crew_id = ? AND timestamp >= FROM_UNIXTIME(?)
+            WHERE crew_id = ? AND timestamp >= FROM_UNIXTIME(?) AND is_mock = 0
             ORDER BY timestamp ASC
         ");
         $stmt->execute([$userId, max($startTs - 60, $nowTs - self::LOOKBACK_SECONDS)]);
 
+        // Mock (simulated) locations never decide that the crew left — is_mock = 0 above.
         $fixes = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $dist = haversineDistance((float)$r['latitude'], (float)$r['longitude'], (float)$prop['latitude'], (float)$prop['longitude']);

@@ -200,6 +200,9 @@ class TrackingIngestService
      *
      * @param callable(int $visitId): bool $mayStampVisit  is the caller crew on this visit?
      * @param callable(float $lat, float $lng): bool $isOffice  home-geofence classification
+     * `newest` is the newest stored fix that is NOT a mock location — the only kind that may
+     * trigger auto-arrival or departure.
+     *
      * @return array{accepted: array, rejected: array, stored: int, newest: ?array, last_id: int}
      */
     public function ingest(int $userId, array $points, int $nowTs, callable $mayStampVisit, callable $isOffice): array
@@ -273,7 +276,9 @@ class TrackingIngestService
                 $lastId = (int)$this->db->lastInsertId() ?: $lastId;
                 $stored++;
                 $accepted[] = ['id' => $p['id']];
-                if ($newest === null || $p['ts'] > $newest['ts']) {
+                // A mock (simulated) fix is stored as evidence but never stands for where the
+                // crew is: `newest` drives auto-arrival and departure, so it skips mocks.
+                if (!$p['mock'] && ($newest === null || $p['ts'] > $newest['ts'])) {
                     $newest = $p;
                 }
             } catch (Throwable $e) {
@@ -383,7 +388,7 @@ class TrackingIngestService
      * Each needs an id (so the phone can delete it once stored), a type and a millisecond
      * timestamp; anything else is optional. Unknown or absurd timestamps are dropped.
      *
-     * @return array<int, array{id:string,type:string,ts:int,lat:float,lng:float,acc:?int,visit_id:?int,job_id:?int,reason:?string,metadata:?string}>
+     * @return array<int, array{id:string,type:string,ts:int,lat:?float,lng:?float,acc:?int,visit_id:?int,job_id:?int,reason:?string,metadata:?string}>
      */
     public static function normalizeEvents(array $input, int $nowTs): array
     {
@@ -401,8 +406,8 @@ class TrackingIngestService
                 'id'       => $id,
                 'type'     => $type,
                 'ts'       => $ts,
-                'lat'      => isset($ev['lat']) && is_numeric($ev['lat']) ? (float)$ev['lat'] : 0.0,
-                'lng'      => isset($ev['lng']) && is_numeric($ev['lng']) ? (float)$ev['lng'] : 0.0,
+                'lat'      => isset($ev['lat']) && is_numeric($ev['lat']) ? (float)$ev['lat'] : null,
+                'lng'      => isset($ev['lng']) && is_numeric($ev['lng']) ? (float)$ev['lng'] : null,
                 'acc'      => isset($ev['acc']) && is_numeric($ev['acc']) ? (int)round((float)$ev['acc']) : null,
                 'visit_id' => !empty($ev['visit_id']) ? (int)$ev['visit_id'] : null,
                 'job_id'   => !empty($ev['job_id']) ? (int)$ev['job_id'] : null,
@@ -414,17 +419,52 @@ class TrackingIngestService
     }
 
     /**
+     * An event is about the device, so it is always kept — but its POSITION is employee
+     * location, and location may only be kept while collection is allowed (active, opted in,
+     * consented) AND the event happened inside a shift. Otherwise the coordinates are dropped
+     * and the event is stored without them. PURE.
+     *
+     * @param array<int, array{0:int, 1:?int}> $shifts as shifts()
+     */
+    public static function withoutLocationUnlessAllowed(array $events, bool $mayCollect, array $shifts, int $nowTs): array
+    {
+        foreach ($events as &$e) {
+            $onShift = false;
+            if ($mayCollect && isset($e['ts'])) {
+                foreach ($shifts as [$in, $out]) {
+                    $end = $out ?? ($nowTs + self::MAX_FUTURE_SECONDS);
+                    if ($e['ts'] >= $in - self::SHIFT_GRACE_SECONDS && $e['ts'] <= $end + self::SHIFT_GRACE_SECONDS) {
+                        $onShift = true;
+                        break;
+                    }
+                }
+            }
+            if (!$onShift) {
+                $e['lat'] = null;
+                $e['lng'] = null;
+                $e['acc'] = null;
+            }
+        }
+        unset($e);
+        return $events;
+    }
+
+    /**
      * Store compliance events; duplicates (same user, type and second) are counted as done
      * so a replayed queue never double-writes. Returns the ids the device may now delete.
+     * $mayCollect: may this user's location be kept at all (active, opted in, consent) —
+     * coordinates are kept only then, and only for events inside a shift.
      *
      * @return array{stored:int, done:string[]}
      */
-    public function ingestComplianceEvents(int $userId, array $events): array
+    public function ingestComplianceEvents(int $userId, array $events, bool $mayCollect = false): array
     {
         $done = []; $stored = 0;
         if (!$events || !$this->hasTable('compliance_events')) {
             return ['stored' => 0, 'done' => array_column($events, 'id')];
         }
+        $nowTs  = time();
+        $events = self::withoutLocationUnlessAllowed($events, $mayCollect, $mayCollect ? $this->shifts($userId, $nowTs) : [], $nowTs);
         try {
             $dup = $this->db->prepare("
                 SELECT 1 FROM compliance_events

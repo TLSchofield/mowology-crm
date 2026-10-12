@@ -155,6 +155,17 @@ function syncComplianceEvents(PDO $db, array $user, array $events): array
     $inserted = 0;
     $skipped = 0;
 
+    // An event's position is employee location: keep it only while collection is allowed
+    // (active, opted in, consent) and the event falls inside a shift — the same rule as
+    // TrackingIngestService::ingestComplianceEvents(). Otherwise store the event without it.
+    require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
+    $nowTs      = time();
+    $ingest     = new TrackingIngestService($db);
+    $flags      = $ingest->userFlags($userId);
+    $mayCollect = $flags['active'] && $flags['tracking'] && $ingest->consentOk($userId);
+    $shifts     = $mayCollect ? $ingest->shifts($userId, $nowTs) : [];
+
     $stmt = $db->prepare("
         INSERT INTO compliance_events
             (user_id, event_type, latitude, longitude, accuracy_meters,
@@ -172,9 +183,9 @@ function syncComplianceEvents(PDO $db, array $user, array $events): array
 
     foreach ($events as $ev) {
         $eventType = $ev['event_type'] ?? 'unknown';
-        $lat = isset($ev['lat']) ? (float)$ev['lat'] : 0;
-        $lng = isset($ev['lng']) ? (float)$ev['lng'] : 0;
-        $accuracy = isset($ev['accuracy']) ? (int)round((float)$ev['accuracy']) : null;
+        $lat = isset($ev['lat']) && is_numeric($ev['lat']) ? (float)$ev['lat'] : null;
+        $lng = isset($ev['lng']) && is_numeric($ev['lng']) ? (float)$ev['lng'] : null;
+        $accuracy = isset($ev['accuracy']) && is_numeric($ev['accuracy']) ? (int)round((float)$ev['accuracy']) : null;
         $visitId = !empty($ev['visit_id']) ? (int)$ev['visit_id'] : null;
         $jobId = !empty($ev['job_id']) ? (int)$ev['job_id'] : null;
         $reason = $ev['reason'] ?? null;
@@ -187,6 +198,11 @@ function syncComplianceEvents(PDO $db, array $user, array $events): array
         }
 
         $mysqlTimestamp = date('Y-m-d H:i:s', (int)($timestamp / 1000));
+
+        $kept = TrackingIngestService::withoutLocationUnlessAllowed(
+            [['ts' => (int)($timestamp / 1000), 'lat' => $lat, 'lng' => $lng, 'acc' => $accuracy]], $mayCollect, $shifts, $nowTs
+        )[0];
+        [$lat, $lng, $accuracy] = [$kept['lat'], $kept['lng'], $kept['acc']];
 
         // Dedup check
         $dedupStmt->execute([$userId, $eventType, $mysqlTimestamp]);

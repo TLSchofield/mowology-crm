@@ -78,13 +78,49 @@ class TrackingHealthService
         return 'The app may have been closed, or the phone has no signal.';
     }
 
+    /**
+     * Someone who withdrew tracking consent — or, once consent is required, has no current
+     * consent — is SUPPOSED to be silent: the server stores none of their fixes. Alerting on
+     * them is a false alarm forever (found 2026-10-12). PURE.
+     *
+     * @param ?array $latestConsent newest tracking_consents row (withdrawn_at, disclosure_version) or null
+     */
+    public static function consentSilences(?array $latestConsent, bool $consentRequired, bool $hasCurrentConsent): bool
+    {
+        if ($latestConsent !== null && !empty($latestConsent['withdrawn_at'])) {
+            return true;
+        }
+        return $consentRequired && !$hasCurrentConsent;
+    }
+
     // ── DB ──────────────────────────────────────────────────────────────────
 
     /**
      * Everyone on the clock with tracking enabled, with their newest fix this shift.
-     * Truck tablets are excluded — they are tracked by Trackimo, not the phone pipeline.
+     * Truck tablets are included (2026-09-25); people whose consent was withdrawn (or who
+     * lack a required consent) are left out — nothing is collected from them by design.
      */
     public function clockedInTrackedUsers(): array
+    {
+        $rows = $this->clockedInTrackedRows();
+        if (!$rows) {
+            return $rows;
+        }
+        require_once __DIR__ . '/TrackingConsentService.php';
+        $consents = new TrackingConsentService($this->db);
+        $required = false;
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM time_clock_settings WHERE setting_key = 'tracking_consent_required'");
+            $s->execute();
+            $required = (string)$s->fetchColumn() === '1';
+        } catch (Throwable $e) { /* setting absent → not required */ }
+        return array_values(array_filter($rows, static function (array $r) use ($consents, $required): bool {
+            $latest = $consents->latest((int)$r['user_id']);
+            return !self::consentSilences($latest, $required, TrackingConsentService::isCurrent($latest));
+        }));
+    }
+
+    private function clockedInTrackedRows(): array
     {
         $stmt = $this->db->query("
             SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,

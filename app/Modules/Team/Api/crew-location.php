@@ -275,6 +275,8 @@ try {
         // A PERSON is only ever tracked while clocked in — including someone who drives. The old
         // users.is_driver exemption tracked a flagged employee's personal phone off the clock,
         // which the location disclosure ("only between clock-in and clock-out") does not allow.
+        // (Since 2026-10-12 a tablet's fix is also kept only inside a clock entry — the same
+        // TrackingIngestService boundary its native engine already obeyed.)
         if (!$isTruck) {
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
@@ -282,33 +284,40 @@ try {
             }
         }
 
-        // Rate limit: reject if last entry < 10 seconds ago (use UNIX_TIMESTAMP for tz-agnostic comparison)
-        $rateStmt = $db->prepare("
-            SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) as seconds_ago
-            FROM crew_location_history
-            WHERE crew_id = ?
-            ORDER BY timestamp DESC LIMIT 1
-        ");
-        $rateStmt->execute([$user['id']]);
-        $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
-        if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
-            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
+        // Stored through TrackingIngestService like every other GPS path (2026-10-12). This
+        // endpoint used to stamp NOW(), keep its own 10 s receipt-time rate limit and skip the
+        // consent check. Now: the fix's own time when the client sends `t`, the shift boundary
+        // and consent judged on the server, and the duplicate guard on FIX time.
+        require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
+        $ingest = new TrackingIngestService($db);
+        if (!$ingest->consentOk((int)$user['id'])) {
+            session_write_close();
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'consent_required']);
             exit;
         }
-
-        // Office classification: a home-geofence heartbeat with no active job is
-        // kept but flagged is_office=1 so route-tracing can exclude it (the marker
-        // shows separately). A job in progress counts as route work.
+        $nowTs  = time();
+        $points = TrackingIngestService::normalizePoints([
+            'lat' => $lat, 'lng' => $lng, 'accuracy' => $accuracy,
+            't' => $input['t'] ?? null, 'speed' => $input['speed'] ?? null, 'heading' => $input['heading'] ?? null,
+        ], $nowTs);
+        // Office classification: a home-geofence heartbeat with no active job is kept but
+        // flagged is_office=1 so route-tracing can exclude it. This client sends no visit id.
         $geofence = new GeofenceService($db);
-        $isOffice = $geofence->isOfficePing((int)$user['id'], $lat, $lng) ? 1 : 0;
-
-        // Insert location — MySQL NOW() is Pacific (session TZ set in Database::pdo()).
-        $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
-            VALUES (?, ?, ?, ?, NULL, ?, NOW())
-        ");
-        $stmt->execute([$user['id'], $lat, $lng, $accuracy, $isOffice]);
-        $insertId = (int)$db->lastInsertId();
+        $uid      = (int)$user['id'];
+        $result   = $ingest->ingest(
+            $uid, $points, $nowTs,
+            static fn (int $visitId): bool => false,
+            static fn (float $a, float $b): bool => $geofence->isOfficePing($uid, $a, $b)
+        );
+        if ($result['stored'] === 0) {
+            session_write_close();
+            $why = $result['rejected'][0]['reason'] ?? (!empty($result['accepted'][0]['duplicate']) ? 'rate_limited' : 'not_stored');
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => $why]);
+            exit;
+        }
+        $insertId = (int)$result['last_id'];
+        // A fix the device took a while ago is not "now": no arrival or departure from it.
+        $isQueued = $isQueued || ($result['newest'] !== null && ($nowTs - (int)$result['newest']['ts']) > TrackingIngestService::FRESH_SECONDS);
 
         // Proximity auto-start check (skip for stale offline-queued pings)
         $autoStartResult = null;

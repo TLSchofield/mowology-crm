@@ -32,6 +32,15 @@ require_once APP_ROOT . '/Modules/Tracking/Services/TruckLocationService.php';
 requireLogin();
 header('Content-Type: application/json');
 
+// Where the truck is (and was) is where its driver is — office only, like crew-location.php?action=live.
+$__user = getCurrentUser();
+if (!in_array($__user['role'] ?? '', ['admin', 'manager'], true)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Access denied']);
+    exit;
+}
+unset($__user);
+
 $deviceId = defined('TRACKIMO_DEVICE_ID') ? (string)TRACKIMO_DEVICE_ID : '';
 if ($deviceId === '') {
     echo json_encode(['ok' => false, 'error' => 'Tracker not configured']);

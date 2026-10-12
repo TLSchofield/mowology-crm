@@ -251,6 +251,21 @@ try {
             $visit = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$visit) throw new RuntimeException('Visit not found.');
 
+            // Only crew on the visit (or the office) may add location samples to it.
+            require_once CRM_INCLUDES . '/timeclock-functions.php';
+            if (!$canEdit && !userIsCrewOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'You are not on this visit.']);
+                break;
+            }
+
+            // Device time within bounds; a sample already stored (same second) is a duplicate.
+            require_once APP_ROOT . '/Modules/Geofence/Services/GeofenceSampleFilter.php';
+            $have = $db->prepare("SELECT sampled_at FROM job_location_samples WHERE visit_id = ? AND sampled_at >= ?");
+            $have->execute([$visitId, date('Y-m-d H:i:s', time() - GeofenceSampleFilter::MAX_AGE_SECONDS)]);
+            $filtered = GeofenceSampleFilter::filter($samples, time(), $have->fetchAll(PDO::FETCH_COLUMN));
+            $samples  = $filtered['keep'];
+
             $geofenceId = $visit['active_geofence_id']
                 ? (int)$visit['active_geofence_id']
                 : null;
@@ -277,7 +292,9 @@ try {
             echo json_encode([
                 'success'     => true,
                 'inserted'    => $result['inserted'],
-                'skipped'     => $result['skipped'],
+                'skipped'     => $result['skipped'] + $filtered['rejected'] + $filtered['duplicates'],
+                'rejected'    => $filtered['rejected'],
+                'duplicates'  => $filtered['duplicates'],
                 'geofence_id' => $geofenceId,
             ]);
             break;

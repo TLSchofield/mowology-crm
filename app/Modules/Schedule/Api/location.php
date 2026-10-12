@@ -121,8 +121,9 @@ try {
     }
 
     // Compliance events ride along with the fixes (setup gate skipped, overrides, …). They
-    // are about the device, not the shift, so they are stored whether or not fixes may be.
-    $eventResult = $ingest->ingestComplianceEvents($userId, $events);
+    // are about the device, not the shift, so they are stored whether or not fixes may be —
+    // but WITHOUT their coordinates unless location may be collected and they fall in a shift.
+    $eventResult = $ingest->ingestComplianceEvents($userId, $events, $mayCollect);
 
     echo json_encode([
         'success'      => true,
