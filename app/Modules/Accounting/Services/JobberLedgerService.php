@@ -638,7 +638,8 @@ class JobberLedgerService
             'lines' => $p['entry']['lines'],
         ]);
         foreach ($p['entry']['allocations'] as $a) {
-            $this->log($batch, 'payment', $a['jobber_invoice_id'], $a['payment_id'], $tx, $entryId, null, $a['amount'], $p['date'], $userId);
+            // payment_id 0 = a deposit paying an open Jobber invoice with no Jobber payment recorded (bookMatched)
+            $this->log($batch, 'payment', $a['jobber_invoice_id'], $a['payment_id'] ?: null, $tx, $entryId, null, $a['amount'], $p['date'], $userId);
         }
         if ($p['fee'] > self::CENT) $this->log($batch, 'fee', null, null, $tx, $entryId, null, $p['fee'], $p['date'], $userId);
         $this->changeBankLine($batch, $tx, (float)$p['amount'], (float)$p['income_after'], (float)$p['gst_after'], (float)$p['entry']['gst_before'], $p, $userId);
@@ -697,6 +698,73 @@ class JobberLedgerService
         $batch = self::batchId();
         $this->bookProposal($p, $byId, $acct, $batch, $userId);
         return ['ok' => true, 'batch_id' => $batch, 'message' => 'Deposit booked against Jobber #' . implode(', #', $numbers) . '.'];
+    }
+
+    /**
+     * Book a deposit against chosen Jobber payments and/or open Jobber invoice balances
+     * (PaymentMatchService, 2026-10-07). An invoice balance with no Jobber payment behind it — paid
+     * after the cutover, never recorded in Jobber — becomes a payment of $amount on that invoice
+     * (logged with jobber_payment_id NULL; remainingWithoutPayment() takes it off the balance).
+     * Same entry, same rules as every other Jobber deposit: the FY2025 part settles the opening
+     * receivable and leaves 2026 income. Refused when it doesn't add up to the cent.
+     *
+     * @param int[] $paymentIds     jobber_payments.id (unbooked, 2026)
+     * @param array $invoiceAllocs  list of ['jobber_invoice_id' => int, 'amount' => float]
+     */
+    public function bookMatched(int $txId, array $paymentIds, array $invoiceAllocs, string $how, int $userId): array
+    {
+        if (!$this->ready()) return ['ok' => false, 'message' => 'Run migration 1239 first.'];
+        $d = null;
+        foreach ($this->deposits() as $x) if ($x['id'] === $txId) $d = $x;
+        if (!$d) return ['ok' => false, 'message' => 'That deposit is not open (already booked, linked to a CRM invoice, in the journal, or not 2026).'];
+        $open = [];
+        foreach ($this->openPayments() as $p) $open[(int)$p['id']] = $p;
+        $pays = [];
+        foreach (array_unique(array_map('intval', $paymentIds)) as $pid) {
+            if (!isset($open[$pid])) return ['ok' => false, 'message' => 'Jobber payment #' . $pid . ' is already booked or not a 2026 payment.'];
+            $pays[] = $open[$pid];
+        }
+        $invoices = $this->invoices();
+        $byId = [];
+        foreach ($invoices as $inv) $byId[(int)$inv['id']] = $inv;
+        $left = $this->remainingWithoutPayment();
+        foreach ($invoiceAllocs as $a) {
+            $iid = (int)($a['jobber_invoice_id'] ?? 0);
+            $amt = round((float)($a['amount'] ?? 0), 2);
+            $inv = $byId[$iid] ?? null;
+            if (!$inv || $amt <= self::CENT) return ['ok' => false, 'message' => 'Jobber invoice #' . $iid . ' not found.'];
+            $rem = round((float)$inv['balance'] - ($left[$iid] ?? 0.0), 2);
+            if ($amt > $rem + self::CENT) return ['ok' => false, 'message' => sprintf('Jobber #%s has only $%s left owing.', $inv['jobber_number'], number_format(max(0, $rem), 2))];
+            $pays[] = ['id' => 0, 'kind' => 'payment', 'client_name' => $inv['client_name'], 'contact_id' => $inv['contact_id'], 'payment_date' => $d['date'],
+                       'amount' => $amt, 'fee' => 0, 'method' => 'Bank deposit (not recorded in Jobber)', 'invoice_numbers' => (string)$inv['jobber_number'], 'quote_number' => null];
+        }
+        if (!$pays) return ['ok' => false, 'message' => 'Pick the Jobber payments or invoices this deposit paid.'];
+        $net = round(array_sum(array_map(fn($p) => (float)$p['amount'] - (float)($p['fee'] ?? 0), $pays)), 2);
+        if (abs($net - $d['amount']) >= self::CENT) {
+            return ['ok' => false, 'message' => sprintf('Those come to $%s (after fees); the deposit is $%s.', number_format($net, 2), number_format($d['amount'], 2))];
+        }
+        $acct = $this->accounts();
+        $p = $this->proposal($d, $pays, mb_substr($how, 0, 120), 'manual', $invoices, $acct, $this->liveRevenue(), $this->crmInvoices());
+        if ($p['blocked']) return ['ok' => false, 'message' => implode('; ', $p['blocked'])];
+        if ($p['locked']) return ['ok' => false, 'message' => substr($d['date'], 0, 7) . ' is locked.'];
+        $batch = self::batchId();
+        $this->bookProposal($p, $byId, $acct, $batch, $userId);
+        return ['ok' => true, 'batch_id' => $batch, 'fy2025_part' => $p['fy2025_part'], 'income_after' => $p['income_after'],
+                'message' => 'Deposit booked against Jobber ' . implode(', ', array_unique(array_filter(array_column($p['entry']['allocations'], 'invoice')))) . '.'];
+    }
+
+    /** jobber_invoice_id => amount paid by deposits with no Jobber payment behind them (bookMatched, live). */
+    public function remainingWithoutPayment(): array
+    {
+        $out = [];
+        try {
+            foreach ($this->db->query("SELECT jobber_invoice_id, SUM(amount) AS paid FROM jobber_ledger_log
+                                       WHERE op = 'payment' AND undone_at IS NULL AND jobber_payment_id IS NULL AND jobber_invoice_id IS NOT NULL
+                                       GROUP BY jobber_invoice_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[(int)$r['jobber_invoice_id']] = round((float)$r['paid'], 2);
+            }
+        } catch (Throwable $e) { /* before migration 1239 */ }
+        return $out;
     }
 
     /** A 2026 deposit with no Jobber invoice behind it: DR bank / CR revenue (+ GST) — it stays income. */
