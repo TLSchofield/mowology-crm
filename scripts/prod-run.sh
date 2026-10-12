@@ -15,8 +15,9 @@
 #           outer transaction (services that open their own transactions still roll back)
 #   $out  — an array; whatever you put in it is printed as JSON
 #   $commit — bool, true only with --commit
-# APP_ROOT / PUBLIC_ROOT / config.php are loaded. Services must be given $db (not call getDB()) for
-# their writes to be inside the transaction.
+# APP_ROOT / PUBLIC_ROOT / config.php are loaded. getDB() / Database::pdo() return this same $db
+# (forced since 2026-10-12), so code that fetches its own connection is inside the transaction too.
+# Still outside it: anything that opens a NEW PDO, files written to disk, emails, HTTP calls.
 #
 # Refused in preview: DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) — MySQL commits those implicitly.
 # Transport: the same one-time, token-guarded, self-deleting file as before (FTP creds from git config).
@@ -55,6 +56,11 @@ final class ProdRunPDO extends PDO {
 \$db = new ProdRunPDO(sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', DB_HOST, DB_NAME), DB_USER, DB_PASS,
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]);
 \$db->exec("SET time_zone = '" . date('P') . "'");
+// getDB() / Database::pdo() must return THIS connection, or app code that opens its own commits for
+// real inside a "preview" (2026-10-12: a preview of pausePlan() paused a client's plan and cancelled
+// 3 visits). Database keeps its PDO in a private static; point it at \$db before any snippet runs.
+if (class_exists('Database')) { (new ReflectionProperty('Database', 'pdo'))->setValue(null, \$db); }
+if (!function_exists('getDB') || getDB() !== \$db) { echo json_encode(['_error' => 'prod-run: getDB() does not return the preview connection — refusing to run', '_mode' => 'ERROR — nothing run']); exit; }
 \$commit = $( [ $COMMIT -eq 1 ] && echo true || echo false );
 \$out = [];
 \$db->beginTransaction();
