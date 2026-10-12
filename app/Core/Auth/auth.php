@@ -139,18 +139,34 @@ function isLoginRateLimited(string $email, ?string $ip = null): bool {
     $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
     try {
         $db = getDB();
+        // Three ceilings (Fable review 2026-10-12): the (email, IP) pair as before, plus one IP
+        // trying many emails (spraying) and one email tried from many IPs (a distributed guess).
         $stmt = $db->prepare("
-            SELECT COUNT(*) FROM login_attempts
-            WHERE email = ? AND ip_address = ?
+            SELECT SUM(email = ? AND ip_address = ?) AS pair, SUM(ip_address = ?) AS ip, SUM(email = ?) AS em
+            FROM login_attempts
+            WHERE (email = ? OR ip_address = ?)
               AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
         ");
-        $stmt->execute([$email, $ip, LOGIN_WINDOW_SECONDS]);
-        return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
+        $stmt->execute([$email, $ip, $ip, $email, $email, $ip, LOGIN_WINDOW_SECONDS]);
+        $n = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return loginThrottled((int)($n['pair'] ?? 0), (int)($n['ip'] ?? 0), (int)($n['em'] ?? 0));
     } catch (Throwable $e) {
         // If the table doesn't exist yet, fail open (don't block logins)
         _loginDebugLog("isLoginRateLimited() error: " . $e->getMessage());
         return false;
     }
+}
+
+/**
+ * Pure: blocked when any ceiling is reached in the window — the (email, IP) pair at
+ * LOGIN_MAX_ATTEMPTS, one IP across all emails at LOGIN_MAX_PER_IP, one email across all IPs at
+ * LOGIN_MAX_PER_EMAIL.
+ */
+function loginThrottled(int $pair, int $perIp, int $perEmail): bool {
+    $pairMax  = defined('LOGIN_MAX_ATTEMPTS') ? (int)LOGIN_MAX_ATTEMPTS : 5;
+    $ipMax    = defined('LOGIN_MAX_PER_IP') ? (int)LOGIN_MAX_PER_IP : 20;
+    $emailMax = defined('LOGIN_MAX_PER_EMAIL') ? (int)LOGIN_MAX_PER_EMAIL : 15;
+    return $pair >= $pairMax || $perIp >= $ipMax || $perEmail >= $emailMax;
 }
 
 /**
