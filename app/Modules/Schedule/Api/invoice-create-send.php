@@ -1,6 +1,16 @@
 <?php
 declare(strict_types=1);
 
+// Switched off 2026-10-11 (owner: "work through all of them" — data-centralisation review).
+// Nothing calls this endpoint (iOS invoices through /api/schedule/invoice → InvoiceFromVisitService),
+// and it trusted the recipient ids it was sent, did no property-manager routing, and charged
+// autopay outside AutopayService::triggerOnSend(). Any call is logged so a forgotten caller shows up.
+error_log('invoice-create-send called after it was switched off — from ' . ($_SERVER['REMOTE_ADDR'] ?? 'cli') . ' ' . ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+http_response_code(410);
+header('Content-Type: application/json');
+echo json_encode(['success' => false, 'error' => 'This endpoint has been retired. Use /api/schedule/invoice.']);
+exit;
+
 /**
  * app/Modules/Schedule/Api/invoice-create-send.php
  *
