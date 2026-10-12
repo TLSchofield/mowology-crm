@@ -98,8 +98,13 @@ Each rule below is now enforced in code; listed so a future change doesn't undo 
 - **Phone receipts never go to the accountant unapproved**; set-aside copies can't be approved.
 - **Contract billing:** one run at a time, GST from Settings, failed emails held and retried,
   greeting/SMS to whoever the invoice is addressed to; only `monthly` counts as contract-billed.
-- **Not fixed — needs a decision or other work:** Laburnum Heights INV-0088/0089 (GST unpaid,
-  possible double count — Tim); the monthly-statement proof (no session has both balances saved,
-  and card vs bank amounts are signed differently); `JobberLedgerService::bookProposal` is not
-  atomic (live file carries another session's work); statements still include invoices billed to a
-  PM firm for a rep's properties; the Interac poller keeps no state across a >21-day outage.
+- Also fixed (same day, second pass): Jobber-era deposit booking is all-or-nothing; statements
+  leave off invoices billed to a company the contact isn't part of (own company, or its primary/
+  billing contact, counts as theirs); Interac/Yardi readers look back to their last good run after an
+  outage (≤120 days); clean-up "record payment" is one transaction; no manual correction of a
+  Stripe-paid invoice; credit top-ups keep the first payment date; a plain edit can't re-open an
+  approved receipt; day-first statement files are detected per file.
+- **Not fixed — needs Tim:** Laburnum Heights INV-0088/0089 (GST unpaid, possible double count),
+  and counting part-paid "overdue" invoices as income waits on that answer. The bank statement
+  balance proof can't run: no imported statement has both opening and closing balances saved, and
+  card vs bank amounts are signed differently — fix needs real statements with balances.
