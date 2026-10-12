@@ -319,6 +319,21 @@ function hasSmConsent(int $contactId): bool
 {
     try {
         $db = getDB();
+
+        // The consent ledger decides first (Fable review 2026-10-12): a withdrawal or unsubscribe
+        // there is a no, whatever the contact's flags say. Only when the ledger has nothing on
+        // record for texts do the old contact flags still count (17 contacts on 2026-10-12 had a
+        // flag with no ledger proof — backfill them, then this fallback can go).
+        $f = dirname(__DIR__, 2) . '/Modules/Consent/Services/ConsentLedgerService.php';
+        if ($contactId > 0 && is_file($f)) {
+            require_once $f;
+            $ledger = new ConsentLedgerService($db);
+            if ($ledger->ready()) {
+                $r = $ledger->allows($contactId, 'sms');
+                if (!empty($r['ok'])) return true;
+                if (($r['reason'] ?? '') !== 'no consent on record') return false;
+            }
+        }
         $stmt = $db->prepare("
             SELECT receive_sms, consent_sms
             FROM contacts
