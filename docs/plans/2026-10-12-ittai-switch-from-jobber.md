@@ -29,17 +29,23 @@ built for customers yet.
    check every month opening + lines = closing and that there are no missing months **before** matching
    anything. Missing Mar–Jun lines and overlapping imports (79 duplicate ledger entries, $23.7K) hid the
    real picture at Mowology.
-6. **Match deposits to open invoice balances, not only to Jobber payments.** Exact cents, close in date,
+6. **Don't trust Jobber's payment dates or methods.** Owners mark invoices paid in Jobber late and in
+   bulk: Dorset's Jan/Feb Yardi EFTs (in the bank Jan 13 / Feb 17, one deposit per invoice) were marked
+   paid in Jobber on Jun 16 as two "e-Transfer" payments of $2,971.62 and $1,891.53 covering 16
+   invoices. Match a deposit to the **invoice** (by remittance, amount, payer), then consume that
+   invoice's share of whatever Jobber payment closed it — never require Jobber's payment date or
+   amount to equal the deposit.
+7. **Match deposits to open invoice balances, not only to Jobber payments.** Exact cents, close in date,
    one-to-one; anything ambiguous goes to a short owner review list.
-7. **Split by invoice date (accrual).** A deposit paying an invoice dated before the switch year settles
+8. **Split by invoice date (accrual).** A deposit paying an invoice dated before the switch year settles
    the opening receivable; paying a switch-year invoice is income unless already counted. Never count a
    payment as income twice.
-8. **Ask about owner transfers before any rule files them.** Mowology's bank rules filed 33 e-Transfers
+9. **Ask about owner transfers before any rule files them.** Mowology's bank rules filed 33 e-Transfers
    to the owner ($49K) as crew wages while he was on payroll. Never learn a rule from the owner's name,
    or from generic bank words ("bill payment", "cheque").
-9. **Tax payments are never expenses.** CRA/government payments → instalments / tax payable. Check the
+10. **Tax payments are never expenses.** CRA/government payments → instalments / tax payable. Check the
    accountant's instalment schedule against the bank and flag missed instalments.
-10. **Finish with a reconciliation report the customer and their accountant can read:** bank vs books
+11. **Finish with a reconciliation report the customer and their accountant can read:** bank vs books
     per month, what was matched, what's left and why.
 
 ## Multi-tenant notes
