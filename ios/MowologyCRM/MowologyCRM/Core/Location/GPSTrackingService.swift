@@ -108,6 +108,15 @@ final class GPSTrackingService: ObservableObject {
     private var statusPollInterval: TimeInterval = 300
 
     private var lastStoredFixAt: Date?
+    /// Stationary nudge back-off. A nudge restarts location updates; parked (or indoors, where
+    /// the restart only replays a stale cached fix that is dropped) the loop used to restart
+    /// them every 15 s all day. Each nudge that finds the phone hasn't moved doubles the gap,
+    /// up to `maxNudgeGap`; any real movement resets it, so a moving crew is unaffected.
+    private var lastNudgeAt: Date?
+    private var nudgeBackoff: Double = 1
+    private var nudgeAnchor: CLLocation?
+    private var lastAcceptedLocation: CLLocation?
+    private static let maxNudgeGap: TimeInterval = 300
     private var lastServerContactAt: Date?
     private var lastGeofenceRefreshAt: Date?
     private var retryCounts: [String: Int] = [:]
@@ -145,6 +154,7 @@ final class GPSTrackingService: ObservableObject {
         serverTier    = activeVisitId != nil ? .enhanced : .baseline
         insideRegions.removeAll()
         notifiedProblems.removeAll()
+        resetNudgeBackoff()
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
 
         locationManager.onAcceptedFix = { [weak self] fix in self?.accept(fix) }
@@ -237,6 +247,7 @@ final class GPSTrackingService: ObservableObject {
     private func accept(_ fix: CLLocation) {
         guard isTracking else { return }
         lastFixAt = fix.timestamp
+        noteMovement(fix)
 
         if let vid = activeVisitId {
             // (RouteStore.record removed 2026-09-21: it wrote a SwiftData row a minute that nothing
@@ -274,6 +285,7 @@ final class GPSTrackingService: ObservableObject {
         if entered { insideRegions.insert(visitId) } else { insideRegions.remove(visitId) }
         recomputeTier()
         if entered {
+            resetNudgeBackoff()
             // Arrived: get a precise fix on the record now. The server needs two fixes
             // inside the fence, ≥45 s apart, before it will start the job.
             locationManager.nudge()
@@ -315,14 +327,10 @@ final class GPSTrackingService: ObservableObject {
 
         // A crew standing still on site produces no distance-filtered fixes. Ask for a
         // fresh one rather than re-sending an old position with a new timestamp.
-        if tier == .enhanced, now.timeIntervalSince(lastFixAt ?? .distantPast) > enhancedInterval * 2 {
-            locationManager.nudge()
-        }
+        if tier == .enhanced { nudgeIfQuiet(now: now, interval: enhancedInterval) }
         // Between jobs the 50 m filter means a parked or slow-moving crew goes silent. One
         // fix every couple of intervals keeps the work-hours record continuous.
-        if tier == .baseline, now.timeIntervalSince(lastFixAt ?? .distantPast) > baselineInterval * 2 {
-            locationManager.nudge()
-        }
+        if tier == .baseline { nudgeIfQuiet(now: now, interval: baselineInterval) }
 
         if uploadIsDue, FixStore.shared.count > 0 { await upload() }
 
@@ -333,6 +341,37 @@ final class GPSTrackingService: ObservableObject {
         if now.timeIntervalSince(lastGeofenceRefreshAt ?? .distantPast) >= 1800 {
             await refreshGeofences()
         }
+    }
+
+    // MARK: - Stationary nudge back-off
+
+    /// Nudge when nothing has been heard for 2 × interval — stretched by the back-off while the
+    /// phone stays put, never beyond `maxNudgeGap` (or the base gap, if that is longer).
+    private func nudgeIfQuiet(now: Date, interval: TimeInterval) {
+        let base = interval * 2
+        let gap  = min(base * nudgeBackoff, max(base, Self.maxNudgeGap))
+        let lastHeard = max(lastFixAt ?? .distantPast, lastNudgeAt ?? .distantPast)
+        guard now.timeIntervalSince(lastHeard) > gap else { return }
+        // The previous nudge did not show any movement (noteMovement would have reset it).
+        if lastNudgeAt != nil { nudgeBackoff = min(nudgeBackoff * 2, 64) }
+        nudgeAnchor = lastAcceptedLocation
+        lastNudgeAt = now
+        locationManager.nudge()
+    }
+
+    /// Real movement since the last nudge ends the back-off.
+    private func noteMovement(_ fix: CLLocation) {
+        defer { lastAcceptedLocation = fix }
+        guard lastNudgeAt != nil else { return }
+        guard let anchor = nudgeAnchor else { nudgeAnchor = fix; return }
+        let threshold = max(50, 2 * max(fix.horizontalAccuracy, anchor.horizontalAccuracy))
+        if fix.distance(from: anchor) > threshold { resetNudgeBackoff() }
+    }
+
+    private func resetNudgeBackoff() {
+        nudgeBackoff = 1
+        lastNudgeAt  = nil
+        nudgeAnchor  = nil
     }
 
     // MARK: - Upload
