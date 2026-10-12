@@ -147,6 +147,15 @@ class InvoiceReconciliationService
 
         $this->db->beginTransaction();
         try {
+            // Lock the deposit and re-check what's left INSIDE the transaction: two "Record" clicks
+            // (or two tabs) both read the remainder above and could each spend it (review 2026-10-12).
+            $this->db->prepare("SELECT id FROM accounting_transactions WHERE id = ? FOR UPDATE")->execute([$transactionId]);
+            $remaining = round($original - $this->allocatedTotal($transactionId), 2);
+            if ($sum > $remaining + 0.005) {
+                throw new InvalidArgumentException(sprintf(
+                    'Allocation total $%.2f exceeds the deposit\'s remaining $%.2f.', $sum, $remaining
+                ));
+            }
             $recorded = [];
             foreach ($clean as $a) {
                 $result = $this->applyAllocation(
@@ -354,6 +363,11 @@ class InvoiceReconciliationService
         $words  = self::bankMemoWords((string)$dep['description']);
         $date   = substr((string)$dep['transaction_date'], 0, 10);
         if ($amount <= 0) return null;
+        // Jobber-era deposits are the only record of that income — never link them away.
+        if ($date < self::CUTOVER) return null;
+        // Another unlinked deposit of the same amount nearby: which one is the payment is a
+        // guess — leave it for a person (review 2026-10-12: a non-customer credit took a payment).
+        if ($this->competingDeposits($transactionId, $amount, $date) > 0) return null;
 
         // TD e-Transfer memos carry only OUR name, so the payer words below never
         // match. The Interac email does: payments recorded from an email of exactly
@@ -413,7 +427,7 @@ class InvoiceReconciliationService
                 JOIN etransfer_notifications en ON en.id = a.etransfer_notification_id
                 WHERE a.transaction_id IS NULL AND a.amount > 0
                   AND ABS(en.amount - ?) < 0.005
-                  AND en.email_date BETWEEN DATE_SUB(?, INTERVAL 10 DAY) AND DATE_ADD(?, INTERVAL 11 DAY)
+                  AND en.email_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 4 DAY)
                 ORDER BY ABS(DATEDIFF(en.email_date, ?)), a.id
             ");
             $stmt->execute([$amount, $date, $date, $date]);
@@ -423,12 +437,28 @@ class InvoiceReconciliationService
         $groups = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $groups[(int)($r['n'] ?? 0)][] = $r;
         unset($groups[0]);
+        $fits = [];
         foreach ($groups as $rows) {
             if (abs(round(array_sum(array_column($rows, 'amount')), 2) - $amount) < 0.005) {
-                return array_map(fn($r) => (int)$r['id'], $rows);
+                $fits[] = array_map(fn($r) => (int)$r['id'], $rows);
             }
         }
-        return [];
+        // Exactly one email fits, or none: two same-amount emails in the window is a guess.
+        return count($fits) === 1 ? $fits[0] : [];
+    }
+
+    /** Jobber → CRM cutover: deposits before it stay income (operating rules). */
+    public const CUTOVER = '2026-02-25';
+
+    /** Other unlinked bank deposits of exactly this amount within 3 days of this one. */
+    private function competingDeposits(int $transactionId, float $amount, string $date): int
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM accounting_transactions
+                                 WHERE id <> ? AND reference_type = 'bank_import' AND type = 'income'
+                                   AND ABS(amount - ?) < 0.005
+                                   AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)");
+        $s->execute([$transactionId, $amount, $date, $date]);
+        return (int)$s->fetchColumn();
     }
 
     /**
@@ -1210,6 +1240,7 @@ class InvoiceReconciliationService
             WHERE reference_type = 'bank_import'
               AND type = 'income'
               AND amount > 0.005
+              AND transaction_date >= '" . self::CUTOVER . "'
             ORDER BY transaction_date DESC, id DESC
             LIMIT ?
         ");

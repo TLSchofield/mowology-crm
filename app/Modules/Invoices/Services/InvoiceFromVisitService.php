@@ -415,6 +415,17 @@ class InvoiceFromVisitService
         $this->db->beginTransaction();
 
         try {
+            // Re-check under a row lock: the check above runs outside the transaction, so a double
+            // tap or an offline replay racing the desktop made two invoices for one visit — and
+            // both were paid (INV-0179/0185, INV-0181/0183, 2026-06-19; review 2026-10-12).
+            $lock = $this->db->prepare("SELECT invoice_id FROM job_visits WHERE id = ? FOR UPDATE");
+            $lock->execute([$visitId]);
+            $already = (int)($lock->fetchColumn() ?: 0);
+            if ($already > 0) {
+                $this->db->rollBack();
+                return ['success' => false, 'error' => 'Invoice already exists', 'invoice_id' => $already];
+            }
+
             $invoiceNumber = generateInvoiceNumber();
             $accessToken   = generateAccessToken();
 
@@ -474,8 +485,12 @@ class InvoiceFromVisitService
             // invoice_id = NULL and the schedule kept asking to invoice an already-
             // invoiced stop. Setting it here makes the link independent of how/where
             // the draft is later sent.
-            $this->db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
-               ->execute([$invoiceId, $visitId]);
+            $link = $this->db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ?
+                                        WHERE id = ? AND (invoice_id IS NULL OR invoice_id = 0)");
+            $link->execute([$invoiceId, $visitId]);
+            if ($link->rowCount() !== 1) {
+                throw new RuntimeException("Visit {$visitId} was invoiced by another request — this one was not created");
+            }
 
             // Line items
             $liStmt = $this->db->prepare("
@@ -771,7 +786,7 @@ class InvoiceFromVisitService
             if (!empty($recipient['sms_phone']) && !empty($recipient['receive_sms'])) {
                 $smsText = 'Mowology: Invoice #' . $invoice['invoice_number'] . ' for $' . number_format(floatval($invoice['balance_due']), 2) . ' is ready. Check your email for the payment link. Questions? (778) 846-9273.';
                 if (strlen($smsText) <= 160) {
-                    sendInvoiceNotificationSms($recipient['sms_phone'], $smsText);
+                    sendInvoiceNotificationSms($recipient['sms_phone'], (string)$invoice['invoice_number'], (float)$invoice['balance_due']);
                 }
             }
           } catch (Throwable $e) {
