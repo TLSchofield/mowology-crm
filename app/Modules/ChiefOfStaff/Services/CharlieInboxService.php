@@ -303,23 +303,29 @@ class CharlieInboxService
         if (!$ids) return $facts;
         $in = implode(',', array_fill(0, count($ids), '?'));
         $today = $this->today();
-        // Late invoices: the invoice's contact OR anyone it was billed to (invoice_contacts).
-        try {
-            $s = $this->db->prepare("
-                SELECT x.cid, MAX(DATEDIFF(?, x.due_date)) AS late FROM (
-                    SELECT i.contact_id AS cid, i.due_date FROM invoices i
-                    WHERE i.contact_id IN ({$in}) AND i.balance_due > 0 AND i.due_date < ?
-                      AND COALESCE(i.status, '') NOT IN ('paid', 'void', 'cancelled', 'draft')
-                    UNION ALL
-                    SELECT ic.contact_id AS cid, i.due_date FROM invoices i JOIN invoice_contacts ic ON ic.invoice_id = i.id
-                    WHERE ic.contact_id IN ({$in}) AND i.balance_due > 0 AND i.due_date < ?
-                      AND COALESCE(i.status, '') NOT IN ('paid', 'void', 'cancelled', 'draft')
-                ) x GROUP BY x.cid
-            ");
-            $s->execute(array_merge([$today], $ids, [$today], $ids, [$today]));
-            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $facts['late'][(int)$r['cid']] = (int)$r['late'];
-        } catch (Throwable $e) {
-            error_log('Charlie inbox: late-invoice facts unavailable: ' . $e->getMessage());
+        // Late invoices: the invoice's contact, anyone it was billed to (invoice_contacts), and —
+        // Fable review 2026-10-12 — the billed company's billing/primary contact and the client's
+        // own contact, so a strata billed through its firm still counts as late.
+        $open = "i.balance_due > 0 AND i.due_date < ? AND COALESCE(i.status, '') NOT IN ('paid', 'void', 'cancelled', 'draft')";
+        $branches = [
+            "SELECT i.contact_id AS cid, i.due_date FROM invoices i WHERE i.contact_id IN ({$in}) AND {$open}",
+            "SELECT ic.contact_id AS cid, i.due_date FROM invoices i JOIN invoice_contacts ic ON ic.invoice_id = i.id WHERE ic.contact_id IN ({$in}) AND {$open}",
+            "SELECT co.billing_contact_id AS cid, i.due_date FROM invoices i JOIN companies co ON co.id = i.company_id WHERE co.billing_contact_id IN ({$in}) AND {$open}",
+            "SELECT co.primary_contact_id AS cid, i.due_date FROM invoices i JOIN companies co ON co.id = i.company_id WHERE co.primary_contact_id IN ({$in}) AND {$open}",
+            "SELECT cl.legacy_contact_id AS cid, i.due_date FROM invoices i JOIN clients cl ON cl.id = i.client_id WHERE cl.legacy_contact_id IN ({$in}) AND {$open}",
+        ];
+        // One query per branch: a branch whose table/column is missing is logged and skipped, the rest still count.
+        foreach ($branches as $sql) {
+            try {
+                $s = $this->db->prepare("SELECT x.cid, MAX(DATEDIFF(?, x.due_date)) AS late FROM ({$sql}) x GROUP BY x.cid");
+                $s->execute(array_merge([$today], $ids, [$today]));
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $cid = (int)$r['cid'];
+                    $facts['late'][$cid] = max($facts['late'][$cid] ?? 0, (int)$r['late']);
+                }
+            } catch (Throwable $e) {
+                error_log('Charlie inbox: late-invoice facts branch failed: ' . $e->getMessage());
+            }
         }
         // Last outbound message: Sam's mail log, campaign sends, the communication log (best effort —
         // other CRM emails aren't logged centrally; see the phase-2 plan).
@@ -338,7 +344,9 @@ class CharlieInboxService
                     $cid = (int)$r['cid'];
                     $facts['last_message'][$cid] = min($facts['last_message'][$cid] ?? PHP_INT_MAX, $days);
                 }
-            } catch (Throwable $e) { /* table not there — that source is skipped */ }
+            } catch (Throwable $e) {
+                error_log('Charlie inbox: last-message source skipped: ' . $e->getMessage());
+            }
         }
         return $facts;
     }

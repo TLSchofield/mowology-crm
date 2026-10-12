@@ -66,9 +66,10 @@ class DeadlineService
     }
 
     /** Every deadline with its current occurrence, for the calendar page (sorted by due date). */
-    public function all(): array
+    /** @param bool $sync false for read paths (the brief): next occurrences are made by the cron / the calendar page */
+    public function all(bool $sync = true): array
     {
-        $this->sync();
+        if ($sync) $this->sync();
         $rows = $this->db->query("
             SELECT d.*, o.id AS occ_id, o.due_date, o.status AS occ_status, o.snoozed_until
             FROM charlie_deadlines d
@@ -105,7 +106,8 @@ class DeadlineService
     {
         $items = [];
         $setup = 0;
-        foreach ($this->all() as $r) {
+        // Reading the brief writes nothing (Fable review 2026-10-12); the charlie_morning_brief cron syncs.
+        foreach ($this->all(false) as $r) {
             if (!(int)$r['active']) continue;
             if ($r['needs_setup']) { $setup++; continue; }
             if (!$r['due_date'] || $r['priority'] === 3) continue;

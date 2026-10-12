@@ -281,7 +281,9 @@ try {
             $what = (string)($input['what'] ?? '');
             if (!in_array($what, ['open', 'snooze'], true)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown action']); break; }
             echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
-            tmDropReady($db, (string)($input['key'] ?? ''));
+            // Opening an item is not doing it: it stays on the opening screen until done or snoozed
+            // (Fable review 2026-10-12 — tapping to look used to drop it from the ready brief).
+            if ($what === 'snooze') tmDropReady($db, (string)($input['key'] ?? ''));
             break;
         }
 

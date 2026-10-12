@@ -77,6 +77,14 @@ try {
         exit;
     }
     $name = CharlieVoice::firstName($owner);
+    // Deadlines: make the next occurrences here, so building a brief never writes (Fable review 2026-10-12).
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/DeadlineService.php';
+        $deadlines = new DeadlineService($db);
+        if ($deadlines->ready()) $deadlines->sync();
+    } catch (Throwable $e) {
+        error_log('charlie_morning_brief: deadline sync failed: ' . $e->getMessage());
+    }
     $force = !$__cli && !empty($_GET['force']);
 
     $company = EmailWrapper::getCompanyInfo();

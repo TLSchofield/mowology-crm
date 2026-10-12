@@ -42,6 +42,19 @@ window.CharlieInbox = (function () {
         }, function () { return { ok: false, message: "Couldn't reach " + (HEADS[item.head] || item.head) }; });
     }
 
+    /**
+     * The action "Do all" runs for one item: the suggested change ('apply'), never whatever happens
+     * to be first — a 'Keep it on' / 'Leave it' must never be clicked for Tim in bulk (Fable review
+     * 2026-10-12). No apply-type action → null, and the batch stops there for Tim to decide.
+     */
+    function batchAction(item) {
+        var acts = item.actions || [];
+        for (var k = 0; k < acts.length; k++) {
+            if (acts[k] && acts[k].body && acts[k].body.choice === 'apply') return acts[k];
+        }
+        return null;
+    }
+
     function buttons(item, i) {
         return (item.actions || []).map(function (a, j) {
             return '<button type="button" class="mw-charlie-btn is-' + esc(a.style) + '" data-i="' + i + '" data-a="' + j + '">' + esc(a.label) + '</button>';
@@ -106,7 +119,9 @@ window.CharlieInbox = (function () {
                 var next = function () {
                     if (i >= r.items.length) { say(ok + ' done.'); return Promise.resolve(); }
                     var it = r.items[i++];
-                    return run(it, (it.actions || [])[0], r.batch_key).then(function (res) {
+                    var act = batchAction(it);
+                    if (!act) { say(ok + ' done, then one needs you: ' + it.text); return Promise.resolve(); }
+                    return run(it, act, r.batch_key).then(function (res) {
                         if (!res.ok) { say(ok + ' done, then one needs you: ' + it.text + (res.message ? ' — ' + res.message : '')); return; }
                         ok++;
                         return next();

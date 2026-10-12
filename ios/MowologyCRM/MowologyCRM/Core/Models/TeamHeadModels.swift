@@ -77,11 +77,14 @@ struct HeadItem: Decodable, Identifiable, Equatable {
     let since: String?
     let firstSeen: String?
     let yes: Bool
+    /// Where the item actually lives (Charlie's ready brief labels items with the head who owns
+    /// the work, e.g. Penny for an overdue invoice, but the item is on Charlie's card). nil = `head`.
+    let route: String?
 
     var id: String { key }
 
     private enum CodingKeys: String, CodingKey {
-        case key, head, kind, text, url, priority, since, yes
+        case key, head, kind, text, url, priority, since, yes, route
         case firstSeen = "first_seen"
     }
 
@@ -96,12 +99,14 @@ struct HeadItem: Decodable, Identifiable, Equatable {
         since = c.bkString(.since)
         firstSeen = c.bkString(.firstSeen)
         yes = c.bkBool(.yes) ?? false
+        route = c.bkString(.route)
     }
 
     init(key: String, head: String, kind: String, text: String, url: String?, priority: Int = 2,
-         since: String? = nil, firstSeen: String? = nil, yes: Bool = false) {
+         since: String? = nil, firstSeen: String? = nil, yes: Bool = false, route: String? = nil) {
         self.key = key; self.head = head; self.kind = kind; self.text = text; self.url = url
         self.priority = priority; self.since = since; self.firstSeen = firstSeen; self.yes = yes
+        self.route = route
     }
 
     /// Mia's Google post item ("mia:gbp-post:12" → 12).

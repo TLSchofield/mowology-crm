@@ -27,6 +27,8 @@ struct MorningBriefSnapshot: Codable, Equatable {
         let text: String
         let priority: Int
         let isNew: Bool
+        /// The card that holds the item (nil in briefs saved before 1.3.x → `head`).
+        var route: String? = nil
         var id: String { key }
     }
     var fetchedAt: Date
@@ -78,17 +80,18 @@ enum MorningBriefStore {
         UserDefaults.standard.set(Array(all), forKey: seenKey)
     }
 
-    /// New first (by priority), then the rest; at most maxLines shown, the others counted as ongoing.
+    /// Charlie's order exactly as the server ranked it (cost of waiting); new items are marked NEW
+    /// but never moved — re-sorting here rotated his ranking every open (Fable review 2026-10-12).
+    /// At most maxLines shown, the others counted as ongoing.
     static func build(headline: String, items: [HeadItem], quote: BriefQuote? = nil, now: Date = Date()) -> MorningBriefSnapshot {
         let yesterday = dayString(Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now)
         let seen = seenKeys
         let lines = items.map { it -> MorningBriefSnapshot.Line in
             let first = String((it.firstSeen ?? it.since ?? "").prefix(10))
             let fresh = (!first.isEmpty && first >= yesterday) || (!seen.isEmpty && !seen.contains(it.key))
-            return .init(key: it.key, head: it.head, text: it.text, priority: it.priority, isNew: fresh)
+            return .init(key: it.key, head: it.head, text: it.text, priority: it.priority, isNew: fresh, route: it.route)
         }
-        let ordered = lines.filter(\.isNew).sorted { $0.priority < $1.priority }
-                    + lines.filter { !$0.isNew }.sorted { $0.priority < $1.priority }
+        let ordered = lines
         let shown = Array(ordered.prefix(maxLines))
         return MorningBriefSnapshot(fetchedAt: now, headline: headline, lines: shown, ongoing: max(0, ordered.count - shown.count),
                                     quote: quote?.text, quoteBy: quote?.by)
@@ -312,7 +315,10 @@ struct OpeningOverlay: View {
 
             ForEach(Array(s.lines.enumerated()), id: \.element.id) { i, line in
                 Button {
-                    NotificationRouter.shared.pendingHead = HeadRoute(head: line.head.isEmpty ? "charlie" : line.head, quoteId: nil)
+                    // Open the card that holds the item, not the head named on the label (an overdue
+                    // invoice says "Penny" but lives on Charlie's card) — Fable review 2026-10-12.
+                    let target = (line.route?.isEmpty == false ? line.route : nil) ?? (line.head.isEmpty ? "charlie" : line.head)
+                    NotificationRouter.shared.pendingHead = HeadRoute(head: target, quoteId: nil)
                     close()
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {

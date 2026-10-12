@@ -146,7 +146,9 @@ class HeadBriefReadyService
             'owner'    => true,
             'brain'    => (new TeamCardService($db))->brain('charlie'),
             // Labelled with the head who owns each item (Penny for money, …); Charlie still chose them.
-            'items'    => array_map(static fn($it) => ['head' => TeamCardService::owner($it)] + $it, $col['items']),
+            // 'route' is the card that holds the item, so a tap opens it there (Fable review 2026-10-12:
+            // an overdue invoice labelled Penny opened Penny's card, which doesn't hold it).
+            'items'    => array_map(static fn($it) => ['head' => TeamCardService::owner($it), 'route' => self::routeOf($it)] + $it, $col['items']),
         ];
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
         $out['ask'] = (new CharlieAskService($db))->status();
@@ -154,6 +156,13 @@ class HeadBriefReadyService
         require_once __DIR__ . '/DailyQuote.php';
         $out['quote'] = DailyQuote::forDate(date('Y-m-d'));
         return $out;
+    }
+
+    /** The card an item lives on: its own head's, with house items on Charlie's (pure). */
+    public static function routeOf(array $item): string
+    {
+        $h = (string)($item['head'] ?? '');
+        return ($h === '' || $h === 'house') ? 'charlie' : $h;
     }
 
     /** Build Charlie's brief and keep it. Returns the brief. */

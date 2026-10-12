@@ -165,26 +165,65 @@ class CharlieUrgentService
         return $out;
     }
 
-    /** Alerts not yet sent. */
-    public function unsent(array $alerts): array
+    /** A failed alert is retried at most once an hour, and at most MAX_TRIES times in all (Fable review 2026-10-12). */
+    public const MAX_TRIES = 3;
+    public const RETRY_GAP_SECONDS = 3600;
+
+    /** Alerts not yet sent (and, for ones that failed, due another try). */
+    public function unsent(array $alerts, ?int $now = null): array
     {
         if (!$alerts) return [];
+        $now = $now ?? time();
         $in = implode(',', array_fill(0, count($alerts), '?'));
-        $s = $this->db->prepare("SELECT alert_key FROM charlie_alerts WHERE sent_at IS NOT NULL AND alert_key IN ({$in})");
+        $s = $this->db->prepare("SELECT alert_key, sent_at, error FROM charlie_alerts WHERE alert_key IN ({$in})");
         $s->execute(array_column($alerts, 'key'));
-        $sent = array_flip($s->fetchAll(PDO::FETCH_COLUMN));
-        return array_values(array_filter($alerts, fn($a) => !isset($sent[$a['key']])));
+        $rows = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[$r['alert_key']] = $r;
+        return array_values(array_filter($alerts, function ($a) use ($rows, $now) {
+            $r = $rows[$a['key']] ?? null;
+            if ($r === null) return true;
+            if (!empty($r['sent_at'])) return false;
+            return self::retryDue(self::failures((string)($r['error'] ?? '')), $now);
+        }));
     }
 
-    public function record(array $alerts, ?string $error): void
+    public function record(array $alerts, ?string $error, ?int $now = null): void
     {
+        $now = $now ?? time();
+        $prev = [];
+        if ($error !== null && $alerts) {
+            $in = implode(',', array_fill(0, count($alerts), '?'));
+            $s = $this->db->prepare("SELECT alert_key, error FROM charlie_alerts WHERE alert_key IN ({$in}) AND sent_at IS NULL");
+            $s->execute(array_column($alerts, 'key'));
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $prev[$r['alert_key']] = self::failures((string)$r['error'])['tries'];
+        }
         $up = $this->db->prepare("
             INSERT INTO charlie_alerts (alert_key, kind, text, sent_at, channel, error) VALUES (?, ?, ?, ?, 'email', ?)
             ON DUPLICATE KEY UPDATE sent_at = VALUES(sent_at), error = VALUES(error)
         ");
         foreach ($alerts as $a) {
-            $up->execute([$a['key'], $a['kind'], mb_substr($a['text'], 0, 500), $error === null ? date('Y-m-d H:i:s') : null, $error === null ? null : mb_substr($error, 0, 255)]);
+            $err = $error === null ? null : self::failureNote(($prev[$a['key']] ?? 0) + 1, $now, $error);
+            $up->execute([$a['key'], $a['kind'], mb_substr($a['text'], 0, 500), $error === null ? date('Y-m-d H:i:s', $now) : null, $err]);
         }
+    }
+
+    /** Pure: "try 2 @1760300000: SMTP refused" — the try count and time live in the error column (no DDL). */
+    public static function failureNote(int $tries, int $at, string $error): string
+    {
+        return mb_substr('try ' . $tries . ' @' . $at . ': ' . $error, 0, 255);
+    }
+
+    /** @return array{tries:int, at:int} — an old-style error with no count counts as one try, long ago. */
+    public static function failures(string $error): array
+    {
+        if (preg_match('/^try (\d+) @(\d+):/', $error, $m)) return ['tries' => (int)$m[1], 'at' => (int)$m[2]];
+        return ['tries' => $error === '' ? 0 : 1, 'at' => 0];
+    }
+
+    public static function retryDue(array $f, int $now): bool
+    {
+        if ($f['tries'] >= self::MAX_TRIES) return false;
+        return $f['tries'] === 0 || $now - $f['at'] >= self::RETRY_GAP_SECONDS;
     }
 
     /** Pure: the interruption email (subject + inner HTML; wrap with EmailWrapper). */
