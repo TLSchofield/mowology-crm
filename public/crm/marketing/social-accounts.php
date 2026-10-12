@@ -250,6 +250,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                           <button type="button" class="close" style="color:#fff" data-dismiss="modal"><span>&times;</span></button>
                       </div>
                       <div class="modal-body">
+                          <div id="pageModalError" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
                           <input type="hidden" id="selPageId">
                           <input type="hidden" id="selPageToken">
                           <input type="hidden" id="selIgUserId">
@@ -271,7 +272,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       </div>
                       <div class="modal-footer">
                           <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                          <button class="btn btn-block" style="background:#1877f2;color:#fff" onclick="confirmConnectPage('facebook')">
+                          <button class="btn btn-block" id="btnConnectFacebook" style="background:#1877f2;color:#fff" onclick="confirmConnectPage('facebook')">
                               Connect Facebook Page
                           </button>
                           <button class="btn btn-block" id="btnConnectInstagram" onclick="confirmConnectPage('instagram')"
@@ -345,26 +346,34 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               var abbr          = platformAbbr[a.platform] || a.platform.toUpperCase().substring(0,2);
                               var platName      = esc(platformNames[a.platform] || a.platform);
 
-                              html += '<div class="mw-sw-plat-row" style="cursor:default">';
+                              html += '<div class="mw-sw-plat-row mw-soc-acct-row">';
 
                               // Platform logo badge
                               html += '<div class="mw-sw-plat-logo ' + a.platform + '">' + abbr + '</div>';
 
                               // Name + meta
-                              html += '<div style="flex:1;min-width:0">';
+                              // .mw-soc-acct-main has a real flex-basis: with min-width:0 alone it
+                              // shrank to one letter per line beside a long health message (2026-10-07).
+                              var hc = a.health;
+                              html += '<div class="mw-soc-acct-main">';
                               html += '<div class="mw-sw-plat-name">' + platName + '</div>';
                               html += '<div class="mw-sw-plat-info">' + displayName;
                               if (connDate) html += ' &mdash; connected ' + connDate;
                               if (lastSync) html += ' &mdash; synced ' + lastSync;
-                              html += '</div></div>';
+                              html += '</div>';
+                              // Checked and broken — say so in words, under the name,
+                              // where someone will actually read it.
+                              if (isActive && hc && hc.status === 'error' && hc.detail) {
+                                  html += '<div class="mw-soc-acct-health">' + esc(hc.detail) + '</div>';
+                              }
+                              html += '</div>';
 
                               // Status badges + actions
-                              html += '<div class="mw-sw-plat-status d-flex align-items-center flex-wrap" style="gap:6px">';
+                              html += '<div class="mw-soc-acct-actions">';
 
                               // Live connection check wins over every expiry heuristic below:
                               // a Meta page token has no expiry date, so the heuristics
                               // said "good" for three months while nothing could post.
-                              var hc = a.health;
                               var hcReasons = {
                                   decrypt_failed:     'Key mismatch',
                                   no_token:           'No token stored',
@@ -389,17 +398,14 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                                   html += '<span class="mw-sw-plat-badge not-connected">Unverified</span>';
                               }
 
-                              // Never checked yet, or checked and broken — say so in words,
-                              // next to the badge, where someone will actually read it.
-                              if (isActive && hc && hc.status === 'error' && hc.detail) {
-                                  html += '<div class="mw-sw-plat-info text-danger" style="flex-basis:100%">' + esc(hc.detail) + '</div>';
-                              } else if (isActive && !hc) {
-                                  html += '<span class="badge badge-light" style="font-size:.7rem" title="The publisher cron checks each account hourly">Not checked yet</span>';
+                              // Never checked yet — say so next to the badge.
+                              if (isActive && !hc) {
+                                  html += '<span class="badge badge-light" title="The publisher cron checks each account hourly">Not checked yet</span>';
                               }
 
                               if (canApprove) {
                                   // Reconnect button for expired/unverified tokens
-                                  if (h === 'expired' || (!isVerified && a.platform !== 'gbp')) {
+                                  if (h === 'expired' || (!isVerified && a.platform !== 'gbp') || (isActive && hc && hc.status === 'error')) {
                                       var rUrl = a.platform === 'gbp'
                                           ? '/crm/api/social/accounts.php?action=oauth-init&platform=gbp'
                                           : '/crm/api/social/accounts.php?action=oauth-init&platform=facebook';
@@ -410,7 +416,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                                   html += '<button class="btn btn-sm btn-outline-danger" onclick="disconnectAccount(' + a.id + ', \'' + displayName + '\')">Disconnect</button>';
                               }
 
-                              html += '</div></div>'; // .mw-sw-plat-status + .mw-sw-plat-row
+                              html += '</div></div>'; // .mw-soc-acct-actions + .mw-sw-plat-row
                           });
 
                           html += '</div>';
@@ -434,19 +440,34 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               listDiv.innerHTML = '<div class="alert alert-warning">No Facebook Pages found on this account. Make sure you manage at least one Facebook Page.</div>';
                               return;
                           }
-                          var html = '<div class="list-group">';
-                          data.pages.forEach(function(p) {
+                          // The whole row is the target and the page data stays in JS:
+                          // the old inline onclick carried the page token through an HTML
+                          // attribute, and a click that missed it still ended in an empty
+                          // modal whose button posted nothing (2026-10-07).
+                          var html = '<div class="list-group mw-soc-page-list">';
+                          data.pages.forEach(function(p, i) {
                               var igBadge = p.ig_user_id
-                                  ? '<span class="badge badge-pill ml-2" style="background:linear-gradient(45deg,#f09433,#cc2366);color:#fff">Instagram linked</span>'
+                                  ? '<span class="badge badge-pill mw-soc-ig-badge">Instagram linked</span>'
                                   : '';
-                              html += '<div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" style="cursor:pointer"'
-                                  + ' onclick="selectPage(\'' + esc(p.page_id) + '\',\'' + esc(p.page_name).replace(/'/g, "\\'") + '\',\'' + esc(p.page_token).replace(/'/g, "\\'") + '\',\'' + esc(p.ig_user_id || '') + '\')">'
-                                  + '<div><strong>' + esc(p.page_name) + '</strong>' + igBadge + '</div>'
-                                  + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
+                              html += '<div class="list-group-item list-group-item-action mw-soc-page-row" role="button" tabindex="0" data-page-index="' + i + '"'
+                                  + ' aria-label="Connect ' + esc(p.page_name) + '">'
+                                  + '<div class="mw-soc-page-row-name"><strong>' + esc(p.page_name) + '</strong>' + igBadge + '</div>'
+                                  + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>'
                                   + '</div>';
                           });
                           html += '</div>';
                           listDiv.innerHTML = html;
+
+                          var pick = function(row) {
+                              var p = data.pages[+row.getAttribute('data-page-index')];
+                              if (p) window.selectPage(p.page_id, p.page_name, p.page_token, p.ig_user_id || '');
+                          };
+                          Array.prototype.forEach.call(listDiv.querySelectorAll('.mw-soc-page-row'), function(row) {
+                              row.addEventListener('click', function() { pick(row); });
+                              row.addEventListener('keydown', function(e) {
+                                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(row); }
+                              });
+                          });
                       })
                       .catch(function(e) {
                           if (listDiv) listDiv.innerHTML = '<div class="alert alert-danger">Could not load pages: ' + esc(e.message) + '</div>';
@@ -454,6 +475,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
               }
 
               window.selectPage = function(pageId, pageName, pageToken, igUserId) {
+                  setPageModalError('');
                   document.getElementById('selPageId').value    = pageId;
                   document.getElementById('selPageToken').value = pageToken;
                   document.getElementById('selIgUserId').value  = igUserId || '';
@@ -473,10 +495,28 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                   $('#pageModal').modal('show');
               };
 
+              function setPageModalError(msg) {
+                  var el = document.getElementById('pageModalError');
+                  if (!el) return;
+                  el.textContent = msg || '';
+                  el.classList.toggle('d-none', !msg);
+              }
+
               window.confirmConnectPage = function(platform) {
                   var btn = platform === 'instagram'
                       ? document.getElementById('btnConnectInstagram')
-                      : document.querySelector('#pageModal .modal-footer .btn[style*="1877f2"]');
+                      : document.getElementById('btnConnectFacebook');
+                  var btnLabel = platform === 'instagram' ? '+ Also Connect Instagram Business' : 'Connect Facebook Page';
+
+                  // Refuse before posting: an empty selection used to reach the server,
+                  // come back as "platform and account_name required" and show nothing.
+                  if (!document.getElementById('selPageId').value
+                      || !document.getElementById('selPageToken').value
+                      || !document.getElementById('selPageDisplay').value) {
+                      setPageModalError('No Facebook Page is selected. Close this window and click the page in the list.');
+                      return;
+                  }
+                  setPageModalError('');
                   if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
 
                   // Use manual IG ID if entered (fallback when API can't auto-detect)
@@ -506,12 +546,12 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               var manualDiv = document.getElementById('selIgManual');
                               if (manualDiv) { manualDiv.style.display = ''; }
                           }
-                          alert('Error: ' + (data.error || 'Unknown error'));
-                          if (btn) { btn.disabled = false; btn.textContent = platform === 'instagram' ? '+ Also Connect Instagram Business' : 'Connect Facebook Page'; }
+                          setPageModalError('Could not connect: ' + (data.error || 'Unknown error'));
+                          if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
                       }
                   }).catch(function(e) {
-                      alert('Connect failed: ' + e.message);
-                      if (btn) { btn.disabled = false; }
+                      setPageModalError('Connect failed: ' + e.message);
+                      if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
                   });
               };
 

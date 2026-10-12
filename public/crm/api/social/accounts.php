@@ -38,6 +38,7 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/MetaService.php';
+require_once APP_ROOT . '/Modules/Social/Services/SocialAccountConnectService.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -248,34 +249,29 @@ try {
                     }
                 }
 
-                $metaJson = json_encode([
-                    'page_id'    => $pageId,
-                    'page_name'  => $accountName,
-                    'ig_user_id' => $igUserId,
-                ]);
-
-                $db->prepare("
-                    INSERT INTO social_accounts
-                        (platform, account_name, account_id_external,
-                         access_token_enc, refresh_token_enc, token_expires_at, token_scope,
-                         meta_json, is_active, is_verified, connected_by, connected_at)
-                    VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 1, 1, ?, NOW())
-                ")->execute([
+                // Upsert: a reconnect refreshes the existing row instead of adding a
+                // duplicate next to it (2026-10-07: #13/#14 stayed live beside #15/#16).
+                $res = (new SocialAccountConnectService($db))->connectMeta(
                     $platform,
                     $accountName,
                     $pageId,
+                    $igUserId,
                     SocialEncryption::encrypt($pageToken),
                     $pendingToken['scope'] ?? null, // null is fine — page tokens carry no OAuth scope
-                    $metaJson,
-                    $user['id'],
-                ]);
-
-                $newId = (int)$db->lastInsertId();
+                    (int)$user['id']
+                );
+                $newId = $res['id'];
+                $verb  = $res['action'] === 'updated' ? 'Reconnected' : 'Connected';
+                $extra = $res['retired'] ? ' Retired duplicate account(s) #' . implode(', #', $res['retired'])
+                    . '; moved ' . $res['repointed'] . ' pending item(s).' : '';
                 GoogleBusinessService::auditLog($user['id'], 'account_connected', 'account', $newId,
-                    "Connected {$platform} account: {$accountName} (Page ID: {$pageId})");
+                    "{$verb} {$platform} account #{$newId}: {$accountName} (Page ID: {$pageId}).{$extra}");
 
                 echo json_encode(['success' => true, 'id' => $newId,
-                    'message' => "{$accountName} connected successfully!"]);
+                    'action' => $res['action'], 'retired' => $res['retired'],
+                    'message' => $res['action'] === 'updated'
+                        ? "{$accountName} reconnected — existing account refreshed."
+                        : "{$accountName} connected successfully!"]);
                 break;
             }
 
@@ -284,18 +280,11 @@ try {
                 ? date('Y-m-d H:i:s', time() + (int)$pendingToken['expires_in'])
                 : null;
 
-            $db->prepare("
-                INSERT INTO social_accounts
-                    (platform, account_name, account_id_external, location_id_external,
-                     location_name_display, access_token_enc, refresh_token_enc,
-                     token_expires_at, token_scope, is_active, is_verified,
-                     connected_by, connected_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, NOW())
-            ")->execute([
+            $res = (new SocialAccountConnectService($db))->connectGbp(
                 $platform,
                 $accountName,
                 $accountId ?: null,
-                $locationName ?: null,
+                $locationName,
                 $locationDisplay ?: $accountName,
                 SocialEncryption::encrypt($pendingToken['access_token']),
                 isset($pendingToken['refresh_token'])
@@ -303,15 +292,20 @@ try {
                     : null,
                 $expiry,
                 $pendingToken['scope'] ?? null,
-                $user['id'],
-            ]);
-            $newId = (int)$db->lastInsertId();
-
+                (int)$user['id']
+            );
+            $newId = $res['id'];
+            $verb  = $res['action'] === 'updated' ? 'Reconnected' : 'Connected';
+            $extra = $res['retired'] ? ' Retired duplicate account(s) #' . implode(', #', $res['retired'])
+                . '; moved ' . $res['repointed'] . ' pending item(s).' : '';
             GoogleBusinessService::auditLog($user['id'], 'account_connected', 'account', $newId,
-                "Connected $platform account: $accountName");
+                "$verb $platform account #$newId: $accountName.$extra");
 
             echo json_encode(['success' => true, 'id' => $newId,
-                'message' => "$accountName connected successfully!"]);
+                'action' => $res['action'], 'retired' => $res['retired'],
+                'message' => $res['action'] === 'updated'
+                    ? "$accountName reconnected — existing account refreshed."
+                    : "$accountName connected successfully!"]);
             break;
         }
 
