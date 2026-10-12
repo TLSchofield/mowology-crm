@@ -161,12 +161,14 @@ class ExpenseGate
         }
 
         // ── 2. Write ─────────────────────────────────────────────────────────
-        if ($delete) {
-            // The posted entry is reversed first (append-only) — posting runs its own transaction.
-            $this->hooks->unpost((int)$expenseId, $actor['id'] ?? null, 'receipt deleted');
-        }
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
+        if ($delete) {
+            // The posted entry is reversed (append-only) inside the same transaction as the delete
+            // — posting joins it — so a failed delete no longer leaves the receipt with its entry
+            // already reversed (review 2026-10-12).
+            $this->hooks->unpost((int)$expenseId, $actor['id'] ?? null, 'receipt deleted');
+        }
         $extra = [];
         $splitBefore = !$create && $this->split->ready() ? $this->split->forExpense((int)$expenseId) : [];
         $linesBefore = !$create ? $this->lineSummary((int)$expenseId) : null;

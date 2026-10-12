@@ -110,8 +110,15 @@ try {
     $sent      = false;
     $sendError = null;
     if (!empty($input['and_send'])) {
+        $stStmt = getDB()->prepare("SELECT status FROM expenses WHERE id = ?");
+        $stStmt->execute([$expenseId]);
+        $savedStatus = (string)$stStmt->fetchColumn();
         if (!jwtUserHasPermission($jwtUser, 'expenses.send')) {
             $sendError = 'Permission denied: expenses.send required';
+        } elseif (!in_array($savedStatus, ['approved'], true)) {
+            // Phone receipts are capture-only: approved on the desk, then sent (owner rule
+            // 2026-09-03). A draft went straight to the accountant with no approval (review 2026-10-12).
+            $sendError = 'Saved. Receipts from the phone are sent to the accountant after approval in the office.';
         } elseif (empty($input['receipt_media_id'])) {
             $sendError = 'No receipt image attached to this expense';
         } else {

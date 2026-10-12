@@ -203,12 +203,25 @@ class ExpenseGateHooks
                                      FROM expenses WHERE id = ?");
             $s->execute([$expenseId]);
             $row = $s->fetch(PDO::FETCH_ASSOC);
-            $ledger->reverseEntry($entryId, $userId, $why);
-            if ($row && (float)$row['total'] > 0) {
-                $args = (new LedgerSyncService($this->db, $ledger))->expenseArgs($row);
-                $args['created_by'] = $userId;
-                $args['proposed_by'] = 'owner';
-                $ledger->postExpense($args);
+            // Reverse and repost as ONE change. In a locked month the reversal is dated today, and the
+            // repost at the receipt's own date was refused — leaving the receipt out of the books
+            // with the audit saying "re-posted" (review 2026-10-12). Now the replacement takes the
+            // same date as its reversal, and a failure undoes both.
+            $own = !$this->db->inTransaction();
+            if ($own) $this->db->beginTransaction();
+            try {
+                $ledger->reverseEntry($entryId, $userId, $why);
+                if ($row && (float)$row['total'] > 0) {
+                    $args = (new LedgerSyncService($this->db, $ledger))->expenseArgs($row);
+                    if ($ledger->isLocked((string)$args['entry_date'])) $args['entry_date'] = date('Y-m-d');
+                    $args['created_by'] = $userId;
+                    $args['proposed_by'] = 'owner';
+                    $ledger->postExpense($args);
+                }
+                if ($own) $this->db->commit();
+            } catch (Throwable $e) {
+                if ($own && $this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
             }
             return true;
         } catch (Throwable $e) {

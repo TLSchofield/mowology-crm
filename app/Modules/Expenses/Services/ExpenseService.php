@@ -74,6 +74,11 @@ class ExpenseService
         if ($expense['status'] === 'forwarded' || (int)$expense['forwarded_to_accounting'] === 1) {
             throw new Exception('This expense has been sent to accounting and can no longer be edited');
         }
+        // An approved receipt is in the books: only an admin changes it (a crew edit re-posted it
+        // as if the owner had — review 2026-10-12).
+        if (!$isAdmin && $expense['status'] === 'approved') {
+            throw new Exception('This receipt is approved — ask the office to change it');
+        }
 
         $expenseDate = $this->sanitizeDate($input['expense_date'] ?? null) ?? date('Y-m-d');
         $vendorRaw   = $this->nullIfBlank($input['vendor_name_raw'] ?? null);
@@ -91,17 +96,17 @@ class ExpenseService
         // (header / category fixes are learned once, at approval or send). A posted receipt
         // is re-posted. `notes` is intentionally not touched — the iOS client only surfaces
         // `description`, so editing from the phone must not wipe desktop-entered notes.
-        $this->gate()->apply($expenseId, [
-            'expense_date'        => $expenseDate,
-            'vendor_id'           => $vendorId,
-            'vendor_name_raw'     => $vendorRaw,
-            'description'         => $this->nullIfBlank($input['description'] ?? null),
-            'amount'              => round((float)($input['amount'] ?? 0), 2),
-            'gst_amount'          => round((float)($input['gst_amount'] ?? 0), 2),
-            'total'               => round((float)($input['total'] ?? 0), 2),
-            'accounting_category' => $this->nullIfBlank($input['accounting_category'] ?? null),
-            'payment_method'      => $this->nullIfBlank($input['payment_method'] ?? null),
-        ], ['id' => (int)($currentUser['id'] ?? 0) ?: null, 'kind' => 'user'], (string)($currentUser['source'] ?? 'ios_update'), [
+        // Only the fields the phone sent: a missing amount/GST/total used to be written as 0.00.
+        $set = [];
+        if (array_key_exists('expense_date', $input))        $set['expense_date'] = $expenseDate;
+        if (array_key_exists('vendor_name_raw', $input))     { $set['vendor_id'] = $vendorId; $set['vendor_name_raw'] = $vendorRaw; }
+        if (array_key_exists('description', $input))         $set['description'] = $this->nullIfBlank($input['description']);
+        foreach (['amount', 'gst_amount', 'pst_amount', 'total'] as $k) {
+            if (array_key_exists($k, $input) && $input[$k] !== null && $input[$k] !== '') $set[$k] = round((float)$input[$k], 2);
+        }
+        if (array_key_exists('accounting_category', $input)) $set['accounting_category'] = $this->nullIfBlank($input['accounting_category']);
+        if (array_key_exists('payment_method', $input))      $set['payment_method'] = $this->nullIfBlank($input['payment_method']);
+        $this->gate()->apply($expenseId, $set, ['id' => (int)($currentUser['id'] ?? 0) ?: null, 'kind' => 'user'], (string)($currentUser['source'] ?? 'ios_update'), [
             'learn_lines' => !empty($expense['raw_ocr_json']) ? ($input + ['vendor_name_raw' => $vendorRaw]) : null,
         ]);
 

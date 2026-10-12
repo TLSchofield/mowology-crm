@@ -68,6 +68,11 @@ class ExpenseApprovalService
         if (($expense['status'] ?? '') === 'forwarded') {
             throw new Exception('Already sent to accounting');
         }
+        // A receipt set aside (a duplicate copy, a merge, a rejection) is not approvable: a stale
+        // bulk-approve list from the phone posted both copies and doubled the ITC (review 2026-10-12).
+        if (($expense['status'] ?? '') === 'rejected') {
+            throw new Exception('This receipt was set aside (rejected or a duplicate copy) — restore it before approving');
+        }
 
         // Prevent self-approval (the creator cannot approve their own expense),
         // unless this specific user has been given the exemption in Team

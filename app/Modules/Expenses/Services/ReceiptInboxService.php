@@ -336,8 +336,19 @@ class ReceiptInboxService
         $vendorCat  = $vendorId ? $this->vendorDefaultCategory($vendorId) : null;
         $total      = isset($parsed['total']) && $parsed['total'] !== null ? (float) $parsed['total'] : 0.0;
         $gst        = isset($parsed['gst'])   && $parsed['gst']   !== null ? (float) $parsed['gst']   : 0.0;
+        $pst        = isset($parsed['pst'])   && $parsed['pst']   !== null ? (float) $parsed['pst']   : 0.0;
+        // No tax credit on tax that isn't printed: the parser fills in 5% when it can't read a GST
+        // line, and an exempt vendor charges none. The camera path already honoured the exempt flag;
+        // this path claimed both as ITCs and dropped PST (review 2026-10-12).
+        $gstNote = null;
+        if (!empty($suggestions['vendor_gst_exempt'])) {
+            $gst = 0.0;
+        } elseif (!empty($parsed['gst_estimated'])) {
+            $gst = 0.0;
+            $gstNote = 'GST not printed on the receipt — no ITC claimed; add it if the receipt shows GST.';
+        }
         $subtotal   = isset($parsed['subtotal']) && $parsed['subtotal'] !== null ? (float) $parsed['subtotal'] : null;
-        $amount     = $subtotal !== null ? $subtotal : max(0.0, $total - $gst);
+        $amount     = $subtotal !== null ? $subtotal : max(0.0, $total - $gst - $pst);
         $expDate    = (!empty($parsed['date']) && self::isValidDate($parsed['date'])) ? $parsed['date'] : date('Y-m-d');
         $category   = $suggestions['accounting_category'] ?? $vendorCat;
         $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
@@ -376,6 +387,7 @@ class ReceiptInboxService
             return ['status' => 'duplicate', 'expense_id' => $existing, 'note' => 'already expense #' . $existing, 'high_confidence' => false];
         }
         $note = $msg['subject'] ? ('Emailed receipt: ' . $msg['subject']) : 'Emailed receipt';
+        if ($gstNote) $note .= ' — ' . $gstNote;
         // Through the expense gate (migration 1233): audited as the inbox's create; the gate
         // re-reads the printed facts and runs the duplicate check.
         require_once __DIR__ . '/ExpenseGate.php';
@@ -387,7 +399,7 @@ class ReceiptInboxService
                 'description'         => $parsed['vendor_hint'] ?? null,
                 'amount'              => $amount,
                 'gst_amount'          => $gst,
-                'pst_amount'          => 0.0,
+                'pst_amount'          => $pst,
                 'total'               => $total,
                 'accounting_category' => $category,
                 'gbp_category'        => $suggestions['gbp_category'] ?? null,

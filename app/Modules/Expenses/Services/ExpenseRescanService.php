@@ -120,9 +120,17 @@ class ExpenseRescanService
             }
         }
 
-        // Replace only unlinked lines — linked ones were checked by a person.
+        // Replace only unlinked lines — linked ones were checked by a person. Never on a receipt
+        // already sent to accounting, or one split across jobs/categories: replacing its lines
+        // dropped the owner's split choices and re-posted the books (review 2026-10-12).
         $fresh = $parsed['line_items'] ?? [];
-        if (!empty($fresh)) {
+        $st = $this->db->prepare("SELECT status, COALESCE(forwarded_to_accounting, 0) AS fwd,
+                                         (SELECT COUNT(*) FROM expense_line_allocations a WHERE a.expense_id = e.id) AS splits
+                                  FROM expenses e WHERE e.id = ?");
+        try { $st->execute([$expenseId]); $state = $st->fetch(PDO::FETCH_ASSOC) ?: []; }
+        catch (Throwable $e) { $state = ['splits' => 0]; }   // before the split table existed
+        $frozen = ($state['status'] ?? '') === 'forwarded' || (int)($state['fwd'] ?? 0) === 1 || (int)($state['splits'] ?? 0) > 0;
+        if (!empty($fresh) && !$frozen) {
             $this->gate->apply($expenseId, ['line_items' => $fresh], $actor, $source, ['keep_linked' => true, 'allow_locked' => true]);
             $li = $this->db->prepare("
                 SELECT eli.*, p.name AS product_name, p.sku AS product_sku
