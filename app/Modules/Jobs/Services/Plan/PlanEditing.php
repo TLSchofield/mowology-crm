@@ -25,6 +25,10 @@ function cleanupOrphanedVisits(int $planId): void {
     $planStartDate = $stmt->fetchColumn();
     if (!$planStartDate) return;
 
+    $stops = $db->prepare("SELECT DISTINCT stop_id FROM job_visits WHERE plan_id = ? AND status IN ('scheduled', 'skipped') AND scheduled_date < ? AND stop_id IS NOT NULL");
+    $stops->execute([$planId, $planStartDate]);
+    $stopIds = $stops->fetchAll(PDO::FETCH_COLUMN);
+
     $db->prepare("
         UPDATE job_visits
         SET status = 'cancelled', status_changed_at = NOW()
@@ -32,6 +36,10 @@ function cleanupOrphanedVisits(int $planId): void {
           AND status IN ('scheduled', 'skipped')
           AND scheduled_date < ?
     ")->execute([$planId, $planStartDate]);
+
+    // No empty "ghost" cards left on the schedule (2026-10-12).
+    require_once dirname(__DIR__) . '/CalendarStopTidyService.php';
+    foreach ($stopIds as $sid) CalendarStopTidyService::deleteIfEmpty($db, (int)$sid);
 }
 
 /**
@@ -177,13 +185,37 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         }
 
         if ($recurrenceChanged) {
-            // Cancel future unstarted visits and regenerate
-            $stmt = $db->prepare("
-                UPDATE job_visits
-                SET status = 'cancelled', status_changed_at = NOW()
-                WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()
-            ");
-            $stmt->execute([$planId]);
+            // Cancel future unstarted visits and regenerate — except visits someone MOVED off the
+            // old pattern (office drag, Otto's weather move, rollover): a recurrence edit used to
+            // cancel those too, silently undoing the move, and left their stops as empty cards
+            // (2026-10-12). Moved = a date the OLD recurrence would not have produced.
+            require_once dirname(__DIR__) . '/VisitGenerationService.php';
+            require_once dirname(__DIR__) . '/CalendarStopTidyService.php';
+            $fut = $db->prepare("SELECT id, scheduled_date, stop_id FROM job_visits WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()");
+            $fut->execute([$planId]);
+            $futureVisits = $fut->fetchAll(PDO::FETCH_ASSOC);
+            $keepIds = [];
+            if ($futureVisits && !empty($current['is_recurring'])) {
+                $dates = array_column($futureVisits, 'scheduled_date');
+                $from = min($dates);
+                $to   = max($dates);
+                try {
+                    $hol = VisitGenerationService::getActiveHolidays(date('Y-m-d', strtotime($from . ' -7 days')), $to);
+                } catch (Throwable $e) { $hol = []; }
+                $expected = VisitGenerationService::calculateRecurrenceDates($current, $from, $to, $hol);
+                $keepIds = VisitGenerationService::movedOffPattern($futureVisits, $expected);
+            }
+            $cancelIds = array_values(array_diff(array_map('intval', array_column($futureVisits, 'id')), $keepIds));
+            if ($cancelIds) {
+                $ph = implode(',', array_fill(0, count($cancelIds), '?'));
+                $db->prepare("UPDATE job_visits SET status = 'cancelled', status_changed_at = NOW() WHERE id IN ({$ph})")
+                   ->execute($cancelIds);
+                foreach ($futureVisits as $fv) {
+                    if (in_array((int)$fv['id'], $cancelIds, true) && !empty($fv['stop_id'])) {
+                        CalendarStopTidyService::deleteIfEmpty($db, (int)$fv['stop_id']);
+                    }
+                }
+            }
 
             // Cancel skipped/scheduled visits that now predate the new start date.
             // These are orphaned from the previous schedule and would show up with

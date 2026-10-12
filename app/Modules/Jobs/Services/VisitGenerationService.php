@@ -256,6 +256,22 @@ class VisitGenerationService
     }
 
     /**
+     * Ids of visits whose date the plan's recurrence would NOT have produced — someone moved
+     * them (office, Otto, rollover). A recurrence edit keeps these. PURE.
+     * @param array    $visits   rows with id, scheduled_date
+     * @param string[] $expected dates calculateRecurrenceDates() gives for the old pattern
+     * @return int[]
+     */
+    public static function movedOffPattern(array $visits, array $expected): array {
+        $on = array_flip($expected);
+        $keep = [];
+        foreach ($visits as $v) {
+            if (!isset($on[(string)$v['scheduled_date']])) $keep[] = (int)$v['id'];
+        }
+        return $keep;
+    }
+
+    /**
      * Fetch active company holidays for a date range.
      * Returns lookup array: ['2026-07-01' => 'Canada Day', ...]
      * Handles is_annual holidays by matching month+day across years.
