@@ -42,8 +42,10 @@ final class TimeclockRules
 
     /**
      * Real elapsed minutes between two LOCAL wall-clock datetimes (America/Vancouver).
-     * MySQL TIMESTAMPDIFF on DATETIME counts wall-clock time: a shift 00:00→06:00 on the
-     * fall-back night (2026-11-01) is 7 real hours, not 6; spring-forward (2026-03-08) the reverse.
+     * MySQL TIMESTAMPDIFF on DATETIME counts wall-clock time: a shift 00:00→06:00 on a fall-back
+     * night (2025-11-02) is 7 real hours, not 6; spring-forward (2026-03-08) the reverse. Follows
+     * the zone data: production's tzdata (checked 2026-10-12) has BC on permanent UTC-7 ("MST")
+     * from 2026-11-01, so that night has no change; a host with older tzdata would see one.
      */
     public static function minutesBetween(string $start, string $end): int
     {

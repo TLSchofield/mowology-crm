@@ -17,9 +17,11 @@ final class TimeclockRulesTest extends TestCase
 
     public function testFallBackNightCountsTheExtraHour(): void
     {
-        $this->assertSame(420, TimeclockRules::minutesBetween('2026-11-01 00:00:00', '2026-11-01 06:00:00'));
-        $this->assertSame(360, TimeclockRules::wallMinutes('2026-11-01 00:00:00', '2026-11-01 06:00:00'));
-        $this->assertTrue(TimeclockRules::spansDstChange('2026-11-01 00:00:00', '2026-11-01 06:00:00'));
+        // 2025-11-02 (historic, in every tzdata). Production's tzdata has BC on permanent UTC-7 from
+        // 2026-11-01 (no fall-back that night) — the rule follows whatever the zone data says.
+        $this->assertSame(420, TimeclockRules::minutesBetween('2025-11-02 00:00:00', '2025-11-02 06:00:00'));
+        $this->assertSame(360, TimeclockRules::wallMinutes('2025-11-02 00:00:00', '2025-11-02 06:00:00'));
+        $this->assertTrue(TimeclockRules::spansDstChange('2025-11-02 00:00:00', '2025-11-02 06:00:00'));
     }
 
     public function testSpringForwardLosesAnHour(): void
