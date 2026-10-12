@@ -165,9 +165,12 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         let (lat, lng) = await safeLocation()
-        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "start", lat: lat, lng: lng)
+        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "start", lat: lat, lng: lng,
+                                                 userId: apiClient.currentUserId)
+        // The tap time of this start — the first tap's, if this is a retry of a queued one.
+        let tappedAt   = transitionQueue.tappedAt(visitId: visitId, action: "start") ?? Date()
 
-        var body: [String: Any] = ["action": "start", "visit_id": visitId, "client_time": Date().mwClientTime]
+        var body: [String: Any] = ["action": "start", "visit_id": visitId, "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
 
@@ -198,6 +201,19 @@ final class VisitDetailViewModel: ObservableObject {
                 setError(response.message ?? "Failed to start job.")
             }
         } catch {
+            if case APIError.networkError = error {
+                // No signal: the start is saved (with its tap time) and sent when signal returns.
+                // Run the job on screen meanwhile — a day offline must not stop the work.
+                visitStatuses[visitId] = "in_progress"
+                activeTimerVisitId     = visitId
+                elapsedSeconds         = max(0, Int(Date().timeIntervalSince(tappedAt)))
+                startTicking()
+                ArrivalMonitor.shared.jobStarted()
+                gps.setActiveVisit(visitId)
+                autoClockInNotice = "No signal — job started and saved. It will sync when you're back online."
+                isLoading = false
+                return
+            }
             let message = apiErrorMessage(error)
             // Special-request gate (409): the server answered — this start must not sit in the
             // transition queue and replay later (it would start the timer past the request).
@@ -220,7 +236,9 @@ final class VisitDetailViewModel: ObservableObject {
         errorMessage = nil
 
         let (lat, lng) = await safeLocation()
-        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "stop", lat: lat, lng: lng)
+        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "stop", lat: lat, lng: lng,
+                                                 userId: apiClient.currentUserId)
+        let tappedAt   = transitionQueue.tappedAt(visitId: visitId, action: "stop") ?? Date()
 
         // Finalise dwell + accuracy data before the POST.
         ArrivalMonitor.shared.jobCompleted()
@@ -231,13 +249,18 @@ final class VisitDetailViewModel: ObservableObject {
             "visit_id":       visitId,
             "complete_visit": true,
             "accuracy_badge": gps.locationManager.accuracyBadge.rawValue,
-            "client_time":    Date().mwClientTime
+            "client_time":    tappedAt.mwClientTime
         ]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
         if extrasMinutes > 0 { body["extras_minutes"] = extrasMinutes }
         let trimmedNote = extrasNote.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedNote.isEmpty { body["extras_note"] = trimmedNote }
+        // Kept with the queued stop, so a completion sent later still carries its extra work.
+        if extrasMinutes > 0 || !trimmedNote.isEmpty {
+            UserDefaults.standard.set(["minutes": extrasMinutes, "note": trimmedNote],
+                                      forKey: Self.stopExtrasKey(visitId: visitId))
+        }
         accountability.forEach { body[$0.key] = $0.value }
 
         var completed = false
@@ -252,6 +275,7 @@ final class VisitDetailViewModel: ObservableObject {
 
             if response.success {
                 transitionQueue.confirm(visitId: visitId, action: "stop")
+                UserDefaults.standard.removeObject(forKey: Self.stopExtrasKey(visitId: visitId))
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "completed"
                 completed = true
@@ -265,7 +289,19 @@ final class VisitDetailViewModel: ObservableObject {
                 setError(response.message ?? "Failed to complete job.")
             }
         } catch {
-            setError(apiErrorMessage(error))
+            if case APIError.networkError = error {
+                // No signal: the completion (tap time + extras) is saved and sent on reconnect.
+                visitStatuses[visitId] = "completed"
+                completed = true
+                if activeTimerVisitId == visitId {
+                    activeTimerVisitId = nil
+                    stopTicking()
+                }
+                gps.setActiveVisit(nil)
+                autoClockInNotice = "No signal — job completed and saved. It will sync when you're back online."
+            } else {
+                setError(apiErrorMessage(error))
+            }
         }
 
         isLoading = false
@@ -278,13 +314,16 @@ final class VisitDetailViewModel: ObservableObject {
     /// (PendingTransition has no free-text field; AppTransitionDrainService reads this).
     static func skipReasonKey(visitId: Int) -> String { "mw.skipReason.\(visitId)" }
 
+    /// UserDefaults key carrying a queued completion's extra work (minutes + note) to the replay.
+    static func stopExtrasKey(visitId: Int) -> String { "mw.stopExtras.\(visitId)" }
+
     /// Marks a not-yet-started visit as skipped. Offline-safe: on a network
     /// failure the transition stays queued and replays on reconnect.
     func skipVisit(visitId: Int, reason: String) async {
         isLoading    = true
         errorMessage = nil
 
-        let idempKey = transitionQueue.prepare(visitId: visitId, action: "skip")
+        let idempKey = transitionQueue.prepare(visitId: visitId, action: "skip", userId: apiClient.currentUserId)
         UserDefaults.standard.set(reason, forKey: Self.skipReasonKey(visitId: visitId))
 
         let body: [String: Any] = ["action": "skip", "visit_id": visitId, "reason": reason]
@@ -359,19 +398,11 @@ final class VisitDetailViewModel: ObservableObject {
     /// Re-submit any job transitions that were persisted but never confirmed.
     /// Called automatically when PingQueue posts `.mwPingQueueOnline`.
     private func drainPendingTransitions() async {
-        guard !isLoading else { return }
-        for visit in stop.visits {
-            let vid    = visit.visitId
-            let status = visitStatuses[vid] ?? visit.visitStatus
-            if transitionQueue.hasPending(visitId: vid, action: "start"),
-               status.lowercased() == "scheduled" {
-                await startJob(visitId: vid)
-            }
-            if transitionQueue.hasPending(visitId: vid, action: "stop"),
-               status.lowercased() == "in_progress" {
-                await completeJob(visitId: vid)
-            }
-        }
+        // The app-level resend sends everything in order (clock first, then job actions
+        // oldest-first, each with its tap time). This screen used to re-send its own pending
+        // actions in parallel with it, stamped "now" — it just waits for that run instead.
+        // The on-screen status set while offline stays as it is: it is what was sent.
+        await AppTransitionDrainService.shared.drain()
     }
 
     // MARK: - Flag Toggle

@@ -149,7 +149,7 @@ final class TimeClockViewModel: ObservableObject {
                 isLoading     = false
                 return
             }
-            isPendingSync = ClockQueue.shared.hasPending
+            isPendingSync = ClockQueue.shared.pendingCount(for: authSession.user?.id) > 0
         }
 
         do {
@@ -219,7 +219,7 @@ final class TimeClockViewModel: ObservableObject {
                 // Offline — accept locally and queue for sync.
                 clockedIn     = true
                 isPendingSync = true
-                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng, at: tappedAt)
+                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id)
                 persistClockState()
                 startTicking()
                 GPSTrackingService.shared.start(authSession: authSession)
@@ -269,7 +269,7 @@ final class TimeClockViewModel: ObservableObject {
                 elapsedSeconds = 0
                 activeJob      = nil
                 isPendingSync  = true
-                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng, at: tappedAt)
+                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id)
                 persistClockState()
                 stopTicking()
                 GPSTrackingService.shared.stop()

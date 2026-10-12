@@ -34,6 +34,9 @@ final class APIClient: ObservableObject {
     // Weak reference avoids a retain cycle (AuthSession -> APIClient -> AuthSession).
     private weak var authSession: AuthSession?
 
+    /// Who is signed in — the offline queues send only this person's queued actions.
+    var currentUserId: Int? { authSession?.user?.id }
+
     private let session: URLSession
     private let decoder: JSONDecoder
 

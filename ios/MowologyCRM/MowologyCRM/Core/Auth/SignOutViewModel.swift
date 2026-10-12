@@ -15,6 +15,10 @@ final class SignOutViewModel: ObservableObject {
     @Published var showClockedInPrompt = false
     @Published var isWorking           = false
     @Published var errorMessage: String?
+    /// Offline punches and job actions on this phone not yet sent for this person. They stay
+    /// on the phone and go out the next time this person signs in with signal.
+    @Published var unsentCount = 0
+    @Published var showUnsentPrompt = false
 
     private let authSession: AuthSession
     private let apiClient:   APIClient
@@ -41,8 +45,12 @@ final class SignOutViewModel: ObservableObject {
         // A 401 during the check already signed us out.
         guard authSession.isAuthenticated else { return }
 
+        unsentCount = ClockQueue.shared.pendingCount(for: authSession.user?.id)
+                    + TransitionQueue().pendingCount()
         if clockedIn {
             showClockedInPrompt = true
+        } else if unsentCount > 0 {
+            showUnsentPrompt = true
         } else {
             authSession.logout()
         }

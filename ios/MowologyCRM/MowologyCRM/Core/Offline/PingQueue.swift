@@ -143,4 +143,6 @@ final class PingQueue: ObservableObject {
 extension Notification.Name {
     /// Posted by PingQueue on the main thread when connectivity is restored.
     static let mwPingQueueOnline = Notification.Name("ca.mowology.pingQueueOnline")
+    /// Posted after the ordered resend has sent every queued job action (screens refresh).
+    static let mwTransitionsDrained = Notification.Name("ca.mowology.transitionsDrained")
 }

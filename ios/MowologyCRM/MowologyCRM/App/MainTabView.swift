@@ -202,7 +202,16 @@ struct SignOutButton: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Signing out doesn't end your shift — your hours keep running until you clock out. Location tracking on this phone stops when you sign out.")
+            Text("Signing out doesn't end your shift — your hours keep running until you clock out. Location tracking on this phone stops when you sign out."
+                 + (vm.unsentCount > 0 ? " \(vm.unsentCount) action(s) made without signal haven't been sent yet — they'll send next time you sign in with signal." : ""))
+        }
+        .confirmationDialog("Not sent yet",
+                            isPresented: $vm.showUnsentPrompt,
+                            titleVisibility: .visible) {
+            Button("Sign out anyway", role: .destructive) { vm.signOutOnly() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(vm.unsentCount) clock or job action(s) made without signal haven't reached the office. They stay on this phone and send next time you sign in with signal. Better: stay signed in until you have signal.")
         }
         .alert("Couldn't sign out",
                isPresented: Binding(get: { vm.errorMessage != nil },
