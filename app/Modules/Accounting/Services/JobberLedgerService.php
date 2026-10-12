@@ -625,6 +625,22 @@ class JobberLedgerService
 
     private function bookProposal(array $p, array $invoicesById, array $acct, string $batch, int $userId): void
     {
+        // One change: the reversal, the revenue entries, the deposit entry, the log rows and the bank
+        // line all land or none do. A failure at the bank line used to leave the journal booked with
+        // the line still income (review 2026-10-12). Journal posting joins this transaction.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->bookProposalSteps($p, $invoicesById, $acct, $batch, $userId);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function bookProposalSteps(array $p, array $invoicesById, array $acct, string $batch, int $userId): void
+    {
         $tx = (int)$p['transaction_id'];
         if ($p['bbc_entry_id']) {
             $rev = $this->ledger->reverseEntry((int)$p['bbc_entry_id'], $userId, 'Re-booked against Jobber invoices', 'penny');
