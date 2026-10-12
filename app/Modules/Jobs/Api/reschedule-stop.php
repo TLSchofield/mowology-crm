@@ -31,6 +31,14 @@ try {
     requireLogin();
     $user = getCurrentUser();
 
+    // Moving a stop moves a client's visits: office only, like the iPhone endpoint (2026-10-12 —
+    // this was requireLogin() only, so any crew login could move any stop).
+    if (!in_array($user['role'] ?? '', ['admin', 'manager'], true) && !userHasPermission('jobs.edit')) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Only the office can move a stop.']);
+        exit;
+    }
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         throw new Exception('Method not allowed');
     }
@@ -65,6 +73,14 @@ try {
 
     $db = getDB();
     $rescheduler = new StopRescheduleService($db);
+
+    // Same rule as the iPhone endpoint: only a stop with scheduled work and no running timer moves
+    // to another day (re-ordering within its own day is always allowed).
+    if ($newDate !== (string)$rescheduler->getStop($stopId)['stop_date'] && !$rescheduler->isMovable($stopId)) {
+        http_response_code(409);
+        echo json_encode(['error' => 'This stop has nothing left to move, or a job timer is running on it.']);
+        exit;
+    }
 
     // ── Capacity warning ─────────────────────────────────────────────────────
     // Soft warning so the client can ask for confirmation (force=1).

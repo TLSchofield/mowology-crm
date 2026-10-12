@@ -78,7 +78,16 @@ if ($newDate === $oldDate) {
     exit;
 }
 
-$db->prepare("UPDATE job_visits SET scheduled_date = ? WHERE id = ?")->execute([$newDate, $visitId]);
+// The one move path (VisitLifecycleService::moveVisit): re-links the visit to a stop on the new
+// day and tidies the stop it left. Updating scheduled_date alone left the visit on the old day's
+// stop, so the schedule (which reads stops) still showed it on the old day (2026-10-12).
+require_once CRM_INCLUDES . '/plan-functions.php';
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+if (!VisitLifecycleService::moveVisit($visitId, $newDate, null, (int)$user['id'])) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'message' => 'Only a scheduled or skipped visit can be moved.']);
+    exit;
+}
 
 $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
 $db->prepare("

@@ -140,7 +140,15 @@ class StopRescheduleService
                     WHERE stop_id = ? AND status = 'scheduled'
                 ")->execute([$resultStopId, $newDate, $stopId]);
 
-                $this->db->prepare("DELETE FROM calendar_stops WHERE id = ?")->execute([$stopId]);
+                // The old stop goes only if nothing is left on it. Completed / skipped visits stay
+                // where the work was recorded; deleting the stop under them orphaned them (2026-10-12).
+                require_once __DIR__ . '/CalendarStopTidyService.php';
+                CalendarStopTidyService::deleteIfEmpty($this->db, $stopId);
+            } elseif ($this->recordedVisitCount($stopId) > 0) {
+                // The stop also holds finished work (completed / skipped / in progress) for the old
+                // day. Moving the stop row would carry that history to the new date, so the
+                // scheduled visits get a new stop on the new day instead and the old one stays.
+                $resultStopId = $this->splitScheduledTo($stop, $newDate, $newRouteOrder, $newTime, $appendToEnd);
             } else {
                 if ($newRouteOrder === null && $appendToEnd && $newDate !== $oldDate) {
                     $orderStmt = $this->db->prepare("
@@ -194,6 +202,46 @@ class StopRescheduleService
             'new_route_order' => $newRouteOrder,
             'merged'          => (bool)$existingStop,
         ];
+    }
+
+    /** Visits on the stop that are history for its day: anything but scheduled or cancelled. */
+    private function recordedVisitCount(int $stopId): int
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM job_visits WHERE stop_id = ? AND status NOT IN ('scheduled', 'cancelled')");
+        $s->execute([$stopId]);
+        return (int)$s->fetchColumn();
+    }
+
+    /** New stop on $newDate (same property + crew) taking the old stop's scheduled visits and crew. */
+    private function splitScheduledTo(array $stop, string $newDate, ?int $routeOrder, ?string $newTime, bool $appendToEnd): int
+    {
+        $oldId = (int)$stop['id'];
+        if ($routeOrder === null && $appendToEnd) {
+            $o = $this->db->prepare("SELECT COALESCE(MAX(route_order), 0) + 1 FROM calendar_stops WHERE stop_date = ?");
+            $o->execute([$newDate]);
+            $routeOrder = (int)$o->fetchColumn();
+        }
+        $this->db->prepare("
+            INSERT INTO calendar_stops (property_id, stop_date, crew_id, route_order, estimated_arrival, estimated_departure, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
+        ")->execute([
+            $stop['property_id'], $newDate, $stop['crew_id'],
+            $routeOrder ?? ($stop['route_order'] ?? null),
+            $newTime ?: ($stop['estimated_arrival'] ?? null),
+            $newTime ? null : ($stop['estimated_departure'] ?? null),
+        ]);
+        $newId = (int)$this->db->lastInsertId();
+        try {
+            $this->db->prepare("INSERT IGNORE INTO calendar_stop_crew (stop_id, user_id) SELECT ?, user_id FROM calendar_stop_crew WHERE stop_id = ?")
+                     ->execute([$newId, $oldId]);
+        } catch (PDOException $e) {
+            // very old schema without the junction table
+        }
+        $sql = "UPDATE job_visits SET stop_id = ?, scheduled_date = ?" . ($newTime ? ", scheduled_time_start = ?" : "")
+             . ", updated_at = NOW() WHERE stop_id = ? AND status = 'scheduled'";
+        $params = $newTime ? [$newId, $newDate, $newTime, $oldId] : [$newId, $newDate, $oldId];
+        $this->db->prepare($sql)->execute($params);
+        return $newId;
     }
 
     /**
