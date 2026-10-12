@@ -326,13 +326,16 @@ class IncomeCleanupService
 
             case 'record_payment':
                 foreach ($line['allocations'] as $a) $this->assertOwes((int)$a['invoice_id'], (float)$a['amount']);
-                $res = $recon->attach($txId, $line['allocations'], $userId);   // its own DB transaction
+                // One transaction for the payment, the claim and the log: the log is what Undo finds,
+                // so a booking without it could never be reversed (review 2026-10-12).
+                $this->db->beginTransaction();
+                $res = $recon->attach($txId, $line['allocations'], $userId);   // joins this transaction
                 if (empty($res['fully_allocated'])) {
-                    $recon->detach($txId, null, $userId);
                     throw new RuntimeException('Recording left part of the deposit unexplained — undone, nothing changed.');
                 }
                 $this->claim($txId, $line['invoice_ids'][0]);
                 $logId = $this->log($line, 'booked', $before, $userId, $detail);
+                $this->db->commit();
                 break;
 
             case 'stripe_payout':

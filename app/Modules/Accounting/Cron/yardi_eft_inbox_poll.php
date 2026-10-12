@@ -65,6 +65,13 @@ $service = new YardiEftInboxService($db);
 
 $sender = 'DoNotReply@yardi.com';
 $since  = date('d-M-Y', strtotime('-21 days'));
+// After an outage, read back to the last good run instead of skipping the gap (capped at 120 days).
+try {
+    $lastOk = getDB()->query("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = 'yardi_eft_inbox_poll' AND status = 'success'")->fetchColumn();
+    if ($lastOk && strtotime($lastOk) < strtotime('-20 days')) {
+        $since = date('d-M-Y', max(strtotime($lastOk . ' -2 days'), strtotime('-120 days')));
+    }
+} catch (Throwable $e) { /* keep 21 days */ }
 
 ImapReader::timeouts();
 

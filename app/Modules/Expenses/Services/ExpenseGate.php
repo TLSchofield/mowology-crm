@@ -144,6 +144,12 @@ class ExpenseGate
             if (!in_array($cols['status'], self::OPEN, true) && $cols['status'] !== $allowed) {
                 unset($cols['status']);          // only the audited path may close a receipt — keep what it is
             }
+            // Re-opening an approved/sent receipt (back to draft/pending) also needs its audited path —
+            // a plain edit carrying status 'draft' reversed its books (review 2026-10-12).
+            if (!$create && $allowed === null && in_array($cols['status'] ?? null, self::OPEN, true)
+                && !in_array((string)($before['status'] ?? ''), self::OPEN, true)) {
+                unset($cols['status']);
+            }
         }
         $set = $create ? $cols : self::diff($before, $cols);
         $linesChange = array_key_exists('line_items', $changes) || !empty($changes['line_item']) || !empty($changes['line_items_from']);

@@ -2891,6 +2891,18 @@ class BankImportService
 
         $isCreditCard = ($kind === 'credit_card');
 
+        // One date order per file: if any n/n/yyyy date has a first part over 12, the file is day-first
+        // (d/m/Y). Tried row by row, m/d/Y won for every day ≤ 12 and put those lines in the wrong
+        // month (review 2026-10-12).
+        $dates = [];
+        $j = 0;
+        foreach ($lines as $ln) {
+            if ($j++ < $skipRows || trim($ln) === '') continue;
+            $c = str_getcsv(trim($ln), ',', '"', '');
+            $dates[] = trim($c[$mapping['date'] ?? 0] ?? '');
+        }
+        $this->dayFirst = self::isDayFirst($dates);
+
         $rows = [];
         $i    = 0;
         foreach ($lines as $line) {
@@ -3100,13 +3112,27 @@ class BankImportService
      * Attempt to parse a date string in common Canadian bank formats.
      * Returns YYYY-MM-DD string or null.
      */
+    /** Set per file by parseCSV(): the file writes dates day-first (d/m/Y). */
+    private bool $dayFirst = false;
+
+    /** Is a list of n/n/yyyy dates day-first? True when any first part is over 12. Pure. */
+    public static function isDayFirst(array $dates): bool
+    {
+        foreach ($dates as $d) {
+            if (preg_match('#^(\d{1,2})[/\-](\d{1,2})[/\-]\d{2,4}$#', trim((string)$d), $m) && (int)$m[1] > 12 && (int)$m[2] <= 12) return true;
+        }
+        return false;
+    }
+
     private function parseDate(string $s): ?string
     {
         $s = trim($s);
         if (!$s) return null;
 
-        // Try common formats
-        $formats = ['Y-m-d', 'm/d/Y', 'd/m/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'm-d-Y'];
+        // Try common formats (day-first files try d/m/Y before m/d/Y)
+        $formats = $this->dayFirst
+            ? ['Y-m-d', 'd/m/Y', 'm/d/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'd-m-Y', 'm-d-Y']
+            : ['Y-m-d', 'm/d/Y', 'd/m/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'm-d-Y'];
         foreach ($formats as $fmt) {
             $dt = DateTime::createFromFormat($fmt, $s);
             if ($dt && $dt->format($fmt) === $s) {

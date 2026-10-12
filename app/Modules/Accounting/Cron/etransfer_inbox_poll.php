@@ -68,6 +68,14 @@ $service = new EtransferInboxService($db);
 
 $interac = 'notify@payments.interac.ca';
 $since   = date('d-M-Y', strtotime('-21 days'));   // IMAP date format (server-side window)
+// After an outage (password rotated, cron paused) look back to the last good run, so the gap is
+// read instead of silently skipped (review 2026-10-12). Capped at 120 days; dedup keys stop repeats.
+try {
+    $lastOk = $db->query("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = 'etransfer_inbox_poll' AND status = 'success'")->fetchColumn();
+    if ($lastOk && strtotime($lastOk) < strtotime('-20 days')) {
+        $since = date('d-M-Y', max(strtotime($lastOk . ' -2 days'), strtotime('-120 days')));
+    }
+} catch (Throwable $e) { /* no cron_runs yet: keep 21 days */ }
 
 // Bound every IMAP operation so an unresponsive mail server can never hang the
 // unattended cron (default is no timeout). Seconds.

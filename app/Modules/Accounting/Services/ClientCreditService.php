@@ -216,7 +216,7 @@ class ClientCreditService
             $this->db->prepare("
                 UPDATE invoices
                 SET amount_paid = ?, balance_due = ?, status = ?, payment_method = 'account_credit',
-                    payment_reference = 'Client credit ledger', paid_at = CASE WHEN ? = 'paid' THEN NOW() ELSE paid_at END
+                    payment_reference = 'Client credit ledger', paid_at = CASE WHEN ? = 'paid' THEN COALESCE(paid_at, NOW()) ELSE paid_at END
                 WHERE id = ?
             ")->execute([$newPaid, $newBalance, $newStatus, $newStatus, $invoiceId]);
 

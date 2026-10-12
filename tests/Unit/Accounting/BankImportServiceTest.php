@@ -1128,4 +1128,12 @@ class BankImportServiceTest extends TestCase
             $this->assertFalse(BankImportService::isCardStatementPayment($d), $d);
         }
     }
+
+    public function test_a_file_is_day_first_when_any_date_says_so(): void
+    {
+        $this->assertTrue(BankImportService::isDayFirst(['03/09/2026', '15/09/2026']));
+        $this->assertFalse(BankImportService::isDayFirst(['09/03/2026', '09/15/2026']));
+        $this->assertFalse(BankImportService::isDayFirst(['03/09/2026', '04/09/2026']));   // ambiguous: stays month-first
+        $this->assertFalse(BankImportService::isDayFirst(['2026-09-15', '07-Sep-2026']));
+    }
 }

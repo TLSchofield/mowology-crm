@@ -145,7 +145,8 @@ class InvoiceReconciliationService
         $ref     = $this->deriveReference($dep);
         $payDate = substr((string)$dep['transaction_date'], 0, 10);
 
-        $this->db->beginTransaction();
+        $ownTx = !$this->db->inTransaction();   // join a caller's transaction (income clean-up)
+        if ($ownTx) $this->db->beginTransaction();
         try {
             // Lock the deposit and re-check what's left INSIDE the transaction: two "Record" clicks
             // (or two tabs) both read the remainder above and could each spend it (review 2026-10-12).
@@ -169,9 +170,9 @@ class InvoiceReconciliationService
             $singleInvoiceId = count($clean) === 1 ? $clean[0]['invoice_id'] : null;
             $this->recomputeDepositRow($transactionId, $original, $userId, $singleInvoiceId);
 
-            $this->db->commit();
+            if ($ownTx) $this->db->commit();
         } catch (Throwable $e) {
-            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($ownTx && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
 
@@ -757,6 +758,16 @@ class InvoiceReconciliationService
                 'This invoice is reconciled against a bank deposit or e-Transfer allocation — '
                 . 'use unmerge/detach on that record instead of a manual correction.'
             );
+        }
+        // A card payment lives in stripe_payments, not allocations — "correcting" it here desynced the
+        // invoice from Stripe (review 2026-10-12).
+        try {
+            $st = $this->db->prepare("SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ? AND status = 'succeeded'");
+            $st->execute([$invoiceId]);
+            $byCard = (int)$st->fetchColumn() > 0;
+        } catch (PDOException $e) { $byCard = false; }   // no stripe_payments table
+        if ($byCard) {
+            throw new RuntimeException('This invoice was paid by card through Stripe — refunds and corrections are done in Stripe, not here.');
         }
 
         $this->db->beginTransaction();

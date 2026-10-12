@@ -146,14 +146,19 @@ class StatementService
         $propIds = $this->columnIds("SELECT id FROM properties WHERE site_contact_id = ?", [$contactId]);
         $planIds = $this->columnIds("SELECT id FROM job_plans WHERE contact_id = ?", [$contactId]);
 
+        // Their own invoices always. Invoices for their properties/plans only when billed to them —
+        // not when billed to a company they don't belong to (a strata rep's statement carried the
+        // property manager's invoices; review 2026-10-12).
+        $myCompany = $this->columnIds("SELECT company_id FROM contacts WHERE id = ? AND company_id IS NOT NULL", [$contactId]);
+        $notOthers = '(i.company_id IS NULL' . ($myCompany ? ' OR i.company_id = ' . (int)$myCompany[0] : '') . ')';
         $where  = ['i.contact_id = ?'];
         $params = [$contactId];
         if ($propIds) {
-            $where[] = 'i.property_id IN (' . implode(',', array_fill(0, count($propIds), '?')) . ')';
+            $where[] = '(i.property_id IN (' . implode(',', array_fill(0, count($propIds), '?')) . ') AND ' . $notOthers . ')';
             $params  = array_merge($params, $propIds);
         }
         if ($planIds) {
-            $where[] = 'i.plan_id IN (' . implode(',', array_fill(0, count($planIds), '?')) . ')';
+            $where[] = '(i.plan_id IN (' . implode(',', array_fill(0, count($planIds), '?')) . ') AND ' . $notOthers . ')';
             $params  = array_merge($params, $planIds);
         }
         $stmt = $this->db->prepare("
