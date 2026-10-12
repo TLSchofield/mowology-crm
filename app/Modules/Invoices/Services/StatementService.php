@@ -161,7 +161,7 @@ class StatementService
                    i.issue_date, i.due_date, i.amount_paid, i.payment_method, i.paid_at
             FROM invoices i
             WHERE (" . implode(' OR ', $where) . ")
-              AND i.status <> 'draft'
+              AND i.status NOT IN ('draft', 'cancelled', 'void')   -- a cancelled invoice is not a charge (review 2026-10-12)
             ORDER BY i.issue_date ASC, i.id ASC
         ");
         $stmt->execute($params);

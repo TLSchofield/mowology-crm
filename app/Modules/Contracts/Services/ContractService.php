@@ -598,6 +598,13 @@ class ContractService
      * billing_cycle isn't itself 'per_visit' — a paused/cancelled contract or
      * a per-visit-billed contract must allow normal per-visit invoicing.
      */
+    /**
+     * The cycles contract_billing.php actually bills (it bills monthly only). Any other cycle
+     * (seasonal/annual/custom) was treated as "billed by contract" here, so its visits could not be
+     * invoiced either — billed by nobody (review 2026-10-12).
+     */
+    public const CRON_BILLED_CYCLES = ['monthly'];
+
     public function isPlanContractBilled(int $planId): bool
     {
         if ($planId < 1) return false;
@@ -613,7 +620,7 @@ class ContractService
 
         if (!$row) return false; // no contract_id, or contract row missing
 
-        return $row['status'] === 'active' && $row['billing_cycle'] !== 'per_visit';
+        return $row['status'] === 'active' && in_array($row['billing_cycle'], self::CRON_BILLED_CYCLES, true);
     }
 
     /**
@@ -637,7 +644,7 @@ class ContractService
         ");
         $stmt->execute($planIds);
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $result[(int)$row['plan_id']] = ($row['status'] === 'active' && $row['billing_cycle'] !== 'per_visit');
+            $result[(int)$row['plan_id']] = ($row['status'] === 'active' && in_array($row['billing_cycle'], self::CRON_BILLED_CYCLES, true));
         }
         return $result;
     }

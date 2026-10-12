@@ -332,11 +332,16 @@ class PennyQuestionService
         if ($answer === 'account') {
             return $this->answerAccount($id, (int)$accountId, $userId, $name);
         }
-        $s = $this->db->prepare("SELECT COALESCE(e.job_id, q.plan_id) AS plan_id, q.status FROM penny_questions q LEFT JOIN expenses e ON e.id = q.expense_id WHERE q.id = ?");
+        $s = $this->db->prepare("SELECT COALESCE(e.job_id, q.plan_id) AS plan_id, q.status, q.kind FROM penny_questions q LEFT JOIN expenses e ON e.id = q.expense_id WHERE q.id = ?");
         $s->execute([$id]);
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') {
             return ['ok' => false, 'message' => 'Already answered'];
+        }
+        // "Which income account?" is answered with an account, nothing else — closing it as
+        // "contract" left the account never set (review 2026-10-12).
+        if (($q['kind'] ?? '') === 'service_account') {
+            return ['ok' => false, 'message' => 'Pick the income account for this one'];
         }
         $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
            ->execute([$answer, $userId, $id]);
