@@ -12,6 +12,12 @@ until he says, and check with Steve Lim.
 (same client — cheques say ROBERGE, invoices say Baird); Obsidian Property = The Mix BCS4428's manager;
 KANCO cheques = Beedie Development – Kanco. VML and Laburnum pay by cheque; Dorset and Norsan by Yardi EFT.
 
+**Reading the chequing statement** (Vancity export, 2026-10-12): crew are paid by e-Transfer debits
+(Nigel Casey, Katrenna Marenych, Trevor James, Harry Grant, Himal Bam, Dmitry) alongside Wave PYRL runs;
+"Chargeback debit" + $7.50 = a returned cheque (Jul 3: $456.84, the VR1450/Colyvan amount); a cash deposit
+that equals a same-day Vancity Visa bill payment ($1,800 on Jul 31) is the owner covering the card, not
+income — ask. "sparc pay" cheques come from a strata on SparcPay (not necessarily BCS4428).
+
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
 
