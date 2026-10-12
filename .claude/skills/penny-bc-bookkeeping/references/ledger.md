@@ -46,8 +46,9 @@ VCHA (Little Mountain Residential Care) pays by numbered cheque 2–6 weeks afte
 facilities coordinator approves it; VCH Accounts Payable (`VCHaccountspayable@phsa.ca`) confirms by
 email with the cheque number, invoice number and date cashed — a remittance as good as Yardi's
 (e.g. cheque 356183 for INV-2026-0371, 2026-10-05). Bank wording "COASTAL HEALTH" is a learned payer
-(2026-10-12). Don't treat VCHA as late before ~45 days. Invoices go to `vcfmoinvoices@vch.ca` (the
-company billing email); Johnly Sareno (`laguiar@littlemountaincare.org`) is the site contact, not AP.
+(2026-10-12). Don't treat VCHA as late before ~45 days. Monthly contract invoices go to
+`vcfmoinvoices@vch.ca` (the company billing email); one-off work goes to Johnly Sareno
+(`laguiar@littlemountaincare.org`), who signs it off — leave the routing as "primary contact" (Tim, 2026-10-12).
 
 ## Tables and columns that mislead
 
