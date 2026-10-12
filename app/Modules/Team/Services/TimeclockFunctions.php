@@ -301,6 +301,23 @@ function userIsCrewOnVisit(int $visitId, int $userId): bool {
 }
 
 /**
+ * May this user stop, complete or skip the visit? Admins/managers always; crew on the visit;
+ * or anyone with their own timer running on it (an auto-start they then finish). startJobTimer()
+ * always checked crew; stop and skip did not, so any crew login could complete — and bill —
+ * any visit company-wide (2026-10-12 review).
+ */
+function userMayActOnVisit(int $visitId, int $userId): bool {
+    $db = getDB();
+    $r = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $r->execute([$userId]);
+    if (in_array((string)($r->fetchColumn() ?: ''), ['admin', 'manager'], true)) return true;
+    if (userIsCrewOnVisit($visitId, $userId)) return true;
+    $t = $db->prepare("SELECT 1 FROM job_time_entries WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL LIMIT 1");
+    $t->execute([$visitId, $userId]);
+    return (bool)$t->fetchColumn();
+}
+
+/**
  * Start a job timer. $at ('Y-m-d H:i:s', server zone) is when the phone says the start was
  * tapped — an offline start replayed later (OfflineTime decides whether to trust it); null = now.
  * $gpsOptional: a start replayed from the phone's offline queue may have no fix — record it

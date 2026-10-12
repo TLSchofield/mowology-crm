@@ -170,6 +170,13 @@ try {
                 if ($cached !== null) { echo $cached; exit; }
             }
 
+            // Same ownership rule as start (2026-10-12): crew on the visit, own timer, or admin/manager.
+            if (!userMayActOnVisit($visitId, $userId)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'You are not assigned to this visit']);
+                exit;
+            }
+
             $lat           = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng           = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes         = $input['notes'] ?? null;
@@ -243,6 +250,12 @@ try {
             if ($idempKey) {
                 $cached = idempotencyCheck($db, $idempKey, $userId);
                 if ($cached !== null) { echo $cached; exit; }
+            }
+
+            if (!userMayActOnVisit($visitId, $userId)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'You are not assigned to this visit']);
+                exit;
             }
 
             // updateVisitStatus() lives behind plan-functions, which this endpoint

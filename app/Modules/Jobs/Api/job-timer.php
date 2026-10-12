@@ -167,6 +167,13 @@ try {
                 if ($cached !== null) { echo $cached; exit; }
             }
 
+            // Same ownership rule as start (2026-10-12): crew on the visit, own timer, or admin/manager.
+            if (!userMayActOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
+                exit;
+            }
+
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
