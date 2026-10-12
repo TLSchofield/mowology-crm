@@ -55,12 +55,13 @@ enum QueueStorage {
         FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 
-    /// Persist payload bytes. Returns false if the write failed, so callers can
+    /// Persist payload bytes (encrypted at rest; readable once the phone has been unlocked
+    /// after a restart, so background drains still work). Returns false if the write failed, so callers can
     /// avoid recording a queue entry whose file does not exist.
     @discardableResult
     static func write(_ data: Data, filename: String) -> Bool {
         do {
-            try data.write(to: url(for: filename), options: .atomic)
+            try data.write(to: url(for: filename), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             return false
