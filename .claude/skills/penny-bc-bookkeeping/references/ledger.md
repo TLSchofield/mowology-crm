@@ -2,9 +2,11 @@
 
 Longer history: Obsidian `30-PROJECTS/Active/Mowology-CRM/Architecture/Accounting-Ledger.md`.
 
-**e-Transfers from chequing to Tim Schofield are his wages** (Tim, 2026-10-12: "usually") — filed to
-5100 by rules 37/307; $49,086.89 across 33 in 2026. Payroll for the crew runs separately (Wave PYRL).
-Ask before treating a large or unusual one as wages: the shareholder loan payout is the exception.
+**e-Transfers from chequing to Tim Schofield are NOT his pay — open question.** Tim is on Wave payroll
+(2026-10-12), so wages filed from these transfers double-count his pay. They are filed to 5100 Crew
+Wages by rules 37 (learned) and 307 ("owner said so"): $49,086.89 across 33 in 2026. Possibly the
+shareholder loan payout, reimbursements, or money he passes to crew — ask Tim; don't reclassify
+until he says, and check with Steve Lim.
 
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
