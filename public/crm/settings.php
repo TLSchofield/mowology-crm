@@ -1178,10 +1178,6 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                         <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
                         Save Quiz Settings
                     </button>
-                    <a href="/crm/api/run-migration-quiz7.php" target="_blank" class="btn btn-outline-secondary ml-2">
-                        <i data-feather="database" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
-                        Run Migration (first time only)
-                    </a>
                 </div>
             </div>
 
