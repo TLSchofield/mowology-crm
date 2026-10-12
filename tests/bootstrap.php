@@ -263,6 +263,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledWorkFinder.php
 
 // CMS
 require_once __DIR__ . '/../app/Modules/CMS/Services/ArticleService.php';
+require_once __DIR__ . '/../app/Modules/CMS/Services/CmsHtmlSanitizer.php';
 
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';

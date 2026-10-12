@@ -234,8 +234,10 @@ function cms_renderFeatures(array $d): string {
 function cms_renderTextBlock(array $d): string {
     $layout  = $d['layout']     ?? 'full';
     $bg      = $d['background'] ?? 'white';
-    $content = $d['content']    ?? '';
-    $content2= $d['content2']   ?? '';
+    // Allow-listed HTML (Fable review 2026-10-12): editors' HTML no longer reaches the page raw.
+    require_once __DIR__ . '/CmsHtmlSanitizer.php';
+    $content = CmsHtmlSanitizer::clean((string)($d['content']  ?? ''));
+    $content2= CmsHtmlSanitizer::clean((string)($d['content2'] ?? ''));
 
     $bgClass = match($bg) {
         'light' => 'cms-sec-bg--light',
