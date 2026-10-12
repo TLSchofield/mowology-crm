@@ -865,11 +865,12 @@ class OwnerFreedomService
         $in['crew_avg_rate'] = (float)$this->one("
             SELECT AVG(hourly_rate) FROM users WHERE is_active = 1 AND id <> ? AND hourly_rate > 0", [$owner], 0);
 
-        // Expenses (non-labour): approved / sent receipts only (a draft may be a duplicate or wrong), and
-        // without the GST we claim back (PST stays — it's a real cost).
+        // Expenses (non-labour): every receipt that's a real cost — drafts and pending ones count too (Tim,
+        // 2026-10-12: the approval backlog must not make profit look high); rejected/cancelled don't.
+        // Without the GST we claim back (PST stays — it's a real cost).
         $in['expenses'] = (float)$this->one("
             SELECT COALESCE(SUM(total - COALESCE(gst_amount,0)),0) FROM expenses
-            WHERE status IN ('approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn(), [$from, $to], 0);
+            WHERE status IN ('draft','pending_approval','approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn(), [$from, $to], 0);
 
         // Visit attribution
         $amt = self::VISIT_AMOUNT;
