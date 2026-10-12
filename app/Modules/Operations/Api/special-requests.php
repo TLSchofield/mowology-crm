@@ -53,6 +53,8 @@ try {
         exit;
     }
     $canOffice = userHasPermission('jobs.edit');
+    // Seeing/answering a request needs crew on the visit — or the office (jobs.edit, admin, manager).
+    $isOffice = $canOffice || in_array($user['role'] ?? '', ['admin', 'manager'], true);
     $db = getDB();
     session_write_close();
 
@@ -74,11 +76,11 @@ try {
         case 'visits':
             $ids = array_slice(array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? '')))), 0, 200);
             $on = $svc->ready() && $svc->appliesToUser($userId);
-            echo json_encode(['ok' => true, 'enabled' => $on, 'requests' => $on ? (object)$svc->forVisits($ids, $userId) : (object)[]]);
+            echo json_encode(['ok' => true, 'enabled' => $on, 'requests' => $on ? (object)$svc->forVisits($ids, $userId, $isOffice) : (object)[]]);
             break;
 
         case 'ack':
-            $r = $svc->ack((int)($input['request_visit_id'] ?? 0), $userId, 'web');
+            $r = $svc->ack((int)($input['request_visit_id'] ?? 0), $userId, 'web', $isOffice);
             if (!$r['ok']) http_response_code(400);
             echo json_encode($r);
             break;
@@ -86,7 +88,8 @@ try {
         case 'outcome':
             $r = $svc->outcome(
                 (int)($input['request_visit_id'] ?? 0), $userId, (string)($input['outcome'] ?? ''),
-                (string)($input['reason'] ?? ''), (string)($input['extra_description'] ?? ''), (int)($input['extra_minutes'] ?? 0)
+                (string)($input['reason'] ?? ''), (string)($input['extra_description'] ?? ''), (int)($input['extra_minutes'] ?? 0),
+                $isOffice
             );
             if (!$r['ok']) http_response_code(400);
             echo json_encode($r);

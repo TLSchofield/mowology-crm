@@ -443,6 +443,21 @@ class SpecialRequestService
         return ['leader' => $leader, 'all' => $all];
     }
 
+    /**
+     * May this user see / answer the requests on this visit? Crew on the visit (crewForVisit)
+     * or the office. Any crew login could otherwise record billable extra work on any visit
+     * (2026-10-12). PURE.
+     */
+    public static function mayAct(array $crewAll, int $userId, bool $isOffice): bool
+    {
+        return $isOffice || ($userId > 0 && in_array($userId, array_map('intval', $crewAll), true));
+    }
+
+    public function onVisit(int $visitId, int $userId, bool $isOffice = false): bool
+    {
+        return $isOffice || self::mayAct($this->crewForVisit($visitId)['all'], $userId, false);
+    }
+
     /** @return list<string> */
     private function crewNames(array $userIds): array
     {
@@ -462,10 +477,15 @@ class SpecialRequestService
      * apply to $userId (the client code is then inert).
      * @return array<int, list<array>> visit_id => payloads
      */
-    public function forVisits(array $visitIds, int $userId): array
+    public function forVisits(array $visitIds, int $userId, bool $isOffice = false): array
     {
         $visitIds = array_values(array_unique(array_filter(array_map('intval', $visitIds))));
         if (!$visitIds || !$this->appliesToUser($userId)) return [];
+        // Only the visits this user is crew on (the office sees all).
+        if (!$isOffice) {
+            $visitIds = array_values(array_filter($visitIds, fn(int $v): bool => $this->onVisit($v, $userId)));
+            if (!$visitIds) return [];
+        }
         $in = implode(',', array_fill(0, count($visitIds), '?'));
         $st = $this->db->prepare("SELECT srv.id, srv.visit_id FROM special_request_visits srv
                                   JOIN special_requests r ON r.id = srv.request_id
@@ -564,11 +584,12 @@ class SpecialRequestService
     }
 
     /** "Got it" — this crew member has read it. Idempotent. */
-    public function ack(int $srvId, int $userId, string $client = 'web'): array
+    public function ack(int $srvId, int $userId, string $client = 'web', bool $isOffice = false): array
     {
         if (!$this->appliesToUser($userId)) return ['ok' => false, 'error' => 'Special requests are switched off.'];
         $p = $this->payload($srvId, $userId);
         if (!$p) return ['ok' => false, 'error' => 'Request not found.'];
+        if (!$this->onVisit((int)$p['visit_id'], $userId, $isOffice)) return ['ok' => false, 'error' => 'You are not on this visit.'];
         if (!$p['acked_by_me']) {
             try {
                 $this->db->prepare('INSERT INTO special_request_acks (request_visit_id, user_id, acknowledged_at, client) VALUES (?, ?, ?, ?)')
@@ -584,12 +605,14 @@ class SpecialRequestService
      * added once). Writes a visit note. A later answer replaces an earlier one, but extra minutes
      * are never added to the visit twice.
      */
-    public function outcome(int $srvId, int $userId, string $outcome, string $reason = '', string $extraDesc = '', int $extraMinutes = 0): array
+    public function outcome(int $srvId, int $userId, string $outcome, string $reason = '', string $extraDesc = '', int $extraMinutes = 0, bool $isOffice = false): array
     {
         if (!$this->appliesToUser($userId)) return ['ok' => false, 'error' => 'Special requests are switched off.'];
         if (!in_array($outcome, self::OUTCOMES, true)) return ['ok' => false, 'error' => 'Unknown answer.'];
         $p = $this->payload($srvId, $userId);
         if (!$p) return ['ok' => false, 'error' => 'Request not found.'];
+        // Extra work is billed to the client — only crew on the visit (or the office) may record it.
+        if (!$this->onVisit((int)$p['visit_id'], $userId, $isOffice)) return ['ok' => false, 'error' => 'You are not on this visit.'];
         $reason = trim($reason);
         $extraDesc = trim($extraDesc);
         if ($outcome === 'not_done' && $reason === '') return ['ok' => false, 'error' => 'Say why it wasn\'t done.'];
@@ -713,36 +736,37 @@ class SpecialRequestService
 
     /**
      * SMS text for the crew leader. Carrier gateway rules: plain ASCII, ≤160, NO links or
-     * anything that looks like a domain, tell them to open the app; office number only if room.
+     * anything that looks like a domain, tell them to open the app, and ALWAYS the office
+     * number — the items are shortened to make room for it, never the number dropped.
      */
     public static function smsText(string $address, string $when, array $included, array $extra): string
     {
-        $addr = self::shortAddress($address);
-        $head = 'Mowology: special request at ' . $addr . ($when !== '' ? ' ' . $when : '');
-        $tail = ' Open the app.';
-        $phone = ' ' . self::OFFICE_PHONE;
+        $addr  = self::shortAddress($address);
+        $head  = 'Mowology: special request at ' . $addr . ($when !== '' ? ' ' . $when : '');
+        $tail  = ' Open the app. ' . self::OFFICE_PHONE;
+        $room  = self::SMS_MAX;
+        $fits  = fn(string $t): bool => mb_strlen($t) <= $room;
         $bits = [];
         if ($included) $bits[] = self::gist($included[0]);
         if ($extra) $bits[] = self::gist($extra[0]) . ' (extra, decide on site)';
-        $body = $bits ? ' - ' . implode(' + ', $bits) . '.' : '.';
-        $text = self::smsSafe($head . $body . $tail);
-        if (mb_strlen($text) > self::SMS_MAX) {
+        $text = self::smsSafe($head . ($bits ? ' - ' . implode(' + ', $bits) . '.' : '.') . $tail);
+        if (!$fits($text)) {
             // Shorten the items until it fits.
-            foreach ([40, 28, 18] as $n) {
+            foreach ([40, 28, 18, 10] as $n) {
                 $bits = [];
                 if ($included) $bits[] = self::gist($included[0], $n);
                 if ($extra) $bits[] = self::gist($extra[0], $n) . ' (extra)';
-                $text = self::smsSafe($head . ' - ' . implode(' + ', $bits) . '.' . $tail);
-                if (mb_strlen($text) <= self::SMS_MAX) break;
+                $text = self::smsSafe($head . ($bits ? ' - ' . implode(' + ', $bits) . '.' : '.') . $tail);
+                if ($fits($text)) break;
             }
         }
-        if (mb_strlen($text) > self::SMS_MAX) {
-            $text = self::smsSafe($head . '. Read it in the app before you start.');
+        if (!$fits($text)) {
+            $text = self::smsSafe($head . '. Read it in the app before you start. ' . self::OFFICE_PHONE);
         }
-        if (mb_strlen($text) > self::SMS_MAX) {
-            $text = self::smsSafe('Mowology: special request on a visit today. Read it in the app before you start.');
+        if (!$fits($text)) {
+            $text = self::smsSafe('Mowology: special request on a visit ' . ($when !== '' ? $when : 'today')
+                . '. Read it in the app before you start. ' . self::OFFICE_PHONE);
         }
-        if (mb_strlen($text . $phone) <= self::SMS_MAX) $text .= $phone;
         return $text;
     }
 

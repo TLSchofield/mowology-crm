@@ -322,7 +322,9 @@ final class SpecialRequestServiceTest extends TestCase
         $this->assertTrue($r['ok'], json_encode($r));
         $req = $this->db->query("SELECT head, status, included_items, extra_items FROM special_requests")->fetch();
         $this->assertSame('otto', $req['head']);
-        $p = $this->svc()->forVisits([104], 31)[104][0];
+        // Visit 104 has no crew yet: crew member 31 is not on it and sees nothing; the office does.
+        $this->assertSame([], $this->svc()->forVisits([104], 31));
+        $p = $this->svc()->forVisits([104], 33, true)[104][0];
         $this->assertSame(['Otto', 'Operations', '/crm/img/heads/otto.jpg'], [$p['head_name'], $p['head_role'], $p['head_photo']]);
         $this->assertSame('attached', $req['status']);
         $this->assertStringContainsString('trim the hedge', strtolower($req['included_items']));

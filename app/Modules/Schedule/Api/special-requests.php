@@ -37,13 +37,15 @@ try {
     $userId  = (int)$jwtUser['id'];
     $svc     = new SpecialRequestService(getDB());
     $on      = $svc->ready() && $svc->appliesToUser($userId);
+    // Crew see and answer only the visits they are on; the office (admin/manager) any.
+    $isOffice = in_array($jwtUser['role'] ?? '', ['admin', 'manager'], true);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $ids = array_slice(array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? '')))), 0, 200);
         echo json_encode([
             'success'  => true,
             'enabled'  => $on,
-            'requests' => $on ? (object)$svc->forVisits($ids, $userId) : (object)[],
+            'requests' => $on ? (object)$svc->forVisits($ids, $userId, $isOffice) : (object)[],
         ]);
         exit;
     }
@@ -53,10 +55,10 @@ try {
     $srvId = (int)($input['request_visit_id'] ?? 0);
 
     if ($mode === 'ack') {
-        $r = $svc->ack($srvId, $userId, 'ios');
+        $r = $svc->ack($srvId, $userId, 'ios', $isOffice);
     } elseif ($mode === 'outcome') {
         $r = $svc->outcome($srvId, $userId, (string)($input['outcome'] ?? ''), (string)($input['reason'] ?? ''),
-            (string)($input['extra_description'] ?? ''), (int)($input['extra_minutes'] ?? 0));
+            (string)($input['extra_description'] ?? ''), (int)($input['extra_minutes'] ?? 0), $isOffice);
     } else {
         $r = ['ok' => false, 'error' => 'Unknown mode.'];
     }
