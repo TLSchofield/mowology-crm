@@ -76,6 +76,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.ph
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
+require_once __DIR__ . '/../app/Modules/Consent/Services/CaslRules.php';
 
 // Reviews
 require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';

@@ -30,6 +30,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
 
 $db = getDB();
 $log = [];
@@ -83,6 +84,7 @@ foreach ($pending as $qa) {
 
     try {
         $actionData = json_decode($qa['action_data'] ?? '{}', true) ?: [];
+        $actionData['_trigger_type'] = ruleTriggerType($db, (int)($qa['rule_id'] ?? 0));
         $result = executeQueuedAction($db, $qa['action_type'], $actionData, (int)($qa['contact_id'] ?? 0));
 
         $db->prepare("UPDATE queued_actions SET status='completed', completed_at=NOW() WHERE id=?")->execute([$qa['id']]);
@@ -474,7 +476,11 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
 
         case 'send_email':
             if (!$contactId) break;
-            $stmt = $db->prepare("SELECT first_name, last_name, email FROM contacts WHERE id=?");
+            // CASL (Fable review 2026-10-12): a commercial automation (anything but a requested
+            // quote or a bill owed) asks the consent ledger at send time and carries the postal
+            // address + unsubscribe footer — or nothing goes.
+            $commercial = CaslRules::isCommercialTrigger((string)($data['_trigger_type'] ?? ''));
+            $stmt = $db->prepare("SELECT id, first_name, last_name, email, receive_marketing, consent_email_express_at, consent_email_implied_at FROM contacts WHERE id=?");
             $stmt->execute([$contactId]);
             $contact = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($contact && !empty($contact['email'])) {
@@ -483,6 +489,10 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 $unsubCheck->execute([strtolower(trim($contact['email']))]);
                 if ($unsubCheck->fetchColumn()) {
                     logMsg("  [SKIPPED] Contact #$contactId on unsubscribe list — no email sent");
+                    break;
+                }
+                if ($commercial && !canSendMarketing($contact, 'email')) {
+                    logMsg("  [SKIPPED] Contact #$contactId has no marketing consent (CASL) — no email sent");
                     break;
                 }
                 // Build template vars — include quote data if this action came from a quote trigger
@@ -526,7 +536,9 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                         $tpl = loadEmailTemplate($data['use_template'], $tplVars);
                         if ($tpl && !empty($tpl['subject'])) {
                             $emailSubject = $tpl['subject'];
-                            $emailBody = EmailWrapper::wrap($tpl['body_html'], $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, $companyInfo);
+                            $emailBody = $commercial
+                                ? $tpl['body_html']
+                                : EmailWrapper::wrap($tpl['body_html'], $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, $companyInfo);
                         }
                     } catch (Throwable $tplEx) {
                         error_log("automation send_email template load failed: " . $tplEx->getMessage());
@@ -541,12 +553,25 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                     // or it arrives as one run-on paragraph with no clickable link.
                     if ($emailBody !== '' && stripos($emailBody, '<p') === false && stripos($emailBody, '<table') === false) {
                         require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
-                        $emailBody = EmailWrapper::wrap(EmailWrapper::textToHtml($emailBody), $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, EmailWrapper::getCompanyInfo());
+                        $emailBody = $commercial
+                            ? EmailWrapper::textToHtml($emailBody)
+                            : EmailWrapper::wrap(EmailWrapper::textToHtml($emailBody), $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, EmailWrapper::getCompanyInfo());
+                    }
+                }
+
+                if ($commercial && $emailBody !== '') {
+                    $emailBody = CaslRules::composeHtml($emailBody, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+                    if ($emailBody === null) {
+                        logMsg("  [SKIPPED] Contact #$contactId — no postal address or unsubscribe link for the footer (CASL)");
+                        break;
                     }
                 }
 
                 if ($emailSubject && $emailBody) {
-                    sendCrmEmail($contact['email'], $emailSubject, $emailBody, trim($contact['first_name'] . ' ' . $contact['last_name']));
+                    // (The 4th argument is an attachment path — the contact's name used to be passed there.)
+                    if (!sendCrmEmail($contact['email'], $emailSubject, $emailBody)) {
+                        throw new RuntimeException('send_email failed for contact #' . $contactId);
+                    }
 
                     // If this was a quote follow-up, record the send
                     if (!empty($quoteData['quote_id'])) {
@@ -586,6 +611,19 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
 
 
 // ── Helper ─────────────────────────────────────────────────────────────────
+
+/** The trigger of the rule that queued an action ('' when unknown → treated as commercial). */
+function ruleTriggerType(PDO $db, int $ruleId): string
+{
+    static $cache = [];
+    if ($ruleId <= 0) return '';
+    if (!array_key_exists($ruleId, $cache)) {
+        $st = $db->prepare("SELECT trigger_type FROM automation_rules WHERE id = ?");
+        $st->execute([$ruleId]);
+        $cache[$ruleId] = (string)($st->fetchColumn() ?: '');
+    }
+    return $cache[$ruleId];
+}
 
 function logRow(PDO $db, int $ruleId, int $contactId, string $triggerType, string $status): void
 {
