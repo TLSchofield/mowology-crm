@@ -108,8 +108,16 @@ class PushDispatcher
     {
         $counts = ['sent' => 0, 'failed' => 0, 'expired' => 0];
 
+        $db = null;
+        $locked = false;
         try {
             $db = getDB();
+
+            // One drain at a time (Fable review 2026-10-12): the cron and the inline drains (quote
+            // approved, quote opened…) could read the same pending rows and push them twice. A drain
+            // that finds the lock taken leaves its rows for the running one / the next cron minute.
+            $locked = (int)$db->query("SELECT GET_LOCK('mowology_push_drain', 0)")->fetchColumn() === 1;
+            if (!$locked) return $counts;
 
             // Expire stale pending items before processing
             $db->prepare("
@@ -134,15 +142,22 @@ class PushDispatcher
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($rows as $row) {
+                // Claim the row (the enum has no 'sending'): push it 10 minutes out and count the
+                // attempt, only if nobody else did first. A crash mid-send retries after 10 minutes.
+                $claim = $db->prepare("UPDATE push_queue SET scheduled_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE), attempts = attempts + 1
+                                        WHERE id = ? AND status = 'pending' AND attempts = ?");
+                $claim->execute([$row['id'], (int)$row['attempts']]);
+                if ($claim->rowCount() !== 1) continue;
+
                 $result = self::sendOne($row);
 
                 if ($result['success']) {
-                    $db->prepare("UPDATE push_queue SET status='sent', sent_at=NOW(), attempts=attempts+1 WHERE id=?")->execute([$row['id']]);
+                    $db->prepare("UPDATE push_queue SET status='sent', sent_at=NOW() WHERE id=?")->execute([$row['id']]);
                     $counts['sent']++;
                 } elseif ($result['unregistered']) {
                     // Device permanently unregistered — deactivate token, mark failed
                     $db->prepare("UPDATE device_tokens SET is_active=0 WHERE device_token=?")->execute([$row['device_token']]);
-                    $db->prepare("UPDATE push_queue SET status='failed', attempts=attempts+1, error_message=? WHERE id=?")->execute(['Device unregistered (410)', $row['id']]);
+                    $db->prepare("UPDATE push_queue SET status='failed', error_message=? WHERE id=?")->execute(['Device unregistered (410)', $row['id']]);
                     $counts['failed']++;
                 } else {
                     $newAttempts = (int)$row['attempts'] + 1;
@@ -150,13 +165,17 @@ class PushDispatcher
                         $db->prepare("UPDATE push_queue SET status='failed', attempts=?, error_message=? WHERE id=?")->execute([$newAttempts, $result['error'], $row['id']]);
                         $counts['failed']++;
                     } else {
-                        // Leave as pending for retry
-                        $db->prepare("UPDATE push_queue SET attempts=?, error_message=? WHERE id=?")->execute([$newAttempts, $result['error'], $row['id']]);
+                        // Leave as pending for retry (on the next drain)
+                        $db->prepare("UPDATE push_queue SET scheduled_at=NOW(), error_message=? WHERE id=?")->execute([$result['error'], $row['id']]);
                     }
                 }
             }
         } catch (Throwable $e) {
             error_log('[PushDispatcher] drainQueue error: ' . $e->getMessage());
+        } finally {
+            if ($locked && $db) {
+                try { $db->query("SELECT RELEASE_LOCK('mowology_push_drain')"); } catch (Throwable $e) { /* released on disconnect */ }
+            }
         }
 
         return $counts;
