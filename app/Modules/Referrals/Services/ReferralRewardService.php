@@ -34,6 +34,9 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
+require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
+require_once __DIR__ . '/ReferralRules.php';
 
 class ReferralRewardService
 {
@@ -82,6 +85,20 @@ class ReferralRewardService
                 $db
             );
             if (!$referral) {
+                return;
+            }
+
+            // A referral counts for a different, new person, once (Fable review 2026-10-12).
+            $earlier = $db->prepare("
+                SELECT COUNT(*) FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                JOIN properties p ON p.id = jp.property_id
+                WHERE p.site_contact_id = ? AND jv.status = 'completed' AND jv.id <> ?
+            ");
+            $earlier->execute([(int)$contact['id'], $visitId]);
+            $refusal = ReferralRules::awardRefusal((int)$referral['referrer_contact_id'], (int)$contact['id'], (int)$earlier->fetchColumn());
+            if ($refusal !== null) {
+                error_log("ReferralRewardService: referral #{$referral['id']} not awarded ({$refusal})");
                 return;
             }
 
@@ -168,6 +185,37 @@ class ReferralRewardService
                 return; // Unknown or expired code
             }
 
+            // Not yourself, not an existing client, not someone already referred (Fable review 2026-10-12).
+            $referrer = self::getContact((int)$link['contact_id'], $db) ?? [];
+            $email = ReferralRules::normEmail($quoteData['email'] ?? '');
+            $alreadyClient = false;
+            $alreadyReferred = false;
+            if ($email !== '') {
+                $c = $db->prepare("
+                    SELECT COUNT(*) FROM contacts c
+                    JOIN properties p ON p.site_contact_id = c.id
+                    JOIN job_plans jp ON jp.property_id = p.id
+                    JOIN job_visits jv ON jv.plan_id = jp.id
+                    WHERE c.email = ? AND jv.status = 'completed'
+                ");
+                $c->execute([$email]);
+                $alreadyClient = (int)$c->fetchColumn() > 0;
+                $r = $db->prepare("SELECT COUNT(*) FROM referrals WHERE referred_email = ?");
+                $r->execute([$email]);
+                $alreadyReferred = (int)$r->fetchColumn() > 0;
+            }
+            $phoneRaw = trim((string)($quoteData['phone'] ?? ''));
+            if (!$alreadyReferred && $phoneRaw !== '') {
+                $r = $db->prepare("SELECT COUNT(*) FROM referrals WHERE referred_phone = ?");
+                $r->execute([substr($phoneRaw, 0, 30)]);
+                $alreadyReferred = (int)$r->fetchColumn() > 0;
+            }
+            $refusal = ReferralRules::inboundRefusal($referrer, ['email' => $email, 'phone' => $phoneRaw], $alreadyClient, $alreadyReferred);
+            if ($refusal !== null) {
+                error_log("ReferralRewardService::recordInboundReferral not recorded (code={$code}): {$refusal}");
+                return;
+            }
+
             // Insert referral record
             $db->prepare("
                 INSERT INTO referrals
@@ -228,6 +276,11 @@ class ReferralRewardService
         try {
             $contact = self::getContact($contactId, $db);
             if (!$contact || empty($contact['email'])) {
+                return false;
+            }
+            // An invite to refer is commercial (CASL): consent at send time, then the footer below.
+            if (!canSendMarketing(['id' => $contactId, 'email' => $contact['email']], 'email')) {
+                error_log("ReferralRewardService::sendInviteEmail: contact #{$contactId} has no marketing consent — not sent");
                 return false;
             }
 
@@ -300,12 +353,14 @@ class ReferralRewardService
                 </p>
               </div>
 
-              <!-- Footer -->
-              <p style="text-align:center;color:#9CA3AF;font-size:12px;margin:20px 0 0;">
-                &copy; Mowology Landscaping &mdash; Greater Vancouver, BC
-              </p>
-
             </div>';
+
+            // Sender, postal address and unsubscribe — or nothing goes.
+            $html = CaslRules::composeHtml($html, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+            if ($html === null) {
+                error_log("ReferralRewardService::sendInviteEmail: no postal address/unsubscribe for the footer — not sent");
+                return false;
+            }
 
             $result = sendEmail(
                 $contact['email'],
@@ -519,11 +574,12 @@ class ReferralRewardService
             </p>
           </div>
 
-          <p style="text-align:center;color:#9CA3AF;font-size:12px;margin:20px 0 0;">
-            &copy; Mowology Landscaping &mdash; Greater Vancouver, BC
-          </p>
-
         </div>';
+
+        // A notice of a reward the referrer already earned is transactional (it delivers a benefit
+        // they are entitled to), so it is not consent-gated — but it still names the sender, the
+        // postal address and an unsubscribe link (Fable review 2026-10-12; Tim to confirm).
+        $html = wrapInBrandedEmail($html, generateUnsubscribeUrl((string)$referrer['email']));
 
         sendEmail(
             $referrer['email'],
