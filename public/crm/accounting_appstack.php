@@ -31,6 +31,99 @@ $activePage = 'accounting';
     </div>
 </div>
 
+<!-- ── Accounting Sub-Nav ────────────────────────────────────────────────────── -->
+<div class="mw-filter-tabs mb-3">
+    <a href="/crm/accounting_appstack.php" class="mw-filter-tab active">Dashboard</a>
+    <a href="/crm/accounting/transactions.php" class="mw-filter-tab">Transactions</a>
+    <a href="/crm/accounting/bank-import.php" class="mw-filter-tab">Bank Import</a>
+    <a href="/crm/accounting/reports.php" class="mw-filter-tab">Reports</a>
+    <a href="/crm/accounting/chart-of-accounts.php" class="mw-filter-tab">Chart of Accounts</a>
+</div>
+
+<!-- ── Guide Card: Accounting Dashboard ─────────────────────────────────────── -->
+<div class="mw-guide-card" data-guide-id="accounting_dashboard">
+    <div class="mw-guide-card-header">
+        <span class="mw-guide-card-icon">💡</span>
+        <span class="mw-guide-card-title">What is this? — Your financial command centre</span>
+        <span class="mw-guide-card-caret">▼</span>
+        <button class="mw-guide-card-got-it" type="button">Got it</button>
+    </div>
+    <div class="mw-guide-card-body">
+        <div class="mw-guide-card-body-inner">
+            <div class="mw-guide-card-content">
+                <div class="mw-guide-card-tips">
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">1</span>
+                        <span><strong>Revenue</strong> — Money coming IN. Every invoice you collect, every job you complete adds to this number. Think of it as your total earnings for the month.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">2</span>
+                        <span><strong>Expenses</strong> — Money going OUT. Fuel, materials, equipment, subcontractors — anything you spend to run your business shows up here.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">3</span>
+                        <span><strong>Net Profit</strong> — What you actually keep. It's Revenue minus Expenses. If this number is green, you're making money. If it's red, you're spending more than you earn.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">4</span>
+                        <span><strong>GST Owing</strong> — Sales tax you've collected on behalf of the government. This is NOT your money — you'll send it to the CRA at the end of each quarter. Keep an eye on this number so there are no surprises.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">5</span>
+                        <span><strong>The chart below</strong> — Shows your revenue (green) vs expenses (red) over the last 12 months. If green bars are consistently taller, your business is growing. If red keeps climbing, it's time to review your costs.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!-- QUICK ACTIONS — moved to top for fast access                               -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="mw-acct-quick-grid">
+                    <a href="/crm/accounting/transactions.php?mode=add" class="mw-acct-quick-btn">
+                        <i data-feather="plus-circle"></i>
+                        <span>Add Transaction</span>
+                    </a>
+                    <a href="/crm/accounting/bank-import.php" class="mw-acct-quick-btn">
+                        <i data-feather="upload"></i>
+                        <span>Bank Import</span>
+                    </a>
+                    <a href="/crm/accounting/reports.php?report=pl" class="mw-acct-quick-btn">
+                        <i data-feather="file-text"></i>
+                        <span>P&amp;L Report</span>
+                    </a>
+                    <a href="/crm/accounting/reports.php?report=tax" class="mw-acct-quick-btn">
+                        <i data-feather="percent"></i>
+                        <span>GST Report</span>
+                    </a>
+                    <a href="/crm/accounting/reports.php?report=jobs" class="mw-acct-quick-btn">
+                        <i data-feather="briefcase"></i>
+                        <span>Job Profitability</span>
+                    </a>
+                    <a href="/crm/accounting/transactions.php?needs_review=1" class="mw-acct-quick-btn mw-acct-quick-btn--review">
+                        <i data-feather="flag"></i>
+                        <span>Needs Review</span>
+                        <span class="badge bg-warning text-dark ms-1" id="review-badge" style="display:none"></span>
+                    </a>
+                    <a href="/crm/accounting/chart-of-accounts.php" class="mw-acct-quick-btn">
+                        <i data-feather="list"></i>
+                        <span>Chart of Accounts</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ── Sync Banner ──────────────────────────────────────────────────────────── -->
 <div id="mw-sync-banner" class="alert alert-info d-none mb-3" role="alert">
     <i data-feather="refresh-cw" class="mw-btn-icon spin"></i>
@@ -151,57 +244,6 @@ $activePage = 'accounting';
             </div>
         </div>
     </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-<!-- QUICK ACTIONS                                                              -->
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-<div class="row g-3 mb-4">
-
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">Quick Actions</h5>
-            </div>
-            <div class="card-body">
-                <div class="mw-acct-quick-grid">
-
-                    <a href="/crm/accounting/transactions.php?mode=add" class="mw-acct-quick-btn">
-                        <i data-feather="plus-circle"></i>
-                        <span>Add Transaction</span>
-                    </a>
-
-                    <a href="/crm/accounting/bank-import.php" class="mw-acct-quick-btn">
-                        <i data-feather="upload"></i>
-                        <span>Bank Import</span>
-                    </a>
-
-                    <a href="/crm/accounting/reports.php?report=pl" class="mw-acct-quick-btn">
-                        <i data-feather="file-text"></i>
-                        <span>P&amp;L Report</span>
-                    </a>
-
-                    <a href="/crm/accounting/reports.php?report=tax" class="mw-acct-quick-btn">
-                        <i data-feather="percent"></i>
-                        <span>GST Report</span>
-                    </a>
-
-                    <a href="/crm/accounting/reports.php?report=jobs" class="mw-acct-quick-btn">
-                        <i data-feather="briefcase"></i>
-                        <span>Job Profitability</span>
-                    </a>
-
-                    <a href="/crm/accounting/transactions.php?needs_review=1" class="mw-acct-quick-btn mw-acct-quick-btn--review">
-                        <i data-feather="flag"></i>
-                        <span>Needs Review</span>
-                        <span class="badge bg-warning text-dark ms-1" id="review-badge" style="display:none"></span>
-                    </a>
-
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
