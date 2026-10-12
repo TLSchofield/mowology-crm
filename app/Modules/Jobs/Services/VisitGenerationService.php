@@ -68,12 +68,15 @@ class VisitGenerationService
                 }
             }
 
-            // Fetch global holidays once for the full horizon window
+            // Fetch global holidays once for the full window every plan can generate into: the
+            // LONGEST plan horizon (it was a flat 42 days, so a 90-day plan put visits on
+            // holidays past day 42), and back to the 90-day fresh-mode lookback + 7 for bumps.
             $maxHorizon = $horizonDays ?? 42;
-            $holidayFrom = date('Y-m-d');
+            if ($horizonDays === null) {
+                foreach ($plans as $p) $maxHorizon = max($maxHorizon, (int)($p['horizon_days'] ?? 0));
+            }
             $holidayTo = date('Y-m-d', strtotime("+{$maxHorizon} days"));
-            // Extend range 7 days back to support bump lookups near window start
-            $holidayFromExtended = date('Y-m-d', strtotime("-7 days"));
+            $holidayFromExtended = date('Y-m-d', strtotime("-97 days"));
             $holidays = [];
             try {
                 $holidays = self::getActiveHolidays($holidayFromExtended, $holidayTo);
@@ -143,6 +146,18 @@ class VisitGenerationService
                             continue; // One-time already has its active visit
                         }
                         $dates = [$visitDate];
+                    }
+
+                    // A date that already has a live visit for this plan is never given a second
+                    // one. A holiday bumped back into days generated on an earlier pass (Mon
+                    // holiday → the Friday before, which a Mon/Wed/Fri plan already has) used to
+                    // insert a duplicate — INSERT IGNORE never matched because the sequence
+                    // index is new — and the client was billed twice (2026-10-12 review).
+                    if ($plan['is_recurring'] && $dates) {
+                        $dph = implode(',', array_fill(0, count($dates), '?'));
+                        $exStmt = $db->prepare("SELECT DISTINCT scheduled_date FROM job_visits WHERE plan_id = ? AND status <> 'cancelled' AND scheduled_date IN ({$dph})");
+                        $exStmt->execute(array_merge([(int)$plan['id']], $dates));
+                        $dates = self::withoutExisting($dates, $exStmt->fetchAll(PDO::FETCH_COLUMN));
                     }
 
                     // Get next sequence index
@@ -228,6 +243,16 @@ class VisitGenerationService
         }
 
         return ['plans_processed' => $plansProcessed, 'visits_created' => $visitsCreated, 'errors' => $errors];
+    }
+
+    /**
+     * Dates to generate minus the ones the plan already has a live visit on. PURE.
+     * @param string[] $dates  candidate Y-m-d dates
+     * @param string[] $existing Y-m-d dates that already have a non-cancelled visit
+     */
+    public static function withoutExisting(array $dates, array $existing): array {
+        $have = array_flip(array_map('strval', $existing));
+        return array_values(array_filter($dates, fn($d) => !isset($have[(string)$d])));
     }
 
     /**

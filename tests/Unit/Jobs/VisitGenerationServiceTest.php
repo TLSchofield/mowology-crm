@@ -205,4 +205,17 @@ class VisitGenerationServiceTest extends TestCase
         );
         $this->assertSame(['2026-06-15', '2026-06-22'], $dates);
     }
+
+    // ---- 2026-10-12: a bumped holiday never doubles a day the plan already has ----
+
+    public function test_bump_onto_an_already_generated_day_is_dropped(): void
+    {
+        // Mon/Wed/Fri plan; Monday Oct 12 2026 is a holiday → bumped to Fri Oct 9, which an
+        // earlier pass (watermark Oct 11) already generated.
+        $plan = ['recurrence_pattern' => 'weekly', 'recurrence_interval' => 1, 'recurrence_day_of_week' => '1,3,5',
+                 'plan_start_date' => '2026-09-07', 'blackout_dates' => null, 'service_type' => 'lawn_mowing'];
+        $dates = VisitGenerationService::calculateRecurrenceDates($plan, '2026-10-12', '2026-10-16', ['2026-10-12' => 'Thanksgiving']);
+        $this->assertContains('2026-10-09', $dates);
+        $this->assertSame(['2026-10-14', '2026-10-16'], VisitGenerationService::withoutExisting($dates, ['2026-10-09']));
+    }
 }
