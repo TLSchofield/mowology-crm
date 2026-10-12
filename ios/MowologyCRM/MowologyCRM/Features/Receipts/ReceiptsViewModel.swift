@@ -65,65 +65,90 @@ final class ReceiptsViewModel: ObservableObject {
     /// Wires up NWPathMonitor so queued receipts drain automatically on reconnect.
     /// Safe to call multiple times — the monitor ignores duplicate starts.
     func startReceiptQueueMonitor() {
-        ReceiptQueue.shared.startMonitoring { [weak self] data, lat, lng, jobId in
-            guard let self else { throw APIError.invalidURL }
-            return try await self.replayQueuedReceipt(data, lat: lat, lng: lng, jobId: jobId)
-        }
+        ReceiptQueue.shared.activeUserId = apiClient.currentUserId
+        ReceiptQueue.shared.userProvider = { [weak apiClient] in apiClient?.currentUserId }
+        ReceiptQueue.shared.startMonitoring(
+            upload: { [weak self] data, lat, lng, jobId in
+                guard let self else { throw APIError.invalidURL }
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+            },
+            save: { [weak self] owed, lat, lng, _ in
+                guard let self else { throw APIError.invalidURL }
+                try await self.replaySave(owed, lat: lat, lng: lng)
+            })
     }
 
     /// Drain pending receipts whenever the receipts view appears or the app foregrounds.
     /// NWPathMonitor only fires on network status *changes*; this covers the case where
     /// the network was up the whole time but a single upload timed out and was enqueued.
     func drainPendingQueue() async {
+        ReceiptQueue.shared.activeUserId = apiClient.currentUserId
         let before = ReceiptQueue.shared.pendingCount
-        await ReceiptQueue.shared.drain { [weak self] data, lat, lng, jobId in
-            guard let self else { throw APIError.invalidURL }
-            return try await self.replayQueuedReceipt(data, lat: lat, lng: lng, jobId: jobId)
-        }
+        await ReceiptQueue.shared.drain(
+            upload: { [weak self] data, lat, lng, jobId in
+                guard let self else { throw APIError.invalidURL }
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+            },
+            save: { [weak self] owed, lat, lng, _ in
+                guard let self else { throw APIError.invalidURL }
+                try await self.replaySave(owed, lat: lat, lng: lng)
+            })
         if before > 0 && ReceiptQueue.shared.pendingCount < before {
             await loadExpenses()
         }
     }
 
-    /// Replays one queued receipt: upload + OCR, then immediately auto-save a draft
-    /// expense from whatever OCR found. Previously the drain discarded the intake
-    /// result, so a receipt queued offline became an orphaned image with no expense
-    /// row — nothing ever appeared in the list and the crew member had no idea. The
-    /// draft is flagged in its description so it's obvious it needs a human look.
-    private func replayQueuedReceipt(_ data: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+    /// Replays one queued receipt, step 1: upload + OCR. What it returns is kept on the queue
+    /// item (OwedDraft) so a failed save is retried without uploading the photo again — the
+    /// item used to be removed and its photo deleted when the save failed (review round 2).
+    private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptQueue.OwedDraft {
         let intake = try await apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
         let p = intake.parsed
         let s = intake.suggestions
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let total = p?.totalDouble ?? 0
         let gst   = p?.gstDouble ?? 0
-        let pst   = p?.pst.flatMap(Double.init) ?? 0
-        let draft = ExpenseDraft(
+        let pst   = p?.pst.flatMap { ReceiptNumber.parse($0) } ?? 0
+        return ReceiptQueue.OwedDraft(
+            mediaId:       intake.mediaId,
             vendorId:      s?.vendorId,
             vendorName:    s?.vendorName ?? p?.vendorHint ?? "",
             date:          Self.normalizeDate(p?.date) ?? fmt.string(from: .now),
-            amount:        p?.subtotal.flatMap(Double.init) ?? max(0, total - gst - pst),
+            amount:        p?.subtotal.flatMap { ReceiptNumber.parse($0) } ?? max(0, total - gst - pst),
             gst:           gst,
             pst:           pst,
             total:         total,
             category:      s?.accountingCategory ?? "",
             paymentMethod: p?.paymentMethod ?? "credit_card",
+            rawOcrText:    intake.ocrText,
+            ocrParsed:     p
+        )
+    }
+
+    /// Step 2: save the draft expense from what the upload read. The draft is flagged in its
+    /// description so it's obvious it needs a human look. Throws so the queue keeps the item
+    /// (no signal / 5xx) or sets it aside with the server's reason (4xx).
+    private func replaySave(_ o: ReceiptQueue.OwedDraft, lat: Double?, lng: Double?) async throws {
+        let draft = ExpenseDraft(
+            vendorId:      o.vendorId,
+            vendorName:    o.vendorName,
+            date:          o.date,
+            amount:        o.amount,
+            gst:           o.gst,
+            pst:           o.pst,
+            total:         o.total,
+            category:      o.category,
+            paymentMethod: o.paymentMethod,
             description:   "Auto-saved from offline queue — please review",
             notes:         "",
-            mediaId:       intake.mediaId,
-            rawOcrText:    intake.ocrText,
-            ocrParsed:     p,
+            mediaId:       o.mediaId,
+            rawOcrText:    o.rawOcrText,
+            ocrParsed:     o.ocrParsed,
             job:           nil,
             lat:           lat,
             lng:           lng
         )
-        // A failed auto-save must not re-queue the image (that would upload a second
-        // media row every retry); the media row + SHA-256 duplicate guard remain, and
-        // the error is surfaced on the list instead.
-        if await saveExpense(draft) == nil {
-            listError = "A queued receipt uploaded but could not be saved as a draft: \(saveError ?? "unknown error")"
-        }
-        return intake
+        _ = try await postExpense(draft, faultsAreTransient: true)
     }
 
     private static func normalizeDate(_ s: String?) -> String? {
@@ -286,19 +311,24 @@ final class ReceiptsViewModel: ObservableObject {
         do {
             intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
         } catch let err as APIError {
-            // Queue the receipt on any transient/server-side failure so it isn't lost:
-            // - .networkError covers offline + URLError.timedOut (our 45s client cap)
-            // - .serverError covers 5xx / 504 / hosting PHP kill — same OCR-too-slow story
-            // - .decodingError covers a truncated/garbled response from a killed PHP process
-            // Only .unauthorized (needs re-login) and .invalidURL (programmer error) skip the queue.
+            // Queue the receipt only when the server didn't decide (review round 2):
+            // - .networkError: offline, our 45s cap, 5xx / PHP kill, a truncated answer (UploadFault)
+            // - .decodingError: kept as transient for safety
+            // A .serverError is the server's answer about this photo (a 4xx) — show it, don't queue
+            // it (it would fail the same way forever and block the queue).
             switch err {
-            case .networkError, .serverError, .decodingError:
-                ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil)
-                if case .networkError = err {
-                    uploadError = "No connection — receipt queued and will upload automatically."
+            case .networkError, .decodingError:
+                if ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil, userId: apiClient.currentUserId) {
+                    if case .networkError(let inner) = err, !(inner is UploadFault) {
+                        uploadError = "No connection — receipt queued and will upload automatically."
+                    } else {
+                        uploadError = "Upload took too long — receipt saved and will retry automatically."
+                    }
                 } else {
-                    uploadError = "Upload took too long — receipt saved and will retry automatically."
+                    uploadError = "Couldn't save the receipt photo on this phone (storage full?) — please try again."
                 }
+            case .serverError(let msg):
+                uploadError = msg
             case .unauthorized, .invalidURL:
                 uploadError = err.errorDescription
             }
@@ -334,10 +364,7 @@ final class ReceiptsViewModel: ObservableObject {
     /// success — `sent`/`sendError` matter for a Save & Send — or nil on failure with
     /// `saveError` set. Payload mirrors Android's mobileSaveExpense() field-for-field.
     @discardableResult
-    func saveExpense(_ d: ExpenseDraft) async -> ExpenseSaveResponse? {
-        isSaving   = true
-        saveError  = nil
-
+    private func expenseBody(_ d: ExpenseDraft) -> [String: Any] {
         var body: [String: Any] = [
             "expense_date":         d.date,
             "vendor_name_raw":      d.vendorName,
@@ -395,9 +422,20 @@ final class ReceiptsViewModel: ObservableObject {
             }
         }
         if let src = d.lineItemsSource ?? d.ocrParsed?.lineItemsSource { body["line_items_source"] = src }
+        return body
+    }
 
+    /// Posts the save; throws APIError (with faultsAreTransient, 5xx / unreadable answers come
+    /// back as .networkError so the offline queue retries them, and a 4xx is a .serverError).
+    private func postExpense(_ d: ExpenseDraft, faultsAreTransient: Bool = false) async throws -> ExpenseSaveResponse {
+        try await apiClient.request(.expenseSave, body: expenseBody(d), faultsAreTransient: faultsAreTransient)
+    }
+
+    func saveExpense(_ d: ExpenseDraft) async -> ExpenseSaveResponse? {
+        isSaving   = true
+        saveError  = nil
         do {
-            let response: ExpenseSaveResponse = try await apiClient.request(.expenseSave, body: body)
+            let response = try await postExpense(d)
             await loadExpenses()
             isSaving = false
             return response
@@ -537,6 +575,8 @@ final class ReceiptsViewModel: ObservableObject {
     /// Wires up NWPathMonitor so queued approve/reject/send actions drain automatically
     /// on reconnect. Safe to call multiple times — the monitor ignores duplicate starts.
     func startActionQueueMonitor() {
+        ReceiptActionQueue.shared.activeUserId = apiClient.currentUserId
+        ReceiptActionQueue.shared.userProvider = { [weak apiClient] in apiClient?.currentUserId }
         ReceiptActionQueue.shared.startMonitoring { [weak self] expenseId, action, reason in
             guard let self else { throw APIError.invalidURL }
             return try await self.sendAction(expenseId: expenseId, action: action, reason: reason)
@@ -547,6 +587,7 @@ final class ReceiptsViewModel: ObservableObject {
     /// mirrors drainPendingQueue()'s coverage for the case where connectivity was up the
     /// whole time but a single call timed out and was enqueued.
     func drainPendingActionQueue() async {
+        ReceiptActionQueue.shared.activeUserId = apiClient.currentUserId
         await ReceiptActionQueue.shared.drain { [weak self] expenseId, action, reason in
             guard let self else { throw APIError.invalidURL }
             return try await self.sendAction(expenseId: expenseId, action: action, reason: reason)
@@ -566,16 +607,18 @@ final class ReceiptsViewModel: ObservableObject {
             }
             actionError = response.error ?? response.message ?? "Action failed."
         } catch let err as APIError {
-            // Same policy as uploadImage(): queue on transient/server-side failure so
-            // the tap isn't lost, surface a clear message, don't queue on programmer/auth errors.
+            // Same policy as uploadImage(): queue only when the server didn't decide, so the tap
+            // isn't lost; a 4xx refusal is shown, never queued (it would block the queue).
             switch err {
-            case .networkError, .serverError, .decodingError:
-                ReceiptActionQueue.shared.enqueue(expenseId: expenseId, action: action, reason: reason)
-                if case .networkError = err {
+            case .networkError, .decodingError:
+                ReceiptActionQueue.shared.enqueue(expenseId: expenseId, action: action, reason: reason, userId: apiClient.currentUserId)
+                if case .networkError(let inner) = err, !(inner is UploadFault) {
                     actionError = "No connection — this will be applied automatically when you reconnect."
                 } else {
                     actionError = "That took too long — queued and will retry automatically."
                 }
+            case .serverError(let msg):
+                actionError = msg
             case .unauthorized, .invalidURL:
                 actionError = err.errorDescription
             }
@@ -589,6 +632,6 @@ final class ReceiptsViewModel: ObservableObject {
     private func sendAction(expenseId: Int, action: String, reason: String?) async throws -> ReceiptActionResponse {
         var body: [String: Any] = ["action": action, "expense_id": expenseId]
         if let reason { body["rejection_reason"] = reason }
-        return try await apiClient.request(.receiptAction, body: body)
+        return try await apiClient.request(.receiptAction, body: body, faultsAreTransient: true)
     }
 }

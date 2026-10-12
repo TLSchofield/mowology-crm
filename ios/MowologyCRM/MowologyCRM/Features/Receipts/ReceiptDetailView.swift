@@ -140,7 +140,7 @@ struct ReceiptDetailView: View {
                 .keyboardType(.decimalPad)
             Button("Add") {
                 let n = addItemName.trimmingCharacters(in: .whitespaces)
-                let amt = Double(addItemAmount) ?? 0
+                let amt = ReceiptNumber.parse(addItemAmount) ?? 0
                 addItemName = ""; addItemAmount = ""
                 guard !n.isEmpty else { return }
                 Task {
@@ -751,9 +751,9 @@ private struct EditExpenseView: View {
             expenseId:     expense.id,
             vendorName:    vendorName.trimmingCharacters(in: .whitespacesAndNewlines),
             date:          Self.isoFormatter.string(from: expenseDate),
-            amount:        Double(amount) ?? 0,
-            gst:           Double(gst)    ?? 0,
-            total:         Double(total)  ?? 0,
+            amount:        ReceiptNumber.parse(amount) ?? 0,
+            gst:           ReceiptNumber.parse(gst)    ?? 0,
+            total:         ReceiptNumber.parse(total)  ?? 0,
             category:      category,
             paymentMethod: paymentMethod,
             description:   descriptionText

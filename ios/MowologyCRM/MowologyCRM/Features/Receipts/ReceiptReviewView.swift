@@ -120,7 +120,7 @@ struct ReceiptReviewView: View {
         viewModel.paymentMethods.isEmpty ? Self.fallbackPayments : viewModel.paymentMethods
     }
 
-    private var totalValue: Double { Double(total) ?? 0 }
+    private var totalValue: Double { ReceiptNumber.parse(total) ?? 0 }
     private var canSave: Bool { totalValue > 0 && !viewModel.isSaving }
 
     var body: some View {
@@ -215,7 +215,7 @@ struct ReceiptReviewView: View {
                 .keyboardType(.decimalPad)
             Button("Add") {
                 let n = addItemName.trimmingCharacters(in: .whitespaces)
-                if !n.isEmpty { items.append(ReceiptLineItem(name: n, amount: Double(addItemAmount) ?? 0, manual: true)) }
+                if !n.isEmpty { items.append(ReceiptLineItem(name: n, amount: ReceiptNumber.parse(addItemAmount) ?? 0, manual: true)) }
                 addItemName = ""; addItemAmount = ""
             }
             Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
@@ -434,7 +434,7 @@ struct ReceiptReviewView: View {
     }
 
     private var subtotalReference: Double? {
-        let s = Double(amount) ?? 0
+        let s = ReceiptNumber.parse(amount) ?? 0
         if s > 0 { return s }
         let t = totalValue
         return t > 0 ? t : nil
@@ -557,14 +557,14 @@ struct ReceiptReviewView: View {
     // MARK: - Arithmetic (mirrors recalcMobileTotal / recalcMobileSubtotal)
 
     private func recalcTotal() {
-        let sub = Double(amount) ?? 0, g = Double(gst) ?? 0, p = Double(pst) ?? 0
+        let sub = ReceiptNumber.parse(amount) ?? 0, g = ReceiptNumber.parse(gst) ?? 0, p = ReceiptNumber.parse(pst) ?? 0
         let t = sub + g + p
         let formatted = t > 0 ? Self.money(t) : ""
         if formatted != total { total = formatted }
     }
 
     private func recalcSubtotal() {
-        let t = Double(total) ?? 0, g = Double(gst) ?? 0, p = Double(pst) ?? 0
+        let t = ReceiptNumber.parse(total) ?? 0, g = ReceiptNumber.parse(gst) ?? 0, p = ReceiptNumber.parse(pst) ?? 0
         let sub = t - g - p
         let formatted = sub > 0 ? Self.money(sub) : ""
         if formatted != amount { amount = formatted }
@@ -651,9 +651,9 @@ struct ReceiptReviewView: View {
             vendorId:      vendorId,
             vendorName:    vendorName.trimmingCharacters(in: .whitespaces),
             date:          Self.iso(expenseDate),
-            amount:        Double(amount) ?? 0,
-            gst:           Double(gst) ?? 0,
-            pst:           Double(pst) ?? 0,
+            amount:        ReceiptNumber.parse(amount) ?? 0,
+            gst:           ReceiptNumber.parse(gst) ?? 0,
+            pst:           ReceiptNumber.parse(pst) ?? 0,
             total:         totalValue,
             category:      category,
             paymentMethod: paymentMethod,

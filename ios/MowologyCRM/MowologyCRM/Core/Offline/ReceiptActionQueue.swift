@@ -13,6 +13,12 @@
 //  guarded server-side against double-forwarding (forwarded_to_accounting
 //  check in ExpenseApprovalService/receipt-actions.php).
 //
+//  Review round 2 (2026-10-12): a refusal (success:false, or a 4xx the server decided) used to
+//  `break` the drain forever, so one stale action blocked every later one. Now it is set aside
+//  with its reason (lastProblem) and the drain goes on; only no signal / 5xx / signed-out stops it.
+//  Each action carries the user who tapped it (nil = a build before 1.3.28): only the signed-in
+//  person's actions drain.
+//
 
 import Foundation
 import Network
@@ -23,6 +29,14 @@ final class ReceiptActionQueue: ObservableObject {
     static let shared = ReceiptActionQueue()
 
     @Published private(set) var pendingCount: Int = 0
+    /// The last queued action the server refused, in plain words.
+    @Published private(set) var lastProblem: String?
+
+    /// Who is signed in. Only their actions (and untagged legacy ones) are counted and drained.
+    var activeUserId: Int? { didSet { updateCount() } }
+    /// Reads who is signed in at drain time, so a reconnect after a sign-out / sign-in never
+    /// sends the previous person's items under the new login.
+    var userProvider: (() -> Int?)?
 
     private let defaults       = UserDefaults.standard
     private let storeKey       = "mw.receipt.action.queue.v1"
@@ -40,6 +54,7 @@ final class ReceiptActionQueue: ObservableObject {
         let action: String   // "approve" | "reject" | "send"
         let reason: String?  // only set for "reject"
         let queuedAt: Date
+        var userId: Int?     // nil = queued before 1.3.28
     }
 
     private var items: [PendingAction] {
@@ -55,13 +70,20 @@ final class ReceiptActionQueue: ObservableObject {
         }
     }
 
-    private func updateCount() { pendingCount = items.count }
+    private func mine(_ item: PendingAction) -> Bool {
+        item.userId == nil || item.userId == activeUserId
+    }
+
+    private func updateCount() { pendingCount = items.filter { self.mine($0) }.count }
+
+    func clearProblem() { lastProblem = nil }
 
     // MARK: - Enqueue
 
-    func enqueue(expenseId: Int, action: String, reason: String? = nil) {
+    func enqueue(expenseId: Int, action: String, reason: String? = nil, userId: Int?) {
         var current = items
-        current.append(PendingAction(id: UUID().uuidString, expenseId: expenseId, action: action, reason: reason, queuedAt: Date()))
+        current.append(PendingAction(id: UUID().uuidString, expenseId: expenseId, action: action, reason: reason,
+                                     queuedAt: Date(), userId: userId))
         items = current
     }
 
@@ -80,21 +102,29 @@ final class ReceiptActionQueue: ObservableObject {
         monitor.start(queue: queue)
     }
 
-    /// Retries queued actions in order. Stops at the first failure so actions on
-    /// the same expense don't get applied out of order (e.g. a queued "reject"
-    /// shouldn't be attempted before an earlier queued "approve" on a different
-    /// expense that's still pending) — matches ReceiptQueue's drain semantics.
+    /// Retries this person's queued actions in order. No signal / 5xx / signed out stops the run
+    /// (the rest wait, in order). A refusal — success:false or a 4xx — is permanent: that action
+    /// is set aside with the server's reason and the next one is tried.
     func drain(actionHandler: @escaping (Int, String, String?) async throws -> ReceiptActionResponse) async {
         guard drainTask == nil else { return }
+        if let userProvider { activeUserId = userProvider() }
+        guard activeUserId != nil else { return }
         drainTask = Task {
-            let pending = items
+            let pending = items.filter { self.mine($0) }
             for item in pending {
                 do {
                     let response = try await actionHandler(item.expenseId, item.action, item.reason)
-                    guard response.success else { break } // business-rule failure (e.g. no longer valid) — stop, don't lose the rest
+                    if !response.success {
+                        lastProblem = "Couldn't \(item.action) receipt #\(item.expenseId): \(response.error ?? response.message ?? "the server said no")"
+                    }
                     items = items.filter { $0.id != item.id }
                 } catch {
-                    break // network/server error — leave queued, retry on next reconnect
+                    if let reason = ReceiptQueue.permanentReason(error) {
+                        lastProblem = "Couldn't \(item.action) receipt #\(item.expenseId): \(reason)"
+                        items = items.filter { $0.id != item.id }
+                        continue
+                    }
+                    break // no signal / server busy / signed out — leave queued, retry on next reconnect
                 }
             }
             drainTask = nil

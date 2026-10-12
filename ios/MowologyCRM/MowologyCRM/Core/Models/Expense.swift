@@ -131,3 +131,37 @@ struct ExpenseDraft {
     var lng: Double?
     var andSend: Bool = false
 }
+
+/// Money typed on the phone, read the same whatever the keyboard's decimal separator:
+/// "12,50" and "12.50" are both 12.5 (a French/Spanish keypad gave ",", and Double("12,50") is nil —
+/// the receipt saved as $0, review round 2 2026-10-12). Also "1,234.56" / "1.234,56" / "$ 12.50".
+enum ReceiptNumber {
+    static func parse(_ raw: String?) -> Double? {
+        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        s = s.replacingOccurrences(of: "$", with: "")
+             .replacingOccurrences(of: " ", with: "")
+             .replacingOccurrences(of: "\u{00A0}", with: "")
+             .replacingOccurrences(of: "\u{202F}", with: "")
+        let lastComma = s.lastIndex(of: ","), lastDot = s.lastIndex(of: ".")
+        if let c = lastComma, let d = lastDot {
+            // Both: the later one is the decimal point, the other groups thousands.
+            if c > d { s = s.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".") }
+            else     { s = s.replacingOccurrences(of: ",", with: "") }
+        } else if let c = lastComma {
+            let decimals = s.distance(from: c, to: s.endIndex) - 1
+            let commas = s.filter { $0 == "," }.count
+            // One comma with 1–2 digits after it is a decimal comma; otherwise thousands.
+            s = (commas == 1 && decimals >= 1 && decimals <= 2)
+                ? s.replacingOccurrences(of: ",", with: ".")
+                : s.replacingOccurrences(of: ",", with: "")
+        }
+        return Double(s)
+    }
+
+    /// The value as the server wants it ("12.50"), or the input unchanged when it isn't a number.
+    static func normalized(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, let d = parse(t) else { return t }
+        return String(format: "%.2f", d)
+    }
+}

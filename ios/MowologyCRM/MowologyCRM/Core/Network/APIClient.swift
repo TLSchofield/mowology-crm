@@ -183,16 +183,24 @@ final class APIClient: ObservableObject {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
+                // 5xx / timeout / rate limit: the server didn't decide — retry later (queued).
+                // Any other 4xx is the server's answer about this photo — retrying won't help.
+                if UploadFault.isTransient(http.statusCode) {
+                    throw APIError.networkError(UploadFault(status: http.statusCode, detail: msg))
+                }
                 throw APIError.serverError(msg)
             }
         }
 
         do { return try decoder.decode(ReceiptIntakeResponse.self, from: data) }
         catch {
-            // DEBUG: surface raw server response so we can diagnose decode failures
+            #if DEBUG
+            // Raw server bodies only in debug builds — never in the App Store log.
             let raw = String(data: data.prefix(600), encoding: .utf8) ?? "non-utf8 \(data.count)b"
             print("\u{1F4F8} UPLOAD DECODE FAIL — raw: \(raw) — error: \(error)")
-            throw APIError.serverError("Server response: \(raw)")
+            #endif
+            // A PHP fatal truncates the body with HTTP 200 — not an answer, try again later.
+            throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
         }
     }
 

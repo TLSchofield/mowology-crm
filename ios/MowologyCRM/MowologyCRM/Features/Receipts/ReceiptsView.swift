@@ -179,14 +179,34 @@ struct ReceiptsView: View {
         } message: {
             Text(viewModel.actionError ?? "")
         }
+        // A queued receipt or action the server refused (review round 2): say so once, then clear it.
+        .onChange(of: receiptQueue.lastProblem) { _, problem in
+            guard let problem else { return }
+            viewModel.uploadError = problem
+            receiptQueue.clearProblem()
+        }
+        .onChange(of: actionQueue.lastProblem) { _, problem in
+            guard let problem else { return }
+            viewModel.actionError = problem
+            actionQueue.clearProblem()
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             showLibrary = false
             Task {
-                guard let raw = try? await newItem.loadTransferable(type: Data.self) else { return }
+                guard let raw = try? await newItem.loadTransferable(type: Data.self),
+                      let picked = UIImage(data: raw) else {
+                    viewModel.uploadError = "Couldn't open that photo — try another, or take a picture of the receipt."
+                    return
+                }
                 let compressed: Data = await Task.detached(priority: .userInitiated) {
-                    ReceiptsView.resizeAndCompress(UIImage(data: raw) ?? UIImage())
+                    ReceiptsView.resizeAndCompress(picked)
                 }.value
+                // Same guard as the camera path: an empty JPEG is never uploaded or queued.
+                guard !compressed.isEmpty else {
+                    viewModel.uploadError = "Couldn't read that photo — try another, or take a picture of the receipt."
+                    return
+                }
                 await handleCapture(compressed)
             }
         }

@@ -204,10 +204,11 @@ final class PennyCardViewModel: ObservableObject {
             "accounting_category": category,
             "asset_tag": assetTag,
             "job": jobId.map { String($0) } ?? "",
-            "subtotal": subtotal.trimmingCharacters(in: .whitespaces),
-            "gst": gst.trimmingCharacters(in: .whitespaces),
-            "pst": pst.trimmingCharacters(in: .whitespaces),
-            "total": total.trimmingCharacters(in: .whitespaces),
+            // "12,50" from a comma keypad is sent as "12.50" (review round 2).
+            "subtotal": ReceiptNumber.normalized(subtotal),
+            "gst": ReceiptNumber.normalized(gst),
+            "pst": ReceiptNumber.normalized(pst),
+            "total": ReceiptNumber.normalized(total),
         ]
         // Keep the vendor record when the name is the one it's already filed under (as the web does).
         if let draftId = it.savedDraft?["vendor_id"]?.int, draftId > 0 {
@@ -349,7 +350,7 @@ final class PennyCardViewModel: ObservableObject {
 
     /// "45.5" → "45.50"; empty or unreadable stays as it is.
     static func money(_ s: String?) -> String {
-        guard let s, let d = Double(s) else { return s ?? "" }
+        guard let s, let d = ReceiptNumber.parse(s) else { return s ?? "" }
         return String(format: "%.2f", d)
     }
 
