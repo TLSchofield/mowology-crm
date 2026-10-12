@@ -4,7 +4,7 @@ description: Independent site-wide security review by Fable reviewers (read-only
 
 # Fable security review — Mowology CRM / Ittai
 
-**When to run:** only after every fix agent from the 2026-10-12 reviews has finished and its work is
+**When to run:** only after ALL department-head reviews (Penny, Otto, Charlie, Sam, Mia, Yui, Ada) are done AND every fix agent from them has finished and its work is
 committed and deployed (Tim, 2026-10-12: "have fable run it separately AFTER all updated code is
 finished"). Read-only throughout. **No code changes until Tim approves the remediation plan.**
 
