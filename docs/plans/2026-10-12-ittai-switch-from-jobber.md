@@ -48,6 +48,15 @@ built for customers yet.
 11. **Finish with a reconciliation report the customer and their accountant can read:** bank vs books
     per month, what was matched, what's left and why.
 
+## Payroll (Tim, 2026-10-12)
+Mowology runs pay in Wave; other customers may not. Ask which payroll each customer uses:
+- **External provider (Wave, etc.):** the CRM's timesheets are a record; payroll runs and remittances
+  arrive as bank lines (e.g. "Wave PYRL") — classify them, never double-count wages. Owner pay is on
+  payroll there, so owner e-Transfers are not wages (Mowology's bank rules got this wrong).
+- **No provider:** the CRM's payroll summary/export IS the payroll — overtime must be BC-correct
+  (daily 8 h / 12 h and weekly 40 h, per week, never over a two-week total), approved sheets locked,
+  overnight shifts kept whole. (A review found the summary export getting this wrong.)
+
 ## Multi-tenant notes
 - Shared (all tenants): Jobber export formats, remittance senders (Yardi, SparcPay, Interac), the
   matching rules above. Private (per tenant): payer channels, owner transfers, accountant figures.
