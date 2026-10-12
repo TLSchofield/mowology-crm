@@ -72,3 +72,34 @@ counted twice (caught in the prod-run preview). **Rule:** paying an invoice FROM
 through `InvoiceReconciliationService::attach($transactionId, [[invoice_id, amount]], $userId)`, which
 records the payment AND flips the deposit to `transfer`; a payment already recorded is tied to its
 deposit with `linkAllocationsToDeposit()`. Check the deposit's `type` after every such write.
+
+## 2026-10-12 — Independent review (Fable, 6 sections), fixed the same day
+Each rule below is now enforced in code; listed so a future change doesn't undo it.
+- **Ledger revenue = issued invoices only.** Drafts/cancelled/void are never posted; an entry is
+  reversed when an invoice is cancelled or goes back to draft (`LedgerSyncService::invoiceIsIssued`).
+  4 sat in revenue ($1,181.55). Reversing alone is useless — the nightly sync re-posts reversed sources.
+- **Client prepayment = 2160 Customer Deposits**, not income; applying credit posts DR 2160 / CR AR
+  (`ClientCreditService`). Roberge cheque #011 counted twice.
+- **No automatic posting dated before 2026** (`LedgerService::FY_START`): late 2025 records used to be
+  re-dated into 2026 on top of the opening. Tests building 2025 history use `allowingClosedYear()`.
+- **Journal posting joins an outer transaction** (`postEntry`, `reverseEntry`): reverse + change is
+  all-or-nothing (receipt repost, delete, duplicate clean-up, account-map repost).
+- **Yardi email alone never pays an invoice** — the From header is forgeable and the host adds no
+  verification stamp (checked); the remittance's deposit must be in the bank (`recordWhenBanked`).
+- **Interac:** replies skipped; a notice not from Interac (or our own Fwd:) is never 'high'.
+- **Payments are dated when the money moved** (remittance / notice date), not the day recorded.
+- **Deposit ↔ recorded-payment auto-link:** never before 2026-02-25, 3-day window, unique on both
+  sides (another same-amount deposit nearby = leave it for a person). `attach()` locks the deposit.
+- **A visit is invoiced once** (row lock; INV-0179/0185 and INV-0181/0183 were both paid twice).
+- **Duplicates are compared within one kind of statement** (card vs bank) — a card payoff was
+  dropped as a "duplicate" of the card statement's own payment line.
+- **No bank rule from generic wording** (`BankRuleLearning::GENERIC_WORDS`).
+- **Emailed receipts:** no ITC on GST the parser estimated; exempt vendors honoured; PST kept.
+- **Phone receipts never go to the accountant unapproved**; set-aside copies can't be approved.
+- **Contract billing:** one run at a time, GST from Settings, failed emails held and retried,
+  greeting/SMS to whoever the invoice is addressed to; only `monthly` counts as contract-billed.
+- **Not fixed — needs a decision or other work:** Laburnum Heights INV-0088/0089 (GST unpaid,
+  possible double count — Tim); the monthly-statement proof (no session has both balances saved,
+  and card vs bank amounts are signed differently); `JobberLedgerService::bookProposal` is not
+  atomic (live file carries another session's work); statements still include invoices billed to a
+  PM firm for a rep's properties; the Interac poller keeps no state across a >21-day outage.
