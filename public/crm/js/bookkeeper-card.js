@@ -871,6 +871,7 @@
                             '<div class="mw-pq-btns">' +
                               '<button type="button" data-ans="invoice">🧾 Forgot — invoice it</button>' +
                               (q.contract_id ? '<button type="button" data-ans="contract">📄 In the contract</button>' : '') +
+                              '<button type="button" data-ans="billed">✓ Already billed</button>' +
                               '<button type="button" data-ans="not_billable">🚫 Not billable</button>' +
                             '</div></div>';
                     }).join('');

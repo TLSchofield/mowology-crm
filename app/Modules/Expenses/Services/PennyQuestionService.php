@@ -9,13 +9,15 @@
  *   invoice      → counts toward "found to bill"; opens a pre-filled invoice
  *   contract     → never asks again for this job (or contract) + vendor
  *   not_billable → never asks again for this job + vendor (shop stock, warranty, own use)
+ *   billed       → it is on an invoice she didn't connect; closes this one question only
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 class PennyQuestionService
 {
     public const BILLABLE_CATEGORIES = ['Materials', 'Disposal/Dump', 'Subcontractors'];
-    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'account'];
+    /** 'billed' (2026-10-12): it is already on an invoice Penny didn't connect (Marc Nelitz's hedge disposal). */
+    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account'];
     /** Give the owner time to invoice before asking; stop asking about old receipts. */
     public const MIN_AGE_DAYS = 3;
     public const MAX_AGE_DAYS = 60;
@@ -341,7 +343,8 @@ class PennyQuestionService
         $hi = $name !== '' ? ", {$name}" : '';
         $msg = ['invoice'      => "Thanks{$hi} — I'll open a fresh invoice for that job.",
                 'contract'     => "Got it{$hi} — covered by the contract. I won't ask about this supplier on this job again.",
-                'not_billable' => "Got it{$hi} — not billable. I won't ask about this supplier on this job again."][$answer];
+                'not_billable' => "Got it{$hi} — not billable. I won't ask about this supplier on this job again.",
+                'billed'       => "Thanks{$hi} — it's already on an invoice. Marked as billed."][$answer];
         $out = ['ok' => true, 'message' => $msg];
         if ($answer === 'invoice' && $q['plan_id']) {
             $out['invoice_url'] = '/crm/invoices/create.php?plan_id=' . (int)$q['plan_id'];
