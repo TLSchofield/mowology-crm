@@ -101,7 +101,7 @@ function extractBearerToken(): string
         $header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
     }
 
-    if (strpos($header, 'Bearer ') === 0) {
+    if (str_starts_with($header, 'Bearer ')) {
         return substr($header, 7);
     }
 
