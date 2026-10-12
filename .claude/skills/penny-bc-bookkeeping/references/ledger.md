@@ -2,6 +2,9 @@
 
 Longer history: Obsidian `30-PROJECTS/Active/Mowology-CRM/Architecture/Accounting-Ledger.md`.
 
+**FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
+accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
+
 ## Two representations of the same money
 
 1. **Single-entry `accounting_transactions`** — what the Accounting page, P&L, monthly trend and
