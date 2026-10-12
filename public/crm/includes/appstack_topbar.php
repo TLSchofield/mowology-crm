@@ -101,7 +101,7 @@ if (!isset($user)) $user = ['name' => 'Admin'];
             btn.classList.remove('mw-opcache-btn--ok', 'mw-opcache-btn--err');
             btn.classList.add('mw-opcache-btn--busy');
             btn.disabled = true;
-            fetch('/crm/api/opcache-reset.php').then(function(r){ return r.json(); }).then(function(d){
+            fetch('/crm/api/opcache-reset.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'csrf_token=' + encodeURIComponent(window.MW_CSRF_TOKEN || '') }).then(function(r){ return r.json(); }).then(function(d){
               btn.classList.remove('mw-opcache-btn--busy');
               btn.classList.add(d.opcache_reset ? 'mw-opcache-btn--ok' : 'mw-opcache-btn--err');
               btn.title = d.opcache_reset ? 'OPcache reset ✓' : 'OPcache reset failed';

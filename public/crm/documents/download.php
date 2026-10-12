@@ -26,10 +26,9 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 
 $user = getCurrentUser();
-if (!in_array($user['role'] ?? '', ['admin', 'manager', 'employee'], true)) {
-    http_response_code(403);
-    exit('Forbidden');
-}
+// Stored PDFs are invoices, salt reports and visit records — office documents (Fable review
+// 2026-10-12: any 'employee' login could read every one by path). Same gate as billing pages.
+requirePermission('billing.view');
 
 $rawPath = trim($_GET['path'] ?? '');
 if (!$rawPath) {

@@ -1,7 +1,7 @@
 <?php
 /**
  * Dev Context API — Claude Code session bootstrap
- * GET /crm/api/dev-context.php?token=CLAUDE_CONTEXT_TOKEN
+ * GET /crm/api/dev-context.php   with header  X-Context-Token: CLAUDE_CONTEXT_TOKEN  (?token= deprecated)
  *
  * Returns a compact JSON snapshot of the live DB schema, quiz/cert IDs,
  * active employees, and recent errors — so Claude doesn't need to read
@@ -21,7 +21,11 @@ require_once $appConfigDir . '/config.php';
 
 // ── Token auth ────────────────────────────────────────────────────────────────
 $expectedToken = defined('CLAUDE_CONTEXT_TOKEN') ? CLAUDE_CONTEXT_TOKEN : null;
-$providedToken = $_GET['token'] ?? '';
+// The token belongs in a header (X-Context-Token): a query string lands in access logs and proxies
+// (Fable review 2026-10-12). ?token= still works until .claude/hooks/fetch-dev-context.sh sends the
+// header — then delete the fallback line below.
+$providedToken = (string)($_SERVER['HTTP_X_CONTEXT_TOKEN'] ?? '');
+if ($providedToken === '') $providedToken = (string)($_GET['token'] ?? '');   // deprecated
 
 if (!$expectedToken || !hash_equals($expectedToken, $providedToken)) {
     http_response_code(401);
