@@ -1077,6 +1077,13 @@
                 PushNotifications.addListener('registrationError', function(err) {
                     console.warn('[MwNative] Push registration error:', err);
                 });
+                // Tap on a notification → open its deep link in the WebView (Penny's
+                // missing-receipt pushes carry data.url = /crm/my-team.php?penny=missing&id=N).
+                // The plugin retains a tap that launched the app until this listener exists,
+                // so a cold start lands here too. Same-origin paths only.
+                PushNotifications.addListener('pushNotificationActionPerformed', function(action) {
+                    window.MwNative.push.openFromData(action && action.notification && action.notification.data);
+                });
 
                 PushNotifications.requestPermissions().then(function(result) {
                     if (result.receive === 'granted') {
@@ -1097,6 +1104,16 @@
             reregister: function() {
                 if (!this._initialized || !PushNotifications) return;
                 PushNotifications.register();
+            },
+
+            /** Navigate to a push's data.url when it is a path on this site ("/crm/…"). */
+            openFromData: function(data) {
+                var url = data && typeof data.url === 'string' ? data.url : '';
+                if (!/^\/(?!\/)[^\s]*$/.test(url)) return false;
+                var here = window.location.pathname + window.location.search;
+                if (here === url) return false;
+                window.location.href = url;
+                return true;
             },
 
             _registerToken: function(token) {
@@ -1201,9 +1218,93 @@
         ]);
     };
 
+    /**
+     * Camera check at app launch. Before/after photos open the OS camera through the
+     * WebView file chooser; with the app's Camera permission off, the chooser is refused
+     * and the photo button does nothing at all — no error, no dialog (Nigel, 2026-10-06).
+     * The WebView's navigator.permissions does not see the app's grant, so this asks the
+     * native plugin (1.3.3+). Advisory only: it never blocks clock-in. Shown on each app
+     * launch until Camera is on or the crew member taps "Later".
+     * An older APK without requestCameraPermission reports no `camera` field — skip.
+     */
+    window.MwNative.cameraCheck = function() {
+        if (!MwTracking || typeof MwTracking.requestCameraPermission !== 'function') return;
+        if (/\/loginAuth\//.test(location.pathname)) return;           // not signed in yet
+        try { if (sessionStorage.getItem('mw_camera_check_done')) return; } catch (e) {}
+
+        function done() { try { sessionStorage.setItem('mw_camera_check_done', '1'); } catch (e) {} }
+
+        MwTracking.checkTrackingPermissions().then(function(p) {
+            if (!p || p.camera !== false) { if (p && p.camera === true) done(); return; }
+            if (document.getElementById('mw-camera-check')) return;
+
+            if (!document.getElementById('mw-camera-check-css')) {
+                var css = document.createElement('style');
+                css.id = 'mw-camera-check-css';
+                css.textContent =
+                    '#mw-camera-check{position:fixed;left:12px;right:12px;z-index:2147483645;' +
+                        'bottom:calc(env(safe-area-inset-bottom,0px) + 16px);padding:18px 18px 12px;border-radius:16px;' +
+                        'background:var(--mw-forest);color:var(--mw-light);font-family:system-ui,-apple-system,sans-serif;' +
+                        'box-shadow:0 10px 30px rgba(0,0,0,.35);}' +
+                    '#mw-camera-check h3{margin:0 0 4px;font-size:1.1rem;font-weight:700;color:var(--mw-lime);}' +
+                    '#mw-camera-check p{margin:0;font-size:.88rem;line-height:1.45;}' +
+                    '#mw-camera-check .mw-cc-btn{display:block;width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;' +
+                        'font-size:1rem;font-weight:700;background:var(--mw-lime);color:var(--mw-forest);}' +
+                    '#mw-camera-check .mw-cc-later{display:block;margin:6px auto 0;padding:8px;border:0;background:transparent;' +
+                        'font-size:.82rem;text-decoration:underline;color:var(--mw-light);}';
+                document.head.appendChild(css);
+            }
+
+            var el = document.createElement('div');
+            el.id = 'mw-camera-check';
+            el.setAttribute('role', 'dialog');
+            el.innerHTML =
+                '<h3>Camera is off for this app</h3>' +
+                '<p class="mw-cc-how">Before and after photos can&rsquo;t open the camera until it&rsquo;s on.</p>' +
+                '<button type="button" class="mw-cc-btn" data-cc="allow">Turn on camera</button>' +
+                '<button type="button" class="mw-cc-later" data-cc="later">Later</button>';
+
+            function close() {
+                document.removeEventListener('visibilitychange', recheck);
+                if (el.parentNode) el.parentNode.removeChild(el);
+            }
+            function granted() {
+                done();
+                el.innerHTML = '<h3>&#10003; Camera is on</h3><p>Photos are ready to go.</p>';
+                setTimeout(close, 1500);
+            }
+            function recheck() {
+                if (document.visibilityState !== 'visible') return;      // back from Settings
+                MwTracking.checkTrackingPermissions().then(function(q) { if (q && q.camera) granted(); }, function() {});
+            }
+
+            el.addEventListener('click', function(ev) {
+                var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-cc');
+                if (act === 'later') { done(); close(); return; }
+                if (act !== 'allow') return;
+                MwTracking.requestCameraPermission().then(function(q) {
+                    if (q && q.camera) { granted(); return; }
+                    // Android stops showing the prompt after two refusals — the only way
+                    // left is the app's own Settings page.
+                    var how = el.querySelector('.mw-cc-how');
+                    if (how) how.innerHTML = 'Turn it on in <b>Settings &rarr; Apps &rarr; Mowology Crew &rarr; ' +
+                        'Permissions &rarr; Camera &rarr; Allow only while using the app</b>, then come back.';
+                    if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                }, function() {
+                    if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                });
+            });
+
+            document.addEventListener('visibilitychange', recheck);
+            document.body.appendChild(el);
+        }, function() {});
+    };
+
     window.MwNative.network.init();
     window.MwNative.notifications.init();
     window.MwNative.push.init();
+    if (document.body) window.MwNative.cameraCheck();
+    else document.addEventListener('DOMContentLoaded', function() { window.MwNative.cameraCheck(); });
 
     // Re-check registration on every foreground transition, mirroring the
     // iOS DeviceTokenService's "re-register on every foreground" retry
