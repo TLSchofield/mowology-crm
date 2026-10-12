@@ -31,6 +31,20 @@ class ExpenseGateHooks
         }
     }
 
+    /**
+     * Penny's missing-receipt chaser (migration 1245): a receipt that fits an open "missing
+     * receipt" item closes it, whatever path it came in by.
+     */
+    public function chase(int $expenseId): void
+    {
+        try {
+            require_once __DIR__ . '/MissingReceiptService.php';
+            MissingReceiptService::onReceiptQuietly($this->db, $expenseId);
+        } catch (Throwable $e) {
+            error_log('Gate chase #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** The duplicate check, run again on the receipt as it is now (no writes). */
     public function duplicates(int $expenseId): array
     {

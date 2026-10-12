@@ -268,6 +268,9 @@ class ExpenseGate
         if ($create || array_intersect($changed, ['total', 'expense_date', 'vendor_id', 'vendor_name_raw', 'receipt_media_id'])) {
             $result['duplicates'] = $this->hooks->duplicates($id);
         }
+        if ($create || array_intersect($changed, ['total', 'expense_date', 'status'])) {
+            $this->hooks->chase($id);   // a receipt Penny was chasing (missing-receipt item) may just have arrived
+        }
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
         $userId = $actor['id'] ?? null;

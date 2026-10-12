@@ -116,8 +116,18 @@ class ReceiptInboxService
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
             require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
             $parsed = parseReceiptText($text, null);
+            $payee = trim((string)($msg['payee'] ?? ''));
+            if ($payee !== '') {
+                // A payment platform's receipt (PayPal "You sent a payment"): the vendor is who was
+                // paid, not the platform whose name fills the email — match on the payee alone.
+                $parsed['vendor_hint'] = $payee;
+                $suggestions = suggestReceiptMeta($payee, null, null, null, $parsed);
+                if (empty($suggestions['vendor_id'])) $suggestions['vendor_name'] = $payee;
+            } else {
+                $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            }
             $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
-                    'suggestions' => suggestReceiptMeta($text, null, null, null, $parsed)];
+                    'suggestions' => $suggestions];
             $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
             return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted', $systemUserId);
         } catch (\Throwable $e) {

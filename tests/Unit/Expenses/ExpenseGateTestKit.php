@@ -151,6 +151,7 @@ class ExpenseGateHooksSpy extends ExpenseGateHooks
     public function learnConfirmed(int $expenseId, ?array $fallbackBaseline): void { $this->hit('learnConfirmed', [$expenseId, $fallbackBaseline]); }
     public function learnSplit(int $expenseId, array $allocations): void { $this->hit('learnSplit', [$expenseId, $allocations]); }
     public function learnBank(int $expenseId, array $row, ?int $userId): void { $this->hit('learnBank', [$expenseId, $userId]); }
+    public function chase(int $expenseId): void { $this->hit('chase', [$expenseId]); }
     public function repost(int $expenseId, ?int $userId, string $why): bool { $this->hit('repost', [$expenseId, $why]); return $this->repostResult; }
     public function unpost(int $expenseId, ?int $userId, string $why): bool { $this->hit('unpost', [$expenseId, $why]); return true; }
 }
