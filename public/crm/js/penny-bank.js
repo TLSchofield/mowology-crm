@@ -206,10 +206,19 @@
         return GREETING && !/^I\b/.test(t) && !/^[A-Z]{2}/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t;
     }
 
-    function done(d) {
+    /** Take a decided line off by its id — not by the index it had before the await (review round 2). */
+    function dropLine(l) {
+        var at = lines.findIndex(function (x) { return x.id === l.id; });
+        if (at < 0) return;
+        lines.splice(at, 1);
+        if (at < idx) idx--;
+        if (idx >= lines.length || idx < 0) idx = 0;
+    }
+
+    function done(d, l) {
         busy = false;
         if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not save'); return; }
-        lines.splice(idx, 1);
+        dropLine(l);
         waiting = Math.max(0, waiting - 1);
         if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
     }
@@ -229,7 +238,7 @@
         busy = true;
         post({ mode: 'bank_invoice_record', transaction_id: l.id, allocations: allocs, sender: sender ? sender.value.trim() : '',
                force: !!((r.recorded || []).length || (r.legacy || []).length) })
-            .then(done).catch(function () { busy = false; render('Network error — try again'); });
+            .then(function (d) { done(d, l); }).catch(function () { busy = false; render('Network error — try again'); });
     }
 
     function linkRecorded(k, legacy) {
@@ -238,7 +247,7 @@
         var body = { mode: 'bank_invoice_link', transaction_id: l.id };
         if (legacy) body.legacy = true; else body.allocation_ids = ((r.recorded || [])[k] || {}).allocation_ids || [];
         busy = true;
-        post(body).then(done).catch(function () { busy = false; render('Network error — try again'); });
+        post(body).then(function (d) { done(d, l); }).catch(function () { busy = false; render('Network error — try again'); });
     }
 
     // A Stripe payout: ask Stripe (read only) which invoices it paid, then Book it.
@@ -281,7 +290,7 @@
             .then(function (d) {
                 busy = false;
                 if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not book it'); return; }
-                lines.splice(idx, 1);
+                dropLine(l);
                 waiting = Math.max(0, waiting - 1);
                 if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
             })
@@ -306,7 +315,7 @@
                 if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not save'); return; }
                 offer = d.bulk && d.bulk.count ? { tx: l.id, bulk: d.bulk } : null;
                 undoRule = d.rule_id || null;
-                lines.splice(idx, 1);
+                dropLine(l);
                 waiting = Math.max(0, waiting - 1);
                 if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
             })
@@ -378,8 +387,8 @@
         else if (a === 'invrec') recordInvoice();
         else if (a === 'linkrec') linkRecorded(parseInt(e.target.getAttribute('data-k'), 10) || 0, false);
         else if (a === 'linklegacy') linkRecorded(0, true);
-        else if (a === 'next') { idx = (idx + 1) % Math.max(1, lines.length); render(); }
-        else if (a === 'prev') { idx = (idx - 1 + lines.length) % Math.max(1, lines.length); render(); }
+        else if (a === 'next') { if (busy) return; idx = (idx + 1) % Math.max(1, lines.length); render(); }
+        else if (a === 'prev') { if (busy) return; idx = (idx - 1 + lines.length) % Math.max(1, lines.length); render(); }
     });
 
     load();

@@ -105,7 +105,8 @@ class BookkeeperDeskService
         $codeOnly = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND model = 'code' AND created_at >= ?", [$monthStart]);
         $made     = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= ?", [$monthStart]);
 
-        $tokens = $this->db->prepare("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM expense_suggestions WHERE created_at >= ?");
+        // Live receipts only: backtests are Tim's experiments, not what Penny's work costs (review round 2).
+        $tokens = $this->db->prepare("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM expense_suggestions WHERE source = 'live' AND created_at >= ?");
         $tokens->execute([$monthStart]);
         [$tin, $tout] = array_map('intval', $tokens->fetch(PDO::FETCH_NUM) ?: [0, 0]);
         $aiCost = round($tin / 1e6 * self::PRICE_IN + $tout / 1e6 * self::PRICE_OUT, 2);
@@ -121,15 +122,25 @@ class BookkeeperDeskService
         $hoursSaved = round($decided * self::MINUTES_SAVED_PER_RECEIPT / 60, 1);
         $netSaving = ($decided > 0 && $ownerRate) ? round($hoursSaved * $ownerRate - $aiCost, 2) : null;
 
-        // GST: the last 60 days — confirmed (claimable now) vs stuck in unapproved receipts.
+        // GST: the last 60 days — confirmed (claimable now) vs stuck in unapproved receipts. Claimable
+        // the way the GST return counts it (GstReportService: meals at the ITC rate), and a waiting
+        // receipt held as a possible duplicate isn't counted twice (review round 2, 2026-10-12).
         $since = date('Y-m-d', strtotime('-60 days'));
         $gst = $this->db->prepare("
-            SELECT COALESCE(SUM(CASE WHEN status IN ('approved','forwarded') THEN gst_amount END),0),
-                   COALESCE(SUM(CASE WHEN status IN ('draft','pending_approval') THEN gst_amount END),0)
-            FROM expenses WHERE expense_date >= ?
+            SELECT id, status, gst_amount, accounting_category AS category
+            FROM expenses WHERE expense_date >= ? AND status IN ('approved','forwarded','draft','pending_approval')
+              AND gst_amount <> 0
         ");
         $gst->execute([$since]);
-        [$gstConfirmed, $gstStuck] = array_map('floatval', $gst->fetch(PDO::FETCH_NUM) ?: [0, 0]);
+        $gstRows = $gst->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $held = [];
+        try {
+            if (!class_exists('DuplicateReceiptService')) require_once __DIR__ . '/DuplicateReceiptService.php';
+            $waitingIds = array_map(fn($r) => (int)$r['id'], array_filter($gstRows, fn($r) => in_array($r['status'], ['draft', 'pending_approval'], true)));
+            $held = DuplicateReceiptService::heldIds((new DuplicateReceiptService($this->db))->pairsFor($waitingIds));
+        } catch (Throwable $e) { /* no duplicate check: count them all */ }
+        if (!class_exists('GstReportService')) require_once dirname(__DIR__, 2) . '/Accounting/Services/GstReportService.php';
+        [$gstConfirmed, $gstStuck] = self::gstClaimBack($gstRows, $held, (new GstReportService($this->db))->settings());
 
         $jobs = $this->db->prepare("SELECT COUNT(*), SUM(job_id IS NOT NULL) FROM expenses WHERE expense_date >= ? AND status <> 'rejected'");
         $jobs->execute([date('Y-m-d', strtotime('-90 days'))]);
@@ -694,6 +705,30 @@ class BookkeeperDeskService
             $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
         }
         return ['prepared' => $done, 'capped' => false];
+    }
+
+    /**
+     * GST to claim back from receipts: [confirmed (approved/forwarded), stuck (waiting)], each the
+     * input-tax credit the return would claim — meals at the ITC rate (GstReportService::isMeals),
+     * held duplicates left out. Pure (tested).
+     * @param array $rows [{id, status, gst_amount, category}]
+     * @param int[] $held waiting receipts held back as possible duplicates
+     * @param array $settings GstReportService::settings()
+     */
+    public static function gstClaimBack(array $rows, array $held, array $settings): array
+    {
+        $held = array_flip(array_map('intval', $held));
+        $rate = (float)($settings['meals_rate'] ?? 0.5);
+        $cats = $settings['meals_categories'] ?? [];
+        $confirmed = 0.0; $stuck = 0.0;
+        foreach ($rows as $r) {
+            if (isset($held[(int)($r['id'] ?? 0)])) continue;
+            $g = round((float)($r['gst_amount'] ?? 0), 2);
+            if (GstReportService::isMeals($r['category'] ?? null, $cats)) $g = round($g * $rate, 2);
+            if (in_array($r['status'] ?? '', ['approved', 'forwarded'], true)) $confirmed += $g;
+            elseif (in_array($r['status'] ?? '', ['draft', 'pending_approval'], true)) $stuck += $g;
+        }
+        return [round($confirmed, 2), round($stuck, 2)];
     }
 
     /**

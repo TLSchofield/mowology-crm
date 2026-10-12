@@ -329,6 +329,8 @@ class CashFlowForecastService
             }
             $events[] = ['date' => self::expectedPayDate($due, $lateDays, $today), 'amount' => (float)$inv['balance_due'],
                          'kind' => 'invoice', 'label' => $label, 'id' => (int)$inv['id'],
+                         // Late for THIS client: past due and past their own usual lateness (operating rules).
+                         'late' => self::isLateForClient($pastDue, $lateDays),
                          'why' => 'due ' . $due . ($lateDays ? ', usually pays ' . $lateDays . ' days late' : '') . ($pastDue > 0 ? ' (' . $pastDue . ' days overdue)' : '')];
         }
 
@@ -430,7 +432,7 @@ class CashFlowForecastService
         $f['everyday_top'] = $ev['top'];
         $f['everyday_categories'] = $ev['categories'];
         $f['notes'] = $notes;
-        $f['chase'] = $this->chaseList($events, $f);
+        $f['chase'] = self::chaseList($events);
         return $f;
     }
 
@@ -463,11 +465,20 @@ class CashFlowForecastService
 
     // ──────────────────────────────────────────────────────────────────────
 
-    /** The biggest overdue / soonest invoices that would lift the low point. */
-    private function chaseList(array $events, array $f): array
+    /**
+     * Penny chases only an invoice that is late for that client: past its due date AND past the
+     * client's usual paying habit (operating-rules.md). It used to name invoices not yet due because
+     * they fell after the low week (review round 2, 2026-10-12). Pure (tested).
+     */
+    public static function isLateForClient(int $daysPastDue, int $usualLateDays): bool
     {
-        $low = $f['low']['start'] ?? null;
-        $inv = array_values(array_filter($events, fn($e) => $e['kind'] === 'invoice' && (!$low || $e['date'] > $low || str_contains((string)$e['why'], 'overdue'))));
+        return $daysPastDue > 0 && $daysPastDue > max(0, $usualLateDays);
+    }
+
+    /** The biggest invoices late for their client — the same list whichever view the brief alerts on. Pure. */
+    public static function chaseList(array $events): array
+    {
+        $inv = array_values(array_filter($events, fn($e) => ($e['kind'] ?? '') === 'invoice' && !empty($e['late'])));
         usort($inv, fn($a, $b) => $b['amount'] <=> $a['amount']);
         return array_map(fn($e) => ['label' => $e['label'], 'amount' => round($e['amount'], 2), 'id' => $e['id'] ?? null], array_slice($inv, 0, 5));
     }

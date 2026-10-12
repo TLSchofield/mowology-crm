@@ -722,12 +722,24 @@ class MissingReceiptService
         $t = $this->totals();
         $items = [];
         if ($t['open'] > 0) {
+            // Only the ASKABLE ones are on a crew card; the rest are Tim's own list (review round 2:
+            // the brief said "Penny is asking the crew" about every missing receipt).
+            $asked = (int)$this->db->query("SELECT COUNT(*) FROM penny_missing_receipts WHERE status = 'open' AND " . self::ASKABLE)->fetchColumn();
             $items[] = ['key' => 'penny:missing_receipts', 'kind' => 'penny:missing_receipts',
                         'priority' => $t['open_amount'] >= 500 ? 2 : 3,
-                        'text' => $t['open'] . ' receipt' . ($t['open'] === 1 ? '' : 's') . ' missing (' . self::money($t['open_amount'], true) . ') — Penny is asking the crew',
+                        'text' => self::briefText($t['open'], $t['open_amount'], $asked),
                         'url' => '/crm/dashboard_appstack.php#mw-penny', 'value' => $t['open_amount']];
         }
         return $items;
+    }
+
+    /** The brief line: how many are missing, and how many of them Penny is actually asking the crew about. Pure. */
+    public static function briefText(int $open, float $amount, int $asked): string
+    {
+        $text = $open . ' receipt' . ($open === 1 ? '' : 's') . ' missing (' . self::money($amount, true) . ')';
+        if ($asked <= 0) return $text . ' — on your list (too old to ask the crew)';
+        if ($asked >= $open) return $text . ' — Penny is asking the crew';
+        return $text . ' — Penny is asking the crew about ' . $asked . ', the rest are on your list';
     }
 
     // ─────────────────────────────────────────────────────────────────────────

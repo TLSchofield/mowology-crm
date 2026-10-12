@@ -641,11 +641,11 @@
                     render(d.message);
                 } else if (d && d.ok && d.saved_draft) {
                     it.saved_draft = values;
-                    queue.splice(idx, 1);
+                    dropFromQueue(it);
                     queue.push(it);                 // come back to it last
                     render(d.message || 'Saved as a draft');
                 } else if (d && d.ok) {
-                    queue.splice(idx, 1);
+                    dropFromQueue(it);
                     render(d.message || 'Approved');
                     if (queue.length < 3) { load(d.message || 'Approved'); }
                 } else {
@@ -655,6 +655,18 @@
             .catch(function () { busy = false; render('Network error — try again'); });
     }
     function approve() { submit(false); }
+
+    /**
+     * Take a decided receipt off the carousel by its id, not by the index it had before the
+     * await — a background top-up or a stray click could have moved it (review round 2).
+     */
+    function dropFromQueue(it) {
+        var at = queue.findIndex(function (x) { return x.suggestion_id === it.suggestion_id; });
+        if (at < 0) return;
+        queue.splice(at, 1);
+        if (at < idx) idx--;
+        if (idx >= queue.length || idx < 0) idx = 0;
+    }
 
     /** Reject with a reason — the same reject as the receipts page; it leaves the card. */
     function rejectIt() {
@@ -668,7 +680,7 @@
             busy = false;
             if (d && d.ok) {
                 rejecting = false;
-                queue.splice(idx, 1);
+                dropFromQueue(it);
                 render(d.message || 'Rejected');
                 if (queue.length < 3) load(d.message || 'Rejected');
             } else {
@@ -682,10 +694,12 @@
         if (busy || rechecking || !queue.length) return;
         var it = queue[idx];
         rechecking = true;
+        busy = true;          // no approve / next while Penny is re-reading this one
         render('Penny is taking another look, with the photo — about 20 seconds…');
         post({ mode: 'recheck', suggestion_id: it.suggestion_id })
             .then(function (d) {
                 rechecking = false;
+                busy = false;
                 if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Re-check failed'); return; }
                 return fetch(API + '?mode=queue&limit=15', { cache: 'no-store' })
                     .then(function (r) { return r.json(); })
@@ -696,7 +710,7 @@
                         render(d.message || 'Penny took another look');
                     });
             })
-            .catch(function () { rechecking = false; render('Network error — try again'); });
+            .catch(function () { rechecking = false; busy = false; render('Network error — try again'); });
     }
 
     root.addEventListener('click', function (e) {
@@ -756,8 +770,8 @@
         else if (act === 'reject') { rejecting = true; render(); var rb = root.querySelector('[data-rejreason]'); if (rb) rb.focus(); }
         else if (act === 'reject-cancel') { rejecting = false; render(); }
         else if (act === 'reject-go') rejectIt();
-        else if (act === 'next') { rejecting = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
-        else if (act === 'prev') { rejecting = false; idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+        else if (act === 'next') { if (busy) return; rejecting = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
+        else if (act === 'prev') { if (busy) return; rejecting = false; idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
     });
 
     root.addEventListener('keydown', function (e) {
@@ -842,8 +856,8 @@
         if (!root.offsetParent || !queue.length) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }
-        else if (e.key === 'ArrowRight') { idx = (idx + 1) % queue.length; render(); }
-        else if (e.key === 'ArrowLeft') { idx = (idx - 1 + queue.length) % queue.length; render(); }
+        else if (e.key === 'ArrowRight') { if (busy) return; idx = (idx + 1) % queue.length; render(); }
+        else if (e.key === 'ArrowLeft') { if (busy) return; idx = (idx - 1 + queue.length) % queue.length; render(); }
     });
 
     // ── Questions for you (unbilled materials) ─────────────────────────────
@@ -887,11 +901,19 @@
             var acctSel = item.querySelector('[data-pq-acct]');
             if (ans === 'account' && (!acctSel || !acctSel.value)) { if (acctSel) acctSel.focus(); return; }
             item.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            // Open the tab inside the click: a window.open() after the await is popup-blocked.
+            var win = ans === 'invoice' ? window.open('', '_blank') : null;
+            if (win) { try { win.opener = null; } catch (_) {} }
             post({ mode: 'answer', question_id: id, answer: ans, account_id: acctSel ? acctSel.value : null }).then(function (d) {
-                if (d && d.ok && d.invoice_url) { window.open(d.invoice_url, '_blank', 'noopener'); }
+                if (d && d.ok && d.invoice_url) {
+                    if (win) win.location.href = d.invoice_url; else window.location.href = d.invoice_url;
+                } else if (win) { win.close(); }
                 item.innerHTML = '<p class="mw-pq-done">' + esc((d && d.message) || 'Saved') + '</p>';
                 setTimeout(loadQuestions, 1500);
-            }).catch(function () { item.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); });
+            }).catch(function () {
+                if (win) win.close();
+                item.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+            });
         });
         loadQuestions();
     }

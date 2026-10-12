@@ -839,10 +839,11 @@ class OwnerFreedomService
         $in    = ['weeks' => $days / 7, 'days' => $days,
                   'season_weeks' => self::seasonWeeksInRange($from, $to, (int)$s['season_start_month'], (int)$s['season_end_month'])];
 
-        // Money truth
+        // Money truth. Revenue is before GST (the GST is the government's, not profit) and void invoices
+        // are not revenue (review round 2, 2026-10-12: totals incl. GST, void counted).
         $inv = $this->row("
-            SELECT COALESCE(SUM(total),0) AS revenue, COALESCE(SUM(amount_paid),0) AS collected
-            FROM invoices WHERE issue_date BETWEEN ? AND ? AND status NOT IN ('draft','cancelled')", [$from, $to]);
+            SELECT COALESCE(SUM(COALESCE(subtotal, total - COALESCE(tax_amount,0))),0) AS revenue, COALESCE(SUM(amount_paid),0) AS collected
+            FROM invoices WHERE issue_date BETWEEN ? AND ? AND status NOT IN ('draft','cancelled','void')", [$from, $to]);
         $in['revenue']   = (float)($inv['revenue'] ?? 0);
         $in['collected'] = (float)($inv['collected'] ?? 0);
 
@@ -864,10 +865,11 @@ class OwnerFreedomService
         $in['crew_avg_rate'] = (float)$this->one("
             SELECT AVG(hourly_rate) FROM users WHERE is_active = 1 AND id <> ? AND hourly_rate > 0", [$owner], 0);
 
-        // Expenses (non-labour)
+        // Expenses (non-labour): approved / sent receipts only (a draft may be a duplicate or wrong), and
+        // without the GST we claim back (PST stays — it's a real cost).
         $in['expenses'] = (float)$this->one("
-            SELECT COALESCE(SUM(total),0) FROM expenses
-            WHERE status IN ('draft','approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn(), [$from, $to], 0);
+            SELECT COALESCE(SUM(total - COALESCE(gst_amount,0)),0) FROM expenses
+            WHERE status IN ('approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn(), [$from, $to], 0);
 
         // Visit attribution
         $amt = self::VISIT_AMOUNT;

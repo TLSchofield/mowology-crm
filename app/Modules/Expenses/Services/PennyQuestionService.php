@@ -298,18 +298,21 @@ class PennyQuestionService
         // "$200 for 998 West 19th". The job comes from the expense; a split receipt asks only about
         // the lines on that job, and a receipt with none left on a job is no longer a question.
         $rows = $this->db->query("
-            SELECT q.id, q.expense_id, COALESCE(e.job_id, q.plan_id) AS plan_id, jp.contract_id, q.amount, q.vendor_name, e.expense_date,
+            SELECT q.id, q.expense_id, COALESCE(e.job_id, q.plan_id) AS plan_id, e.job_id AS live_job_id, jp.contract_id, q.amount, q.vendor_name, e.expense_date,
                    COALESCE(jp.title, jp.service_type, '') AS job_title, COALESCE(p.address, '') AS address
             FROM penny_questions q
             JOIN expenses e ON e.id = q.expense_id
             LEFT JOIN job_plans jp ON jp.id = COALESCE(e.job_id, q.plan_id)
             LEFT JOIN properties p ON p.id = jp.property_id
-            WHERE q.status = 'open' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit * 2))
+            WHERE q.status = 'open' AND e.status <> 'rejected' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit * 2))
         )->fetchAll(PDO::FETCH_ASSOC);
         $out = [];
         foreach ($rows as $r) {
             $part = self::splitPart($this->allocations((int)$r['expense_id']), (int)$r['plan_id']);
             if ($part !== null && $part['amount'] <= 0) continue;   // nothing on a job any more
+            // Moved off the job (no job now, no split line on it): no longer a question (review round 2).
+            if ($part === null && empty($r['live_job_id'])) continue;
+            unset($r['live_job_id']);
             $items = $part !== null ? self::realItems($part['names']) : $this->itemNames((int)$r['expense_id']);
             $amount = $part !== null ? $part['amount'] : (float)$r['amount'];
             $r['amount'] = $amount;
@@ -375,11 +378,23 @@ class PennyQuestionService
         return ['ok' => true, 'message' => "Thanks{$hi} — \"{$q['subject']}\" income goes to {$acct['code']} {$acct['name']} from now on. Re-post the books to move the old ones."];
     }
 
-    /** Owner said "forgot to invoice" this month — Penny's "found to bill". */
+    /**
+     * Penny's "found to bill" this month: questions answered "forgot — invoice it" whose job then
+     * really got an invoice (issued, not void) — the click alone used to count (review round 2,
+     * 2026-10-12).
+     */
     public function foundToBillMonth(): float
     {
         if (!$this->ready()) return 0.0;
-        $s = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM penny_questions WHERE answer = 'invoice' AND answered_at >= ?");
+        $s = $this->db->prepare("
+            SELECT COALESCE(SUM(q.amount), 0) FROM penny_questions q
+            LEFT JOIN expenses e ON e.id = q.expense_id
+            WHERE q.answer = 'invoice' AND q.answered_at >= ?
+              AND EXISTS (SELECT 1 FROM invoices i
+                          WHERE i.plan_id = COALESCE(e.job_id, q.plan_id)
+                            AND i.created_at >= q.answered_at - INTERVAL 1 DAY
+                            AND i.status NOT IN ('draft', 'void', 'cancelled'))
+        ");
         $s->execute([date('Y-m-01')]);
         return round((float)$s->fetchColumn(), 2);
     }
