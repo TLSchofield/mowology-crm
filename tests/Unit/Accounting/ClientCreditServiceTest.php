@@ -45,7 +45,7 @@ class ClientCreditServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(false, [], 425.00));
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->assertSame(425.00, $svc->getBalance(55));
     }
 
@@ -57,7 +57,7 @@ class ClientCreditServiceTest extends TestCase
     public function add_deposit_rejects_non_positive_amount(): void
     {
         $db  = $this->createMock(PDO::class);
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->expectException(InvalidArgumentException::class);
         $svc->addDeposit(55, 0, 'Advance payment', 1);
     }
@@ -69,7 +69,7 @@ class ClientCreditServiceTest extends TestCase
         $db->method('prepare')->willReturn($this->makeStmt());
         $db->method('lastInsertId')->willReturn('9001');
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->assertSame(9001, $svc->addDeposit(55, 500.00, 'Advance payment recorded', 1));
     }
 
@@ -83,7 +83,7 @@ class ClientCreditServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt(false));
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/not found/i');
         $svc->applyToInvoice(999, 1);
@@ -97,7 +97,7 @@ class ClientCreditServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt($invoice));
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/already paid/i');
         $svc->applyToInvoice(236, 1);
@@ -111,7 +111,7 @@ class ClientCreditServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($this->makeStmt($invoice));
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/could not resolve/i');
         $svc->applyToInvoice(236, 1);
@@ -135,7 +135,7 @@ class ClientCreditServiceTest extends TestCase
             $invoiceStmt, $balanceStmt1, $insertStmt, $updateStmt, $balanceStmt2
         );
 
-        $svc    = new ClientCreditService($db);
+        $svc    = (new ClientCreditService($db))->withoutLedger();
         $result = $svc->applyToInvoice(236, 1);
 
         $this->assertSame(75.0, $result['applied']);
@@ -163,7 +163,7 @@ class ClientCreditServiceTest extends TestCase
             $invoiceStmt, $balanceStmt1, $insertStmt, $updateStmt, $balanceStmt2
         );
 
-        $svc    = new ClientCreditService($db);
+        $svc    = (new ClientCreditService($db))->withoutLedger();
         $result = $svc->applyToInvoice(236, 1);
 
         $this->assertSame(40.0, $result['applied']);
@@ -182,9 +182,21 @@ class ClientCreditServiceTest extends TestCase
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls($invoiceStmt, $balanceStmt1);
 
-        $svc = new ClientCreditService($db);
+        $svc = (new ClientCreditService($db))->withoutLedger();
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/no credit available/i');
         $svc->applyToInvoice(236, 1);
+    }
+
+    /** @test */
+    public function a_prepayment_is_tied_to_a_bank_line_only_when_the_match_is_unique(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(false, [18388]));
+        $this->assertSame(18388, (new ClientCreditService($db))->findDepositLine(529.20));
+
+        $db2 = $this->createMock(PDO::class);
+        $db2->method('prepare')->willReturn($this->makeStmt(false, [18388, 18400]));
+        $this->assertNull((new ClientCreditService($db2))->findDepositLine(529.20));
     }
 }

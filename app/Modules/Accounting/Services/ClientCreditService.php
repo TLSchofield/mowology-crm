@@ -26,7 +26,12 @@ declare(strict_types=1);
  */
 class ClientCreditService
 {
+    private bool $postToLedger = true;
+
     public function __construct(private PDO $db) {}
+
+    /** Unit tests with a mocked PDO: skip the journal posting (LedgerService has its own tests). */
+    public function withoutLedger(): self { $this->postToLedger = false; return $this; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Balance
@@ -82,7 +87,16 @@ class ClientCreditService
      * Record a prepayment (e.g. an advance cheque) as available credit.
      * Returns the new client_credits row id.
      */
-    public function addDeposit(int $clientId, float $amount, string $note, ?int $userId = null): int
+    /** Chart code for money a client paid ahead — a liability until it pays an invoice. */
+    public const DEPOSITS_CODE = '2160';
+
+    /**
+     * @param ?int $bankTransactionId the bank line the advance arrived on: it stops being income
+     *        (a transfer into 2160 Customer Deposits) — income is the invoice the credit later pays.
+     *        Without this the cheque counted once as a deposit and again on every invoice it paid
+     *        (review 2026-10-12: Roberge cheque #011, $529.20).
+     */
+    public function addDeposit(int $clientId, float $amount, string $note, ?int $userId = null, ?int $bankTransactionId = null): int
     {
         if ($amount <= 0) {
             throw new \InvalidArgumentException('Deposit amount must be greater than zero');
@@ -93,7 +107,58 @@ class ClientCreditService
             VALUES (?, 'deposit', ?, ?, ?)
         ");
         $stmt->execute([$clientId, $amount, $note, $userId]);
-        return (int) $this->db->lastInsertId();
+        $id = (int) $this->db->lastInsertId();
+        $bankTransactionId = $bankTransactionId ?: $this->findDepositLine($amount);
+        if ($bankTransactionId) $this->moveBankLineToDeposits($bankTransactionId);
+        else error_log("[ClientCredit] prepayment #{$id} (\${$amount}) not tied to a bank line — Penny: find its deposit");
+        return $id;
+    }
+
+    /**
+     * The bank line an advance most likely arrived on: the ONLY bank-import income line of exactly
+     * this amount in the last 60 days (not tied to an invoice). Two or more → null (a person picks).
+     */
+    public function findDepositLine(float $amount): ?int
+    {
+        $s = $this->db->prepare("SELECT id FROM accounting_transactions
+                                 WHERE type = 'income' AND reference_type = 'bank_import'
+                                   AND ABS(amount - ?) < 0.005
+                                   AND transaction_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+                                   AND (matched_invoice_id IS NULL OR matched_invoice_id = 0)
+                                 LIMIT 2");
+        $s->execute([$amount]);
+        $ids = $s->fetchAll(PDO::FETCH_COLUMN);
+        return count($ids) === 1 ? (int)$ids[0] : null;
+    }
+
+    /** The advance's bank line → transfer into 2160 Customer Deposits (not income). */
+    public function moveBankLineToDeposits(int $transactionId): bool
+    {
+        $acct = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE code = ? LIMIT 1");
+        $acct->execute([self::DEPOSITS_CODE]);
+        $depositsId = $acct->fetchColumn();
+        if (!$depositsId) throw new \RuntimeException('Account ' . self::DEPOSITS_CODE . ' Customer Deposits is missing from the chart');
+        $u = $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer', account_id = ?
+                                 WHERE id = ? AND type = 'income' AND reference_type = 'bank_import'");
+        $u->execute([(int)$depositsId, $transactionId]);
+        return $u->rowCount() === 1;
+    }
+
+    /** Journal for credit applied to an invoice: DR 2160 Customer Deposits / CR 1100 AR — no cash moves. */
+    public function postAppliedToLedger(int $creditRowId, int $invoiceId, float $applied, string $date, ?int $userId = null): ?int
+    {
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        if ($ledger->findEntryIdBySource('client_credit', $creditRowId) !== null) return null;
+        return $ledger->postEntry([
+            'entry_date' => $date, 'memo' => 'Client credit applied to invoice #' . $invoiceId,
+            'source_type' => 'client_credit', 'source_id' => $creditRowId,
+            'created_by' => $userId, 'proposed_by' => 'owner',
+            'lines' => [
+                ['account_id' => $ledger->accountId(self::DEPOSITS_CODE), 'debit' => $applied, 'credit' => 0],
+                ['account_id' => $ledger->accountId(LedgerService::ACC_AR), 'debit' => 0, 'credit' => $applied],
+            ],
+        ]);
     }
 
     /**
@@ -146,6 +211,7 @@ class ClientCreditService
                 INSERT INTO client_credits (client_id, type, amount, invoice_id, source_note, created_by)
                 VALUES (?, 'applied', ?, ?, ?, ?)
             ")->execute([$clientId, -$applied, $invoiceId, 'Applied to invoice', $userId]);
+            $creditRowId = (int) $this->db->lastInsertId();
 
             $this->db->prepare("
                 UPDATE invoices
@@ -158,6 +224,11 @@ class ClientCreditService
         } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
+        }
+        if ($this->postToLedger) try {
+            $this->postAppliedToLedger($creditRowId, $invoiceId, $applied, date('Y-m-d'), $userId);
+        } catch (\Throwable $e) {
+            error_log('[ClientCredit] journal for credit #' . $creditRowId . ': ' . $e->getMessage());
         }
 
         return [
