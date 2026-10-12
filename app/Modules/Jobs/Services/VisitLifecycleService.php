@@ -41,6 +41,22 @@ class VisitLifecycleService
             return false;
         }
 
+        // Transition guard (2026-10-12): a completed visit is never turned into skipped /
+        // weather / cancelled (it would drop off billing after the work was done), and a
+        // second "completed" is a no-op — the desktop Complete button and the timer stop it
+        // triggers both called this, so completion hooks (bundle counter, push, emails) ran twice.
+        $cur = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+        $cur->execute([$visitId]);
+        $current = $cur->fetchColumn();
+        if ($current === false) return false;
+        if (!self::canTransition((string)$current, $newStatus)) {
+            error_log("updateVisitStatus refused {$current} -> {$newStatus} for visit {$visitId}");
+            return false;
+        }
+        if ($current === 'completed' && $newStatus === 'completed') {
+            return true;
+        }
+
         try {
             $built = self::buildStatusSetClauses($newStatus, $notes);
             $params = $built['params'];
@@ -561,6 +577,29 @@ class VisitLifecycleService
             error_log("skipVisitDate error: " . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * May a visit go from $from to $to? PURE. Completed is terminal for "not done" states:
+     * completed → skipped / weather / cancelled is refused (reopen to scheduled/in_progress
+     * first). Everything else is allowed; completed → completed is allowed (a no-op).
+     */
+    public static function canTransition(string $from, string $to): bool {
+        if ($from === 'completed' && in_array($to, ['skipped', 'weather', 'cancelled'], true)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The visits of a stop that completing the stop may complete and bill. PURE.
+     * Skipped visits are left out — the crew said that work was not done — unless every
+     * visit on the stop is skipped (auto-rollover skipped a stop that was then done anyway).
+     * Rows need 'visit_status'; rows without it are kept.
+     */
+    public static function billableAtStop(array $visits): array {
+        $notSkipped = array_values(array_filter($visits, fn($v) => ($v['visit_status'] ?? '') !== 'skipped'));
+        return $notSkipped ?: array_values($visits);
     }
 
     /**

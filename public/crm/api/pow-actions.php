@@ -121,7 +121,7 @@ try {
         // Fetch all completable visits for this stop (matched by stop_id)
         $vsStmt = $db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                   jv.invoice_id, jv.scheduled_date,
+                   jv.invoice_id, jv.scheduled_date, jv.status AS visit_status,
                    jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                    p.address AS service_address, p.city AS service_city,
                    p.province AS service_province, p.postal_code AS service_postal,
@@ -136,6 +136,10 @@ try {
         ");
         $vsStmt->execute([$stopId]);
         $completableVisits = $vsStmt->fetchAll(PDO::FETCH_ASSOC);
+        // A visit the crew skipped is not done: completing the stop must not complete and bill it
+        // (2026-10-12). Only when EVERY visit on the stop is skipped (e.g. auto-rollover skipped a
+        // stop that was then done) does completing the stop mean those visits were done.
+        $completableVisits = powWithoutSkipped($completableVisits);
 
         // Fallback: if no visits found by stop_id (e.g. crew reassignment created a new stop
         // but the visit is still linked to the old stop), find visits for the same
@@ -143,7 +147,7 @@ try {
         if (empty($completableVisits)) {
             $fbStmt = $db->prepare("
                 SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                       jv.invoice_id, jv.scheduled_date, jv.stop_id AS stop_id_old,
+                       jv.invoice_id, jv.scheduled_date, jv.stop_id AS stop_id_old, jv.status AS visit_status,
                        jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                        p.address AS service_address, p.city AS service_city,
                        p.province AS service_province, p.postal_code AS service_postal,
@@ -166,7 +170,7 @@ try {
                 ORDER BY jv.plan_id, jv.sequence_index ASC
             ");
             $fbStmt->execute([$stopId, $stopId, $stopId]);
-            $allFbVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+            $allFbVisits = powWithoutSkipped($fbStmt->fetchAll(PDO::FETCH_ASSOC));
 
             // Deduplicate: keep only ONE visit per plan (lowest sequence_index wins)
             $seenPlans = [];
@@ -276,20 +280,20 @@ try {
             exit;
         }
 
-        // Extras rate
+        // Extras: the one calc (InvoiceFromVisitService::computeExtrasAmount), recorded on the
+        // FIRST visit only — it used to be written onto every visit of the stop (counted N times)
+        // and never reached the invoice (2026-10-12).
         $extrasAmount = 0.00;
         if ($extrasMins > 0) {
-            try {
-                $rateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-                $ratePerBlock = floatval($rateRow['setting_value'] ?? 5.00);
-                $blocks = (int)ceil($extrasMins / 5);
-                $extrasAmount = round($blocks * $ratePerBlock, 2);
-            } catch (Exception $e) {}
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
+            $extrasAmount = (float)(new InvoiceFromVisitService($db))->computeExtrasAmount($extrasMins)['amount'];
         }
 
         $completedVisitIds = [];
-        foreach ($completableVisits as $cv) {
+        foreach ($completableVisits as $cvIdx => $cv) {
             $cvId = (int)$cv['visit_id'];
+            $cvExtrasMins = $cvIdx === 0 ? $extrasMins : 0;
+            $cvExtrasAmt  = $cvIdx === 0 ? $extrasAmount : 0.00;
             if (!$alreadyCompletedByField) {
                 // Visit not yet completed — mark it done now
                 $db->prepare("
@@ -301,7 +305,7 @@ try {
                         extras_minutes = ?,
                         extras_amount  = ?
                     WHERE id = ?
-                ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
+                ")->execute([$notes, $notes, $cvExtrasMins, $cvExtrasAmt, $cvId]);
                 addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
                 // Special-request extra work goes on top of the sheet's extras (once; never throws).
                 require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
@@ -380,7 +384,7 @@ try {
             $firstVisit = $completableVisits[0];
             $contactId  = (int)($firstVisit['contact_id'] ?? 0);
             $propertyId = (int)($firstVisit['property_id'] ?? 0);
-            $subtotal   = round(array_sum(array_column($completableVisits, 'price_per_visit')), 2);
+            $subtotal   = round(array_sum(array_column($completableVisits, 'price_per_visit')) + $extrasAmount, 2);
             if ($subtotal <= 0) $subtotal = 0.00;
 
             $taxRate   = 0.05; // GST default
@@ -449,6 +453,16 @@ try {
                     $invoiceId, $lineDesc, $linePrice, $linePrice,
                     (int)$cv['visit_id'] ?: null,
                     $cv['scheduled_date'] ?? null,
+                ]);
+            }
+            // Timed extra work, as InvoiceFromVisitService::createFromVisit() bills it.
+            if ($extrasAmount > 0 && $extrasMins > 0) {
+                $db->prepare("
+                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
+                ")->execute([
+                    $invoiceId, 'Additional services (' . $extrasMins . ' min)', $extrasAmount, $extrasAmount,
+                    (int)$completableVisits[0]['visit_id'] ?: null, $completableVisits[0]['scheduled_date'] ?? null,
                 ]);
             }
 
@@ -897,9 +911,12 @@ try {
 
         // ── Skip Visit ────────────────────────────────────────────────────
         case 'skip_visit':
+            // The same guarded path as the iPhone skip (VisitLifecycleService::skipVisit): only a
+            // visit not yet started can be skipped; a completed one never (2026-10-12).
             require_once CRM_INCLUDES . '/plan-functions.php';
-            $result = updateVisitStatus($visitId, 'skipped', (int)$user['id']);
-            echo json_encode(['success' => $result]);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+            $skip = VisitLifecycleService::skipVisit($visitId, (int)$user['id'], (string)($input['reason'] ?? ''));
+            echo json_encode(['success' => $skip['success'], 'message' => $skip['message'], 'error' => $skip['success'] ? null : $skip['message']]);
             break;
 
         // ── Generate PDF ───────────────────────────────────────────────────
@@ -1091,6 +1108,13 @@ try {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Visits of a stop that completing it may complete and bill (VisitLifecycleService::billableAtStop). */
+function powWithoutSkipped(array $visits): array
+{
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+    return VisitLifecycleService::billableAtStop($visits);
+}
 
 function loadVisit(PDO $db, int $visitId): ?array
 {
