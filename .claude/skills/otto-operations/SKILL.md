@@ -121,6 +121,10 @@ reference that matches the task:
 | Quiet phones (incl. truck tablets) | `TrackingHealthService::sweep()` | silent-alert cron, desk "silent" |
 | Truck pings (Trackimo) | `TruckLocationService::savePing()` via `app/Modules/Tracking/Cron/trackimo_poll.php` | trails |
 | Clock, timers, proximity auto-start | `app/Modules/Team/Services/TimeclockFunctions.php` (`clockIn()`, `startJobTimer()`, `stopJobTimer()`, `checkProximityAutoStart()`) | web, Android, iPhone APIs |
+| Who may stop / complete / skip a visit | `userMayActOnVisit()` in `app/Modules/Team/Services/TimeclockFunctions.php` | `app/Modules/Schedule/Api/timer.php`, `app/Modules/Jobs/Api/job-timer.php` |
+| Any change to recorded time (approved week, overlap, weeks to recalc, DST minutes) | `TimeEntryGuard::refusal()` / `TimeEntryGuard::overlapping()` / `TimeEntryGuard::recalcWeeks()` + pure `TimeclockRules` | time-entry-edit, admin_add_entry, job-time-entry-edit, Otto clock_out/timer |
+| Pay over a period (BC daily 8/12 h + weekly 40 h, per week) | `OvertimeCalculator::calculatePeriod()` | `public/crm/timeclock/payroll-summary.php` |
+| Visit status changes (guarded) | `VisitLifecycleService::updateVisitStatus()` / `VisitLifecycleService::canTransition()` | every completion/skip path |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself

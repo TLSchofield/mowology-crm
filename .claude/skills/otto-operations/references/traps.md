@@ -2,6 +2,42 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-10-12 — Fable review: time, pay, visits, GPS, suppliers
+Independent reviews found 33 defects; fixed the same day. **Rules now enforced:**
+- **Pay** is BC overtime per DAY (8 h → 1.5×, 12 h → 2×) and per Monday–Sunday WEEK (40 h), summed
+  over the pay period — `OvertimeCalculator::calculatePeriod()`. Payroll used to apply 40 h once to a
+  two-week lump with no daily rule (overpaid ~$350–590 per person per period at Mowology).
+- **Stale shifts** are judged by elapsed time ≥ `auto_clock_out_hours` (12 on prod), never by date —
+  overnight snow/salt shifts were closed at midnight with a future clock-out.
+- **Approved weeks are locked.** Every edit/add/void of time (`TimeEntryGuard::refusal()`) refuses;
+  reopen the sheet (timesheets API `reopen`, needs a reason) first. Only an admin changes their own
+  time (Nigel and the truck logins are managers). Manual entries need a clock-out and may not overlap.
+- **Recalculate the entry's week**, not today's — every timer stopped, both weeks on a move.
+- **DST:** minutes come from zone data (`TimeclockRules::minutesBetween()`). Production tzdata has BC
+  on permanent UTC-7 from 2026-11-01 — there is no fall-back that night. Don't hard-code DST dates.
+- **Duration and end_time move together** (set_duration, orphan-timer cron); voided shifts are not hours.
+- **Stop/complete/skip need crew on the visit**, an own running timer, or admin/manager.
+- **Visits:** completed never becomes skipped/weather/cancelled; a second "completed" is a no-op (the
+  desktop Complete + its timer stop ran the hooks twice); a day that already has a live visit for the
+  plan never gets a holiday-bumped second one; skipped visits are not billed by Complete Stop; stop
+  extras are billed once, as an invoice line. Moving a stop never carries or orphans finished visits;
+  every move stamps `original_scheduled_date`, and a recurrence edit keeps those moved visits.
+- **GPS:** mock fixes never trigger arrival/dwell/departure or count as client route proof; clients see
+  only fixes on the property; event coordinates only while collection is allowed; withdrawn consent
+  silences the quiet-phone alert.
+- **Suppliers:** the From ADDRESS must belong to the supplier (DMARC/SPF checked) before a filled form
+  goes out; copies only to the supplier's domain; an expired licence is never attached.
+- **Weather/bylaw moves** never land on a Sunday/BC holiday (snow & salt excepted) or outside the city's
+  equipment hours; a bylaw retime checks the END time too.
+- **iPhone queues** drop an item only on an explicit 4xx; one drain at a time; items carry the user
+  id; replays reuse the original timestamp; the driver pre-trip question keys off server shift state.
+- **Deploying from a shared worktree:** `deploy-merged.py HEAD HEAD~1` uploaded the OLD files when
+  other agents had committed in between (the 3-way merge "merged in" live's old copy and still printed
+  "live"). Deploy with explicit SHAs (`<sha> <sha>~1`) and confirm `prod-file.sh` says `same`.
+**Dropped:** none of the findings failed verification. #5 (DST) holds only for historic data and hosts
+with older tzdata — production has no 2026-11-01 change. **Open:** supplier mail still sends from
+no-reply@ with Reply-To office@ (MessagingService); Ada/Tim to decide.
+
 ## 2026-10-10 — GPS break flags flooded by the truck and forgotten clock-outs
 First 14-day run flagged 19 of 24 shifts: the truck login is a vehicle, and 12 h shifts were
 forgotten clock-outs. Fixed in `BreakService` (people only; ≥ 690 min ignored) → 6 flags. GPS
