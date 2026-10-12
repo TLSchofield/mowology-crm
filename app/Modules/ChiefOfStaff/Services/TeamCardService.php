@@ -93,6 +93,31 @@ class TeamCardService
         ];
     }
 
+    /**
+     * Who owns an item in Charlie's brief, for its label (owner, 2026-10-11: "House" and a payroll
+     * deadline under "Charlie" read wrong). Charlie still picks and orders them; the label names
+     * the head who does the work: money → Penny, crews/vehicles/safety → Otto, contracts → Sam.
+     * Unknown kinds keep their head ('house' reads as Charlie on the board).
+     */
+    public const OWNER_BY_KIND = [
+        'house:overdue_invoice'       => 'penny',
+        'house:unbilled_visit'        => 'penny',
+        'house:stuck_visit'           => 'otto',
+        'house:stale_plan'            => 'otto',
+        'charlie:deadline_tax'        => 'penny',
+        'charlie:deadline_payroll'    => 'penny',
+        'charlie:deadline_safety'     => 'otto',
+        'charlie:deadline_vehicle'    => 'otto',
+        'charlie:deadline_equipment'  => 'otto',
+        'charlie:deadline_contract'   => 'sam',
+    ];
+
+    public static function owner(array $item): string
+    {
+        $head = (string)($item['head'] ?? '');
+        return self::OWNER_BY_KIND[(string)($item['kind'] ?? '')] ?? ($head === 'house' ? 'charlie' : $head);
+    }
+
     /** The fields the phone needs (as charlie.php's $slim, plus yes). */
     public static function slim(array $it): array
     {

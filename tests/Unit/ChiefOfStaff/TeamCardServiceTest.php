@@ -97,4 +97,16 @@ class TeamCardServiceTest extends TestCase
         $s = TeamCardService::brainSummary([]);
         $this->assertSame(['units' => 0, 'shape' => 1, 'since' => null, 'parts' => [], 'tiers' => []], $s);
     }
+
+    /** The owner's screenshot 2026-10-12: "House" and a payroll deadline under "Charlie". */
+    public function test_brief_items_are_labelled_with_the_head_who_owns_them(): void
+    {
+        $this->assertSame('penny', TeamCardService::owner(['head' => 'house', 'kind' => 'house:overdue_invoice']));
+        $this->assertSame('penny', TeamCardService::owner(['head' => 'house', 'kind' => 'house:unbilled_visit']));
+        $this->assertSame('penny', TeamCardService::owner(['head' => 'charlie', 'kind' => 'charlie:deadline_payroll']));
+        $this->assertSame('otto', TeamCardService::owner(['head' => 'house', 'kind' => 'house:stuck_visit']));
+        $this->assertSame('charlie', TeamCardService::owner(['head' => 'house', 'kind' => 'house:something_new']));
+        $this->assertSame('charlie', TeamCardService::owner(['head' => 'charlie', 'kind' => 'charlie:deadline_other']));
+        $this->assertSame('mia', TeamCardService::owner(['head' => 'mia', 'kind' => 'mia:reconnect']));
+    }
 }

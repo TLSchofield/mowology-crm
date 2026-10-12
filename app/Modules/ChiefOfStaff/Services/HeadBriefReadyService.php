@@ -145,7 +145,8 @@ class HeadBriefReadyService
             'waiting'  => $col['waiting'],
             'owner'    => true,
             'brain'    => (new TeamCardService($db))->brain('charlie'),
-            'items'    => $col['items'],
+            // Labelled with the head who owns each item (Penny for money, …); Charlie still chose them.
+            'items'    => array_map(static fn($it) => ['head' => TeamCardService::owner($it)] + $it, $col['items']),
         ];
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
         $out['ask'] = (new CharlieAskService($db))->status();
