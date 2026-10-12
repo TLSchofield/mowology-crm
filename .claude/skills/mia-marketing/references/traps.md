@@ -69,3 +69,11 @@ Several social files were rescued from prod (`social/schedules.php` once bound 1
 placeholders). Production `public/` is not fully audited. **Rule:** `cmp` every existing file
 against prod before deploying it; three-way merge `mia-card.*`, `MiaCampaignService.php`,
 `mowology-brand.css`, `database_appstack.php`.
+
+## The live campaign sender had no send-time consent check (found 2026-10-11)
+The repo's `campaign_sender.php` re-checked consent before each send; production's copy did not
+(the check never deployed — prod matched the repo minus those lines). 69 sends went out on list-time
+consent only; 68 had consent when sent, contact 24 (a same-second yes/withdrawn) did not.
+Fixed: the sender now refreshes the ledger once per run and `canSendMarketing()` asks
+`ConsentLedgerService::allows()` whenever it knows the contact id — one consent source.
+**Rule:** after touching any send path, `scripts/prod-file.sh` it — a missing gate on prod is silent.
