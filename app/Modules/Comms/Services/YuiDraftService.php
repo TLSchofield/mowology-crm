@@ -154,25 +154,38 @@ class YuiDraftService
             if (!$cid || !function_exists('hasSmConsent') || !hasSmConsent($cid)) {
                 return ['ok' => false, 'message' => $name . " hasn't agreed to texts — send an email instead."];
             }
-            $r = sendSms($to['phone'], $body);
             $dest = $to['phone'];
         } else {
             $dest = $to['email'];
             if ($dest === '') return ['ok' => false, 'message' => 'No email address on file for ' . $name . '.'];
             if ($subject === '') $subject = (string)(YuiRules::draft($item, $owner)['subject'] ?? 'Mowology');
-            $r = sendEmail($dest, $subject, $this->emailHtml($body));
         }
-        $ok = !empty($r['success']);
         $suggested = trim(str_replace("\r\n", "\n", (string)($in['suggested_body'] ?? '')));
         $edited = SamFollowupService::isEdited($suggested, $body);
-        $learned = $ok && $edited && $channel === 'email' && $item['template'] !== 'reply'
-            ? YuiRules::learnFrom($body, $item, $owner) : null;
-        $this->record($item, $channel, $ok ? ($edited ? 'edited' : 'sent') : 'failed', (int)($user['id'] ?? 0),
-            in_array($in['drafted_by'] ?? '', ['template', 'learned', 'claude'], true) ? $in['drafted_by'] : 'template',
-            $suggested ?: null, $channel === 'email' ? $subject : null, $body, $learned, $ok ? null : 'send failed');
+        $draftedBy = in_array($in['drafted_by'] ?? '', ['template', 'learned', 'claude'], true) ? $in['drafted_by'] : 'template';
+
+        // Record first, then send, then settle the row (Fable review 2026-10-12). It used to send and
+        // then record: a DB error after the send left no trace, the card came back and could be sent
+        // twice. A 'sending' row hides the card; one already in flight for this item refuses a second.
+        if ($this->inFlight((string)$item['key'])) {
+            return ['ok' => false, 'message' => 'That one is already going out — give it a minute.'];
+        }
+        $rowId = $this->record($item, $channel, 'sending', (int)($user['id'] ?? 0), $draftedBy, $suggested ?: null,
+            $channel === 'email' ? $subject : null, $body, null, null);
+
+        $r = $channel === 'sms' ? sendSms($dest, $body) : sendEmail($dest, $subject, $this->emailHtml($body));
+        $ok = !empty($r['success']);
+        if ($ok) $this->logMessage($cid, $channel, $dest, $subject, $body);   // history first: it is what stops a resend
+
+        $learned = null;
+        if ($ok && $edited && $channel === 'email' && $item['template'] !== 'reply') {
+            try {
+                $learned = YuiRules::learnFrom($body, $item, $owner);
+            } catch (Throwable $e) { /* learning is a bonus */ }
+        }
+        $this->settle($rowId, $ok ? ($edited ? 'edited' : 'sent') : 'failed', $learned, $ok ? null : 'send failed');
         if (!$ok) return ['ok' => false, 'message' => 'That didn\'t go out — check the address and try again.'];
 
-        $this->logMessage($cid, $channel, $dest, $subject, $body);
         if (function_exists('logActivityExtended')) {
             try {
                 logActivityExtended((int)($user['id'] ?? 0), 'Client message sent', ($channel === 'sms' ? 'Text' : 'Email') . " to {$dest} (contact #{$cid}) from Yui's card");
@@ -235,8 +248,26 @@ class YuiDraftService
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** A send for this item started in the last 5 minutes and has not settled. */
+    private function inFlight(string $key): bool
+    {
+        $st = $this->db->prepare("SELECT 1 FROM yui_actions WHERE item_key = ? AND status = 'sending' AND decided_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE) LIMIT 1");
+        $st->execute([$key]);
+        return (bool)$st->fetchColumn();
+    }
+
+    private function settle(int $rowId, string $status, ?string $learned, ?string $error): void
+    {
+        try {
+            $this->db->prepare("UPDATE yui_actions SET status = ?, learned_body = ?, error = ?, decided_at = NOW() WHERE id = ?")
+                     ->execute([$status, $learned, $error, $rowId]);
+        } catch (Throwable $e) {
+            error_log("YuiDraftService: row {$rowId} left at 'sending' ({$status}): " . $e->getMessage());
+        }
+    }
+
     private function record(array $item, string $channel, string $status, int $userId, string $draftedBy, ?string $suggested,
-                            ?string $subject, ?string $body, ?string $learned, ?string $error): void
+                            ?string $subject, ?string $body, ?string $learned, ?string $error): int
     {
         $this->db->prepare("
             INSERT INTO yui_actions (item_key, kind, template_key, contact_id, channel, drafted_by, suggested_body,
@@ -247,6 +278,7 @@ class YuiDraftService
             (int)($item['to']['contact_id'] ?? 0) ?: null, $channel, $draftedBy, $suggested,
             $subject !== null ? mb_substr($subject, 0, 255) : null, $body, $learned, $status, $error, $userId ?: null,
         ]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function logMessage(int $contactId, string $channel, string $to, string $subject, string $body): void

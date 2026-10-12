@@ -118,7 +118,7 @@ class YuiDeskService
         if ($this->ready()) {
             try {
                 $s = $this->db->prepare("SELECT DISTINCT item_key FROM yui_actions
-                                         WHERE status = 'handled' OR (status IN ('sent', 'edited') AND decided_at >= ?)");
+                                         WHERE status = 'handled' OR (status IN ('sent', 'edited', 'sending') AND decided_at >= ?)");
                 $s->execute([date('Y-m-d H:i:s', strtotime($this->now()) - YuiRules::SENT_REST_DAYS * 86400)]);
                 $keys = $s->fetchAll(PDO::FETCH_COLUMN);
             } catch (Throwable $e) { /* nothing hidden */ }
