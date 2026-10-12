@@ -264,6 +264,40 @@ class QuoteApprovalService
         return $out;
     }
 
+    /** The note a line added by the client after approval puts on the approval (pure). */
+    public static function postAcceptNote(string $label, float $amount, bool $removed = false): string
+    {
+        $label = trim(preg_replace('/\s+/', ' ', $label)) ?: 'an extra';
+        return $removed
+            ? "Client removed {$label} again (added after approval)."
+            : sprintf('Client added %s ($%s + GST) after approval — not in the job yet; add it to the job or call them.', $label, number_format($amount, 2));
+    }
+
+    /**
+     * The client added (or took back) a line on the signing page after approving (Fable review
+     * 2026-10-12: the quote changed silently and the job never knew). The approval comes back onto
+     * Sam's "Just approved" card with a note, the quote's activity says so, and the office gets a push.
+     */
+    public function afterPostAcceptChange(int $quoteId, string $label, float $amount, bool $removed = false, bool $push = true): void
+    {
+        $note = self::postAcceptNote($label, $amount, $removed);
+        try {
+            $this->db->prepare("INSERT INTO activity_log (quote_id, action, details, ip_address, created_at) VALUES (?, ?, ?, ?, NOW())")
+                     ->execute([$quoteId, $removed ? 'Client removed post-approval extra' : 'Client added after approval', $note, (string)($_SERVER['REMOTE_ADDR'] ?? '')]);
+        } catch (Throwable $e) {
+            error_log('[quote approval] post-accept activity: ' . $e->getMessage());
+        }
+        if ($this->ready()) {
+            $this->db->prepare("UPDATE quote_approvals SET acknowledged_at = NULL, acknowledged_by = NULL,
+                                       job_note = TRIM(CONCAT(COALESCE(job_note, ''), '\n', ?)) WHERE quote_id = ?")
+                     ->execute([$note, $quoteId]);
+        }
+        if ($push && !$removed) {
+            $q = $this->quote($quoteId);
+            $this->push(['push_title' => 'Added after approval: ' . ($q['quote_number'] ?? ('quote ' . $quoteId)), 'push_body' => $note], $quoteId, null);
+        }
+    }
+
     public function acknowledge(int $quoteId, int $userId): bool
     {
         if (!$this->ready()) return false;

@@ -407,10 +407,62 @@ class QuoteService
      */
     public function markSent(int $quoteId, string $sentVia): void
     {
+        // Only a draft/sent/viewed quote becomes 'sent'. Re-sending the link of an accepted,
+        // declined or expired quote records the send but never undoes the client's answer
+        // (Fable review 2026-10-12: "Resend Link" on an accepted quote reset it to sent).
         $this->db->prepare(
-            "UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?"
+            "UPDATE quotes SET status = CASE WHEN status IN ('draft','sent','viewed') THEN 'sent' ELSE status END,
+                    sent_at = NOW(), sent_via = ? WHERE id = ?"
         )->execute([$sentVia, $quoteId]);
         $this->pipelineStage($quoteId);
+    }
+
+    /** The status a quote has after a send: draft/sent/viewed → sent; any answer stays. */
+    public static function statusAfterSend(string $current): string
+    {
+        return in_array($current, ['draft', 'sent', 'viewed', ''], true) ? 'sent' : $current;
+    }
+
+    /** A verbal yes is recorded once, and not over a decline (re-send the quote first). */
+    public static function canApproveVerbally(string $current): bool
+    {
+        return !in_array($current, ['accepted', 'declined'], true);
+    }
+
+    /**
+     * Whether the client may accept online: the quote was sent (or opened) and has not run out.
+     * valid_until is the last day it is good for (inclusive).
+     */
+    public static function canAcceptOnline(string $status, ?string $validUntil, DateTimeImmutable $today): bool
+    {
+        if (!in_array($status, ['sent', 'viewed'], true)) return false;
+        if ($validUntil !== null && $validUntil !== '' && $validUntil < $today->format('Y-m-d')) return false;
+        return true;
+    }
+
+    /**
+     * The hidden form nonce for the client's accept/decline POST, bound to this quote and its link
+     * token. A cross-site form cannot know it; a stale page after a token change cannot reuse it.
+     */
+    public static function acceptNonce(int $quoteId, string $accessToken, string $secret): string
+    {
+        if ($secret === '' || $accessToken === '' || $quoteId <= 0) return '';
+        return hash_hmac('sha256', 'quote-accept|' . $quoteId . '|' . $accessToken, $secret);
+    }
+
+    public static function formSecret(): string
+    {
+        foreach (['QUOTE_FORM_SECRET', 'UNSUBSCRIBE_SECRET', 'BLUEMOON_JWT_SECRET'] as $c) {
+            if (defined($c) && strlen((string)constant($c)) >= 32) return (string)constant($c);
+        }
+        return '';
+    }
+
+    /** The quote-ready text: no link, check your email, the office phone (CLAUDE.md rule 11). */
+    public static function quoteSentSms(string $quoteNumber): string
+    {
+        $n = preg_replace('/[^A-Za-z0-9-]/', '', $quoteNumber);
+        return "Mowology: your quote {$n} is ready. Check your email (and junk folder). Questions? Call (778) 846-9273. Reply STOP to opt out.";
     }
 
     /**

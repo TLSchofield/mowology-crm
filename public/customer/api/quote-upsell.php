@@ -26,6 +26,21 @@ require_once PUBLIC_ROOT . '/app_config/config.php';
 require_once APP_ROOT . '/Services/MeasurementService.php';
 require_once APP_ROOT . '/Services/QuoteCalculator.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+
+/** Exactly this bundle (not 1 matching 10, 12…): read the snapshot in PHP, no JSON_EXTRACT (MySQL 5.7). */
+function upsellBundleLineIds(PDO $db, int $quoteId, int $bundleId, bool $postAcceptOnly = false): array {
+    $st = $db->prepare("SELECT id, pricing_snapshot" . ($postAcceptOnly ? ", added_post_accept" : "") . " FROM quote_line_items WHERE quote_id = ? AND is_upsell = 1");
+    $st->execute([$quoteId]);
+    $ids = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $snap = json_decode((string)($r['pricing_snapshot'] ?? ''), true);
+        if (is_array($snap) && (int)($snap['bundle_id'] ?? 0) === $bundleId && (!$postAcceptOnly || !empty($r['added_post_accept']))) {
+            $ids[] = (int)$r['id'];
+        }
+    }
+    return $ids;
+}
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -324,17 +339,9 @@ try {
                 'description' => $bundleRow['description'],
                 'base_price'  => $calcBundlePrice,
             ];
-            // Prevent duplicate bundle adds
-            $dupStmt = $db->prepare("
-                SELECT id FROM quote_line_items
-                WHERE quote_id = ? AND is_upsell = 1
-                  AND JSON_EXTRACT(pricing_snapshot, '$.bundle_id') = ?
-            ");
-            try {
-                $dupStmt->execute([$quoteId, $upsellBundleId]);
-                if ($dupStmt->fetch()) throw new Exception('This bundle is already added to the quote');
-            } catch (PDOException $e) {
-                // JSON_EXTRACT may not work on MySQL 5.7 — skip uniqueness if so
+            // Prevent duplicate bundle adds (exact bundle id, checked in PHP)
+            if (upsellBundleLineIds($db, $quoteId, $upsellBundleId)) {
+                throw new Exception('This bundle is already added to the quote');
             }
         } else {
             // Verify product exists and is active
@@ -506,13 +513,24 @@ try {
             ]);
         }
 
+        $newLineId = $db->lastInsertId();
+
         // Recalculate quote totals
         $newTotals = recalculateQuoteTotals($quoteId);
+
+        // After approval the job already exists: tell the office instead of changing the quote silently.
+        if ($isPostAccept) {
+            try {
+                (new QuoteApprovalService($db))->afterPostAcceptChange($quoteId, (string)$lineItem['service_type'], (float)$lineItem['line_total']);
+            } catch (Throwable $e) {
+                error_log('[quote-upsell] post-accept notice: ' . $e->getMessage());
+            }
+        }
 
         echo json_encode([
             'success'        => true,
             'message'        => 'Upsell added',
-            'line_item_id'   => $db->lastInsertId(),
+            'line_item_id'   => $newLineId,
             'totals'         => $newTotals,
             'is_post_accept' => $isPostAccept,
             'line_total'     => (float)$lineItem['line_total'],
@@ -535,24 +553,44 @@ try {
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
         if (!$upsellProductId && !$upsellBundleId) throw new Exception('Upsell product or bundle ID required');
 
+        // After approval only the client's own post-approval extras can be taken back (the undo);
+        // the lines they approved stay (Fable review 2026-10-12).
+        $removedLabel = '';
         if ($upsellBundleId > 0) {
-            // Remove bundle upsell — match via pricing_snapshot JSON
-            $stmt = $db->prepare("
-                DELETE FROM quote_line_items
-                WHERE quote_id = ? AND is_upsell = 1
-                  AND pricing_snapshot LIKE ?
-            ");
-            $stmt->execute([$quoteId, '%\"bundle_id\":' . $upsellBundleId . '%']);
+            // Exact bundle id from the snapshot (a LIKE on "bundle_id":1 also matched 10, 12, …)
+            $ids = upsellBundleLineIds($db, $quoteId, $upsellBundleId, $isPostAccept);
+            $removed = 0;
+            if ($ids) {
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $lbl = $db->prepare("SELECT service_type FROM quote_line_items WHERE id IN ($in) LIMIT 1");
+                $lbl->execute($ids);
+                $removedLabel = (string)$lbl->fetchColumn();
+                $stmt = $db->prepare("DELETE FROM quote_line_items WHERE quote_id = ? AND id IN ($in)");
+                $stmt->execute(array_merge([$quoteId], $ids));
+                $removed = $stmt->rowCount();
+            }
         } else {
+            $lbl = $db->prepare("SELECT service_type FROM quote_line_items WHERE quote_id = ? AND product_id = ? AND is_upsell = 1"
+                . ($isPostAccept ? " AND added_post_accept = 1" : "") . " LIMIT 1");
+            $lbl->execute([$quoteId, $upsellProductId]);
+            $removedLabel = (string)$lbl->fetchColumn();
             $stmt = $db->prepare("
                 DELETE FROM quote_line_items
-                WHERE quote_id = ? AND product_id = ? AND is_upsell = 1
+                WHERE quote_id = ? AND product_id = ? AND is_upsell = 1" . ($isPostAccept ? " AND added_post_accept = 1" : "") . "
             ");
             $stmt->execute([$quoteId, $upsellProductId]);
+            $removed = $stmt->rowCount();
         }
 
-        if ($stmt->rowCount() === 0) {
-            throw new Exception('Upsell not found on this quote');
+        if ($removed === 0) {
+            throw new Exception($isPostAccept ? 'Only extras added after approval can be removed here. Call us at (778) 846-9273.' : 'Upsell not found on this quote');
+        }
+        if ($isPostAccept) {
+            try {
+                (new QuoteApprovalService($db))->afterPostAcceptChange($quoteId, $removedLabel, 0.0, true);
+            } catch (Throwable $e) {
+                error_log('[quote-upsell] post-accept removal notice: ' . $e->getMessage());
+            }
         }
 
         // Recalculate totals

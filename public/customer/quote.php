@@ -194,6 +194,29 @@ if (empty($token)) {
 }
 } // end normal token block
 
+// Who may answer online (Fable review 2026-10-12): only the client through their link, only while
+// the quote is sent/viewed and not past valid_until, and only with this page's nonce. The admin
+// preview never accepts or declines (a cross-site POST to ?_preview= used to accept as staff).
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+$__realStatus = (string)($quote['_real_status'] ?? $quote['status'] ?? '');
+$canAnswerOnline = !empty($quote) && !$isAdminPreview
+    && QuoteService::canAcceptOnline($__realStatus, $quote['valid_until'] ?? null, new DateTimeImmutable('today'));
+$__answerNonce = (!empty($quote) && !$isAdminPreview)
+    ? QuoteService::acceptNonce((int)$quote['id'], (string)($quote['access_token'] ?? ''), QuoteService::formSecret())
+    : '';
+$quotePastValid = !empty($quote) && !empty($quote['valid_until']) && in_array($__realStatus, ['sent', 'viewed'], true)
+    && $quote['valid_until'] < date('Y-m-d');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && in_array($_POST['action'] ?? '', ['accept', 'decline'], true)
+    && (!$canAnswerOnline || $__answerNonce === '' || !hash_equals($__answerNonce, (string)($_POST['answer_nonce'] ?? '')))) {
+    $error = $isAdminPreview
+        ? 'Preview mode: the quote cannot be accepted or declined here.'
+        : ($quotePastValid
+            ? 'This quote has expired. Please call us at (778) 846-9273 and we will refresh it for you.'
+            : 'This quote can no longer be answered online. Please reload the page or call us at (778) 846-9273.');
+    $_POST['action'] = '';
+}
+
 // Handle acceptance
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] !== 'accepted') {
     $action = $_POST['action'] ?? '';
@@ -494,7 +517,9 @@ if (!empty($quote)) {
             </div>
 
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--p-border);">
-                <a href="../crm/documents/generate_pdf.php?type=quote&id=<?php echo (int)$quote['id']; ?>&action=download"
+                <a href="<?php echo $isAdminPreview
+                        ? '../crm/documents/generate_pdf.php?type=quote&id=' . (int)$quote['id'] . '&action=download'
+                        : 'api/quote-pdf.php?token=' . urlencode((string)($quote['access_token'] ?? '')); ?>"
                    class="portal-btn-outline">
                     📄 Download PDF
                 </a>
@@ -696,7 +721,14 @@ if (!empty($quote)) {
         <?php endif; ?>
 
         <!-- Acceptance Section (sent status only) -->
-        <?php if ($quote['status'] === 'sent'): ?>
+        <?php if ($quote['status'] === 'sent' && $quotePastValid && !$isAdminPreview): ?>
+            <div class="portal-info-card">
+                <div class="portal-info-card-header">This quote has expired</div>
+                <div class="portal-info-card-body">
+                    <p>It was good until <?php echo htmlspecialchars(date('F j, Y', strtotime($quote['valid_until']))); ?>. Prices may have changed since. Call us at (778) 846-9273 or reply to our email and we will send you a fresh one.</p>
+                </div>
+            </div>
+        <?php elseif ($quote['status'] === 'sent'): ?>
             <div class="portal-info-card">
                 <?php $__sigAddr = trim((string)($quote['property_address'] ?? '')); ?>
                 <div class="portal-info-card-header">Accept This Quote<?php echo $__sigAddr !== '' ? ' &mdash; ' . htmlspecialchars($__sigAddr) : ''; ?></div>
@@ -727,6 +759,7 @@ if (!empty($quote)) {
 
                         <form method="POST" id="acceptForm">
                             <input type="hidden" name="action" value="accept">
+                            <input type="hidden" name="answer_nonce" value="<?php echo htmlspecialchars($__answerNonce); ?>">
                             <input type="hidden" name="signature_data" id="signatureData">
 
                             <div class="portal-form-group">
@@ -773,6 +806,7 @@ if (!empty($quote)) {
 
                             <form method="POST" class="portal-decline-form" id="declineForm">
                                 <input type="hidden" name="action" value="decline">
+                                <input type="hidden" name="answer_nonce" value="<?php echo htmlspecialchars($__answerNonce); ?>">
                                 <div class="portal-form-group">
                                     <label class="portal-form-label">Reason (optional)</label>
                                     <textarea name="decline_reason" class="portal-form-input portal-form-textarea"

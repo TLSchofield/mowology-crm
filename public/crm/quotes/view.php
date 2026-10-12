@@ -187,7 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Check your inbox or junk folder for details. Reply STOP to opt out.";
+                // Carrier rules: no link, ≤160, the office phone (QuoteService::quoteSentSms(), tested).
+                $smsMessage = QuoteService::quoteSentSms((string)$quote['quote_number']);
                 $smsResult = sendSms($customerPhone, $smsMessage);
 
                 if ($smsResult['success']) {
@@ -199,12 +200,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // --- UPDATE QUOTE STATUS ---
             if ($emailSent || $smsSent) {
                 $oldStatus = $quote['status'];
-                $svc->markSent($quoteId, implode(',', $sentVia));
-                trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'sent', $user['id']);
+                $newStatus = QuoteService::statusAfterSend((string)$oldStatus);
+                $svc->markSent($quoteId, implode(',', $sentVia)); // never undoes accepted/declined/expired
+                if ($newStatus !== $oldStatus) {
+                    trackFieldChange('quote', $quoteId, 'status', $oldStatus, $newStatus, $user['id']);
+                }
 
                 logQuoteSentEvent($quoteId);
 
-                $activityDetails = "Quote sent via " . implode(' + ', $sentVia);
+                $activityDetails = ($newStatus !== 'sent' ? "Quote link re-sent ({$oldStatus} quote, status unchanged) via " : "Quote sent via ") . implode(' + ', $sentVia);
                 if ($customerEmail) {
                     $activityDetails .= " (email: {$customerEmail}" . (!empty($ccPerson) ? ", cc: {$ccPerson['email']}" : '') . ")";
                 }
@@ -217,7 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 logActivityExtended($user['id'], 'Quote sent', $activityDetails, null, null, $quoteId);
 
-                $quote['status'] = 'sent';
+                $quote['status'] = $newStatus;
                 $sentViaText = implode(' & ', $sentVia);
                 $message = "Quote sent successfully via {$sentViaText}";
                 $messageType = 'success';
@@ -232,6 +236,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = 'error';
         error_log("Quote send exception for {$quoteId}: " . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
       }
+    }
+
+    if ($action === 'approve_verbal' && !QuoteService::canApproveVerbally((string)$quote['status'])) {
+        // A second approval would make a second job in the tray (Fable review 2026-10-12).
+        $message     = $quote['status'] === 'accepted'
+            ? 'This quote is already accepted.'
+            : 'This quote was declined. Send it again before recording a verbal yes.';
+        $messageType = 'error';
+        $action      = '';
     }
 
     if ($action === 'approve_verbal') {
