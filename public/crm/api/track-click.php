@@ -2,43 +2,37 @@
 /**
  * Email Click Tracking — 302 Redirect
  *
- * Used in campaign emails: /crm/api/track-click.php?sid=123&url=https%3A//mowology.ca/quote
+ * Used in campaign emails: /crm/api/track-click.php?sid=123&url=<base64url>&s=<hmac> (TrackingLinks::clickUrl())
  * Updates campaign_sends.clicked_at, then 302 redirects to the actual URL.
  *
  * Stateless — just UPDATE + redirect.
  */
 
-$sid = (int)($_GET['sid'] ?? 0);
-$raw = $_GET['url'] ?? '';
-
-// Decode base64url if it doesn't look like a plain URL
-// (campaign_sender encodes URLs as base64url to avoid double-encoding)
-if ($raw !== '' && !preg_match('#^https?://#i', $raw)) {
-    $decoded = base64_decode(strtr($raw, '-_', '+/') . str_repeat('=', 3 - (strlen($raw) + 3) % 4));
-    $raw = ($decoded !== false) ? $decoded : '';
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+if (defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Core/config.php';
+    require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
 }
 
-// Validate — must be http(s), must point to mowology.ca or known trusted origin
-$url = (preg_match('#^https?://[a-z0-9\-\.]+#i', $raw) && !preg_match('#[\r\n]#', $raw))
-    ? $raw
-    : 'https://mowology.ca';
+$sid = (int)($_GET['sid'] ?? 0);
+$url = class_exists('TrackingLinks') ? TrackingLinks::decodeUrl((string)($_GET['url'] ?? '')) : '';
+
+// Signed (Fable review 2026-10-12): only a link that was in our email may leave mowology.ca, and
+// only a signed click counts. Unsigned → no count, and a redirect to mowology.ca hosts only.
+$signed = class_exists('TrackingLinks') && TrackingLinks::verify($sid, $url, (string)($_GET['s'] ?? ''));
+$url = class_exists('TrackingLinks') ? TrackingLinks::redirectTarget($url, $signed) : 'https://mowology.ca';
+if (!$signed) $sid = 0;
 
 if ($sid > 0) {
     try {
-        $__dir = __DIR__;
-        for ($__i = 0; $__i < 5; $__i++) {
-            $__dir = dirname($__dir);
-            if (is_file($__dir . '/app/Core/paths.php')) {
-                require_once $__dir . '/app/Core/paths.php';
-                break;
-            }
-        }
-        unset($__dir, $__i);
-
-        if (defined('APP_ROOT')) {
-            require_once APP_ROOT . '/Core/config.php';
-        }
-
         $db = getDB();
 
         // Only update if not already clicked (first click wins)

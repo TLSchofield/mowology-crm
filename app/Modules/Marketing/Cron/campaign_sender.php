@@ -31,6 +31,8 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
 
 $isCli = php_sapi_name() === 'cli';
 if (!$isCli) {
@@ -61,6 +63,20 @@ try {
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
     }
+
+    // ── One run at a time (Fable review 2026-10-12) ──────────────────
+    // The cron and the web "send now" POST could overlap and mail the same rows twice. A MySQL
+    // named lock covers both (the cron and PHP-FPM do not share a temp dir); it is released when
+    // this connection closes.
+    if ((int)$db->query("SELECT GET_LOCK('mowology_campaign_sender', 0)")->fetchColumn() !== 1) {
+        $msg = 'Another campaign_sender run is in progress.';
+        if ($isCli) { echo "$msg\n"; exit(0); }
+        echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0]);
+        exit;
+    }
+    // A row claimed by a run that died mid-send is not sent again blindly: it fails visibly.
+    $db->exec("UPDATE campaign_sends SET status = 'failed', error_message = 'interrupted while sending — check before resending'
+               WHERE status = 'sending' AND sent_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)");
 
     // ── Find campaigns in 'sending' status ───────────────────────────
     $campaigns = $db->query("
@@ -183,6 +199,11 @@ try {
                 continue;
             }
 
+            // Claim the row before sending (like social_publisher.php): only one run may send it.
+            $claim = $db->prepare("UPDATE campaign_sends SET status = 'sending', sent_at = NOW() WHERE id = ? AND status = 'pending'");
+            $claim->execute([$send['id']]);
+            if ($claim->rowCount() !== 1) continue;
+
             // Build merge data
             $contact = [
                 'first_name' => $send['first_name'] ?? '',
@@ -213,20 +234,21 @@ try {
             $renderedBody = renderTemplate($bodyTemplate, $mergeData);
             $fullEmail = wrapInBrandedEmail($renderedBody, $unsubUrl);
 
-            // Add open tracking pixel
+            // Add open tracking pixel (signed — TrackingLinks, Fable review 2026-10-12)
             $fullEmail = str_replace(
                 '</body>',
-                '<img src="https://mowology.ca/crm/api/track-open.php?sid=' . $send['id'] . '" width="1" height="1" alt="" style="display:none;" /></body>',
+                '<img src="' . htmlspecialchars(TrackingLinks::openUrl((int)$send['id']), ENT_QUOTES, 'UTF-8') . '" width="1" height="1" alt="" style="display:none;" /></body>',
                 $fullEmail
             );
 
-            // Rewrite external links for click tracking (exclude unsubscribe link)
-            $sendId = $send['id'];
+            // Rewrite links for click tracking — signed, and never the unsubscribe link (that is not a click)
+            $sendId = (int)$send['id'];
             $fullEmail = preg_replace_callback(
                 '/href="(https?:\/\/(?!mowology\.ca\/crm\/api\/)[^"]+)"/',
                 static function (array $m) use ($sendId): string {
-                    $encoded = rtrim(strtr(base64_encode($m[1]), '+/', '-_'), '=');
-                    return 'href="https://mowology.ca/crm/api/track-click.php?sid=' . $sendId . '&url=' . $encoded . '"';
+                    $target = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+                    if (CaslRules::isUnsubscribeLink($target)) return $m[0];
+                    return 'href="' . htmlspecialchars(TrackingLinks::clickUrl($sendId, $target), ENT_QUOTES, 'UTF-8') . '"';
                 },
                 $fullEmail
             ) ?? $fullEmail;

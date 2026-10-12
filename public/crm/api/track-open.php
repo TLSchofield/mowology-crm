@@ -25,6 +25,12 @@ if ($sid > 0) {
 
         if (defined('APP_ROOT')) {
             require_once APP_ROOT . '/Core/config.php';
+            require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+        }
+
+        // Only a signed pixel counts (Fable review 2026-10-12) — anyone could post opens for any id.
+        if (!class_exists('TrackingLinks') || !TrackingLinks::verify($sid, 'open', (string)($_GET['s'] ?? ''))) {
+            throw new RuntimeException('unsigned open pixel ignored');
         }
 
         $db = getDB();
@@ -57,7 +63,7 @@ if ($sid > 0) {
 
     } catch (\Throwable $e) {
         // Silent failure — don't break the image
-        error_log('track-open error: ' . $e->getMessage());
+        if ($e->getMessage() !== 'unsigned open pixel ignored') error_log('track-open error: ' . $e->getMessage());
     }
 }
 
