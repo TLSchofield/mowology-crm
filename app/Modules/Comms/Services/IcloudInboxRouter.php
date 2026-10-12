@@ -809,7 +809,7 @@ class IcloudInboxRouter
             }
             case 'interac': {
                 $parsed = EtransferInboxService::parseInteracEmail($subject, self::plain($body()), $date);
-                $res = (new EtransferInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date);
+                $res = (new EtransferInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date, $fromAddr);
                 return $out + [$res['inserted'] ? 'stored' : 'dupe' => 1];
             }
             case 'yardi': {

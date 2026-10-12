@@ -219,4 +219,16 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertNull($p['deposit_url']);
         $this->assertNull($p['expires_on']);
     }
+
+    public function test_only_interac_or_our_own_forward_can_vouch_for_a_notice(): void
+    {
+        $this->assertSame('interac', EtransferInboxService::noticeSource('notify@payments.interac.ca', 'INTERAC e-Transfer: STRATA BCS4079 sent you money.'));
+        $this->assertSame('interac', EtransferInboxService::noticeSource('STRATA <notify@payments.interac.ca>', 'INTERAC e-Transfer: x'));
+        $this->assertSame('forwarded', EtransferInboxService::noticeSource('office@mowology.ca', 'Fwd: INTERAC e-Transfer: x'));
+        $this->assertSame('reply', EtransferInboxService::noticeSource('client@gmail.com', "Re: INTERAC e-Transfer: I'll send it Friday"));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('client@gmail.com', 'INTERAC e-Transfer: Message INV-2026-0400'));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('notify@payments.interac.ca.evil.net', 'INTERAC e-Transfer: x'));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('office@mowology.ca', 'INTERAC e-Transfer: x'));
+        $this->assertSame('unknown', EtransferInboxService::noticeSource(null, 'INTERAC e-Transfer: x'));
+    }
 }

@@ -259,4 +259,12 @@ HTML;
         $this->assertSame('INV-2026-0150', $p['lines'][1]['invoice_number']);
         $this->assertSame(120.00, $p['lines'][1]['amount']);
     }
+
+    public function test_payment_is_dated_when_the_money_moved_not_when_read(): void
+    {
+        $this->assertSame('2026-09-03', YardiEftInboxService::paidDate('09/03/2026', 'Tue, 08 Sep 2026 10:00:00 -0700'));
+        $this->assertSame('2026-09-08', YardiEftInboxService::paidDate(null, 'Tue, 08 Sep 2026 10:00:00 -0700'));
+        $this->assertSame('2026-09-08', YardiEftInboxService::paidDate('not a date', 'Tue, 08 Sep 2026 10:00:00 -0700'));
+        $this->assertSame(date('Y-m-d'), YardiEftInboxService::paidDate(null, null));
+    }
 }

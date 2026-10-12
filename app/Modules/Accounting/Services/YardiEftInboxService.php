@@ -183,10 +183,24 @@ class YardiEftInboxService
         $dt      = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
         $result  = ['processed' => 0, 'auto_recorded' => 0, 'pending' => 0, 'skipped_duplicate' => 0];
 
+        // When the money moved: the remittance's Transaction Date, else the email's date — never
+        // the day the poller ran (review 2026-10-12: wrong month/GST quarter, missed bank matches).
+        $paidDate = self::paidDate($parsed['transaction_date'] ?? null, $emailDate);
+        // An email alone never marks an invoice paid (a From header is forgeable and the host adds no
+        // verification stamp — checked 2026-10-12): the remittance's deposit must be in the bank.
+        $lineSum  = round(array_sum(array_map(fn($l) => (float)$l['amount'], $parsed['lines'])), 2);
+        $totalOk  = ($parsed['total'] ?? null) === null || abs((float)$parsed['total'] - $lineSum) < 0.01;
+        $banked   = $totalOk ? $this->bankDeposit($lineSum, $paidDate) : null;
+
+        $seen = [];
         foreach ($parsed['lines'] as $line) {
             $result['processed']++;
             $invNo = $line['invoice_number'];
-            $dedup = 'yardi:' . $ref . ':' . ($invNo ?: md5(json_encode($line)));
+            $base  = 'yardi:' . $ref . ':' . ($invNo ?: md5(json_encode($line)));
+            // Two lines on one invoice in one remittance are two payments (the second used to be
+            // dropped as "already seen"); the first keeps the original key so old mail isn't re-read.
+            $seen[$base] = ($seen[$base] ?? 0) + 1;
+            $dedup = $seen[$base] === 1 ? $base : $base . ':' . $seen[$base];
 
             $chk = $this->db->prepare("SELECT id FROM etransfer_notifications WHERE dedup_key = ? LIMIT 1");
             $chk->execute([$dedup]);
@@ -205,11 +219,12 @@ class YardiEftInboxService
             }
 
             $canAutoRecord = $invoice
+                && $banked !== null
                 && in_array($invoice['status'], self::PAYABLE, true)
                 && abs((float) $invoice['balance_due'] - $line['amount']) < 0.01;
 
             if ($canAutoRecord) {
-                if ($this->autoRecord((int) $invoice['id'], $line['amount'], $ref, $dedup, $systemUserId)) {
+                if ($this->autoRecord((int) $invoice['id'], $line['amount'], $ref, $dedup, $systemUserId, $paidDate)) {
                     $result['auto_recorded']++;
                     continue;
                 }
@@ -227,7 +242,9 @@ class YardiEftInboxService
                  VALUES (?, 'yardi_eft', ?, ?, ?, ?, ?, ?, ?, 'yardi_eft', ?, ?, ?, ?, ?, 'pending', NOW())"
             )->execute([
                 $mailbox, $dedup, $ref, $messageId, $line['property'], $line['amount'],
-                $invoice ? null : 'Yardi remittance — invoice not found or already settled',
+                !$invoice ? 'Yardi remittance — invoice not found or already settled'
+                    : (!$totalOk ? 'Yardi remittance lines do not add up to its total — check it'
+                    : ($banked === null ? 'Waiting for the bank deposit before recording' : null)),
                 $invNo, $emailSubject, $dt,
                 $invoice ? (int) $invoice['id'] : null, $method, $confidence,
             ]);
@@ -238,12 +255,17 @@ class YardiEftInboxService
     }
 
     /** Record one auto-certain line via the shared allocation ledger. Returns success. */
-    private function autoRecord(int $invoiceId, float $amount, string $ref, string $dedupKey, int $userId): bool
+    private function autoRecord(int $invoiceId, float $amount, string $ref, string $dedupKey, int $userId, ?string $paidDate = null, ?int $replacesPendingId = null): bool
     {
         require_once __DIR__ . '/InvoiceReconciliationService.php';
 
         try {
             $this->db->beginTransaction();
+            // A pending line being recorded now that its deposit is in: replaced inside this
+            // transaction, so a failure leaves it pending instead of losing it.
+            if ($replacesPendingId !== null) {
+                $this->db->prepare("DELETE FROM etransfer_notifications WHERE id = ? AND status = 'pending'")->execute([$replacesPendingId]);
+            }
 
             // Log the notification as already-recorded so the dedup key still
             // guards against reprocessing the same line on a later poll.
@@ -258,7 +280,7 @@ class YardiEftInboxService
             $notificationId = (int) $this->db->lastInsertId();
 
             $recon  = new InvoiceReconciliationService($this->db);
-            $result = $recon->applyAllocation($invoiceId, $amount, 'yardi_eft', $ref, date('Y-m-d'), null, $userId, $notificationId);
+            $result = $recon->applyAllocation($invoiceId, $amount, 'yardi_eft', $ref, $paidDate ?: date('Y-m-d'), null, $userId, $notificationId);
             if (!$result) {
                 throw new RuntimeException('Invoice already settled');
             }
@@ -272,5 +294,59 @@ class YardiEftInboxService
             error_log('[YardiEftInboxService] autoRecord failed: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /** Y-m-d the money moved: the remittance date, else the email date, else today. Pure. */
+    public static function paidDate(?string $transactionDate, ?string $emailDate): string
+    {
+        foreach ([$transactionDate, $emailDate] as $d) {
+            // strtotime() reads words ("not a date") as relative times — a date has digits.
+            if ($d !== null && preg_match('/\d{1,4}\D\d{1,2}|\d{1,2} [A-Za-z]{3} \d{4}/', $d)
+                && ($t = strtotime(trim($d))) !== false && $t <= time() + 86400) {
+                return date('Y-m-d', $t);
+            }
+        }
+        return date('Y-m-d');
+    }
+
+    /** The one bank deposit of exactly this amount from 2 days before to 7 days after, or null. */
+    public function bankDeposit(float $amount, string $date): ?int
+    {
+        if ($amount <= 0) return null;
+        $s = $this->db->prepare("SELECT id FROM accounting_transactions
+                                 WHERE reference_type = 'bank_import' AND type IN ('income', 'transfer')
+                                   AND ABS(amount - ?) < 0.005
+                                   AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 2 DAY) AND DATE_ADD(?, INTERVAL 7 DAY)
+                                 LIMIT 2");
+        $s->execute([$amount, $date, $date]);
+        $ids = $s->fetchAll(PDO::FETCH_COLUMN);
+        return count($ids) === 1 ? (int)$ids[0] : null;
+    }
+
+    /**
+     * Pending Yardi lines whose deposit has since reached the bank: record them now (the poll calls
+     * this each run). Same rules as ingest — exact invoice + exact balance + the remittance's deposit.
+     */
+    public function recordWhenBanked(int $systemUserId): int
+    {
+        $rows = $this->db->query("SELECT n.id, n.reference_number, n.amount, n.dedup_key, n.email_date, n.matched_invoice_id,
+                                         i.balance_due, i.status
+                                    FROM etransfer_notifications n JOIN invoices i ON i.id = n.matched_invoice_id
+                                   WHERE n.source = 'yardi_eft' AND n.status = 'pending' AND n.match_confidence = 'high'")
+                         ->fetchAll(PDO::FETCH_ASSOC);
+        $byRef = [];
+        foreach ($rows as $r) $byRef[(string)$r['reference_number']][] = $r;
+        $done = 0;
+        foreach ($byRef as $ref => $group) {
+            $all = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM etransfer_notifications WHERE source = 'yardi_eft' AND reference_number = ?");
+            $all->execute([$ref]);
+            $date = self::paidDate(null, $group[0]['email_date']);
+            if ($this->bankDeposit(round((float)$all->fetchColumn(), 2), $date) === null) continue;
+            foreach ($group as $r) {
+                if (!in_array($r['status'], self::PAYABLE, true) || abs((float)$r['balance_due'] - (float)$r['amount']) >= 0.01) continue;
+                if ($this->autoRecord((int)$r['matched_invoice_id'], (float)$r['amount'], $ref, (string)$r['dedup_key'], $systemUserId, $date, (int)$r['id'])) $done++;
+            }
+        }
+        return $done;
     }
 }

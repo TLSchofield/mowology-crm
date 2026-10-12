@@ -169,6 +169,13 @@ if ($mbox === false) {
     }
     imap_close($mbox);
 }
+// Lines that waited for their deposit: record the ones whose deposit has now been imported.
+try {
+    $banked = $service->recordWhenBanked($systemUserId);
+    if ($banked) { $totals['auto_recorded'] += $banked; yardiPollLog("recorded {$banked} waiting line(s) now that the deposit is in the bank"); }
+} catch (Throwable $e) {
+    yardiPollLog('recordWhenBanked: ' . $e->getMessage());
+}
 
 $summary = "Scanned {$seen} email(s), {$totals['processed']} invoice line(s): "
          . "{$totals['auto_recorded']} auto-recorded, {$totals['pending']} pending review, {$totals['skipped_duplicate']} already seen.";

@@ -159,7 +159,8 @@ foreach ($mailboxes as $mb) {
             $body    = pollBody($mbox, $msgNo);
 
             $parsed = EtransferInboxService::parseInteracEmail($subject, $body, $date);
-            $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date);
+            $fromAddr = ($hdr && !empty($hdr->from[0]->mailbox)) ? $hdr->from[0]->mailbox . '@' . ($hdr->from[0]->host ?? '') : null;
+            $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date, $fromAddr);
         } catch (\Throwable $e) {
             // One bad email must never abort the batch.
             pollLog("ERROR processing msg {$msgNo} in {$mb['user']}: " . $e->getMessage());

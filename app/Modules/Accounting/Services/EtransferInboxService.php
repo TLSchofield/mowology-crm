@@ -708,8 +708,32 @@ class EtransferInboxService
      * Insert a parsed notification (deduped) and run matching.
      * Returns ['inserted'=>bool, 'id'=>int|null, 'row'=>array|null].
      */
-    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate): array
+    /**
+     * Who can vouch for an Interac notice (review 2026-10-12): Interac's own sender, or our own
+     * people forwarding one ("Fwd:" from a mowology address). Anything else matched on the subject
+     * alone — a customer's reply, a lookalike — is never 'high'. Replies ("Re:") are not payments.
+     * Pure.
+     * @return 'interac'|'forwarded'|'reply'|'untrusted'|'unknown'
+     */
+    public static function noticeSource(?string $fromAddress, ?string $subject): string
     {
+        $subj = trim((string)$subject);
+        if (preg_match('/^(re|aw|sv)\s*:/i', $subj)) return 'reply';
+        if ($fromAddress === null || trim($fromAddress) === '') return 'unknown';
+        $from = strtolower(trim($fromAddress));
+        if (preg_match('/<([^>]+)>/', $from, $m)) $from = $m[1];
+        if ($from === 'notify@payments.interac.ca') return 'interac';
+        $ours = (bool)preg_match('/@mowology\.ca$/', $from) || $from === 'mowology@icloud.com';
+        if ($ours && preg_match('/^(fwd?|fw)\s*:/i', $subj)) return 'forwarded';
+        return 'untrusted';
+    }
+
+    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, ?string $fromAddress = null): array
+    {
+        $source = self::noticeSource($fromAddress, $emailSubject);
+        if ($source === 'reply') {
+            return ['inserted' => false, 'id' => null, 'row' => null, 'skipped' => 'reply, not a payment notice'];
+        }
         $dedup = $parsed['reference_number'] ?: ($messageId ?: md5(($emailSubject ?? '') . '|' . ($emailDate ?? '')));
 
         // Already seen?
@@ -721,6 +745,9 @@ class EtransferInboxService
         }
 
         $match     = $this->matchInvoice($parsed);
+        if ($source === 'untrusted' && $match['confidence'] === 'high') {
+            $match['confidence'] = 'medium';   // the memo alone doesn't make an unvouched email a payment
+        }
         $dt        = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
         $bankMatch = $this->matchBankTransaction([
             'amount'             => $parsed['amount'],
@@ -918,7 +945,10 @@ class EtransferInboxService
         require_once __DIR__ . '/InvoiceReconciliationService.php';
         $recon   = new InvoiceReconciliationService($this->db);
         $ref     = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
-        $payDate = date('Y-m-d');
+        // When the money moved (the notice's date), not the day someone pressed Record — a late
+        // record landed in the wrong month and missed its bank deposit (review 2026-10-12).
+        $payDate = !empty($note['email_date']) && strtotime((string)$note['email_date']) !== false
+            ? date('Y-m-d', strtotime((string)$note['email_date'])) : date('Y-m-d');
 
         try {
             $this->db->beginTransaction();
