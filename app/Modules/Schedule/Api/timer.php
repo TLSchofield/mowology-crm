@@ -103,7 +103,15 @@ try {
             SpecialRequestGate::enforce(getDB(), $visitId, $userId, isset($input['queued_at']),
                 $input['queued_at'] ?? null, $autoStarted ? 'auto_start' : 'start', 'message');
 
-            $entryId = startVisitTimer($visitId, $userId, $lat, $lng, $autoStarted);
+            // Queued offline? Record when it was tapped, not when it arrived (OfflineTime).
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $when    = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'));
+            $tapped  = $when['from_phone'] ? $when['at'] : null;
+            $entryId = startVisitTimer($visitId, $userId, $lat, $lng, $autoStarted, $tapped);
+            if ($when['note']) {
+                getDB()->prepare("UPDATE job_time_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
+                       ->execute([$when['note'], $entryId]);
+            }
 
             // Auto clock-in globally if not already clocked in.
             if (!isset($db)) $db = getDB();
@@ -118,8 +126,8 @@ try {
                 $db->prepare(
                     "INSERT INTO time_clock_entries
                      (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
-                     VALUES (?, NOW(), ?, ?, 'active', NOW())"
-                )->execute([$userId, $lat, $lng]);
+                     VALUES (?, COALESCE(?, NOW()), ?, ?, 'active', NOW())"
+                )->execute([$userId, $tapped, $lat, $lng]);
                 $autoClockIn = true;
             }
 
@@ -128,7 +136,8 @@ try {
                 'message'       => 'Job started',
                 'entry_id'      => $entryId,
                 'visit_id'      => $visitId,
-                'start_time'    => date('Y-m-d H:i:s'),
+                'start_time'    => $when['at'],
+                'time_flag'     => $when['flag'],
                 'auto_clock_in' => $autoClockIn,
             ]);
             if ($idempKey) idempotencyStore($db, $idempKey, $userId, 'timer', 'start', $responseStart);
@@ -157,7 +166,18 @@ try {
             $extrasMinutes = max(0, (int)($input['extras_minutes'] ?? 0));
             $extrasNote    = trim((string)($input['extras_note'] ?? ''));
 
-            $duration = stopVisitTimer($visitId, $userId, $lat, $lng, $notes, (bool)$completeVisit);
+            // Queued offline? The stop counts from when it was tapped — never before this
+            // person's own timer started (OfflineTime notBefore).
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $ownStart = getDB()->prepare("SELECT MAX(start_time) FROM job_time_entries
+                                          WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL");
+            $ownStart->execute([$visitId, $userId]);
+            $startedAt = $ownStart->fetchColumn() ?: null;
+            $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'), $startedAt ? (string)$startedAt : null);
+            if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
+
+            $duration = stopVisitTimer($visitId, $userId, $lat, $lng, $notes, (bool)$completeVisit,
+                                       $when['from_phone'] ? $when['at'] : null);
 
             // Persist timed extra work on the visit so it is never lost when the
             // crew complete without invoicing. The invoice create flow reads these
@@ -184,6 +204,8 @@ try {
                 'message'          => 'Job completed',
                 'visit_id'         => $visitId,
                 'duration_minutes' => $duration,
+                'end_time'         => $when['at'],
+                'time_flag'        => $when['flag'],
                 'visit_completed'  => (bool)$completeVisit,
             ]);
             if ($idempKey) {

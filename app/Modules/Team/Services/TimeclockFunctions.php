@@ -291,7 +291,11 @@ function userIsCrewOnVisit(int $visitId, int $userId): bool {
     return (bool)$stmt->fetchColumn();
 }
 
-function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
+/**
+ * Start a job timer. $at ('Y-m-d H:i:s', server zone) is when the phone says the start was
+ * tapped — an offline start replayed later (OfflineTime decides whether to trust it); null = now.
+ */
+function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null) {
     $db = getDB();
 
     // Geofence auto-starts already imply a real GPS fix (that's what triggered them) —
@@ -338,9 +342,9 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     // The plan_time_log API converts EST→Pacific for display using toPacific().
     $stmt = $db->prepare("
         INSERT INTO job_time_entries (visit_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
-        VALUES (?, ?, ?, NOW(), ?, ?, ?)
+        VALUES (?, ?, ?, COALESCE(?, NOW()), ?, ?, ?)
     ");
-    $stmt->execute([$jobId, $userId, $clockEntryId, $lat, $lng, $autoStarted ? 1 : 0]);
+    $stmt->execute([$jobId, $userId, $clockEntryId, $at, $lat, $lng, $autoStarted ? 1 : 0]);
     $entryId = (int)$db->lastInsertId();
 
     // Update visit status to in_progress if currently scheduled
@@ -348,6 +352,10 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
         ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'in_progress', $userId, $autoStarted ? 'Auto-started via GPS proximity' : 'Timer started manually');
+        }
+        // The status change stamps NOW(); an offline start keeps its tapped time.
+        if ($at !== null) {
+            $db->prepare("UPDATE job_visits SET started_at = ? WHERE id = ?")->execute([$at, $jobId]);
         }
     }
 
@@ -368,8 +376,10 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
  * Completing ends EVERY active timer on the visit, not just the caller's — a truck login's
  * GPS auto-start or another crew member's timer must not leave the visit stuck in_progress.
  * Pausing ($completeJob = false) stops only the caller's own timer. See VisitTimerStopPolicy.
+ * $at = when the stop was tapped (offline replay, via OfflineTime); null = now. A timer is never
+ * ended before it started (GREATEST), so a takeover of a later-started timer can't go negative.
  */
-function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, $completeJob = true) {
+function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, $completeJob = true, $at = null) {
     require_once APP_ROOT . '/Modules/Team/Services/VisitTimerStopPolicy.php';
     $db = getDB();
 
@@ -403,8 +413,8 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     // Stop the timer(s) — use MySQL NOW() for consistency with start_time storage (both EST).
     $stopStmt = $db->prepare("
         UPDATE job_time_entries
-        SET end_time = NOW(),
-            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()),
+        SET end_time = GREATEST(start_time, COALESCE(?, NOW())),
+            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, GREATEST(start_time, COALESCE(?, NOW()))),
             end_lat = ?,
             end_lng = ?,
             notes = ?,
@@ -416,7 +426,7 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     foreach ($plan['stop'] as $entryId) {
         $isOwn = ($entryId === $plan['own']);
         $entryNotes = $isOwn ? $notes : trim(($notes ? $notes . ' — ' : '') . $takeoverNote);
-        $stopStmt->execute([$lat, $lng, $entryNotes, $entryId]);
+        $stopStmt->execute([$at, $at, $lat, $lng, $entryNotes, $entryId]);
 
         $durStmt->execute([$entryId]);
         $mins = (int)$durStmt->fetchColumn();
@@ -431,6 +441,9 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'completed', $userId, $notes);
+        }
+        if ($at !== null) {
+            $db->prepare("UPDATE job_visits SET completed_at = ? WHERE id = ?")->execute([$at, $jobId]);
         }
 
         // Capture labor cost + margin snapshot at completion time
@@ -495,13 +508,13 @@ function getLiveJobTimer(int $userId, int $maxHours = 16): ?array {
 }
 
 /** @see startJobTimer() — alias using visit terminology */
-function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false) {
-    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted);
+function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null) {
+    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted, $at);
 }
 
 /** @see stopJobTimer() — alias using visit terminology */
-function stopVisitTimer($visitId, $userId, $lat = null, $lng = null, $notes = null, $completeVisit = true) {
-    return stopJobTimer($visitId, $userId, $lat, $lng, $notes, $completeVisit);
+function stopVisitTimer($visitId, $userId, $lat = null, $lng = null, $notes = null, $completeVisit = true, $at = null) {
+    return stopJobTimer($visitId, $userId, $lat, $lng, $notes, $completeVisit, $at);
 }
 
 /** @see pauseJobTimer() — alias using visit terminology */
