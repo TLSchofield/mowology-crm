@@ -62,6 +62,21 @@ class ConsentLedgerServiceTest extends TestCase
         $this->assertSame('express', ConsentLedgerService::evaluate($rows, false, 'email', $this->now)['type']);
     }
 
+    /**
+     * Production 2026-10-11 (contacts 24 and 199): a yes and a withdrawal stamped in the same
+     * second from one form. Unclear what they chose, so the answer is no until they say again.
+     * Since 2026-10-11 the campaign sender asks the ledger too, so this blocks campaigns as well.
+     */
+    public function test_a_grant_in_the_same_second_as_a_withdrawal_is_a_no(): void
+    {
+        $r = ConsentLedgerService::evaluate([
+            $this->row('express', '2026-02-11 15:59:54', null, 'website_form'),
+            $this->row('withdrawn', '2026-02-11 15:59:54', null, 'website_form'),
+        ], false, 'email', $this->now);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('withdrew consent', $r['reason']);
+    }
+
     public function test_texts_need_express_consent(): void
     {
         $this->assertFalse(ConsentLedgerService::evaluate([$this->row('implied', '2026-01-01', '2028-01-01')], false, 'sms', $this->now)['ok']);

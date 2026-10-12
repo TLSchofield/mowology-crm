@@ -92,6 +92,18 @@ try {
     }
     $nowLocal = date('Y-m-d H:i:s'); // PHP's clock, the same one scheduled_at was written with
 
+    // The consent ledger is the one consent source (canSendMarketing() asks it when it knows the
+    // contact): bring it up to date once per run so a withdrawal or new opt-in counts today.
+    if ($campaigns) {
+        try {
+            require_once APP_ROOT . '/Modules/Consent/Services/ConsentLedgerService.php';
+            $ledger = new ConsentLedgerService($db);
+            if ($ledger->ready()) $ledger->refresh();
+        } catch (Throwable $e) {
+            error_log('campaign_sender: consent ledger refresh failed: ' . $e->getMessage());
+        }
+    }
+
     foreach ($campaigns as $campaign) {
         if ($totalSent >= $batchSize) break; // Respect throttle
 
@@ -158,6 +170,7 @@ try {
 
             // CASL: re-verify consent at send time (recipient list may be stale)
             $contactForConsent = [
+                'id'                         => (int)($send['contact_id'] ?? 0),
                 'email'                      => $email,
                 'receive_marketing'          => $send['receive_marketing'] ?? 0,
                 'consent_email_express_at'   => $send['consent_email_express_at'] ?? null,

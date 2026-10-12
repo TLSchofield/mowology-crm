@@ -370,6 +370,21 @@ function canSendMarketing(array $contact, string $channel = 'email'): bool
             return false;
         }
 
+        // One consent source (2026-10-11): when the contact is known and the consent ledger
+        // exists, its answer is the answer — the same one Mia's sends use. The contact fields
+        // below are only the fallback for callers without a contact id or before migration.
+        $contactId = (int)($contact['id'] ?? $contact['contact_id'] ?? 0);
+        if ($contactId > 0) {
+            $f = dirname(__DIR__, 2) . '/Modules/Consent/Services/ConsentLedgerService.php';
+            if (is_file($f)) {
+                require_once $f;
+                $ledger = new ConsentLedgerService($db);
+                if ($ledger->ready()) {
+                    return (bool)($ledger->allows($contactId, $channel)['ok'] ?? false);
+                }
+            }
+        }
+
         if ($channel === 'sms') {
             $receiveField = 'receive_sms';
             $expressField = 'consent_sms_express_at';
