@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
+require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -28,7 +29,7 @@ $stmt = $db->prepare("
         -- pm = the property management firm (property_manager_id). For PM-managed
         -- strata the firm is the payer; folding it into company_name lets the Bill
         -- To compose billing_entity_name C/O firm instead of the on-site contact.
-        COALESCE(c.company_name, pm.company_name) as company_name,
+        " . BillToResolver::INVOICE_COMPANY_NAME . " as company_name,
         p.billing_entity_name,
         COALESCE(NULLIF(c.billing_email,''), NULLIF(pm.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
         COALESCE(NULLIF(c.billing_phone,''), NULLIF(pm.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
@@ -56,6 +57,7 @@ $stmt = $db->prepare("
     LEFT JOIN job_visits jv ON i.visit_id = jv.id
     LEFT JOIN job_plans jp ON i.plan_id = jp.id
     LEFT JOIN users u ON i.created_by = u.id
+    " . BillToResolver::INVOICE_COMPANY_JOINS . "
     WHERE i.id = ?
 ");
 $stmt->execute([$invoiceId]);

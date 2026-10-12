@@ -17,6 +17,8 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
+require_once dirname(__DIR__, 2) . '/Modules/Clients/Services/BillToResolver.php';
+
 class PdfGenerator
 {
     private $db;
@@ -131,7 +133,7 @@ class PdfGenerator
                     -- billing_entity_name C/O pm.company_name (e.g. VR1450 C/O Pacific
                     -- Quorum). Without pm in this COALESCE, company_name came back NULL
                     -- and the heading fell back to the on-site contact name.
-                    COALESCE(c.company_name, cb.company_name, pm.company_name, cp.company_name, cc.company_name) as company_name,
+                    " . BillToResolver::INVOICE_COMPANY_NAME . " as company_name,
                     COALESCE(c.payment_terms, cb.payment_terms, pm.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
                     COALESCE(
                         NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
@@ -194,6 +196,7 @@ class PdfGenerator
                 LEFT JOIN users u      ON i.created_by = u.id
                 LEFT JOIN job_plans jp ON i.plan_id = jp.id
                 LEFT JOIN job_visits jv ON i.visit_id = jv.id
+                " . BillToResolver::INVOICE_COMPANY_JOINS . "
                 WHERE i.id = ?
             ");
             $stmt->execute([$invoiceId]);

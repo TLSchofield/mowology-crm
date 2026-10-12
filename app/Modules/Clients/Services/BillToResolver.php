@@ -31,6 +31,24 @@ declare(strict_types=1);
  */
 class BillToResolver
 {
+    /**
+     * The company an invoice is billed to, for every place an invoice header is shown — PDF
+     * (PdfGenerator), CRM view (invoices/view.php) and customer portal (customer/invoice.php).
+     * Until 2026-10-11 each had its own ladder; 23 of 368 invoices since Feb 2026 showed the
+     * company on the PDF but not in the view or portal. Use both together, on invoices aliased `i`:
+     *   SELECT … , <INVOICE_COMPANY_NAME> AS company_name … FROM invoices i <INVOICE_COMPANY_JOINS>
+     * Own aliases (bt_*) so they never collide with the caller's joins.
+     */
+    public const INVOICE_COMPANY_JOINS = "
+        LEFT JOIN companies  bt_c  ON bt_c.id  = i.company_id
+        LEFT JOIN contacts   bt_dc ON bt_dc.id = i.contact_id
+        LEFT JOIN properties bt_p  ON bt_p.id  = i.property_id
+        LEFT JOIN companies  bt_cb ON bt_cb.id = bt_p.billing_company_id
+        LEFT JOIN companies  bt_pm ON bt_pm.id = bt_p.property_manager_id
+        LEFT JOIN companies  bt_cp ON bt_cp.id = bt_p.company_id
+        LEFT JOIN companies  bt_cc ON bt_cc.id = bt_dc.company_id";
+    public const INVOICE_COMPANY_NAME = "COALESCE(bt_c.company_name, bt_cb.company_name, bt_pm.company_name, bt_cp.company_name, bt_cc.company_name)";
+
     public function __construct(private PDO $db) {}
 
     // ─────────────────────────────────────────────────────────────────────────

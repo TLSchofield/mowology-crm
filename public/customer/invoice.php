@@ -9,6 +9,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
 
 $db    = getDB();
 $error = '';
@@ -26,7 +27,7 @@ if (!$error) {
     $stmt = $db->prepare("
         SELECT
             i.*,
-            c.company_name,
+            " . BillToResolver::INVOICE_COMPANY_NAME . " AS company_name,
             c.billing_email,
             c.billing_phone,
             COALESCE(ct.first_name, dc.first_name) as contact_first,
@@ -42,6 +43,7 @@ if (!$error) {
         LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
         LEFT JOIN contacts dc  ON i.contact_id = dc.id
         LEFT JOIN properties p ON i.property_id = p.id
+        " . BillToResolver::INVOICE_COMPANY_JOINS . "
         WHERE i.access_token = ?
           AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
         LIMIT 1
