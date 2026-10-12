@@ -46,50 +46,35 @@ try {
     $platform    = trim($input['platform'] ?? 'ios');
     $platform    = in_array($platform, ['ios', 'android'], true) ? $platform : 'ios';
 
-    if (strlen($deviceToken) < 32) {
+    require_once APP_ROOT . '/Services/Push/DeviceTokenService.php';
+    $deviceToken = DeviceTokenService::clean($deviceToken, $platform);
+    if ($deviceToken === '') {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'Invalid device token']);
         exit;
     }
 
-    // Sanitize — token format differs by platform. APNs tokens are hex, so
-    // strip anything else outright (unchanged iOS behavior). FCM registration
-    // tokens are much longer and use a broader charset (letters, digits, and
-    // -_.: separators) — hex-stripping would silently mangle every Android
-    // token, so it gets its own charset + a length floor instead.
-    if ($platform === 'ios') {
-        $deviceToken = preg_replace('/[^a-f0-9]/i', '', $deviceToken);
-    } else {
-        $deviceToken = preg_replace('/[^A-Za-z0-9_.:-]/', '', $deviceToken);
-        if (strlen($deviceToken) < 100) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid device token']);
-            exit;
-        }
-    }
-
     $db = getDB();
 
-    // Upsert: one row per user+token combo, update platform + last_seen
-    $db->prepare("
-        INSERT INTO device_tokens (user_id, device_token, platform, created_at, last_seen_at)
-        VALUES (?, ?, ?, NOW(), NOW())
-        ON DUPLICATE KEY UPDATE
-            platform     = VALUES(platform),
-            last_seen_at = NOW(),
-            is_active    = 1
-    ")->execute([$userId, $deviceToken, $platform]);
+    // Sign-out on this phone (iOS sends remove:true before it drops its JWT): stop all pushes to it.
+    if (!empty($input['remove'])) {
+        DeviceTokenService::forget($db, $deviceToken);
+        echo json_encode(['success' => true]);
+        exit;
+    }
 
-    // Deactivate this user's other tokens on the same platform — one active
-    // token per user per platform (a re-registered token means the old one
-    // on this device is stale, e.g. after a reinstall).
-    $db->prepare("
-        UPDATE device_tokens
-           SET is_active = 0
-         WHERE user_id   = ?
-           AND platform  = ?
-           AND device_token != ?
-    ")->execute([$userId, $platform, $deviceToken]);
+    // The phone belongs to whoever registered it last (Fable review 2026-10-12).
+    DeviceTokenService::register($db, $userId, $deviceToken, $platform);
+
+    // Web/Android (session) sign-out retires this token too: logoutUser() reads it from the session.
+    $viaJwt = str_starts_with((string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''), 'Bearer ');
+    if (!$viaJwt && !headers_sent()) {
+        if (session_status() === PHP_SESSION_NONE) @session_start();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['push_device_token'] = $deviceToken;
+            session_write_close();
+        }
+    }
 
     echo json_encode(['success' => true]);
 

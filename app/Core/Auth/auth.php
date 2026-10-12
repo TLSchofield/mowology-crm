@@ -341,6 +341,17 @@ function logoutUser(): void {
         logActivity((int)$_SESSION['user_id'], null, 'User logged out', null);
     }
 
+    // The phone this session registered for push stops getting this user's pushes (Fable review
+    // 2026-10-12). Never blocks sign-out.
+    if (!empty($_SESSION['push_device_token'])) {
+        try {
+            require_once dirname(__DIR__, 2) . '/Services/Push/DeviceTokenService.php';
+            DeviceTokenService::forget(getDB(), (string)$_SESSION['push_device_token']);
+        } catch (Throwable $e) {
+            error_log('logoutUser: device token not retired: ' . $e->getMessage());
+        }
+    }
+
     $_SESSION = [];
 
     if (isset($_COOKIE[session_name()])) {

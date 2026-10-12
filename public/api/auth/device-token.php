@@ -4,6 +4,9 @@ declare(strict_types=1);
 /**
  * POST /api/auth/device-token
  *
+ * NOT LIVE (absent on production 2026-10-12): the iPhone uses /api/device/token
+ * (app/Modules/Device/Api/token.php). Kept in step via DeviceTokenService.
+ *
  * Registers or updates an APNs device token for the authenticated user.
  * Called by the iOS app on every launch when the token changes.
  *
@@ -63,24 +66,9 @@ $platform    = in_array($platform, ['ios', 'android'], true) ? $platform : 'ios'
 try {
     $db = getDB();
 
-    // Upsert: one row per user+token combo, update platform + last_seen
-    $db->prepare("
-        INSERT INTO device_tokens (user_id, device_token, platform, created_at, last_seen_at)
-        VALUES (?, ?, ?, NOW(), NOW())
-        ON DUPLICATE KEY UPDATE
-            platform     = VALUES(platform),
-            last_seen_at = NOW(),
-            is_active    = 1
-    ")->execute([$userId, $deviceToken, $platform]);
-
-    // Deactivate old tokens for this user on the same platform that differ
-    $db->prepare("
-        UPDATE device_tokens
-           SET is_active = 0
-         WHERE user_id   = ?
-           AND platform  = ?
-           AND device_token != ?
-    ")->execute([$userId, $platform, $deviceToken]);
+    // One place for the rules (the phone belongs to whoever registered it last).
+    require_once APP_ROOT . '/Services/Push/DeviceTokenService.php';
+    DeviceTokenService::register($db, (int)$userId, $deviceToken, $platform);
 
     echo json_encode(['success' => true]);
 

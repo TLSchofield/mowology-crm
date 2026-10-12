@@ -292,6 +292,7 @@ require_once __DIR__ . '/../app/Modules/Tracking/Services/TruckLocationService.p
 
 // Push notifications
 require_once __DIR__ . '/../app/Services/Push/FcmService.php';
+require_once __DIR__ . '/../app/Services/Push/DeviceTokenService.php';
 
 // Jobs (plan/visit engine — Phase 2 extraction; pure recurrence/profit math is unit-tested)
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitGenerationService.php';

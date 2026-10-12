@@ -126,6 +126,8 @@ final class AuthSession: ObservableObject {
         // Signing out — or a 401 mid-shift — must end location capture. CoreLocation
         // kept running after logout, recording someone who was no longer signed in.
         GPSTrackingService.shared.stop(reason: .signedOut)
+        // This phone stops getting this user's pushes (the server switches its token off).
+        if let jwt = token { DeviceTokenService.unregister(jwt: jwt) }
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
         token           = nil
