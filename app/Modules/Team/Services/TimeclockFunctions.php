@@ -364,24 +364,44 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
 
 /**
  * Stop a job timer. Returns duration_minutes.
+ *
+ * Completing ends EVERY active timer on the visit, not just the caller's — a truck login's
+ * GPS auto-start or another crew member's timer must not leave the visit stuck in_progress.
+ * Pausing ($completeJob = false) stops only the caller's own timer. See VisitTimerStopPolicy.
  */
 function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, $completeJob = true) {
+    require_once APP_ROOT . '/Modules/Team/Services/VisitTimerStopPolicy.php';
     $db = getDB();
 
-    // Find active timer
     $stmt = $db->prepare("
-        SELECT id FROM job_time_entries
-        WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
-        ORDER BY start_time DESC LIMIT 1
+        SELECT id, user_id FROM job_time_entries
+        WHERE visit_id = ? AND status = 'active' AND end_time IS NULL
+        ORDER BY start_time DESC
     ");
-    $stmt->execute([$jobId, $userId]);
-    $entry = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$entry) {
-        throw new Exception('No active timer for this job');
+    $stmt->execute([$jobId]);
+    $activeEntries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $vsStmt = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+    $vsStmt->execute([$jobId]);
+    $visitStatus = (string)($vsStmt->fetchColumn() ?: '');
+
+    $plan = VisitTimerStopPolicy::decide((int)$userId, $activeEntries, (bool)$completeJob, $visitStatus);
+    if ($plan['error'] !== null) {
+        throw new Exception($plan['error']);
+    }
+    if (!$plan['stop'] && !$plan['complete']) {
+        return 0;   // visit already completed, nothing running
     }
 
-    // Stop the timer — use MySQL NOW() for consistency with start_time storage (both EST).
-    $stmt = $db->prepare("
+    $takeoverNote = null;
+    if (count($plan['stop']) > ($plan['own'] !== null ? 1 : 0)) {
+        $nameStmt = $db->prepare("SELECT full_name FROM users WHERE id = ?");
+        $nameStmt->execute([$userId]);
+        $takeoverNote = 'Stopped when ' . ($nameStmt->fetchColumn() ?: "user #{$userId}") . ' completed the visit';
+    }
+
+    // Stop the timer(s) — use MySQL NOW() for consistency with start_time storage (both EST).
+    $stopStmt = $db->prepare("
         UPDATE job_time_entries
         SET end_time = NOW(),
             duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()),
@@ -389,18 +409,25 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
             end_lng = ?,
             notes = ?,
             status = 'completed'
-        WHERE id = ?
+        WHERE id = ? AND status = 'active' AND end_time IS NULL
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    $durStmt = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");
+    $duration = 0;
+    foreach ($plan['stop'] as $entryId) {
+        $isOwn = ($entryId === $plan['own']);
+        $entryNotes = $isOwn ? $notes : trim(($notes ? $notes . ' — ' : '') . $takeoverNote);
+        $stopStmt->execute([$lat, $lng, $entryNotes, $entryId]);
 
-    // Get duration
-    $result = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");
-    $result->execute([$entry['id']]);
-    $row = $result->fetch(PDO::FETCH_ASSOC);
-    $duration = (int)$row['duration_minutes'];
+        $durStmt->execute([$entryId]);
+        $mins = (int)$durStmt->fetchColumn();
+        // Report the caller's own minutes; with no own timer, the longest one ended.
+        if ($isOwn || ($plan['own'] === null && $mins > $duration)) {
+            $duration = $mins;
+        }
+    }
 
     // Complete the visit if requested
-    if ($completeJob) {
+    if ($plan['complete']) {
         ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'completed', $userId, $notes);
@@ -418,7 +445,7 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     $jobStmt = $db->prepare("SELECT jp.property_id FROM job_visits jv JOIN job_plans jp ON jv.plan_id = jp.id WHERE jv.id = ?");
     $jobStmt->execute([$jobId]);
     $jobRow = $jobStmt->fetch(PDO::FETCH_ASSOC);
-    if ($jobRow && $jobRow['property_id'] && function_exists('updatePropertyVisitPattern')) {
+    if ($duration > 0 && $jobRow && $jobRow['property_id'] && function_exists('updatePropertyVisitPattern')) {
         updatePropertyVisitPattern($jobRow['property_id'], $userId, $duration);
     }
 

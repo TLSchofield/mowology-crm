@@ -51,6 +51,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
 
 // Offline times from phones (clock in/out)
 require_once __DIR__ . '/../app/Modules/Team/Services/OfflineTime.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/VisitTimerStopPolicy.php';
 
 // Ada — head of Technology
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRules.php';
