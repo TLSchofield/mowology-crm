@@ -90,6 +90,15 @@ $floorTs = strtotime((defined('ETRANSFER_POLL_FLOOR') ? ETRANSFER_POLL_FLOOR : '
 // password constant is missing is skipped (MailboxConfig). Tim's iCloud is read by
 // IcloudInboxRouter, which hands Interac notices to the same EtransferInboxService::ingest().
 $mailboxes = MailboxConfig::forPurpose('etransfer');
+// No mailbox configured = nothing was read: an error, not "Scanned 0" (review round 2, 2026-10-12;
+// the Yardi poll already reports it this way).
+if (!$mailboxes) {
+    $log[] = '[' . date('Y-m-d H:i:s') . '] FATAL: no e-Transfer mailbox credentials configured (ETRANSFER_IMAP_PASS / SMTP_USER + SMTP_PASS).';
+    recordCronRun('etransfer_inbox_poll', 'error', 'Mailbox credentials not configured.', (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
+    if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
+    echo json_encode(['success' => false, 'error' => 'Mailbox credentials not configured.', 'log' => $log]);
+    exit;
+}
 
 /** Decode a MIME part body by its transfer-encoding. */
 function pollDecode(string $data, int $enc): string {

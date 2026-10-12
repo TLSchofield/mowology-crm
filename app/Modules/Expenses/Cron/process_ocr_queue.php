@@ -16,9 +16,11 @@
  *   - flock-based mutex (TODO: swap to App\Core\CronLock once that branch
  *     merges to main — claude/lucid-allen-28bfce, commit cd41afe)
  *   - atomic claim via UPDATE ... WHERE status='pending' + rowCount() check
- *   - stale 'processing' rows (started_at < NOW - 5 min) are recovered to
+ *   - stale 'processing' rows (started_at < NOW - 20 min) are recovered to
  *     'pending' on the next tick (handles process crashes between claim
- *     and write-back)
+ *     and write-back). 20, not 5 (review round 2, 2026-10-12): Vision + Tesseract on a slow
+ *     host can run past 5 minutes, and the lock file is unlinked on exit, so a second worker
+ *     could start and re-queue a job that was still running.
  *
  * Retry policy:
  *   attempts is incremented on each claim. On failure:
@@ -110,7 +112,7 @@ $db = getDB();
 
 // ── Recover stale 'processing' rows ───────────────────────────────────
 // If a previous run crashed between claim and write-back, the row stays
-// 'processing' forever. After 5 minutes, push it back to 'pending' so
+// 'processing' forever. After 20 minutes, push it back to 'pending' so
 // the next tick can retry (attempts is preserved, so terminal failure
 // still kicks in after 3 tries).
 try {
@@ -118,7 +120,7 @@ try {
         UPDATE expense_ocr_jobs
         SET status = 'pending'
         WHERE status = 'processing'
-          AND started_at < (NOW() - INTERVAL 5 MINUTE)
+          AND started_at < (NOW() - INTERVAL 20 MINUTE)
     ");
     $recover->execute();
     if ($recover->rowCount() > 0) {

@@ -654,6 +654,25 @@ class BookkeeperDeskService
     /** @param int[] $hold expense ids not to read yet (possible duplicates) */
     public function prepare(int $max = 2, array $hold = []): array
     {
+        // One round at a time: the penny_prepare cron and the card's top-up used to pick the same
+        // receipts and pay Claude twice for them (review round 2, 2026-10-12). MySQL named lock,
+        // released on return or when the connection ends.
+        $got = false;
+        try {
+            $got = (int)$this->db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.penny_prepare'), 0)")->fetchColumn() === 1;
+        } catch (Throwable $e) {
+            $got = true;   // no named locks on this server: behave as before
+        }
+        if (!$got) return ['prepared' => [], 'capped' => false, 'busy' => true];
+        try {
+            return $this->prepareLocked($max, $hold);
+        } finally {
+            try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.penny_prepare'))"); } catch (Throwable $e) { /* ends with the connection */ }
+        }
+    }
+
+    private function prepareLocked(int $max, array $hold): array
+    {
         $next = $this->nextToPrepare($max, $hold);
         if ($next['room'] === 0) {
             return ['prepared' => [], 'capped' => true];

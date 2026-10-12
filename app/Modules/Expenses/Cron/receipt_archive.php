@@ -10,7 +10,8 @@
  * Recommended cPanel cron schedule: 0 3 2 * *  (3 AM on the 2nd of each month)
  * Command: /usr/local/bin/php /home/mowology/public_html/app/Modules/Expenses/Cron/receipt_archive.php
  *
- * Logs to cron_runs_log table (silently skips if the table doesn't exist).
+ * Records every run in cron_runs via recordCronRun('receipt_archive', …) like the other crons
+ * (it used to write to a cron_runs_log table that doesn't exist — review round 2, 2026-10-12).
  */
 declare(strict_types=1);
 
@@ -45,6 +46,8 @@ if (php_sapi_name() !== 'cli') {
 
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptArchiveService.php';
+// recordCronRun() is not pulled in by the CLI bootstrap chain (Known-Failure-Patterns).
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 
 $db      = getDB();
 $output  = [];
@@ -58,26 +61,22 @@ try {
 
     $elapsed = round(microtime(true) - $cronStart, 3);
     $output['elapsed_seconds'] = $elapsed;
-
-    try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, duration_ms, ran_at)
-            VALUES ('receipt_archive', 'success', ?, ?, NOW())
-        ")->execute([json_encode($output), (int) ($elapsed * 1000)]);
-    } catch (PDOException $logE) {
-        // cron_runs_log may not exist — silently ignore
-    }
-
 } catch (Throwable $e) {
     $success = false;
     $output['error'] = $e->getMessage();
+}
 
-    try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, ran_at)
-            VALUES ('receipt_archive', 'error', ?, NOW())
-        ")->execute([json_encode(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()])]);
-    } catch (PDOException $logE) { /* ignore */ }
+// Every exit path records (a silent no-op is what misleads — Known-Failure-Patterns).
+$st      = (string)($output['status'] ?? '');
+$cronSt  = !$success || $st === 'email_failed' ? 'error' : (in_array($st, ['no_recipients', 'no_files'], true) ? 'warning' : 'success');
+$summary = $success
+    ? ('Status: ' . ($st ?: 'done') . ', archived: ' . (int)($output['archived'] ?? 0))
+    : 'Failed: ' . $output['error'];
+if (function_exists('recordCronRun')) {
+    recordCronRun('receipt_archive', $cronSt, $summary, (int)round((microtime(true) - $cronStart) * 1000),
+        $cronSt === 'success' ? null : ($output['error'] ?? $st), php_sapi_name() !== 'cli');
+} else {
+    error_log('[receipt_archive] recordCronRun() unavailable — ' . $summary);
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────

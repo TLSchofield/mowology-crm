@@ -113,6 +113,16 @@ $service = new ReceiptInboxService($db);
 
 $user  = $receiptsBox['user'];
 $since = date('d-M-Y', strtotime('-21 days'));
+// After an outage (password rotated, cron paused) look back to the last good run, so the gap is read
+// instead of silently skipped — the same rule as the e-Transfer / Yardi polls (review round 2,
+// 2026-10-12). Capped at 120 days; the dedup key stops a receipt being made twice.
+try {
+    $lastOk = $db->query("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = 'receipt_inbox_poll' AND status = 'success'")->fetchColumn();
+    if ($lastOk && strtotime($lastOk) < strtotime('-20 days')) {
+        $since = date('d-M-Y', max(strtotime($lastOk . ' -2 days'), strtotime('-120 days')));
+        rpLog("Looking back to {$since} (last good run {$lastOk}).");
+    }
+} catch (Throwable $e) { /* no cron_runs yet: keep 21 days */ }
 
 // Attribute auto-created expenses to an admin user (created_by is NOT NULL).
 $systemUserId = (int) ($db->query("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")->fetchColumn() ?: 0);
@@ -155,13 +165,16 @@ $pending    = [];
 $seen = 0;
 $searchFailed = false;
 $searchError  = null;
+$loginFailed  = [];   // a mailbox we could not open this run — never a 'success'
 
 foreach ($mailboxes as $mb) {
     $user = $mb['user'];
     $mbox = ImapReader::open($mb, 'INBOX');   // OP_READONLY for every mailbox (fetches use FT_PEEK)
     if ($mbox === false) {
         if (!$mb['filter']) rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
-        rpLog("WARNING: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
+        $loginErr = implode('; ', imap_errors() ?: ['unknown']);
+        rpLog("WARNING: could not log into {$user}: " . $loginErr);
+        $loginFailed[] = "{$user} ({$loginErr})";
         continue;
     }
 
@@ -303,12 +316,16 @@ $summary = "Scanned {$seen} attachment(s): " . count($cleanMatches) . ' clean ma
 if ($searchFailed) {
     $summary = 'IMAP search failed (mail server may be flaky) — ' . $summary;
 }
+if ($loginFailed) {
+    $summary = 'Could not log into ' . implode(', ', $loginFailed) . ' — its receipts were not read. ' . $summary;
+}
+$problem = $searchFailed || $loginFailed;
 recordCronRun(
     'receipt_inbox_poll',
-    $searchFailed ? 'warning' : 'success',
+    $problem ? 'warning' : 'success',
     $summary,
     (int)(microtime(true) * 1000) - $startMs,
-    $searchFailed ? $searchError : null,
+    $problem ? trim(($searchError ?? '') . ' ' . implode('; ', $loginFailed)) : null,
     !$isCli
 );
 
