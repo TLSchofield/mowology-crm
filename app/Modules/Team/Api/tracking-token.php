@@ -68,19 +68,26 @@ try {
         echo json_encode(['success' => false, 'error' => 'Account inactive']);
         exit;
     }
-    if (empty($row['location_tracking_enabled'])) {
-        // No token for someone who is not tracked — native has nothing to do for them.
-        echo json_encode(['success' => true, 'tracking_enabled' => false, 'token' => null]);
-        exit;
-    }
-
     require_once APP_ROOT . '/Core/Auth/JwtService.php';
     $ttl = 16 * 3600;
+    // The native day screens (Android 1.4: clock, job cards, timesheet — plan 2026-10-12) call the
+    // same JWT schedule API as iOS, for everyone, tracked or not. `app_token` is that token; the
+    // tracking `token` below keeps its rule (tracked users only).
+    $appToken = generateMowologyJwt((int)$row['id'], (string)$row['email'], (string)$row['full_name'], (string)$row['role'], $ttl);
+
+    if (empty($row['location_tracking_enabled'])) {
+        // No tracking token for someone who is not tracked — the GPS engine has nothing to do for them.
+        echo json_encode(['success' => true, 'tracking_enabled' => false, 'token' => null,
+                          'app_token' => $appToken, 'expires_at' => time() + $ttl, 'user_id' => (int)$row['id'],
+                          'api_base' => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca') . '/api']);
+        exit;
+    }
 
     echo json_encode([
         'success'          => true,
         'tracking_enabled' => true,
-        'token'            => generateMowologyJwt((int)$row['id'], (string)$row['email'], (string)$row['full_name'], (string)$row['role'], $ttl),
+        'token'            => $appToken,
+        'app_token'        => $appToken,
         'expires_at'       => time() + $ttl,
         // From config, never the Host header. The native side pins its own host anyway.
         'api_base'         => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca') . '/api',
