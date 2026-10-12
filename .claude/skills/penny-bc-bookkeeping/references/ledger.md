@@ -8,6 +8,10 @@ Wages by rules 37 (learned) and 307 ("owner said so"): $49,086.89 across 33 in 2
 shareholder loan payout, reimbursements, or money he passes to crew — ask Tim; don't reclassify
 until he says, and check with Steve Lim.
 
+**Payer names that differ from the client record** (Tim, 2026-10-12): Theresa Roberge = Terry Baird
+(same client — cheques say ROBERGE, invoices say Baird); Obsidian Property = The Mix BCS4428's manager;
+KANCO cheques = Beedie Development – Kanco. VML and Laburnum pay by cheque; Dorset and Norsan by Yardi EFT.
+
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
 
