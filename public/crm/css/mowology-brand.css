@@ -39732,6 +39732,14 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-ada-handoff { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
 .mw-ada-to { font-weight: 600; color: var(--mw-dark); }
 .mw-ada-task { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.mw-ada-cron { margin-top: 6px; border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 8px 10px; font-size: .82rem; }
+.mw-ada-cron-head { font-weight: 600; color: var(--mw-dark); margin-bottom: 6px; }
+.mw-ada-cron-fields { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 6px; }
+.mw-ada-cron-fields dt { font-weight: 400; color: var(--mw-ink-500); font-size: .75rem; }
+.mw-ada-cron-fields dd { margin: 0; }
+.mw-ada-cron-cmd { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 4px; }
+.mw-ada-cron-cmd span { color: var(--mw-ink-500); min-width: 80px; }
+.mw-ada-cron-cmd code { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; color: var(--mw-forest); }
 @media (max-width: 767px) {
   .mw-ada { grid-template-columns: 1fr; }
   .mw-ada-stats { grid-template-columns: repeat(2, 1fr); }

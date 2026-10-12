@@ -78,17 +78,26 @@ class AdaDeskService
     // (1) Scheduled jobs
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function registry(): array
+    private ?string $registrySrc = null;
+
+    private function registrySource(): string
     {
+        if ($this->registrySrc !== null) return $this->registrySrc;
         $file = $this->publicRoot ? $this->publicRoot . '/crm/database_appstack.php' : null;
         if (!$file || !is_file($file)) throw new RuntimeException('cron registry page not found');
-        return AdaRules::parseRegistry((string)file_get_contents($file));
+        return $this->registrySrc = (string)file_get_contents($file);
+    }
+
+    public function registry(): array
+    {
+        return AdaRules::parseRegistry($this->registrySource());
     }
 
     private function cronChecks(): array
     {
         $now = $this->now();
         $reg = $this->registry();
+        $base = AdaRules::parseCronBase($this->registrySource());
 
         $lastByKey = [];
         foreach ($this->db->query("SELECT cron_key, MAX(ran_at) AS last_at FROM cron_runs GROUP BY cron_key") as $r) {
@@ -136,7 +145,7 @@ class AdaDeskService
                     'recent'      => $recent,
                 ];
             }
-            $out[] = AdaRules::cronCheck($row, $stats, $records, $exist, $now);
+            $out[] = AdaRules::cronCheck($row, $stats, $records, $exist, $now, $base);
         }
         foreach (array_diff_key($lastByKey, $reg) as $key => $lastAt) {
             $out[] = AdaRules::unlistedCron((string)$key, $lastAt, $now);

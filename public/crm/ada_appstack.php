@@ -72,8 +72,22 @@ $activePage = 'system-health';
               <?php if (!empty($c['handoff'])): ?>
                 <div class="mw-ada-handoff">
                   <span class="mw-ada-to"><?= $c['handoff_to'] === 'tim' ? 'For you' : 'For a developer session' ?></span>
-                  <span class="mw-ada-task"><?= h($c['handoff']) ?></span>
+                  <span class="mw-ada-task"><?= h(explode("\n\nThe cPanel line", $c['handoff'])[0]) ?></span>
                   <button type="button" class="btn btn-sm btn-outline-secondary mw-ada-copy" data-copy="<?= h($c['handoff']) ?>">Copy</button>
+                </div>
+              <?php endif; ?>
+              <?php if (!empty($c['config'])): $cf = $c['config']; ?>
+                <div class="mw-ada-cron">
+                  <div class="mw-ada-cron-head">cPanel → Cron Jobs should have exactly this:</div>
+                  <dl class="mw-ada-cron-fields">
+                    <?php foreach (['minute' => 'Minute', 'hour' => 'Hour', 'day' => 'Day', 'month' => 'Month', 'weekday' => 'Weekday'] as $k => $label): ?>
+                      <div><dt><?= $label ?></dt><dd><code><?= h($cf[$k]) ?></code></dd></div>
+                    <?php endforeach; ?>
+                  </dl>
+                  <div class="mw-ada-cron-cmd"><span>Command</span><code><?= h($cf['command']) ?></code>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mw-ada-copy" data-copy="<?= h($cf['command']) ?>">Copy</button></div>
+                  <div class="mw-ada-cron-cmd"><span>Whole line</span><code><?= h($cf['line']) ?></code>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mw-ada-copy" data-copy="<?= h($cf['line']) ?>">Copy</button></div>
                 </div>
               <?php endif; ?>
             </div>

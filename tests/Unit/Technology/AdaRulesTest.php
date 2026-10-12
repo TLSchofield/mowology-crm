@@ -94,6 +94,23 @@ PHP;
         $this->assertStringContainsString('cPanel', $c['handoff']);
     }
 
+    public function test_missed_and_never_ran_carry_the_exact_cpanel_line(): void
+    {
+        $base = AdaRules::parseCronBase("\$CRON_BASE = '/usr/local/bin/php /home/mowology/public_html';\n\$crons = [");
+        $this->assertSame('/usr/local/bin/php /home/mowology/public_html', $base);
+        $reg = ['key' => 'closer_recalibrate', 'title' => 'Closer', 'expr' => '15 4 * * 1', 'app' => '/app/Modules/Sales/Cron/closer_recalibrate.php', 'run' => '/crm/cron/closer_recalibrate.php'];
+        $c = AdaRules::cronCheck($reg, null, true, true, self::NOW, $base);
+        $this->assertSame('15 4 * * 1 /usr/local/bin/php /home/mowology/public_html/app/Modules/Sales/Cron/closer_recalibrate.php', $c['config']['line']);
+        $this->assertSame(['15', '4', '*', '*', '1'], [$c['config']['minute'], $c['config']['hour'], $c['config']['day'], $c['config']['month'], $c['config']['weekday']]);
+        $this->assertStringContainsString($c['config']['line'], $c['handoff']);
+
+        $m = AdaRules::cronCheck(['key' => 'auto_rollover', 'title' => 'AR', 'expr' => '0 23 * * *', 'app' => '/app/Modules/Jobs/Cron/auto_rollover.php', 'run' => null],
+            $this->stats('2026-10-08 20:00:00'), true, true, self::NOW, $base);
+        $this->assertSame('missed', $m['problem']);
+        $this->assertSame('0 23 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/auto_rollover.php', $m['config']['line']);
+        $this->assertArrayNotHasKey('config', AdaRules::cronCheck($reg, $this->stats('2026-10-11 14:00:00'), true, true, self::NOW, $base));
+    }
+
     public function test_within_two_intervals_is_not_missed(): void
     {
         $c = AdaRules::cronCheck($this->reg('auto_rollover', '0 23 * * *'), $this->stats('2026-10-10 20:00:00'), true, true, self::NOW);

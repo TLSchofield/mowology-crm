@@ -64,6 +64,26 @@ class AdaRules
         return $out;
     }
 
+    /** The command prefix the Database Manager shows for every job ($CRON_BASE). */
+    public static function parseCronBase(string $src): ?string
+    {
+        return preg_match('/\$CRON_BASE\s*=\s*\'([^\']+)\'/', $src, $m) ? $m[1] : null;
+    }
+
+    /**
+     * The exact cPanel cron entry for a job, as the Database Manager builds it ($CRON_BASE . app):
+     * the five timing fields cPanel asks for one by one, the command, and the whole line.
+     * @return ?array{minute: string, hour: string, day: string, month: string, weekday: string, command: string, line: string}
+     */
+    public static function cronConfig(array $reg, ?string $base): ?array
+    {
+        $f = preg_split('/\s+/', trim((string)$reg['expr']));
+        if (count($f) !== 5 || !$base) return null;
+        $command = $base . $reg['app'];
+        return ['minute' => $f[0], 'hour' => $f[1], 'day' => $f[2], 'month' => $f[3], 'weekday' => $f[4],
+                'command' => $command, 'line' => implode(' ', $f) . ' ' . $command];
+    }
+
     /**
      * Roughly how often a cron expression fires, in minutes (the longest normal gap).
      * Only the shapes the registry uses: "*", "* /n", lists and single values.
@@ -115,8 +135,10 @@ class AdaRules
      * @param bool $records the script's text records its runs
      * @param bool $filesExist the script files the registry names are on the server
      */
-    public static function cronCheck(array $reg, ?array $stats, bool $records, bool $filesExist, string $now): array
+    public static function cronCheck(array $reg, ?array $stats, bool $records, bool $filesExist, string $now, ?string $cronBase = null): array
     {
+        $config = self::cronConfig($reg, $cronBase);
+        $line = $config ? "\n\nThe cPanel line should read exactly:\n" . $config['line'] : '';
         $key = (string)$reg['key'];
         $name = (string)($reg['title'] ?? $key);
         $every = self::intervalMinutes((string)$reg['expr']);
@@ -140,8 +162,8 @@ class AdaRules
             }
             return $base + self::verdict('amber', 'never-ran',
                 "{$name}: no run on record, ever — most likely it is not in the cPanel schedule (or it only records when it has work).",
-                "cPanel → Cron Jobs: check there is a line for {$runPath} ({$reg['expr']}). If there is, run it once from the Database Manager's Crons tab and see what it says.",
-                'tim');
+                "cPanel → Cron Jobs: check there is a line for this job, matching exactly. If there is, run it once from the Database Manager's Crons tab and see what it says." . $line,
+                'tim') + ['config' => $config];
         }
 
         $age = self::minutesBetween((string)$stats['last_at'], $now);
@@ -162,13 +184,13 @@ class AdaRules
             if (!$records) {
                 return $base + self::verdict('unknown', 'no-record',
                     "{$name}: last run on record " . self::ago((string)$stats['last_at'], $now) . ", and its script no longer records runs — Ada can't tell if it still works.",
-                    "Ada: cron '{$key}' ({$reg['app']}) does not call recordCronRun(), and its last cron_runs row is " . $stats['last_at'] . ". Add recordCronRun('{$key}', …) so its runs can be checked, then confirm it is in the cPanel schedule.",
-                    'developer');
+                    "Ada: cron '{$key}' ({$reg['app']}) does not call recordCronRun(), and its last cron_runs row is " . $stats['last_at'] . ". Add recordCronRun('{$key}', …) so its runs can be checked, then confirm it is in the cPanel schedule." . $line,
+                    'developer') + ['config' => $config];
             }
             return $base + self::verdict('red', 'missed',
                 "{$name}: should run " . self::everyWords($every) . ", last ran " . self::ago((string)$stats['last_at'], $now) . '.',
-                "cPanel → Cron Jobs: check the line for {$runPath} ({$reg['expr']}) is still there and pointing at the right file. Its last recorded run was {$stats['last_at']}.",
-                'tim');
+                "cPanel → Cron Jobs: check the line for this job is still there, matching exactly. Its last recorded run was {$stats['last_at']}." . $line,
+                'tim') + ['config' => $config];
         }
 
         $errors = 0;
