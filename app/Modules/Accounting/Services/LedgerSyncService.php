@@ -137,6 +137,19 @@ class LedgerSyncService
         $amount  = round((float)$row['amount'], 2);
         $gst     = round((float)($row['gst_amount'] ?? 0), 2);
         $pst     = round((float)($row['pst_amount'] ?? 0), 2);
+        // A card refund / statement credit is staged as a NEGATIVE expense: money back onto the card,
+        // the cost reduced. It used to be skipped here, so the P&L netted it and the journal didn't
+        // (review 2026-10-12). Reverse of an expense: DR the card/bank, CR the cost (and the ITC).
+        if ($amount < 0 && $type === 'expense' && $catId !== $bankId) {
+            $mag = -$amount; $g = abs($gst);
+            $lines = [['account_id' => $bankId, 'debit' => $mag, 'credit' => 0]];
+            $lines[] = ['account_id' => $catId, 'debit' => 0, 'credit' => round($mag - $g, 2),
+                        'gst_amount' => -$g, 'description' => $row['description'] ?? null];
+            if ($g > 0) $lines[] = ['account_id' => $itcId, 'debit' => 0, 'credit' => $g, 'gst_amount' => -$g];
+            return ['entry_date' => substr((string)$row['transaction_date'], 0, 10),
+                    'memo' => $row['description'] ?? 'Refund', 'source_type' => 'bank_import',
+                    'source_id' => (int)$row['id'], 'lines' => $lines];
+        }
         if ($amount <= 0) {
             return null;
         }

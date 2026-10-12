@@ -141,7 +141,11 @@ class LedgerService
         $this->assertPeriodPostable($entryDate);
         $periodId = $this->findPeriodId($entryDate);
 
-        $this->db->beginTransaction();
+        // Join the caller's transaction when there is one, so "reverse the old entry + change the
+        // record" (or reverse + repost) is all-or-nothing (review 2026-10-12: several callers could
+        // leave a reversal with no change behind it). Otherwise this entry is its own transaction.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
         try {
             $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
             $hdr = $this->db->prepare(
@@ -187,10 +191,10 @@ class LedgerService
                 ]);
             }
 
-            $this->db->commit();
+            if ($own) $this->db->commit();
             return $entryId;
         } catch (\Throwable $e) {
-            if ($this->db->inTransaction()) {
+            if ($own && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             throw $e;
@@ -520,6 +524,11 @@ class LedgerService
                         'service_type' => $ln['service_type']];
         }
         $date = $this->isLocked((string)$orig['entry_date']) ? date('Y-m-d') : (string)$orig['entry_date'];
+        // The reversal and its link to the original are one change (a crash between them left both
+        // "live" and a repost silently returned the old entry — review 2026-10-12).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
         $revId = $this->postEntry([
             'entry_date' => $date, 'memo' => 'Reversal of #' . $entryId . ' — ' . $why,
             'source_type' => 'adjusting', 'source_id' => $entryId, 'is_adjusting' => 1,
@@ -527,6 +536,11 @@ class LedgerService
         ]);
         $this->db->prepare("UPDATE journal_entries SET reversed_by_entry_id = ? WHERE id = ? AND reversed_by_entry_id IS NULL")
            ->execute([$revId, $entryId]);
+        if ($own) $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
         return $revId;
     }
 

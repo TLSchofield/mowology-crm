@@ -1118,4 +1118,14 @@ class BankImportServiceTest extends TestCase
         $this->assertCount(1, $counts);
         $this->assertSame(2.0, $counts[0]['amount']);
     }
+
+    public function test_any_payment_wording_on_a_card_statement_is_the_payoff_not_a_refund(): void
+    {
+        foreach (['PAYMENT RECEIVED - THANK YOU', 'ONLINE PAYMENT', 'PAYMENT FROM CHQ 1234', 'PYMT VANCITY'] as $d) {
+            $this->assertTrue(BankImportService::isCardStatementPayment($d), $d);
+        }
+        foreach (['REFUND HOME DEPOT', 'PAYMENT REVERSAL', 'CASH BACK REWARD', 'HOME DEPOT #7020'] as $d) {
+            $this->assertFalse(BankImportService::isCardStatementPayment($d), $d);
+        }
+    }
 }

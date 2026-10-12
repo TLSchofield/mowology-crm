@@ -141,10 +141,29 @@ class BankRuleLearning
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Does this line teach anything? Needs a real key and a non-default account. */
+    /** Bank wording that names no payee: a rule on these files every future cheque/purchase the same way. */
+    public const GENERIC_WORDS = ['cheque', 'chq', 'cleared', 'official', 'officialcheque', 'officialchequefee', 'fee',
+        'bill', 'payment', 'pmt', 'pymt', 'point', 'sale', 'pointofsale', 'pos', 'purchase', 'chargeback', 'debit',
+        'credit', 'withdrawal', 'deposit', 'cashdeposit', 'branch', 'mobile', 'mobiledeposit', 'transfer', 'funds',
+        'rel', 'etransfer', 'interac', 'preauthorized', 'pre', 'authorized', 'pad', 'atm', 'online', 'store', 'city',
+        'main', 'misc', 'service', 'charge', 'visa', 'mastercard', 'from', 'to', 'the', 'and'];
+
+    /** The part of a key that names someone: the words left after the bank's generic wording. Pure. */
+    public static function distinctivePart(string $key): string
+    {
+        $words = preg_split('/[^a-z0-9]+/', strtolower($key)) ?: [];
+        return implode(' ', array_filter($words, fn($w) => $w !== '' && !in_array($w, self::GENERIC_WORDS, true)));
+    }
+
+    /**
+     * Does this line teach anything? Needs a key that names a payee (not just "cheque", "bill payment",
+     * "point sale store" — review 2026-10-12: two rent cheques would have filed every cheque as Rent)
+     * and a non-default account.
+     */
     public static function teaches(string $key, int $accountId, array $defaultAccountIds): bool
     {
-        return strlen($key) >= 4 && $accountId > 0 && !in_array($accountId, $defaultAccountIds, true);
+        return strlen(str_replace(' ', '', self::distinctivePart($key))) >= 4
+            && $accountId > 0 && !in_array($accountId, $defaultAccountIds, true);
     }
 
     public static function isTrusted(int $confirmations): bool

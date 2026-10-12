@@ -146,4 +146,15 @@ class BankRuleLearningTest extends TestCase
         }
         return $db;
     }
+
+    public function test_generic_bank_wording_never_teaches_a_rule(): void
+    {
+        foreach (['cheque', 'cheque cleared', 'bill payment', 'point sale store', 'pointofsale', 'cashdeposit branch',
+                  'funds transfer rel', 'officialchequefee', 'chargeback debit'] as $k) {
+            $this->assertFalse(BankRuleLearning::teaches($k, 42, [1]), $k);
+        }
+        foreach (['lawnboy', 'point sale ikea', 'point sale glace', 'point sale staples'] as $k) {
+            $this->assertTrue(BankRuleLearning::teaches($k, 42, [1]), $k);
+        }
+    }
 }

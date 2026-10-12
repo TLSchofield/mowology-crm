@@ -264,7 +264,7 @@ class BankImportService
             //    Flagged here so it is never double-counted against the CC statement's
             //    individual charges. Applies to both the CC statement's "payment
             //    received" line and the bank statement's "pay credit card" debit.
-            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId)) {
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId, $kind === 'credit_card' ? 'credit_card' : 'bank')) {
                 continue; // transfer — excluded from income/expense totals
             }
 
@@ -286,7 +286,7 @@ class BankImportService
             }
 
             // Two-stage duplicate / match detection (same logic as enrichRows)
-            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'], $kind === 'credit_card' ? 'credit_card' : 'bank');
             if ($trueDupe) {
                 $row['is_duplicate']    = true;
                 $row['duplicate_type']  = 'true_duplicate';
@@ -2101,7 +2101,7 @@ class BankImportService
         }
 
         $income  = round((float)$totals['income'],  2);
-        $expense = round((float)$totals['expense'], 2);
+        $expense = round((float)$totals['expense'] + (float)($totals['transfer_out'] ?? 0), 2);   // card payoffs left the account too
 
         $computed    = $opening !== null ? round($opening + $income - $expense, 2) : null;
         $discrepancy = ($computed !== null && $closing !== null)
@@ -2144,7 +2144,7 @@ class BankImportService
             // never a cost, an invoice payment or a card payoff.
             if (!empty($row['internal_transfer'])) {
                 $row['is_duplicate'] = false; $row['duplicate_type'] = null; $row['duplicate_tx_id'] = null; $row['match_candidate'] = false;
-                $dupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'] === 'income' ? 'income' : 'expense');
+                $dupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'] === 'income' ? 'income' : 'expense', $kind === 'credit_card' ? 'credit_card' : 'bank');
                 if ($dupe) { $row['is_duplicate'] = true; $row['duplicate_type'] = 'true_duplicate'; $row['duplicate_tx_id'] = $dupe; $totals['duplicates']++; }
                 if (!empty($row['other_account'])) { $totals['other_account']++; continue; }
                 if ($row['type'] === 'income') $totals['income'] += $row['amount']; else $totals['expense'] += $row['amount'];
@@ -2153,7 +2153,10 @@ class BankImportService
             // ── Credit-card settlement (transfer, excluded from P&L) ───────────
             //    Catches the monthly "pay credit card" debit on a bank statement
             //    and the "payment received" credit on a CC statement.
-            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId)) {
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId, $kind === 'credit_card' ? 'credit_card' : 'bank')) {
+                // Not income or expense, but it still left the account: the statement's own
+                // opening + in - out = closing proof must count it (it never balanced with a payoff).
+                if ($kind !== 'credit_card') $totals['transfer_out'] = ($totals['transfer_out'] ?? 0) + abs((float)$row['amount']);
                 continue;
             }
 
@@ -2176,7 +2179,7 @@ class BankImportService
 
             // ── Two-stage duplicate / match detection ─────────────────────────
             // Stage 1: same transaction already imported from a bank statement?
-            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'], $kind === 'credit_card' ? 'credit_card' : 'bank');
 
             if ($trueDupe) {
                 // Real duplicate — same bank import done twice
@@ -3006,7 +3009,7 @@ class BankImportService
             ];
         }
 
-        if ($this->isCreditCardPayment($desc)) {
+        if ($this->isCreditCardPayment($desc) || self::isCardStatementPayment($desc)) {
             // "Payment received — thank you" — settlement, flagged for applyCcSettlement().
             return [
                 'date'        => $date,
@@ -3127,6 +3130,18 @@ class BankImportService
      * account and the card; they are NOT income or expense (the CC statement's
      * individual charges are the real expenses) and must not be double-counted.
      */
+    /**
+     * On a CARD statement, a credit that says "payment" is the payoff, whatever the bank calls it
+     * ("PAYMENT RECEIVED", "ONLINE PAYMENT", "PAYMENT FROM CHQ") — unless it's a refund. Missed,
+     * it became a "refund" and cut expenses by the payoff (review 2026-10-12). Pure.
+     */
+    public static function isCardStatementPayment(string $description): bool
+    {
+        $d = strtoupper($description);
+        return (bool)preg_match('/\b(PAYMENT|PYMT|PMT)\b/', $d)
+            && !preg_match('/\b(REFUND|RETURN|REVERSAL|CREDIT\s+VOUCHER|ADJUSTMENT|CASH\s*BACK|REWARD)/', $d);
+    }
+
     private function isCreditCardPayment(string $description): bool
     {
         $d = ' ' . strtoupper($description) . ' ';
@@ -3160,7 +3175,7 @@ class BankImportService
      * Falls back to a flagged expense (never a broken FK) if the Credit Card
      * Payable account is missing from the chart of accounts.
      */
-    private function applyCcSettlement(array &$row, int $ccPayableId, int $defaultExpenseId): bool
+    private function applyCcSettlement(array &$row, int $ccPayableId, int $defaultExpenseId, string $kind = 'bank'): bool
     {
         $isSettlement = !empty($row['cc_payment'])
             || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''));
@@ -3181,7 +3196,9 @@ class BankImportService
         // Card payoffs go through the duplicate check like every other line: skipping it let
         // overlapping statement imports re-add the same payoff 2-4 times (2026-10-05).
         try {
-            $dupe = !empty($row['date']) ? $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], 'expense') : null;
+            // Compared only with lines from the same kind of statement: the card statement's own
+            // payment line and the chequing payoff are two lines, not one imported twice.
+            $dupe = !empty($row['date']) ? $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], 'expense', $kind) : null;
         } catch (Throwable $e) {
             $dupe = null;   // never block an import on the check itself
         }
@@ -3420,6 +3437,10 @@ class BankImportService
         }
 
         // ── Stage 2: Amount-range match ───────────────────────────────────────
+        // Never for Stripe: a payout bundles several charges, and StripePayoutService books it
+        // from Stripe's own payout data. A range guess tied a payout to one unrelated invoice,
+        // invented a "fee" and then blocked the real booking (review 2026-10-12).
+        if (stripos($bankDescription, 'stripe') !== false) return null;
         $maxGross = round($bankAmount * 1.065, 2);
 
         $stmt = $this->db->prepare("
@@ -3446,11 +3467,13 @@ class BankImportService
               AND t.transaction_date BETWEEN
                   DATE_SUB(?, INTERVAL 7 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
             ORDER BY day_diff ASC, t.id DESC
-            LIMIT 1
+            LIMIT 2
         ");
         $stmt->execute([$date, $bankAmount, $maxGross, $date, $date]);
-        $match = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$match) return null;
+        $cands = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Only when one invoice fits: two in range is a guess, left for a person.
+        if (count($cands) !== 1) return null;
+        $match = $cands[0];
 
         return [
             'tx_id'            => (int)$match['tx_id'],
@@ -3498,7 +3521,13 @@ class BankImportService
      * expense-backed transactions are NOT falsely flagged as duplicates.
      * Returns the existing transaction_id, or null.
      */
-    private function checkTrueDuplicate(string $date, float $amount, string $type): ?int
+    /**
+     * @param ?string $kind 'credit_card' or 'bank' — the statement being imported. A card statement's
+     *        own "PAYMENT – THANK YOU" line and the chequing line that paid it are the SAME amount on
+     *        the same day but two different lines; matched across kinds, the chequing payoff was
+     *        dropped as a duplicate and DR 2400 / CR 1010 never booked (review 2026-10-12).
+     */
+    private function checkTrueDuplicate(string $date, float $amount, string $type, ?string $kind = null): ?int
     {
         // Match directly against accounting_transactions rather than requiring a
         // bank_import_rows audit entry — historical imports (or transactions created
@@ -3524,6 +3553,9 @@ class BankImportService
               AND ABS(amount - ?) < 0.01
               AND ABS(DATEDIFF(transaction_date, ?)) <= 1
               AND reference_type = 'bank_import'
+              " . ($kind === null ? '' : ($kind === 'credit_card'
+                    ? "AND bank_account_id IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card')"
+                    : "AND (bank_account_id IS NULL OR bank_account_id NOT IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card'))")) . "
             LIMIT 1
         ");
         $stmt->execute([$type, $amount, $date]);

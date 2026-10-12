@@ -74,9 +74,11 @@ class BankDuplicateCleanup
                     $snap->execute([$id]);
                     $row = $snap->fetch(PDO::FETCH_ASSOC);
                     if (!$row) continue;
+                    // Reversal and removal together: a failed removal used to leave the line in the
+                    // books with its journal entry already reversed (review 2026-10-12).
+                    $this->db->beginTransaction();
                     $entryId = $ledger->findEntryIdBySource('bank_import', $id);
                     if ($entryId) $ledger->reverseEntry($entryId, $userId, 'duplicate bank line (overlapping statement import) — kept #' . $keepId);
-                    $this->db->beginTransaction();
                     $this->db->prepare("INSERT INTO bank_duplicate_removals (transaction_id, kept_transaction_id, snapshot_json, removed_by) VALUES (?, ?, ?, ?)")
                        ->execute([$id, $keepId, json_encode($row), $userId]);
                     $this->db->prepare("UPDATE bank_import_rows SET is_duplicate = 1, duplicate_of_id = ?, transaction_id = NULL WHERE transaction_id = ?")

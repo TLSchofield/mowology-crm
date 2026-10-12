@@ -217,4 +217,18 @@ class LedgerSyncServiceTest extends TestCase
             $this->assertFalse(LedgerSyncService::invoiceIsIssued($st), var_export($st, true));
         }
     }
+
+    public function test_a_card_refund_reaches_the_journal_as_a_reversed_expense(): void
+    {
+        $svc = new LedgerSyncService($this->createMock(PDO::class), $this->createMock(LedgerService::class));
+        $e = $svc->bankRowToEntryArgs(['id' => 7, 'type' => 'expense', 'account_id' => 50, 'bank_account_id' => 11,
+            'amount' => -105.00, 'gst_amount' => 5.00, 'transaction_date' => '2026-09-03', 'description' => 'REFUND HOME DEPOT'], 10, 11, 99, []);
+        $this->assertNotNull($e);
+        $by = [];
+        foreach ($e['lines'] as $l) $by[$l['account_id']] = $l;
+        $this->assertEqualsWithDelta(105.00, $by[11]['debit'], 0.001);    // back onto the card
+        $this->assertEqualsWithDelta(100.00, $by[50]['credit'], 0.001);   // cost reduced
+        $this->assertEqualsWithDelta(5.00, $by[10]['credit'], 0.001);     // ITC given back
+        $this->assertEntryBalances($e);
+    }
 }
