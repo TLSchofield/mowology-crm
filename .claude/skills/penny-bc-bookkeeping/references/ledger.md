@@ -18,6 +18,12 @@ KANCO cheques = Beedie Development – Kanco. VML and Laburnum pay by cheque; Do
 that equals a same-day Vancity Visa bill payment ($1,800 on Jul 31) is the owner covering the card, not
 income — ask. "sparc pay" cheques come from a strata on SparcPay (not necessarily BCS4428).
 
+**Contract prices rise 5% each March/April** (Tim, 2026-10-12): e.g. Oakridge $9,133.72 → $9,590.41,
+Laburnum $855.11 → $897.87. A payment short by exactly ~4.76% of the invoice is the old price — the
+payer missed the increase (Quay Pacific paid INV-0088/0089 at $855.11, $42.76 each still owing), not GST.
+**SparcPay = Quay Pacific** (Laburnum Heights' manager, registered Aug 27 2026) and BCS4428 (The Mix);
+remittances come from noreply@sparchub.net.
+
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
 
