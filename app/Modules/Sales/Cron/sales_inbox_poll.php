@@ -111,7 +111,8 @@ foreach ($folders as $folder) {
                 'date'       => $h->date ?? 'now',
             ]);
             if ($res === 'skipped') { $counts['skipped']++; continue; }
-            if ($res === 'stored') {
+            // 'dupe' with no text yet: an earlier run stored the row but never got the body — fill it in now.
+            if ($res === 'stored' || ($res === 'dupe' && $svc->needsSnippet($svc->lastKey))) {
                 // Customer mail: now read its text (FT_PEEK) and fill the snippet in.
                 $raw = $body($mbox, $no);
                 $snip = SalesInboxService::snippet($raw);

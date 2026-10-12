@@ -191,6 +191,19 @@ class SalesInboxService
     }
 
     /** The cron reads a customer email's text only after it knows it's customer mail. */
+    /**
+     * A stored message whose text never arrived (the body is fetched after the row is written, and a
+     * timeout or IMAP error in between left snippet '' for good — Fable review 2026-10-12). The
+     * readers re-read recent mail every run; on a 'dupe' they ask this and fill the text in.
+     */
+    public function needsSnippet(string $key): bool
+    {
+        if ($key === '') return false;
+        $st = $this->db->prepare("SELECT 1 FROM sales_messages WHERE message_key = ? AND (snippet IS NULL OR snippet = '') LIMIT 1");
+        $st->execute([$key]);
+        return (bool)$st->fetchColumn();
+    }
+
     public function setSnippet(string $key, string $snippet): void
     {
         if ($key === '' || $snippet === '') return;
@@ -255,11 +268,50 @@ class SalesInboxService
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** All addresses in a header value ("Jodi <a@b.ca>, c@d.com"), lowercase. */
+    /**
+     * All addresses in a header value ("Jodi <a@b.ca>, c@d.com"), lowercase.
+     * When a mailbox has <angle brackets>, only the address inside them counts: the display name is
+     * whatever the sender typed, so "client@theirco.ca <x@evil.com>" is x@evil.com (Fable review
+     * 2026-10-12 — the old regex took the first address-looking text, i.e. the display name).
+     */
     public static function addresses(string $header): array
     {
-        preg_match_all('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $header, $m);
-        return array_values(array_unique(array_map('strtolower', $m[0])));
+        $out = [];
+        foreach (self::splitAddressList($header) as $part) {
+            if (strpos($part, '<') !== false || strpos($part, '>') !== false) {
+                if (!preg_match('/<\s*([^<>\s]+)\s*>\s*(\([^()]*\)\s*)?$/', $part, $m)) continue; // malformed: trust nothing
+                $cands = [$m[1]];
+            } else {
+                preg_match_all('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', (string)preg_replace('/\([^()]*\)/', ' ', $part), $mm);
+                $cands = $mm[0];
+            }
+            foreach ($cands as $c) {
+                $c = strtolower(trim($c));
+                if (preg_match('/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/', $c)) $out[] = $c;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** Split an address list on , and ; that are not inside "quotes" or <brackets>. */
+    private static function splitAddressList(string $header): array
+    {
+        $parts = [];
+        $buf = '';
+        $inQuote = false;
+        $inAngle = false;
+        $len = strlen($header);
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $header[$i];
+            if ($ch === '\\' && $inQuote && $i + 1 < $len) { $buf .= $ch . $header[++$i]; continue; }
+            if ($ch === '"') $inQuote = !$inQuote;
+            elseif ($ch === '<' && !$inQuote) $inAngle = true;
+            elseif ($ch === '>' && !$inQuote) $inAngle = false;
+            if (($ch === ',' || $ch === ';') && !$inQuote && !$inAngle) { $parts[] = $buf; $buf = ''; continue; }
+            $buf .= $ch;
+        }
+        $parts[] = $buf;
+        return array_values(array_filter(array_map('trim', $parts), fn($p) => $p !== ''));
     }
 
     /** Our own domain, or one of the extra addresses that are "us" in this mailbox (Tim's iCloud). */

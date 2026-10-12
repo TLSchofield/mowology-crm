@@ -788,7 +788,8 @@ class IcloudInboxRouter
                 if (!$svc->ready()) return $out;
                 $res = $svc->ingest(['mailbox' => $mailbox, 'message_id' => $msgId, 'from' => $from, 'to' => $to,
                                      'subject' => $subject, 'body' => '', 'date' => $date, 'ours' => $ctx['ours']]);
-                if ($res === 'stored') {
+                // 'dupe' with no text yet: an earlier pass stored the row but never got the body — fill it in now.
+                if ($res === 'stored' || ($res === 'dupe' && $svc->needsSnippet($svc->lastKey))) {
                     $plainText = $body();
                     $snip = SalesInboxService::snippet($plainText);
                     if ($snip !== '') $svc->setSnippet($svc->lastKey, $snip);
