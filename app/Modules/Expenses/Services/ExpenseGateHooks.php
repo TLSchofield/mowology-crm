@@ -213,7 +213,7 @@ class ExpenseGateHooks
                 $ledger->reverseEntry($entryId, $userId, $why);
                 if ($row && (float)$row['total'] > 0) {
                     $args = (new LedgerSyncService($this->db, $ledger))->expenseArgs($row);
-                    if ($ledger->isLocked((string)$args['entry_date'])) $args['entry_date'] = date('Y-m-d');
+                    if (!empty($args['date']) && $ledger->isLocked((string)$args['date'])) $args['date'] = date('Y-m-d');
                     $args['created_by'] = $userId;
                     $args['proposed_by'] = 'owner';
                     $ledger->postExpense($args);
