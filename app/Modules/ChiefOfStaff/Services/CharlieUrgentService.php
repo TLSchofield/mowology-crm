@@ -5,6 +5,9 @@
  *   payment — an autopay charge failed (or needs the customer to authenticate) for at
  *             least ops_settings charlie_urgent_payment_min dollars ($500), last 48 h
  *   weather — Otto's weather guard says a visit TODAY shouldn't go ahead (NOT_OK)
+ *   invoice_pdf — an invoice email (send, contract billing, reminder, autopay notice) was
+ *             NOT sent because its PDF could not be made (InvoicePdfGate, last 48 h);
+ *             one alert per invoice
  * (client complaints join when Sam or Mia can flag them — phase B3.)
  *
  * Each alert is sent once (charlie_alerts.alert_key), by email to the owner through
@@ -16,6 +19,7 @@ class CharlieUrgentService
 {
     public const DEFAULT_PAYMENT_MIN = 500.0;
     public const PAYMENT_LOOKBACK_HOURS = 48;
+    public const PDF_LOOKBACK_HOURS = 48;
 
     private PDO $db;
     private ?string $today;
@@ -75,6 +79,19 @@ class CharlieUrgentService
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = self::paymentAlert($r);
         } catch (Throwable $e) { /* no autopay table — nothing to watch */ }
 
+        try {
+            // Invoice emails held because the PDF could not be made (InvoicePdfGate rows).
+            $s = $this->db->prepare("
+                SELECT al.id, al.invoice_id, al.details, al.created_at, i.invoice_number, i.status
+                FROM activity_log al
+                LEFT JOIN invoices i ON i.id = al.invoice_id
+                WHERE al.action = 'invoice_pdf_blocked' AND al.invoice_id IS NOT NULL AND al.created_at >= ?
+                ORDER BY al.created_at DESC, al.id DESC
+            ");
+            $s->execute([date('Y-m-d H:i:s', strtotime('-' . self::PDF_LOOKBACK_HOURS . ' hours'))]);
+            foreach (self::pdfBlockedAlerts($s->fetchAll(PDO::FETCH_ASSOC)) as $a) $out[] = $a;
+        } catch (Throwable $e) { /* no activity_log — nothing to watch */ }
+
         if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php')) {
             try {
                 require_once APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php';
@@ -101,6 +118,38 @@ class CharlieUrgentService
             'text' => "Autopay failed: {$amt} from {$who}" . (!empty($r['invoice_number']) ? ' (invoice ' . $r['invoice_number'] . ')' : '') . " — {$why}.",
             'url'  => !empty($r['invoice_id']) ? '/crm/invoices/view.php?id=' . (int)$r['invoice_id'] : '/crm/invoices/index.php',
         ];
+    }
+
+    /**
+     * Pure: activity_log 'invoice_pdf_blocked' rows (newest first) → one alert per invoice.
+     * Keyed per invoice, so Tim hears about each invoice once however many runs it fails.
+     */
+    public static function pdfBlockedAlerts(array $rows): array
+    {
+        $what = [
+            'contract_billing'             => 'Monthly contract invoice %s not sent (kept as a draft; it retries on the next billing run)',
+            'invoice_from_visit'           => 'Invoice %s not sent (kept as a draft)',
+            'view_send'                    => 'Invoice %s not sent',
+            'bulk_resend'                  => 'Invoice %s not resent',
+            'schedule_invoice_create_send' => 'Invoice %s not sent (saved as a draft)',
+            'reminder'                     => 'Payment reminder for invoice %s held (it retries on the next reminder run)',
+            'autopay_auth_notice'          => 'Autopay "confirm with your bank" email for invoice %s not sent',
+        ];
+        $out = [];
+        foreach ($rows as $r) {
+            $id = (int)($r['invoice_id'] ?? 0);
+            if ($id <= 0 || isset($out[$id])) continue;
+            $d = json_decode((string)($r['details'] ?? ''), true);
+            $ctx = is_array($d) ? (string)($d['context'] ?? '') : '';
+            $num = trim((string)($r['invoice_number'] ?? '')) ?: ('#' . $id);
+            $out[$id] = [
+                'key'  => 'urgent:invoice_pdf:' . $id,
+                'kind' => 'invoice_pdf',
+                'text' => sprintf($what[$ctx] ?? 'Email for invoice %s not sent', $num) . ' — its PDF could not be made. Open it and press Regenerate PDF.',
+                'url'  => '/crm/invoices/view.php?id=' . $id,
+            ];
+        }
+        return array_values($out);
     }
 
     /** Pure: Otto's items → same-day weather alerts (today's visits the guard says shouldn't go). */
@@ -152,7 +201,7 @@ class CharlieUrgentService
             $url = preg_match('#^https?://#', $a['url']) ? $a['url'] : $base . '/' . ltrim($a['url'], '/');
             $html .= '<li><a href="' . $e($url) . '" style="color:#0D3B2E;">' . $e($a['text']) . '</a></li>';
         }
-        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures and same-day weather. — Charlie</p>';
+        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent and same-day weather. — Charlie</p>';
         return ['subject' => $subject, 'body' => $html];
     }
 }
