@@ -209,6 +209,7 @@ class MunicipalRuleService
                     'detail' => (string)($b['rule']['note'] ?? ''), 'value' => $b['problem'],
                     'propose' => ['problem' => $b['problem'], 'start' => $start, 'end' => $end,
                                   'allowed_start' => $b['rule']['allowed_start'] ? substr((string)$b['rule']['allowed_start'], 0, 5) : null,
+                                  'allowed_end' => $b['rule']['allowed_end'] ? substr((string)$b['rule']['allowed_end'], 0, 5) : null,
                                   'rule_id' => (int)$b['rule']['id'], 'verified' => $verified,
                                   'blower' => $b['rule']['equipment_class'] === 'leaf_blower'],
                 ];
@@ -229,6 +230,38 @@ class MunicipalRuleService
             }
         }
         return [$bylaw, $westEnd];
+    }
+
+    /**
+     * Where a visit may start on $date so its equipment stays inside the city's hours: the
+     * earliest start at/after $start (DispatchRules::fitSlot), or null when nothing fits that
+     * day. Area-only bans (West End) are crew notes, not move blockers — same as items().
+     * No rules for the city (or tables absent) → $start as given.
+     * @return array{start: string, end: string}|null
+     */
+    public function fitSlotForVisit(int $visitId, string $date, string $start, int $minutes, string $latestEnd = '23:59'): ?array
+    {
+        $plain = function () use ($start, $minutes, $latestEnd): ?array {
+            $end = DispatchRules::endTime(substr($start, 0, 5), $minutes);
+            return ['start' => substr($start, 0, 5), 'end' => $end > $latestEnd ? $latestEnd : $end];   // as before: clamp to the band
+        };
+        if (!$this->ready()) return $plain();
+        try {
+            $s = $this->db->prepare("SELECT p.service_type, prop.city FROM job_visits v JOIN job_plans p ON p.id = v.plan_id
+                                     JOIN properties prop ON prop.id = p.property_id WHERE v.id = ?");
+            $s->execute([$visitId]);
+            $v = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$v) return $plain();
+            $city = DispatchRules::normalizeCity($v['city']);
+            $cityRules = array_values(array_filter($this->rules(), fn($r) => DispatchRules::normalizeCity($r['municipality']) === $city));
+            if (!$cityRules) return $plain();
+            $classes = $this->serviceMap()[strtolower(trim((string)($v['service_type'] ?: 'Visit')))] ?? [];
+            $holidays = DispatchRules::bcHolidays((int)substr($date, 0, 4));
+            return DispatchRules::fitSlot($cityRules, DispatchRules::dayType($date, $holidays), DispatchRules::ruleClasses($classes), [], $start, $minutes, $latestEnd);
+        } catch (Throwable $e) {
+            error_log('fitSlotForVisit: ' . $e->getMessage());
+            return $plain();
+        }
     }
 
     /** Rules Tim confirmed — a brain unit each. */

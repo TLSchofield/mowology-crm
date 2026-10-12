@@ -61,9 +61,24 @@ function findAlternateSlot(int $visitId, array $visitRule, array $visitData): ?a
         return null;
     }
 
+    // Days and hours a move may land on (2026-10-12): never a Sunday or BC holiday (snow and
+    // salt excepted — those run every day), and only inside the city's power-equipment hours.
+    $rules = null;
+    if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Operations/Services/MunicipalRuleService.php')) {
+        require_once APP_ROOT . '/Modules/Operations/Services/DispatchRules.php';
+        require_once APP_ROOT . '/Modules/Operations/Services/MunicipalRuleService.php';
+        $rules = new MunicipalRuleService(getDB());
+    }
+    $everyDay = (bool)preg_match('/snow|salt|ice|de-?ic/i', (string)($visitData['service_type'] ?? ''));
+
     $current = clone $searchStart;
     while ($current <= $searchEnd) {
         $candidateDate = $current->format('Y-m-d');
+
+        if ($rules && !$everyDay && DispatchRules::isRestDay($candidateDate)) {
+            $current->modify('+1 day');
+            continue;
+        }
 
         // Check if crew has schedule capacity on this date
         if ($crewId && hasScheduleConflict((int)$crewId, $candidateDate, $timebandStart, $timebandEnd, $durationMin)) {
@@ -76,6 +91,15 @@ function findAlternateSlot(int $visitId, array $visitRule, array $visitData): ?a
         $candidateEndTime = minutesToTime(timeToMinutes($timebandStart) + $durationMin);
         if ($candidateEndTime > $timebandEnd) {
             $candidateEndTime = $timebandEnd;
+        }
+        if ($rules) {
+            $fit = $rules->fitSlotForVisit($visitId, $candidateDate, $timebandStart, $durationMin, $timebandEnd);
+            if ($fit === null) {            // a ban that day, or no start inside the allowed hours
+                $current->modify('+1 day');
+                continue;
+            }
+            $candidateStart   = $fit['start'];
+            $candidateEndTime = $fit['end'];
         }
 
         require_once dirname(dirname(__DIR__)) . '/includes/weather-service.php';

@@ -146,6 +146,33 @@ class DispatchRules
         return $found[0];
     }
 
+    /**
+     * The earliest start at or after $start on this day that breaks no rule, with its end —
+     * or null when nothing fits (a ban that day, or the visit cannot finish by allowed_end or
+     * by $latestEnd). Used before a visit is MOVED, so a weather move never lands outside
+     * bylaw hours (2026-10-12). PURE.
+     * @return array{start: string, end: string}|null
+     */
+    public static function fitSlot(array $rules, string $dayType, array $ruleClasses, array $areas, string $start, int $minutes, string $latestEnd = '23:59'): ?array
+    {
+        $start = substr($start, 0, 5);
+        for ($i = 0; $i < 4; $i++) {
+            $end = self::endTime($start, $minutes);
+            if ($end < $start || $end > $latestEnd) return null;          // runs past midnight / the band
+            $b = self::breach($rules, $dayType, $ruleClasses, $areas, $start, $end);
+            if ($b === null) return ['start' => $start, 'end' => $end];
+            if ($b['problem'] !== 'early') return null;                     // ban, or would finish too late
+            $start = substr((string)$b['rule']['allowed_start'], 0, 5);     // start when it is allowed
+        }
+        return null;
+    }
+
+    /** Sundays and BC statutory holidays: not a day to move ordinary work onto. PURE. */
+    public static function isRestDay(string $date): bool
+    {
+        return self::dayType($date, self::bcHolidays((int)substr($date, 0, 4))) === 'sunday_holiday';
+    }
+
     /** A visit's end time from its start and length, 'H:i'. */
     public static function endTime(string $start, int $minutes): string
     {
