@@ -123,9 +123,11 @@ class LedgerRepostService
                 $row = $invRows[$item['id']];
                 $args = $this->sync->mapInvoiceToInvoiceArgs($row);
                 $args['revenue_splits'] = $this->map->invoiceSplits($row, $args['net']);
-                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'invoice re-posted to the right income account');
-                $args['created_by'] = $userId; $args['proposed_by'] = 'owner';
-                $this->ledger->postInvoice($args);
+                $this->atomically(function () use ($item, $userId, $args) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'invoice re-posted to the right income account');
+                    $args['created_by'] = $userId; $args['proposed_by'] = 'owner';
+                    $this->ledger->postInvoice($args);
+                });
                 $done++;
             } catch (Throwable $e) {
                 $failed++; $errors[] = 'Invoice ' . $item['id'] . ': ' . $e->getMessage();
@@ -134,8 +136,10 @@ class LedgerRepostService
         foreach ($p['expenses'] as $item) {
             try {
                 $args = $this->sync->expenseArgs($expRows[$item['id']]);
-                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'receipt re-posted to the right expense account');
-                $this->ledger->postExpense($args);
+                $this->atomically(function () use ($item, $userId, $args) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'receipt re-posted to the right expense account');
+                    $this->ledger->postExpense($args);
+                });
                 $done++;
             } catch (Throwable $e) {
                 $failed++; $errors[] = 'Receipt ' . $item['id'] . ': ' . $e->getMessage();
@@ -143,15 +147,34 @@ class LedgerRepostService
         }
         foreach ($p['bank'] as $item) {
             try {
-                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'bank line re-categorized');
-                $args = $this->sync->bankEntryArgsFor((int)$item['id']);
-                if ($args) { $args['created_by'] = $userId; $args['proposed_by'] = 'owner'; $this->ledger->postManual($args); }
+                $this->atomically(function () use ($item, $userId) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'bank line re-categorized');
+                    $args = $this->sync->bankEntryArgsFor((int)$item['id']);
+                    if ($args) { $args['created_by'] = $userId; $args['proposed_by'] = 'owner'; $this->ledger->postManual($args); }
+                });
                 $done++;
             } catch (Throwable $e) {
                 $failed++; $errors[] = 'Bank line ' . $item['id'] . ': ' . $e->getMessage();
             }
         }
         return ['reposted' => $done, 'failed' => $failed, 'errors' => array_slice($errors, 0, 20)];
+    }
+
+    /**
+     * Reverse + repost as one change: a repost that fails (a closed year, a bad account) used to
+     * leave the reversal alone and the record out of the books (review 2026-10-12).
+     */
+    private function atomically(callable $fn): void
+    {
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $fn();
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** source_type => source_id => [entry_id, lines: code => amount] for the income / cost side. */

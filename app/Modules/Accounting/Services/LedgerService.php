@@ -21,6 +21,15 @@ class LedgerService
 
     /** Balancing tolerance — entries must balance to within half a cent. */
     private const BALANCE_TOLERANCE = 0.005;
+    /** First day of the open books (FY2025 filed and closed). */
+    public const FY_START = '2026-01-01';
+    /** Postings the nightly sync and the services make on their own. */
+    public const AUTO_SOURCES = ['invoice', 'payment', 'payment_allocation', 'stripe_payment', 'expense', 'bank_import', 'client_credit'];
+
+    private bool $closedYearAllowed = false;
+
+    /** Tests that build 2025 history (and nothing else): allow postings dated before FY_START. */
+    public function allowingClosedYear(): self { $this->closedYearAllowed = true; return $this; }
 
     /** Canonical account codes used by posting recipes. */
     public const ACC_BANK            = '1010'; // Chequing
@@ -129,6 +138,14 @@ class LedgerService
             if ($existing !== null) {
                 return $existing;
             }
+        }
+
+        // FY2025 is filed and closed, and 2026 opens from the filed statements (Fy2026OpeningService).
+        // A 2025 record reaching the journal now would be re-dated into 2026 below and land on top of
+        // the opening balances (review 2026-10-12) — so automatic postings dated before 2026 are
+        // refused. Reversals ('adjusting'), the opening itself and manual entries are not affected.
+        if (!$this->closedYearAllowed && in_array($sourceType, self::AUTO_SOURCES, true) && $entryDate < self::FY_START) {
+            throw new RuntimeException("Closed year: {$sourceType} #{$sourceId} is dated {$entryDate}, before " . self::FY_START . ' — not posted');
         }
 
         // Period lock: an automatic posting (invoice, receipt, bank line, reversal) for a

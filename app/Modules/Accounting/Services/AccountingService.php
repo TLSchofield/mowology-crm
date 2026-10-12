@@ -129,7 +129,9 @@ class AccountingService
                 i.id,
                 COALESCE(i.paid_at, i.updated_at)   AS transaction_date,
                 COALESCE(i.amount_paid, i.total, 0) AS amount,
-                COALESCE(i.tax_amount, 0)           AS gst_amount,
+                -- GST in proportion to what was paid: a half-paid invoice carried its whole GST
+                -- on half the income (review 2026-10-12).
+                ROUND(COALESCE(i.tax_amount, 0) * LEAST(1, COALESCE(i.amount_paid, i.total, 0) / NULLIF(i.total, 0)), 2) AS gst_amount,
                 i.contact_id,
                 i.notes,
                 i.plan_id                           AS job_id

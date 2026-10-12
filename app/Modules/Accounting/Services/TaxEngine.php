@@ -118,6 +118,12 @@ class TaxEngine
         $subtotal  = $taxRate > 0 ? round($grossTotal / (1 + $taxRate), 2) : $grossTotal;
         $gstAmount = $gst ? round($subtotal * ($rates['GST'] ?? 0.05), 2) : 0.00;
         $pstAmount = $pst ? round($subtotal * ($rates['PST'] ?? 0.07), 2) : 0.00;
+        // The parts must add back to the gross to the cent: the rounding difference goes on the
+        // tax (GST first) — about 1 in 10 amounts were a cent off (review 2026-10-12).
+        $diff = round($grossTotal - ($subtotal + $gstAmount + $pstAmount), 2);
+        if (abs($diff) >= 0.01 && abs($diff) <= 0.02) {
+            if ($gst) $gstAmount = round($gstAmount + $diff, 2); elseif ($pst) $pstAmount = round($pstAmount + $diff, 2); else $subtotal = round($subtotal + $diff, 2);
+        }
 
         return [
             'subtotal'    => $subtotal,

@@ -239,7 +239,7 @@ final class BankBalanceCheckServiceTest extends TestCase
                    VALUES (1, 'INV-2025-0001', 1000, 1000, 0, 1000, 'paid', '2025-11-01', '2025-10-20', '2025-10-20')");
         $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, amount, payment_date, created_at) VALUES
                    (1, 1, 400, '2025-11-01', '2025-11-01 12:00:00'), (2, 1, 600, '2025-12-15', '2025-12-15 09:00:00')");
-        $legacy = $ledger->postPayment(['id' => 1, 'invoice_id' => 1, 'date' => '2025-11-01', 'amount' => 400]);
+        $legacy = $ledger->allowingClosedYear()->postPayment(['id' => 1, 'invoice_id' => 1, 'date' => '2025-11-01', 'amount' => 400]);
         $db->exec("UPDATE journal_entries SET created_at = '2025-11-02 03:00:00' WHERE id = {$legacy}");
         $svc = new BankBalanceCheckService($db, $ledger);
         $this->assertSame(0, $svc->fixGroups()['part_payments']['count']);
@@ -317,5 +317,14 @@ final class BankBalanceCheckServiceTest extends TestCase
                    entry_id INTEGER, target_entry_id INTEGER, source_type TEXT, source_id INTEGER, amount REAL, entry_date TEXT, created_by INTEGER,
                    created_at TEXT, undone_at TEXT, undone_by INTEGER, undo_entry_id INTEGER)");
         return $db;
+    }
+
+    public function testA2025RecordIsNeverPostedIntoTheOpenYear(): void
+    {
+        $db = self::db();
+        $ledger = new LedgerService($db);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Closed year');
+        $ledger->postPayment(['id' => 9, 'invoice_id' => 1, 'date' => '2025-12-20', 'amount' => 50]);
     }
 }

@@ -312,6 +312,7 @@ class LedgerSyncService
             WHERE at.reference_type = 'bank_import'
               AND at.matched_invoice_id IS NULL
               AND at.matched_expense_id IS NULL
+              AND COALESCE(at.status, '') NOT IN ('void', 'deleted')   -- voided lines are not money (review 2026-10-12)
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         $facts = $this->directionFacts();

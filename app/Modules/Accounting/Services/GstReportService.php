@@ -112,7 +112,7 @@ class GstReportService
             LEFT JOIN contacts   pc ON p.site_contact_id = pc.id
             LEFT JOIN companies  co ON i.company_id = co.id
             WHERE i.issue_date BETWEEN ? AND ?
-              AND i.status NOT IN ('draft','cancelled')
+              AND i.status NOT IN ('draft','cancelled','void')   -- a voided invoice charged no GST
             ORDER BY i.issue_date ASC
         ");
         $stmt->execute([$from, $to]);
