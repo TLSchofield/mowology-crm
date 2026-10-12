@@ -52,4 +52,16 @@ class PennyQuestionServiceTest extends TestCase
         $this->assertSame('Nigel', PennyQuestionService::firstName(['first_name' => 'Nigel']));
         $this->assertSame('', PennyQuestionService::firstName([]));
     }
+
+    /** Lawnboy #412 (2026-10-12): seed to shop stock, mulch to Oakridge — ask only about the mulch, on Oakridge. */
+    public function test_a_split_receipt_asks_only_about_the_lines_on_the_job(): void
+    {
+        $allocs = [
+            ['job_id' => null, 'is_stock' => 1, 'net_amount' => '120.00', 'name' => 'Richardson Sun & Shade Lawn Seed 5 kg'],
+            ['job_id' => 124, 'is_stock' => 0, 'net_amount' => '80.00', 'name' => 'Black Composted Bark Mulch'],
+        ];
+        $this->assertSame(['names' => ['Black Composted Bark Mulch'], 'amount' => 80.0], PennyQuestionService::splitPart($allocs, 124));
+        $this->assertSame(0.0, PennyQuestionService::splitPart($allocs, 123)['amount']);   // nothing left on W 19th
+        $this->assertNull(PennyQuestionService::splitPart([], 124));                         // not split: whole receipt
+    }
 }

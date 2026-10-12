@@ -137,6 +137,38 @@ class PennyQuestionService
         return (bool)$stmt->fetchColumn();
     }
 
+    /** A split receipt's allocations (ExpenseSplitService), or [] when it isn't split or before migration 1233. */
+    private function allocations(int $expenseId): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT a.job_id, a.is_stock, a.net_amount, li.name
+                                     FROM expense_line_allocations a JOIN expense_line_items li ON li.id = a.line_item_id
+                                     WHERE a.expense_id = ? ORDER BY a.sort_order, a.id");
+            $s->execute([$expenseId]);
+            return $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Pure: the part of a split receipt that sits on this job — its line names and net amount.
+     * Null when the receipt isn't split (ask about the whole receipt, as before).
+     * @return ?array{names: list<string>, amount: float}
+     */
+    public static function splitPart(array $allocations, int $planId): ?array
+    {
+        if (!$allocations) return null;
+        $names = [];
+        $amount = 0.0;
+        foreach ($allocations as $a) {
+            if ((int)($a['job_id'] ?? 0) !== $planId || $planId <= 0 || !empty($a['is_stock'])) continue;
+            $names[] = (string)$a['name'];
+            $amount += (float)$a['net_amount'];
+        }
+        return ['names' => $names, 'amount' => round($amount, 2)];
+    }
+
     private function itemNames(int $expenseId): array
     {
         $s = $this->db->prepare("SELECT name FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
@@ -259,22 +291,34 @@ class PennyQuestionService
                 unset($q);
             }
         } catch (Throwable $e) { /* before migration 1130 */ }
+        // The receipt as it is NOW, not as it was when Penny asked (2026-10-12, Lawnboy #412): the
+        // owner moved its mulch to Oakridge and its seed to shop stock, but the question still read
+        // "$200 for 998 West 19th". The job comes from the expense; a split receipt asks only about
+        // the lines on that job, and a receipt with none left on a job is no longer a question.
         $rows = $this->db->query("
-            SELECT q.id, q.expense_id, q.plan_id, q.contract_id, q.amount, q.vendor_name, e.expense_date,
+            SELECT q.id, q.expense_id, COALESCE(e.job_id, q.plan_id) AS plan_id, jp.contract_id, q.amount, q.vendor_name, e.expense_date,
                    COALESCE(jp.title, jp.service_type, '') AS job_title, COALESCE(p.address, '') AS address
             FROM penny_questions q
             JOIN expenses e ON e.id = q.expense_id
-            LEFT JOIN job_plans jp ON jp.id = q.plan_id
+            LEFT JOIN job_plans jp ON jp.id = COALESCE(e.job_id, q.plan_id)
             LEFT JOIN properties p ON p.id = jp.property_id
-            WHERE q.status = 'open' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(20, $limit))
+            WHERE q.status = 'open' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit * 2))
         )->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$r) {
-            $r['question'] = self::wording((float)$r['amount'], $this->itemNames((int)$r['expense_id']), (string)$r['vendor_name'],
+        $out = [];
+        foreach ($rows as $r) {
+            $part = self::splitPart($this->allocations((int)$r['expense_id']), (int)$r['plan_id']);
+            if ($part !== null && $part['amount'] <= 0) continue;   // nothing on a job any more
+            $items = $part !== null ? self::realItems($part['names']) : $this->itemNames((int)$r['expense_id']);
+            $amount = $part !== null ? $part['amount'] : (float)$r['amount'];
+            $r['amount'] = $amount;
+            $r['question'] = self::wording($amount, $items, (string)$r['vendor_name'],
                 (string)$r['job_title'], (string)$r['address'], (string)$r['expense_date'], (bool)$r['contract_id'], $name);
             unset($r['vendor_name'], $r['expense_date'], $r['job_title'], $r['address']);
             $r['kind'] = 'unbilled_materials';
+            $out[] = $r;
         }
-        return array_slice(array_merge($service, $rows), 0, max(1, $limit));
+        usort($out, fn($a, $b) => [(float)$b['amount'], $a['id']] <=> [(float)$a['amount'], $b['id']]);
+        return array_slice(array_merge($service, $out), 0, max(1, $limit));
     }
 
     /** @return array{ok: bool, message: string, invoice_url?: string} */
@@ -286,7 +330,7 @@ class PennyQuestionService
         if ($answer === 'account') {
             return $this->answerAccount($id, (int)$accountId, $userId, $name);
         }
-        $s = $this->db->prepare("SELECT plan_id, status FROM penny_questions WHERE id = ?");
+        $s = $this->db->prepare("SELECT COALESCE(e.job_id, q.plan_id) AS plan_id, q.status FROM penny_questions q LEFT JOIN expenses e ON e.id = q.expense_id WHERE q.id = ?");
         $s->execute([$id]);
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') {

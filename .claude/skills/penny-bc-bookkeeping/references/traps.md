@@ -43,3 +43,13 @@ should be re-checked with Steve before he relies on them.
 ## Jobber import must not re-record income
 Importing Jobber invoices as *paid* would make `syncFromInvoices()` record their income again on
 top of the deposits. Jobber-era deposits stay the income record; Jobber data only annotates them.
+
+## A question kept the receipt as it was when Penny asked (2026-10-12, Lawnboy #412)
+`penny_questions` stored the job, amount and contract at scan time. The owner had split #412
+(seed → shop stock, mulch → a job) and the mulch was on the wrong job (998 W 19th); after the
+correction Penny still asked "$200 for 998 West 19th — covered by their contract?". The three $84
+mulch loads that day (#412's mulch line, #413, #417) all went to Oakridge Gardens (6015 Tisdall).
+Fixed: `PennyQuestionService::open()` reads the expense's current job and that job's contract,
+and for a split receipt asks only about the lines allocated to the job (`splitPart()`); seed in
+stock is never "unbilled". **Rule:** a question shown to Tim is rebuilt from the record as it is
+now, never from a snapshot.
