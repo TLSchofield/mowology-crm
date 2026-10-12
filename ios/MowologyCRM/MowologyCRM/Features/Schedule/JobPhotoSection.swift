@@ -97,15 +97,16 @@ final class JobPhotoViewModel: ObservableObject {
         self.apiClient = APIClient(authSession: authSession)
         refreshPendingState()
 
-        // Drain queued photos automatically when connectivity returns.
+        // When signal returns, wait for the app-wide photo upload (never a second drain of our
+        // own — two runs uploaded every queued photo twice), then refresh this card.
         connectivityObserver = NotificationCenter.default.addObserver(
             forName: .mwPingQueueOnline,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                await AppPhotoQueueDrainService.shared.drain()
                 guard let self else { return }
-                await JobPhotoQueue.shared.drain(using: self.apiClient)
                 self.refreshPendingState()
                 await self.loadExisting()
             }
@@ -213,7 +214,8 @@ final class JobPhotoViewModel: ObservableObject {
         } catch let err as APIError {
             if case .networkError = err {
                 // Offline — queue to disk and show a soft indicator instead of an error.
-                JobPhotoQueue.shared.enqueue(imageData: data, visitId: visitId, photoType: slot)
+                JobPhotoQueue.shared.enqueue(imageData: data, visitId: visitId, photoType: slot,
+                                             userId: apiClient.currentUserId)
                 refreshPendingState()
             } else {
                 errorMessage = slot.isSingleSlot

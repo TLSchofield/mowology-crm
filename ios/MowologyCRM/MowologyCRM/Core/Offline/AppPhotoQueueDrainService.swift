@@ -27,7 +27,7 @@ final class AppPhotoQueueDrainService {
 
     private var apiClient: APIClient?
     private var sink: AnyCancellable?
-    private var isDraining = false
+    private var running: Task<Void, Never>?
 
     private init() {}
 
@@ -46,12 +46,18 @@ final class AppPhotoQueueDrainService {
 
     // MARK: - Drain
 
-    /// Retries all pending photo uploads.
-    /// Safe to call multiple times — re-entrant calls are ignored.
+    /// Retries all pending photo uploads. One run at a time: a caller that arrives mid-run
+    /// (a visit card refreshing on reconnect) waits for that run and returns when it is done.
     func drain() async {
-        guard !isDraining, let apiClient else { return }
-        isDraining = true
-        defer { isDraining = false }
+        if let running { return await running.value }
+        guard let apiClient else { return }
+        let task = Task { await self.drainOnce(using: apiClient) }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce(using apiClient: APIClient) async {
 
         if JobPhotoQueue.shared.pendingCount > 0 {
             print("[AppPhotoQueueDrain] Draining \(JobPhotoQueue.shared.pendingCount) pending photo(s)")

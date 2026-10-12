@@ -7,6 +7,11 @@
 //  sale with it. Photo bytes go to QueueStorage (durable, non-purgeable);
 //  metadata lives in UserDefaults. Drained on mwPingQueueOnline, same as JobPhotoQueue.
 //
+//  Rules (2026-10-12): one drain at a time; an item leaves only when the server created the
+//  recommendation or refused it with a 4xx (no signal, expired login, 5xx or an unreadable
+//  answer keep it, a fault backs that item off); each uploaded photo's media id is saved on
+//  the item so a retry never uploads it again; only the person who queued it sends it.
+//
 
 import Foundation
 
@@ -36,7 +41,15 @@ final class RecommendationQueue: ObservableObject {
         /// decode — they replay as "quote", which is what they were. An ask replays as a
         /// draft only: the server never sends one without a manager reading it.
         var intent: String? = nil
+        /// Who queued it (nil = older build) — never sent under someone else's login.
+        var userId: Int? = nil
+        /// filename → media id for photos already stored on the server.
+        var uploaded: [String: Int]? = nil
+        var attempts: Int? = nil
+        var nextTryAt: Date? = nil
     }
+
+    private var running: Task<Void, Never>?
 
     // MARK: - Persistence
 
@@ -60,7 +73,7 @@ final class RecommendationQueue: ObservableObject {
     /// Persist a recommendation that could not be sent. Unlike JobPhotoQueue
     /// these are additive — a crew member may legitimately recommend two
     /// different services on the same visit.
-    func enqueue(visitId: Int, productId: Int, note: String, images: [Data], intent: String = "quote") {
+    func enqueue(visitId: Int, productId: Int, note: String, images: [Data], intent: String = "quote", userId: Int?) {
         var filenames: [String] = []
 
         for data in images {
@@ -78,24 +91,33 @@ final class RecommendationQueue: ObservableObject {
             note: note,
             imageFilenames: filenames,
             queuedAt: Date(),
-            intent: intent
+            intent: intent,
+            userId: userId
         ))
         items = current
     }
 
     // MARK: - Drain
 
-    /// Retry every queued recommendation. Stops at the first network error so the
-    /// queue survives to try again; anything the server actively rejected is
-    /// discarded rather than retried forever.
+    /// Retry the signed-in person's queued recommendations. One run at a time: a second caller
+    /// waits for the run in progress.
     func drain(using apiClient: APIClient) async {
-        var remaining = items
+        if let running { return await running.value }
+        let task = Task { await self.drainOnce(using: apiClient) }
+        running = task
+        await task.value
+        running = nil
+    }
 
-        while let item = remaining.first {
+    private func drainOnce(using apiClient: APIClient) async {
+        guard let me = apiClient.currentUserId else { return }
+        let now = Date()
+        let pending = items.filter { ($0.userId == nil || $0.userId == me) && ($0.nextTryAt ?? .distantPast) <= now }
+
+        for item in pending {
+            var uploaded = item.uploaded ?? [:]
             do {
-                var mediaIds: [Int] = []
-
-                for filename in item.imageFilenames {
+                for filename in item.imageFilenames where uploaded[filename] == nil {
                     guard let data = QueueStorage.read(filename) else {
                         // Payload purged or never written — the photo is gone. Log
                         // rather than silently sending a recommendation with no
@@ -107,13 +129,17 @@ final class RecommendationQueue: ObservableObject {
                     let response = try await apiClient.uploadVisitPhoto(
                         imageData: data,
                         visitId: item.visitId,
-                        photoTypeRaw: "issue"
+                        photoTypeRaw: "issue",
+                        queuedAt: item.queuedAt
                     )
                     if let mediaId = response["media_id"] as? Int {
-                        mediaIds.append(mediaId)
+                        uploaded[filename] = mediaId
+                        // Saved now, so losing signal before the create never re-uploads it.
+                        update(item.id) { $0.uploaded = uploaded }
                     }
                 }
 
+                let mediaIds = item.imageFilenames.compactMap { uploaded[$0] }
                 let _: RecommendationCreateResponse = try await apiClient.request(
                     .recommendationCreate,
                     body: [
@@ -123,24 +149,36 @@ final class RecommendationQueue: ObservableObject {
                         "product_id": item.productId,
                         "note":       item.note,
                         "media_ids":  mediaIds
-                    ]
+                    ],
+                    faultsAreTransient: true
                 )
 
-                cleanUpFiles(for: item)
-                remaining.removeFirst()
-                items = remaining
+                finish(item)
 
-            } catch APIError.networkError {
-                // Still offline — keep everything and try again on the next ping.
-                return
+            } catch where UploadFault.matches(error) {
+                // Server answered but did not decide — keep it, back off this item, carry on.
+                let tries = (item.attempts ?? 0) + 1
+                let wait  = min(60.0 * pow(2.0, Double(tries - 1)), 3600)
+                print("[RecommendationQueue] visit \(item.visitId) server fault (try \(tries)): \(error)")
+                update(item.id) { $0.attempts = tries; $0.nextTryAt = Date().addingTimeInterval(wait) }
+            } catch APIError.serverError(let message) {
+                // Explicit 4xx refusal (deleted product, revoked access) — retrying can't help.
+                print("[RecommendationQueue] visit \(item.visitId) refused: \(message) — discarded")
+                finish(item)
             } catch {
-                // Server rejected it (duplicate, deleted product, revoked access).
-                // Retrying would never succeed, so drop it.
-                cleanUpFiles(for: item)
-                remaining.removeFirst()
-                items = remaining
+                // No signal or the login expired — keep everything and try again later.
+                return
             }
         }
+    }
+
+    private func update(_ id: String, _ change: (inout PendingItem) -> Void) {
+        items = items.map { guard $0.id == id else { return $0 }; var c = $0; change(&c); return c }
+    }
+
+    private func finish(_ item: PendingItem) {
+        cleanUpFiles(for: item)
+        items = items.filter { $0.id != item.id }
     }
 
     private func cleanUpFiles(for item: PendingItem) {

@@ -152,7 +152,8 @@ final class RecommendationViewModel: ObservableObject {
                 productId: option.productId,
                 note: note,
                 images: payloads,
-                intent: intent
+                intent: intent,
+                userId: apiClient.currentUserId
             )
             successMessage = intent == "ask"
                 ? "Saved — it will reach the office when you're back in signal"

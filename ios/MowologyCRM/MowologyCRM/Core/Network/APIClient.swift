@@ -70,7 +70,8 @@ final class APIClient: ObservableObject {
         method: String? = nil,
         body: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        faultsAreTransient: Bool = false
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
@@ -124,6 +125,9 @@ final class APIClient: ObservableObject {
             if !(200..<300).contains(httpResponse.statusCode) {
                 let message = extractErrorMessage(from: data)
                     ?? "Server returned status \(httpResponse.statusCode)."
+                if faultsAreTransient, UploadFault.isTransient(httpResponse.statusCode) {
+                    throw APIError.networkError(UploadFault(status: httpResponse.statusCode, detail: message))
+                }
                 throw APIError.serverError(message)
             }
         }
@@ -134,6 +138,10 @@ final class APIClient: ObservableObject {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
+            if faultsAreTransient {
+                // A PHP fatal truncates the body with HTTP 200 — not an answer, try again later.
+                throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
+            }
             throw APIError.decodingError(error)
         }
     }
@@ -276,11 +284,27 @@ final class APIClient: ObservableObject {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Photo upload failed (\(http.statusCode))"
+                // 5xx / timeout / rate limit: the server did not say no — keep the photo and retry.
+                if UploadFault.isTransient(http.statusCode) {
+                    throw APIError.networkError(UploadFault(status: http.statusCode, detail: msg))
+                }
+                // Any other 4xx is the server refusing this photo (visit gone, not your visit).
                 throw APIError.serverError(msg)
             }
         }
 
-        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        // A PHP fatal on production is a truncated body with HTTP 200. Only a readable
+        // {"success": true} counts as stored; anything else is retried, never counted uploaded.
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
+        }
+        if let ok = json["success"] as? Bool, ok == false {
+            throw APIError.serverError(extractErrorMessage(from: data) ?? "Photo upload refused")
+        }
+        guard json["success"] as? Bool == true else {
+            throw APIError.networkError(UploadFault(status: 200, detail: "no success flag"))
+        }
+        return json
     }
 
     // MARK: - Private Helpers
@@ -291,6 +315,29 @@ final class APIClient: ObservableObject {
         }
         return json["message"] as? String
             ?? json["error"] as? String
+    }
+}
+
+// MARK: - Upload fault
+
+/// The server answered but did not decide: 5xx, timeout, rate limit, or a body it could not
+/// finish (PHP fatal → truncated HTTP 200). Thrown wrapped in `APIError.networkError`, so every
+/// caller that queues on a network error keeps the item; queues check for this type to back off
+/// that one item instead of treating the phone as offline.
+struct UploadFault: LocalizedError {
+    let status: Int
+    let detail: String
+
+    var errorDescription: String? { "Server problem (\(status)): \(detail)" }
+
+    static func isTransient(_ status: Int) -> Bool {
+        status >= 500 || status == 408 || status == 425 || status == 429
+    }
+
+    /// True when `error` is a server fault rather than no signal.
+    static func matches(_ error: Error) -> Bool {
+        if case APIError.networkError(let inner)? = error as? APIError { return inner is UploadFault }
+        return false
     }
 }
 
