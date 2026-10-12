@@ -149,8 +149,13 @@ class StatementService
         // Their own invoices always. Invoices for their properties/plans only when billed to them —
         // not when billed to a company they don't belong to (a strata rep's statement carried the
         // property manager's invoices; review 2026-10-12).
-        $myCompany = $this->columnIds("SELECT company_id FROM contacts WHERE id = ? AND company_id IS NOT NULL", [$contactId]);
-        $notOthers = '(i.company_id IS NULL' . ($myCompany ? ' OR i.company_id = ' . (int)$myCompany[0] : '') . ')';
+        // "Theirs" = their own company, or a company they are the primary/billing contact of
+        // (a property manager's person is often linked only that way).
+        $myCompanies = array_values(array_unique(array_merge(
+            $this->columnIds("SELECT company_id FROM contacts WHERE id = ? AND company_id IS NOT NULL", [$contactId]),
+            $this->columnIds("SELECT id FROM companies WHERE primary_contact_id = ? OR billing_contact_id = ?", [$contactId, $contactId])
+        )));
+        $notOthers = '(i.company_id IS NULL' . ($myCompanies ? ' OR i.company_id IN (' . implode(',', array_map('intval', $myCompanies)) . ')' : '') . ')';
         $where  = ['i.contact_id = ?'];
         $params = [$contactId];
         if ($propIds) {
