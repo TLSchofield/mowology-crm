@@ -59,25 +59,30 @@ $grandTotalOt20 = 0;
 $grandTotalPay  = 0;
 
 foreach ($employees as $emp) {
-    // Aggregate stored weekly totals from the timesheets table.
-    // Using stored total_shift_minutes avoids corrupt time_clock_entries values.
-    $tsAggStmt = $db->prepare("
-        SELECT SUM(total_shift_minutes) as total_min,
-               GROUP_CONCAT(status) as statuses,
-               GROUP_CONCAT(id) as ts_ids
-        FROM timesheets
+    // Per-day shift minutes inside the range (the same rows and statuses recalculateTimesheetTotals()
+    // sums into timesheets.total_shift_minutes), then BC overtime per day and per Monday–Sunday
+    // week via OvertimeCalculator::calculatePeriod(). Until 2026-10-12 this summed the stored
+    // weekly totals of every timesheet overlapping the range and applied the 40 h rule ONCE to the
+    // whole (bi-weekly) lump, with no daily 8 h / 12 h rule — the 1.5×/2× split was wrong.
+    $dayStmt = $db->prepare("
+        SELECT DATE(clock_in) AS day, SUM(total_minutes) AS day_min
+        FROM time_clock_entries
         WHERE user_id = ?
-          AND week_start <= ?
-          AND week_end   >= ?
+          AND clock_in >= ? AND clock_in < DATE_ADD(?, INTERVAL 1 DAY)
+          AND status IN ('completed', 'edited')
+        GROUP BY DATE(clock_in)
     ");
-    $tsAggStmt->execute([$emp['id'], $rangeEnd, $rangeStart]);
-    $tsAgg = $tsAggStmt->fetch(PDO::FETCH_ASSOC);
+    $dayStmt->execute([$emp['id'], $rangeStart, $rangeEnd]);
+    $dailyMinutes = [];
+    foreach ($dayStmt->fetchAll(PDO::FETCH_ASSOC) as $d) {
+        $dailyMinutes[$d['day']] = max(0, (int)$d['day_min']);
+    }
 
-    $totalShiftMin = (int)($tsAgg['total_min'] ?? 0);
+    $totalShiftMin = array_sum($dailyMinutes);
     if ($totalShiftMin <= 0) continue; // no hours this period
 
     $rate = (float)($emp['hourly_rate'] ?? 0);
-    $pay  = OvertimeCalculator::calculateFromWeeklyTotal($totalShiftMin, $rate);
+    $pay  = OvertimeCalculator::calculatePeriod($dailyMinutes, $rate);
 
     // Fetch individual timesheet rows for status + IDs (separate query for correctness)
     $tsStmt = $db->prepare("
@@ -270,6 +275,9 @@ $activePage = 'payroll';
         <?php echo date('M j, Y', strtotime($rangeStart)); ?> &ndash; <?php echo date('M j, Y', strtotime($rangeEnd)); ?>
         &bull; <?php echo (int)((strtotime($rangeEnd) - strtotime($rangeStart)) / 86400 + 1); ?> days
     </span>
+    <?php if (date('N', strtotime($rangeStart)) !== '1' || date('N', strtotime($rangeEnd)) !== '7'): ?>
+    <div class="text-muted small mt-1">Overtime is worked out per day and per Monday&ndash;Sunday week. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
+    <?php endif; ?>
 </div>
 
 <!-- Payroll Table -->

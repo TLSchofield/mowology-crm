@@ -102,8 +102,42 @@ class OvertimeCalculator
     }
 
     /**
+     * Pay for any period (e.g. a bi-weekly pay run): days are grouped into their Monday–Sunday
+     * week, each week goes through calculate() (daily 8 h / 12 h rules + the 40 h weekly rule),
+     * and the weeks are summed. The weekly threshold is never applied to more than one week.
+     * PURE.
+     *
+     * @param array<string,int> $dailyMinutes keyed 'Y-m-d' (any order, any span)
+     * @return array same shape as calculate(), plus 'weeks' => [weekStart => calculate() result]
+     */
+    public static function calculatePeriod(array $dailyMinutes, float $hourlyRate): array
+    {
+        ksort($dailyMinutes);
+        $byWeek = [];
+        foreach ($dailyMinutes as $date => $min) {
+            $ts = strtotime((string)$date);
+            if ($ts === false) continue;
+            $monday = date('Y-m-d', strtotime('monday this week', $ts));
+            $byWeek[$monday][date('Y-m-d', $ts)] = ($byWeek[$monday][date('Y-m-d', $ts)] ?? 0) + (int)$min;
+        }
+        $sum = ['regular_minutes' => 0, 'ot_1_5_minutes' => 0, 'ot_2_0_minutes' => 0,
+                'gross_pay' => 0.0, 'regular_pay' => 0.0, 'ot_1_5_pay' => 0.0, 'ot_2_0_pay' => 0.0,
+                'has_overtime' => false, 'daily_breakdown' => [], 'weeks' => []];
+        foreach ($byWeek as $monday => $days) {
+            $w = self::calculate($days, $hourlyRate);
+            $sum['weeks'][$monday] = $w;
+            foreach (['regular_minutes', 'ot_1_5_minutes', 'ot_2_0_minutes'] as $k) $sum[$k] += $w[$k];
+            foreach (['gross_pay', 'regular_pay', 'ot_1_5_pay', 'ot_2_0_pay'] as $k) $sum[$k] = round($sum[$k] + $w[$k], 2);
+            $sum['has_overtime'] = $sum['has_overtime'] || $w['has_overtime'];
+            $sum['daily_breakdown'] += $w['daily_breakdown'];
+        }
+        return $sum;
+    }
+
+    /**
      * Calculate pay from a pre-aggregated weekly total (no per-day breakdown).
      * Use this when only the stored timesheets.total_shift_minutes is available.
+     * NOT for pay runs: it misses the daily 8 h / 12 h rules — use calculatePeriod() (2026-10-12).
      * Applies weekly OT only (>40h = 1.5×); per-day OT is not computable.
      *
      * @param int   $weeklyMinutes  Total shift minutes for the week (trusted stored value).
