@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
+require_once APP_ROOT . '/Services/Messaging/SmsTemplates.php';
 
 // ─── Canadian Carrier Email-to-SMS Gateways ─────────────────────────
 
@@ -439,11 +440,14 @@ function companyPrefersAttachment(int $companyId): bool
 }
 
 /**
- * Send a quote notification SMS with a shortened URL.
+ * Send a quote notification SMS.
+ *
+ * NO URLs or domains in the message body — carrier email-to-SMS gateways silently
+ * drop them. Directs the customer to their email instead.
  *
  * @param string $phoneNumber
  * @param string $quoteNumber
- * @param string $quoteUrl
+ * @param string $quoteUrl     Unused — kept so existing callers don't break
  * @param string $companyName
  * @return array Result from sendSms()
  */
@@ -453,15 +457,7 @@ function sendQuoteNotificationSms(
     string $quoteUrl,
     string $companyName = 'Mowology'
 ): array {
-    $shortUrl = parse_url($quoteUrl, PHP_URL_HOST) . '/quote';
-
-    $message = "Hi! Your quote {$quoteNumber} from {$companyName} is ready. "
-             . "View and accept it here: {$shortUrl}";
-
-    if (strlen($message) > 160) {
-        $message = "Your quote {$quoteNumber} from {$companyName} is ready. "
-                 . "Visit your account to view: {$shortUrl}";
-    }
+    $message = buildQuoteNotificationSmsText($quoteNumber, $companyName);
 
     return sendSms($phoneNumber, $message, $companyName);
 }
