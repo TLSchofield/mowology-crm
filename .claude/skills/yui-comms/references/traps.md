@@ -69,3 +69,23 @@ callers here. **Rule:** no URL or domain in any text, ever.
 ## Standing email trap
 `YuiDraftService` says email goes "from office@"; it actually goes From no-reply@ with Reply-To
 office@ (`sendEmail()`). Replies still reach office@.
+
+## 2026-10-12 — Fable review
+Rules now enforced in code:
+- Push tokens follow the phone (`DeviceTokenService`): registering takes the token from every other
+  user; sign-out retires it (web/Android via the session's token in `logoutUser()`, iPhone via
+  `AuthSession.logout()` → POST /api/device/token {remove:true}). `public/api/auth/device-token.php`
+  is not on production — the iPhone uses /api/device/token.
+- Mail identity: `SalesInboxService::addresses()` trusts only the address in <brackets>; a display
+  name can't pose as a contact. (The From header itself is still unauthenticated — no DKIM check.)
+- `YuiDraftService::send()` writes a 'sending' row first (hides the card, blocks a second send for
+  5 min), sends, logs history, then settles the row.
+- `hasSmConsent()` asks the ledger first; only "no consent on record" falls back to the contact flags
+  (17 contacts had an SMS flag with no ledger proof on 2026-10-12 — backfill, then drop the fallback).
+- `PushDispatcher::drainQueue()` holds a named lock and claims rows (attempts-based, 10-min hold).
+- Password reset, privacy requests and salt reports send via MessagingService's `sendCrmEmail()`.
+- Readers refill rows stored with an empty snippet when they see them again as a dupe.
+Dropped: QuoteViewNotifier through PushDispatcher — it already claims once per quote under a named
+lock and retires 410 tokens; routing it through the queue would only add the drain's delay.
+Not done: `joinUnknown()` still joins by quote number from any sender — requiring a domain/thread
+match would have refused Monica's QUO-2026-0073 approval (the case it was built for). Tim to decide.

@@ -45,3 +45,15 @@ Tim's go-ahead.
 `charlie_briefs` snapshot and may queue a "which first?" question. It runs on every Action Board
 open, every team-mobile owner brief and every cron run. **Rule:** never call it from a path that
 must be side-effect free (tests, previews); heads' `brief()` must stay read-only.
+
+## 2026-10-12 — Fable review
+Rules now enforced in code:
+- Ready-brief items carry `route` (the card that holds the item; house → Charlie); the iPhone opens
+  that card, not the owner named on the label (`HeadBriefReadyService::routeOf()`).
+- The iPhone keeps the server's order; NEW is a mark, not a re-sort (closes the 2026-10-11 trap).
+- collections_first lateness counts the billed company's billing/primary contact and the client's
+  contact too; each fact query logs its own failure.
+- team-mobile `act`: only snooze drops the ready copy — opening an item does not.
+- `DeadlineService::brief()` writes nothing; the charlie_morning_brief cron runs `sync()`.
+- Urgent alert emails that fail retry at most hourly, 3 tries (count + time in `charlie_alerts.error`).
+- charlie-inbox.js "Do all" runs each item's `choice: apply` action or stops for Tim.

@@ -100,6 +100,7 @@ is owed. The live file was not checked. Ada compares offered vs run, not repo vs
 | Secrets outside `secrets.php` | file scan of the repo for credential-shaped strings (planned); report location only |
 | `DEPLOYMENT.md` FTP password | SETTLED 2026-10-11: no password in the file — every `lftp -u` line reads `git config git-ftp.password`, on HEAD, origin/main and origin/feature/language; one commit in history. The 2026-10-03 note was wrong (corrected in _Directions.md) |
 | Unused logins — BUILT (`AdaRules::loginsCheck()`) | `users.last_login` (set in `app/Core/Auth/auth.php` and `public/api/auth/token.php`) AND phone seen in `device_tracking_health.last_seen_at` — an app login can stay signed in for months, so login alone is not evidence; truck tablets excluded |
+| App sign-in key — BUILT 2026-10-12 (`AdaRules::jwtSecretCheck()`) | `BLUEMOON_JWT_SECRET` defined and ≥ 32 characters — length only, the value never leaves secrets.php; red when missing/short (no fallback key since 2026-10-12, so nobody can sign in on the iPhone) |
 | Admin-only endpoints still guarded | cron web shims use a shared `_guard.php` (Tech-Debt-Map, 2026-06-18); recheck unverified |
 
 ## Per tenant (Ittai) — later

@@ -84,3 +84,19 @@ live schema before trusting a stage or quote column.
 Migrations 1314/1315, OPcache reset and a 90-day sales inbox backfill were owed after the
 2026-10-10 deploy; QUO-0073's job sat unplaced in the tray and Monica's reply was drafted, not
 sent. Verify on prod before relying on any of it.
+
+## 2026-10-12 — Fable review
+Rules now enforced in code:
+- `QuoteService::markSent()` never changes accepted/declined/expired (Resend Link reset them to
+  sent); `statusAfterSend()` is the rule.
+- Verbal approval refused on accepted (made a second tray job) or declined quotes.
+- Client accept/decline (`public/customer/quote.php`) only when sent/viewed and not past
+  `valid_until`, never in `?_preview=`, and only with the per-quote `answer_nonce`
+  (`QuoteService::acceptNonce()`). Expired quotes show "call us". The legacy
+  `public/crm/customer/quote.php` 301s to the real page.
+- The client PDF link is `customer/api/quote-pdf.php?token=` (the CRM endpoint sent clients to login).
+- `quote-upsell.php`: an add after approval calls `QuoteApprovalService::afterPostAcceptChange()`
+  (note back on "Just approved", activity row, push to admins); after approval only post-approval
+  extras can be removed; bundle matching is exact, in PHP.
+- Quote SMS = `QuoteService::quoteSentSms()` (no link, (778) 846-9273), tested with `smsProblems()`.
+Not done: a post-approval extra is not added to the existing job automatically — the office adds it.

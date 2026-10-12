@@ -83,3 +83,21 @@ is unknown — cPanel → Metrics → Raw Access needs Tim's login.
 **Check to build (security):** a weekly request from the server to a fixed list of paths that must
 answer 403/404 (the files above, `/app_config/config.php`, `/.git/HEAD`, `crm/api/once-*.php`
 leftovers); red on any 200.
+
+## 2026-10-12 — Fable review (security)
+Rules now enforced in code:
+- Every `public/crm/api/run-migration-*.php` calls `migrationRunnerGuard()`: admin/database.manage
+  only; GET shows a confirm button; the run needs POST + CSRF. Removed (applied on prod):
+  run-migration-ba-pairs, -quiz7, -quote-tracking — the lead deletes them from the server.
+  Four prod-only runners (1030, 1035, 1068, 1330) were pulled into the repo and guarded.
+- JWT: role and is_active come from `users` per request (`jwtCurrentUser()`); no fallback signing key
+  (a missing/short BLUEMOON_JWT_SECRET fails closed; Ada's Security group shows its length only).
+- Login throttle: pair 5, per IP 20, per email 15 in 10 minutes (`loginThrottled()`).
+- 3+ 'warning' runs in a row is red/failing in `AdaRules::cronCheck()`.
+- `public/vendor/` denies all HTTP; `documents/download.php` needs billing.view;
+  `opcache-reset.php` is POST + CSRF (the URL shows a button).
+- `dev-context.php` reads `X-Context-Token`; `?token=` stays until `.claude/hooks/fetch-dev-context.sh`
+  sends the header (a config change left for Tim).
+Not changed: `session_config.php` — production already sends SameSite=Lax to every client (the
+repo's Capacitor SameSite=None branch was never deployed). FTP `ssl:verify-certificate no` in
+scripts/ — reported only.

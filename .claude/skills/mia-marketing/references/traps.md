@@ -77,3 +77,23 @@ consent only; 68 had consent when sent, contact 24 (a same-second yes/withdrawn)
 Fixed: the sender now refreshes the ledger once per run and `canSendMarketing()` asks
 `ConsentLedgerService::allows()` whenever it knows the contact id — one consent source.
 **Rule:** after touching any send path, `scripts/prod-file.sh` it — a missing gate on prod is silent.
+
+## 2026-10-12 — Fable review
+Rules now enforced in code:
+- Commercial automation emails (`automation_runner.php` send_email for any trigger but requested
+  quotes and bills owed — `CaslRules::isCommercialTrigger()`) ask `canSendMarketing()` with the
+  contact id at send time and go out only through `CaslRules::composeHtml()` (postal address +
+  unsubscribe, or null = not sent). Same for referral invites and review requests.
+- Referral reward notices are treated as transactional (not consent-gated) but carry the footer.
+  **Tim to confirm.** `ReferralRules`: no self-referral (email/phone), no existing clients, one
+  referral per person; awards only for a different contact's first completed visit.
+- A withdrawal is undone only by express consent (`ConsentLedgerService::evaluate`); prod contacts
+  28, 78, 1316 lost implied email consent that a later job had re-granted.
+- CMS block/page endpoints need `marketing.edit`; block HTML goes through `CmsHtmlSanitizer` on
+  save and on render (rich_text, custom, text sections).
+- Tracking links are signed (`TrackingLinks`): unsigned clicks redirect only to mowology.ca and
+  count nothing; unsubscribe links are never tracked. Opens count only with a signed pixel.
+- `campaign_sender.php` holds a MySQL named lock and claims each row pending → sending; a row left
+  in `sending` >1 h fails ("interrupted") instead of being re-sent.
+- Meta page tokens stay in the session (`?action=pages` no longer returns them).
+Not done: emails sent before 2026-10-12 carry unsigned links — their clicks/opens no longer count.
