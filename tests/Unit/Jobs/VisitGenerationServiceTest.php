@@ -221,8 +221,12 @@ class VisitGenerationServiceTest extends TestCase
 
     public function test_moved_visits_are_found_off_the_old_pattern(): void
     {
-        $visits = [['id' => 1, 'scheduled_date' => '2026-10-14'], ['id' => 2, 'scheduled_date' => '2026-10-22'], ['id' => 3, 'scheduled_date' => '2026-10-28']];
-        // Weekly Wednesdays: Oct 14, 21, 28 — visit 2 was moved to Thursday the 22nd.
+        $visits = [['id' => 1, 'scheduled_date' => '2026-10-14', 'original_scheduled_date' => null],
+                   ['id' => 2, 'scheduled_date' => '2026-10-22', 'original_scheduled_date' => '2026-10-21'],
+                   ['id' => 3, 'scheduled_date' => '2026-10-30', 'original_scheduled_date' => null],
+                   ['id' => 4, 'scheduled_date' => '2026-10-28', 'original_scheduled_date' => null]];
+        // Weekly Wednesdays: Oct 14, 21, 28 — visit 2 was moved to Thursday the 22nd; visit 3 is
+        // off pattern with no move record (a leftover of an older pattern) and is not kept.
         $this->assertSame([2], VisitGenerationService::movedOffPattern($visits, ['2026-10-14', '2026-10-21', '2026-10-28']));
     }
 }

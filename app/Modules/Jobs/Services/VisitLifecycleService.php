@@ -826,7 +826,9 @@ class VisitLifecycleService
      * @return array ['set' => string[], 'params' => mixed[]]
      */
     public static function buildMoveVisitSet(string $newDate, int $newStopId, ?string $newTimeStart): array {
-        $setClauses = ["scheduled_date = ?"];
+        // Remember the first date it had (MySQL assigns left to right, so this must come before
+        // scheduled_date). A recurrence edit keeps visits that were moved (2026-10-12).
+        $setClauses = ["original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date)", "scheduled_date = ?"];
         $params = [$newDate];
         if ($newStopId > 0) {
             $setClauses[] = "stop_id = ?";

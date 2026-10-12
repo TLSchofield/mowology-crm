@@ -256,9 +256,11 @@ class VisitGenerationService
     }
 
     /**
-     * Ids of visits whose date the plan's recurrence would NOT have produced — someone moved
-     * them (office, Otto, rollover). A recurrence edit keeps these. PURE.
-     * @param array    $visits   rows with id, scheduled_date
+     * Ids of visits someone MOVED: the date is one the plan's recurrence would not produce AND the
+     * visit carries original_scheduled_date (set by every move path: moveVisit, stop moves,
+     * pull-forward, rollover). Off-pattern visits with no move record are leftovers of an older
+     * pattern and are not kept. A recurrence edit keeps the moved ones. PURE.
+     * @param array    $visits   rows with id, scheduled_date, original_scheduled_date
      * @param string[] $expected dates calculateRecurrenceDates() gives for the old pattern
      * @return int[]
      */
@@ -266,7 +268,7 @@ class VisitGenerationService
         $on = array_flip($expected);
         $keep = [];
         foreach ($visits as $v) {
-            if (!isset($on[(string)$v['scheduled_date']])) $keep[] = (int)$v['id'];
+            if (!isset($on[(string)$v['scheduled_date']]) && !empty($v['original_scheduled_date'])) $keep[] = (int)$v['id'];
         }
         return $keep;
     }

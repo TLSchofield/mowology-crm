@@ -136,7 +136,8 @@ class StopRescheduleService
 
                 $this->db->prepare("
                     UPDATE job_visits
-                    SET stop_id = ?, scheduled_date = ?, updated_at = NOW()
+                    SET stop_id = ?, original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date),
+                        scheduled_date = ?, updated_at = NOW()
                     WHERE stop_id = ? AND status = 'scheduled'
                 ")->execute([$resultStopId, $newDate, $stopId]);
 
@@ -174,7 +175,7 @@ class StopRescheduleService
                     "UPDATE calendar_stops SET " . implode(', ', $setClauses) . " WHERE id = ?"
                 )->execute($params);
 
-                $visitUpdate = "UPDATE job_visits SET scheduled_date = ?";
+                $visitUpdate = "UPDATE job_visits SET original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date), scheduled_date = ?";
                 $visitParams = [$newDate];
                 if ($newTime) {
                     $visitUpdate  .= ", scheduled_time_start = ?";
@@ -240,7 +241,7 @@ class StopRescheduleService
         } catch (PDOException $e) {
             // very old schema without the junction table
         }
-        $sql = "UPDATE job_visits SET stop_id = ?, scheduled_date = ?" . ($newTime ? ", scheduled_time_start = ?" : "")
+        $sql = "UPDATE job_visits SET stop_id = ?, original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date), scheduled_date = ?" . ($newTime ? ", scheduled_time_start = ?" : "")
              . ", updated_at = NOW() WHERE stop_id = ? AND status = 'scheduled'";
         $params = $newTime ? [$newId, $newDate, $newTime, $oldId] : [$newId, $newDate, $oldId];
         $this->db->prepare($sql)->execute($params);

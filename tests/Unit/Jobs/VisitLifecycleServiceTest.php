@@ -161,14 +161,14 @@ class VisitLifecycleServiceTest extends TestCase
     public function test_move_set_date_only_when_no_stop(): void
     {
         $b = VisitLifecycleService::buildMoveVisitSet('2026-07-01', 0, null);
-        $this->assertSame(['scheduled_date = ?'], $b['set']);
+        $this->assertSame(['original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date)', 'scheduled_date = ?'], $b['set']);
         $this->assertSame(['2026-07-01'], $b['params']);
     }
 
     public function test_move_set_includes_stop_and_time(): void
     {
         $b = VisitLifecycleService::buildMoveVisitSet('2026-07-01', 55, '09:30');
-        $this->assertSame(['scheduled_date = ?', 'stop_id = ?', 'scheduled_time_start = ?'], $b['set']);
+        $this->assertSame(['original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date)', 'scheduled_date = ?', 'stop_id = ?', 'scheduled_time_start = ?'], $b['set']);
         $this->assertSame(['2026-07-01', 55, '09:30'], $b['params']);
     }
 

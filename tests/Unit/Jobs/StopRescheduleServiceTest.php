@@ -21,7 +21,7 @@ final class StopRescheduleServiceTest extends TestCase
         $this->db->sqliteCreateFunction('NOW', static fn () => '2026-09-29 08:00:00', 0);
 
         $this->db->exec("CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, crew_id INT, property_id INT, stop_date TEXT, route_order INT, estimated_arrival TEXT, estimated_departure TEXT, status TEXT, updated_at TEXT)");
-        $this->db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, stop_id INT, plan_id INT, status TEXT, scheduled_date TEXT, scheduled_time_start TEXT, updated_at TEXT)");
+        $this->db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, stop_id INT, plan_id INT, status TEXT, original_scheduled_date TEXT, scheduled_date TEXT, scheduled_time_start TEXT, updated_at TEXT)");
         $this->db->exec("CREATE TABLE job_plans (id INTEGER PRIMARY KEY, estimated_duration_minutes INT)");
 
         $this->db->exec("INSERT INTO job_plans (id, estimated_duration_minutes) VALUES (1, 60), (2, 500)");

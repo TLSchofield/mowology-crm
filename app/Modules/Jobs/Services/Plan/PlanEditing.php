@@ -191,7 +191,7 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
             // (2026-10-12). Moved = a date the OLD recurrence would not have produced.
             require_once dirname(__DIR__) . '/VisitGenerationService.php';
             require_once dirname(__DIR__) . '/CalendarStopTidyService.php';
-            $fut = $db->prepare("SELECT id, scheduled_date, stop_id FROM job_visits WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()");
+            $fut = $db->prepare("SELECT id, scheduled_date, stop_id, original_scheduled_date FROM job_visits WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()");
             $fut->execute([$planId]);
             $futureVisits = $fut->fetchAll(PDO::FETCH_ASSOC);
             $keepIds = [];
