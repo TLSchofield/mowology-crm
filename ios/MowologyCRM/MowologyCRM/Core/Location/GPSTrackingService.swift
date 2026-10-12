@@ -515,6 +515,9 @@ final class GPSTrackingService: ObservableObject {
         )
 
         autoStartedPayload = payload
+        if payload.clockInCreated == true {
+            NotificationCenter.default.post(name: .mwShiftMayHaveStarted, object: nil)
+        }
         Task {
             // Reset after a tick so observers see the change even if the same visit fires twice.
             try? await Task.sleep(nanoseconds: 100_000_000)

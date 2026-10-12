@@ -69,8 +69,16 @@ struct MainTabView: View {
             PullForwardSheet(coordinator: pullForward, offer: offer)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { pullForward.appBecameActive(authSession: authSession) }
+            if phase == .active {
+                pullForward.appBecameActive(authSession: authSession)
+                checkDriverQuestion()
+            }
             else if phase == .background { pullForward.appWentInactive() }
+        }
+        // The vehicle question is keyed off the server's shift, not the Clock In button: an
+        // automatic clock-in (arrival, job start) used to skip the pre-trip entirely.
+        .onReceive(NotificationCenter.default.publisher(for: .mwShiftMayHaveStarted)) { _ in
+            checkDriverQuestion()
         }
         // Every notification route today lands on the schedule; ScheduleView
         // consumes the route itself and opens the stop.
@@ -79,6 +87,7 @@ struct MainTabView: View {
         }
         .onAppear {
             pullForward.appBecameActive(authSession: authSession)
+            checkDriverQuestion()
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
             else if notificationRouter.pendingHead != nil { openTeamForHead() }
         }
@@ -86,6 +95,17 @@ struct MainTabView: View {
         // TeamView consumes the route and shows that head's card. Admins only have Team.
         .onChange(of: notificationRouter.pendingHead) { _, head in
             if head != nil { openTeamForHead() }
+        }
+    }
+
+    /// Clocked in on the server but not yet asked "are you driving today?" → open the Time Clock
+    /// tab, whose own sheet asks (no new root-level sheet: those blocked other sheets 2026-10-08).
+    private func checkDriverQuestion() {
+        Task {
+            if await DriverTripViewModel.shiftNeedsDriverAnswer(authSession: authSession),
+               notificationRouter.pendingRoute == nil {
+                selectedTab = .timeClock
+            }
         }
     }
 

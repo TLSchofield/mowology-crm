@@ -106,14 +106,34 @@ final class DriverTripViewModel: ObservableObject {
     }
 
     /// The server is the record, but it can't be asked offline — don't re-ask on every launch.
-    private static var todayKey: String {
+    /// Per person: on a shared phone, one crew member's answer is not the next one's.
+    private static func todayKey(userId: Int) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.locale     = Locale(identifier: "en_US_POSIX")
-        return "mw.driverAsked." + f.string(from: Date())
+        return "mw.driverAsked.\(userId)." + f.string(from: Date())
     }
-    private var answeredToday: Bool { UserDefaults.standard.bool(forKey: Self.todayKey) }
-    private func markAnswered() { UserDefaults.standard.set(true, forKey: Self.todayKey) }
+    private static func answeredToday(userId: Int) -> Bool {
+        UserDefaults.standard.bool(forKey: todayKey(userId: userId))
+    }
+    private var answeredToday: Bool { Self.answeredToday(userId: userId) }
+    /// TimeClockView asks again on appear only while this is true (saves a request otherwise).
+    var stillToAnswerToday: Bool { !answeredToday }
+    private func markAnswered() { UserDefaults.standard.set(true, forKey: Self.todayKey(userId: userId)) }
+
+    /// App level: is this person on a shift (from the SERVER — an automatic clock-in on arrival
+    /// or a job start never touches the Clock In button) that hasn't said whether they're
+    /// driving? MainTabView then opens the Time Clock tab, which asks.
+    static func shiftNeedsDriverAnswer(authSession: AuthSession) async -> Bool {
+        guard let userId = authSession.user?.id, userId > 0, !answeredToday(userId: userId) else { return false }
+        let client = APIClient(authSession: authSession)
+        guard let clock: ClockStatusResponse = try? await client.request(.scheduleClockStatus),
+              clock.clockedIn,
+              let trip: TripReportStatus = try? await client.request(.tripReportStatus)
+        else { return false }
+        if TripReportQueue.shared.impliedOpenTrip(for: userId) != nil { return false }
+        return trip.declared == nil && trip.tripState != "open"
+    }
 
     // MARK: - Filing (server first, queue as backup)
 
@@ -129,17 +149,21 @@ final class DriverTripViewModel: ObservableObject {
         errorMessage = nil
         defer { isWorking = false }
 
+        // The moment the driver did it — one stamp for the live try AND any queued replay, so the
+        // server can tell a replay of a lost-answer request from a new entry.
+        let performedAt = Int64(Date().timeIntervalSince1970 * 1000)
+
         // Anything already waiting goes first, so entries reach the server in the order they
         // happened. If it still can't be sent, this one joins the back of the queue.
         await sync()
         if queue.waitingCount(for: userId) > 0 {
             queue.enqueue(userId: userId, action: action, body: body, vehicleId: vehicleId,
-                          odometerStart: odometerStart, mayDrive: mayDrive)
+                          odometerStart: odometerStart, mayDrive: mayDrive, performedAt: performedAt)
             return .queued
         }
 
         var live = body
-        live["performed_at"] = Int64(Date().timeIntervalSince1970 * 1000)
+        live["performed_at"] = performedAt
         do {
             let result: TripReportStatus = try await apiClient.request(.tripReportAction, body: live)
             guard result.success else { return .rejected(result.message ?? "The server did not accept this entry.") }
@@ -152,12 +176,12 @@ final class DriverTripViewModel: ObservableObject {
             default:
                 // No signal, timeout, or signed out mid-request: keep the driver's work.
                 queue.enqueue(userId: userId, action: action, body: body, vehicleId: vehicleId,
-                              odometerStart: odometerStart, mayDrive: mayDrive)
+                              odometerStart: odometerStart, mayDrive: mayDrive, performedAt: performedAt)
                 return .queued
             }
         } catch {
             queue.enqueue(userId: userId, action: action, body: body, vehicleId: vehicleId,
-                          odometerStart: odometerStart, mayDrive: mayDrive)
+                          odometerStart: odometerStart, mayDrive: mayDrive, performedAt: performedAt)
             return .queued
         }
     }
@@ -323,4 +347,10 @@ final class DriverTripViewModel: ObservableObject {
             return TripVehicle(id: id, label: parts.count > 1 ? parts[1] : id)
         }
     }
+}
+
+extension Notification.Name {
+    /// The server may have clocked this person in without the Clock In button (arrival
+    /// auto-start, a job started while clocked out). MainTabView checks the driver question.
+    static let mwShiftMayHaveStarted = Notification.Name("ca.mowology.shiftMayHaveStarted")
 }

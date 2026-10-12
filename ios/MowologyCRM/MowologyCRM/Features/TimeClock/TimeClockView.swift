@@ -96,6 +96,11 @@ struct TimeClockView: View {
             .onChange(of: viewModel.clockedIn, initial: true) { _, clockedIn in
                 if clockedIn { Task { await driver.askIfNeeded() } }
             }
+            // Coming back to this tab already clocked in (e.g. MainTabView opened it after an
+            // automatic clock-in): clockedIn doesn't change, so ask here too.
+            .onAppear {
+                if viewModel.clockedIn, driver.stillToAnswerToday { Task { await driver.askIfNeeded() } }
+            }
             .sheet(isPresented: $driver.showDeclaration) { DriverDeclarationSheet(viewModel: driver) }
             .sheet(isPresented: $driver.showPreTrip) { PreTripView(viewModel: driver) }
             .sheet(isPresented: $driver.showPostTrip, onDismiss: { clockOutAfterPostTrip = false }) {

@@ -196,6 +196,7 @@ final class VisitDetailViewModel: ObservableObject {
                 isClockedIn = true   // job started → clock is definitely running now
                 if response.autoClockIn == true {
                     autoClockInNotice = "You've been automatically clocked in."
+                    NotificationCenter.default.post(name: .mwShiftMayHaveStarted, object: nil)
                 }
             } else {
                 setError(response.message ?? "Failed to start job.")
