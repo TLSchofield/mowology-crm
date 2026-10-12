@@ -73,12 +73,14 @@ final class TripReportQueue: ObservableObject {
         pending(for: userId).last(where: { $0.action == "pre_trip" || $0.action == "post_trip" })?.action == "post_trip"
     }
 
+    /// `performedAt`: the epoch ms already sent on a live attempt that got no answer. The server
+    /// recognises a replay only by that exact time — a fresh stamp made a closed trip refuse it.
     func enqueue(userId: Int, action: String, body: [String: Any], vehicleId: String? = nil,
-                 odometerStart: Int? = nil, mayDrive: Bool? = nil) {
+                 odometerStart: Int? = nil, mayDrive: Bool? = nil, performedAt: Int64? = nil) {
         guard let json = try? JSONSerialization.data(withJSONObject: body) else { return }
         items.append(PendingTripAction(
             id: UUID().uuidString, userId: userId, action: action, bodyJSON: json,
-            performedAt: Int64(Date().timeIntervalSince1970 * 1000),
+            performedAt: performedAt ?? Int64(Date().timeIntervalSince1970 * 1000),
             rejection: nil, vehicleId: vehicleId, odometerStart: odometerStart, mayDrive: mayDrive
         ))
         persist()
