@@ -92,10 +92,11 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Orphan deposits → what they paid | `DepositBackfillService` | one-off backfill, re-runnable |
 | Journal posting | `LedgerSyncService`, `LedgerAccountMap`, `JobberLedgerService` | nightly sync |
 
-**Not yet central (known):** the 5% GST rate is written in about eight places (receipt parser,
-product matcher, Jobber back-calculation, two on-screen calculators, the risk checks). Planned:
-one BC tax-rules module every caller asks. Until then, a GST rule change means finding every copy
-(`grep -rn "0\.05" app public/crm`).
+**GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
+(`business_settings.gst_rate`); `TaxEngine::getRates()` (ledger, GST report) and the two on-screen
+calculators use it, as the invoice screens already did. **Still separate (known):** the receipt
+parser, product matcher, Jobber back-calculation and risk checks assume 5% for *reading* receipts —
+move each onto `TaxEngine::gstRate()` when touched (`grep -rn "0\.05" app public/crm`).
 
 ## Keeping this skill true
 
