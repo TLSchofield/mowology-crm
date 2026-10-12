@@ -45,6 +45,12 @@ if ($ts['user_id'] != $user['id'] && !in_array($user['role'], ['admin', 'manager
 
 $canApprove = in_array($user['role'], ['admin', 'manager']) && $ts['user_id'] != $user['id'];
 $canEdit    = in_array($user['role'], ['admin', 'manager']);
+// Changing time: never on an approved week (reopen it first), and only an admin changes their
+// own (TimeclockRules::canEditTimeOf — the edit API enforces the same, 2026-10-12).
+require_once APP_ROOT . '/Modules/Team/Services/TimeclockRules.php';
+$canChangeTime = TimeclockRules::canEditTimeOf((string)$user['role'], (int)$user['id'], (int)$ts['user_id'])
+    && $ts['status'] !== 'approved';
+$canReopen  = $canApprove && $ts['status'] === 'approved';
 
 // Get clock entries for this week.
 // Managers see voided entries too (so they can audit); employees see only active/completed/edited.
@@ -273,7 +279,7 @@ $activePage = 'timesheets';
             <span class="mw-ts-entry-duration">
                 <?php echo $isVoided ? '—' : formatMinutesAsHours((int)($ce['total_minutes'] ?? 0)); ?>
             </span>
-            <?php if ($canEdit && !$isVoided): ?>
+            <?php if ($canChangeTime && !$isVoided): ?>
             <span class="mw-entry-actions">
                 <button type="button" class="btn btn-sm btn-outline-secondary js-edit-entry"
                         data-id="<?php echo (int)$ce['id']; ?>"
@@ -329,7 +335,7 @@ $activePage = 'timesheets';
             <span class="mw-ts-entry-duration">
                 <?php echo formatMinutesAsHours((int)($je['duration_minutes'] ?? 0)); ?>
             </span>
-            <?php if ($canEdit): ?>
+            <?php if ($canChangeTime): ?>
             <span class="mw-entry-actions">
                 <button type="button" class="btn btn-sm btn-outline-danger js-void-job-entry"
                         data-id="<?php echo (int)$je['id']; ?>"
@@ -348,7 +354,7 @@ $activePage = 'timesheets';
         </div>
     <?php endif; ?>
 
-    <?php if ($canEdit): ?>
+    <?php if ($canChangeTime): ?>
     <div style="padding: 2px 12px 8px;">
         <button type="button" class="mw-day-add-btn js-add-entry"
                 data-date="<?php echo htmlspecialchars($day['date']); ?>"
@@ -372,6 +378,21 @@ $activePage = 'timesheets';
             on <?php echo $ts['reviewed_at'] ? date('M j, Y g:i A', strtotime($ts['reviewed_at'])) : ''; ?>
         </small>
     </div>
+</div>
+<?php endif; ?>
+
+<?php if ($canReopen): ?>
+<!-- Reopen an approved week (the only way its time can be changed again) -->
+<div class="mw-ts-action-bar">
+    <form method="post" action="/crm/api/timesheets.php" class="w-100">
+        <input type="hidden" name="timesheet_id" value="<?php echo (int)$ts['id']; ?>">
+        <input type="hidden" name="csrf_token"   value="<?php echo htmlspecialchars(generateCSRFToken()); ?>">
+        <input type="hidden" name="action"       value="reopen">
+        <label class="small text-muted" for="tsReopenNotes">Approved. To change this week's time, reopen it &mdash; say why:</label>
+        <textarea name="notes" id="tsReopenNotes" class="form-control form-control-sm mb-2" rows="2" required
+                  placeholder="e.g. Nigel's Tuesday clock-out was wrong"></textarea>
+        <button type="submit" class="mw-ts-reject-btn">Reopen for changes</button>
+    </form>
 </div>
 <?php endif; ?>
 

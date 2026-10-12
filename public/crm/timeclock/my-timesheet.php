@@ -31,6 +31,7 @@ $stmt = $db->prepare("
     FROM   time_clock_entries
     WHERE  user_id = ?
       AND  DATE(clock_in) BETWEEN ? AND ?
+      AND  status IN ('active', 'completed', 'edited')   -- voided shifts are not hours (2026-10-12)
     ORDER  BY clock_in ASC
 ");
 $stmt->execute([$user['id'], $weekStart, $weekEnd]);

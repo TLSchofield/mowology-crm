@@ -108,9 +108,13 @@ function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = tru
 /**
  * Resolve a stale active clock entry from a prior calendar day.
  *
- * If the user has an active entry whose clock_in date is before today,
- * it is auto-completed at clock_in + auto_clock_out_hours (default 10h).
- * Any matching open vehicle_trip_reports for that date are also closed.
+ * If the user's active entry has run longer than auto_clock_out_hours (default 10h) — the same
+ * threshold the auto_clockout cron uses — it is auto-completed at clock_in + auto_clock_out_hours.
+ * Any matching open vehicle_trip_reports for that date are also closed (never in the future).
+ *
+ * 2026-10-12: this used to fire on "clock_in date ≠ today", so an overnight snow/salt shift
+ * started at 22:00 was closed at the first app open after midnight with a clock_out in the
+ * FUTURE (22:00 + 10 h). Elapsed time decides now; see TimeclockRules::isStaleEntry().
  *
  * Call this at login-time before getActiveClockEntry() so the user starts
  * fresh rather than being trapped by a days-old record.
@@ -122,9 +126,9 @@ function resolveStaleClockEntry(int $userId): bool {
     if (!$entry) return false;
 
     $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
-    if ($clockInDate === date('Y-m-d')) return false;
-
     $autoHours = max(1, (int) getTimeClockSetting('auto_clock_out_hours', 10));
+    require_once __DIR__ . '/TimeclockRules.php';
+    if (!TimeclockRules::isStaleEntry((int)($entry['elapsed_seconds'] ?? 0), $autoHours)) return false;
     $db = getDB();
 
     $db->prepare("
@@ -143,7 +147,7 @@ function resolveStaleClockEntry(int $userId): bool {
     try {
         $db->prepare("
             UPDATE vehicle_trip_reports
-            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            SET post_trip_at = LEAST(DATE_ADD(pre_trip_at, INTERVAL 8 HOUR), NOW())
             WHERE driver_id    = ?
               AND report_date  = ?
               AND pre_trip_at  IS NOT NULL
@@ -195,13 +199,18 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) 
         }
     }
 
+    // TIMESTAMPDIFF counts wall-clock minutes; a shift across a DST change is corrected here.
+    require_once __DIR__ . '/TimeEntryGuard.php';
+    TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$entry['id']);
+
     // Get the calculated total
     $result = $db->prepare("SELECT total_minutes FROM time_clock_entries WHERE id = ?");
     $result->execute([$entry['id']]);
     $row = $result->fetch(PDO::FETCH_ASSOC);
 
-    // Ensure/create timesheet for this week (use Pacific date)
-    ensureTimesheetExists($userId, date('Y-m-d'));
+    // Recalculate the week the SHIFT belongs to (by clock-in), not today's: an overnight
+    // shift clocked out on Monday morning belongs to the week before (2026-10-12).
+    ensureTimesheetExists($userId, date('Y-m-d', strtotime($entry['clock_in'])));
 
     return (int)$row['total_minutes'];
 }
@@ -423,15 +432,20 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
             status = 'completed'
         WHERE id = ? AND status = 'active' AND end_time IS NULL
     ");
-    $durStmt = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");
+    require_once __DIR__ . '/TimeEntryGuard.php';
+    $durStmt = $db->prepare("SELECT duration_minutes, user_id, start_time FROM job_time_entries WHERE id = ?");
     $duration = 0;
+    $touchedWeeks = [];   // [user_id => [start_time...]] — every stopped timer's own week
     foreach ($plan['stop'] as $entryId) {
         $isOwn = ($entryId === $plan['own']);
         $entryNotes = $isOwn ? $notes : trim(($notes ? $notes . ' — ' : '') . $takeoverNote);
         $stopStmt->execute([$at, $at, $lat, $lng, $entryNotes, $entryId]);
+        TimeEntryGuard::fixDst($db, 'job_time_entries', (int)$entryId);
 
         $durStmt->execute([$entryId]);
-        $mins = (int)$durStmt->fetchColumn();
+        $durRow = $durStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $mins = (int)($durRow['duration_minutes'] ?? 0);
+        if (!empty($durRow['user_id'])) $touchedWeeks[(int)$durRow['user_id']][] = (string)$durRow['start_time'];
         // Report the caller's own minutes; with no own timer, the longest one ended.
         if ($isOwn || ($plan['own'] === null && $mins > $duration)) {
             $duration = $mins;
@@ -472,8 +486,13 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         }
     }
 
-    // Ensure timesheet exists
-    ensureTimesheetExists($userId, date('Y-m-d'));
+    // Recalculate the week of every timer stopped here — its owner's, by its start (2026-10-12:
+    // this used today's date for the caller only, so a timer stopped for another crew member, or
+    // across Sunday midnight, left that week's totals stale).
+    foreach ($touchedWeeks as $owner => $starts) {
+        TimeEntryGuard::recalcWeeks((int)$owner, $starts);
+    }
+    if (!$touchedWeeks) ensureTimesheetExists($userId, date('Y-m-d'));
 
     return $duration;
 }

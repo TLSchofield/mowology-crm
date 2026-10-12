@@ -28,6 +28,7 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
 
     requireLogin();
     $actor = getCurrentUser();
@@ -75,9 +76,18 @@ try {
     }
 
     $userId    = (int)$entry['user_id'];
-    $weekStart = date('Y-m-d', strtotime('monday this week', strtotime($entry['start_time'])));
-    if (strtotime($weekStart) > strtotime($entry['start_time'])) {
-        $weekStart = date('Y-m-d', strtotime('monday last week', strtotime($entry['start_time'])));
+    $weekStart = TimeclockRules::weekStart((string)$entry['start_time']);
+
+    // Same guards as clock entries (TimeEntryGuard, 2026-10-12).
+    if (!TimeclockRules::canEditTimeOf((string)$actor['role'], (int)$actor['id'], $userId)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Only an admin can change their own time.']);
+        exit;
+    }
+    if ($why = TimeEntryGuard::refusal($db, $userId, [(string)$entry['start_time']])) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => $why]);
+        exit;
     }
 
     // ── VOID ─────────────────────────────────────────────────────────────────────
@@ -131,11 +141,14 @@ try {
         $db->prepare("
             UPDATE job_time_entries
             SET duration_minutes = ?,
+                -- keep end_time in step: TimesheetService::buildWeek and the crew's own
+                -- timesheet read end - start, so a duration-only fix disagreed (2026-10-12)
+                end_time         = DATE_ADD(start_time, INTERVAL ? MINUTE),
                 status           = 'edited',
                 flagged_anomaly  = 0,
                 notes            = CONCAT(COALESCE(notes, ''), ' [duration corrected by admin: ' , ? , ']')
             WHERE id = ?
-        ")->execute([$newMinutes, $actor['full_name'] ?? $actor['email'], $entryId]);
+        ")->execute([$newMinutes, $newMinutes, $actor['full_name'] ?? $actor['email'], $entryId]);
 
         $db->prepare("
             UPDATE job_visits

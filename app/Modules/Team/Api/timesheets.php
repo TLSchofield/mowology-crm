@@ -42,7 +42,7 @@ if (!verifyCSRFToken($csrfToken)) {
     exit;
 }
 
-if (!$timesheetId || !in_array($action, ['approve', 'reject'])) {
+if (!$timesheetId || !in_array($action, ['approve', 'reject', 'reopen'])) {
     $_SESSION['flash_error'] = 'Invalid request.';
     header('Location: /crm/timeclock/timesheets.php');
     exit;
@@ -64,6 +64,28 @@ if (!$ts) {
 // Can't approve your own timesheet
 if ($ts['user_id'] == $user['id']) {
     $_SESSION['flash_error'] = 'You cannot approve your own timesheet.';
+    header("Location: /crm/timeclock/timesheet-detail.php?id={$timesheetId}");
+    exit;
+}
+
+// Reopen an approved week so its time can be corrected (edits to an approved week are refused —
+// TimeEntryGuard, 2026-10-12). Back to 'submitted' with the reason appended to the review notes.
+if ($action === 'reopen') {
+    if ($ts['status'] !== 'approved' || trim((string)$notes) === '') {
+        $_SESSION['flash_error'] = 'Only an approved timesheet can be reopened, and it needs a reason.';
+        header("Location: /crm/timeclock/timesheet-detail.php?id={$timesheetId}");
+        exit;
+    }
+    $db->prepare("
+        UPDATE timesheets
+        SET status = 'submitted',
+            reviewer_notes = TRIM(CONCAT(COALESCE(reviewer_notes, ''), '\n', ?))
+        WHERE id = ? AND status = 'approved'
+    ")->execute(['Reopened ' . date('M j') . ' by ' . ($user['full_name'] ?? ('#' . $user['id'])) . ': ' . trim((string)$notes), $timesheetId]);
+    if (function_exists('logActivity')) {
+        logActivity($user['id'], null, 'Reopened approved timesheet #' . $timesheetId, trim((string)$notes));
+    }
+    $_SESSION['flash_success'] = 'Timesheet reopened. Change the time, then approve it again.';
     header("Location: /crm/timeclock/timesheet-detail.php?id={$timesheetId}");
     exit;
 }

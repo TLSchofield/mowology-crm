@@ -342,6 +342,12 @@ try {
                 exit;
             }
             $voidUserId = (int)$input['user_id'];
+            require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+            if (!TimeclockRules::canEditTimeOf((string)$user['role'], (int)$user['id'], $voidUserId)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Only an admin can close their own shift this way.']);
+                exit;
+            }
             $voidReason = trim($input['reason'] ?? 'admin override');
             $voidEntry  = getActiveClockEntry($voidUserId);
             if (!$voidEntry) {
@@ -359,6 +365,8 @@ try {
                     edited_at     = NOW()
                 WHERE id = ?
             ")->execute([$user['id'], $voidReason, $voidEntry['id']]);
+            TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$voidEntry['id']);
+            ensureTimesheetExists($voidUserId, date('Y-m-d', strtotime($voidEntry['clock_in'])));
             logActivity($user['id'], null, 'Admin void clock entry #' . $voidEntry['id'] . ' for user #' . $voidUserId, $voidReason);
             echo json_encode(['success' => true, 'message' => 'Clock entry voided']);
             break;
@@ -402,25 +410,43 @@ try {
                 exit;
             }
 
+            // Same guards as /crm/api/time-entry-edit.php (TimeEntryGuard, 2026-10-12): only an
+            // admin adds their own time, never into an approved week, never over another shift.
+            require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+            if (!TimeclockRules::canEditTimeOf((string)$user['role'], (int)$user['id'], $targetUserId)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Only an admin can add their own time.']);
+                exit;
+            }
+            if ($why = TimeEntryGuard::refusal($db, $targetUserId, [$clockInDt])) {
+                http_response_code(409);
+                echo json_encode(['error' => $why]);
+                exit;
+            }
+            if ($clash = TimeEntryGuard::overlapping($db, $targetUserId, $clockInDt, $clockOutDt)) {
+                http_response_code(409);
+                echo json_encode(['error' => 'That overlaps another shift (' . date('M j g:i a', strtotime($clash['clock_in']))
+                    . ($clash['clock_out'] ? ' – ' . date('g:i a', strtotime($clash['clock_out'])) : ', still running') . ').']);
+                exit;
+            }
+
             $noteText = 'Manual entry by admin #' . $user['id'];
             if ($entryNotes) $noteText .= ': ' . $entryNotes;
 
             $db->prepare("
                 INSERT INTO time_clock_entries
                     (user_id, clock_in, clock_out, total_minutes, status, notes)
-                VALUES (?, ?, ?,
-                    TIMESTAMPDIFF(MINUTE, ?, ?),
-                    'completed', ?)
+                VALUES (?, ?, ?, ?, 'completed', ?)
             ")->execute([
                 $targetUserId, $clockInDt, $clockOutDt,
-                $clockInDt, $clockOutDt,
+                TimeclockRules::minutesBetween($clockInDt, $clockOutDt),   // real minutes (DST-safe)
                 $noteText,
             ]);
 
             ensureTimesheetExists($targetUserId, $entryDate);
             logActivity($user['id'], null, 'Admin added manual clock entry for user #' . $targetUserId . ' on ' . $entryDate, $noteText);
 
-            $minutes = (strtotime($clockOutDt) - strtotime($clockInDt)) / 60;
+            $minutes = TimeclockRules::minutesBetween($clockInDt, $clockOutDt);
             echo json_encode([
                 'success'       => true,
                 'message'       => 'Clock entry added',

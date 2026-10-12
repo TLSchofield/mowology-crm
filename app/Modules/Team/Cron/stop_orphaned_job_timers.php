@@ -114,14 +114,16 @@ foreach ($orphans as $entry) {
 
         $db->prepare("
             UPDATE job_time_entries
-            SET end_time        = NOW(),
+            -- end_time = start + the (capped) minutes, so every screen agrees: the crew's
+            -- timesheet reads end - start (2026-10-12; NOW() made a capped 8 h timer show 20 h)
+            SET end_time        = DATE_ADD(start_time, INTERVAL ? MINUTE),
                 duration_minutes = ?,
                 notes            = CONCAT(COALESCE(notes, ''), ?),
                 status           = 'completed',
                 auto_stopped     = 1,
                 flagged_anomaly  = 1
             WHERE id = ?
-        ")->execute([$cappedMinutes, ' ' . $note, $entry['id']]);
+        ")->execute([$cappedMinutes, $cappedMinutes, ' ' . $note, $entry['id']]);
 
         // Log to visit_audit_log if table exists.
         try {

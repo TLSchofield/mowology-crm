@@ -175,7 +175,12 @@ class OttoActionService
         if (!$outTs || $outTs <= $inTs || $outTs > $inTs + OttoRules::MAX_SHIFT_HOURS * 3600) {
             return ['ok' => false, 'message' => 'The clock-out has to be after ' . date('g:i a', $inTs) . ' and within ' . OttoRules::MAX_SHIFT_HOURS . ' hours.'];
         }
-        $minutes = (int)round(($outTs - $inTs) / 60);
+        // An approved week is never changed silently (TimeEntryGuard, 2026-10-12).
+        require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+        if ($why = TimeEntryGuard::refusal($this->db, (int)$e['user_id'], [(string)$e['clock_in']])) {
+            return ['ok' => false, 'message' => $why];
+        }
+        $minutes = TimeclockRules::minutesBetween((string)$e['clock_in'], date('Y-m-d H:i:s', $outTs));   // DST-safe
         $this->db->prepare("
             UPDATE time_clock_entries
             SET clock_out = ?, total_minutes = ?, status = 'edited', edited_by = ?, edited_at = NOW(),
@@ -197,6 +202,10 @@ class OttoActionService
         $s->execute([(int)$sug['subject_id']]);
         $e = $s->fetch(PDO::FETCH_ASSOC);
         if (!$e) return ['ok' => false, 'message' => 'That timer is gone.'];
+        require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+        if ($why = TimeEntryGuard::refusal($this->db, (int)$e['user_id'], [(string)$e['start_time']])) {
+            return ['ok' => false, 'message' => $why];
+        }
         $this->db->prepare("
             UPDATE job_time_entries
             SET end_time = DATE_ADD(start_time, INTERVAL ? MINUTE), duration_minutes = ?, status = 'edited',

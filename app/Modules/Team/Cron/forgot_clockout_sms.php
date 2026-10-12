@@ -99,6 +99,12 @@ try {
     $hasForgotCol = false;
     fcoLog('forgot_sms_sent_at column missing — run migration 1004 first');
 }
+// Without the column there is no "already texted" record ('0' reads as empty), so every run
+// would text the same person again. Send nothing until the migration is in (2026-10-12).
+if (!$hasForgotCol) {
+    __fcoRecord('error', 'Not sent: forgot_sms_sent_at column missing (run migration 1004)', 'missing column');
+    exit;
+}
 
 try {
     // Find all currently clocked-in employees who have home coordinates set
