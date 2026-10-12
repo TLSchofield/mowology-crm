@@ -64,3 +64,11 @@ invoices were sent before it, 8 never had a PDF at all.
 **Signature:** an invoice sitting "overdue" for a client who pays reliably; LeapAP "not accepted"
 mail in office@. **Rule:** read accounts-payable rejection emails and flag them the same day;
 re-send the backlog whenever an invoice-sending rule changes.
+
+## `applyAllocation()` with a deposit id does not reconcile the deposit (found 2026-10-12)
+Recording VCHA's INV-2026-0371 against the 14 Sep cheque with `applyAllocation(..., $transactionId, ...)`
+marked the invoice paid and wrote an income row, but left the deposit as `income` — the same $1,235.44
+counted twice (caught in the prod-run preview). **Rule:** paying an invoice FROM a bank deposit goes
+through `InvoiceReconciliationService::attach($transactionId, [[invoice_id, amount]], $userId)`, which
+records the payment AND flips the deposit to `transfer`; a payment already recorded is tied to its
+deposit with `linkAllocationsToDeposit()`. Check the deposit's `type` after every such write.
