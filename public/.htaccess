@@ -92,6 +92,13 @@ DirectoryIndex index.php index.html
     Deny from all
 </FilesMatch>
 
+# Internal docs, logs, dumps and editor/OS files — never web-readable (2026-10-12: CLAUDE.md,
+# .git-ftp.log, .DS_Store and *_ARCHITECTURE.md were all public). .well-known and llms.txt unaffected.
+<FilesMatch "(\.(md|log|sql|bak|orig|swp)|\.DS_Store|\.gitignore|\.git-ftp\.log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
 # ── URL Rewrites ──
 RewriteEngine On
 

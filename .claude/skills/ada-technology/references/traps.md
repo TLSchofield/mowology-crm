@@ -71,3 +71,15 @@ no `migrations_log` row.
 Every one ran "successfully" or showed a reassuring badge. The fix was always a **second
 source**: the mailbox vs the poller, the crontab vs the dashboard, the decrypt vs the badge.
 Ada's checks are pairs, not single readings.
+
+## Public files that should never be (found 2026-10-12)
+- `/crm/email-logs/email-YYYY-MM-DD.log` (EmailLogger, 150 daily files since 2026-02-10: recipient,
+  subject, headers, first 500 chars of text) answered HTTP 200 to anyone — no `.htaccess` in the folder.
+- `/CLAUDE.md`, `/.git-ftp.log`, `/.DS_Store`, `/loginAuth/loginAuth_ARCHITECTURE.md`, other `*.md`
+  in public_html: all 200.
+Fixed: `public/crm/email-logs/.htaccess` (deny all) and a FilesMatch block in `public/.htaccess`
+(md, log, sql, bak, orig, swp, .DS_Store, .gitignore, .git-ftp.log). Whether anyone fetched them
+is unknown — cPanel → Metrics → Raw Access needs Tim's login.
+**Check to build (security):** a weekly request from the server to a fixed list of paths that must
+answer 403/404 (the files above, `/app_config/config.php`, `/.git/HEAD`, `crm/api/once-*.php`
+leftovers); red on any 200.
