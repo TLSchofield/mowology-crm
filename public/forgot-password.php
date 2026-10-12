@@ -23,7 +23,7 @@ unset($__dir, $__i);
 
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/auth.php';
-require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
+require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // sendCrmEmail(): SMTP + fallback + logging (was the legacy mail()-only EmailHelper)
 
 // ── Handle POST ───────────────────────────────────────────────────────────
 $sent    = false;

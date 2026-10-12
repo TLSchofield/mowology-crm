@@ -81,7 +81,7 @@ if ($action === 'generate') {
 
 // ── action: email_pm ─────────────────────────────────────────────────────────
 if ($action === 'email_pm') {
-    require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
+    require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // sendCrmEmail(): SMTP + fallback + logging (was the legacy mail()-only EmailHelper)
 
     // Load report + contact details + weather decision
     $stmt = $db->prepare("

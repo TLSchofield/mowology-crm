@@ -19,7 +19,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';     // session, CSRF
 require_once APP_ROOT . '/Core/config.php';
-require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
+require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // sendCrmEmail(): SMTP + fallback + logging (was the legacy mail()-only EmailHelper)
 require_once APP_ROOT . '/Modules/Privacy/Services/PrivacyService.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -121,13 +121,14 @@ try {
         sendCrmEmail(
             defined('SITE_EMAIL') ? SITE_EMAIL : 'office@mowology.ca',
             "New Privacy Request #{$id} ({$typeLabel})",
-            "A new privacy {$typeLabel} request was submitted.\n\n"
+            nl2br("A new privacy {$typeLabel} request was submitted.\n\n"
             . "Name:  {$nameHtml}\n"
             . "Email: {$email}\n"
             . "Type:  {$typeLabel}\n"
             . "Notes: {$notesHtml}\n\n"
             . "Log in to the CRM to manage this request:\n"
-            . "https://mowology.ca/crm/privacy_appstack.php",
+            . "https://mowology.ca/crm/privacy_appstack.php"),
+            null,              // the 4th argument is an attachment path, not the sender
             'Mowology Admin'
         );
     }
