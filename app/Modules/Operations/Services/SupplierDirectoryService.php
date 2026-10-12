@@ -56,6 +56,41 @@ class SupplierDirectoryService
         return preg_match('/([a-z0-9._%+-]+@[a-z0-9.-]+)/', strtolower($email), $m) ? $m[1] : '';
     }
 
+    /**
+     * The real mailbox in a From/To header: the LAST <angle-bracketed> address, else the bare
+     * address. A display name can itself look like an address ("sales@supplier.com"
+     * <someone@elsewhere.net>) — the angle bracket is what mail is delivered to. '' when none.
+     */
+    public static function addressOf(string $header): string
+    {
+        if (preg_match_all('/<\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*>/', $header, $m) && $m[1]) {
+            return strtolower(end($m[1]));
+        }
+        $h = trim($header);
+        return preg_match('/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/', $h) ? strtolower($h) : '';
+    }
+
+    /**
+     * Is this address the supplier's? Its exact email, or a mailbox on its own (non-shared)
+     * domain or a subdomain of it. A substring is never enough: the inbox search
+     * `FROM "supplier.com"` also finds supplier.com.evil.net and evil-supplier.com (2026-10-12).
+     */
+    public static function senderMatches(string $address, array $supplier): bool
+    {
+        $a = strtolower(trim($address));
+        if ($a === '' || strpos($a, '@') === false) return false;
+        $email = strtolower(trim((string)($supplier['email'] ?? '')));
+        if ($email !== '' && $a === $email) return true;
+        $dom = strtolower(trim((string)($supplier['domain'] ?? '')));
+        if ($dom === '' && $email !== '') {
+            $d = self::domainOf($email);
+            $dom = self::isSharedDomain($d) ? '' : $d;
+        }
+        if ($dom === '' || self::isSharedDomain($dom)) return false;
+        $ad = substr($a, strrpos($a, '@') + 1);
+        return $ad === $dom || str_ends_with($ad, '.' . $dom);
+    }
+
     /** Distance in km between two points (haversine). */
     public static function km(float $lat1, float $lng1, float $lat2, float $lng2): float
     {

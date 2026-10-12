@@ -39,6 +39,30 @@ class SupplierInboxService
         return $id !== '' ? mb_substr($id, 0, 191) : 'sha:' . hash('sha256', strtolower($from) . '|' . $subject . '|' . $date);
     }
 
+    /**
+     * The receiving server's verdict says the From was forged: DMARC failed, or SPF failed with
+     * no passing DKIM signature. No verdict at all is not a failure (some hosts add none). PURE.
+     */
+    public static function authFailed(string $authResults): bool
+    {
+        $a = strtolower($authResults);
+        if ($a === '') return false;
+        if (preg_match('/\bdmarc=fail\b/', $a)) return true;
+        return (bool)preg_match('/\bspf=(fail|softfail)\b/', $a) && !preg_match('/\bdkim=pass\b/', $a);
+    }
+
+    /**
+     * Is this message really from $expected? The From ADDRESS (not a substring of the header)
+     * must belong to the supplier / licence sender, and the server must not have flagged it as
+     * forged. A forged sender would otherwise get our filled credit application and business
+     * licence on Tim's "Send it" (2026-10-12). PURE.
+     */
+    public static function fromIs(string $fromHeader, string $authResults, array $expected): bool
+    {
+        if (self::authFailed($authResults)) return false;
+        return SupplierDirectoryService::senderMatches(SupplierDirectoryService::addressOf($fromHeader), $expected);
+    }
+
     private function setting(string $key): string
     {
         try {
@@ -101,6 +125,15 @@ class SupplierInboxService
         $date = ImapReader::header($raw, 'Date');
         $toCc = trim($dec(ImapReader::header($raw, 'To')) . ', ' . $dec(ImapReader::header($raw, 'Cc')), ', ');
         $key = self::messageKey(ImapReader::header($raw, 'Message-ID'), $from, $subject, $date);
+        $auth = ImapReader::header($raw, 'Authentication-Results');
+        // The IMAP search matched a SUBSTRING of the From header — confirm the actual address.
+        $expected = $sid === 0
+            ? (strpos($this->setting('licence_sender'), '@') !== false ? ['email' => $this->setting('licence_sender')] : ['domain' => $this->setting('licence_sender')])
+            : ($dir->get($sid) ?? []);
+        if (!$expected || !self::fromIs($from, $auth, $expected)) {
+            error_log('[supplier inbox] ' . $label . ' #' . $no . ': sender ' . SupplierDirectoryService::addressOf($from) . ' is not ' . ($sid === 0 ? 'the licence sender' : 'supplier ' . $sid) . ' — skipped');
+            return;
+        }
         $ts = strtotime($date) ?: time();
         $st = @imap_fetchstructure($conn, $no);
         $pdfs = array_values(array_filter($st ? ImapReader::attachments($st) : [], fn($a) => stripos((string)$a['mime'], 'pdf') !== false

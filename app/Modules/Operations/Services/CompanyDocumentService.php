@@ -85,6 +85,23 @@ class CompanyDocumentService
         return $s->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
+    /**
+     * The current document only if it has not expired — what may be ATTACHED or counted as
+     * "on file" for a supplier. An expired licence stays current() (so Otto can say it expired)
+     * but is never sent (2026-10-12). Unknown expiry counts as usable.
+     */
+    public function usable(string $type, string $today): ?array
+    {
+        $d = $this->current($type);
+        return self::isUsable($d, $today) ? $d : null;
+    }
+
+    /** PURE. */
+    public static function isUsable(?array $doc, string $today): bool
+    {
+        return $doc !== null && self::expiryState(isset($doc['expires_on']) ? (string)$doc['expires_on'] : null, $today) !== 'expired';
+    }
+
     public static function absolutePath(array $doc): string
     {
         return rtrim(STORAGE_ROOT, '/') . '/' . ltrim((string)$doc['file_path'], '/');

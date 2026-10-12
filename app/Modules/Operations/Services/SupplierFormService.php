@@ -43,9 +43,13 @@ class SupplierFormService
     public static function looksLikeForm(string $fileName, string $subject, string $body, int $fieldCount): bool
     {
         if ($fieldCount <= 0) return false;
-        $words = $fileName . ' ' . $subject . ' ' . $body;
-        if (preg_match('/\b(invoice|statement|receipt|quote|estimate|packing slip)\b/i', $fileName)) return false;
-        if (preg_match('/applic|acc(ou)?n?t|credit|new customer|customer (info|set ?up)|set ?up|registration|form\b/i', $words)) return true;
+        if (preg_match('/\b(invoice|statement|receipt|quote|estimate|packing slip|price ?list|catalog(ue)?)\b/i', $fileName)) return false;
+        // The file name or subject may say it in a word ("Credit Application.pdf", "Account form")…
+        $name = $fileName . ' ' . $subject;
+        if (preg_match('/\bapplication\b|\bacc(?:ou)?n?t\b|\bacc ?app|\bcredit\b|new customer|customer (?:info|set ?up)|\bset ?up\b|registration|\bforms?\b/i', $name)) return true;
+        // …but the body only counts with a phrase: a lone "account", "applicable", "credit card"
+        // or "platform" in a covering note made any fillable PDF read as an application (2026-10-12).
+        if (preg_match('/\b(?:credit|account|customer)\s+(?:application|form|set ?up)\b|\bnew account\b|\bfill (?:it|this|the form|them) (?:out|in)\b/i', $body)) return true;
         return $fieldCount >= 5;
     }
 
@@ -81,9 +85,13 @@ class SupplierFormService
 
     /**
      * Who our reply goes to: the sender, with their other recipients copied — never ourselves.
+     * With $supplier (a supplier_accounts row), the sender must be that supplier's address
+     * (else `to` is '' and nothing may be sent) and only copies on the supplier's own domain
+     * are kept: our filled credit application and business licence go to the supplier, never
+     * to an address that merely appeared on the email (2026-10-12).
      * @return array{to: string, cc: string[]}
      */
-    public static function recipients(string $from, string $toAndCc, array $ours): array
+    public static function recipients(string $from, string $toAndCc, array $ours, ?array $supplier = null): array
     {
         $ours = array_map('strtolower', $ours);
         $isOurs = function (string $a) use ($ours): bool {
@@ -92,16 +100,23 @@ class SupplierFormService
             foreach ($ours as $o) if ($o !== '' && $o[0] === '@' && str_ends_with($a, $o)) return true;
             return false;
         };
-        preg_match_all('/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/', $from, $f);
-        $to = strtolower($f[0][0] ?? '');
+        $to = SupplierDirectoryService::addressOf($from);
+        if ($to === '') {
+            preg_match_all('/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/', $from, $f);
+            $to = strtolower($f[0][0] ?? '');
+        }
+        if ($supplier !== null && !SupplierDirectoryService::senderMatches($to, $supplier)) {
+            $to = '';
+        }
         preg_match_all('/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/', $toAndCc, $m);
         $cc = [];
         foreach ($m[0] as $a) {
             $a = strtolower($a);
             if ($a === $to || $isOurs($a) || in_array($a, $cc, true)) continue;
+            if ($supplier !== null && !SupplierDirectoryService::senderMatches($a, $supplier)) continue;
             $cc[] = $a;
         }
-        return ['to' => $to, 'cc' => $cc];
+        return ['to' => $to, 'cc' => $to === '' ? [] : $cc];
     }
 
     /** The covering note. */
@@ -219,6 +234,8 @@ class SupplierFormService
         if (!$this->ready()) return [];
         $out = [];
         $ours = self::ours();
+        $dir = new SupplierDirectoryService($this->db);
+        $docs = new CompanyDocumentService($this->db);
         foreach ($this->db->query("SELECT f.*, s.name AS supplier_name FROM supplier_forms f JOIN supplier_accounts s ON s.id = f.supplier_id WHERE f.status IN ('ready', 'unfillable') ORDER BY f.received_at")->fetchAll(PDO::FETCH_ASSOC) as $f) {
             if ($f['status'] === 'unfillable') {
                 $asks = (json_decode((string)$f['blanks_json'], true) ?: [])['yours'] ?? [];
@@ -235,18 +252,22 @@ class SupplierFormService
                 ];
                 continue;
             }
-            $r = self::recipients((string)$f['from_addr'], (string)$f['cc_addrs'], $ours);
+            $r = self::recipients((string)$f['from_addr'], (string)$f['cc_addrs'], $ours, $dir->get((int)$f['supplier_id']) ?? []);
             $b = json_decode((string)$f['blanks_json'], true) ?: [];
             $answers = json_decode((string)$f['answers_json'], true) ?: [];
             $licence = (int)$f['wants_licence'] === 1;
-            $hasLicence = $licence && (new CompanyDocumentService($this->db))->current('business_licence') !== null;
-            $parts = ['Goes to ' . $r['to'] . ($r['cc'] ? ' (copy to ' . implode(', ', $r['cc']) . ')' : '')];
-            $parts[] = 'Attached: the filled form' . ($licence ? ($hasLicence ? ' + your business licence' : ' — they want your business licence, and none is on file') : '');
+            $onFile = $licence ? $docs->current('business_licence') : null;
+            $hasLicence = $licence && $docs->usable('business_licence', $today) !== null;
+            $parts = [$r['to'] !== '' ? 'Goes to ' . $r['to'] . ($r['cc'] ? ' (copy to ' . implode(', ', $r['cc']) . ')' : '')
+                                      : 'The sender (' . $f['from_addr'] . ') is not an address on file for ' . $f['supplier_name'] . ' — it will not be sent'];
+            $parts[] = 'Attached: the filled form' . ($licence ? ($hasLicence ? ' + your business licence'
+                : ($onFile ? ' — they want your business licence, and the one on file expired ' . date('M j', strtotime((string)$onFile['expires_on']))
+                           : ' — they want your business licence, and none is on file')) : '');
             $lines = [];
             foreach ($answers as $k => $v) $lines[] = str_replace('_', ' ', (string)$k) . ': ' . ($v === true ? 'ticked' : (string)$v);
             if (!empty($b['blank'])) $parts[] = 'Left blank: ' . implode(', ', array_map(fn($x) => str_replace('_', ' ', $x), $b['blank']));
             if (!empty($b['yours'])) $parts[] = 'Yours to fill: ' . implode(', ', array_map(fn($x) => str_replace('_', ' ', $x), $b['yours']));
-            $canSend = empty($b['yours']) && (!$licence || $hasLicence);
+            $canSend = empty($b['yours']) && (!$licence || $hasLicence) && $r['to'] !== '';
             $out[] = [
                 'kind' => 'supplier_form', 'subject_type' => 'supplier_form', 'subject_id' => (int)$f['id'],
                 'for_date' => substr((string)$f['received_at'], 0, 10), 'priority' => 2,
@@ -305,17 +326,23 @@ class SupplierFormService
         $filled = rtrim(STORAGE_ROOT, '/') . '/' . (string)$f['filled_path'];
         if (empty($f['filled_path']) || !is_file($filled)) return ['ok' => false, 'message' => 'The filled form is missing — not sent.'];
         $files = [$filled => (string)preg_replace('/[^A-Za-z0-9._-]+/', '-', 'Completed-' . $f['original_name'])];
+        // The reply goes only to the supplier: the From ADDRESS must be theirs (a forged sender
+        // would otherwise receive the filled form and the licence), copies only on their domain.
+        $supplier = (new SupplierDirectoryService($this->db))->get((int)$f['supplier_id']);
+        $r = self::recipients((string)$f['from_addr'], (string)$f['cc_addrs'], self::ours(), $supplier ?? []);
+        if ($r['to'] === '') {
+            return ['ok' => false, 'message' => 'The sender (' . $f['from_addr'] . ') is not an address on file for ' . ($f['supplier_name'] ?? 'this supplier') . ' — not sent. Check it and reply yourself.'];
+        }
         $docs = new CompanyDocumentService($this->db);
         $withLicence = false;
         if ((int)$f['wants_licence'] === 1) {
-            $lic = $docs->current('business_licence');
+            $lic = $docs->usable('business_licence', date('Y-m-d'));
             if (!$lic || !is_file(CompanyDocumentService::absolutePath($lic))) {
-                return ['ok' => false, 'message' => 'They want a copy of the business licence and none is on file — not sent.'];
+                return ['ok' => false, 'message' => 'They want a copy of the business licence and no current (unexpired) one is on file — not sent.'];
             }
             $files[CompanyDocumentService::absolutePath($lic)] = 'Business-licence' . ($lic['doc_number'] ? '-' . $lic['doc_number'] : '') . '.pdf';
             $withLicence = true;
         }
-        $r = self::recipients((string)$f['from_addr'], (string)$f['cc_addrs'], self::ours());
         $p = (new CompanyProfileService($this->db))->profile();
         $answers = json_decode((string)$f['answers_json'], true) ?: [];
         $html = self::note($withLicence, in_array(true, $answers, true), $p['email'] ?: 'office@mowology.ca',
