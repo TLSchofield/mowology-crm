@@ -919,6 +919,7 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
                    (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS age_seconds
             FROM crew_location_history
             WHERE crew_id = ? AND timestamp >= (NOW() - INTERVAL ? SECOND)
+              AND is_mock = 0   -- a mock fix never proves dwell (2026-10-12)
             ORDER BY timestamp DESC
             LIMIT 20
         ");

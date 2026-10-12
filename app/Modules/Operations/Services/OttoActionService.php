@@ -150,6 +150,16 @@ class OttoActionService
             $time = substr((string)($in['time'] ?? ''), 0, 5);
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $date < date('Y-m-d')) return ['ok' => false, 'message' => 'Pick a date from today on.'];
             if (!preg_match('/^\d{2}:\d{2}$/', $time)) $time = '08:00';
+            // Never onto a Sunday / BC holiday (snow & salt excepted), never outside the city's
+            // equipment hours (2026-10-12 review).
+            require_once __DIR__ . '/DispatchRules.php';
+            require_once __DIR__ . '/MunicipalRuleService.php';
+            if (DispatchRules::isRestDay($date) && !preg_match('/snow|salt|ice/i', (string)($sug['service_type'] ?? ''))) {
+                return ['ok' => false, 'message' => 'That is a Sunday or holiday — pick another day.'];
+            }
+            $fit = (new MunicipalRuleService($this->db))->fitSlotForVisit($visitId, $date, $time, max(15, (int)($propose['minutes'] ?? 60)));
+            if ($fit === null) return ['ok' => false, 'message' => 'No time that day is inside the city\'s equipment hours.'];
+            $time = $fit['start'];
             $r = executeReschedule($visitId, $date, $time, $actorId, 'Weather — moved from Otto\'s suggestion');
             if (empty($r['success'])) return ['ok' => false, 'message' => 'Could not move it: ' . ($r['error'] ?? 'unknown')];
             $outcome += ['date' => $date, 'time' => $time];
@@ -263,6 +273,10 @@ class OttoActionService
         }
         $len = (!empty($propose['start']) && !empty($propose['end'])) ? max(15, (int)((strtotime('2000-01-01 ' . $propose['end']) - strtotime('2000-01-01 ' . $propose['start'])) / 60)) : 60;
         $end = DispatchRules::endTime($time, $len);
+        // The END must fit too: a 7:30 start of a 90-min blower job still breaks an 8:00 limit (2026-10-12).
+        if (!empty($propose['allowed_end']) && $end > substr((string)$propose['allowed_end'], 0, 5)) {
+            return ['ok' => false, 'message' => 'It would still run past ' . date('g:i a', strtotime('2000-01-01 ' . $propose['allowed_end'])) . '.'];
+        }
         $this->db->prepare("UPDATE job_visits SET scheduled_time_start = ?, scheduled_time_end = ? WHERE id = ? AND status = 'scheduled'")
             ->execute([$time . ':00', $end . ':00', $visitId]);
         return $this->close($sug, 'accepted', ['choice' => 'retime', 'time' => $time, 'was' => $propose['start'] ?? null], $actorId,
