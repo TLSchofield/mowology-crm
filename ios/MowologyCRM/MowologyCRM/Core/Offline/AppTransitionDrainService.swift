@@ -81,6 +81,8 @@ final class AppTransitionDrainService {
         }
         if let lat = transition.lat { body["lat"] = lat }
         if let lng = transition.lng { body["lng"] = lng }
+        // Recorded at the tap, not at the replay (queuedAt is set when the action was tapped).
+        body["client_time"] = transition.queuedAt.mwClientTime
         // When the start was really tapped: the server's special-request gate accepts a queued
         // start (logged) instead of refusing it forever.
         if transition.action == "start" {

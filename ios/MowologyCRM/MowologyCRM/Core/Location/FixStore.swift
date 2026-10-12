@@ -41,8 +41,10 @@ final class FixStore {
 
     static let shared = FixStore()
 
-    /// Roughly a 10-hour shift at the enhanced cadence, several times over.
-    private let maxFixes = 6_000
+    /// 12,000 ≈ 50 h at the server's 15 s enhanced policy (a full day offline with room to spare),
+    /// ~17 h at the 5 s floor. Not Android's 60,000: this whole JSON file is rewritten every few
+    /// seconds, so its size (~150 B a fix) is the cost of every flush.
+    private let maxFixes = 12_000
     /// Matches the server's replay horizon (TrackingIngestService::MAX_AGE_SECONDS).
     private let maxAge: TimeInterval = 72 * 3600
 

@@ -139,15 +139,23 @@ final class TimeClockViewModel: ObservableObject {
         isLoading    = true
         errorMessage = nil
 
+        // Send any punch made offline BEFORE reading the server — it carries the time it was tapped.
+        // (This used to clear the queue whenever the server answered, so opening the app after
+        // signal came back could throw an offline clock-in away.)
+        if ClockQueue.shared.hasPending {
+            if await ClockQueue.shared.drain(using: apiClient) == .offline {
+                restorePersistedClockState()
+                isPendingSync = true
+                isLoading     = false
+                return
+            }
+            isPendingSync = ClockQueue.shared.hasPending
+        }
+
         do {
             let response: ClockStatusResponse = try await apiClient.request(
                 .scheduleClockStatus
             )
-            // Server confirmed current state — discard any stale queued action.
-            if ClockQueue.shared.hasPending {
-                ClockQueue.shared.clear()
-                isPendingSync = false
-            }
             applyStatus(response)
         } catch let err as APIError {
             if case .networkError = err {
@@ -182,11 +190,12 @@ final class TimeClockViewModel: ObservableObject {
     func clockIn(lat: Double? = nil, lng: Double? = nil) async {
         isLoading    = true
         errorMessage = nil
+        let tappedAt = Date()   // before the location wait — this is when the punch happened
 
         var (lat, lng) = (lat, lng)
         if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
-        var body: [String: Any] = ["action": "clock_in"]
+        var body: [String: Any] = ["action": "clock_in", "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
 
@@ -210,7 +219,7 @@ final class TimeClockViewModel: ObservableObject {
                 // Offline — accept locally and queue for sync.
                 clockedIn     = true
                 isPendingSync = true
-                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng)
+                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng, at: tappedAt)
                 persistClockState()
                 startTicking()
                 GPSTrackingService.shared.start(authSession: authSession)
@@ -227,11 +236,12 @@ final class TimeClockViewModel: ObservableObject {
     func clockOut(lat: Double? = nil, lng: Double? = nil) async {
         isLoading    = true
         errorMessage = nil
+        let tappedAt = Date()   // before the location wait — this is when the punch happened
 
         var (lat, lng) = (lat, lng)
         if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
-        var body: [String: Any] = ["action": "clock_out"]
+        var body: [String: Any] = ["action": "clock_out", "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
 
@@ -259,7 +269,7 @@ final class TimeClockViewModel: ObservableObject {
                 elapsedSeconds = 0
                 activeJob      = nil
                 isPendingSync  = true
-                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng)
+                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng, at: tappedAt)
                 persistClockState()
                 stopTicking()
                 GPSTrackingService.shared.stop()

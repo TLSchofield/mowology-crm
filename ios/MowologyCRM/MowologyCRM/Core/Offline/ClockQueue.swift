@@ -21,6 +21,8 @@ final class ClockQueue: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let storeKey = "mw.clock.queue.v1"
+    /// Matches the server's OfflineTime::MAX_AGE_HOURS.
+    static let maxAge: TimeInterval = 24 * 3600
 
     private init() { refreshPending() }
 
@@ -59,7 +61,7 @@ final class ClockQueue: ObservableObject {
     /// Earlier items of the same type are preserved because they may form part of
     /// a completed [clock_in, clock_out] pair — stripping them reorders the queue
     /// and replays clock_out before clock_in, corrupting the payroll record.
-    func enqueue(action: String, lat: Double?, lng: Double?) {
+    func enqueue(action: String, lat: Double?, lng: Double?, at tappedAt: Date = Date()) {
         var current = items
         if current.last?.action == action { current.removeLast() }
         current.append(PendingAction(
@@ -67,7 +69,7 @@ final class ClockQueue: ObservableObject {
             action:   action,
             lat:      lat,
             lng:      lng,
-            queuedAt: Date()
+            queuedAt: tappedAt
         ))
         items = current
     }
@@ -93,7 +95,14 @@ final class ClockQueue: ObservableObject {
 
         var sentCount = 0
         for item in pending {
-            var body: [String: Any] = ["action": item.action]
+            // Older than the server will trust (OfflineTime::MAX_AGE_HOURS): sending it would record
+            // a punch at the replay time — a phantom shift. Drop it; the office fixes the timesheet.
+            if item.queuedAt < Date().addingTimeInterval(-Self.maxAge) {
+                items = items.filter { $0.id != item.id }
+                sentCount += 1
+                continue
+            }
+            var body: [String: Any] = ["action": item.action, "client_time": item.queuedAt.mwClientTime]
             if let lat = item.lat { body["lat"] = lat }
             if let lng = item.lng { body["lng"] = lng }
 
@@ -121,9 +130,8 @@ final class ClockQueue: ObservableObject {
         return sentCount > 0 ? .reconcile : .empty
     }
 
-    /// Discards all pending actions. Call after loadStatus() confirms the
-    /// server already has the correct state (e.g. on a fresh app launch where
-    /// stale actions from a crashed session should not be replayed).
+    /// Discards all pending actions. Never call it on a status read: a queued punch is the only
+    /// record of when it was tapped (drain() sends it with that time).
     func clear() {
         items = []
     }

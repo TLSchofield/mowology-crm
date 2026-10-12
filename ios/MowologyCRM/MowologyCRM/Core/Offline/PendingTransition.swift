@@ -6,6 +6,17 @@
 import Foundation
 import SwiftData
 
+extension Date {
+    /// The moment an action was tapped, as the server's `client_time` (ISO 8601, UTC). The server
+    /// (OfflineTime.php) records an offline action at this time instead of when it arrived —
+    /// trusted up to 24 h, never ahead of the server, never before the event it must follow.
+    var mwClientTime: String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: self)
+    }
+}
+
 /// A job-timer action (start / stop) whose server response has not yet been
 /// confirmed. Persisted so the same idempotency key survives app restarts —
 /// ensuring a retry never creates a duplicate timer entry on the server.

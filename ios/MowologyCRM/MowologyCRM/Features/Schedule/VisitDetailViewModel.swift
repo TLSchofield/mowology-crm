@@ -167,7 +167,7 @@ final class VisitDetailViewModel: ObservableObject {
         let (lat, lng) = await safeLocation()
         let idempKey   = transitionQueue.prepare(visitId: visitId, action: "start", lat: lat, lng: lng)
 
-        var body: [String: Any] = ["action": "start", "visit_id": visitId]
+        var body: [String: Any] = ["action": "start", "visit_id": visitId, "client_time": Date().mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
 
@@ -230,7 +230,8 @@ final class VisitDetailViewModel: ObservableObject {
             "action":         "stop",
             "visit_id":       visitId,
             "complete_visit": true,
-            "accuracy_badge": gps.locationManager.accuracyBadge.rawValue
+            "accuracy_badge": gps.locationManager.accuracyBadge.rawValue,
+            "client_time":    Date().mwClientTime
         ]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
