@@ -159,10 +159,6 @@ final class GPSTrackingService: ObservableObject {
         startLoop()
 
         Task {
-            // Anything the old single-ping queue was still holding goes out once.
-            if let client = apiClient, PingQueue.shared.pendingCount > 0 {
-                await PingQueue.shared.drain(using: client)
-            }
             await refreshGeofences()
             await upload()
         }

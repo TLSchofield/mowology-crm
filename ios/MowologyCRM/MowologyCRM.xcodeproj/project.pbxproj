@@ -29,7 +29,6 @@
 		98CACC8E6F7BCCE057B7ECE3 /* Stop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84917CCF5BF871EC2B745DC4 /* Stop.swift */; };
 		9BF8231179B2D42C3B2FB208 /* TransitionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */; };
 		ABDBDE4BD9E38E90A1C48150 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF8B2A204E50B9D3125AC4 /* LocationManager.swift */; };
-		AC262C96AEC72A40D96A78DD /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE716DE714937E2614370F75 /* PingQueue.swift */; };
 		B659D3009851109F21A1D830 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */; };
 		BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */; };
 		CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */; };
@@ -127,6 +126,7 @@
 		F59DCDC04D91B5A56504B13B /* UnbilledWorkSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860BC924D1E18395DC0120F1 /* UnbilledWorkSection.swift */; };
 		10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */; };
 		4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */; };
+		0CA7044D2F494D31FEF380B9 /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -159,7 +159,6 @@
 		C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayListView.swift; sourceTree = "<group>"; };
 		C8040C6DF2C66988040204FE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C9C49661C41333A49EE1D301 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
-		CE716DE714937E2614370F75 /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
 		DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
 		DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
 		C547C4C433774E19B449B943 /* GPSTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingService.swift; sourceTree = "<group>"; };
@@ -252,6 +251,7 @@
 		860BC924D1E18395DC0120F1 /* UnbilledWorkSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnbilledWorkSection.swift; sourceTree = "<group>"; };
 		4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieBrainSplash.swift; sourceTree = "<group>"; };
 		12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieMorningBrief.swift; sourceTree = "<group>"; };
+		ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -259,7 +259,6 @@
 			isa = PBXGroup;
 			children = (
 				A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */,
-				CE716DE714937E2614370F75 /* PingQueue.swift */,
 				F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */,
 				20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
 				C38B412AFB12D52D9679198C /* ClockQueue.swift */,
@@ -271,6 +270,7 @@
 				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
 				3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */,
 				245438D48DD3B44093FF2524 /* TripReportQueue.swift */,
+				ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -632,7 +632,6 @@
 				D19153AE246923974F17958E /* MainTabView.swift in Sources */,
 				50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */,
 				351D8A7C9D72F008F0DD24CC /* PendingTransition.swift in Sources */,
-				AC262C96AEC72A40D96A78DD /* PingQueue.swift in Sources */,
 				14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */,
 				FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */,
 				6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */,
@@ -736,6 +735,7 @@
 				F59DCDC04D91B5A56504B13B /* UnbilledWorkSection.swift in Sources */,
 				10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */,
 				4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */,
+				0CA7044D2F494D31FEF380B9 /* ConnectivityMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

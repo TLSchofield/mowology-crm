@@ -35,7 +35,7 @@ the Bash tool with python3 to write file content directly.
 | `Core/Location/` | GPS, motion activity, arrival detection, route storage |
 | `Core/Models/` | Decodable model types for API responses |
 | `Core/Network/` | APIClient, APIEndpoints, APIError, VersionCheckService |
-| `Core/Offline/` | PingQueue, TransitionQueue for offline resilience |
+| `Core/Offline/` | ConnectivityMonitor (posts `.mwPingQueueOnline`), offline queues (Clock, Transition, JobPhoto, Recommendation, TripReport) |
 | `Features/Auth/` | Login view + view model |
 | `Features/Camera/` | Batch camera (AVFoundation), markup editor, EXIF/GPS helpers — pure logic in `BatchCameraModels.swift`, checked by `bash ios/LogicTests/run.sh` |
 | `Features/Schedule/` | Day/week schedule views, visit detail, job timer |
@@ -45,5 +45,5 @@ the Bash tool with python3 to write file content directly.
 - `@MainActor` on all ViewModels and location-related singletons (LocationManager, ArrivalMonitor, RouteStore)
 - `APIClient.request<T: Decodable>(_ endpoint:, body:, extraHeaders:)` returns `T` and throws `APIError`
 - All API response model types are `Decodable` structs in `Core/Models/`
-- Use `PingQueue.shared` for GPS pings that should survive offline periods
+- GPS fixes survive offline periods in `FixStore` (uploaded by `GPSTrackingService`)
 - Use `TransitionQueue` for job start/stop transitions that need idempotency keys

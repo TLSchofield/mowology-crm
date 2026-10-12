@@ -21,6 +21,8 @@ struct MowologyCRMApp: App {
     init() {
         registerBackgroundTask()
         requestNotificationPermission()
+        // Announce reconnects from launch so every offline queue drains, clocked in or not.
+        ConnectivityMonitor.shared.start()
     }
 
     // MARK: - Scene
