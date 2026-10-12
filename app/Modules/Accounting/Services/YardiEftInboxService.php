@@ -224,7 +224,7 @@ class YardiEftInboxService
                 && abs((float) $invoice['balance_due'] - $line['amount']) < 0.01;
 
             if ($canAutoRecord) {
-                if ($this->autoRecord((int) $invoice['id'], $line['amount'], $ref, $dedup, $systemUserId, $paidDate)) {
+                if ($this->autoRecord((int) $invoice['id'], $line['amount'], $ref, $dedup, $systemUserId, $paidDate, null, $banked)) {
                     $result['auto_recorded']++;
                     continue;
                 }
@@ -255,7 +255,7 @@ class YardiEftInboxService
     }
 
     /** Record one auto-certain line via the shared allocation ledger. Returns success. */
-    private function autoRecord(int $invoiceId, float $amount, string $ref, string $dedupKey, int $userId, ?string $paidDate = null, ?int $replacesPendingId = null): bool
+    private function autoRecord(int $invoiceId, float $amount, string $ref, string $dedupKey, int $userId, ?string $paidDate = null, ?int $replacesPendingId = null, ?int $depositTx = null): bool
     {
         require_once __DIR__ . '/InvoiceReconciliationService.php';
 
@@ -280,10 +280,13 @@ class YardiEftInboxService
             $notificationId = (int) $this->db->lastInsertId();
 
             $recon  = new InvoiceReconciliationService($this->db);
-            $result = $recon->applyAllocation($invoiceId, $amount, 'yardi_eft', $ref, $paidDate ?: date('Y-m-d'), null, $userId, $notificationId);
+            $result = $recon->applyAllocation($invoiceId, $amount, 'yardi_eft', $ref, $paidDate ?: date('Y-m-d'), $depositTx, $userId, $notificationId);
             if (!$result) {
                 throw new RuntimeException('Invoice already settled');
             }
+            // The deposit that proved the money arrived is this payment: settle it, or it stays
+            // income beside the invoice (review 2026-10-12).
+            if ($depositTx) $recon->settleDeposit($depositTx, $userId);
 
             $this->db->commit();
             return true;
@@ -314,7 +317,7 @@ class YardiEftInboxService
     {
         if ($amount <= 0) return null;
         $s = $this->db->prepare("SELECT id FROM accounting_transactions
-                                 WHERE reference_type = 'bank_import' AND type IN ('income', 'transfer')
+                                 WHERE reference_type = 'bank_import' AND type = 'income'   -- not one already consumed by another payment
                                    AND ABS(amount - ?) < 0.005
                                    AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 2 DAY) AND DATE_ADD(?, INTERVAL 7 DAY)
                                  LIMIT 2");
@@ -341,10 +344,11 @@ class YardiEftInboxService
             $all = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM etransfer_notifications WHERE source = 'yardi_eft' AND reference_number = ?");
             $all->execute([$ref]);
             $date = self::paidDate(null, $group[0]['email_date']);
-            if ($this->bankDeposit(round((float)$all->fetchColumn(), 2), $date) === null) continue;
+            $dep = $this->bankDeposit(round((float)$all->fetchColumn(), 2), $date);
+            if ($dep === null) continue;
             foreach ($group as $r) {
                 if (!in_array($r['status'], self::PAYABLE, true) || abs((float)$r['balance_due'] - (float)$r['amount']) >= 0.01) continue;
-                if ($this->autoRecord((int)$r['matched_invoice_id'], (float)$r['amount'], $ref, (string)$r['dedup_key'], $systemUserId, $date, (int)$r['id'])) $done++;
+                if ($this->autoRecord((int)$r['matched_invoice_id'], (float)$r['amount'], $ref, (string)$r['dedup_key'], $systemUserId, $date, (int)$r['id'], $dep)) $done++;
             }
         }
         return $done;

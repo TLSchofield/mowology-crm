@@ -1125,6 +1125,20 @@ class InvoiceReconciliationService
      *  • remaining > 0  → type='income',   amount=remaining, status='cleared'
      *  • no allocations → restore original income deposit (detach to empty)
      */
+    /**
+     * After payments were recorded WITH this deposit's id (an inbox reader that found the money in the
+     * bank): settle the deposit — fully covered → cash-clearing transfer, so it isn't income a second
+     * time beside the invoice. applyAllocation() alone never does this (review 2026-10-12).
+     */
+    public function settleDeposit(int $txId, int $userId, ?int $singleInvoiceId = null): void
+    {
+        $s = $this->db->prepare("SELECT * FROM accounting_transactions WHERE id = ?");
+        $s->execute([$txId]);
+        $dep = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$dep) return;
+        $this->recomputeDepositRow($txId, $this->originalDepositAmount($dep), $userId, $singleInvoiceId);
+    }
+
     private function recomputeDepositRow(int $txId, float $original, int $userId, ?int $singleInvoiceId): void
     {
         $allocated = $this->allocatedTotal($txId);

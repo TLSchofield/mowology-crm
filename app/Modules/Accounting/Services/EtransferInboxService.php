@@ -945,6 +945,10 @@ class EtransferInboxService
         require_once __DIR__ . '/InvoiceReconciliationService.php';
         $recon   = new InvoiceReconciliationService($this->db);
         $ref     = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
+        // Only a confident bank match is used as "the deposit" (a weak guess is left for the bank card).
+        $depositTx = (!empty($note['bank_transaction_id'])
+                      && (int)($note['bank_match_confidence'] ?? 0) >= self::AUTO_RECORD_BANK_CONFIDENCE_FLOOR)
+            ? (int)$note['bank_transaction_id'] : null;
         // When the money moved (the notice's date), not the day someone pressed Record — a late
         // record landed in the wrong month and missed its bank deposit (review 2026-10-12).
         $payDate = !empty($note['email_date']) && strtotime((string)$note['email_date']) !== false
@@ -968,7 +972,7 @@ class EtransferInboxService
                 }
 
                 $result = $recon->applyAllocation(
-                    $a['invoice_id'], $a['amount'], 'e_transfer', $ref, $payDate, null, $userId, $notificationId
+                    $a['invoice_id'], $a['amount'], 'e_transfer', $ref, $payDate, $depositTx, $userId, $notificationId
                 );
                 if ($result) {
                     $recorded[] = $result;
@@ -978,6 +982,9 @@ class EtransferInboxService
             if (empty($recorded)) {
                 throw new RuntimeException('Nothing to record — the selected invoice(s) are already settled.');
             }
+            // The deposit this transfer landed as: settled with the payment, so it isn't income a
+            // second time (two were, $262.50 and $1,050.95 — review 2026-10-12).
+            if ($depositTx) $recon->settleDeposit($depositTx, $userId, count($recorded) === 1 ? (int)$recorded[0]['invoice_id'] : null);
 
             $appliedSum    = round(array_sum(array_column($recorded, 'applied')), 2);
             $newAllocated  = round((float) $note['allocated_amount'] + $appliedSum, 2);
