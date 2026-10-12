@@ -177,7 +177,23 @@ final class ScheduleViewModel: ObservableObject {
     func selectDate(_ date: Date) async {
         let weekChanged = !isSameDay(mondayOf(week: selectedDate), mondayOf(week: date))
         selectedDate = date
+        selectedOnDay = Calendar.current.startOfDay(for: .now)
         await loadSchedule(for: date, reloadWeek: weekChanged)
+    }
+
+    /// The calendar day the current selection was made on.
+    private var selectedOnDay = Calendar.current.startOfDay(for: .now)
+
+    /// Foreground: a phone left on yesterday's schedule overnight (the default selection is
+    /// "now" at launch) opens on today. A past day picked today is left alone.
+    func selectTodayIfDayRolledOver() async {
+        let today = Calendar.current.startOfDay(for: .now)
+        guard today > selectedOnDay else { return }
+        if selectedDate < today {
+            await selectDate(.now)
+        } else {
+            selectedOnDay = today
+        }
     }
 
     /// A stop just moved between two dates — drop both cached days (memory and

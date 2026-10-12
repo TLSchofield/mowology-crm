@@ -119,6 +119,7 @@ struct ScheduleView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+                Task { await viewModel.selectTodayIfDayRolledOver() }
                 viewModel.startPolling()
             } else {
                 viewModel.stopPolling()
