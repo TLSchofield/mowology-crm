@@ -115,3 +115,43 @@ in Jobber, so their 2026 deposits have no Jobber payment and sat as income. **Ru
 deposit to the open balance of the Jobber invoice(s) it pays (`JobberLedgerService::bookMatched`),
 using the Yardi remittance (mowology@icloud.com / office@) where there is one; the invoice date decides
 2025 receivable vs 2026 income. Full lessons: Obsidian Accounting-Ledger.md.
+
+## 2026-10-12 — review round 2 (Fable, screens / crons / iPhone / card)
+Now enforced in code — don't undo:
+- **Every session POST to the money APIs carries the CSRF token** (bank-import, transactions, accounts,
+  rules, expenses batch_forward / qb_retry), read before `session_write_close()`. JS sends
+  `X-CSRF-Token: window.MW_CSRF_TOKEN`. Ledger sync and rules apply are POST-only.
+- **Undoing a bank import needs billing.edit** (staff have expenses.edit).
+- **The transactions screen can't change a bank / invoice / expense line's amount, tax, date or status**,
+  and nothing in a locked month (`AccountingService::editTransaction`); a bank line's account moves with
+  its journal entry (BankLineMoveService).
+- **API errors:** database / PHP errors are logged and the user sees a generic sentence; only int
+  400–599 codes reach `http_response_code()` (`app/Core/ApiResponse.php`).
+- **Only approved receipts go to the accountant from every path** — `ExpenseService::sendBlockReason()`
+  (receipt-actions send, QBService batch forward + retry); create never auto-sends; the review queue
+  lists approved only. Desktop edit / line items / reassign / rescan follow the iPhone rule
+  (`ExpenseService::editBlockReason`); crew see / export only their own receipts.
+- **Crons never report a silent success:** journal sync failure = error (sync_ledger); no e-Transfer
+  mailbox = error; receipt poll office@ login failure = warning and it looks back after an outage;
+  receipt_archive records in `cron_runs`. OCR stale window 20 min. One Penny prepare round at a time
+  (MySQL `GET_LOCK`).
+- **Penny's card / brief:** chase only invoices late for that client (past due and past their habit);
+  GST to claim back applies the meals ITC rate and skips held duplicates; AI cost = live only;
+  "Found to bill" counts only once an issued invoice exists on the job; questions on rejected receipts /
+  receipts moved off the job are gone; "asking the crew" counts only ASKABLE items; carousels remove a
+  decided item by id and block Next/Prev while busy. Freedom profit: revenue before GST, void out,
+  costs = approved/sent receipts less GST.
+- **iPhone 1.3.28:** queued receipt photos live in Application Support; a 4xx is never queued and never
+  blocks the queue; a failed save after a good upload keeps the item and retries only the save; queues
+  drain only the signed-in person's items; "12,50" reads as 12.50.
+
+Dropped / not done:
+- `QBService::_qbLoadExpense` selects `e.tax_amount`, which doesn't exist on production — batch forward /
+  retry have been failing with a SQL error (now shown as a generic error). Not fixed: making it work
+  would start emailing the 110 approved-unsent receipts when someone clicks; Tim to decide.
+- Desktop `public/crm/api/receipt-send.php` still sends a draft (the office sending from the desktop is
+  treated as approval) — left as is.
+- Freedom dashboard now leaves out ~244 draft receipts (2026 costs $34.7K → $10.8K until they're
+  approved); the profit reads high until the backlog is approved — Tim's call whether drafts should count.
+- `process_ocr_queue` records a run only when there were jobs (a no-op every minute would flood
+  cron_runs), so its "last run" can look old.
