@@ -115,7 +115,9 @@ reference that matches the task:
 | Company answers for forms (and owner-only blocklist) | `CompanyProfileService::answer()` | forms |
 | Business licence, insurance, WCB letter | `CompanyDocumentService::current()` / `CompanyDocumentService::briefItems()` | forms, brief (30-day reminder) |
 | Snow/salt routes set up on signing | `SnowContractService::setupFromSignedQuote()`; no-crew routes `SnowContractService::ottoBriefItems()` | quote signing, brief |
-| Phone fix ingest + policy | `TrackingIngestService::ingest()` / `TrackingIngestService::policy()` | every GPS path |
+| Phone fix ingest + policy | `TrackingIngestService::ingest()` / `TrackingIngestService::policy()` | every GPS path (incl. the web widget's `crew-location.php` since 2026-10-12); `newest` skips mock fixes |
+| Client route proof (fixes ON the property only, no mocks) | `RouteProofService::forVisits()` in `app/Modules/Tracking/Services/RouteProofService.php` | `public/customer/portal.php`, `public/customer/visit-report.php` |
+| Is this mail really from the supplier? | `SupplierInboxService::fromIs()` / `SupplierDirectoryService::senderMatches()` | inbox poll, `SupplierFormService::send()` |
 | Quiet phones (incl. truck tablets) | `TrackingHealthService::sweep()` | silent-alert cron, desk "silent" |
 | Truck pings (Trackimo) | `TruckLocationService::savePing()` via `app/Modules/Tracking/Cron/trackimo_poll.php` | trails |
 | Clock, timers, proximity auto-start | `app/Modules/Team/Services/TimeclockFunctions.php` (`clockIn()`, `startJobTimer()`, `stopJobTimer()`, `checkProximityAutoStart()`) | web, Android, iPhone APIs |

@@ -249,23 +249,14 @@ if ($contact && !$error) {
         }
     }
 
-    // GPS pings for completed visits (crew_location_history linked by visit_id)
+    // GPS pings for completed visits — only fixes ON the property, never mock locations
+    // (a running timer stamps the fuel run and the lunch stop with the visit too).
     $visitPings = [];
     if (!empty($completedVisits)) {
-        $pingIds = array_column($completedVisits, 'id');
-        $pingPH  = implode(',', array_fill(0, count($pingIds), '?'));
         try {
-            $stmt = $db->prepare("
-                SELECT visit_id, latitude, longitude, timestamp
-                FROM crew_location_history
-                WHERE visit_id IN ($pingPH)
-                ORDER BY visit_id ASC, timestamp ASC
-            ");
-            $stmt->execute($pingIds);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $ping) {
-                $visitPings[(int)$ping['visit_id']][] = $ping;
-            }
-        } catch (Exception $e) {
+            require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+            $visitPings = (new RouteProofService($db))->forVisits(array_column($completedVisits, 'id'));
+        } catch (Throwable $e) {
             // pings unavailable
         }
     }

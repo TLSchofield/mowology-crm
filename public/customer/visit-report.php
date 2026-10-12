@@ -146,18 +146,14 @@ if (!$error && $visit) {
 }
 
 // ── Load GPS pings ─────────────────────────────────────────────────────────
+// Only fixes ON the property (border or radius), never mock locations: a running timer stamps
+// the fuel run and the lunch stop with the visit too (RouteProofService).
 $pings = [];
 if (!$error && $visit) {
     try {
-        $stmt = $db->prepare("
-            SELECT latitude, longitude, timestamp
-            FROM crew_location_history
-            WHERE visit_id = ?
-            ORDER BY timestamp ASC
-        ");
-        $stmt->execute([$visitId]);
-        $pings = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) {
+        require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+        $pings = (new RouteProofService($db))->forVisits([$visitId])[$visitId] ?? [];
+    } catch (Throwable $e) {
         $pings = [];
     }
 }

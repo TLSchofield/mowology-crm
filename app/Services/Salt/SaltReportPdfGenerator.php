@@ -290,6 +290,7 @@ class SaltReportPdfGenerator
                 FROM crew_location_history clh
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_vehicle_tablet = 1
+                  AND clh.is_mock = 0
                   AND clh.timestamp >= ?
                   AND clh.timestamp <= ?
                   AND clh.latitude  BETWEEN ? AND ?
@@ -305,6 +306,7 @@ class SaltReportPdfGenerator
                 FROM crew_location_history clh
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_vehicle_tablet = 1
+                  AND clh.is_mock = 0
                   AND clh.timestamp >= ?
                   AND clh.timestamp <= ?
                 ORDER BY clh.timestamp ASC
