@@ -410,6 +410,7 @@ class QuoteService
         $this->db->prepare(
             "UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?"
         )->execute([$sentVia, $quoteId]);
+        $this->pipelineStage($quoteId);
     }
 
     /**
@@ -429,6 +430,7 @@ class QuoteService
             $remoteAddr,
             $quoteId,
         ]);
+        $this->pipelineStage($quoteId);
     }
 
     /**
@@ -438,6 +440,18 @@ class QuoteService
     {
         $this->db->prepare("UPDATE quotes SET status = ?, updated_at = NOW() WHERE id = ?")
             ->execute([$status, $quoteId]);
+        $this->pipelineStage($quoteId);
+    }
+
+    /** Sam's pipeline stage for everyone this quote touches. Never blocks the status change. */
+    private function pipelineStage(int $quoteId): void
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent($this->db, 'quote', $quoteId);
+        } catch (Throwable $e) {
+            error_log('[pipeline] quote#' . $quoteId . ': ' . $e->getMessage());
+        }
     }
 
     /**
