@@ -76,8 +76,11 @@ class ContractInvoiceSender
 
         if (!($this->mailer)($email, $mail['subject'], $mail['html'], $pdf)) {
             error_log("[contract_billing] Email failed for invoice {$num} (contract {$row['contract_number']}, email {$email})");
-            return ['status' => 'failed', 'invoice_number' => $num, 'email' => $email,
-                    'message' => "{$row['contract_number']}: invoice {$num} created but email failed — resend manually"];
+            // Held like a missing PDF: retried next run and visible to Charlie — a failed send used
+            // to be lost for the month (next run found the draft and created nothing; review 2026-10-12).
+            $this->gate->recordBlocked($invoiceId, self::CONTEXT, 'email failed to ' . $email);
+            return ['status' => 'held', 'invoice_number' => $num, 'email' => $email,
+                    'message' => "{$row['contract_number']}: invoice {$num} — email failed, held, will retry next run"];
         }
 
         $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status = 'draft'")
@@ -104,6 +107,7 @@ class ContractInvoiceSender
             SELECT DISTINCT i.id
             FROM invoices i
             JOIN activity_log al ON al.invoice_id = i.id AND al.action = ?
+            JOIN contracts ctr ON ctr.id = i.contract_id AND ctr.status = 'active'   -- never retry a cancelled contract
             WHERE i.contract_id IS NOT NULL
               AND i.status = 'draft'
               AND i.sent_at IS NULL
@@ -121,14 +125,20 @@ class ContractInvoiceSender
             SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.total_amount, i.access_token,
                    i.contract_id, i.contact_id,
                    ctr.contract_number,
-                   con.first_name, con.last_name, con.mobile AS contact_mobile, con.receive_sms,
+                   -- Greeting and SMS go to whoever the invoice is ADDRESSED to (a property manager's
+                   -- billing contact or inbox), not the contract's on-site contact (review 2026-10-12).
+                   -- A contactless inbox (email routing) gets no name and no SMS.
+                   rc.first_name, rc.last_name, rc.mobile AS contact_mobile, rc.receive_sms,
                    (SELECT ic.email_address FROM invoice_contacts ic
                      WHERE ic.invoice_id = i.id AND ic.contact_role = 'primary_recipient'
                        AND ic.email_address IS NOT NULL AND ic.email_address <> ''
                      ORDER BY ic.id ASC LIMIT 1) AS billing_email
             FROM invoices i
             LEFT JOIN contracts ctr ON ctr.id = i.contract_id
-            LEFT JOIN contacts  con ON con.id = i.contact_id
+            LEFT JOIN contacts  rc  ON rc.id = (SELECT ic2.contact_id FROM invoice_contacts ic2
+                                                 WHERE ic2.invoice_id = i.id AND ic2.contact_role = 'primary_recipient'
+                                                   AND ic2.email_address IS NOT NULL AND ic2.email_address <> ''
+                                                 ORDER BY ic2.id ASC LIMIT 1)
             WHERE i.id = ? AND i.status = 'draft'
         ");
         $s->execute([$invoiceId]);

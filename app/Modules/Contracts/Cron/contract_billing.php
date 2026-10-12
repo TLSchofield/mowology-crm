@@ -78,9 +78,18 @@ $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
-$taxRate    = 0.05;
-
 $db       = getDB();
+// GST from Settings (the one source) — the visit path already read it; this was a second 5%.
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+$taxRate  = TaxEngine::gstRate($db);
+// One run at a time: an admin "Run now" during the cron could make two invoices for a contract
+// (the idempotency check is a plain SELECT before the INSERT; review 2026-10-12).
+if ((int)$db->query("SELECT GET_LOCK('mw_contract_billing', 0)")->fetchColumn() !== 1) {
+    $msg = 'contract_billing: another run is in progress — nothing done.';
+    if ($isCli) { echo $msg . "\n"; exit(0); }
+    echo json_encode(['success' => false, 'error' => $msg]);
+    exit;
+}
 $created  = [];
 $skipped  = [];
 $errors   = [];
@@ -193,8 +202,11 @@ try {
         -- Priority 1: explicit billing company on the property
         LEFT JOIN companies cb ON cb.id = p.billing_company_id
         -- Priority 2: company linked via contact (primary or billing contact)
-        LEFT JOIN companies co ON (co.primary_contact_id = con.id
-                                 OR co.billing_contact_id = con.id)
+        -- One company per contact, by rule: primary-contact link first, then lowest id (a contact on
+        -- two companies used to get whichever row GROUP BY kept).
+        LEFT JOIN companies co ON co.id = (SELECT c2.id FROM companies c2
+                                            WHERE c2.primary_contact_id = con.id OR c2.billing_contact_id = con.id
+                                            ORDER BY (c2.primary_contact_id = con.id) DESC, c2.id ASC LIMIT 1)
         LEFT JOIN contacts  bc ON bc.id = COALESCE(cb.billing_contact_id, co.billing_contact_id)
         WHERE c.status        = 'active'
           AND c.billing_cycle = 'monthly'
