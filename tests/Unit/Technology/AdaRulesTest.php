@@ -73,6 +73,29 @@ PHP;
         $this->assertSame('2026-10-08 23:30:00', $c['last_worked']);
     }
 
+    /** Fable review 2026-10-12: 3+ warnings in a row is failing (checks.md). */
+    public function test_three_warnings_in_a_row_is_red(): void
+    {
+        $recent = [['warning', '2026-10-10 23:30:00', 'nothing to send'], ['warning', '2026-10-09 23:30:00', 'x'], ['warning', '2026-10-08 23:30:00', 'x']];
+        $c = AdaRules::cronCheck($this->reg('sync_ledger', '0 2 * * *'), $this->stats('2026-10-10 23:30:00', 'warning', $recent), true, true, self::NOW);
+        $this->assertSame('red', $c['state']);
+        $this->assertSame('failing', $c['problem']);
+        $this->assertStringContainsString('warned on its last 3 runs', $c['evidence']);
+        $two = array_slice($recent, 0, 2);
+        $two[] = ['success', '2026-10-08 23:30:00', ''];
+        $c = AdaRules::cronCheck($this->reg('sync_ledger', '0 2 * * *'), $this->stats('2026-10-10 23:30:00', 'warning', $two), true, true, self::NOW);
+        $this->assertNotSame('failing', $c['problem']);
+    }
+
+    public function test_jwt_secret_check_reads_length_only(): void
+    {
+        $this->assertSame('red', AdaRules::jwtSecretCheck(null)['state']);
+        $this->assertSame('weak', AdaRules::jwtSecretCheck(20)['problem']);
+        $ok = AdaRules::jwtSecretCheck(64);
+        $this->assertSame('green', $ok['state']);
+        $this->assertStringContainsString('64 characters', $ok['evidence']);
+    }
+
     public function test_recovered_after_failing_is_amber_for_three_days(): void
     {
         $recent = [['success', '2026-10-10 23:30:00', ''], ['error', '2026-10-09 23:30:00', '1615 Prepared statement'], ['error', '2026-10-08 23:30:00', '1615'], ['error', '2026-10-07 23:30:00', '1615']];

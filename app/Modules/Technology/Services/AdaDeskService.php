@@ -233,6 +233,7 @@ class AdaDeskService
               WHERE u.is_active = 1 AND COALESCE(u.is_vehicle_tablet, 0) = 0
               GROUP BY u.id, name, u.role, u.last_login"
         )->fetchAll(PDO::FETCH_ASSOC);
-        return [AdaRules::loginsCheck($rows, $this->now())];
+        return [AdaRules::loginsCheck($rows, $this->now()),
+                AdaRules::jwtSecretCheck(defined('BLUEMOON_JWT_SECRET') ? strlen((string)BLUEMOON_JWT_SECRET) : null)];
     }
 }

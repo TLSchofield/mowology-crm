@@ -33,12 +33,43 @@ function base64url_decode(string $data): string
  */
 function jwtSecret(): string
 {
-    if (defined('BLUEMOON_JWT_SECRET') && BLUEMOON_JWT_SECRET !== '') {
-        return BLUEMOON_JWT_SECRET;
+    if (defined('BLUEMOON_JWT_SECRET') && strlen((string)BLUEMOON_JWT_SECRET) >= 32) {
+        return (string)BLUEMOON_JWT_SECRET;
     }
-    // Fallback: same derivation as JWT_SECRET_FALLBACK() in token.php
-    $base = defined('DB_PASS') ? DB_PASS : 'bluemoon_fallback';
-    return hash('sha256', $base . '_bluemoon_jwt_v1');
+    // Fail closed (Fable review 2026-10-12): the old fallback derived the key from DB_PASS, so a
+    // missing secret silently signed tokens with something guessable from another leak. Ada's
+    // check (AdaRules::jwtSecretProblem) watches that the secret is set.
+    error_log('JwtAuth: BLUEMOON_JWT_SECRET is missing or shorter than 32 characters — refusing to sign or verify tokens');
+    throw new RuntimeException('JWT secret not configured');
+}
+
+/**
+ * The user behind a token, as the database has them NOW (Fable review 2026-10-12): role and
+ * active flag came from a 30-day token, so a deactivated or demoted user kept their access until
+ * it expired. Cached per request. Returns null when the user is gone or inactive; throws when the
+ * database can't be asked (callers answer 503, not 401 — a 401 signs the phone out).
+ */
+function jwtCurrentUser(int $userId): ?array
+{
+    static $cache = [];
+    if ($userId <= 0) return null;
+    if (array_key_exists($userId, $cache)) return $cache[$userId];
+    if (!function_exists('getDB')) throw new RuntimeException('no database for the JWT user check');
+    $st = getDB()->prepare('SELECT id, email, full_name AS name, role, is_active FROM users WHERE id = ? LIMIT 1');
+    $st->execute([$userId]);
+    $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    return $cache[$userId] = ($u && (int)($u['is_active'] ?? 0) === 1) ? $u : null;
+}
+
+/** Payload → the user array endpoints use, with role/name/email from the database row. */
+function jwtUserFromPayload(array $payload, array $row): array
+{
+    return [
+        'id'    => (int)$row['id'],
+        'email' => (string)($row['email'] ?? $payload['email'] ?? ''),
+        'name'  => (string)($row['name'] ?? $payload['name'] ?? ''),
+        'role'  => (string)($row['role'] ?? 'user'),
+    ];
 }
 
 // ── Core validation ──────────────────────────────────────────────────────────
@@ -128,12 +159,13 @@ function getJwtUser(): ?array
         return null;
     }
 
-    return [
-        'id'    => (int)($payload['sub'] ?? 0),
-        'email' => (string)($payload['email'] ?? ''),
-        'name'  => (string)($payload['name'] ?? ''),
-        'role'  => (string)($payload['role'] ?? 'user'),
-    ];
+    try {
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0));
+    } catch (Throwable $e) {
+        error_log('getJwtUser: user check failed: ' . $e->getMessage());
+        return null;
+    }
+    return $row ? jwtUserFromPayload($payload, $row) : null;
 }
 
 /**
@@ -159,12 +191,20 @@ function requireJwt(): array
         exit;
     }
 
-    return [
-        'id'    => (int)($payload['sub'] ?? 0),
-        'email' => (string)($payload['email'] ?? ''),
-        'name'  => (string)($payload['name'] ?? ''),
-        'role'  => (string)($payload['role'] ?? 'user'),
-    ];
+    try {
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0));
+    } catch (Throwable $e) {
+        error_log('requireJwt: user check failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Try again in a moment', 'code' => 'user_check_failed']);
+        exit;
+    }
+    if ($row === null) {
+        http_response_code(401);
+        echo json_encode(['error' => 'This account is no longer active', 'code' => 'inactive_user']);
+        exit;
+    }
+    return jwtUserFromPayload($payload, $row);
 }
 
 /**

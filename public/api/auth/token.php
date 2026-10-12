@@ -162,7 +162,14 @@ try {
 }
 
 // ── Build JWT (hand-rolled, no dependency) ─────────────────────────────────
-$secret = defined('BLUEMOON_JWT_SECRET') ? BLUEMOON_JWT_SECRET : JWT_SECRET_FALLBACK();
+// No fallback key (Fable review 2026-10-12): without a real secret, sign nothing.
+if (!defined('BLUEMOON_JWT_SECRET') || strlen((string)BLUEMOON_JWT_SECRET) < 32) {
+    error_log('token.php: BLUEMOON_JWT_SECRET missing or too short — refusing to issue tokens');
+    http_response_code(500);
+    echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
+    exit;
+}
+$secret = (string)BLUEMOON_JWT_SECRET;
 
 $header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
 $now     = time();
@@ -207,13 +214,4 @@ function base64url_encode(string $data): string {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
-/**
- * Fallback secret derivation if BLUEMOON_JWT_SECRET not set in secrets.php.
- * Uses a deterministic site-specific value — NOT cryptographically ideal.
- * Add BLUEMOON_JWT_SECRET to secrets.php for production.
- */
-function JWT_SECRET_FALLBACK(): string {
-    // Combines DB_PASS with a fixed salt — unique per install but stable
-    $base = defined('DB_PASS') ? DB_PASS : 'bluemoon_fallback';
-    return hash('sha256', $base . '_bluemoon_jwt_v1');
-}
+

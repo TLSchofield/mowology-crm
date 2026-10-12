@@ -31,6 +31,8 @@ class AdaRules
     public const STALE_LOGIN_DAYS = 90;
     /** Brief: at most this many problem lines (plus one "can't tell" summary). */
     public const BRIEF_MAX = 5;
+    /** Consecutive 'warning' runs that count as failing (checks.md). */
+    public const WARNING_STREAK = 3;
 
     public const STATE_ORDER = ['red' => 0, 'amber' => 1, 'unknown' => 2, 'green' => 3, 'info' => 4];
 
@@ -177,6 +179,18 @@ class AdaRules
             return $base + self::verdict('red', 'failing',
                 "{$name}: failed its last " . ($fails > 1 ? "{$fails} runs" : 'run') . ($err !== '' ? " — \"{$err}\"" : '') . '.' . $since,
                 "Ada: cron '{$key}' ({$reg['app']}) is failing" . ($err !== '' ? " with \"{$err}\"" : '') . ". Read its cron_runs rows and fix the cause; prove it with one run from the Database Manager.",
+                'developer');
+        }
+
+        // 3+ 'warning' runs in a row is failing, as checks.md says (Fable review 2026-10-12 — it
+        // used to read green while a job warned every run).
+        $warns = 0;
+        foreach ($recent as $r) { if (($r[0] ?? '') !== 'warning') break; $warns++; }
+        if ($warns >= self::WARNING_STREAK) {
+            $w = self::shortError((string)($recent[0][2] ?? ''));
+            return $base + self::verdict('red', 'failing',
+                "{$name}: warned on its last {$warns} runs" . ($w !== '' ? " — \"{$w}\"" : '') . '.',
+                "Ada: cron '{$key}' ({$reg['app']}) has ended in 'warning' {$warns} runs in a row" . ($w !== '' ? " (\"{$w}\")" : '') . ". Read its cron_runs rows and fix the cause.",
                 'developer');
         }
 
@@ -328,6 +342,25 @@ class AdaRules
             return $base + self::verdict('green', 'quiet', 'Apple push: nothing to send in the last 48 hours' . ($lastSentAt ? ' (last sent ' . self::ago($lastSentAt, $now) . ')' : '') . '.', null, null);
         }
         return $base + self::verdict('green', 'ok', "Apple push: {$sent} sent in 48 hours" . ($failed ? ", {$failed} failed" : '') . '.', null, null);
+    }
+
+    /**
+     * The app's sign-in key (BLUEMOON_JWT_SECRET). Since 2026-10-12 there is no fallback key, so a
+     * missing or short secret means nobody can sign in on the iPhone. Only the length is looked at —
+     * the value never leaves secrets.php.
+     */
+    public static function jwtSecretCheck(?int $length): array
+    {
+        $base = ['system' => 'secret:jwt', 'group' => 'Security', 'name' => 'App sign-in key', 'last_worked' => null];
+        if ($length === null) {
+            return $base + self::verdict('red', 'missing', 'App sign-in key: BLUEMOON_JWT_SECRET is not set — the iPhone app cannot sign anyone in.',
+                'secrets.php: define BLUEMOON_JWT_SECRET (64 random characters). Every phone will have to sign in again.', 'tim');
+        }
+        if ($length < 32) {
+            return $base + self::verdict('red', 'weak', "App sign-in key: BLUEMOON_JWT_SECRET is only {$length} characters — the server now refuses to use it.",
+                'secrets.php: replace BLUEMOON_JWT_SECRET with 64 random characters. Every phone will have to sign in again.', 'tim');
+        }
+        return $base + self::verdict('green', 'ok', 'App sign-in key: set (' . $length . ' characters).', null, null);
     }
 
     /** Stripe: the newest payment (a proxy — there is no key-health record). */
