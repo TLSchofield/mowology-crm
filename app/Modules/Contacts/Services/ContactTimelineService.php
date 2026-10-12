@@ -9,7 +9,8 @@
  *   - invoices in their scope: sent, viewed, reminders (sent_at / viewed_at /
  *     first_reminder_sent_at / last_reminder_sent_at — whichever columns exist);
  *   - payments received (invoice_payment_allocations);
- *   - Sam's and Yui's sends (sam_followups / yui_actions, status sent|edited, for this contact).
+ *   - Sam's and Yui's sends (sam_followups / yui_actions, status sent|edited, for this contact);
+ *   - the communication log (campaigns, e-Transfer reminders, opt-in mail, Mia's sends — 2026-10-12).
  *
  * A send through Sam's card is also logged in sales_messages (mailbox 'sam'), so merge()
  * drops a Sam/Yui send when an outbound message on the same channel is within DEDUPE_MINUTES.
@@ -48,7 +49,7 @@ class ContactTimelineService
         $first = $sc['first_name'] ?: 'They';
 
         $lists = [];
-        foreach (['messages', 'quotes', 'invoices', 'payments', 'sends'] as $src) {
+        foreach (['messages', 'quotes', 'invoices', 'payments', 'sends', 'logged'] as $src) {
             try {
                 $lists[] = $this->{$src}($sc, $since, $first, $team);
             } catch (Throwable $e) {
@@ -71,6 +72,24 @@ class ContactTimelineService
             $out[] = self::entry((string)$m['sent_at'], $in ? 'in' : 'out', $m['channel'] === 'sms' ? 'sms' : 'email',
                 self::snippet((string)$m['snippet']) ?: ($subject !== '' ? $subject : ($in ? $first . ' wrote' : 'We wrote')),
                 null, 'message', ['subject' => $subject, 'via' => (string)$m['mailbox']]);
+        }
+        return $out;
+    }
+
+    /** communication_log rows for this contact (campaigns, e-Transfer reminders, opt-in mail, Mia). */
+    private function logged(array $sc, string $since, string $first, ContactTeamService $t): array
+    {
+        $s = $this->db->prepare("SELECT type, direction, subject, status, created_at FROM communication_log
+                                 WHERE contact_id = ? AND created_at >= ? ORDER BY created_at DESC, id DESC LIMIT 200");
+        $s->execute([$sc['contact'], $since]);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $in = ($m['direction'] ?? '') === 'inbound';
+            $subject = trim((string)$m['subject']);
+            $failed = in_array(strtolower((string)$m['status']), ['failed', 'bounced', 'error'], true);
+            $out[] = self::entry((string)$m['created_at'], $in ? 'in' : 'out', ($m['type'] ?? '') === 'sms' ? 'sms' : 'email',
+                ($subject !== '' ? $subject : ($in ? $first . ' wrote' : 'We wrote')) . ($failed ? ' (not delivered)' : ''),
+                null, 'logged', ['subject' => $subject]);
         }
         return $out;
     }
@@ -184,7 +203,7 @@ class ContactTimelineService
             if ($e['source'] === 'message' && $e['dir'] === 'out') $outbound[] = [$e['channel'], strtotime($e['at'])];
         }
         $all = array_values(array_filter($all, function ($e) use ($outbound) {
-            if (!in_array($e['source'], ['sam', 'yui'], true)) return true;
+            if (!in_array($e['source'], ['sam', 'yui', 'logged'], true)) return true;
             $t = strtotime($e['at']);
             foreach ($outbound as [$ch, $ot]) {
                 if ($ch === $e['channel'] && abs($ot - $t) <= self::DEDUPE_MINUTES * 60) return false;

@@ -77,4 +77,16 @@ class ContactTimelineServiceTest extends TestCase
         $this->assertLessThanOrEqual(160, mb_strlen($s));
         $this->assertStringEndsWith('…', $s);
     }
+
+    /** 2026-10-12: communication_log (campaigns, e-Transfer reminders) reaches the timeline, once. */
+    public function testLoggedSendsShowButNotTwiceWhenTheMailboxHasThem(): void
+    {
+        $since = '2026-09-01 00:00:00';
+        $msg = ContactTimelineService::entry('2026-10-06 08:31:00', 'out', 'email', 'Post-drought lawn recovery', null, 'message');
+        $logged = ContactTimelineService::entry('2026-10-06 08:30:08', 'out', 'email', 'Post-drought lawn recovery', null, 'logged');
+        $nudge = ContactTimelineService::entry('2026-09-20 10:00:00', 'out', 'email', 'e-Transfer received — which invoice?', null, 'logged');
+        $out = ContactTimelineService::merge([[$msg], [$logged, $nudge]], $since, 50);
+        $this->assertSame(2, $out['total']);
+        $this->assertSame(['message', 'logged'], array_column($out['entries'], 'source'));
+    }
 }
