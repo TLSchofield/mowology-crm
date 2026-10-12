@@ -116,11 +116,21 @@ final class SpecialRequestStore: ObservableObject {
     /// Silent on failure: offline just means nothing to show (the server still guards Start).
     func load() async {
         guard !visitIds.isEmpty else { return }
+        await SpecialRequestOutbox.shared.drain(using: apiClient)
         guard let r: SpecialRequestsResponse = try? await apiClient.request(.scheduleSpecialRequests(visitIds: visitIds)) else { return }
         var map: [Int: [SpecialRequest]] = [:]
         if r.enabled {
             for (key, list) in r.requests {
                 if let vid = Int(key) { map[vid] = list }
+            }
+        }
+        // A "Got it" tapped with no signal is still read — keep it read after a reload.
+        let me = apiClient.currentUserId
+        for vid in map.keys {
+            map[vid] = map[vid]?.map { r in
+                var c = r
+                if SpecialRequestOutbox.shared.hasPendingAck(requestVisitId: r.requestVisitId, userId: me) { c.ackedByMe = true }
+                return c
             }
         }
         byVisit = map
@@ -151,7 +161,12 @@ final class SpecialRequestStore: ObservableObject {
         } catch {
             markAcked(request)
             if case APIError.networkError = error {
-                errorMessage = "No signal — marked as read on this phone."
+                // Kept on the phone and sent when signal returns, so the office sees it was read.
+                SpecialRequestOutbox.shared.enqueue(
+                    userId: apiClient.currentUserId,
+                    body: ["mode": "ack", "request_visit_id": request.requestVisitId]
+                )
+                errorMessage = "No signal — marked as read; it will reach the office when you're back in range."
             }
         }
     }
@@ -172,6 +187,17 @@ final class SpecialRequestStore: ObservableObject {
             if let updated = r.request { replace(updated) }
             errorMessage = nil
             return true
+        } catch APIError.networkError {
+            // No signal: the answer is kept on this phone and sent later, never lost.
+            SpecialRequestOutbox.shared.enqueue(
+                userId: apiClient.currentUserId,
+                body: [
+                    "mode": "outcome", "request_visit_id": request.requestVisitId, "outcome": outcome,
+                    "reason": reason, "extra_description": extraDescription, "extra_minutes": extraMinutes,
+                ]
+            )
+            errorMessage = "No signal — answer saved on this phone; it will be sent when you're back in range."
+            return true
         } catch {
             errorMessage = (error as? APIError)?.localizedDescription ?? error.localizedDescription
             return false
@@ -188,5 +214,80 @@ final class SpecialRequestStore: ObservableObject {
         var list = byVisit[request.visitId] ?? []
         if let i = list.firstIndex(where: { $0.id == request.id }) { list[i] = request } else { list.append(request) }
         byVisit[request.visitId] = list
+    }
+}
+
+// MARK: - Offline outbox
+
+/// "Got it" taps and answers made with no signal (2026-10-12: they were held only on screen and
+/// lost). Kept on disk per person, sent oldest-first by the photo drain on reconnect/foreground
+/// and before each load. A 4xx refusal (request gone, switched off) drops the entry.
+@MainActor
+final class SpecialRequestOutbox {
+
+    static let shared = SpecialRequestOutbox()
+
+    struct Entry: Codable {
+        let id: String
+        let userId: Int?
+        let bodyJSON: Data
+        let requestVisitId: Int
+        let isAck: Bool
+    }
+
+    private let defaults = UserDefaults.standard
+    private let storeKey = "mw.specialrequest.outbox.v1"
+    private var running: Task<Void, Never>?
+
+    private var entries: [Entry] {
+        get {
+            guard let data = defaults.data(forKey: storeKey),
+                  let decoded = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
+            return decoded
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: storeKey) }
+    }
+
+    var hasPending: Bool { !entries.isEmpty }
+
+    func enqueue(userId: Int?, body: [String: Any]) {
+        guard let json = try? JSONSerialization.data(withJSONObject: body) else { return }
+        var list = entries
+        list.append(Entry(id: UUID().uuidString, userId: userId, bodyJSON: json,
+                          requestVisitId: body["request_visit_id"] as? Int ?? 0,
+                          isAck: (body["mode"] as? String) == "ack"))
+        entries = list
+    }
+
+    func hasPendingAck(requestVisitId: Int, userId: Int?) -> Bool {
+        entries.contains { $0.isAck && $0.requestVisitId == requestVisitId && $0.userId == userId }
+    }
+
+    /// One run at a time; only the signed-in person's entries.
+    func drain(using apiClient: APIClient) async {
+        if let running { return await running.value }
+        let task = Task { await self.drainOnce(using: apiClient) }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce(using apiClient: APIClient) async {
+        guard let me = apiClient.currentUserId else { return }
+        for entry in entries where entry.userId == me {
+            guard let body = (try? JSONSerialization.jsonObject(with: entry.bodyJSON)) as? [String: Any] else {
+                entries = entries.filter { $0.id != entry.id }
+                continue
+            }
+            do {
+                let _: SpecialRequestActionResponse = try await apiClient.request(.scheduleSpecialRequestAction, body: body)
+                entries = entries.filter { $0.id != entry.id }
+            } catch APIError.serverError(let message) {
+                print("[SpecialRequestOutbox] refused \(entry.requestVisitId): \(message) — dropped")
+                entries = entries.filter { $0.id != entry.id }
+            } catch {
+                return   // no signal / login expired / unreadable: keep, in order
+            }
+        }
     }
 }

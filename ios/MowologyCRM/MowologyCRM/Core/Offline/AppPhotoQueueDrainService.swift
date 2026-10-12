@@ -71,5 +71,10 @@ final class AppPhotoQueueDrainService {
             print("[AppPhotoQueueDrain] Draining \(RecommendationQueue.shared.pendingCount) pending recommendation(s)")
             await RecommendationQueue.shared.drain(using: apiClient)
         }
+
+        // Special-request "Got it" taps and answers made with no signal.
+        if SpecialRequestOutbox.shared.hasPending {
+            await SpecialRequestOutbox.shared.drain(using: apiClient)
+        }
     }
 }
