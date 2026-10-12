@@ -14,13 +14,19 @@
  *   2. Create an invoice: subtotal = billing_amount, 5% GST, due = last day of current month
  *   3. Insert a single line item describing the monthly service period
  *   4. Insert invoice_contacts for the contract's primary contact
- *   5. Send the invoice email using the 'invoice_sent' template + EmailWrapper
+ *   5. Send the invoice email using the 'invoice_sent' template + EmailWrapper,
+ *      WITH the invoice PDF (ContractInvoiceSender + InvoicePdfGate). No PDF → the
+ *      email is NOT sent, the invoice stays 'draft', Charlie alerts the owner, and
+ *      the invoice is retried at the start of the next run (step 0).
  *   6. Send an SMS notification if the contact has SMS consent
  *   7. Mark invoice status = 'sent'
  *   8. Log the action to activity_log
+ *   0. (every run, first) Retry contract invoices held for a missing PDF.
  *
  * cPanel cron:
  *   0 6 1 * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php
+ * Optional daily retry of held invoices (creates nothing new):
+ *   15 7 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php retry-only
  *
  * Can also be triggered manually by an admin via HTTP POST (same auth as other crons).
  */
@@ -65,6 +71,8 @@ require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines l
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
@@ -76,6 +84,17 @@ $db       = getDB();
 $created  = [];
 $skipped  = [];
 $errors   = [];
+$held     = [];   // not sent: the invoice PDF could not be made (retried next run)
+$retried  = [];   // held invoices from earlier runs, sent now
+
+// retry-only: just re-send invoices held for a missing PDF; create nothing new.
+// Safe to schedule daily (the monthly line still creates the invoices on the 1st):
+//   15 7 * * * /usr/local/bin/php .../contract_billing.php retry-only
+$retryOnly = $isCli
+    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
+    : !empty($_POST['retry_only']);
+
+$sender = new ContractInvoiceSender($db, new InvoicePdfGate($db));
 
 // ── 1. Check migration 1007 has been applied ─────────────────────────────────
 try {
@@ -108,6 +127,33 @@ try {
 $propertyBillingEntitySelect = $hasPropertyBillingEntity
     ? "NULLIF(p.billing_entity_name, '') AS property_billing_entity,"
     : "NULL AS property_billing_entity,";
+
+// ── 1b. Retry invoices held for a missing PDF on an earlier run ─────────────
+// A held invoice is a draft that already exists, so the "already invoiced this
+// month" check below would skip it forever — it is retried here instead.
+$heldIds = [];
+try {
+    $heldIds = $sender->heldInvoiceIds();
+} catch (Throwable $e) {
+    error_log('[contract_billing] held-invoice lookup failed: ' . $e->getMessage());
+    $errors[] = 'Held-invoice lookup failed: ' . $e->getMessage();
+}
+foreach ($heldIds as $heldId) {
+    try {
+        $res = $sender->send($heldId);
+        if ($res['status'] === 'sent') {
+            $retried[] = 'retry: ' . $res['message'];
+        } elseif ($res['status'] === 'held') {
+            $held[]   = $res['message'];
+            $errors[] = 'retry: ' . $res['message'];
+        } else {
+            $errors[] = 'retry: ' . $res['message'];
+        }
+    } catch (Throwable $e) {
+        error_log("[contract_billing] retry of invoice {$heldId} failed: " . $e->getMessage());
+        $errors[] = "retry: invoice {$heldId} failed: " . $e->getMessage();
+    }
+}
 
 // ── 2. Fetch active monthly contracts with contact + property info ────────────
 try {
@@ -173,7 +219,7 @@ try {
 }
 
 // ── 3. Process each contract ──────────────────────────────────────────────────
-foreach ($contracts as $ctr) {
+foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothing new
     $contractId = (int)$ctr['contract_id'];
     $contactId  = (int)$ctr['contact_id'];
 
@@ -309,109 +355,18 @@ foreach ($contracts as $ctr) {
 
         $db->commit();
 
-        // ── 3f. Send email ────────────────────────────────────────────────────
-        $recipientName  = trim($ctr['first_name'] . ' ' . $ctr['last_name']) ?: 'Valued Customer';
-        $firstName      = $ctr['first_name'] ?: 'there';
-        $companyInfo    = EmailWrapper::getCompanyInfo();
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
-
-        $tplVars = [
-            '{{customer_first_name}}' => $firstName,
-            '{{customer_name}}'       => $recipientName,
-            '{{invoice_number}}'      => $invoiceNumber,
-            '{{amount_due}}'          => formatCurrency($total),
-            '{{due_date}}'            => formatDate($dueDate),
-            '{{company_name}}'        => $companyInfo['company_name'],
-            '{{company_phone}}'       => $companyInfo['company_phone'],
-        ];
-
-        $tpl = loadEmailTemplate('invoice_sent', $tplVars);
-
-        $billSummary  = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;width:120px;">Invoice #</td><td style="padding:6px 0;color:#0D3B2E;font-weight:700;">' . htmlspecialchars($invoiceNumber) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Period</td><td style="padding:6px 0;color:#0D3B2E;">' . htmlspecialchars($monthLabel) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Amount Due</td><td style="padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;">' . formatCurrency($total) . ' CAD</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Due Date</td><td style="padding:6px 0;color:#0D3B2E;">' . formatDate($dueDate) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;vertical-align:top;">Bill To</td><td style="padding:6px 0;color:#0D3B2E;">' . htmlspecialchars($recipientName) . '</td></tr>';
-        $billSummary .= '</table>';
-
-        $emailBody = EmailWrapper::wrap(
-            $billSummary . $tpl['body_html'],
-            'Pay the invoice',
-            $invoiceViewUrl,
-            $companyInfo
-        );
-
-        // Generate the invoice PDF so the automated send carries the same
-        // attachment a manually-sent invoice gets (InvoiceFromVisitService::send()).
-        // Root cause of a real incident: contract-billed clients never received
-        // a PDF on the automated monthly send, only a "View Online" link.
-        $attachPath = null;
-        try {
-            $pdfGen    = new PdfGenerator();
-            $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-            if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-                $attachPath = $pdfResult['path'];
-            } else {
-                error_log("[contract_billing] PDF generation failed for invoice {$invoiceNumber}: " . ($pdfResult['error'] ?? 'unknown error'));
-            }
-        } catch (Throwable $e) {
-            error_log("[contract_billing] PDF generation exception for invoice {$invoiceNumber}: " . $e->getMessage());
-        }
-
-        $emailSent = sendCrmEmail($billingEmail, $tpl['subject'], $emailBody, $attachPath);
-
-        if ($emailSent) {
-            // Mark sent
-            $db->prepare("
-                UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?
-            ")->execute([$invoiceId]);
-
-            $db->prepare("
-                UPDATE invoice_contacts SET invoice_sent_at = NOW()
-                WHERE invoice_id = ?
-            ")->execute([$invoiceId]);
-
-            // Autopay: first-send transition to 'sent' — attempt an off-session
-            // charge if the bill-to is enrolled. See AutopayService::triggerOnSend().
-            $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
-            if (is_file($autopayServicePath)) {
-                require_once $autopayServicePath;
-                AutopayService::triggerOnSend($db, $invoiceId, 'contract_billing.php');
-            }
-
-            // ── 3g. SMS ───────────────────────────────────────────────────────
-            if (!empty($ctr['receive_sms']) && !empty($ctr['contact_mobile'])) {
-                sendInvoiceNotificationSms(
-                    $ctr['contact_mobile'],
-                    $invoiceNumber,
-                    $total
-                );
-            }
-
-            // ── 3h. Activity log ──────────────────────────────────────────────
-            logActivityExtended(
-                0,
-                'contract_invoice_generated',
-                json_encode([
-                    'invoice_id'      => $invoiceId,
-                    'invoice_number'  => $invoiceNumber,
-                    'contract_id'     => $contractId,
-                    'contract_number' => $ctr['contract_number'],
-                    'amount'          => $total,
-                    'period'          => $monthLabel,
-                    'sent_to'         => $billingEmail,
-                ]),
-                null,
-                null, null,
-                $invoiceId
-            );
-
-            $created[] = "{$ctr['contract_number']} → {$invoiceNumber} ({$billingEmail})";
+        // ── 3f. Send email (PDF required) ─────────────────────────────────────
+        // ContractInvoiceSender: no PDF → NOT sent, stays draft, recorded for
+        // Charlie + retried at the start of the next run. Sent → status 'sent',
+        // autopay, SMS, activity log (same as the old inline code).
+        $res = $sender->send($invoiceId);
+        if ($res['status'] === 'sent') {
+            $created[] = $res['message'];
+        } elseif ($res['status'] === 'held') {
+            $held[]   = $res['message'];
+            $errors[] = "{$ctr['contract_number']}: " . $res['message'];
         } else {
-            // Email failed — invoice exists as draft; log it so it can be resent manually
-            error_log("[contract_billing] Email failed for invoice {$invoiceNumber} (contract {$ctr['contract_number']}, email {$billingEmail})");
-            $errors[] = "{$ctr['contract_number']}: invoice {$invoiceNumber} created but email failed — resend manually";
+            $errors[] = $res['message'];
         }
 
     } catch (Throwable $e) {
@@ -432,11 +387,14 @@ $report = [
     'run_date'   => $today,
     'period'     => $monthLabel,
     'created'    => count($created),
+    'retried'    => count($retried),
+    'held'       => count($held),
     'skipped'    => count($skipped),
     'errors'     => count($errors),
     'elapsed_ms' => $elapsedMs,
     'detail'     => [
-        'created' => $created,
+        'created' => array_merge($created, $retried),
+        'held'    => $held,
         'skipped' => $skipped,
         'errors'  => $errors,
     ],
@@ -445,13 +403,15 @@ $report = [
 if ($isCli) {
     echo "Contract billing complete [{$monthLabel}]\n";
     echo "  Created : " . count($created) . "\n";
+    echo "  Retried : " . count($retried) . " (held for PDF earlier, sent now)\n";
+    echo "  Held    : " . count($held) . " (NOT sent — invoice PDF could not be made)\n";
     echo "  Skipped : " . count($skipped) . "\n";
     echo "  Errors  : " . count($errors) . "\n";
     if ($errors) {
         foreach ($errors as $err) { echo "  ERROR: {$err}\n"; }
     }
-    if ($created) {
-        foreach ($created as $c) { echo "  OK: {$c}\n"; }
+    if ($created || $retried) {
+        foreach (array_merge($created, $retried) as $c) { echo "  OK: {$c}\n"; }
     }
     exit(count($errors) > 0 ? 1 : 0);
 } else {

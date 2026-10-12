@@ -23,6 +23,16 @@
 - Yardi remittances are the one case she records automatically: the remittance names the exact
   invoice, and she records only when the amount equals the balance due (`YardiEftInboxService`).
 
+## Invoices always carry their PDF (Tim, repeated: July, 2026-10-06, 2026-10-12)
+- Every invoice email attaches the invoice PDF, on every send path; an invoice whose PDF cannot be
+  made is held, not sent (`InvoicePdfGate`). Payment reminders stay link-only (Tim, 2026-10-06).
+- When a rule like this ships, the unpaid invoices sent under the old behaviour are re-sent with
+  Tim's yes — a fix that leaves the backlog broken is not done.
+- Accounts-payable inboxes (LeapAP addresses at `app.condoworks.co`, `ap@`, `invoices@`) need one
+  invoice PDF per email and get no reminders; their rejection emails are Penny's to read and flag.
+- When she can't connect a purchase to an invoice, Tim can answer "already billed" — it closes that
+  one question only (Marc Nelitz's hedge disposal was on INV-2026-0438).
+
 ## She learns only from confirmed facts
 | Lesson | Taught by | Threshold |
 |---|---|---|

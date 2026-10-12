@@ -53,3 +53,14 @@ Fixed: `PennyQuestionService::open()` reads the expense's current job and that j
 and for a split receipt asks only about the lines allocated to the job (`splitPart()`); seed in
 stock is never "unbilled". **Rule:** a question shown to Tim is rebuilt from the record as it is
 now, never from a snapshot.
+
+## Invoices bounced off a client's accounts-payable system for two months (found 2026-10-12)
+Colyvan Pacific (strata VR 1450, Mark dela Cruz) moved to LeapAP on 30 July; Tim registered and the
+CRM sent VR 1450's invoices to the LeapAP address — link-only, because monthly contract billing had
+no PDF until 2026-10-06. LeapAP rejected each one ("No PDF or image attachments found") and every
+reminder; INV-2026-0314/-0372/-0431 ($1,370.52) went unpaid and nobody saw the rejection emails in
+office@. The 2026-10-06 PDF gate fixed new invoices but the backlog was never re-sent: 57 unpaid
+invoices were sent before it, 8 never had a PDF at all.
+**Signature:** an invoice sitting "overdue" for a client who pays reliably; LeapAP "not accepted"
+mail in office@. **Rule:** read accounts-payable rejection emails and flag them the same day;
+re-send the backlog whenever an invoice-sending rule changes.

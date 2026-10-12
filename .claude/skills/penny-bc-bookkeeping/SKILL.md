@@ -10,6 +10,10 @@ covers:
   - public/crm/accounting/*
   - public/crm/expenses_appstack.php
   - public/crm/invoices/*
+  - app/Modules/Invoices/*
+  - app/Modules/Contracts/Cron/contract_billing.php
+  - app/Modules/Contracts/Services/ContractInvoiceSender.php
+  - app/Modules/Clients/Services/BillToResolver.php
   - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
   - database/migrations/*
 metadata:
@@ -91,6 +95,10 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Cash-flow forecast | `CashFlowForecastService` | cash-flow page, Penny's brief |
 | Orphan deposits → what they paid | `DepositBackfillService` | one-off backfill, re-runnable |
 | Journal posting | `LedgerSyncService`, `LedgerAccountMap`, `JobberLedgerService` | nightly sync |
+| Invoice PDF before any invoice email (no PDF → held, not sent) | `InvoicePdfGate` (`ensurePdf()`); monthly contract invoices through `ContractInvoiceSender::send()` | desktop send, visit invoices, contract billing, bulk resend |
+| Who an invoice goes to (company/manager routing) | `companyRoutingRecipients()`, `resolveCompanyBillingRecipient()`, `resolveManagementBillingRecipient()`, `preferRecipients()` in `app/Modules/Invoices/Services/InvoiceRouting.php` | invoice screen, contract billing, visit invoices |
+| The "Bill to" company on every invoice header | `BillToResolver::INVOICE_COMPANY_NAME` + `INVOICE_COMPANY_JOINS` | PDF, CRM view, customer portal |
+| Penny's "unbilled materials" questions and answers | `PennyQuestionService` (answers: invoice, contract, not billable, already billed) | Penny's card |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
 (`business_settings.gst_rate`); `TaxEngine::getRates()` (ledger, GST report) and the two on-screen
