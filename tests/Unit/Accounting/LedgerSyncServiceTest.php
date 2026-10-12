@@ -207,4 +207,14 @@ class LedgerSyncServiceTest extends TestCase
         $this->assertEqualsWithDelta(85.35, $this->lineByAccount($e, 99)['credit'], 0.001);
         $this->assertEntryBalances($e);
     }
+
+    public function test_only_issued_invoices_are_revenue(): void
+    {
+        foreach (['sent', 'viewed', 'partial', 'overdue', 'paid'] as $st) {
+            $this->assertTrue(LedgerSyncService::invoiceIsIssued($st), $st);
+        }
+        foreach (['draft', 'cancelled', 'canceled', 'void', 'Cancelled', '', null] as $st) {
+            $this->assertFalse(LedgerSyncService::invoiceIsIssued($st), var_export($st, true));
+        }
+    }
 }

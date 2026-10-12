@@ -376,6 +376,15 @@ class LedgerSyncService
         return $map;
     }
 
+    /**
+     * Is this invoice revenue? A draft was never issued; a cancelled or void one was withdrawn.
+     * Those must not sit in the journal as revenue + GST + AR (review 2026-10-12: 4 did, $1,181.55).
+     */
+    public static function invoiceIsIssued(?string $status): bool
+    {
+        return !in_array(strtolower(trim((string)$status)), ['draft', 'cancelled', 'canceled', 'void', ''], true);
+    }
+
     public function syncInvoices(): array
     {
         require_once __DIR__ . '/LedgerAccountMap.php';
@@ -397,8 +406,19 @@ class LedgerSyncService
             try { $plans = $planner->planAll(); } catch (\Throwable $e) { $plans = null; error_log('[LedgerSync] payment plan: ' . $e->getMessage()); }
         }
 
+        $reversed = 0;
         foreach ($rows as $row) {
             try {
+                if (!self::invoiceIsIssued($row['status'] ?? null)) {
+                    // Not (or no longer) an issued invoice: take its revenue entry back out. Only when
+                    // nothing was paid on it — a payment on a cancelled invoice is for a person to sort out.
+                    $eid = $this->ledger->findEntryIdBySource('invoice', (int)$row['id']);
+                    if ($eid !== null && (float)($row['amount_paid'] ?? 0) <= 0) {
+                        $this->ledger->reverseEntry($eid, null, 'invoice is ' . $row['status'] . ' — not revenue', 'penny');
+                        $reversed++;
+                    }
+                    continue;
+                }
                 $args = $this->mapInvoiceToInvoiceArgs($row);
                 if ($map->ready()) {
                     $args['revenue_splits'] = $map->invoiceSplits($row, $args['net']);
@@ -418,7 +438,7 @@ class LedgerSyncService
                 $skipped++; // never abort the batch
             }
         }
-        return ['invoices_posted' => $posted, 'payments_posted' => $payments, 'skipped' => $skipped];
+        return ['invoices_posted' => $posted, 'payments_posted' => $payments, 'skipped' => $skipped, 'invoices_reversed' => $reversed];
     }
 
     public function syncExpenses(): array

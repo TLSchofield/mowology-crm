@@ -49,6 +49,7 @@ class LedgerRepostService
         $s = $this->db->query("SELECT id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id,
                                       issue_date, paid_at, created_at FROM invoices WHERE COALESCE(total, 0) > 0");
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+            if (!LedgerSyncService::invoiceIsIssued($inv['status'] ?? null)) continue;   // the sync reverses these
             $have = $posted['invoice'][(int)$inv['id']] ?? null;
             if (!$have) continue;                                  // not posted yet — the sync will post it right
             $args = $this->sync->mapInvoiceToInvoiceArgs($inv);
