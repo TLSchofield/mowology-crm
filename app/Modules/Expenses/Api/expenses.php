@@ -30,6 +30,8 @@ try {
     require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
     // Every change to an expense goes through the one gate (migration 1233).
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -163,7 +165,7 @@ try {
 
         case 'qb_retry':
             if (!$canSend) throw new Exception('Permission denied: expenses.send required');
-            handleQbRetry($db);
+            handleQbRetry($db, $input ?? []);
             break;
 
         case 'reassign_job':
@@ -210,8 +212,38 @@ try {
     }
 
 } catch (Throwable $e) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    http_response_code(ApiResponse::isSafe($e) ? 400 : 500);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expenses.php')]);
+}
+
+/**
+ * Who is asking, for the shared receipt rules (review round 2, 2026-10-12): the office (admin/manager
+ * or expenses.approve) sees and edits everyone's receipts; crew see and edit their own.
+ */
+function expenseActor(): array
+{
+    $u = getCurrentUser() ?: [];
+    return ['id' => (int)($u['id'] ?? 0),
+            'is_admin' => ExpenseService::isOffice((string)($u['role'] ?? ''), userHasPermission('expenses.approve'))];
+}
+
+/** Refuse a desktop change the iPhone path would refuse (ExpenseService::editBlockReason). */
+function assertCanEditExpense(PDO $db, int $expenseId): void
+{
+    if ($expenseId <= 0) throw new Exception('Expense ID required');
+    $st = $db->prepare("SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $st->execute([$expenseId]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) throw new Exception('Expense not found');
+    if (($why = ExpenseService::editBlockReason($row, expenseActor())) !== null) throw new Exception($why);
+}
+
+/** The expense a line item belongs to. */
+function lineItemExpenseId(PDO $db, int $lineItemId): int
+{
+    $st = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $st->execute([$lineItemId]);
+    return (int)$st->fetchColumn();
 }
 
 
@@ -223,6 +255,12 @@ function handleList(PDO $db): void
 
     $where = ['1=1'];
     $params = [];
+    // Crew see their own receipts; the office sees everyone's (same as the iPhone list).
+    $actor = expenseActor();
+    if (!$actor['is_admin']) {
+        $where[]  = 'e.created_by = ?';
+        $params[] = $actor['id'];
+    }
 
     if (!empty($_GET['category'])) {
         $where[] = 'e.accounting_category = ?';
@@ -338,7 +376,7 @@ function handleReviewQueue(PDO $db): void
     $countStmt = $db->prepare("
         SELECT COUNT(*), SUM(e.total)
         FROM expenses e
-        WHERE e.status IN ('draft', 'approved')
+        WHERE e.status = 'approved'
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
           {$pennyHolds}
@@ -355,7 +393,7 @@ function handleReviewQueue(PDO $db): void
                v.name AS vendor_name
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
-        WHERE e.status IN ('draft', 'approved')
+        WHERE e.status = 'approved'
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
           {$pennyHolds}
@@ -404,6 +442,8 @@ function handleGet(PDO $db): void
     $expense = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$expense) throw new Exception('Expense not found');
+    $actor = expenseActor();
+    if (!$actor['is_admin'] && (int)$expense['created_by'] !== $actor['id']) throw new Exception('Expense not found');
 
     // Route receipt image through auth-gated proxy
     if (!empty($expense['receipt_media_id'])) {
@@ -564,24 +604,9 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
     }
 
-    // Auto-send if enabled
-    if (!empty($input['auto_send'])) {
-        require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
-        $config = getReceiptForwardingConfig($db);
-        if ($config['enabled'] && $config['auto_send'] && !empty($input['receipt_media_id'])) {
-            sendReceiptToAccounting([
-                'expense_id'         => $expenseId,
-                'media_id'           => (int)$input['receipt_media_id'],
-                'vendor'             => $input['vendor_name_raw'] ?? 'Unknown',
-                'subtotal'           => (string)($input['amount'] ?? '0.00'),
-                'gst_amount'         => (string)($input['gst_amount'] ?? '0.00'),
-                'total'              => (string)$total,
-                'date'               => $expenseDate,
-                'job_id'             => $input['job_id'] ?? null,
-                'accounting_category'=> $input['accounting_category'] ?? '',
-            ]);
-        }
-    }
+    // No auto-send on create (review round 2, 2026-10-12): a new expense is always draft /
+    // pending_approval, and only approved receipts go to the accountant — the old auto_send emailed
+    // the client-supplied values of an unapproved receipt. Approve it, then send.
 
     echo json_encode([
         'success' => true,
@@ -598,6 +623,7 @@ function handleReassignJob(PDO $db, ?array $input): void
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
+    assertCanEditExpense($db, $id);
 
     $jobId = isset($input['job_id']) && $input['job_id'] !== null && $input['job_id'] !== ''
         ? (int)$input['job_id'] : null;
@@ -621,16 +647,14 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status, forwarded_to_accounting, match_confidence, property_id, contact_id FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT id, created_by, raw_ocr_json, vendor_id, status, forwarded_to_accounting, match_confidence, property_id, contact_id FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
 
-    // Same forwarded guard the JWT path (ExpenseService::update) has always enforced —
-    // once sent to accounting the record is part of the books and must not drift.
-    if ($existing['status'] === 'forwarded' || (int)($existing['forwarded_to_accounting'] ?? 0) === 1) {
-        throw new Exception('This expense has been sent to accounting and can no longer be edited');
-    }
+    // The JWT path's rule (ExpenseService::editBlockReason): crew edit only their own, nobody edits a
+    // receipt sent to accounting, an approved receipt is the office's to change.
+    if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
 
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total = (float)($input['total'] ?? 0);
@@ -1223,9 +1247,11 @@ function handleQbStatus(PDO $db): void
     echo json_encode(['success' => true, 'status' => $status]);
 }
 
-function handleBatchForward(PDO $db, array $input): void
+function handleBatchForward(PDO $db, ?array $input): void
 {
+    if (!verifyCSRFToken(ApiResponse::csrfToken($input ?? []))) throw new Exception('Invalid security token');
     require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
+    // Only approved receipts are forwarded — qbForwardExpense() refuses the rest with the reason.
 
     $ids = $input['expense_ids'] ?? [];
     if (!is_array($ids) || empty($ids)) {
@@ -1245,8 +1271,9 @@ function handleBatchForward(PDO $db, array $input): void
     echo json_encode(['success' => true] + $result);
 }
 
-function handleQbRetry(PDO $db): void
+function handleQbRetry(PDO $db, ?array $input): void
 {
+    if (!verifyCSRFToken(ApiResponse::csrfToken($input ?? []))) throw new Exception('Invalid security token');
     require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
     $result = qbRetryFailed($db);
     echo json_encode(['success' => true] + $result);
@@ -1282,6 +1309,7 @@ function handleRescan(PDO $db, ?array $input, array $user): void
     }
     $expenseId = (int)($input['expense_id'] ?? 0);
     if (!$expenseId) throw new Exception('Expense ID required');
+    assertCanEditExpense($db, $expenseId);
     // The pipeline lives in ExpenseRescanService (shared with the iPhone, 2026-10-11).
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseRescanService.php';
     echo json_encode((new ExpenseRescanService($db, expenseGate($db)))->rescan($expenseId, ExpenseGate::actor($user), 'desktop_rescan'));
@@ -1299,6 +1327,7 @@ function handleAddLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
+    assertCanEditExpense($db, (int)($input['expense_id'] ?? 0));
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
     $item = (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line')->add((int)($input['expense_id'] ?? 0), $input);
 
@@ -1316,6 +1345,7 @@ function handleDeleteLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
+    assertCanEditExpense($db, lineItemExpenseId($db, (int)($input['line_item_id'] ?? 0)));
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
     (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line')->delete((int)($input['line_item_id'] ?? 0));
 
@@ -1335,6 +1365,7 @@ function handleUpdateLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
+    assertCanEditExpense($db, lineItemExpenseId($db, (int)($input['line_item_id'] ?? 0)));
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
     $service = (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line');
     $item = $service->update((int)($input['line_item_id'] ?? 0), $input);

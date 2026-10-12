@@ -47,6 +47,51 @@ class ExpenseService
      * @return array ['success'=>true, 'message'=>string, 'expense_id'=>int]
      * @throws Exception on missing id, not found, wrong owner, or already-sent.
      */
+    /**
+     * Who may change a receipt — the one rule for the iPhone (update) and the desktop edit + line
+     * items (expenses.php), review round 2 2026-10-12. Pure (tested).
+     *   - crew edit their own; admins/managers (actor['is_admin']) edit any;
+     *   - nobody edits a receipt already sent to accounting;
+     *   - an approved receipt is in the books: only an admin changes it.
+     * @param array $expense needs created_by, status, forwarded_to_accounting
+     * @param array $actor   ['id' => int, 'is_admin' => bool]
+     */
+    public static function editBlockReason(array $expense, array $actor): ?string
+    {
+        $isAdmin = !empty($actor['is_admin']);
+        if (!$isAdmin && (int)($expense['created_by'] ?? 0) !== (int)($actor['id'] ?? 0)) {
+            return 'You can only edit your own expenses';
+        }
+        if (($expense['status'] ?? '') === 'forwarded' || (int)($expense['forwarded_to_accounting'] ?? 0) === 1) {
+            return 'This expense has been sent to accounting and can no longer be edited';
+        }
+        if (!$isAdmin && ($expense['status'] ?? '') === 'approved') {
+            return 'This receipt is approved — ask the office to change it';
+        }
+        return null;
+    }
+
+    /** The office sees and changes everyone's receipts: admin/manager role, or the approve permission. */
+    public static function isOffice(string $role, bool $canApprove): bool
+    {
+        return in_array($role, ['admin', 'manager'], true) || $canApprove;
+    }
+
+    /**
+     * Only an approved receipt goes to the accountant (operating rules: phone receipts are
+     * capture-only; approval happens in the office). Null = may be sent. Pure (tested).
+     */
+    public static function sendBlockReason(array $expense): ?string
+    {
+        if (!empty($expense['forwarded_to_accounting']) || ($expense['status'] ?? '') === 'forwarded') {
+            return 'This receipt was already sent to the accountant.';
+        }
+        if (($expense['status'] ?? '') !== 'approved') {
+            return 'Only approved receipts are sent to the accountant — approve it in the office first.';
+        }
+        return null;
+    }
+
     public function update(int $expenseId, array $currentUser, array $input): array
     {
         if (!$expenseId) {
@@ -63,21 +108,8 @@ class ExpenseService
             throw new Exception('Expense not found');
         }
 
-        // Ownership: crew edit their own; admins/managers edit any.
-        $isAdmin = !empty($currentUser['is_admin']);
-        if (!$isAdmin && (int)$expense['created_by'] !== (int)($currentUser['id'] ?? 0)) {
-            throw new Exception('You can only edit your own expenses');
-        }
-
-        // Editable in any status EXCEPT sent — once forwarded to accounting the record is
-        // part of the books and must not drift.
-        if ($expense['status'] === 'forwarded' || (int)$expense['forwarded_to_accounting'] === 1) {
-            throw new Exception('This expense has been sent to accounting and can no longer be edited');
-        }
-        // An approved receipt is in the books: only an admin changes it (a crew edit re-posted it
-        // as if the owner had — review 2026-10-12).
-        if (!$isAdmin && $expense['status'] === 'approved') {
-            throw new Exception('This receipt is approved — ask the office to change it');
+        if (($why = self::editBlockReason($expense, $currentUser)) !== null) {
+            throw new Exception($why);
         }
 
         $expenseDate = $this->sanitizeDate($input['expense_date'] ?? null) ?? date('Y-m-d');

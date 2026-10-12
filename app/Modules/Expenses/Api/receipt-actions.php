@@ -168,6 +168,14 @@ try {
                 exit;
             }
 
+            // Only approved receipts go to the accountant — the same rule as expense-save's and_send
+            // (review round 2, 2026-10-12: a draft could be sent from the phone with no approval).
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+            if (($why = ExpenseService::sendBlockReason($expense)) !== null) {
+                echo json_encode(['success' => false, 'error' => $why, 'log_id' => null]);
+                exit;
+            }
+
             $clientName = trim(($expense['client_first'] ?? '') . ' ' . ($expense['client_last'] ?? ''));
             if (!empty($expense['property_address'])) {
                 $clientName .= $clientName ? ' - ' . $expense['property_address'] : $expense['property_address'];
@@ -202,9 +210,11 @@ try {
     }
 
 } catch (Exception $e) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::isSafe($e) ? 400 : 500);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'receipt-actions.php')]);
 } catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Receipt action failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Receipt action failed: ' . ApiResponse::message($e, 'receipt-actions.php')]);
 }

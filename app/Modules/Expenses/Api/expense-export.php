@@ -29,9 +29,17 @@ try {
     requirePermission('expenses.view');
 
     $db = getDB();
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php';
 
     $where = ['1=1'];
     $params = [];
+    // Crew export their own receipts; the office exports everyone's (review round 2, 2026-10-12).
+    $me = getCurrentUser() ?: [];
+    if (!ExpenseService::isOffice((string)($me['role'] ?? ''), userHasPermission('expenses.approve'))) {
+        $where[]  = 'e.created_by = ?';
+        $params[] = (int)($me['id'] ?? 0);
+    }
 
     if (!empty($_GET['category'])) {
         $where[] = 'e.accounting_category = ?';
@@ -154,8 +162,9 @@ try {
 
     fclose($output);
 
-} catch (Exception $e) {
-    http_response_code(400);
+} catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::isSafe($e) ? 400 : 500);
     header('Content-Type: application/json');
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expense-export.php')]);
 }
