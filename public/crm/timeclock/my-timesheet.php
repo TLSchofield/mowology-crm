@@ -139,7 +139,9 @@ function ts2SvcColor(string $type): string {
 
 $pageTitle  = 'My Timesheet';
 $activePage = 'timeclock';
+$extraHead  = '<link href="/crm/css/mw-timesheet.css?v=20261008a" rel="stylesheet">';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <div class="mw-ts2-page">
@@ -331,11 +333,10 @@ $activePage = 'timeclock';
         </div>
     </div>
 
-    <!-- Back to My Schedule -->
-    <div style="text-align:center; margin-top:8px; margin-bottom: 16px;">
-        <a href="/crm/timeclock/my-schedule.php" style="font-size:0.82rem; color:var(--mw-green); text-decoration:none;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to My Schedule
+    <div class="mw-ts2-back">
+        <a href="/crm/jobs/schedule.php?view=day">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Schedule
         </a>
     </div>
 
