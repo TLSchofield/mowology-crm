@@ -136,6 +136,22 @@ function resolveManagementBillingRecipient(int $propertyId): array {
             return []; // not PM-managed
         }
 
+        return companyRoutingRecipients($mgr, $db);
+    } catch (Throwable $e) {
+        error_log('resolveManagementBillingRecipient error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+
+/**
+ * A company's invoice recipients by its own invoice_routing_method (one rule, 2026-10-11): used for a
+ * property's management firm (resolveManagementBillingRecipient) and for a company billed directly
+ * (resolveCompanyBillingRecipient — the invoice screen's account path read a frozen copy of this).
+ * @param array $co companies row: id, company_name, primary_contact_id, billing_contact_id, billing_email, invoice_routing_method
+ */
+function companyRoutingRecipients(array $co, PDO $db): array {
+        $mgr = $co;
         $method = $mgr['invoice_routing_method'] ?: 'billing_contact';
 
         // Which contact id(s) to use, by routing method.
@@ -198,12 +214,44 @@ function resolveManagementBillingRecipient(int $propertyId): array {
         }
 
         return $recipients;
+}
+
+/** The invoice recipients for a company billed directly, by its live routing settings. */
+function resolveCompanyBillingRecipient(int $companyId): array {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id AS company_id, company_name, primary_contact_id, billing_contact_id, billing_email, invoice_routing_method
+                              FROM companies WHERE id = ?");
+        $stmt->execute([$companyId]);
+        $co = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $co ? companyRoutingRecipients($co, $db) : [];
     } catch (Throwable $e) {
-        error_log('resolveManagementBillingRecipient error: ' . $e->getMessage());
+        error_log('resolveCompanyBillingRecipient error: ' . $e->getMessage());
         return [];
     }
 }
 
+
+/**
+ * Put the routed recipients first and preselected; keep everyone else in the list unticked (as a
+ * possible CC), dropping duplicates of the routed people by contact id or email. Pure.
+ */
+function preferRecipients(array $routed, array $others): array {
+    $ids = [];
+    $emails = [];
+    foreach ($routed as $r) {
+        if (!empty($r['contact_id'])) $ids[(int)$r['contact_id']] = true;
+        if (!empty($r['email_address'])) $emails[strtolower(trim((string)$r['email_address']))] = true;
+    }
+    $rest = [];
+    foreach ($others as $r) {
+        if ((!empty($r['contact_id']) && isset($ids[(int)$r['contact_id']]))
+            || (!empty($r['email_address']) && isset($emails[strtolower(trim((string)$r['email_address']))]))) continue;
+        $r['preselect'] = false;
+        $rest[] = $r;
+    }
+    return array_merge(array_map(fn($r) => ['preselect' => true] + $r, $routed), $rest);
+}
 
 /**
  * Who should receive a PAYMENT REMINDER for this invoice.

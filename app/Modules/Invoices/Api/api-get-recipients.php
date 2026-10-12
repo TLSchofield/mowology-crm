@@ -117,6 +117,24 @@ try {
         }
     }
 
+    // ── Company billed directly: its LIVE routing first (2026-10-11) ─────────
+    // client_contacts is a one-time copy (migration 1049) that nothing updates, so a billing
+    // contact changed on the company never reached this list. The company's own
+    // invoice_routing_method now decides who is preselected; the copied people stay as CCs.
+    if ($clientId && !empty($recipients)) {
+        // A managed account (a strata run by a PM firm) follows its MANAGER's routing, as a
+        // PM-managed property does — VR15-40 bills Macdonald's accounts inbox, not its own contact.
+        $lc = getDB()->prepare("SELECT COALESCE(m.legacy_company_id, cl.legacy_company_id)
+                                FROM clients cl LEFT JOIN clients m ON m.id = cl.managed_by_client_id
+                                WHERE cl.id = ?");
+        $lc->execute([$clientId]);
+        $legacyCompany = (int)$lc->fetchColumn();
+        if ($legacyCompany > 0) {
+            $routed = resolveCompanyBillingRecipient($legacyCompany);
+            if ($routed) $recipients = preferRecipients($routed, $recipients);
+        }
+    }
+
     if (empty($recipients) && $companyId && $propertyId) {
         // Legacy path: company-based routing (needs a property).
         $recipients = determineInvoiceRecipients($propertyId, $companyId);
