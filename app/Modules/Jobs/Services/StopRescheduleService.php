@@ -148,7 +148,7 @@ class StopRescheduleService
                 // The stop also holds finished work (completed / skipped / in progress) for the old
                 // day. Moving the stop row would carry that history to the new date, so the
                 // scheduled visits get a new stop on the new day instead and the old one stays.
-                $resultStopId = $this->splitScheduledTo($stop, $newDate, $newRouteOrder, $newTime, $appendToEnd);
+                [$resultStopId, $newRouteOrder] = $this->splitScheduledTo($stop, $newDate, $newRouteOrder, $newTime, $appendToEnd);
             } else {
                 if ($newRouteOrder === null && $appendToEnd && $newDate !== $oldDate) {
                     $orderStmt = $this->db->prepare("
@@ -212,8 +212,11 @@ class StopRescheduleService
         return (int)$s->fetchColumn();
     }
 
-    /** New stop on $newDate (same property + crew) taking the old stop's scheduled visits and crew. */
-    private function splitScheduledTo(array $stop, string $newDate, ?int $routeOrder, ?string $newTime, bool $appendToEnd): int
+    /**
+     * New stop on $newDate (same property + crew) taking the old stop's scheduled visits and crew.
+     * @return array{0:int,1:?int} [new stop id, its route order]
+     */
+    private function splitScheduledTo(array $stop, string $newDate, ?int $routeOrder, ?string $newTime, bool $appendToEnd): array
     {
         $oldId = (int)$stop['id'];
         if ($routeOrder === null && $appendToEnd) {
@@ -241,7 +244,7 @@ class StopRescheduleService
              . ", updated_at = NOW() WHERE stop_id = ? AND status = 'scheduled'";
         $params = $newTime ? [$newId, $newDate, $newTime, $oldId] : [$newId, $newDate, $oldId];
         $this->db->prepare($sql)->execute($params);
-        return $newId;
+        return [$newId, $routeOrder];
     }
 
     /**

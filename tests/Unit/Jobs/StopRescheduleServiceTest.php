@@ -20,7 +20,7 @@ final class StopRescheduleServiceTest extends TestCase
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->db->sqliteCreateFunction('NOW', static fn () => '2026-09-29 08:00:00', 0);
 
-        $this->db->exec("CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, crew_id INT, property_id INT, stop_date TEXT, route_order INT, estimated_arrival TEXT, updated_at TEXT)");
+        $this->db->exec("CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, crew_id INT, property_id INT, stop_date TEXT, route_order INT, estimated_arrival TEXT, estimated_departure TEXT, status TEXT, updated_at TEXT)");
         $this->db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, stop_id INT, plan_id INT, status TEXT, scheduled_date TEXT, scheduled_time_start TEXT, updated_at TEXT)");
         $this->db->exec("CREATE TABLE job_plans (id INTEGER PRIMARY KEY, estimated_duration_minutes INT)");
 
@@ -44,17 +44,29 @@ final class StopRescheduleServiceTest extends TestCase
         return $this->db->query("SELECT * FROM job_visits WHERE id = {$id}")->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function testMovesStopAndOnlyItsScheduledVisits(): void
+    public function testMovesOnlyScheduledVisitsAndLeavesFinishedWorkOnItsStop(): void
     {
+        // Stop 100 holds a completed visit: the stop (and that history) stays on Oct 2; the
+        // scheduled visit gets a new stop on the new day (2026-10-12).
         $result = (new StopRescheduleService($this->db))->reschedule(100, '2026-10-06');
 
-        $this->assertSame(100, $result['stop_id']);
+        $this->assertNotSame(100, $result['stop_id']);
         $this->assertSame('2026-10-02', $result['old_date']);
         $this->assertFalse($result['merged']);
-        $this->assertSame('2026-10-06', $this->stop(100)['stop_date']);
+        $this->assertSame('2026-10-02', $this->stop(100)['stop_date']);
+        $this->assertSame('2026-10-06', $this->stop($result['stop_id'])['stop_date']);
         $this->assertSame('2026-10-06', $this->visit(200)['scheduled_date']);
-        // Finished work stays on the day it was done.
+        $this->assertSame($result['stop_id'], (int)$this->visit(200)['stop_id']);
         $this->assertSame('2026-10-02', $this->visit(201)['scheduled_date']);
+        $this->assertSame(100, (int)$this->visit(201)['stop_id']);
+    }
+
+    public function testAStopWithOnlyScheduledWorkMovesWhole(): void
+    {
+        $this->db->exec("DELETE FROM job_visits WHERE id = 201");
+        $result = (new StopRescheduleService($this->db))->reschedule(100, '2026-10-06');
+        $this->assertSame(100, $result['stop_id']);
+        $this->assertSame('2026-10-06', $this->stop(100)['stop_date']);
     }
 
     public function testAppendToEndPutsStopLastOnTheNewDay(): void
@@ -62,14 +74,14 @@ final class StopRescheduleServiceTest extends TestCase
         $result = (new StopRescheduleService($this->db))->reschedule(100, '2026-10-05', null, null, true);
 
         $this->assertSame(5, $result['new_route_order']);
-        $this->assertSame(5, (int)$this->stop(100)['route_order']);
+        $this->assertSame(5, (int)$this->stop($result['stop_id'])['route_order']);
     }
 
     public function testExplicitRouteOrderWinsOverAppend(): void
     {
-        (new StopRescheduleService($this->db))->reschedule(100, '2026-10-05', 2, '10:30', true);
+        $result = (new StopRescheduleService($this->db))->reschedule(100, '2026-10-05', 2, '10:30', true);
 
-        $stop = $this->stop(100);
+        $stop = $this->stop($result['stop_id']);
         $this->assertSame(2, (int)$stop['route_order']);
         $this->assertSame('10:30', $stop['estimated_arrival']);
         $this->assertSame('10:30', $this->visit(200)['scheduled_time_start']);
@@ -83,6 +95,12 @@ final class StopRescheduleServiceTest extends TestCase
 
         $this->assertTrue($result['merged']);
         $this->assertSame(120, $result['stop_id']);
+        // The completed visit keeps its stop; the old stop is only removed when empty.
+        $this->assertNotNull($this->stop(100));
+        $this->assertSame(100, (int)$this->visit(201)['stop_id']);
+        $this->db->exec("DELETE FROM job_visits WHERE id = 201");
+        $this->db->exec("INSERT INTO job_visits (id, stop_id, plan_id, status, scheduled_date) VALUES (202, 100, 1, 'scheduled', '2026-10-02')");
+        (new StopRescheduleService($this->db))->reschedule(100, '2026-10-07');
         $this->assertNull($this->stop(100));
         $this->assertSame(120, (int)$this->visit(200)['stop_id']);
         $this->assertSame('2026-10-07', $this->visit(200)['scheduled_date']);
