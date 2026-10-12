@@ -108,3 +108,10 @@ Each rule below is now enforced in code; listed so a future change doesn't undo 
   and counting part-paid "overdue" invoices as income waits on that answer. The bank statement
   balance proof can't run: no imported statement has both opening and closing balances saved, and
   card vs bank amounts are signed differently — fix needs real statements with balances.
+
+## 2026-10-12 — Jobber-era deposits: Jobber never saw cheques and EFTs
+Payers who paid by cheque (VML, Laburnum) or Yardi EFT (Dorset, Norsan) were often never marked paid
+in Jobber, so their 2026 deposits have no Jobber payment and sat as income. **Rule:** match such a
+deposit to the open balance of the Jobber invoice(s) it pays (`JobberLedgerService::bookMatched`),
+using the Yardi remittance (mowology@icloud.com / office@) where there is one; the invoice date decides
+2025 receivable vs 2026 income. Full lessons: Obsidian Accounting-Ledger.md.
