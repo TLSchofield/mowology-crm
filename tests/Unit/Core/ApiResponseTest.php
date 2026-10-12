@@ -14,9 +14,11 @@ class ApiResponseTest extends TestCase
         $this->assertSame(403, ApiResponse::status(new Exception('Admin only', 403)));
         $this->assertSame(500, ApiResponse::status(new Exception('x', 0)));
         $this->assertSame(500, ApiResponse::status(new Exception('x', 23000)));
-        $pdo = new PDOException('SQLSTATE[42S22]: Column not found');
-        // PDOException's code is a string such as '42S22'
-        (function () { $this->code = '42S22'; })->call($pdo);
+        // PDOException's code is a SQLSTATE string such as '42S22'
+        $pdo = new class('SQLSTATE[42S22]: Column not found') extends PDOException {
+            public function __construct(string $m) { parent::__construct($m); $this->code = '42S22'; }
+        };
+        $this->assertSame('42S22', $pdo->getCode());
         $this->assertSame(500, ApiResponse::status($pdo));
     }
 
