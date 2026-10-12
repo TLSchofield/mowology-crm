@@ -386,7 +386,7 @@
 
     // ── Pending e-Transfers: same reading as the Invoices panel; the owner presses Record ──
     var et = document.getElementById('mw-et');
-    var etItems = [], etIdx = 0, etWaiting = 0;
+    var etItems = [], etIdx = 0, etWaiting = 0, etNudged = 0;
     function loadEt(msg) {
         if (!et) return;
         fetch(API + '?mode=etransfers&limit=12', { cache: 'no-store' })
@@ -394,6 +394,7 @@
             .then(function (d) {
                 etItems = (d && d.ok && d.items) || [];
                 etWaiting = (d && d.waiting) || 0;
+                etNudged = (d && d.nudged) || 0;
                 etIdx = 0;
                 renderEt(msg);
             })
@@ -404,9 +405,13 @@
             '<input class="mw-rc-in" data-et-amt type="number" step="0.01" inputmode="decimal" value="' + esc(Number(l.amount).toFixed(2)) + '" aria-label="Amount">' +
             '<button type="button" class="mw-rc-idel" data-et-del aria-label="Remove line">✕</button></div>';
     }
+    // One-line fact: payers Penny has asked (once each) to send to the Auto-deposit address.
+    function etNudgeFact() {
+        return etNudged > 0 ? '<div class="mw-bl-now">✉ Asked ' + etNudged + ' client' + (etNudged === 1 ? '' : 's') + ' to use info@ for e-Transfers</div>' : '';
+    }
     function renderEt(msg) {
         if (!et) return;
-        if (!etItems.length) { et.hidden = !msg; et.innerHTML = msg ? '<div class="mw-bl-head"><b>💸 e-Transfers</b></div><div class="mw-rc-empty">' + esc(msg) + '</div>' : ''; return; }
+        if (!etItems.length) { et.hidden = !msg; et.innerHTML = msg ? '<div class="mw-bl-head"><b>💸 e-Transfers</b></div><div class="mw-rc-empty">' + esc(msg) + '</div>' + etNudgeFact() : ''; return; }
         et.hidden = false;
         if (etIdx >= etItems.length) etIdx = 0;
         var t = etItems[etIdx];
@@ -415,6 +420,7 @@
             '<div class="mw-bl-head"><span><b>💸 e-Transfers</b> · ' + etWaiting + ' waiting</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-et="prev" aria-label="Previous">‹</button> ' +
               '<button type="button" class="mw-rc-arrow" data-et="next" aria-label="Next">›</button></span></div>' +
+            etNudgeFact() +
             '<div class="mw-bl-line"><div class="mw-bl-top"><span>' + esc(t.date ? String(t.date).slice(0, 10) : '') + '</span><b class="is-in">+$' + Number(t.amount).toFixed(2) + '</b></div>' +
               '<div class="mw-bl-desc">' + esc(t.sender) + (t.memo ? ' — “' + esc(t.memo) + '”' : '') + '</div>' +
               '<div class="mw-bl-now">' + (t.confirmed === 3 ? '✓ Bank deposit, invoice and email all match' : t.confirmed + '/3 confirmed — missing ' + esc(t.missing.join(' & '))) + '</div>' +
