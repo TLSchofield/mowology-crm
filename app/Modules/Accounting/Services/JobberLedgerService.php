@@ -750,7 +750,17 @@ class JobberLedgerService
             $inv = $byId[$iid] ?? null;
             if (!$inv || $amt <= self::CENT) return ['ok' => false, 'message' => 'Jobber invoice #' . $iid . ' not found.'];
             $rem = round((float)$inv['balance'] - ($left[$iid] ?? 0.0), 2);
-            if ($amt > $rem + self::CENT) return ['ok' => false, 'message' => sprintf('Jobber #%s has only $%s left owing.', $inv['jobber_number'], number_format(max(0, $rem), 2))];
+            if ($amt > $rem + self::CENT) {
+                // Marked paid in Jobber after the fact (often in bulk, dated months later, method guessed):
+                // the real money is this deposit. Use up this invoice's share of the Jobber payment that
+                // closed it (2026-10-12: Dorset's Jan/Feb Yardi EFTs vs Jun 16 bulk "e-Transfers").
+                $cu = $this->catchUpPayment($inv, $amt);
+                if ($cu === null) return ['ok' => false, 'message' => sprintf('Jobber #%s has only $%s left owing.', $inv['jobber_number'], number_format(max(0, $rem), 2))];
+                $pays[] = ['id' => (int)$cu['id'], 'kind' => 'payment', 'client_name' => $inv['client_name'], 'contact_id' => $inv['contact_id'], 'payment_date' => $d['date'],
+                           'amount' => $amt, 'fee' => 0, 'method' => 'Marked paid in Jobber later (Jobber payment #' . (int)$cu['id'] . ' of ' . $cu['payment_date'] . ')',
+                           'invoice_numbers' => (string)$inv['jobber_number'], 'quote_number' => null];
+                continue;
+            }
             $pays[] = ['id' => 0, 'kind' => 'payment', 'client_name' => $inv['client_name'], 'contact_id' => $inv['contact_id'], 'payment_date' => $d['date'],
                        'amount' => $amt, 'fee' => 0, 'method' => 'Bank deposit (not recorded in Jobber)', 'invoice_numbers' => (string)$inv['jobber_number'], 'quote_number' => null];
         }
@@ -767,6 +777,32 @@ class JobberLedgerService
         $this->bookProposal($p, $byId, $acct, $batch, $userId);
         return ['ok' => true, 'batch_id' => $batch, 'fy2025_part' => $p['fy2025_part'], 'income_after' => $p['income_after'],
                 'message' => 'Deposit booked against Jobber ' . implode(', ', array_unique(array_filter(array_column($p['entry']['allocations'], 'invoice')))) . '.'];
+    }
+
+    /**
+     * The Jobber payment that closed $inv and still has $amt of it not yet tied to a deposit — counting
+     * only what deposits have already used of THIS invoice under THAT payment, so neither the payment
+     * nor the invoice can be used twice. Null when none fits.
+     */
+    public function catchUpPayment(array $inv, float $amt): ?array
+    {
+        $s = $this->db->prepare("SELECT id, payment_date, amount, fee, invoice_numbers FROM jobber_payments
+                                 WHERE payment_date >= ? AND refunded_on IS NULL AND kind = 'payment' ORDER BY payment_date, id");
+        $s->execute([self::FY_START]);
+        $usedPay = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM jobber_ledger_log
+                                       WHERE op = 'payment' AND undone_at IS NULL AND jobber_payment_id = ?");
+        $usedInv = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM jobber_ledger_log
+                                       WHERE op = 'payment' AND undone_at IS NULL AND jobber_invoice_id = ?");
+        $usedInv->execute([(int)$inv['id']]);
+        $invLeft = round((float)$inv['total'] - (float)$usedInv->fetchColumn(), 2);
+        if ($amt > $invLeft + self::CENT) return null;                    // this invoice is already fully tied to deposits
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            if (!in_array((string)$inv['jobber_number'], JobberCsv::invoiceNumbers((string)$p['invoice_numbers']), true)) continue;
+            $usedPay->execute([(int)$p['id']]);
+            $payLeft = round((float)$p['amount'] - (float)($p['fee'] ?? 0) - (float)$usedPay->fetchColumn(), 2);
+            if ($amt <= $payLeft + self::CENT) return $p;
+        }
+        return null;
     }
 
     /** jobber_invoice_id => amount paid by deposits with no Jobber payment behind them (bookMatched, live). */
