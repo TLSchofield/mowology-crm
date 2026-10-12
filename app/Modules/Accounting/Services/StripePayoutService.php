@@ -120,11 +120,17 @@ class StripePayoutService
         $feeId = null;
         $this->db->beginTransaction();
         try {
-            $this->db->prepare("
+            $flip = $this->db->prepare("
                 UPDATE accounting_transactions SET type = 'transfer', status = 'reconciled', matched_invoice_id = ?,
                        match_confidence = 100, matched_at = NOW(), matched_by = 'penny', payment_reference = ?
                 WHERE id = ? AND type = 'income'
-            ")->execute([$ids[0], $r['payout'], $transactionId]);
+            ");
+            $flip->execute([$ids[0], $r['payout'], $transactionId]);
+            // Someone else (another tab) booked this payout first: stop before a second fee line.
+            if ($flip->rowCount() !== 1) {
+                $this->db->rollBack();
+                return ['ok' => false, 'message' => 'This payout was already booked.'];
+            }
             $in = implode(',', array_fill(0, count($ids), '?'));
             $this->db->prepare("
                 UPDATE accounting_transactions SET status = 'reconciled', matched_at = COALESCE(matched_at, NOW()), matched_by = COALESCE(matched_by, 'penny')

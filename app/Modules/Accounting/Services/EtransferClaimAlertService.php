@@ -179,8 +179,12 @@ class EtransferClaimAlertService
               AND ABS(at.amount - ?) < 0.01
               AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?
               AND at.description LIKE '%e-Transfer%'
+              -- a deposit already tied to a different transfer is not this one's (review 2026-10-12:
+              -- someone else's same-amount transfer silenced the reminder and the claim expired)
+              AND at.id NOT IN (SELECT en.bank_transaction_id FROM etransfer_notifications en
+                                 WHERE en.bank_transaction_id IS NOT NULL AND en.id <> ?)
         ");
-        $st->execute([(float)$row['amount'], $from, $to]);
+        $st->execute([(float)$row['amount'], $from, $to, (int)($row['id'] ?? 0)]);
         $hits = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
         if (!$hits) {
             return false;
