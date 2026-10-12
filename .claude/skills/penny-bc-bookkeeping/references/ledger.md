@@ -42,6 +42,11 @@ Cheques ~67% (strata / property managers: VML, Macdonald, Colyvan, VCH…), Stri
 small residential payments), e-Transfer ~10%. Property managers also pay by EFT with a
 **remittance email naming the invoice numbers**: Yardi (Tribe; Dorset — forwarded to info@),
 SparcPay (strata BCS4428 via Obsidian). Remittances arrive at office@, info@ and iCloud.
+VCHA (Little Mountain Residential Care) pays by numbered cheque 2–6 weeks after the invoice, once a
+facilities coordinator approves it; VCH Accounts Payable (`VCHaccountspayable@phsa.ca`) confirms by
+email with the cheque number, invoice number and date cashed — a remittance as good as Yardi's
+(e.g. cheque 356183 for INV-2026-0371, 2026-10-05). Bank wording "COASTAL HEALTH" is a learned payer
+(2026-10-12). Don't treat VCHA as late before ~45 days.
 
 ## Tables and columns that mislead
 
