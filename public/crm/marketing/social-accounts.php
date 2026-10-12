@@ -252,7 +252,6 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       <div class="modal-body">
                           <div id="pageModalError" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
                           <input type="hidden" id="selPageId">
-                          <input type="hidden" id="selPageToken">
                           <input type="hidden" id="selIgUserId">
                           <div class="form-group">
                               <label>Facebook Page</label>
@@ -443,7 +442,8 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                           // The whole row is the target and the page data stays in JS:
                           // the old inline onclick carried the page token through an HTML
                           // attribute, and a click that missed it still ended in an empty
-                          // modal whose button posted nothing (2026-10-07).
+                          // modal whose button posted nothing (2026-10-07). Since 2026-10-12 the
+                          // page token never reaches the browser at all — the server keeps it.
                           var html = '<div class="list-group mw-soc-page-list">';
                           data.pages.forEach(function(p, i) {
                               var igBadge = p.ig_user_id
@@ -460,7 +460,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
 
                           var pick = function(row) {
                               var p = data.pages[+row.getAttribute('data-page-index')];
-                              if (p) window.selectPage(p.page_id, p.page_name, p.page_token, p.ig_user_id || '');
+                              if (p) window.selectPage(p.page_id, p.page_name, p.ig_user_id || '');
                           };
                           Array.prototype.forEach.call(listDiv.querySelectorAll('.mw-soc-page-row'), function(row) {
                               row.addEventListener('click', function() { pick(row); });
@@ -474,10 +474,9 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       });
               }
 
-              window.selectPage = function(pageId, pageName, pageToken, igUserId) {
+              window.selectPage = function(pageId, pageName, igUserId) {
                   setPageModalError('');
                   document.getElementById('selPageId').value    = pageId;
-                  document.getElementById('selPageToken').value = pageToken;
                   document.getElementById('selIgUserId').value  = igUserId || '';
                   document.getElementById('selPageDisplay').value = pageName;
 
@@ -511,7 +510,6 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                   // Refuse before posting: an empty selection used to reach the server,
                   // come back as "platform and account_name required" and show nothing.
                   if (!document.getElementById('selPageId').value
-                      || !document.getElementById('selPageToken').value
                       || !document.getElementById('selPageDisplay').value) {
                       setPageModalError('No Facebook Page is selected. Close this window and click the page in the list.');
                       return;
@@ -528,7 +526,6 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       platform:     platform,
                       account_name: document.getElementById('selPageDisplay').value,
                       page_id:      document.getElementById('selPageId').value,
-                      page_token:   document.getElementById('selPageToken').value,
                       ig_user_id:   igUserIdAuto || igUserIdManual || null,
                   };
 

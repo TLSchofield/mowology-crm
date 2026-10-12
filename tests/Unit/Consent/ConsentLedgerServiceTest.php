@@ -62,6 +62,18 @@ class ConsentLedgerServiceTest extends TestCase
         $this->assertSame('express', ConsentLedgerService::evaluate($rows, false, 'email', $this->now)['type']);
     }
 
+    /** Fable review 2026-10-12: a job after someone said stop is implied consent, which never overrides the stop. */
+    public function test_a_later_implied_grant_does_not_override_a_withdrawal(): void
+    {
+        $rows = [
+            $this->row('withdrawn', '2026-03-01'),
+            $this->row('implied', '2026-06-01', '2028-06-01', 'completed_visit', 'visit:12'),
+        ];
+        $r = ConsentLedgerService::evaluate($rows, false, 'email', $this->now);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('withdrew consent', $r['reason']);
+    }
+
     /**
      * Production 2026-10-11 (contacts 24 and 199): a yes and a withdrawal stamped in the same
      * second from one form. Unclear what they chose, so the answer is no until they say again.

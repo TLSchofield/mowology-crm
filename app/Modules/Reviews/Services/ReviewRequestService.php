@@ -51,6 +51,8 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
+require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
 
 class ReviewRequestService
 {
@@ -289,12 +291,13 @@ class ReviewRequestService
             </p>
           </div>
 
-          <!-- Footer -->
-          <p style="text-align:center;color:#9CA3AF;font-size:12px;margin:20px 0 0;">
-            &copy; Mowology Landscaping &mdash; Greater Vancouver, BC
-          </p>
-
         </div>';
+
+        // Sender, postal address and unsubscribe link (CASL; Fable review 2026-10-12) — or nothing goes.
+        $html = CaslRules::composeHtml($html, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+        if ($html === null) {
+            return ['success' => false, 'error' => 'no postal address or unsubscribe link for the footer'];
+        }
 
         return sendEmail(
             $contact['email'],

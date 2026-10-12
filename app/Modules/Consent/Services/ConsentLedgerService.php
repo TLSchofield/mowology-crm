@@ -199,7 +199,7 @@ class ConsentLedgerService
 
     /**
      * The decision for one contact and channel, from their ledger rows.
-     * Order: unsubscribed → no; withdrawn after every grant → no; express → yes;
+     * Order: unsubscribed → no; withdrawn → no unless an express consent came after it; express → yes;
      * implied not yet expired (email only) → yes; otherwise no.
      * @return array{ok: bool, type: ?string, reason: string, source: ?string, proof: ?string, granted_at: ?string, expires_at: ?string}
      */
@@ -211,7 +211,10 @@ class ConsentLedgerService
         foreach ($rows as $r) {
             if ($r['consent_type'] === 'withdrawn' && ($withdrawn === null || $r['granted_at'] > $withdrawn)) $withdrawn = $r['granted_at'];
         }
-        $live = array_filter($rows, fn($r) => $r['consent_type'] !== 'withdrawn' && ($withdrawn === null || $r['granted_at'] > $withdrawn));
+        // After a withdrawal only an express re-consent counts: a later job or paid invoice (implied)
+        // never switches someone back on who said stop (Fable review 2026-10-12).
+        $live = array_filter($rows, fn($r) => $r['consent_type'] !== 'withdrawn'
+            && ($withdrawn === null || ($r['granted_at'] > $withdrawn && $r['consent_type'] === 'express')));
         $pick = function (array $rs) {
             usort($rs, fn($a, $b) => strcmp((string)$b['granted_at'], (string)$a['granted_at']));
             return $rs[0];

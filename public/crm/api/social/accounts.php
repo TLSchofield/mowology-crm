@@ -177,7 +177,16 @@ try {
             }
 
             $pages = MetaService::listPages($pendingToken['access_token']);
-            echo json_encode(['success' => true, 'pages' => $pages]);
+            // Page tokens stay on the server (Fable review 2026-10-12): they used to be sent to the
+            // browser and inlined into onclick attributes. connect looks them up by page id.
+            session_start();
+            $_SESSION['social_pending_pages'] = [];
+            foreach ($pages as $i => $p) {
+                $_SESSION['social_pending_pages'][(string)($p['page_id'] ?? '')] = (string)($p['page_token'] ?? '');
+                unset($pages[$i]['page_token']);
+            }
+            session_write_close();
+            echo json_encode(['success' => true, 'pages' => array_values($pages)]);
             break;
         }
 
@@ -185,7 +194,11 @@ try {
         case 'connect': {
             requirePermission('marketing.approve');
             $input = json_decode(file_get_contents('php://input'), true) ?? [];
-            verifyCSRFToken($input['csrf_token'] ?? '');
+            if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+                exit;
+            }
 
             $platform     = $input['platform'] ?? '';
             $accountName  = trim($input['account_name'] ?? '');
@@ -205,6 +218,7 @@ try {
 
             session_start();
             $pendingToken = $_SESSION['social_pending_token'] ?? null;
+            $pendingPages = $_SESSION['social_pending_pages'] ?? [];
             if (!$isMeta) {
                 unset(
                     $_SESSION['social_pending_token'],
@@ -225,12 +239,13 @@ try {
             // For Meta: the page token comes from the frontend (returned by listPages),
             // NOT from the user token stored in the session. Page tokens never expire.
             if (in_array($platform, ['facebook', 'instagram'], true)) {
-                $pageToken = trim($input['page_token'] ?? '');
                 $pageId    = trim($input['page_id'] ?? '');
+                // The page token comes from the server-side list kept by ?action=pages, never the browser.
+                $pageToken = trim((string)($pendingPages[$pageId] ?? ''));
                 $igUserId  = trim($input['ig_user_id'] ?? '') ?: null;
 
                 if (!$pageToken || !$pageId) {
-                    throw new InvalidArgumentException('page_token and page_id are required for Meta accounts');
+                    throw new InvalidArgumentException('Pick the Facebook Page again — its token is not in this session.');
                 }
 
                 // If connecting as Instagram and no ig_user_id provided, look it up
