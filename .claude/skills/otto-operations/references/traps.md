@@ -76,3 +76,12 @@ silence.
 
 ## Two stop endpoints
 A stop field added to `calendar-stops.php` but not `day.php` never reached iPhone (May 2026).
+
+## 2026-10-12 — A status read threw away an offline punch; job timers ignored the tap time
+iPhone `TimeClockViewModel.loadStatus()` cleared `ClockQueue` whenever the server answered, so
+opening the app after signal returned could discard an offline clock-in. Separately, `timer.php`
+stamped `NOW()` on start/stop, so a job started in a dead zone at 9:00 and synced at 2:00 started
+at 2:00 (Android 1.4.0 sent `client_time` and it was ignored too). **Rule:** a queue is drained,
+never cleared, before reading server state; every offline action carries its tap time as
+`client_time` and the server decides with `OfflineTime::accept()` (clock, timer). Fixed in iOS
+1.3.26 and the timer endpoint the same day.
