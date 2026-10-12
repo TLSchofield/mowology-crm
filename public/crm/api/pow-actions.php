@@ -979,7 +979,8 @@ try {
             $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
             if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
 
-            $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg');
+            // Extension from the VALIDATED type, never the client's file name (2026-10-12).
+            $ext      = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic'][$realMime] ?? 'jpg';
             $base     = 'pow_' . $visitId . '_' . $photoType . '_' . bin2hex(random_bytes(8));
             $filename = $base . '.' . $ext;
             $fullPath = $uploadDir . $filename;
