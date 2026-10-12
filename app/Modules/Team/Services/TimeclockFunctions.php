@@ -64,7 +64,8 @@ function getActiveClockEntry($userId) {
  *   admin's location, and previously this setting silently did nothing at all for
  *   anyone. Self clock-ins (mobile and desktop) should always leave this true.
  */
-function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = true) {
+/** @param ?string $at 'Y-m-d H:i:s' when it happened (OfflineTime::accept); null = now */
+function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = true, $at = null) {
     // Check for existing active entry
     $existing = getActiveClockEntry($userId);
     if ($existing) {
@@ -82,9 +83,9 @@ function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = tru
     // Core/config.php, so stored timestamps match PHP date() without conversion.
     $stmt = $db->prepare("
         INSERT INTO time_clock_entries (user_id, clock_in, clock_in_lat, clock_in_lng)
-        VALUES (?, NOW(), ?, ?)
+        VALUES (?, COALESCE(?, NOW()), ?, ?)
     ");
-    $stmt->execute([$userId, $lat, $lng]);
+    $stmt->execute([$userId, $at, $lat, $lng]);
     $entryId = (int)$db->lastInsertId();
 
     // Insert a GPS ping so the crew member appears on the map immediately.
@@ -158,7 +159,8 @@ function resolveStaleClockEntry(int $userId): bool {
 /**
  * Clock out a user. Returns total_minutes or throws on error.
  */
-function clockOut($userId, $lat = null, $lng = null, $notes = null) {
+/** @param ?string $at 'Y-m-d H:i:s' when it happened (OfflineTime::accept); null = now */
+function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) {
     $entry = getActiveClockEntry($userId);
     if (!$entry) {
         throw new Exception('Not currently clocked in');
@@ -170,15 +172,15 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     // agree — do NOT reintroduce PHP-side arithmetic on stored timestamps.
     $stmt = $db->prepare("
         UPDATE time_clock_entries
-        SET clock_out = NOW(),
+        SET clock_out = COALESCE(?, NOW()),
             clock_out_lat = ?,
             clock_out_lng = ?,
             notes = ?,
-            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
+            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, COALESCE(?, NOW())),
             status = 'completed'
         WHERE id = ?
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    $stmt->execute([$at, $lat, $lng, $notes, $at, $entry['id']]);
 
     // Insert a final GPS ping on clock-out so the map shows the last known position.
     if ($lat && $lng) {

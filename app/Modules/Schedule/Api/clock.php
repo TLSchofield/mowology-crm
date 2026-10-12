@@ -114,13 +114,21 @@ try {
             // Delegates to the shared Team clock-in path (TimeclockFunctions::clockIn)
             // instead of reimplementing the INSERT — keeps the GPS-ping-to-crew-map
             // side effect in sync with the desktop path too.
-            $entryId = clockIn($userId, $lat, $lng);
+            // Queued offline? Record when it was tapped, not when it arrived (OfflineTime).
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'));
+            $entryId = clockIn($userId, $lat, $lng, true, $when['from_phone'] ? $when['at'] : null);
+            if ($when['note']) {
+                getDB()->prepare("UPDATE time_clock_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
+                       ->execute([$when['note'], $entryId]);
+            }
 
             echo json_encode([
                 'success'    => true,
                 'clocked_in' => true,
                 'entry_id'   => $entryId,
-                'clock_in'   => date('Y-m-d H:i:s'),
+                'clock_in'   => $when['at'],
+                'time_flag'  => $when['flag'],
                 'message'    => 'Clocked in',
             ]);
             break;
@@ -145,13 +153,17 @@ try {
             // and skipped ensureTimesheetExists() — a mobile-only clock-out never created
             // or updated the weekly timesheet row, so the shift could never surface for
             // approval or payroll. Calling the shared function fixes that.
-            $total = clockOut($userId, $lat, $lng, $notes);
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'), (string)$entry['clock_in']);
+            if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
+            $total = clockOut($userId, $lat, $lng, $notes, $when['from_phone'] ? $when['at'] : null);
 
             echo json_encode([
                 'success'         => true,
                 'clocked_in'      => false,
                 'entry_id'        => (int)$entry['id'],
-                'clock_out'       => date('Y-m-d H:i:s'),
+                'clock_out'       => $when['at'],
+                'time_flag'       => $when['flag'],
                 'total_minutes'   => $total,
                 'message'         => 'Clocked out',
             ]);

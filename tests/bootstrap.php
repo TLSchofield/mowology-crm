@@ -49,6 +49,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
 
+// Offline times from phones (clock in/out)
+require_once __DIR__ . '/../app/Modules/Team/Services/OfflineTime.php';
+
 // Ada — head of Technology
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaDeskService.php';
