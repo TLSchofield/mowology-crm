@@ -79,6 +79,36 @@ class ReceiptInboxService
     }
 
     /** An HTML (or plain) email body as readable receipt text, one row per line. */
+    /**
+     * May the receipts@ inbox read mail from this sender? (security review, low, 2026-10-12.) Anyone could
+     * mail receipts@ and run up Vision OCR and Claude costs. Only: an active user's address, one of the
+     * owner's own addresses, or a known vendor's domain (VendorMessageService::matchVendor, domain only —
+     * a display name never counts). Everyone else is held for review, unread. PURE.
+     * @param string[] $allowedEmails lower-case addresses
+     */
+    public static function senderAllowed(?string $from, array $allowedEmails, array $vendors): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from === '' || strpos($from, '@') === false) return false;
+        if (in_array($from, $allowedEmails, true)) return true;
+        if (!class_exists('VendorMessageService')) require_once __DIR__ . '/VendorMessageService.php';
+        return VendorMessageService::matchVendor($from, '', $vendors) !== null;
+    }
+
+    /**
+     * Record a receipts@ attachment from a sender not on the allow-list WITHOUT reading it (no OCR, no
+     * Claude, no expense): one receipt_inbox_messages row, outcome 'held_sender', for a person to look at.
+     * @return array{status: string}
+     */
+    public function holdUnknownSender(array $msg, string $filename, string $bytes): array
+    {
+        $dedup = self::deriveDedupKey($msg['message_id'] ?? null, hash('sha256', $bytes), $filename);
+        if (!$this->claim($msg, $dedup, $filename)) return ['status' => 'duplicate'];
+        $this->finalizeClaim($dedup, null, null, 'held_sender', null,
+            'Sender not on the receipts allow-list — not read (no OCR / AI). Forward it from your own address to process it.');
+        return ['status' => 'held_sender'];
+    }
+
     public static function htmlToText(string $html): string
     {
         $t = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', ' ', $html);

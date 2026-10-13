@@ -159,6 +159,15 @@ $ownerEmails = ['mowology@icloud.com'];
 $clientEmails = [];
 try { $ownerEmails = array_merge($ownerEmails, $lower($db->query("SELECT email FROM users WHERE email IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN))); } catch (\Throwable $e) {}
 try { $clientEmails = $lower($db->query("SELECT email FROM contacts WHERE email IS NOT NULL AND email <> ''")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
+// receipts@ reads only active users, the owner's own addresses and known vendors (security review, low):
+// anyone else's mail is held for review without OCR / Claude. RECEIPTS_ALLOWED_SENDERS adds more (comma list).
+$allowedSenders = ['mowology@icloud.com', 'office@mowology.ca'];
+if (defined('ICLOUD_IMAP_USER')) $allowedSenders[] = (string)ICLOUD_IMAP_USER;
+if (defined('RECEIPTS_ALLOWED_SENDERS')) $allowedSenders = array_merge($allowedSenders, explode(',', (string)RECEIPTS_ALLOWED_SENDERS));
+try { $allowedSenders = array_merge($allowedSenders, $db->query("SELECT email FROM users WHERE email IS NOT NULL AND (is_active = 1 OR is_active IS NULL)")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
+$allowedSenders = $lower($allowedSenders);
+require_once APP_ROOT . '/Modules/Expenses/Services/VendorMessageService.php';
+$knownVendors = (new VendorMessageService($db))->vendors();
 
 $cleanMatches = [];
 $pending    = [];
@@ -210,6 +219,22 @@ foreach ($mailboxes as $mb) {
 
             $struct = @imap_fetchstructure($mbox, $msgNo);
             if (!$struct) { continue; }
+
+            // receipts@ (unfiltered): an unknown sender's mail is kept for review, never read.
+            if (!$mb['filter'] && !ReceiptInboxService::senderAllowed($from, $allowedSenders, $knownVendors)) {
+                $held = [];
+                if (!empty($struct->parts)) rpWalk($struct, '', $held);
+                foreach ($held ?: [['filename' => '(email body)', 'pn' => '']] as $p) {
+                    $r = $service->holdUnknownSender(['message_id' => $msgId, 'sender_email' => $from, 'subject' => $subject, 'email_date' => $date],
+                                                     (string)$p['filename'], (string)$msgId . '|' . $p['pn']);
+                    if ($r['status'] === 'held_sender') {
+                        $pending[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => null,
+                                      'note' => 'unknown sender — held, not read'];
+                        rpLog("HELD (unknown sender, not read): {$from} — {$subject} — {$p['filename']}");
+                    }
+                }
+                continue;
+            }
 
             $parts = [];
             if (!empty($struct->parts)) {

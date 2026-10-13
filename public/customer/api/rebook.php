@@ -65,6 +65,26 @@ try {
         throw new Exception('Visit not found for this client');
     }
 
+    // One rebook (and one office email) per visit per day, whatever its status became (security
+    // review, low, 2026-10-12): the portal link could otherwise be used to flood office@.
+    $todayStmt = $db->prepare("
+        SELECT id FROM quote_requests
+        WHERE source = 'portal_rebook' AND contact_id = ?
+          AND (project_description LIKE ? OR project_description LIKE ?)
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+        LIMIT 1
+    ");
+    $todayStmt->execute([(int)$visit['contact_id'], '%Visit ID reference: #' . $visitId, '%Visit ID reference: #' . $visitId . "\n%"]);
+    if ($todayRow = $todayStmt->fetch(PDO::FETCH_ASSOC)) {
+        echo json_encode([
+            'success' => true,
+            'duplicate' => true,
+            'request_id' => (int)$todayRow['id'],
+            'message' => 'We already have your request for this visit today — we\'ll be in touch soon!',
+        ]);
+        exit;
+    }
+
     // Deduplicate — if a quote_request for this contact+property+service already exists
     // in the last 7 days with status='new' or 'reviewing', reuse it.
     $dupStmt = $db->prepare("

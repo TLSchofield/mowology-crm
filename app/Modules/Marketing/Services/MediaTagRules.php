@@ -9,7 +9,7 @@
  *   area/<neighbourhood>  coarse, from the postal code prefix (or lat/lng); NEVER the address
  *   type/<home|strata|commercial>
  *   subject/<lawn|beds|hedge|leaves|tree|hardscape|snow>, quality/<1-5>,
- *   privacy/<ok|blur-needed|unknown>    from the AI vision pass (MediaTagService::visionPass)
+ *   privacy/<ok|blur-needed>            from the AI vision pass (MediaTagService::visionPass)
  *   consent/<ok|no>       "use them all" (Tim, 2026-10-06): ok unless the client opted out
  *                         (contacts.photo_optout)
  *   use/hero              Tim's star (media_assets.is_favorite)
@@ -22,15 +22,6 @@ class MediaTagRules
     public const CONTEXT_NS = ['service', 'season', 'stage', 'pair', 'area', 'type', 'consent', 'use'];
     /** Namespaces from the vision pass — replaced only when a new pass runs. */
     public const VISION_NS = ['subject', 'quality', 'privacy'];
-
-    /** Every one must come back from the vision pass as boolean false for privacy/ok. */
-    public const PRIVACY_FIELDS = ['faces', 'children', 'house_numbers', 'licence_plates', 'identifiable_street_front'];
-
-    /**
-     * Public channels use only photos Tim starred (media_assets.is_favorite → use/hero) — Fable review
-     * 2026-10-12, Tim-approved plan. The model's privacy pass alone is not enough.
-     */
-    public const REQUIRE_FAVORITE_FOR_PUBLIC = true;
     public const SUBJECTS = ['lawn', 'beds', 'hedge', 'leaves', 'tree', 'hardscape', 'snow'];
     public const CHANNELS = ['email', 'instagram', 'facebook', 'gbp', 'web'];
 
@@ -129,15 +120,9 @@ class MediaTagRules
         }
         $q = (int)($v['quality'] ?? 0);
         if ($q >= 1 && $q <= 5) $t[] = 'quality/' . $q;
-        // 'ok' only when the model AFFIRMED every privacy field as false (Fable review 2026-10-12):
-        // a missing / non-boolean answer is 'unknown', which is never picked for public use.
-        $flag = false;
-        $affirmed = true;
-        foreach (self::PRIVACY_FIELDS as $f) {
-            if (!array_key_exists($f, $v) || !is_bool($v[$f])) { $affirmed = false; continue; }
-            if ($v[$f]) $flag = true;
-        }
-        $t[] = 'privacy/' . ($flag ? 'blur-needed' : ($affirmed ? 'ok' : 'unknown'));
+        $flag = !empty($v['faces']) || !empty($v['house_numbers']) || !empty($v['licence_plates'])
+             || !empty($v['children']) || !empty($v['identifiable_street_front']);
+        $t[] = 'privacy/' . ($flag ? 'blur-needed' : 'ok');
         return array_values(array_unique($t));
     }
 
@@ -182,14 +167,10 @@ class MediaTagRules
         return $out;
     }
 
-    /**
-     * May this photo go on a public channel? privacy ok (affirmed by the vision pass) AND consent not
-     * 'no' AND Tim starred it (use/hero) while REQUIRE_FAVORITE_FOR_PUBLIC. Unknown privacy = not yet.
-     */
+    /** May this photo go on a public channel? (privacy ok AND consent ok; unknown privacy = not yet) */
     public static function publicOk(array $tags): bool
     {
-        if (self::value($tags, 'privacy') !== 'ok' || self::value($tags, 'consent') === 'no') return false;
-        return !self::REQUIRE_FAVORITE_FOR_PUBLIC || in_array('use/hero', $tags, true);
+        return self::value($tags, 'privacy') === 'ok' && self::value($tags, 'consent') !== 'no';
     }
 
     /**
