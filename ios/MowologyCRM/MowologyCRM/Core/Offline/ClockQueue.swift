@@ -12,7 +12,8 @@
 //  Rules (2026-10-12, after an independent review):
 //  - one resend at a time: a second caller waits for the run in progress;
 //  - nothing is deleted on the phone because of an expired login or a server error —
-//    the queue stops and keeps the punch (a server error is retried, dropped after 5 tries);
+//    the queue stops and keeps the punch (a server error is retried; after 5 tries the punch is
+//    KEPT, marked refused and shown on the Time Clock screen — never dropped or counted as sent);
 //  - each punch carries who made it; only that person's login sends it;
 //  - every punch is sent with the time it was tapped; the server decides (OfflineTime).
 //
@@ -24,11 +25,14 @@ final class ClockQueue: ObservableObject {
 
     static let shared = ClockQueue()
 
+    /// Punches still to send (refused ones excluded — they no longer block the queue).
     @Published private(set) var hasPending: Bool = false
+    /// Punches the server refused 5 times — kept on the phone and shown until the person clears them.
+    @Published private(set) var hasRejected: Bool = false
 
     private let defaults = UserDefaults.standard
     private let storeKey = "mw.clock.queue.v1"
-    /// Server errors before a punch is given up (a GPS refusal or a 500 that never clears).
+    /// Server errors before a punch is marked refused (a GPS refusal or a 500 that never clears).
     static let maxAttempts = 5
 
     private var running: Task<DrainResult, Never>?
@@ -45,6 +49,8 @@ final class ClockQueue: ObservableObject {
         let queuedAt: Date  // when it was tapped
         let userId: Int?    // who tapped it (nil = queued by a build before 1.3.27)
         var attempts: Int?  // server errors so far
+        /// Set when the server refused it maxAttempts times. Kept and shown; never dropped silently.
+        var rejection: String?
     }
 
     // MARK: - Persistence
@@ -62,11 +68,35 @@ final class ClockQueue: ObservableObject {
         }
     }
 
-    private func refreshPending() { hasPending = !items.isEmpty }
+    private func refreshPending() {
+        let all = items
+        hasPending  = all.contains { $0.rejection == nil }
+        hasRejected = all.contains { $0.rejection != nil }
+    }
 
-    /// Punches waiting to be sent for this person (sign-out warns about these).
+    private func mine(_ item: PendingAction, _ userId: Int?) -> Bool { item.userId == nil || item.userId == userId }
+
+    /// Punches not yet on the server for this person, refused ones included (sign-out warns about these).
     func pendingCount(for userId: Int?) -> Int {
-        items.filter { $0.userId == nil || $0.userId == userId }.count
+        items.filter { mine($0, userId) }.count
+    }
+
+    /// Punches still waiting to be sent for this person (not refused).
+    func waitingCount(for userId: Int?) -> Int {
+        items.filter { mine($0, userId) && $0.rejection == nil }.count
+    }
+
+    /// The first refused punch for this person, as a line for the Time Clock screen.
+    func rejectedMessage(for userId: Int?) -> String? {
+        guard let r = items.first(where: { mine($0, userId) && $0.rejection != nil }) else { return nil }
+        let what = r.action == "clock_in" ? "Clock in" : "Clock out"
+        let when = r.queuedAt.formatted(date: .abbreviated, time: .shortened)
+        return "\(what) at \(when): \(r.rejection ?? "refused by the server")"
+    }
+
+    /// The person has dealt with refused punches another way (told the office, corrected by hand).
+    func discardRejected(for userId: Int?) {
+        items = items.filter { !(mine($0, userId) && $0.rejection != nil) }
     }
 
     // MARK: - Enqueue
@@ -116,7 +146,7 @@ final class ClockQueue: ObservableObject {
 
     private func drainOnce(using apiClient: APIClient) async -> DrainResult {
         let me = apiClient.currentUserId
-        let pending = items.filter { $0.userId == nil || $0.userId == me }
+        let pending = items.filter { mine($0, me) && $0.rejection == nil }
         guard !pending.isEmpty, me != nil else { return .empty }
 
         var sentCount = 0
@@ -143,13 +173,15 @@ final class ClockQueue: ObservableObject {
                     // No signal, or the login expired after a day offline: keep everything.
                     return sentCount > 0 ? .reconcile : .offline
                 default:
-                    // Server error: keep it and stop (a later punch must not jump ahead of it);
-                    // give up only after maxAttempts, so one bad punch can't block the day forever.
+                    // Server error: keep it and stop (a later punch must not jump ahead of it).
+                    // After maxAttempts it is KEPT, marked refused and shown (it no longer blocks the
+                    // queue, so one bad punch can't block the day) — never dropped, never counted
+                    // as sent (2026-10-12 review: a refused punch used to vanish as "synced").
                     let tries = (item.attempts ?? 0) + 1
                     if tries >= Self.maxAttempts {
-                        print("[ClockQueue] giving up on \(item.action) tapped \(item.queuedAt) after \(tries) tries: \(err)")
-                        items = items.filter { $0.id != item.id }
-                        sentCount += 1
+                        print("[ClockQueue] refused \(item.action) tapped \(item.queuedAt) after \(tries) tries: \(err)")
+                        let why = err.errorDescription ?? "refused by the server"
+                        items = items.map { $0.id == item.id ? { var c = $0; c.attempts = tries; c.rejection = why; return c }($0) : $0 }
                         continue
                     }
                     items = items.map { $0.id == item.id ? { var c = $0; c.attempts = tries; return c }($0) : $0 }
@@ -162,7 +194,7 @@ final class ClockQueue: ObservableObject {
         return sentCount > 0 ? .reconcile : .empty
     }
 
-    /// Discards all pending actions. Never call it on a status read: a queued punch is the only
+    /// Discards all pending actions, refused ones included. Never call it on a status read: a queued punch is the only
     /// record of when it was tapped (drain() sends it with that time).
     func clear() {
         items = []

@@ -24,6 +24,8 @@ final class TimeClockViewModel: ObservableObject {
 
     /// True when a clock action was accepted locally but not yet confirmed by the server.
     @Published private(set) var isPendingSync: Bool = false
+    /// A punch the server refused 5 times — still saved on the phone; the person must tell the office.
+    @Published private(set) var rejectedPunch: String? = nil
 
     // MARK: - Private
 
@@ -149,8 +151,9 @@ final class TimeClockViewModel: ObservableObject {
                 isLoading     = false
                 return
             }
-            isPendingSync = ClockQueue.shared.pendingCount(for: authSession.user?.id) > 0
+            isPendingSync = ClockQueue.shared.waitingCount(for: authSession.user?.id) > 0
         }
+        rejectedPunch = ClockQueue.shared.rejectedMessage(for: authSession.user?.id)
 
         do {
             let response: ClockStatusResponse = try await apiClient.request(
@@ -295,10 +298,17 @@ final class TimeClockViewModel: ObservableObject {
         return String(format: "%02d:%02d", m, s)
     }
 
+    /// The person has dealt with a refused punch another way (told the office).
+    func discardRejectedPunches() {
+        ClockQueue.shared.discardRejected(for: authSession.user?.id)
+        rejectedPunch = nil
+    }
+
     // MARK: - Private
 
     private func drainAndReconcile() async {
         let result = await ClockQueue.shared.drain(using: apiClient)
+        rejectedPunch = ClockQueue.shared.rejectedMessage(for: authSession.user?.id)
         switch result {
         case .empty:
             isPendingSync = false

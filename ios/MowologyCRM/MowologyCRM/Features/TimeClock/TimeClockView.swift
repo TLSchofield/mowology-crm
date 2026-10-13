@@ -160,6 +160,22 @@ struct TimeClockView: View {
                 .clipShape(Capsule())
             }
 
+            // A punch the server refused — kept on the phone, never counted as sent (2026-10-12).
+            if let refused = viewModel.rejectedPunch {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("A punch could not be filed: \(refused)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("It is still saved on this phone. Tell the office so your time can be corrected.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Button("I've dealt with it — remove") { viewModel.discardRejectedPunches() }
+                        .font(.caption.weight(.semibold))
+                        .tint(Color.MW.orange)
+                }
+                .padding(.horizontal, 12)
+            }
+
             // Elapsed time (only when clocked in)
             if viewModel.clockedIn {
                 Text(viewModel.elapsedFormatted)
