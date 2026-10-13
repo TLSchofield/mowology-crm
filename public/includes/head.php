@@ -23,6 +23,12 @@ $pageKeywords    = $pageKeywords    ?? '';
 $pageImage       = $pageImage       ?? '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 $extraHead       = $extraHead       ?? '';
 
+// Nonce CSP for public pages (Fable #22, 2026-10-12) — see app/Core/Csp.php. Site-admin borrows
+// this head but still has un-nonced inline scripts, so it keeps the .htaccess policy for now.
+require_once APP_ROOT . '/Core/Csp.php';
+$__mwNonceCsp = strpos((string)($_SERVER['SCRIPT_NAME'] ?? ''), '/site-admin/') !== 0;
+$__mwCspMeta  = ($__mwNonceCsp && !MwCsp::send()) ? MwCsp::meta() : '';
+
 // Canonical URL — derived from the request path but NORMALISED, so every alias
 // of a page (index.php, /home, about.php, trailing slash, ?query) declares the
 // same canonical. Before this, each variant canonicalised to itself and Google
@@ -42,6 +48,7 @@ $canonicalUrl = SITE_URL . $canonicalPath;
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <?= $__mwCspMeta ?>
 
   <title><?= h($pageTitle) ?></title>
 
@@ -103,7 +110,8 @@ $canonicalUrl = SITE_URL . $canonicalPath;
   <!-- Fonts (async — non-render-blocking) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" as="style" id="mwFontsCss">
+  <script<?= MwCsp::attr() ?>>(function(l){if(!l)return;l.addEventListener('load',function(){l.rel='stylesheet';});})(document.getElementById('mwFontsCss'));</script>
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap"></noscript>
 
   <!-- Styles -->

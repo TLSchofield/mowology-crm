@@ -9,6 +9,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
 
 $db    = getDB();
@@ -204,7 +206,7 @@ function fmtDate(string $d): string {
                 <div class="due-label">Amount Due</div>
                 <div class="due-amount"><?php echo fmt(floatval($invoice['balance_due'])); ?> CAD</div>
             </div>
-            <button class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" onclick="openPayModal()">Pay Online Now</button>
+            <button class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" data-mw-call="openPayModal">Pay Online Now</button>
         </div>
     <?php endif; ?>
 
@@ -380,7 +382,7 @@ function fmtDate(string $d): string {
         <div class="portal-modal">
             <div class="portal-modal-hdr">
                 <h3 id="payModalTitle">Pay Invoice <?php echo htmlspecialchars($invoice['invoice_number']); ?></h3>
-                <button class="portal-modal-close" onclick="closePayModal()" aria-label="Close">&times;</button>
+                <button class="portal-modal-close" data-mw-call="closePayModal" aria-label="Close">&times;</button>
             </div>
             <div class="portal-modal-body">
                 <div class="portal-modal-amount">
@@ -398,7 +400,7 @@ function fmtDate(string $d): string {
                         </div>
                         <div class="portal-saved-card-actions">
                             <span class="portal-saved-card-badge">Card on file</span>
-                            <button class="portal-btn-text" onclick="showNewCardForm()">Use a different card</button>
+                            <button class="portal-btn-text" data-mw-call="showNewCardForm">Use a different card</button>
                         </div>
                     </div>
                     <div id="autopayWrap" class="portal-save-card-wrap" style="display:none;margin-top:10px;">
@@ -431,16 +433,16 @@ function fmtDate(string $d): string {
                 <div id="stripeError" class="portal-stripe-error" style="display:none;"></div>
             </div>
             <div class="portal-modal-footer" id="stripeFooter" style="display:none;">
-                <button class="portal-btn-outline" onclick="closePayModal()">Cancel</button>
-                <button id="stripePay" class="portal-btn" onclick="submitPayment()" disabled>
+                <button class="portal-btn-outline" data-mw-call="closePayModal">Cancel</button>
+                <button id="stripePay" class="portal-btn" data-mw-call="submitPayment" disabled>
                     <span id="stripePayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
                     <span id="stripePaySpinner" style="display:none;">Processing&hellip;</span>
                 </button>
             </div>
             <!-- Saved card quick-pay footer (shown when using card on file) -->
             <div class="portal-modal-footer" id="savedCardFooter" style="display:none;">
-                <button class="portal-btn-outline" onclick="closePayModal()">Cancel</button>
-                <button id="savedCardPay" class="portal-btn" onclick="submitSavedCardPayment()" disabled>
+                <button class="portal-btn-outline" data-mw-call="closePayModal">Cancel</button>
+                <button id="savedCardPay" class="portal-btn" data-mw-call="submitSavedCardPayment" disabled>
                     <span id="savedCardPayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
                     <span id="savedCardPaySpinner" style="display:none;">Processing&hellip;</span>
                 </button>
@@ -448,7 +450,7 @@ function fmtDate(string $d): string {
         </div>
     </div>
 
-    <script>
+    <script<?= MwCsp::attr() ?>>
     (function () {
         'use strict';
 
@@ -776,5 +778,6 @@ function fmtDate(string $d): string {
     </div>
 
 </div>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

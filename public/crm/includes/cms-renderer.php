@@ -306,7 +306,7 @@ function cms_renderBreadcrumbs(array $page): string
  *
  * @param array $page   Page record
  * @param array $blocks Already-loaded blocks (used to pull first image if no og_image_path)
- * @return string One or more JSON-LD <script> tags
+ * @return string One or more JSON-LD script tags
  */
 function cms_renderStructuredData(array $page, array $blocks = []): string
 {

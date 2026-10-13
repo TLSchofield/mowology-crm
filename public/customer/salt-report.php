@@ -12,6 +12,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db    = getDB();
 $error = '';

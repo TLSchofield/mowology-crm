@@ -152,7 +152,7 @@ require __DIR__ . '/includes/header.php';
       </div>
     </section>
 
-    <script>
+    <script<?= MwCsp::attr() ?>>
     (function () {
       'use strict';
       var section = document.getElementById('mw-ba-portfolio');

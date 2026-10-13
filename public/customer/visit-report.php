@@ -14,6 +14,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db = getDB();
 
@@ -345,7 +347,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <link rel="stylesheet" href="/customer/portal.css">
   <link rel="stylesheet" href="/customer/visit-report.css">
   <?php if ($pingCount > 0): ?>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
   <?php endif; ?>
 </head>
 <body>
@@ -673,15 +675,15 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 </div><!-- /.pvr-page-wrap -->
 
 <!-- 8. Print button (web only) -->
-<button class="pvr-print-btn" onclick="window.print()" aria-label="Print or save as PDF">
+<button class="pvr-print-btn" data-mw-print aria-label="Print or save as PDF">
   &#128438; Save / Print
 </button>
 
 <?php endif; ?>
 
 <?php if ($pingCount > 0): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script>
+<script src="/assets/vendor/leaflet/leaflet.min.js"></script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var el = document.getElementById('pvr-map');
   if (!el) return;
@@ -754,5 +756,6 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 </script>
 <?php endif; ?>
 
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

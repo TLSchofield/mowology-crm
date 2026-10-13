@@ -18,6 +18,8 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 // Cap for safety — a zip of 500 photos can be ~300MB
 const MAX_PHOTOS = 500;
@@ -28,7 +30,7 @@ function sendError(string $msg, int $code = 400): void {
     echo '<!doctype html><meta charset=utf-8><title>Mowology</title>'
        . '<body style="font-family:system-ui;padding:40px;text-align:center;">'
        . '<h2>Cannot download photos</h2><p>' . htmlspecialchars($msg) . '</p>'
-       . '<p><a href="javascript:history.back()">Go back</a></p></body>';
+       . '<p><a href="/">Go back</a></p></body>';
     exit;
 }
 

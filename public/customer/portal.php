@@ -32,6 +32,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db = getDB();
 
@@ -326,7 +328,7 @@ function statusBadge(string $status, bool $overdue = false): string {
   <title>Client Portal<?php if ($contact): ?> — <?php echo $contactName; ?><?php endif; ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
   <?php if ($hasAnyPings): ?>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
   <?php endif; ?>
 </head>
 <body>
@@ -383,7 +385,7 @@ function statusBadge(string $status, bool $overdue = false): string {
         <div class="portal-link-label">Client's portal link</div>
         <div class="portal-link-copy">
           <input type="text" id="portal-url-input" value="<?php echo htmlspecialchars($portalUrl); ?>" readonly>
-          <button onclick="copyPortalLink()">Copy</button>
+          <button data-mw-call="copyPortalLink">Copy</button>
         </div>
       <?php endif; ?>
     </div>
@@ -493,7 +495,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                 </div>
               </div>
               <div class="portal-doc-actions">
-                <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
+                <button class="portal-btn-outline" data-mw-call="copyLink" data-mw-args="<?php echo htmlspecialchars(json_encode([(string)$url, '$this']), ENT_QUOTES); ?>">Copy</button>
                 <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
               </div>
             </li>
@@ -536,7 +538,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                 </div>
               </div>
               <div class="portal-doc-actions">
-                <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
+                <button class="portal-btn-outline" data-mw-call="copyLink" data-mw-args="<?php echo htmlspecialchars(json_encode([(string)$url, '$this']), ENT_QUOTES); ?>">Copy</button>
                 <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
               </div>
             </li>
@@ -640,7 +642,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                     <span class="portal-visit-stat"><?php echo htmlspecialchars($amt); ?></span>
                   <?php endif; ?>
                   <?php if (!empty($contact['portal_token']) && !$adminMode): ?>
-                    <button type="button" class="portal-visit-rebook-btn" onclick="mwRebookVisit(<?php echo (int)$v['id']; ?>, '<?php echo htmlspecialchars(addslashes($label), ENT_QUOTES); ?>')">
+                    <button type="button" class="portal-visit-rebook-btn" data-mw-rebook="<?php echo (int)$v['id']; ?>" data-mw-call="mwRebookVisit" data-mw-args="<?php echo htmlspecialchars(json_encode([(int)$v['id'], (string)$label]), ENT_QUOTES); ?>">
                       &#8634; Book again
                     </button>
                   <?php endif; ?>
@@ -668,14 +670,14 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <div class="portal-photo-grid">
                     <?php foreach (array_slice($vPhotos, 0, $showMax) as $pi => $ph): ?>
                       <?php $thumbSrc = $ph['thumb_path'] ?: $ph['file_path']; ?>
-                      <div class="portal-photo-thumb" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $pi; ?>)">
+                      <div class="portal-photo-thumb" data-mw-call="openLightbox" data-mw-args="<?php echo htmlspecialchars(json_encode([$photoUrls, (int)$pi]), ENT_QUOTES); ?>">
                         <img src="<?php echo htmlspecialchars($thumbSrc); ?>"
                              alt="<?php echo htmlspecialchars($ph['photo_type'] ?? ''); ?>"
                              loading="lazy">
                       </div>
                     <?php endforeach; ?>
                     <?php if ($extra > 0): ?>
-                      <div class="portal-photo-more" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $showMax; ?>)">
+                      <div class="portal-photo-more" data-mw-call="openLightbox" data-mw-args="<?php echo htmlspecialchars(json_encode([$photoUrls, (int)$showMax]), ENT_QUOTES); ?>">
                         +<?php echo $extra; ?>
                       </div>
                     <?php endif; ?>
@@ -756,17 +758,17 @@ function statusBadge(string $status, bool $overdue = false): string {
 <div class="portal-toast" id="toast">Link copied!</div>
 
 <!-- Lightbox -->
-<div class="portal-lightbox" id="lb" onclick="closeLightboxOnBg(event)">
-  <button class="portal-lightbox-prev" onclick="lbStep(-1)">&#8249;</button>
+<div class="portal-lightbox" id="lb" data-mw-call="closeLightboxOnBg" data-mw-args='["$event"]'>
+  <button class="portal-lightbox-prev" data-mw-call="lbStep" data-mw-args="[-1]">&#8249;</button>
   <div class="portal-lightbox-inner">
-    <button class="portal-lightbox-close" onclick="closeLightbox()">&#x2715;</button>
+    <button class="portal-lightbox-close" data-mw-call="closeLightbox">&#x2715;</button>
     <img id="lb-img" src="" alt="">
     <div class="portal-lightbox-caption" id="lb-cap"></div>
   </div>
-  <button class="portal-lightbox-next" onclick="lbStep(1)">&#8250;</button>
+  <button class="portal-lightbox-next" data-mw-call="lbStep" data-mw-args="[1]">&#8250;</button>
 </div>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 var lbPhotos = [], lbIdx = 0;
 function openLightbox(photosJson, idx) {
   lbPhotos = typeof photosJson === 'string' ? JSON.parse(photosJson) : photosJson;
@@ -801,7 +803,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 function copyLink(url, btn) {
   navigator.clipboard.writeText(url).then(function() {
     var orig = btn.textContent;
@@ -831,7 +833,7 @@ function mwRebookVisit(visitId, serviceLabel) {
   );
   if (note === null) return; // cancelled
 
-  var btns = document.querySelectorAll('button[onclick*="mwRebookVisit(' + visitId + ',');
+  var btns = document.querySelectorAll('button[data-mw-rebook="' + visitId + '"]');
   btns.forEach(function(b) { b.disabled = true; b.textContent = 'Sending...'; });
 
   var formData = new FormData();
@@ -865,8 +867,8 @@ function mwRebookVisit(visitId, serviceLabel) {
 
 
 <?php if ($hasAnyPings): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script>
+<script src="/assets/vendor/leaflet/leaflet.min.js"></script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   document.querySelectorAll('.portal-visit-map[data-pings]').forEach(function(el) {
     var pings  = JSON.parse(el.dataset.pings || '[]');
@@ -944,5 +946,6 @@ function mwRebookVisit(visitId, serviceLabel) {
 })();
 </script>
 <?php endif; ?>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

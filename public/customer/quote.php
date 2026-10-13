@@ -9,6 +9,8 @@
 header('X-Content-Type-Options: nosniff');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once dirname(__DIR__) . '/includes/notifications.php';
 
 $db = getDB();
@@ -433,7 +435,7 @@ if (!empty($quote)) {
     <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> — Mowology</title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <script src="https://unpkg.com/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
 </head>
 <body>
 
@@ -699,7 +701,7 @@ if (!empty($quote)) {
         <!-- Undo toast (for post-accept adds) -->
         <div class="portal-undo-toast" id="undoToast">
             <span id="undoToastMsg">Added to your order</span>
-            <button type="button" onclick="mwUndoLastAdd()">Undo</button>
+            <button type="button" data-mw-call="mwUndoLastAdd">Undo</button>
         </div>
 
         <!-- Terms & Conditions -->
@@ -800,7 +802,7 @@ if (!empty($quote)) {
                         </form>
 
                         <div class="portal-decline-section">
-                            <button class="portal-decline-toggle" onclick="document.getElementById('declineForm').classList.toggle('show')">
+                            <button class="portal-decline-toggle" data-mw-toggle="declineForm">
                                 Not interested? Let us know
                             </button>
 
@@ -846,7 +848,7 @@ if (!empty($quote)) {
 
 <?php if (!empty($quote) && in_array($quote['status'], ['sent', 'accepted'])): ?>
 <?php if (!empty($lineChoice)): ?>
-<script>
+<script<?= MwCsp::attr() ?>>
     // ── The client unticks lines they don't want (QuoteLineChoiceService) ──────
     (function () {
         var token = <?php echo json_encode($token ?? ''); ?>;
@@ -883,7 +885,9 @@ if (!empty($quote)) {
     })();
 </script>
 <?php endif; ?>
-<script>
+<script<?= MwCsp::attr() ?>>
+    // JSON args for data-mw-call buttons (mw-csp-actions.js) — no inline handlers under the CSP.
+    function mwArgsAttr(a) { return JSON.stringify(a).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
     // ── Signature Pad ─────────────────────────────────────────────────────────
     <?php if (!$isAdminPreview): ?>
     var canvas = document.getElementById('signaturePad');
@@ -1003,7 +1007,7 @@ if (!empty($quote)) {
                     '</div>' +
                     '<div style="text-align:right;">' +
                         '<div style="font-weight:700;color:var(--p-text-dark, #1a202c);">' + fmtMoney(regular) + '</div>' +
-                        '<button type="button" class="portal-post-accept-add-btn" onclick="mwAddUpsell(\'' + domId + '\', this)">+ Add</button>' +
+                        '<button type="button" class="portal-post-accept-add-btn" data-mw-call="mwAddUpsell" data-mw-args="' + mwArgsAttr([domId, '$this']) + '">+ Add</button>' +
                     '</div>' +
                 '</div>';
             }
@@ -1013,7 +1017,7 @@ if (!empty($quote)) {
                 (popular ? '<span class="portal-upsell-badge">⭐ Most popular</span>' : '') +
                 '<label class="portal-upsell-toggle">' +
                     '<input type="checkbox" ' + (checked ? 'checked' : '') +
-                    ' onchange="mwToggleUpsell(\'' + domId + '\', this.checked)">' +
+                    ' data-mw-call="mwToggleUpsell" data-mw-on="change" data-mw-args="' + mwArgsAttr([domId, '$checked']) + '">' +
                     '<div class="portal-upsell-info">' +
                         '<strong>' + escText + '</strong>' +
                         (desc ? '<span class="portal-upsell-desc">' + escDesc + '</span>' : '') +
@@ -1180,5 +1184,6 @@ if (!empty($quote)) {
 </script>
 <?php endif; ?>
 
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

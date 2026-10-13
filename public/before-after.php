@@ -129,7 +129,7 @@ require __DIR__ . '/includes/header.php';
     </div>
   </div>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function () {
   var filterBtns = document.querySelectorAll('.ba-filter-btn');
   var cards      = document.querySelectorAll('.ba-card');

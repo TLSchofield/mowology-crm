@@ -7,6 +7,8 @@
 header('X-Content-Type-Options: nosniff');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 // ── Load ContractService via upward search ─────────────────────────────────
 $__dir = __DIR__;
@@ -101,7 +103,7 @@ if ($row) {
     <title>Service Contract — Mowology</title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <script src="https://unpkg.com/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
     <style>
         .ctr-sign-meta { font-size:.82rem; color:var(--p-text-mid,#6b7280); margin-bottom:6px; }
         .ctr-sign-meta strong { color:var(--p-text,#1f2937); }
@@ -327,7 +329,7 @@ if ($row) {
                 <!-- Decline section -->
                 <div class="portal-decline-section" style="margin-top:24px;">
                     <button class="portal-decline-toggle"
-                            onclick="document.getElementById('declineForm').classList.toggle('show')">
+                            data-mw-toggle="declineForm">
                         Questions or want to decline? Let us know
                     </button>
                     <form method="POST" class="portal-decline-form" id="declineForm">
@@ -354,7 +356,7 @@ if ($row) {
     &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; (778) 846-9273
 </footer>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function () {
     var canvas = document.getElementById('signaturePad');
     if (!canvas) return;
@@ -397,5 +399,6 @@ if ($row) {
 }());
 </script>
 
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

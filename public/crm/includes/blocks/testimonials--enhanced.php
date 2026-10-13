@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Testimonials Block Renderer — Auto-scrolling carousel
  *
@@ -91,7 +92,7 @@ $displayTestimonials = array_merge($testimonials, $testimonials);
 @media (max-width:768px) { .mw-testi-card { flex:0 0 300px; } }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var uid = '<?= h($uid) ?>';
   var track = document.getElementById(uid + '-track');

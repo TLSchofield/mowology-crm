@@ -12,6 +12,8 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
 $error   = '';
@@ -62,7 +64,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     <div class="portal-info-card">
       <div class="portal-info-card-header">Contact Information</div>
       <div class="portal-info-card-body">
-        <form id="mwProfileForm" onsubmit="return mwSubmitProfile(event)">
+        <form id="mwProfileForm" data-mw-call="mwSubmitProfile" data-mw-on="submit" data-mw-args='["$event"]'>
           <div class="portal-form-group">
             <label class="portal-form-label">First Name</label>
             <input type="text" class="portal-form-input" id="mwFirstName" value="<?= htmlspecialchars($contact['first_name'] ?? '') ?>" maxlength="80">
@@ -128,7 +130,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     </div>
   </div>
 
-  <script>
+  <script<?= MwCsp::attr() ?>>
   function mwSubmitProfile(e) {
     e.preventDefault();
     var btn = document.getElementById('mwSaveBtn');
@@ -164,5 +166,6 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     return false;
   }
   </script>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

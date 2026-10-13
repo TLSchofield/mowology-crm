@@ -205,6 +205,15 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 - **When to reach for it:** Any new POST call to a JSON CRM API endpoint that needs CSRF + idempotency handled consistently, instead of hand-writing `fetch()` boilerplate. Not for `FormData` uploads or GET requests — those are out of scope by design.
 - **Not auto-loaded** and has no current call sites in the codebase — it's ready-to-use infra. Add `<script src="/crm/js/mw-api.js">` and call `MwApi.setToken(...)` on init.
 
+### Nonce CSP (MwCsp) + inline-handler replacement (MwCspActions)
+- **Files:** `app/Core/Csp.php` (PHP), `public/assets/js/mw-csp-actions.js` (JS). Added 2026-10-12 (Fable #22).
+- **Purpose:** the public site (`public/includes/head.php` pages, CMS blocks, `/services/*`) and the customer portal (`public/customer/*`) send a per-request nonce CSP with no `'unsafe-inline'`/`'unsafe-eval'` and `script-src-attr 'none'`. `public/.htaccess` skips its lax header for those URLs (`MW_NONCE_CSP`).
+- **Usage (PHP):** `MwCsp::send();` before output (head.php and every customer page already do); every inline script is `<script<?= MwCsp::attr() ?>>`. JSON-LD needs nothing.
+- **Usage (HTML):** no `onclick=`/`onerror=`/`onsubmit=`. Use `data-mw-call="fnName" data-mw-args='["x","$this"]'` (`$this`, `$event`, `$checked`; `data-mw-on="change|submit"`), `data-mw-toggle="elementId"`, `data-mw-print`, `img data-mw-hide-on-error="N"`, and load `<script src="/assets/js/mw-csp-actions.js"></script>`.
+- **Check:** `scripts/csp-check.py http://localhost:8000 / /about /customer/portal.php?token=…` (rendered pages); `tests/Unit/Security/PublicCspTest.php` (source).
+- Third-party libraries for these pages are served from `public/assets/vendor/<lib>/` with their LICENSE (Leaflet, Signature Pad) — never unpkg.
+- **CRM (AppStack) is NOT on this policy yet** — it still relies on inline scripts and handlers.
+
 ### Capacitor Bridge (MwNative)
 - **File:** `public/crm/js/capacitor-bridge.js`
 - **Purpose:** Self-guarding bridge that exposes `window.MwNative` (background GPS, tracking, local notifications, FCM push registration, network status) only when running inside the native Android Capacitor shell; zero-cost no-op in a browser.

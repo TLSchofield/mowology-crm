@@ -12,6 +12,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db    = getDB();
 $error = '';
@@ -278,7 +280,7 @@ $serviceLabel = [
             <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
                  alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
                  style="width:100%;height:100px;object-fit:cover;border-radius:var(--p-radius-sm);border:1px solid var(--p-border);display:block;"
-                 onerror="this.parentElement.parentElement.style.display='none'">
+                 data-mw-hide-on-error="2">
           </a>
           <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--p-green);margin-top:4px;letter-spacing:0.04em;"><?php echo htmlspecialchars($ph['photo_type']); ?></div>
           <?php if (!empty($ph['caption'])): ?>
@@ -366,7 +368,7 @@ $serviceLabel = [
     <div class="portal-info-card-body">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
         <?php if ($iconUrl): ?>
-          <img src="<?php echo htmlspecialchars($iconUrl); ?>" alt="" style="width:52px;height:52px;object-fit:contain;" onerror="this.style.display='none'">
+          <img src="<?php echo htmlspecialchars($iconUrl); ?>" alt="" style="width:52px;height:52px;object-fit:contain;" data-mw-hide-on-error="0">
         <?php endif; ?>
         <div>
           <div style="font-size:0.95rem;font-weight:700;color:var(--p-forest);"><?php echo htmlspecialchars($visit['plan_title'] ?: 'Fertilizer Program'); ?></div>
@@ -454,5 +456,6 @@ $serviceLabel = [
   </div>
 
 </div>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

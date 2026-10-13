@@ -13,6 +13,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once dirname(__DIR__) . '/app_config/secrets.php';
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -209,7 +211,7 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
         <a href="/customer/invoice.php?token=<?php echo urlencode($token); ?>" style="color:#2D8659;font-size:.9rem;">← Back to invoice</a>
     </p>
 
-    <script>
+    <script<?= MwCsp::attr() ?>>
     (function () {
         // Even with a card on file, enrolment goes through the card form (security review #13):
         // "use my saved card" let anyone holding the invoice link turn autopay on.

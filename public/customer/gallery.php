@@ -15,6 +15,8 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
 $error   = '';
@@ -448,7 +450,7 @@ $serviceLabels = [
       <a href="/customer/gallery-download.php?token=<?= urlencode($token) ?>" class="gal-header-btn">
         ⬇ Download All as ZIP
       </a>
-      <button type="button" class="gal-header-btn gal-header-btn-outline" onclick="mwShowConsentHelp()">
+      <button type="button" class="gal-header-btn gal-header-btn-outline" data-mw-call="mwShowConsentHelp">
         ⭐ Share in portfolio
       </button>
     </div>
@@ -555,14 +557,14 @@ $serviceLabels = [
             <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                  loading="lazy"
                  alt="<?= htmlspecialchars($pType) ?> photo"
-                 onerror="this.parentElement.style.display='none'">
+                 data-mw-hide-on-error="1">
             <span class="gal-photo-type gal-photo-type--<?= $typeClass ?>"><?= htmlspecialchars(ucfirst($pType)) ?></span>
             <?php if ($hasAnn): ?>
             <span class="gal-photo-ann">&#9998;</span>
             <?php endif; ?>
             <button type="button" class="gal-photo-consent"
                     title="<?= !empty($ph['consent_portfolio']) ? 'You\'ve allowed this photo in our portfolio. Click to change.' : 'Allow this photo to appear in our public portfolio?' ?>"
-                    onclick="event.stopPropagation(); mwToggleConsent(<?= (int)$ph['id'] ?>, this);">
+                    data-mw-call="mwToggleConsent" data-mw-args="<?= htmlspecialchars(json_encode([(int)$ph['id'], '$this']), ENT_QUOTES) ?>">
               <?= !empty($ph['consent_portfolio']) ? '★' : '☆' ?>
             </button>
           </div>
@@ -602,7 +604,7 @@ $serviceLabels = [
   </div>
 </div>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   'use strict';
 
@@ -687,7 +689,9 @@ $serviceLabels = [
   }
 
   allPhotos.forEach(function(el, idx) {
-    el.addEventListener('click', function() {
+    el.addEventListener('click', function(e) {
+      // The consent star inside the card has its own action (data-mw-call) — don't open the photo.
+      if (e.target.closest && e.target.closest('.gal-photo-consent')) return;
       // find index in visPhotos
       var vi = visPhotos.indexOf(el);
       if (vi >= 0) openAt(vi);
@@ -796,5 +800,6 @@ window.mwShowConsentHelp = function() {
 </script>
 
 <?php endif; ?>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>
