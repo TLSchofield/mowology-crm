@@ -47,7 +47,7 @@ fi
 
 # Fetch fresh context
 # Token goes in the X-Context-Token header (read from stdin so it is not in argv/ps); the endpoint
-# no longer accepts ?token= (security audit 2026-10-12).
+# no longer accepts the token in the query string (security audit 2026-10-12).
 RESULT=$(printf 'X-Context-Token: %s\n' "$TOKEN" | curl -sf --max-time 8 -H @- "$API_URL" 2>/dev/null || echo "")
 
 if [ -z "$RESULT" ] || echo "$RESULT" | grep -q '"error"'; then
