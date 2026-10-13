@@ -3653,10 +3653,6 @@ class BankImportService
         if (empty($candidates)) return null;
 
         // Score each candidate and pick the best
-        $descWords = array_filter(
-            array_map('strtolower', preg_split('/[\s\-\/]+/', $description)),
-            function($w) { return strlen($w) >= 4; }
-        );
 
         $best      = null;
         $bestScore = 0;
@@ -3667,12 +3663,8 @@ class BankImportService
             $score  += $dayDiff === 0 ? 20 : ($dayDiff === 1 ? 12 : ($dayDiff === 2 ? 6 : 2));
 
             // Vendor name overlap
-            $vendorLower = strtolower($c['vendor_name_raw'] ?? '');
-            foreach ($descWords as $word) {
-                if (strpos($vendorLower, $word) !== false) {
-                    $score += 20;
-                    break;
-                }
+            if (self::vendorInDescription((string)($c['vendor_name_raw'] ?? ''), $description)) {
+                $score += 20;
             }
 
             if ($score > $bestScore) {
@@ -3700,6 +3692,26 @@ class BankImportService
 
     private const EXPENSE_MATCH_THRESHOLD = 30; // lower bar than auto-match — a human confirms
     private const EXPENSE_MATCH_WINDOW_DAYS = 14; // wider than findExpenseMatch()'s ±3d, same reason
+
+    /**
+     * Does the bank line name this vendor? Banks run words together — Vancity writes
+     * "POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)" — so whole-word splitting never found
+     * "Home Depot" and an exact $199.71 same-day match scored 55% (2026-10-13). Compares
+     * letters and digits only: the whole vendor name, or any vendor word of 4+ letters.
+     */
+    public static function vendorInDescription(string $vendor, string $description): bool
+    {
+        $compact = static fn(string $x): string => (string)preg_replace('/[^a-z0-9]+/', '', strtolower($x));
+        $desc = $compact($description);
+        $whole = $compact($vendor);
+        if ($desc === '' || strlen($whole) < 4) return false;
+        if (strpos($desc, $whole) !== false) return true;
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($vendor)) as $w) {
+            if (strlen($w) >= 4 && !in_array($w, ['store', 'shop', 'company', 'canada', 'limited'], true)
+                && strpos($desc, $w) !== false) return true;
+        }
+        return false;
+    }
 
     /**
      * Score an expense against a bank transaction for manual-match candidates.
@@ -3733,19 +3745,9 @@ class BankImportService
         elseif ($dayDiff <= self::EXPENSE_MATCH_WINDOW_DAYS) { $score += 2; }
         else return null; // beyond the manual-review window
 
-        $vendorLower = strtolower((string)($expense['vendor_name_raw'] ?? ''));
-        if ($vendorLower !== '') {
-            $descWords = array_filter(
-                array_map('strtolower', preg_split('/[\s\-\/]+/', (string)$transaction['description'])),
-                fn($w) => strlen($w) >= 4
-            );
-            foreach ($descWords as $word) {
-                if (strpos($vendorLower, $word) !== false) {
-                    $score += 20;
-                    $reasons[] = 'Vendor name matches statement description';
-                    break;
-                }
-            }
+        if (self::vendorInDescription((string)($expense['vendor_name_raw'] ?? ''), (string)$transaction['description'])) {
+            $score += 20;
+            $reasons[] = 'Vendor name matches statement description';
         }
 
         $score = min(100, $score);
@@ -3758,7 +3760,7 @@ class BankImportService
      * Edit Expense modal. Only offers transactions not already claimed by another
      * expense (mirrors findExpenseMatch()'s bt.id IS NULL guard).
      */
-    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8): array
+    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null): array
     {
         $stmt = $this->db->prepare("
             SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?
@@ -3766,6 +3768,10 @@ class BankImportService
         $stmt->execute([$expenseId]);
         $expense = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$expense) return [];
+        // What the Edit Expense form shows right now, before Save — a receipt saved without its
+        // PST ($196.08) matched its $199.71 bank line as "within 2%" (2026-10-13).
+        if ($total !== null && $total > 0) $expense['total'] = round($total, 2);
+        if ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $expense['expense_date'] = $date;
 
         $stmt = $this->db->prepare("
             SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account

@@ -3988,7 +3988,10 @@ async function submitReceiptExport() {
         if (!area) return;
         area.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> Searching&hellip;</div>';
         try {
-            var r = await fetch('/crm/api/accounting-reconciliation.php?action=expense_candidates&expense_id=' + expenseId);
+            var fTot = (document.getElementById('expTotal') || {}).value || '';
+            var fDate = (document.getElementById('expDate') || {}).value || '';
+            var r = await fetch('/crm/api/accounting-reconciliation.php?action=expense_candidates&expense_id=' + expenseId
+                + '&total=' + encodeURIComponent(fTot) + '&date=' + encodeURIComponent(fDate));
             var d = await r.json();
             if (!d.ok) throw new Error(d.error || 'Search failed');
             if (!d.candidates.length) {

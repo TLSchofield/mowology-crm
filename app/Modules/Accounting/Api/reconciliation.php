@@ -209,7 +209,10 @@ try {
         case 'expense_candidates': {
             $expenseId = (int)($_GET['expense_id'] ?? 0);
             if (!$expenseId) throw new InvalidArgumentException('Missing expense_id');
-            echo json_encode(['ok' => true, 'candidates' => $bankImportSvc->candidateTransactionsForExpense($expenseId)]);
+            // The form's unsaved total/date, so the match reflects what's on screen
+            $formTotal = isset($_GET['total']) && is_numeric($_GET['total']) ? (float)$_GET['total'] : null;
+            $formDate  = isset($_GET['date']) ? (string)$_GET['date'] : null;
+            echo json_encode(['ok' => true, 'candidates' => $bankImportSvc->candidateTransactionsForExpense($expenseId, 8, $formTotal, $formDate)]);
             break;
         }
 

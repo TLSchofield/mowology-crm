@@ -1136,4 +1136,15 @@ class BankImportServiceTest extends TestCase
         $this->assertFalse(BankImportService::isDayFirst(['03/09/2026', '04/09/2026']));   // ambiguous: stays month-first
         $this->assertFalse(BankImportService::isDayFirst(['2026-09-15', '07-Sep-2026']));
     }
+
+    /** Banks run words together — "THEHOMEDEPOT7043" must still name Home Depot (2026-10-13). */
+    public function testVendorInDescriptionReadsRunTogetherBankLines(): void
+    {
+        $this->assertTrue(BankImportService::vendorInDescription('Home Depot', 'POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)'));
+        $this->assertTrue(BankImportService::vendorInDescription('Chevron', 'POS CHEVRON 00234 VANCOUVER'));
+        $this->assertTrue(BankImportService::vendorInDescription("Lowe's Canada", 'POINTOFSALE(LOWES#3021BURNABY)'));
+        $this->assertFalse(BankImportService::vendorInDescription('Home Depot', 'POINTOFSALE(DOLCEDENTALVANCOUVERBCCA)'));
+        $this->assertFalse(BankImportService::vendorInDescription('Canada Post', 'PREAUTHORIZEDPAYMENT(INSURANCECORPORATIONOFBC)'), 'a stop word alone is not a match');
+        $this->assertFalse(BankImportService::vendorInDescription('', 'ANYTHING'));
+    }
 }
