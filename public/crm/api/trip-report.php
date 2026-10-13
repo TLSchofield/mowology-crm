@@ -89,8 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'download') {
 
     if (!$report) { renderTripReportError(404, 'Report Not Found', 'This trip report does not exist or has been deleted.'); }
 
-    // Only admin/manager or the driver themselves can download
-    if ($user['role'] === 'user' && (int)$report['driver_id'] !== (int)$user['id']) {
+    // Only the office (team.edit) or the driver themselves — by permission, not the role string, which
+    // let staff/technician logins through (Fable audit 2026-10-12).
+    if (!userHasPermission('team.edit') && (int)$report['driver_id'] !== (int)$user['id']) {
         renderTripReportError(403, 'Access Denied', 'You do not have permission to download this trip report.');
     }
 

@@ -59,6 +59,37 @@ function isSiteLoggedIn(): bool
         return false;
     }
 
+    return siteRecheckUser();
+}
+
+/** Seconds between re-reads of the signed-in site user (same as the CRM's AuthFreshness). */
+const SITE_RECHECK_SECONDS = 60;
+
+/**
+ * Re-read the site user at most every SITE_RECHECK_SECONDS (Fable audit 2026-10-12): a deactivated,
+ * deleted or re-roled site user now loses or changes access within a minute, not at next sign-in.
+ * A database error keeps the session (tries again next request).
+ */
+function siteRecheckUser(): bool
+{
+    $now  = time();
+    $last = (int)($_SESSION['cms_site_checked_at'] ?? 0);
+    if ($last > 0 && $now >= $last && ($now - $last) < SITE_RECHECK_SECONDS) return true;
+    try {
+        $st = getDB()->prepare("SELECT * FROM cms_site_users WHERE id = ? AND site_id = ? LIMIT 1");
+        $st->execute([(int)$_SESSION['cms_site_user_id'], (int)$_SESSION['cms_site_id']]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {
+        error_log('siteRecheckUser: check failed: ' . $e->getMessage());
+        return true;
+    }
+    if (!$row || (isset($row['is_active']) && (int)$row['is_active'] !== 1)) {
+        siteLogout();
+        return false;
+    }
+    unset($row['password_hash']);
+    $_SESSION['cms_site_user']       = $row;
+    $_SESSION['cms_site_checked_at'] = $now;
     return true;
 }
 
@@ -106,6 +137,7 @@ function siteLogin(string $email, string $password): ?array
     $_SESSION['cms_site_user_id'] = $user['id'];
     $_SESSION['cms_site_id']      = $user['site_id'];
     $_SESSION['cms_site_user']    = $user;
+    $_SESSION['cms_site_checked_at'] = time();
     session_regenerate_id(true);
     unset($_SESSION['cms_site_csrf']); // a fresh token for the signed-in session
 
@@ -187,5 +219,5 @@ function requireSiteWrite(bool $json = false): void
  */
 function siteLogout(): void
 {
-    unset($_SESSION['cms_site_user_id'], $_SESSION['cms_site_id'], $_SESSION['cms_site_user']);
+    unset($_SESSION['cms_site_user_id'], $_SESSION['cms_site_id'], $_SESSION['cms_site_user'], $_SESSION['cms_site_checked_at']);
 }

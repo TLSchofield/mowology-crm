@@ -10,6 +10,9 @@ requireLogin();
 $user = getCurrentUser();
 
 $db = getDB();
+// Office (team.edit) sees every driver; anyone else only their own reports (Fable audit 2026-10-12 —
+// the old check was role === 'user', so staff/technician logins saw everyone's).
+$tripOffice = userHasPermission('team.edit');
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 $filterFrom   = trim($_GET['from']   ?? date('Y-m-01'));   // start of current month
@@ -36,8 +39,8 @@ if ($filterDriver > 0) {
     $params[] = $filterDriver;
 }
 
-// Non-admin drivers only see their own records
-if ($user['role'] === 'user') {
+// Non-office drivers only see their own records
+if (!$tripOffice) {
     $where[]  = 'r.driver_id = ?';
     $params[] = (int)$user['id'];
 }
@@ -68,7 +71,7 @@ $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Driver list for filter (admin/manager only) ───────────────────────────────
 $drivers = [];
-if ($user['role'] !== 'user') {
+if ($tripOffice) {
     $dStmt = $db->query("SELECT id, full_name FROM users WHERE is_active = 1 AND role IN ('admin','manager','user') ORDER BY full_name");
     $drivers = $dStmt->fetchAll(PDO::FETCH_ASSOC);
 }

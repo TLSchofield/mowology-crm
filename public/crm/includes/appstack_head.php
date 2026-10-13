@@ -70,6 +70,14 @@ $crewLite   = !empty($_COOKIE['mw_native']) || !empty($crewLite);
 $crewPage   = !empty($crewPage);
 $crewSlim   = $crewLite && $crewPage;
 
+// Idle timeout (Fable audit 2026-10-12): an office login (admin/manager) on an office page in a
+// browser signs out after 30 minutes without a page load. Crew pages, the crew app (mw_native) and
+// crew logins are exempt — a phone in a truck must not sign itself out mid-shift.
+if (!$crewPage && !$crewLite && function_exists('checkSessionTimeout') && class_exists('RoleRules')
+    && session_status() === PHP_SESSION_ACTIVE && RoleRules::isOffice((string)($_SESSION['user_role'] ?? '')) && !headers_sent()) {
+    checkSessionTimeout(1800);
+}
+
 /**
  * Return a URL with an automatic cache-busting query string derived from
  * the file's last-modified time.  No manual version bumping ever needed.

@@ -57,7 +57,9 @@ if ($requestOrigin === '') {
 } elseif (in_array($requestOrigin, $allowedOrigins, true)) {
     $corsOrigin = $requestOrigin;
 } else {
-    $corsOrigin = $allowedOrigins[0]; // fallback to first allowed origin for dev
+    // Unknown origin: no CORS header at all (Fable audit 2026-10-12). It used to echo
+    // http://localhost:5173 — harmless to browsers elsewhere, but a needless grant.
+    $corsOrigin = null;
 }
 
 if ($corsOrigin !== null) {

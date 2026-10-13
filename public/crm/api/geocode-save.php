@@ -28,6 +28,12 @@ if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
     echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
     exit;
 }
+// Moving a property's map pin moves geofences and route proof: office only (Fable audit 2026-10-12).
+if (!userHasAnyPermission(['clients.edit', 'jobs.edit'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+    exit;
+}
 session_write_close();
 
 $propertyId = intval($jsonData['property_id'] ?? 0);

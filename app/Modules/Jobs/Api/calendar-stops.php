@@ -48,8 +48,18 @@ try {
         return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
     });
 
+    // Office (schedule.edit) sees every crew's day; anyone else only stops they are crew on
+    // (Fable audit 2026-10-12 — any login could read every stop's client, phone and notes).
+    $seesAll = userHasPermission('schedule.edit');
+    $me      = (int)$user['id'];
+
     $stops = [];
     foreach ($dayStops as $stop) {
+        if (!$seesAll) {
+            $crewOnStop = array_map('intval', (array)($stop['crew_ids'] ?? []));
+            if (!empty($stop['crew_id'])) $crewOnStop[] = (int)$stop['crew_id'];
+            if (!in_array($me, $crewOnStop, true)) continue;
+        }
         $visits = [];
         foreach (($stop['visits'] ?? []) as $v) {
             $visits[] = [
