@@ -390,6 +390,8 @@
                 '<label class="mw-sam-lbl">' + (isSms ? 'Text' : 'Email') + (st.drafted_by === 'learned' && !isSms ? ' <small class="mw-sam-learned">written your way</small>' : '') +
                   (st.drafted_by === 'claude' ? ' <small class="mw-sam-learned">drafted by Claude — check it</small>' : '') +
                   '<textarea class="mw-sam-in" data-f="' + (isSms ? 'sms' : 'body') + '" rows="' + (isSms ? 3 : 9) + '">' + esc(text) + '</textarea></label>' +
+                // DraftSafety badge (Fable 2026-10-12): emails / links / bank details not in our records.
+                (!isSms && st.drafted_by === 'claude' && st.flag_label ? '<div class="mw-sam-count is-bad" role="alert">&#9888; ' + esc(st.flag_label) + '</div>' : '') +
                 (isSms ? '<div class="mw-sam-count' + (probs.length ? ' is-bad' : '') + '">' + text.length + '/' + SMS_MAX + (probs.length ? ' · ' + esc(probs.join(' · ')) : ' · OK for carriers') + '</div>'
                        : '<div class="mw-sam-count">The quote link' + (c.quotes.length > 1 ? 's go' : ' goes') + ' under your message automatically.</div>') +
                 '<div class="mw-rc-actions">' +
@@ -433,7 +435,7 @@
         } else if (act === 'claude') {
             req = post({ mode: 'draft_reply', card_key: c.key }).then(function (d) {
                 busy = false;
-                if (d && d.ok) { st.body = d.body; st.suggested_body = d.body; st.drafted_by = 'claude'; render('Here\'s a draft — read it before you send.'); }
+                if (d && d.ok) { st.body = d.body; st.suggested_body = d.body; st.drafted_by = 'claude'; st.flag_label = d.flag_label || ''; render('Here\'s a draft — read it before you send.'); }
                 else render(d && d.message ? d.message : 'Couldn\'t draft that one.');
                 return null;
             });

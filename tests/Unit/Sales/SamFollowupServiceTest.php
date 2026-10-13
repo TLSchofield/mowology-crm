@@ -96,7 +96,7 @@ class SamFollowupServiceTest extends TestCase
         $p = SamFollowupService::replyPrompt($card, 'Tim', ["Hi Ann,\n\nDone.\n\nThanks,\nTim"]);
         $this->assertStringContainsString('Mowology copy rules', $p['system']);
         $this->assertStringContainsString('never invent prices', $p['system']);
-        $this->assertStringContainsString('CUSTOMER (2026-10-10 10:00:00): Does this include salting?', $p['user']);
+        $this->assertStringContainsString('CUSTOMER (2026-10-10 10:00:00): <customer_message>Does this include salting?</customer_message>', $p['user']);
         $this->assertStringContainsString('QUO-2026-0069', $p['user']);
         $this->assertStringContainsString('How Tim writes', $p['user']);
     }

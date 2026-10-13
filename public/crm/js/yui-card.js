@@ -188,6 +188,8 @@
                 (st.drafted_by === 'learned' && !isSms ? ' <small class="mw-sam-learned">written your way</small>' : '') +
                 (st.drafted_by === 'claude' ? ' <small class="mw-sam-learned">drafted by Claude — check it</small>' : '') +
                 '<textarea class="mw-sam-in" data-f="' + (isSms ? 'sms' : 'body') + '" rows="' + (isSms ? 3 : 8) + '">' + esc(text) + '</textarea></label>' +
+              // DraftSafety badge (Fable 2026-10-12): emails / links / bank details not in our records.
+              (!isSms && st.drafted_by === 'claude' && st.flag_label ? '<div class="mw-sam-count is-bad" role="alert">&#9888; ' + esc(st.flag_label) + '</div>' : '') +
               (isSms ? '<div class="mw-sam-count' + (probs.length ? ' is-bad' : '') + '">' + text.length + '/' + SMS_MAX + (probs.length ? ' · ' + esc(probs.join(' · ')) : ' · OK for carriers') + '</div>'
                      : '<div class="mw-sam-count">From office@ — their reply comes back to the office inbox.</div>') +
               '<div class="mw-rc-actions">' +
@@ -229,7 +231,7 @@
             post({ mode: 'draft', key: key }).then(function (d) {
                 if (d && d.ok) {
                     var st = state(it);
-                    st.channel = 'email'; st.body = d.body; st.suggested_body = d.body; st.drafted_by = 'claude';
+                    st.channel = 'email'; st.body = d.body; st.suggested_body = d.body; st.drafted_by = 'claude'; st.flag_label = d.flag_label || '';
                     if (typeof d.drafts_left === 'number') draftsLeft = d.drafts_left;
                     done('Here\'s a draft — read it before you send.');
                 } else done(d && (d.message || d.error) ? (d.message || d.error) : 'Couldn\'t draft that one.');

@@ -553,15 +553,21 @@ class YuiRules
     {
         $first = (string)(($item['to']['first_name'] ?? '') ?: ($item['name'] ?? '')) ?: 'there';
         if ($first === 'A customer' || $first === 'A client') $first = 'there';
-        $lines = array_map(fn($m) => (($m['direction'] ?? $m['dir'] ?? '') === 'inbound' ? 'CLIENT' : 'US')
-            . (($m['channel'] ?? '') === 'sms' ? ' by text' : '') . ' (' . ($m['sent_at'] ?? $m['at'] ?? '') . '): ' . trim((string)($m['snippet'] ?? '')),
-            array_reverse($thread));
+        // Client-written text goes inside explicit tags and is data, never instructions (DraftSafety).
+        require_once dirname(__DIR__, 3) . '/Services/Copy/DraftSafety.php';
+        $lines = array_map(function ($m) {
+            $in = ($m['direction'] ?? $m['dir'] ?? '') === 'inbound';
+            $txt = trim((string)($m['snippet'] ?? ''));
+            return ($in ? 'CLIENT' : 'US') . (($m['channel'] ?? '') === 'sms' ? ' by text' : '') . ' (' . ($m['sent_at'] ?? $m['at'] ?? '') . '): '
+                . ($in ? DraftSafety::wrap($txt) : $txt);
+        }, array_reverse($thread));
         $rules = SamFollowupService::copyRules();
         $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '')
             . "You draft short, friendly, plain emails for {$owner}, owner of Mowology, a landscaping and snow removal company in Vancouver, "
             . "to an EXISTING client. Write as {$owner}, first person. Answer what the client actually said; never invent prices, dates, "
             . "visits or promises that aren't in the conversation — if something needs checking, say {$owner} will check and get back to them. "
-            . "No subject line, no placeholders, no markdown. Start with 'Hi {$first},' and end with 'Thanks,\\n{$owner}'. Under 120 words.";
+            . "No subject line, no placeholders, no markdown. Start with 'Hi {$first},' and end with 'Thanks,\\n{$owner}'. Under 120 words.\n\n"
+            . DraftSafety::DATA_NOTE;
         $user = "Conversation (oldest first):\n" . implode("\n", $lines)
             . ($examples ? "\n\nHow {$owner} writes (recent emails he sent):\n---\n" . implode("\n---\n", array_map(fn($e) => mb_substr((string)$e, 0, 600), $examples)) : '')
             . "\n\nDraft {$owner}'s reply to the client's latest message.";

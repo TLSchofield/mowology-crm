@@ -178,7 +178,9 @@ class SamFollowupService
         if ($code !== 200 || $text === '') {
             return ['ok' => false, 'message' => "I couldn't draft that one just now — write it yourself or try again later."];
         }
-        return ['ok' => true, 'body' => $text, 'draft_id' => (int)$this->db->lastInsertId()];
+        $draftId = (int)$this->db->lastInsertId();
+        $flags = self::draftFlags($text, $card);
+        return ['ok' => true, 'body' => $text, 'draft_id' => $draftId, 'flags' => $flags, 'flag_label' => DraftSafety::label($flags)];
     }
 
     private function claudeToday(): int
@@ -397,6 +399,20 @@ class SamFollowupService
         return $p;
     }
 
+    /**
+     * Emails, links or bank details in a Claude draft that are not in what we know about this
+     * customer (their address on file, the quote facts) — shown as a badge on the card.
+     */
+    public static function draftFlags(string $draft, array $card): array
+    {
+        require_once dirname(__DIR__, 3) . '/Services/Copy/DraftSafety.php';
+        $known = implode(' ', array_filter([
+            (string)($card['email'] ?? ''), (string)($card['phone'] ?? ''),
+            implode(' ', array_map(fn($q) => ($q['number'] ?? '') . ' ' . ($q['address'] ?? ''), $card['quotes'] ?? [])),
+        ]));
+        return DraftSafety::flags($draft, $known);
+    }
+
     /** The shared house rules for drafted copy (app/Services/Copy/mowology-copy-rules.md). */
     public static function copyRules(): string
     {
@@ -409,13 +425,17 @@ class SamFollowupService
     {
         $facts = array_map(fn($q) => $q['number'] . ': ' . ($q['service'] ?: 'service') . ($q['address'] !== '' ? ' at ' . $q['address'] : '')
             . ', ' . SalesDeskService::money((float)$q['amount']) . (!empty($q['valid_until']) ? ', valid until ' . $q['valid_until'] : ''), $card['quotes'] ?? []);
-        $thread = array_map(fn($m) => ($m['dir'] === 'inbound' ? 'CUSTOMER' : 'US') . (($m['channel'] ?? '') === 'sms' ? ' by text' : '') . ' (' . $m['at'] . '): ' . trim((string)$m['snippet']),
+        // Customer-written text goes inside explicit tags and is data, never instructions (DraftSafety).
+        require_once dirname(__DIR__, 3) . '/Services/Copy/DraftSafety.php';
+        $thread = array_map(fn($m) => ($m['dir'] === 'inbound' ? 'CUSTOMER' : 'US') . (($m['channel'] ?? '') === 'sms' ? ' by text' : '') . ' (' . $m['at'] . '): '
+            . ($m['dir'] === 'inbound' ? DraftSafety::wrap(trim((string)$m['snippet'])) : trim((string)$m['snippet'])),
             array_reverse($card['thread'] ?? []));
         $rules = self::copyRules();
         $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '') . "You draft short, friendly, plain emails for {$owner}, owner of Mowology, a landscaping and snow removal company in Vancouver. "
             . "Write as {$owner}, first person. Answer what the customer actually said; never invent prices, dates or promises that aren't in the facts — "
             . "if something needs checking, say {$owner} will check and get back to them. No subject line, no placeholders, no markdown. "
-            . "Start with 'Hi " . ((string)($card['first_name'] ?? '') ?: 'there') . ",' and end with 'Thanks,\\n{$owner}'. Under 120 words.";
+            . "Start with 'Hi " . ((string)($card['first_name'] ?? '') ?: 'there') . ",' and end with 'Thanks,\\n{$owner}'. Under 120 words.\n\n"
+            . DraftSafety::DATA_NOTE;
         $user = "Quotes:\n" . implode("\n", $facts) . "\n\nConversation (oldest first):\n" . implode("\n", $thread)
             . ($examples ? "\n\nHow {$owner} writes (recent emails he sent):\n---\n" . implode("\n---\n", array_map(fn($e) => mb_substr((string)$e, 0, 600), $examples)) : '')
             . "\n\nDraft {$owner}'s reply to the customer's latest message.";

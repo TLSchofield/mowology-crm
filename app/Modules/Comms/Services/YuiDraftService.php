@@ -129,7 +129,10 @@ class YuiDraftService
         if ($code !== 200 || $text === '') {
             return ['ok' => false, 'message' => "I couldn't draft that one just now — write it yourself or try again later."];
         }
-        return ['ok' => true, 'body' => $text, 'drafts_left' => $this->claudeLeft()];
+        // Flag emails / links / bank details the client's record doesn't hold (Fable review 2026-10-12).
+        require_once dirname(__DIR__, 3) . '/Services/Copy/DraftSafety.php';
+        $flags = DraftSafety::flags($text, implode(' ', [(string)($item['to']['email'] ?? ''), (string)($item['to']['phone'] ?? '')]));
+        return ['ok' => true, 'body' => $text, 'drafts_left' => $this->claudeLeft(), 'flags' => $flags, 'flag_label' => DraftSafety::label($flags)];
     }
 
     /**

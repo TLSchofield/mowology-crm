@@ -104,3 +104,7 @@ Rules now enforced in code:
   extras can be removed; bundle matching is exact, in PHP.
 - Quote SMS = `QuoteService::quoteSentSms()` (no link, (778) 846-9273), tested with `smsProblems()`.
 Not done: a post-approval extra is not added to the existing job automatically — the office adds it.
+- 2026-10-12 (Fable): Claude reply drafts (Sam `SamFollowupService::replyPrompt`, Yui `YuiRules::replyPrompt`)
+  wrap customer text in `<customer_message>` tags with `DraftSafety::DATA_NOTE`; a draft holding an email,
+  link or bank/payment detail not in the contact's record returns `flags`/`flag_label` and the web card
+  shows a red badge. iPhone does not show the badge yet (gap).

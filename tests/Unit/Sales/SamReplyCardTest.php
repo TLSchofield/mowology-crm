@@ -55,7 +55,7 @@ class SamReplyCardTest extends TestCase
         $this->assertSame('Gaby', $vars['{first_name}']);
         $this->assertSame('Re: your quote', SamFollowupService::fill(SamFollowupService::TEMPLATES['reply'][0], $vars));
         $p = SamFollowupService::replyPrompt($c, 'Tim', []);
-        $this->assertStringContainsString('CUSTOMER (2026-10-06 09:14:00): Yes please', $p['user']);
+        $this->assertStringContainsString('CUSTOMER (2026-10-06 09:14:00): <customer_message>Yes please</customer_message>', $p['user']);
         $this->assertStringContainsString('Hi Gaby,', $p['system']);
     }
 
