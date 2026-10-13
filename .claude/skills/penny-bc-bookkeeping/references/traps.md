@@ -198,3 +198,19 @@ card statement is a Penny question, nothing changed. Sweep of all 98 links on 20
 2026 (journal was fine: matched lines are not posted). Reports now use `AccountingService::countedSql()`.
 **Rule:** the statement line decides where money came from; a receipt's method is a claim to check.
 
+
+## 2026-10-12 — Security audit group C (money)
+Now enforced in code — don't undo:
+- **A payment email records nothing unless its sender is proven** (exact address + verified DKIM,
+  `MailAuth`): unproven Yardi lines are 'medium' and `recordWhenBanked()` skips them; Interac notices
+  that are unproven or forwarded are capped at 'medium'; `autoRecordFullyCertain()` and
+  `recordWhenBanked()` need `etransfer_notifications.sender_verified = 1` (migration 1340 — until it
+  runs nothing auto-records).
+- **Stripe disputes and refunds reach the journal** (`StripeEventLedgerService`, migration 1342,
+  idempotent per event id): dispute → invoice `dispute_status`, DR 1100 / CR 1010, Charlie emails Tim;
+  won → reversed; refund → DR 2160 Customer Deposits / CR 1010 (the invoice is left for a person).
+  A late `payment_failed` never overwrites a succeeded payment.
+- **Autopay is switched on only by the cardholder entering the card** (SetupIntent, or a payment with
+  a NEW card) — never from an invoice link's "use saved card".
+- Scanned bank statements OCR through Google Vision or local Tesseract only, never OCR.space.
+- AI receipt calls have a daily ceiling (`LlmDailyCap`; ops_settings `llm_daily_cap_<bucket>`).

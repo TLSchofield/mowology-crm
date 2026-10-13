@@ -89,3 +89,15 @@ Dropped: QuoteViewNotifier through PushDispatcher — it already claims once per
 lock and retires 410 tokens; routing it through the queue would only add the drain's delay.
 Not done: `joinUnknown()` still joins by quote number from any sender — requiring a domain/thread
 match would have refused Monica's QUO-2026-0073 approval (the case it was built for). Tim to decide.
+
+## 2026-10-12 — Security audit group C: mail senders must be PROVEN
+Production (mail.mowology.ca) adds **no Authentication-Results header** — checked on the last 3 Yardi
+and Interac messages in office@ and info@: they carry DKIM-Signature (d=yardi.com,
+d=payments.interac.ca), X-Spam-Status, no AR / ARC / Received-SPF. So any Authentication-Results on
+office@/info@ mail was written by the sender. `MailAuth` (app/Services/Mail) verifies DKIM itself
+(rsa-sha256, simple/relaxed, DNS key; l= refused; From must be signed; d= aligned) and believes AR only
+from `MAIL_TRUSTED_AUTHSERV_IDS` (none). Used by the Yardi and Interac pollers, the iCloud router's
+money routes and the supplier price-list import (fails closed). `ImapReader::senderVerified()`.
+receipts@ reads only active users, the owner's addresses and known vendor domains; others are held
+('held_sender') without OCR/Claude. **Rule:** never trust a From header for anything that moves
+books or data; ask MailAuth.
