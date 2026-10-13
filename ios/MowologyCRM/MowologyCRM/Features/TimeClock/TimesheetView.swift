@@ -90,6 +90,11 @@ struct TimesheetView: View {
             totalColumn(title: "Clocked", value: TimesheetViewModel.duration(week.totalSeconds), tint: Color.MW.green)
             Divider().frame(height: 36)
             totalColumn(title: "On jobs", value: TimesheetViewModel.duration(week.jobTotalSeconds), tint: .primary)
+            if let brk = week.breakSeconds, brk > 0 {
+                Divider().frame(height: 36)
+                totalColumn(title: (week.breaksPaid ?? true) ? "Breaks (paid)" : "Breaks (unpaid)",
+                            value: TimesheetViewModel.duration(brk), tint: Color.MW.orange)
+            }
         }
         .padding(.vertical, 16)
         .background(Color(.systemBackground))
@@ -137,6 +142,22 @@ struct TimesheetView: View {
                 }
                 if let notes = entry.notes {
                     Text(notes).font(.caption).foregroundStyle(.secondary).padding(.leading, 28)
+                }
+                ForEach(entry.breaks ?? []) { brk in
+                    HStack(spacing: 8) {
+                        Image(systemName: "cup.and.saucer")
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.orange)
+                        Text("Break \(TimesheetViewModel.time(brk.start)) – \(TimesheetViewModel.time(brk.end))"
+                             + (brk.tapped ? "" : " (found by GPS)"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(TimesheetViewModel.duration(brk.minutes * 60))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 28)
                 }
             }
 

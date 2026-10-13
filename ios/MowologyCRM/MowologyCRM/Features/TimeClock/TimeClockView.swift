@@ -10,6 +10,8 @@ struct TimeClockView: View {
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: TimeClockViewModel
     @StateObject private var driver: DriverTripViewModel
+    /// Start break / End break (people only — the server hides it from the truck login).
+    @ObservedObject private var breaks = BreakController.shared
 
     /// True while the post-trip sheet was opened BY the clock-out button, so closing
     /// the trip carries straight on to clocking out.
@@ -51,6 +53,11 @@ struct TimeClockView: View {
 
                     clockCard
                         .padding(.horizontal, 16)
+
+                    if viewModel.clockedIn && (breaks.allowed || breaks.isOnBreak) {
+                        breakCard
+                            .padding(.horizontal, 16)
+                    }
 
                     if viewModel.clockedIn {
                         TrackingStatusCard()
@@ -230,6 +237,69 @@ struct TimeClockView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+    }
+
+    // MARK: - Break Card
+
+    private var breakCard: some View {
+        VStack(spacing: 12) {
+            if breaks.isOnBreak {
+                HStack(spacing: 8) {
+                    Image(systemName: "cup.and.saucer.fill")
+                    Text("On break since \(breaks.sinceLabel)")
+                        .font(.headline)
+                }
+                .foregroundStyle(Color.MW.orange)
+
+                Text(breaks.savedLocally
+                     ? "Location sharing is paused. Saved on this phone — it will file when signal returns."
+                     : "Location sharing is paused until you end your break.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                Task {
+                    if breaks.isOnBreak { await breaks.endBreak(authSession: authSession) }
+                    else { await breaks.startBreak(authSession: authSession) }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if breaks.isBusy {
+                        ProgressView().tint(.white).scaleEffect(0.8)
+                    } else {
+                        Image(systemName: breaks.isOnBreak ? "play.fill" : "cup.and.saucer.fill")
+                    }
+                    Text(breaks.isOnBreak ? "End break" : "Start break")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(breaks.isOnBreak ? Color.MW.orange : Color.MW.green)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(breaks.isBusy)
+
+            if let msg = breaks.message {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(Color.MW.orange)
+                    .multilineTextAlignment(.center)
+            }
+
+            Text(breaks.isOnBreak
+                 ? (breaks.paid ? "Breaks are paid." : "Breaks are unpaid — this time comes off your paid hours.")
+                 : "Location sharing pauses during your break. " + (breaks.paid ? "Breaks are paid." : "Breaks are unpaid."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Active Job Card

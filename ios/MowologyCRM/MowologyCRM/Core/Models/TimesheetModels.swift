@@ -18,6 +18,11 @@ struct TimesheetWeekResponse: Decodable {
     /// Time spent on job timers — always ≤ clocked time; the gap is travel/yard time.
     let jobTotalSeconds: Int
     let days: [TimesheetDay]
+    /// Breaks (2026-10-13): counted once (a tapped break wins over GPS). Nil from an older server.
+    let breakSeconds: Int?
+    /// Clocked less unpaid breaks — equal to totalSeconds when breaks are paid (Mowology).
+    let paidSeconds: Int?
+    let breaksPaid: Bool?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -26,6 +31,9 @@ struct TimesheetWeekResponse: Decodable {
         case totalSeconds    = "total_seconds"
         case jobTotalSeconds = "job_total_seconds"
         case days
+        case breakSeconds    = "break_seconds"
+        case paidSeconds     = "paid_seconds"
+        case breaksPaid      = "breaks_paid"
     }
 }
 
@@ -56,6 +64,8 @@ struct TimesheetClockEntry: Decodable, Identifiable {
     /// True when the office corrected this punch after the fact.
     let edited: Bool
     let notes: String?
+    let breaks: [TimesheetBreak]?
+    let breakSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -63,8 +73,20 @@ struct TimesheetClockEntry: Decodable, Identifiable {
         case clockOut        = "clock_out"
         case durationSeconds = "duration_seconds"
         case isOpen          = "is_open"
-        case edited, notes
+        case edited, notes, breaks
+        case breakSeconds    = "break_seconds"
     }
+}
+
+/// One break in a shift: tapped ("manual") or found by the phone's GPS ("gps").
+struct TimesheetBreak: Decodable, Identifiable {
+    let start: String
+    let end: String?
+    let minutes: Int
+    let source: String
+
+    var id: String { start + source }
+    var tapped: Bool { source == "manual" }
 }
 
 struct TimesheetJobEntry: Decodable, Identifiable {

@@ -53,6 +53,8 @@ final class GPSTrackingService: ObservableObject {
         case clockedOut
         case signedOut
         case serverPolicy(String?)
+        /// Start break (2026-10-13): sharing pauses until End break; the shift goes on.
+        case onBreak
     }
 
     // MARK: - Published (drives the tracking pill + diagnostics)
@@ -81,6 +83,8 @@ final class GPSTrackingService: ObservableObject {
     static let kShiftActive = "mw.shiftActive"
     static let kLastPingAt  = "mw.lastPingAt"
     static let kActiveVisit = "mw.tracking.activeVisitId"
+    /// Set while a tapped break pauses sharing. Relaunch/foreground must not restart capture.
+    static let kOnBreak     = "mw.tracking.onBreak"
 
     // MARK: - Private
 
@@ -142,6 +146,7 @@ final class GPSTrackingService: ObservableObject {
     func start(authSession: AuthSession) {
         apiClient = APIClient(authSession: authSession)   // refresh on every start — a re-login must not keep the old client
         guard !isTracking else { return }
+        guard !isPausedForBreak else { return }            // on a break: End break restarts it
 
         isTracking    = true
         trackingSince = Date()
@@ -175,6 +180,8 @@ final class GPSTrackingService: ObservableObject {
     }
 
     func stop(reason: StopReason = .clockedOut) {
+        // A clock-out (or sign-out) ends any break; only a break keeps the pause.
+        if reason == .clockedOut || reason == .signedOut { UserDefaults.standard.set(false, forKey: Self.kOnBreak) }
         if reason == .signedOut {
             // Whatever is still on disk belongs to the person signing out — never the next user.
             FixStore.shared.removeAll()
@@ -212,13 +219,44 @@ final class GPSTrackingService: ObservableObject {
         case .serverPolicy(let why):
             NotificationCenter.default.post(name: .mwTrackingStoppedByServer, object: nil,
                                             userInfo: ["reason": why ?? ""])
+        case .onBreak:
+            // Fixes taken before the break are still owed to the server.
+            Task { await upload() }
         }
+    }
+
+    // MARK: - Breaks
+
+    /// Start break: stop capturing until End break. The server also refuses fixes while a
+    /// break is open (TrackingIngestService), so this is the phone keeping its side of it.
+    func pauseForBreak() {
+        UserDefaults.standard.set(true, forKey: Self.kOnBreak)
+        if isTracking || UserDefaults.standard.bool(forKey: Self.kShiftActive) { stop(reason: .onBreak) }
+    }
+
+    /// End break (or clock-out / a server that says no break is running): sharing may run again.
+    func clearBreakPause() {
+        UserDefaults.standard.set(false, forKey: Self.kOnBreak)
+    }
+
+    var isPausedForBreak: Bool { UserDefaults.standard.bool(forKey: Self.kOnBreak) }
+
+    /// End break: start sharing again for the rest of the shift.
+    func resumeAfterBreak(authSession: AuthSession) {
+        clearBreakPause()
+        start(authSession: authSession)
     }
 
     /// Cold launch, background relaunch (significant-change / geofence) or foreground:
     /// pick the shift back up WITHOUT needing the Time Clock tab to appear. The server
     /// confirms via policy within one upload/poll; if the shift is over, that stops us.
     func resumeIfShiftActive(authSession: AuthSession) {
+        // Paused for a break: ask the server whether the break is still running (it may have been
+        // ended on another device, or by the clock-out); BreakController resumes if not.
+        if authSession.token != nil, isPausedForBreak {
+            Task { await BreakController.shared.refreshFromServer(authSession: authSession) }
+            return
+        }
         guard authSession.token != nil,
               UserDefaults.standard.bool(forKey: Self.kShiftActive) else { return }
         if !isTracking { start(authSession: authSession) }
@@ -450,6 +488,12 @@ final class GPSTrackingService: ObservableObject {
             // in" to the server. Don't end the shift's tracking over a sync-order race —
             // the clock queue drains on the same reconnect and the next policy settles it.
             if policy.reason == "not_clocked_in", ClockQueue.shared.hasPending { return }
+            // On a break (tapped here or on another device): pause, and let the Time Clock know.
+            if policy.reason == "on_break" {
+                if isTracking { pauseForBreak() } else { UserDefaults.standard.set(true, forKey: Self.kOnBreak) }
+                NotificationCenter.default.post(name: .mwTrackingStoppedByServer, object: nil, userInfo: ["reason": "on_break"])
+                return
+            }
             if isTracking { stop(reason: .serverPolicy(policy.reason)) }
             return
         }

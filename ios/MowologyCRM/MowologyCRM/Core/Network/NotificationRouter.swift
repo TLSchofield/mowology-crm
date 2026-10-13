@@ -65,6 +65,7 @@ final class NotificationRouter: NSObject, ObservableObject {
     /// Must run before launch finishes so a cold-start tap is delivered.
     func install() {
         UNUserNotificationCenter.current().delegate = self
+        BreakController.registerNotificationCategory()
     }
 
     // MARK: - Parsing
@@ -147,6 +148,12 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
+        // "Still on break?" — End break / Still on break (BreakController, 2026-10-13).
+        if response.notification.request.content.categoryIdentifier == BreakController.categoryId {
+            let action = response.actionIdentifier
+            await BreakController.shared.handleReminderAction(action)
+            return
+        }
         if let url = Self.depositURL(from: userInfo) {
             // Open the Interac deposit page in Safari; Tim chooses his bank there.
             await MainActor.run { UIApplication.shared.open(url) }

@@ -15,6 +15,10 @@ struct ClockStatusResponse: Decodable {
     let elapsedSeconds: Int?
     let activeJob: ActiveJobTimer?
     let message: String?
+    /// The break button (2026-10-13). Nil from a server before it.
+    let breaks: BreakSettings?
+    /// The running tapped break, or nil.
+    let onBreak: OnBreak?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -24,6 +28,34 @@ struct ClockStatusResponse: Decodable {
         case elapsedSeconds  = "elapsed_seconds"
         case activeJob       = "active_job"
         case message
+        case breaks
+        case onBreak         = "on_break"
+    }
+}
+
+// MARK: - Breaks
+
+/// Whether this person gets the break button (never the truck login), whether breaks are paid,
+/// and when to ask "Still on break?" (ops_settings, BreakService).
+struct BreakSettings: Decodable {
+    let allowed: Bool
+    let paid: Bool
+    let reminderMinutes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case allowed, paid
+        case reminderMinutes = "reminder_minutes"
+    }
+}
+
+struct OnBreak: Decodable, Equatable {
+    let id: Int
+    /// Server-local "yyyy-MM-dd HH:mm:ss".
+    let startedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startedAt = "started_at"
     }
 }
 
@@ -36,6 +68,10 @@ struct ClockActionResponse: Decodable {
     let elapsedSeconds: Int?
     let totalMinutes: Int?
     let message: String?
+    /// break_start / break_end only.
+    let onBreak: OnBreak?
+    let recorded: Bool?
+    let minutes: Int?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -46,6 +82,8 @@ struct ClockActionResponse: Decodable {
         case elapsedSeconds = "elapsed_seconds"
         case totalMinutes   = "total_minutes"
         case message
+        case onBreak        = "on_break"
+        case recorded, minutes
     }
 }
 

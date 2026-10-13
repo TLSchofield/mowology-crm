@@ -43,7 +43,7 @@ final class ClockQueue: ObservableObject {
 
     struct PendingAction: Codable {
         let id: String      // idempotency key sent as Idempotency-Key header
-        let action: String  // "clock_in" or "clock_out"
+        let action: String  // "clock_in", "clock_out", "break_start" or "break_end" (same endpoint, same order)
         let lat: Double?
         let lng: Double?
         let queuedAt: Date  // when it was tapped
@@ -89,7 +89,13 @@ final class ClockQueue: ObservableObject {
     /// The first refused punch for this person, as a line for the Time Clock screen.
     func rejectedMessage(for userId: Int?) -> String? {
         guard let r = items.first(where: { mine($0, userId) && $0.rejection != nil }) else { return nil }
-        let what = r.action == "clock_in" ? "Clock in" : "Clock out"
+        let what: String
+        switch r.action {
+        case "clock_in":    what = "Clock in"
+        case "break_start": what = "Start break"
+        case "break_end":   what = "End break"
+        default:            what = "Clock out"
+        }
         let when = r.queuedAt.formatted(date: .abbreviated, time: .shortened)
         return "\(what) at \(when): \(r.rejection ?? "refused by the server")"
     }
