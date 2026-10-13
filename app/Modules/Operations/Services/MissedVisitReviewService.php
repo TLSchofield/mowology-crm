@@ -285,7 +285,9 @@ class MissedVisitReviewService
         $forecast = $facts['every_day'] ? [] : $this->forecast((string)($v['city'] ?? ''));
         $rules = $this->municipalRules();
         $start = substr((string)($v['scheduled_time_start'] ?: $v['default_time_start'] ?: '08:00'), 0, 5);
-        $mins = max(30, (int)($v['estimated_duration_minutes'] ?: 60));
+        // Capped at a working day: a plan length over 8 h is a data slip (PLN-2026-0044 says 834 min)
+        // and would fail every day's bylaw hours.
+        $mins = min(480, max(30, (int)($v['estimated_duration_minutes'] ?: 60)));
 
         $days = [];
         for ($i = 1; $i <= $span; $i++) {
