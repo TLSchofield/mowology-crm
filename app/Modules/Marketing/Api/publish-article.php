@@ -34,6 +34,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -93,7 +94,7 @@ try {
     ]));
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'publish-article')]);
 } catch (Throwable $e) {
     error_log('publish-article: ' . $e->getMessage());
     http_response_code(500);

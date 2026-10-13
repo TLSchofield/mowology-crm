@@ -38,6 +38,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
     require_once APP_ROOT . '/Modules/Products/Services/ProductCareService.php';
@@ -169,5 +170,5 @@ try {
 } catch (Throwable $e) {
     error_log('label-products: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => 'Something went wrong — ' . $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => 'Something went wrong — ' . ApiResponse::message($e, 'label-products')]);
 }

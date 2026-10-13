@@ -24,6 +24,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/seo-functions.php';
 
 requireLogin();
@@ -95,6 +96,6 @@ try {
     http_response_code(500);
     die(json_encode([
         'success' => false,
-        'message' => 'Failed to generate preview: ' . $e->getMessage()
+        'message' => 'Failed to generate preview: ' . ApiResponse::message($e, 'apply-preview')
     ]));
 }

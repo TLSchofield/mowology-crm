@@ -27,6 +27,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
 migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (Fable review 2026-10-12)
@@ -103,7 +104,7 @@ if ($confirm && $convert) {
     } catch (Throwable $e) {
         $db->rollBack();
         $deleted = 0;
-        $log[] = '❌ Migration failed (rolled back): ' . $e->getMessage();
+        $log[] = '❌ Migration failed (rolled back): ' . ApiResponse::message($e, 'migrate-ppv-to-net');
     }
 }
 

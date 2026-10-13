@@ -34,6 +34,7 @@ header('X-Content-Type-Options: nosniff');
 
 try {
     require_once APP_ROOT . '/Core/config.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 
     $jwtUser   = requireJwt();
@@ -486,5 +487,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . ApiResponse::message($e, 'quiz')]);
 }

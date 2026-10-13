@@ -22,6 +22,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
     require_once CRM_INCLUDES . '/weather-service.php';
@@ -134,5 +135,5 @@ try {
     }
     error_log('reschedule-stop.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'reschedule-stop')]);
 }

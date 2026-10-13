@@ -33,6 +33,7 @@ header('X-Content-Type-Options: nosniff');
 
 try {
     require_once APP_ROOT . '/Core/config.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
@@ -118,7 +119,7 @@ try {
 
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => ApiResponse::message($e, 'visit-work')]);
 } catch (Throwable $e) {
     error_log('visit-work.php: ' . $e->getMessage());
     http_response_code(500);

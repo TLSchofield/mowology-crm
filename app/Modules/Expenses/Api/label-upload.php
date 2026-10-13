@@ -28,6 +28,7 @@ header('Content-Type: application/json');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Products/Services/LabelCaptureService.php';
@@ -57,5 +58,5 @@ try {
 } catch (Throwable $e) {
     error_log('label-upload: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Label upload failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Label upload failed: ' . ApiResponse::message($e, 'label-upload')]);
 }

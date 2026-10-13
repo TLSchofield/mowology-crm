@@ -78,6 +78,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
 
@@ -582,7 +583,7 @@ try {
 
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'GeofenceApi')]);
 } catch (Throwable $e) {
     http_response_code(500);
     error_log('[GeofenceApi] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

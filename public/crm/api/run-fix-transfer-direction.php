@@ -25,6 +25,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 if (!isAdmin()) {
     http_response_code(403);
@@ -78,7 +79,7 @@ try {
     $plan = $repair->plan();
 } catch (Throwable $e) {
     $plan = null;
-    $message = trim(($message ?? '') . ' Could not build the dry run: ' . $e->getMessage());
+    $message = trim(($message ?? '') . ' Could not build the dry run: ' . ApiResponse::message($e, 'run-fix-transfer-direction'));
 }
 
 if (($_GET['format'] ?? '') === 'json') {

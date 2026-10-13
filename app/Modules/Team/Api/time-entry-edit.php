@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
@@ -233,7 +234,7 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Server error: ' . ApiResponse::message($e, 'time-entry-edit')]);
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────────

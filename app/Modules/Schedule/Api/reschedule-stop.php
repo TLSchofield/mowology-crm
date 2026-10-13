@@ -35,6 +35,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Modules/Jobs/Services/StopRescheduleService.php';
 
@@ -93,7 +94,7 @@ try {
     echo json_encode(['success' => true] + $moved);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'reschedule-stop')]);
 } catch (Throwable $e) {
     error_log('[schedule/reschedule-stop] ' . $e->getMessage());
     http_response_code(500);

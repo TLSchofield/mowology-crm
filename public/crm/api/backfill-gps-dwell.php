@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 $user = getCurrentUser();
 session_write_close();
@@ -49,7 +50,7 @@ try {
         exit;
     }
 } catch (Throwable $e) {
-    echo json_encode(['error' => 'Column check failed: ' . $e->getMessage()]);
+    echo json_encode(['error' => 'Column check failed: ' . ApiResponse::message($e, 'backfill-gps-dwell')]);
     exit;
 }
 

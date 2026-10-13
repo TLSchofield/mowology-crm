@@ -38,6 +38,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     // PowPdfGenerator is loaded inside the generate_pdf action only — not here
 
@@ -493,7 +494,7 @@ try {
                 if ($invEx instanceof UnbilledWorkConflict) {
                     echo json_encode([
                         'success'   => false,
-                        'error'     => 'The stop is marked complete, but no invoice was created: ' . $invEx->getMessage(),
+                        'error'     => 'The stop is marked complete, but no invoice was created: ' . ApiResponse::message($invEx, 'pow-actions'),
                         'code'      => 'UNBILLED_CONFLICT',
                         'retryable' => true,
                     ]);
@@ -1090,7 +1091,7 @@ try {
     http_response_code(400);
     echo json_encode([
         'success'   => false,
-        'error'     => $e->getMessage(),
+        'error'     => ApiResponse::message($e, 'pow-actions'),
         'code'      => 'BAD_REQUEST',
         'retryable' => false,
     ]);

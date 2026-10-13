@@ -53,6 +53,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
 
@@ -138,5 +139,5 @@ try {
 
 } catch (Throwable $e) {
     if (!headers_sent()) http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'server_error', 'message' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'server_error', 'message' => ApiResponse::message($e, 'receipt-ocr-status')]);
 }

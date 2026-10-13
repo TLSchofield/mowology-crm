@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 
@@ -187,11 +188,11 @@ try {
     error_log('Send install link DB error: ' . $e->getMessage());
     // The PHP error_log location on this host is unknown; this file is readable over FTP.
     if (function_exists('_loginDebugLog')) {
-        _loginDebugLog('[send-install-link] PDO ' . $e->getCode() . ': ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+        _loginDebugLog('[send-install-link] PDO ' . $e->getCode() . ': ' . ApiResponse::message($e, 'send-install-link') . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
     }
     http_response_code(500);
     echo json_encode(['error' => 'A database error occurred. Please try again.']);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'send-install-link')]);
 }

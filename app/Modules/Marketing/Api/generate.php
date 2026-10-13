@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/seo-functions.php';
 
 requireLogin();
@@ -192,5 +193,5 @@ try {
     $stats['errors']++;
     error_log("SEO Recommendations Error: " . $e->getMessage());
     http_response_code(500);
-    die(json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage(), 'stats' => $stats]));
+    die(json_encode(['success' => false, 'message' => 'Error: ' . ApiResponse::message($e, 'generate'), 'stats' => $stats]));
 }

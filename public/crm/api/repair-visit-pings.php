@@ -44,6 +44,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -83,7 +84,7 @@ try {
             $out['portal_query_rows'] = $q->fetchAll(PDO::FETCH_ASSOC);
             $out['row_count'] = count($out['portal_query_rows']);
         } catch (Throwable $e) {
-            $out['portal_query_ERROR'] = $e->getMessage();
+            $out['portal_query_ERROR'] = ApiResponse::message($e, 'repair-visit-pings');
         }
         // Also: what does the visit look like raw, and its property linkage?
         try {
@@ -98,7 +99,7 @@ try {
             $q2->execute();
             $out['visit_1418_linkage'] = $q2->fetch(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
-            $out['linkage_ERROR'] = $e->getMessage();
+            $out['linkage_ERROR'] = ApiResponse::message($e, 'repair-visit-pings');
         }
         echo json_encode($out, JSON_PRETTY_PRINT);
         exit;
@@ -323,5 +324,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'repair-visit-pings')]);
 }

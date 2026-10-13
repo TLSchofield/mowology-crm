@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/app/Core/paths.php';
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 requirePermission('settings.edit');
 
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !verifyCSRFToken((string)($_POST['c
             }
             $message = "User &nbsp;<strong>" . htmlspecialchars($email) . "</strong>&nbsp; created (ID $userId) as &nbsp;<strong>$role</strong>&nbsp; for &nbsp;<strong>" . htmlspecialchars($siteName) . "</strong>.";
         } catch (\Throwable $e) {
-            $error = 'Error: ' . $e->getMessage();
+            $error = 'Error: ' . ApiResponse::message($e, 'create-site-user');
         }
     }
 }

@@ -31,6 +31,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 if (!isAdmin()) {
     http_response_code(403);
@@ -173,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
             error_log('fix-1122 failed: ' . $e->getMessage());
-            $message = 'Failed, nothing changed: ' . $e->getMessage();
+            $message = 'Failed, nothing changed: ' . ApiResponse::message($e, 'run-fix-1122-bank-session13-future-rows');
         }
     }
 }

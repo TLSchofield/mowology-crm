@@ -20,6 +20,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 if (!isAdmin()) {
     http_response_code(403);
@@ -50,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($r['ok']) { $booked++; $fees += (float)$r['fees']; }
                 else $errors[] = $line['transaction_date'] . ' $' . number_format((float)$line['amount'], 2) . ': ' . $r['message'];
             } catch (Throwable $e) {
-                $errors[] = $line['transaction_date'] . ': ' . $e->getMessage();
+                $errors[] = $line['transaction_date'] . ': ' . ApiResponse::message($e, 'run-stripe-payouts');
             }
         }
         $message = "Booked {$booked} payouts and \$" . number_format($fees, 2) . ' of Stripe fees.' . ($errors ? ' ' . count($errors) . ' left for you (below).' : '');
@@ -62,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $read = [];
 foreach ($batch as $line) {
     try { $read[] = ['line' => $line, 'r' => $svc->read($line)]; }
-    catch (Throwable $e) { $read[] = ['line' => $line, 'r' => ['ok' => false, 'reason' => 'Stripe: ' . $e->getMessage(), 'invoices' => [], 'fees' => 0]]; }
+    catch (Throwable $e) { $read[] = ['line' => $line, 'r' => ['ok' => false, 'reason' => 'Stripe: ' . ApiResponse::message($e, 'run-stripe-payouts'), 'invoices' => [], 'fees' => 0]]; }
 }
 $ok = array_filter($read, fn($x) => $x['r']['ok']);
 $total = array_sum(array_map(fn($l) => (float)$l['amount'], $all));

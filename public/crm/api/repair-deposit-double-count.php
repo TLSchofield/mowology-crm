@@ -38,6 +38,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 if (!function_exists('isAdmin') || !isAdmin()) {
     http_response_code(403);
@@ -127,7 +128,7 @@ if ($confirm && $targets) {
         if ($db->inTransaction()) $db->rollBack();
         http_response_code(500);
         header('Content-Type: text/plain');
-        echo 'Repair failed (no changes committed): ' . $e->getMessage();
+        echo 'Repair failed (no changes committed): ' . ApiResponse::message($e, 'repair-deposit-double-count');
         exit;
     }
 }

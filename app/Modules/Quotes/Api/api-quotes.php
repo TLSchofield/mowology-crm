@@ -23,6 +23,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -98,6 +99,6 @@ try {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Delete failed: ' . $e->getMessage()
+        'error' => 'Delete failed: ' . ApiResponse::message($e, 'api-quotes')
     ]);
 }

@@ -65,6 +65,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once APP_ROOT . '/Core/Auth/auth.php';
 require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
 require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
@@ -227,7 +228,7 @@ try {
 } catch (InvalidArgumentException $e) {
     // Expected validation failures — the client can show these to the crew.
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'recommendation')]);
 } catch (Throwable $e) {
     error_log('[schedule/recommendation] ' . $e->getMessage());
     http_response_code(500);

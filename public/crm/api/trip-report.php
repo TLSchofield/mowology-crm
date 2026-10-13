@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 $user = getCurrentUser();
 session_write_close(); // release session lock ASAP
@@ -224,7 +225,7 @@ try {
     }
 } catch (InvalidArgumentException $e) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'error' => $e->getMessage(), 'code' => 'needs_confirmation']);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'trip-report'), 'code' => 'needs_confirmation']);
     exit;
 } catch (Throwable $e) {
     error_log('[trip-report] ' . $action . ' error: ' . $e->getMessage());

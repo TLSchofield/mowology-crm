@@ -28,6 +28,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     requireLogin();
     if (!isAdmin()) {
@@ -76,5 +77,5 @@ try {
     }
 } catch (Throwable $e) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'receipt-facts')]);
 }

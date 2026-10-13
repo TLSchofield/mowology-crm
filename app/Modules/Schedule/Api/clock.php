@@ -30,6 +30,7 @@ header('X-Content-Type-Options: nosniff');
 
 try {
     require_once APP_ROOT . '/Core/config.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
@@ -206,5 +207,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => 'Server error: ' . ApiResponse::message($e, 'clock')]);
 }

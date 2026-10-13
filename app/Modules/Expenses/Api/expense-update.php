@@ -29,6 +29,7 @@ header('Content-Type: application/json');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
@@ -68,5 +69,5 @@ try {
     // Service throws domain errors (not found / wrong owner / already sent) as plain
     // Exceptions — surface their message so the app can show something actionable.
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expense-update')]);
 }

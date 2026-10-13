@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 
@@ -208,10 +209,10 @@ HTML;
     echo json_encode(['error' => 'Database error']);
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'pow-email')]);
 } catch (RuntimeException $e) {
     http_response_code(422);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'pow-email')]);
 } catch (Throwable $e) {
     error_log('PoW Email API error: ' . $e->getMessage());
     http_response_code(500);

@@ -24,6 +24,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 session_write_close();
 if (!isAdmin()) {
@@ -103,7 +104,7 @@ try {
     $out['can_read_payouts'] = true;
 } catch (Throwable $e) {
     $out['can_read_payouts'] = false;
-    $out['error'] = get_class($e) . ': ' . $e->getMessage();
+    $out['error'] = get_class($e) . ': ' . ApiResponse::message($e, 'stripe-payout-probe');
 }
 
 echo json_encode($out, JSON_PRETTY_PRINT);

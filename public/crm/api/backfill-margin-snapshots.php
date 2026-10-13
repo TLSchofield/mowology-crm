@@ -18,6 +18,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 $user = getCurrentUser();
 if (($user['role'] ?? '') !== 'admin') {
@@ -68,7 +69,7 @@ try {
     ");
     $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
-    echo "[ERROR] Query failed: " . $e->getMessage() . "\n";
+    echo "[ERROR] Query failed: " . ApiResponse::message($e, 'backfill-margin-snapshots') . "\n";
     // Fallback without LEFT JOIN (in case vms table issue)
     try {
         $stmt = $db->query("
@@ -79,7 +80,7 @@ try {
         $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo "Fallback: found " . count($visits) . " completed visits (will re-process all).\n";
     } catch (Throwable $e2) {
-        echo "[FATAL] " . $e2->getMessage() . "\n";
+        echo "[FATAL] " . ApiResponse::message($e2, 'backfill-margin-snapshots') . "\n";
         exit;
     }
 }
@@ -127,7 +128,7 @@ foreach ($visits as $i => $v) {
         }
     } catch (Throwable $e) {
         $failed++;
-        echo "[FAIL] Visit #{$visitId}: " . $e->getMessage() . "\n";
+        echo "[FAIL] Visit #{$visitId}: " . ApiResponse::message($e, 'backfill-margin-snapshots') . "\n";
     }
 }
 

@@ -31,6 +31,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialAnalyticsService.php';
 
@@ -65,5 +66,5 @@ try {
     }
 } catch (\Throwable $e) {
     error_log('social/analytics.php error: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'analytics')]);
 }

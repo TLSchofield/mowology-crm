@@ -20,6 +20,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 if (!function_exists('isAdmin') || !isAdmin()) {
     http_response_code(403);
@@ -134,5 +135,5 @@ try {
     echo json_encode($out, JSON_PRETTY_PRINT);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'diag failed', 'detail' => $e->getMessage()]);
+    echo json_encode(['error' => 'diag failed', 'detail' => ApiResponse::message($e, 'diag-crew-pings')]);
 }

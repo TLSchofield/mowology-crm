@@ -36,6 +36,7 @@ header('Content-Type: application/json');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
@@ -173,8 +174,8 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expense-line-items')]);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Line item action failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Line item action failed: ' . ApiResponse::message($e, 'expense-line-items')]);
 }

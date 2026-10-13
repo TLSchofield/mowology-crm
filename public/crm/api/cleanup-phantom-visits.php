@@ -47,6 +47,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -130,5 +131,5 @@ try {
         $db->rollBack();
     }
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'cleanup-phantom-visits')]);
 }

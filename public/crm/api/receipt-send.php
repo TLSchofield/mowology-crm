@@ -35,6 +35,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
 
@@ -157,5 +158,5 @@ session_write_close();
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage(), 'log_id' => null]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'receipt-send'), 'log_id' => null]);
 }

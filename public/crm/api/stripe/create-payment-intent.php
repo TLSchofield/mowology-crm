@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 require_once dirname(__DIR__, 3) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 session_write_close();
 requirePermission('billing.view');
@@ -189,7 +190,7 @@ try {
 } catch (\Stripe\Exception\AuthenticationException $e) {
     error_log('[Stripe] AuthenticationException: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'Payment service configuration error: ' . $e->getMessage()]);
+    echo json_encode(['error' => 'Payment service configuration error: ' . ApiResponse::message($e, 'create-payment-intent')]);
 } catch (\Stripe\Exception\ApiConnectionException $e) {
     error_log('[Stripe] ApiConnectionException: ' . $e->getMessage());
     http_response_code(503);
@@ -197,5 +198,5 @@ try {
 } catch (\Stripe\Exception\ApiErrorException $e) {
     error_log('[Stripe] ApiErrorException: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'Stripe error: ' . $e->getMessage()]);
+    echo json_encode(['error' => 'Stripe error: ' . ApiResponse::message($e, 'create-payment-intent')]);
 }

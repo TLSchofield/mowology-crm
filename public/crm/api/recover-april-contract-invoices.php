@@ -33,6 +33,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
@@ -96,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'cron'     => $cronResult,
             ];
         } catch (Throwable $e) {
-            $result = ['stage' => 'exception', 'error' => $e->getMessage()];
+            $result = ['stage' => 'exception', 'error' => ApiResponse::message($e, 'recover-april-contract-invoices')];
         }
     }
 }

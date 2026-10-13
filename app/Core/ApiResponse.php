@@ -34,10 +34,19 @@ final class ApiResponse
     public static function isSafe(Throwable $e): bool
     {
         if ($e instanceof PDOException || $e instanceof Error) return false;
+        // Library / runtime exceptions (Stripe, PHPMailer, mPDF, PHP warnings turned into
+        // ErrorException, JSON) carry internals — only our own global-namespace exceptions are shown
+        // (Fable review 2026-10-12, item: catch sites echoing getMessage()).
+        if ($e instanceof ErrorException || $e instanceof JsonException) return false;
+        if (strpos(get_class($e), '\\') !== false) return false;
         for ($p = $e->getPrevious(); $p !== null; $p = $p->getPrevious()) {
             if ($p instanceof PDOException) return false;
         }
-        return stripos($e->getMessage(), 'SQLSTATE[') === false;
+        $m = $e->getMessage();
+        if (stripos($m, 'SQLSTATE[') !== false || stripos($m, 'Stack trace') !== false) return false;
+        // Server file paths and key material never reach the user.
+        if (preg_match('#(/home/|/Users/|/var/www|\\.php\\b|api[_ ]?key|token=|sk_live|sk_test)#i', $m)) return false;
+        return true;
     }
 
     public static function message(Throwable $e, string $context = 'api'): string

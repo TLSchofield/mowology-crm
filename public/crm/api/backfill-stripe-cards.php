@@ -20,6 +20,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
 migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (Fable review 2026-10-12)
@@ -123,7 +124,7 @@ foreach ($rows as $row) {
         ];
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        $results[] = ['contact_id' => $contactId, 'status' => 'stripe_error', 'msg' => $e->getMessage()];
+        $results[] = ['contact_id' => $contactId, 'status' => 'stripe_error', 'msg' => ApiResponse::message($e, 'backfill-stripe-cards')];
     }
 }
 

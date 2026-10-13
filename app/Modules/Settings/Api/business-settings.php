@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -63,7 +64,7 @@ try {
 } catch (Exception $e) {
     error_log("Error in business settings API: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'business-settings')]);
 }
 
 /**

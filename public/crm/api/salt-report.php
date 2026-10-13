@@ -24,6 +24,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT    . '/Services/CrmFunctions.php';
 
@@ -72,7 +73,7 @@ if ($action === 'generate') {
         $result = $gen->generate($visitId, $forceRegen);
     } catch (\Throwable $e) {
         error_log('SaltReportPdfGenerator error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        $result = ['success' => false, 'error' => $e->getMessage(), 'error_file' => basename($e->getFile()), 'error_line' => $e->getLine()];
+        $result = ['success' => false, 'error' => ApiResponse::message($e, 'salt-report'), 'error_file' => basename($e->getFile()), 'error_line' => $e->getLine()];
     }
 
     echo json_encode($result);

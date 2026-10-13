@@ -91,6 +91,7 @@ function bkmPennyLines(PDO $db): array
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
 
@@ -216,7 +217,7 @@ try {
                 $res = (new ExpenseApprovalService($db))->reject($expenseId, $user, (string)($input['reason'] ?? ''));
                 echo json_encode(['ok' => !empty($res['success']), 'message' => $res['message'] ?? 'Rejected']);
             } catch (Exception $e) {
-                echo json_encode(['ok' => false, 'message' => $e->getMessage()]);
+                echo json_encode(['ok' => false, 'message' => ApiResponse::message($e, 'bookkeeper-mobile')]);
             }
             break;
         }
@@ -255,5 +256,5 @@ try {
 } catch (Throwable $e) {
     error_log('bookkeeper-mobile.php: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bookkeeper-mobile')]);
 }

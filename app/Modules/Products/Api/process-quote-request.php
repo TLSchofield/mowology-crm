@@ -14,6 +14,7 @@ if (!defined('APP_ROOT')) {
 
 require_once CRM_ROOT . '/products/config.php';
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 ?>
 
@@ -368,7 +369,7 @@ try {
     error_log("Quote request error: " . $e->getMessage());
 
     // Set error response
-    $response['message'] = $e->getMessage();
+    $response['message'] = ApiResponse::message($e, 'process-quote-request');
 
     // Redirect back to form with error
     header('Location: get-quote.html?error=' . urlencode($response['message']));

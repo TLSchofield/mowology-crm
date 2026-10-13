@@ -34,6 +34,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Modules/Jobs/Services/CrewAssignmentService.php';
 
@@ -71,7 +72,7 @@ try {
         $db->rollBack();
     }
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'assign-crew')]);
 } catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();

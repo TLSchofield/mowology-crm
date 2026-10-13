@@ -28,6 +28,7 @@ for ($__i = 0; $__i < 7; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 require_once APP_ROOT . '/Modules/Privacy/Services/PrivacyService.php';
 
@@ -195,7 +196,7 @@ try {
     }
 } catch (\InvalidArgumentException $e) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'privacy')]);
 } catch (\Throwable $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'Server error — please try again']);

@@ -21,6 +21,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
@@ -390,7 +391,7 @@ try {
 } catch (Exception $e) {
     $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 400;
     http_response_code($code);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'crew-location')]);
 }
 
 /**

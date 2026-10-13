@@ -35,6 +35,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Core/IdempotencyHelper.php';
 
@@ -333,7 +334,7 @@ try {
 
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'visit-photo-upload')]);
 } catch (PDOException $e) {
     error_log('visit-photo-upload PDO: ' . $e->getMessage());
     http_response_code(500);

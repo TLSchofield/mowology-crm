@@ -34,6 +34,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
@@ -67,7 +68,7 @@ if ($action === 'oauth-init') {
         header('Location: ' . $url);
         exit;
     } catch (\Throwable $e) {
-        $msg = urlencode('Could not start OAuth: ' . $e->getMessage());
+        $msg = urlencode('Could not start OAuth: ' . ApiResponse::message($e, 'accounts'));
         header('Location: /crm/marketing/social-accounts.php?error=' . $msg);
         exit;
     }
@@ -591,5 +592,5 @@ try {
 } catch (\Throwable $e) {
     error_log('social/accounts.php error: ' . $e->getMessage());
     http_response_code($e instanceof InvalidArgumentException ? 400 : 500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'accounts')]);
 }

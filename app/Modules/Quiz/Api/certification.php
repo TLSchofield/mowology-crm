@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 $user   = getCurrentUser();
 $userId = (int)$user['id'];
@@ -230,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $result = $certSvc->startExam($userId, $courseId);
                 certOk($result);
             } catch (\RuntimeException $e) {
-                certErr($e->getMessage());
+                certErr(ApiResponse::message($e, 'certification'));
             }
         }
 
@@ -244,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $result = $certSvc->submitAnswer($sessionId, $questionId, $optionId, $timeTaken, (int)$userId);
                 certOk($result);
             } catch (\RuntimeException $e) {
-                certErr($e->getMessage());
+                certErr(ApiResponse::message($e, 'certification'));
             }
         }
 
@@ -255,7 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $result = $certSvc->finishExam($sessionId, $userId);
                 certOk($result);
             } catch (\RuntimeException $e) {
-                certErr($e->getMessage());
+                certErr(ApiResponse::message($e, 'certification'));
             }
         }
 
@@ -302,7 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $vid = $variantSvc->saveVariant($parentId, $variantType, $qText, $learnNotes, $options, $userId, $variantId);
                 certOk(['variant_id' => $vid]);
             } catch (\Throwable $e) {
-                certErr($e->getMessage());
+                certErr(ApiResponse::message($e, 'certification'));
             }
         }
 

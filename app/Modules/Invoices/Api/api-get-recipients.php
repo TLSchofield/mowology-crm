@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/includes/functions.php';
 require_once CRM_INCLUDES . '/invoice-routing.php';
 
@@ -212,7 +213,7 @@ try {
     header('Content-Type: application/json');
     echo json_encode([
         'success' => false,
-        'error' => htmlspecialchars($e->getMessage())
+        'error' => htmlspecialchars(ApiResponse::message($e, 'api-get-recipients'))
     ]);
 }
 ?>
