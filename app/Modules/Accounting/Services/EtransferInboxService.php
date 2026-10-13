@@ -756,11 +756,25 @@ class EtransferInboxService
         return (!$vouched && $confidence === 'high') ? 'medium' : $confidence;
     }
 
+    /**
+     * Interac's notices about money the OWNER sent ("Your $288.75 transfer to 1498724 B.C. LTD. has
+     * been successfully deposited", "Your transfer to … was accepted / is pending / has been
+     * cancelled"). The iCloud inbox gets these for personal and supplier payments; one became an
+     * "Unknown sender $288.75" card waiting to be recorded as income (2026-10-13). Pure.
+     */
+    public static function isOutgoingNotice(string $subject): bool
+    {
+        return (bool)preg_match('/\byour\s+(?:\$\s*[0-9,]+\.[0-9]{2}\s+)?(?:interac\s+)?(?:e-?transfer\s+)?transfer\s+to\b|\byou\s+sent\b|\bwas\s+sent\s+to\b/i', $subject);
+    }
+
     public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, ?string $fromAddress = null, bool $senderVerified = false): array
     {
         $source = self::noticeSource($fromAddress, $emailSubject);
         if ($source === 'reply') {
             return ['inserted' => false, 'id' => null, 'row' => null, 'skipped' => 'reply, not a payment notice'];
+        }
+        if (self::isOutgoingNotice((string)$emailSubject)) {
+            return ['inserted' => false, 'id' => null, 'row' => null, 'skipped' => 'money we sent, not a payment to us'];
         }
         $dedup = $parsed['reference_number'] ?: ($messageId ?: md5(($emailSubject ?? '') . '|' . ($emailDate ?? '')));
 

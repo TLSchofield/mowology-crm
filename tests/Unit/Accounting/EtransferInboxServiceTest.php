@@ -231,4 +231,14 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertSame('untrusted', EtransferInboxService::noticeSource('office@mowology.ca', 'INTERAC e-Transfer: x'));
         $this->assertSame('unknown', EtransferInboxService::noticeSource(null, 'INTERAC e-Transfer: x'));
     }
+
+    /** Money the owner SENT is not a payment to us — the $288.75 to 1498724 B.C. LTD. (2026-10-13). */
+    public function testOutgoingNoticesAreNotPayments(): void
+    {
+        $this->assertTrue(EtransferInboxService::isOutgoingNotice('Interac e-Transfer: Your $288.75 transfer to 1498724 B.C. LTD. has been successfully deposited.'));
+        $this->assertTrue(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: Your transfer to JOHN SMITH was accepted'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: STRATA BCS4079 sent you money.'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('Interac e-Transfer: Claim your $262.50'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: KAMALJEET SINGH has sent you $66.15 (CAD) and the money has been automatically deposited.'));
+    }
 }
