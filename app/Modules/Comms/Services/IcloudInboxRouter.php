@@ -53,6 +53,7 @@
 require_once __DIR__ . '/../../../Services/Mail/MailboxConfig.php';
 require_once __DIR__ . '/../../../Services/Mail/ImapReader.php';
 require_once __DIR__ . '/../../../Services/Mail/ImapClient.php';
+require_once __DIR__ . '/../../../Services/Mail/MailAuth.php';
 require_once __DIR__ . '/MailboxPollLock.php';
 require_once __DIR__ . '/../../Sales/Services/SalesInboxService.php';
 require_once __DIR__ . '/../../Sales/Services/EmailLeadService.php';
@@ -707,6 +708,20 @@ class IcloudInboxRouter
             $c['ignore'], $c['stored'], $c['dupe'], $c['held']);
     }
 
+    /**
+     * Exact sender + verified DKIM (MailAuth) — security review #4/#5. A client without rawBody()
+     * (a test double) or any failure is "not proven": the payment waits for a person.
+     */
+    private function senderProven($conn, int $no, string $rawHeaders, string $expected): bool
+    {
+        if (!method_exists($this->imap, 'rawBody')) return false;
+        try {
+            return MailAuth::verify($rawHeaders, (string)$this->imap->rawBody($conn, $no), $expected)['ok'];
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     private function systemUserId(): int
     {
         try {
@@ -810,13 +825,15 @@ class IcloudInboxRouter
             }
             case 'interac': {
                 $parsed = EtransferInboxService::parseInteracEmail($subject, self::plain($body()), $date);
-                $res = (new EtransferInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date, $fromAddr);
+                $res = (new EtransferInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date, $fromAddr,
+                                                                      $this->senderProven($conn, $no, $header(), self::INTERAC_SENDER));
                 return $out + [$res['inserted'] ? 'stored' : 'dupe' => 1];
             }
             case 'yardi': {
                 $parsed = YardiEftInboxService::parseRemittanceEmail($subject, $body());
                 if (empty($parsed['lines'])) return $out;
-                $res = (new YardiEftInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date, $sys);
+                $res = (new YardiEftInboxService($this->db))->ingest($parsed, self::MAILBOX_KEY, $msgId, $subject, $date, $sys,
+                                                                     $this->senderProven($conn, $no, $header(), self::YARDI_SENDER));
                 return $out + [($res['auto_recorded'] + $res['pending']) > 0 ? 'stored' : 'dupe' => 1];
             }
             case 'receipt': {

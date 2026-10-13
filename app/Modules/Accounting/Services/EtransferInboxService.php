@@ -28,6 +28,22 @@ class EtransferInboxService
 
     private PDO $db;
 
+    private ?bool $senderVerifiedCol = null;
+
+    /** etransfer_notifications.sender_verified exists (migration 1340). */
+    protected function hasSenderVerified(): bool
+    {
+        if ($this->senderVerifiedCol === null) {
+            try {
+                $this->db->query("SELECT sender_verified FROM etransfer_notifications LIMIT 0");
+                $this->senderVerifiedCol = true;
+            } catch (Throwable $e) {
+                $this->senderVerifiedCol = false;
+            }
+        }
+        return $this->senderVerifiedCol;
+    }
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -728,7 +744,19 @@ class EtransferInboxService
         return 'untrusted';
     }
 
-    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, ?string $fromAddress = null): array
+    /**
+     * The confidence a notice may carry (security review #5, 2026-10-12): 'high' only for a notice
+     * from Interac whose sender was PROVEN (exact address + verified DKIM — MailAuth). An unproven
+     * "Interac" notice, a forward (the original signature is gone) or anyone else: at most 'medium',
+     * so autoRecordFullyCertain() never records it. Pure.
+     */
+    public static function cappedConfidence(string $confidence, string $source, bool $senderVerified): string
+    {
+        $vouched = $source === 'interac' && $senderVerified;
+        return (!$vouched && $confidence === 'high') ? 'medium' : $confidence;
+    }
+
+    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, ?string $fromAddress = null, bool $senderVerified = false): array
     {
         $source = self::noticeSource($fromAddress, $emailSubject);
         if ($source === 'reply') {
@@ -745,9 +773,9 @@ class EtransferInboxService
         }
 
         $match     = $this->matchInvoice($parsed);
-        if ($source === 'untrusted' && $match['confidence'] === 'high') {
-            $match['confidence'] = 'medium';   // the memo alone doesn't make an unvouched email a payment
-        }
+        // The memo alone doesn't make an unvouched email a payment.
+        $match['confidence'] = self::cappedConfidence((string)$match['confidence'], $source, $senderVerified);
+        $verified = ($source === 'interac' && $senderVerified) ? 1 : 0;
         $dt        = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
         $bankMatch = $this->matchBankTransaction([
             'amount'             => $parsed['amount'],
@@ -762,16 +790,20 @@ class EtransferInboxService
                    (mailbox, dedup_key, reference_number, message_id, sender_name, amount, memo,
                     invoice_hint, transfer_type, email_subject, email_date,
                     matched_invoice_id, match_method, match_confidence,
-                    bank_transaction_id, bank_match_confidence, status, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW())"
+                    bank_transaction_id, bank_match_confidence, status, created_at"
+                    . ($this->hasSenderVerified() ? ", sender_verified" : "") . ")
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW()"
+                    . ($this->hasSenderVerified() ? ", ?" : "") . ")"
             );
-            $stmt->execute([
+            $params = [
                 $mailbox, $dedup, $parsed['reference_number'], $messageId, $parsed['sender_name'],
                 $parsed['amount'], $parsed['memo'], $parsed['invoice_hint'], $parsed['transfer_type'],
                 $emailSubject, $dt,
                 $match['invoice_id'], $match['method'], $match['confidence'],
                 $bankMatch['tx_id'] ?? null, $bankMatch['confidence'] ?? null,
-            ]);
+            ];
+            if ($this->hasSenderVerified()) $params[] = $verified;
+            $stmt->execute($params);
         } catch (PDOException $e) {
             // Lost an insert race against a concurrent poll → already seen.
             if (stripos($e->getMessage(), 'Duplicate') !== false || $e->getCode() === '23000') {
@@ -1081,7 +1113,8 @@ class EtransferInboxService
     public function rematchPending(): array
     {
         $rows = $this->db->query(
-            "SELECT id, memo, email_subject, invoice_hint, matched_invoice_id, match_method, match_confidence
+            "SELECT id, memo, email_subject, invoice_hint, matched_invoice_id, match_method, match_confidence"
+            . ($this->hasSenderVerified() ? ", sender_verified" : "") . "
                FROM etransfer_notifications
               WHERE status IN ('pending', 'partially_recorded')"
         )->fetchAll(PDO::FETCH_ASSOC);
@@ -1098,6 +1131,8 @@ class EtransferInboxService
             }
 
             $match = $this->matchInvoice(['invoice_hint' => $hint, 'amount' => null]);
+            // A re-match never lifts an unproven notice to 'high' (security review #5).
+            if ((int)($row['sender_verified'] ?? 0) !== 1 && $match['confidence'] === 'high') $match['confidence'] = 'medium';
             if ((int) $match['invoice_id'] === (int) $row['matched_invoice_id']
                 && $hint === $row['invoice_hint']) {
                 continue;
@@ -1138,6 +1173,11 @@ class EtransferInboxService
      */
     public function autoRecordFullyCertain(int $systemUserId): array
     {
+        // 4. The notice was PROVEN to come from Interac (sender_verified, migration 1340 — security
+        //    review #5). Before 1340 runs nothing is auto-recorded; every transfer waits for a person.
+        if (!$this->hasSenderVerified()) {
+            return ['checked' => 0, 'recorded' => 0, 'recorded_ids' => [], 'skipped' => []];
+        }
         $rows = $this->db->prepare(
             "SELECT n.id, n.amount, n.matched_invoice_id, i.balance_due AS invoice_balance
                FROM etransfer_notifications n
@@ -1146,6 +1186,7 @@ class EtransferInboxService
                 AND n.match_method IN ('invoice_number', 'reference_number')
                 AND n.match_confidence = 'high'
                 AND n.bank_transaction_id IS NOT NULL
+                AND n.sender_verified = 1
                 AND n.bank_match_confidence >= ?"
         );
         $rows->execute([self::AUTO_RECORD_BANK_CONFIDENCE_FLOOR]);

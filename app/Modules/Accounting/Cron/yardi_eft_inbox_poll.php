@@ -165,7 +165,12 @@ if ($mbox === false) {
                 continue;
             }
 
-            $res = $service->ingest($parsed, $office['user'], $msgId, $subject, $date, $systemUserId);
+            // Security review #4 (2026-10-12): the IMAP FROM search matches any From header that merely
+            // CONTAINS the address (a display name will do). Only an exact DoNotReply@yardi.com with a
+            // verified yardi.com DKIM signature may be recorded without a person.
+            $auth = ImapReader::senderVerified($mbox, (int)$msgNo, $sender);
+            if (!$auth['ok']) yardiPollLog("msg {$msgNo}: sender not verified ({$auth['reason']}) — held for review");
+            $res = $service->ingest($parsed, $office['user'], $msgId, $subject, $date, $systemUserId, $auth['ok']);
             foreach ($totals as $k => $v) { $totals[$k] += $res[$k] ?? 0; }
             yardiPollLog("msg {$msgNo}: ref={$parsed['transaction_reference']} lines=" . count($parsed['lines'])
                 . " auto_recorded={$res['auto_recorded']} pending={$res['pending']} dup={$res['skipped_duplicate']}");

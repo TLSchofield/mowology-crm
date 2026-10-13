@@ -177,7 +177,7 @@ class YardiEftInboxService
      *
      * @return array{processed:int,auto_recorded:int,pending:int,skipped_duplicate:int}
      */
-    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, int $systemUserId): array
+    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, int $systemUserId, bool $senderVerified = false): array
     {
         $ref     = $parsed['transaction_reference'] ?: ($messageId ?: md5(($emailSubject ?? '') . '|' . ($emailDate ?? '')));
         $dt      = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
@@ -218,7 +218,12 @@ class YardiEftInboxService
                 $invoice = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
             }
 
-            $canAutoRecord = $invoice
+            // Security review #4 (2026-10-12): only a remittance whose sender is PROVEN (exact
+            // DoNotReply@yardi.com + a verified yardi.com DKIM signature — MailAuth) can ever be
+            // recorded without a person; anything else waits in the panel as 'medium', which
+            // recordWhenBanked() never touches.
+            $canAutoRecord = $senderVerified
+                && $invoice
                 && $banked !== null
                 && in_array($invoice['status'], self::PAYABLE, true)
                 && abs((float) $invoice['balance_due'] - $line['amount']) < 0.01;
@@ -232,22 +237,26 @@ class YardiEftInboxService
             }
 
             $method     = $invoice ? 'invoice_number' : 'none';
-            $confidence = $invoice ? 'high' : 'none';
+            $confidence = $invoice ? ($senderVerified ? 'high' : 'medium') : 'none';
+            $memo = !$senderVerified ? 'Sender not verified (no valid Yardi signature) — check this remittance by hand'
+                : (!$invoice ? 'Yardi remittance — invoice not found or already settled'
+                : (!$totalOk ? 'Yardi remittance lines do not add up to its total — check it'
+                : ($banked === null ? 'Waiting for the bank deposit before recording' : null)));
+            $params = [
+                $mailbox, $dedup, $ref, $messageId, $line['property'], $line['amount'], $memo,
+                $invNo, $emailSubject, $dt,
+                $invoice ? (int) $invoice['id'] : null, $method, $confidence,
+            ];
+            $cols = $vals = '';
+            if ($this->hasSenderVerified()) { $cols = ', sender_verified'; $vals = ', ?'; $params[] = $senderVerified ? 1 : 0; }
 
             $this->db->prepare(
                 "INSERT INTO etransfer_notifications
                    (mailbox, source, dedup_key, reference_number, message_id, sender_name, amount,
                     memo, invoice_hint, transfer_type, email_subject, email_date,
-                    matched_invoice_id, match_method, match_confidence, status, created_at)
-                 VALUES (?, 'yardi_eft', ?, ?, ?, ?, ?, ?, ?, 'yardi_eft', ?, ?, ?, ?, ?, 'pending', NOW())"
-            )->execute([
-                $mailbox, $dedup, $ref, $messageId, $line['property'], $line['amount'],
-                !$invoice ? 'Yardi remittance — invoice not found or already settled'
-                    : (!$totalOk ? 'Yardi remittance lines do not add up to its total — check it'
-                    : ($banked === null ? 'Waiting for the bank deposit before recording' : null)),
-                $invNo, $emailSubject, $dt,
-                $invoice ? (int) $invoice['id'] : null, $method, $confidence,
-            ]);
+                    matched_invoice_id, match_method, match_confidence, status, created_at{$cols})
+                 VALUES (?, 'yardi_eft', ?, ?, ?, ?, ?, ?, ?, 'yardi_eft', ?, ?, ?, ?, ?, 'pending', NOW(){$vals})"
+            )->execute($params);
             $result['pending']++;
         }
 
@@ -299,6 +308,22 @@ class YardiEftInboxService
         }
     }
 
+    private ?bool $senderVerifiedCol = null;
+
+    /** etransfer_notifications.sender_verified exists (migration 1340). */
+    private function hasSenderVerified(): bool
+    {
+        if ($this->senderVerifiedCol === null) {
+            try {
+                $this->db->query("SELECT sender_verified FROM etransfer_notifications LIMIT 0");
+                $this->senderVerifiedCol = true;
+            } catch (Throwable $e) {
+                $this->senderVerifiedCol = false;
+            }
+        }
+        return $this->senderVerifiedCol;
+    }
+
     /** Y-m-d the money moved: the remittance date, else the email date, else today. Pure. */
     public static function paidDate(?string $transactionDate, ?string $emailDate): string
     {
@@ -332,10 +357,14 @@ class YardiEftInboxService
      */
     public function recordWhenBanked(int $systemUserId): int
     {
+        // Only lines whose email was proven to come from Yardi (sender_verified = 1, migration 1340).
+        // Before 1340 runs nothing is recorded here — every line waits for a person (fail safe).
+        if (!$this->hasSenderVerified()) return 0;
         $rows = $this->db->query("SELECT n.id, n.reference_number, n.amount, n.dedup_key, n.email_date, n.matched_invoice_id,
                                          i.balance_due, i.status
                                     FROM etransfer_notifications n JOIN invoices i ON i.id = n.matched_invoice_id
-                                   WHERE n.source = 'yardi_eft' AND n.status = 'pending' AND n.match_confidence = 'high'")
+                                   WHERE n.source = 'yardi_eft' AND n.status = 'pending' AND n.match_confidence = 'high'
+                                     AND n.sender_verified = 1")
                          ->fetchAll(PDO::FETCH_ASSOC);
         $byRef = [];
         foreach ($rows as $r) $byRef[(string)$r['reference_number']][] = $r;

@@ -219,6 +219,27 @@ class ImapReader
         return (string)@imap_fetchheader($conn, $no);
     }
 
+    /** The undecoded message body as received (for DKIM checks — MailAuth), fetched with FT_PEEK. */
+    public static function rawBody($conn, int $no): string
+    {
+        return (string)@imap_body($conn, $no, self::peekFlag());
+    }
+
+    /**
+     * Is message $no really from $expected (exact address + DKIM / trusted verdict)? MailAuth decides;
+     * any IMAP failure is "not verified".
+     * @return array{ok: bool, method: string, reason: string, from: ?string}
+     */
+    public static function senderVerified($conn, int $no, string $expected): array
+    {
+        require_once __DIR__ . '/MailAuth.php';
+        try {
+            return MailAuth::verify(self::rawHeaders($conn, $no), self::rawBody($conn, $no), $expected);
+        } catch (Throwable $e) {
+            return ['ok' => false, 'method' => 'none', 'reason' => 'could not check: ' . $e->getMessage(), 'from' => null];
+        }
+    }
+
     /** One header's value from a raw header block (unfolded), or ''. */
     public static function header(string $raw, string $name): string
     {

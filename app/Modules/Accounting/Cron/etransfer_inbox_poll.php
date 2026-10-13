@@ -189,7 +189,11 @@ foreach ($mailboxes as $mb) {
 
             $parsed = EtransferInboxService::parseInteracEmail($subject, $body, $date);
             $fromAddr = ($hdr && !empty($hdr->from[0]->mailbox)) ? $hdr->from[0]->mailbox . '@' . ($hdr->from[0]->host ?? '') : null;
-            $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date, $fromAddr);
+            // Security review #5 (2026-10-12): a notice is Interac's only when the exact sender is
+            // notify@payments.interac.ca AND its DKIM signature verifies (MailAuth) — else it is
+            // capped at 'medium' and never auto-recorded.
+            $auth   = ImapReader::senderVerified($mbox, (int)$msgNo, $interac);
+            $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date, $fromAddr, $auth['ok']);
         } catch (\Throwable $e) {
             // One bad email must never abort the batch.
             pollLog("ERROR processing msg {$msgNo} in {$mb['user']}: " . $e->getMessage());

@@ -69,6 +69,18 @@ class SupplierInboxService
         return SupplierDirectoryService::senderMatches(SupplierDirectoryService::addressOf($fromHeader), $expected);
     }
 
+    /**
+     * May a price list from this email be imported? (security review #20, 2026-10-12.) Stricter than
+     * fromIs(): a list goes straight into prices, and Inline's mail comes through Mailchimp's shared
+     * CDN, so a forged email could plant a poisoned file. The sender must be PROVEN — MailAuth's
+     * exact address + a verified DKIM signature for its domain (or a trusted server's dmarc/dkim
+     * pass). No verdict at all fails closed here (authFailed('') is "not failed" only for forms). PURE.
+     */
+    public static function listImportAllowed(array $mailAuth): bool
+    {
+        return !empty($mailAuth['ok']);
+    }
+
     private function setting(string $key): string
     {
         try {
@@ -195,9 +207,14 @@ class SupplierInboxService
         $dir->heardFrom($sid, date('Y-m-d H:i:s', $ts));
         $out['heard']++;
         $body = null;
-        $r = $this->priceLists($conn, $no, $st, $supplier, $from, $key, date('Y-m-d H:i:s', $ts), $body);
-        $out['lists'] += $r['imported'];
-        $out['errors'] += $r['failed'];
+        $listAuth = ImapReader::senderVerified($conn, $no, SupplierDirectoryService::addressOf($from));
+        if (self::listImportAllowed($listAuth)) {
+            $r = $this->priceLists($conn, $no, $st, $supplier, $from, $key, date('Y-m-d H:i:s', $ts), $body);
+            $out['lists'] += $r['imported'];
+            $out['errors'] += $r['failed'];
+        } else {
+            error_log('[supplier inbox] ' . $label . ' #' . $no . ': price lists not imported — sender not verified (' . $listAuth['reason'] . ')');
+        }
         if (!$pdfs) return;
         $body = $body ?? ImapReader::textBody($conn, $no, $st);
         foreach ($pdfs as $a) {

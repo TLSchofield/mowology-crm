@@ -117,4 +117,10 @@ class ImapClient
     {
         return ImapReader::fetchPart($conn, $msgno, $pn, $encoding);
     }
+
+    /** The undecoded body as received, FT_PEEK (MailAuth's DKIM check). */
+    public function rawBody($conn, int $msgno): string
+    {
+        return ImapReader::rawBody($conn, $msgno);
+    }
 }
