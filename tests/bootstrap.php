@@ -46,8 +46,6 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/CashFlowForecastServ
 require_once __DIR__ . '/../app/Modules/Operations/Services/BreakService.php';
 require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
-require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';
-require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteViewNotifier.php';
