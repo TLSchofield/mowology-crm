@@ -30,6 +30,12 @@ $contacts = $contactsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get lifecycle stages
 $stages = getLifecycleStages('company');
+// Keep the stored stage selectable (Sam may set 'opportunity' / 'lost', which are contact-scoped
+// in lifecycle_stages) so saving the form never silently changes — and pins — it.
+$storedCompanyStage = (string)($company['lifecycle_stage'] ?? '');
+if ($stages && $storedCompanyStage !== '' && !in_array($storedCompanyStage, array_column($stages, 'stage_key'), true)) {
+    $stages[] = ['stage_key' => $storedCompanyStage, 'stage_label' => ucwords(str_replace('_', ' ', $storedCompanyStage))];
+}
 
 // "Quotes go to" (migration 1186) — separate from the billing contact
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
@@ -117,6 +123,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $invoiceRouting, $notes ?: null,
                     $companyId
                 ]);
+
+                // A stage changed by hand is pinned: Sam's pipeline rules leave it alone.
+                if ((string)$lifecycleStage !== (string)($company['lifecycle_stage'] ?? '')) {
+                    setCompanyLifecyclePinned($companyId, true);
+                }
 
                 if ($quoteRecipientReady) {
                     $quoteContactId = !empty($_POST['quote_contact_id']) ? (int)$_POST['quote_contact_id'] : null;
