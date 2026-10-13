@@ -16,6 +16,7 @@ require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
+require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
 $error   = '';
 $contact = null;
 
