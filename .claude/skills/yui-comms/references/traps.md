@@ -101,3 +101,10 @@ money routes and the supplier price-list import (fails closed). `ImapReader::sen
 receipts@ reads only active users, the owner's addresses and known vendor domains; others are held
 ('held_sender') without OCR/Claude. **Rule:** never trust a From header for anything that moves
 books or data; ask MailAuth.
+
+## 2026-10-13 — Yui's renewals section died every run (collation)
+"Yui renewals: Illegal mix of collations (utf8mb4_bin,NONE) and (utf8mb4_general_ci,COERCIBLE)
+for operation 'like'" — 98 a day. Production mixes utf8mb4_0900_ai_ci (properties, contacts,
+quotes, ops_settings) with utf8mb4_general_ci (contracts); CONCAT_WS over both has no collation,
+so the ZZTEST `NOT LIKE` fails. **Rule:** multi-column ZZTEST filters use
+`YuiDeskService::notTest()`, which collates each column (YuiDeskCollationTest enforces it).
