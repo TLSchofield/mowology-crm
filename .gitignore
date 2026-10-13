@@ -71,3 +71,6 @@ public/app_config/*.json
 # PHP session files hold user and client data; never commit them (Gitleaks, 2026-10-12)
 public/sessions/sess_*
 public/app_config/sessions/
+
+# Local test site (scripts/local-site.sh) — generated fake logins; never commit
+scripts/local/.credentials.local
