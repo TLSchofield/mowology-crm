@@ -66,6 +66,18 @@ if (!function_exists('imap_open')) {
 $db      = getDB();
 $service = new EtransferInboxService($db);
 
+// One poll at a time (Fable review 2026-10-12): the 10-minute cron and an admin's
+// "run now" could read the same notices together and both auto-record a payment.
+require_once APP_ROOT . '/Modules/Comms/Services/MailboxPollLock.php';
+$pollLock = new MailboxPollLock($db, 'etransfer_poll');
+if (!$pollLock->acquire()) {
+    pollLog('Another e-Transfer poll is already running — skipped.');
+    // No cron_runs row: the run holding the lock records its own result.
+    if ($isCli) { echo implode("\n", $log) . "\n"; exit(0); }
+    echo json_encode(['success' => true, 'skipped' => true, 'message' => 'Another e-Transfer poll is already running.', 'log' => $log]);
+    exit;
+}
+
 $interac = 'notify@payments.interac.ca';
 $since   = date('d-M-Y', strtotime('-21 days'));   // IMAP date format (server-side window)
 // After an outage (password rotated, cron paused) look back to the last good run, so the gap is

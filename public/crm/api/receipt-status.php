@@ -60,6 +60,14 @@ try {
 
     $db = getDB();
 
+    // The office sees every receipt; anyone else only their own (Fable review 2026-10-12).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    if (!ExpenseService::currentUserCanSeeReceiptMedia($db, $mediaId)) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'error' => 'Receipt not found']);
+        exit;
+    }
+
     // ── Async queue first ──
     try {
         $jobStmt = $db->prepare("

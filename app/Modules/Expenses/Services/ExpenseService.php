@@ -78,6 +78,49 @@ class ExpenseService
     }
 
     /**
+     * Who may open a receipt image / its OCR result (Fable review 2026-10-12): the office
+     * (isOffice) sees every receipt; anyone else only a photo they uploaded or one attached
+     * to a receipt they created. Before, any expenses.view holder could walk media ids and
+     * read every receipt. Pure (tested).
+     *
+     * @param int[] $expenseCreators created_by of the expenses whose receipt_media_id is this media
+     */
+    public static function canSeeReceiptMedia(bool $office, int $userId, ?int $mediaCreatedBy, array $expenseCreators): bool
+    {
+        if ($office) {
+            return true;
+        }
+        if ($userId <= 0) {
+            return false;
+        }
+        if ($mediaCreatedBy !== null && $mediaCreatedBy === $userId) {
+            return true;
+        }
+        return in_array($userId, array_map('intval', $expenseCreators), true);
+    }
+
+    /** canSeeReceiptMedia() for the signed-in user, reading the media row and its receipts. */
+    public static function currentUserCanSeeReceiptMedia(\PDO $db, int $mediaId, ?array $mediaRow = null): bool
+    {
+        $me = function_exists('getCurrentUser') ? (getCurrentUser() ?: []) : [];
+        $office = self::isOffice((string)($me['role'] ?? ''),
+            function_exists('userHasPermission') && userHasPermission('expenses.approve'));
+        if ($office) {
+            return true;
+        }
+        if ($mediaRow === null) {
+            $st = $db->prepare('SELECT created_by FROM media_assets WHERE id = ? LIMIT 1');
+            $st->execute([$mediaId]);
+            $mediaRow = $st->fetch(\PDO::FETCH_ASSOC) ?: [];
+        }
+        $st = $db->prepare('SELECT created_by FROM expenses WHERE receipt_media_id = ?');
+        $st->execute([$mediaId]);
+        $creators = array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN));
+        $mediaBy = isset($mediaRow['created_by']) && $mediaRow['created_by'] !== null ? (int)$mediaRow['created_by'] : null;
+        return self::canSeeReceiptMedia(false, (int)($me['id'] ?? 0), $mediaBy, $creators);
+    }
+
+    /**
      * Only an approved receipt goes to the accountant (operating rules: phone receipts are
      * capture-only; approval happens in the office). Null = may be sent. Pure (tested).
      */

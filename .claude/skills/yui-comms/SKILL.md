@@ -108,8 +108,9 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 
 **Not yet central (known):** `sendCrmEmail()` is defined in three files
 (`app/Services/Messaging/MessagingService.php` guarded, `app/Services/Messaging/SmtpMailer.php`,
-`app/Services/Messaging/EmailHelper.php`) and `sendQuoteNotificationSms()` in two
-(`MessagingService.php`, legacy `app/Services/Messaging/SmsGateway.php`). Only
+`app/Services/Messaging/EmailHelper.php`); `sendQuoteNotificationSms()` lives only in
+`MessagingService.php` (the legacy SmsGateway copy, which put a URL in the text, was deleted
+2026-10-12 — nothing loaded it). Only
 `public/crm/includes/messaging.php` → MessagingService should be loaded.
 
 ## Keeping this skill true

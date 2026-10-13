@@ -19,12 +19,14 @@
  * the invoice — exactly what the fixed commit() now does. Income stays recognized once
  * on the invoice's own ledger row.
  *
- * SAFETY: admin-only. DRY-RUN by default — reports the overstatement per period and
- * lists every affected row. Pass ?confirm=1 to actually write (inside one transaction).
+ * SAFETY: admin-only. GET is a DRY RUN — reports the overstatement per period and
+ * lists every affected row. Writing needs a POST with the CSRF token and the typed
+ * phrase FLIP-DEPOSITS (inside one transaction). Until the Fable review (2026-10-12)
+ * a plain GET with ?confirm=1 changed the books — a link or <img> could trigger it.
  *
  * Usage:
- *   /crm/api/repair-deposit-double-count.php            → dry run (no writes)
- *   /crm/api/repair-deposit-double-count.php?confirm=1  → apply the fix
+ *   GET  /crm/api/repair-deposit-double-count.php   → dry run (no writes) + confirm form
+ *   POST (csrf_token, confirm=FLIP-DEPOSITS)         → apply the fix
  */
 declare(strict_types=1);
 
@@ -44,7 +46,23 @@ if (!function_exists('isAdmin') || !isAdmin()) {
     exit;
 }
 
-$confirm = isset($_GET['confirm']) && $_GET['confirm'] === '1';
+const CONFIRM_PHRASE = 'FLIP-DEPOSITS';
+$confirm = false;
+$formMessage = null;
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        header('Content-Type: text/plain');
+        echo 'Bad or expired security token. Reload the page and try again.';
+        exit;
+    }
+    if (($_POST['confirm'] ?? '') === CONFIRM_PHRASE) {
+        $confirm = true;
+    } else {
+        $formMessage = 'Type ' . CONFIRM_PHRASE . ' to confirm. Nothing was changed.';
+    }
+}
+$csrfToken = generateCSRFToken();
 $db = getDB();
 
 // ── Identify the double-counted deposits ──────────────────────────────────────
@@ -178,7 +196,13 @@ $money = fn($v) => '$' . number_format((float)$v, 2);
   </table>
 
   <?php if (!$confirm): ?>
-    <a class="cta" href="?confirm=1" onclick="return confirm('Apply the repair? This flips <?= count($targets) ?> deposit(s) to transfer and corrects <?= $money($grandTotal) ?> of overstated income.');">Apply repair (<?= $money($grandTotal) ?>)</a>
+    <?php if ($formMessage): ?><p><strong><?= $h($formMessage) ?></strong></p><?php endif; ?>
+    <form method="post" style="margin-top:18px">
+      <input type="hidden" name="csrf_token" value="<?= $h($csrfToken) ?>">
+      <label>Type <?= $h(CONFIRM_PHRASE) ?> to flip <?= count($targets) ?> deposit(s) (<?= $money($grandTotal) ?>):
+        <input name="confirm" autocomplete="off"></label>
+      <button type="submit" class="cta" style="border:0;cursor:pointer">Apply repair</button>
+    </form>
     <p class="muted">This only flips the duplicate <code>bank_import</code> deposit rows to <code>transfer</code>; the invoice's own income row is untouched, so revenue stays recognized exactly once.</p>
   <?php endif; ?>
 <?php endif; ?>

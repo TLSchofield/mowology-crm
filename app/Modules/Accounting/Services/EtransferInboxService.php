@@ -957,6 +957,24 @@ class EtransferInboxService
         try {
             $this->db->beginTransaction();
 
+            // Lock the notification and re-check it INSIDE the transaction (Fable review
+            // 2026-10-12): two "Record" clicks, or a click racing the poller's auto-record,
+            // both passed the status/remaining checks above and could each apply the same
+            // transfer to an invoice. The second now waits here and sees the first's result.
+            $lk = $this->db->prepare("SELECT status, amount, allocated_amount FROM etransfer_notifications WHERE id = ? FOR UPDATE");
+            $lk->execute([$notificationId]);
+            $locked = $lk->fetch(PDO::FETCH_ASSOC);
+            if (!$locked || !in_array($locked['status'], ['pending', 'partially_recorded'], true)) {
+                throw new RuntimeException('Already ' . ($locked['status'] ?? 'gone'));
+            }
+            $note['allocated_amount'] = $locked['allocated_amount'];
+            $remaining = round($totalAmount - (float) $locked['allocated_amount'], 2);
+            if ($totalAmount > 0 && $sum > $remaining + 0.005) {
+                throw new RuntimeException(sprintf(
+                    'Allocation total $%.2f exceeds the $%.2f left on this e-Transfer.', $sum, $remaining
+                ));
+            }
+
             $recorded = [];
             foreach ($clean as $a) {
                 // Load unconditionally so we can give a precise reason when it can't

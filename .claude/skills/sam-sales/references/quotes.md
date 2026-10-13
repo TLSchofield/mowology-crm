@@ -59,7 +59,7 @@
 - Quote email from `public/crm/quotes/view.php` → `sendEmail()` with the PM CC, then
   `QuoteService::markSent()`. Reply-To is office@ so replies reach Sam.
 - Quote-ready SMS: `sendQuoteNotificationSms()` exists in `app/Services/Messaging/MessagingService.php`
-  (and a legacy copy in `app/Services/Messaging/SmsGateway.php`) but has **no caller** — clients
+  (the legacy SmsGateway copy was deleted 2026-10-12) but has **no caller** — clients
   get no quote text today. Any text must follow the SMS rules (≤160, no URL, "check your email",
   (778) 846-9273).
 - First real view of the link pushes Tim once (`QuoteViewNotifier::notifyFirstView()`); views

@@ -6,8 +6,8 @@
  * so these texts carry NO URLs or bare domains, stay ≤160 chars, point the
  * customer to their email, and give (778) 846-9273 as a fallback (CLAUDE.md rule 11).
  *
- * Shared by MessagingService.php and the legacy SmsGateway.php so both
- * sendQuoteNotificationSms() copies send the same text.
+ * Used by MessagingService.php (the legacy SmsGateway.php copy was deleted
+ * 2026-10-12 — it was never loaded and its prod copy still built a URL).
  */
 
 declare(strict_types=1);

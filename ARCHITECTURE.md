@@ -156,7 +156,6 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
     │   │   ├── messaging.php          ← Unified email + SMS delivery (PHPMailer SMTP email, native mail() SMS)
     │   │   ├── email_logger.php       ← Writes email send attempts to /crm/email-logs/ for debugging
     │   │   ├── smtp_mailer.php        ← DEPRECATED — superseded by messaging.php
-    │   │   ├── sms_gateway.php        ← DEPRECATED — superseded by messaging.php
     │   │   ├── email_helper.php       ← DEPRECATED — superseded by messaging.php
     │   │   ├── notifications.php      ← Alert display
     │   │   └── sidebar.php            ← CDN sidebar (still used by quotes/, jobs/, invoices/ modules)
@@ -516,7 +515,7 @@ All wrapped in `function_exists()` guards.
 | File | Replaced By |
 |------|-------------|
 | `/crm/includes/smtp_mailer.php` | `messaging.php` — PHPMailer SMTP logic |
-| `/crm/includes/sms_gateway.php` | `messaging.php` — carrier gateway logic |
+| `/crm/includes/sms_gateway.php` (deleted 2026-10-12) | `messaging.php` — carrier gateway logic |
 | `/crm/includes/email_helper.php` | `messaging.php` — native mail() email + `companyPrefersAttachment()` |
 
 ### Callers

@@ -3,7 +3,8 @@
  * API: Serve Receipt Image (Auth-Gated)
  *
  * Proxies receipt files so they are never directly accessible via public URL.
- * Only authenticated users with expenses.view permission can retrieve images.
+ * Only authenticated users with expenses.view permission can retrieve images, and only
+ * the office (admin/manager/expenses.approve) or the receipt's own creator (2026-10-12).
  *
  * GET /crm/api/serve-receipt.php?id=<media_id>
  *   or
@@ -52,6 +53,13 @@ if (!empty($_GET['id'])) {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$row) {
+        http_response_code(404);
+        exit('Receipt not found');
+    }
+
+    // The office sees every receipt; anyone else only their own (Fable review 2026-10-12).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    if (!ExpenseService::currentUserCanSeeReceiptMedia($db, $mediaId, $row)) {
         http_response_code(404);
         exit('Receipt not found');
     }

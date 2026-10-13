@@ -11,6 +11,8 @@
  */
 require_once __DIR__ . '/../loginAuth/auth.php';
 requireLogin();
+require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (Fable review 2026-10-12)
 $user = getCurrentUser();
 if (($user['role'] ?? '') !== 'admin') { http_response_code(403); die('Admin only'); }
 
