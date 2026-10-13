@@ -19,6 +19,7 @@ require_once APP_ROOT . '/Core/paths.php';
 require_once PUBLIC_ROOT . '/vendor/autoload.php';
 require_once PUBLIC_ROOT . '/app_config/secrets.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
+require_once __DIR__ . '/AutopayEligibility.php';
 
 class AutopayService
 {
@@ -42,36 +43,11 @@ class AutopayService
      */
     public function isAutopayEligible(int $invoiceId): bool
     {
-        $data = $this->loadInvoiceData($invoiceId);
-        if (!$data) {
-            return false;
-        }
-
-        $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
-        if (!in_array($data['invoice_status'], $payableStatuses, true)) {
-            return false;
-        }
-
-        if (empty($data['stripe_payment_method_id'])) {
-            return false;
-        }
-
-        if (!$this->resolveAutopayFlag($data)) {
-            return false;
-        }
-
-        // Don't retry if already pending or succeeded
-        $existing = $this->db->prepare("
-            SELECT id FROM autopay_attempts
-            WHERE invoice_id = ? AND status IN ('pending', 'succeeded')
-            LIMIT 1
-        ");
-        $existing->execute([$invoiceId]);
-        if ($existing->fetch()) {
-            return false;
-        }
-
-        return true;
+        // Cheap pre-check only — attemptCharge() repeats it under the invoice row lock.
+        return AutopayEligibility::blockReason(
+            $this->loadInvoiceData($invoiceId),
+            $this->hasOpenAttempt($invoiceId)
+        ) === null;
     }
 
     /**
@@ -134,40 +110,49 @@ class AutopayService
             return ['status' => 'skipped', 'message' => 'Autopay live mode is disabled — no charge attempted'];
         }
 
-        $data = $this->loadInvoiceData($invoiceId);
-        if (!$data) {
-            return ['status' => 'skipped', 'message' => 'Invoice not found'];
+        // ── Reserve the attempt atomically (Fable review 2026-10-12) ──────────
+        // Lock the invoice row, re-check eligibility (including "no pending or
+        // succeeded attempt") and insert the 'pending' row in ONE transaction, so two
+        // callers (cron + a send, two sends) cannot both pass the check and both charge.
+        // If the caller already holds a transaction we join it; the lock lasts until
+        // the caller commits.
+        $ownTxn = !$this->db->inTransaction();
+        if ($ownTxn) {
+            $this->db->beginTransaction();
         }
+        try {
+            $this->db->prepare("SELECT id FROM invoices WHERE id = ? FOR UPDATE")->execute([$invoiceId]);
+            $data   = $this->loadInvoiceData($invoiceId);
+            $reason = AutopayEligibility::blockReason($data, $this->hasOpenAttempt($invoiceId));
+            if ($reason !== null) {
+                if ($ownTxn) {
+                    $this->db->rollBack();
+                }
+                return ['status' => 'skipped', 'message' => $reason];
+            }
 
-        $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
-        if (!in_array($data['invoice_status'], $payableStatuses, true)) {
-            return ['status' => 'skipped', 'message' => 'Invoice not in payable status: ' . $data['invoice_status']];
+            $balanceDue  = (float) $data['balance_due'];
+            $amountCents = (int) round($balanceDue * 100);
+            $contactId   = (int) $data['contact_id'];
+            $attemptNum  = $this->nextAttemptNumber($invoiceId);
+
+            $insertStmt = $this->db->prepare("
+                INSERT INTO autopay_attempts
+                    (invoice_id, contact_id, amount_cents, status, attempt_number, created_at)
+                VALUES (?, ?, ?, 'pending', ?, NOW())
+            ");
+            $insertStmt->execute([$invoiceId, $contactId, $amountCents, $attemptNum]);
+            $attemptId = (int) $this->db->lastInsertId();
+
+            if ($ownTxn) {
+                $this->db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTxn && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
         }
-
-        if (empty($data['stripe_payment_method_id'])) {
-            return ['status' => 'skipped', 'message' => 'No payment method on file'];
-        }
-
-        if (!$this->resolveAutopayFlag($data)) {
-            return ['status' => 'skipped', 'message' => 'Autopay not enabled for this invoice'];
-        }
-
-        $balanceDue  = (float) $data['balance_due'];
-        if ($balanceDue <= 0) {
-            return ['status' => 'skipped', 'message' => 'No balance due'];
-        }
-        $amountCents = (int) round($balanceDue * 100);
-        $contactId   = (int) $data['contact_id'];
-        $attemptNum  = $this->nextAttemptNumber($invoiceId);
-
-        // Insert attempt row as pending
-        $insertStmt = $this->db->prepare("
-            INSERT INTO autopay_attempts
-                (invoice_id, contact_id, amount_cents, status, attempt_number, created_at)
-            VALUES (?, ?, ?, 'pending', ?, NOW())
-        ");
-        $insertStmt->execute([$invoiceId, $contactId, $amountCents, $attemptNum]);
-        $attemptId = (int) $this->db->lastInsertId();
 
         try {
             $intent = \Stripe\PaymentIntent::create([
@@ -186,6 +171,9 @@ class AutopayService
                     'autopay_attempt'  => (string) $attemptId,
                     'source'           => 'autopay',
                 ],
+            ], [
+                // One key per attempt: a network retry of this request can never charge twice.
+                'idempotency_key' => AutopayEligibility::idempotencyKey($invoiceId, $attemptNum),
             ]);
 
             // Payment succeeded synchronously (rare but possible for some card types)
@@ -357,10 +345,19 @@ class AutopayService
      */
     private function resolveAutopayFlag(array $data): bool
     {
-        if ($data['autopay_override'] !== null) {
-            return (bool) $data['autopay_override'];
-        }
-        return (bool) ($data['autopay_enabled'] ?? false);
+        return AutopayEligibility::autopayOn($data);
+    }
+
+    /** A 'pending' or 'succeeded' attempt exists — never start another charge. */
+    private function hasOpenAttempt(int $invoiceId): bool
+    {
+        $stmt = $this->db->prepare("
+            SELECT id FROM autopay_attempts
+            WHERE invoice_id = ? AND status IN ('pending', 'succeeded')
+            LIMIT 1
+        ");
+        $stmt->execute([$invoiceId]);
+        return (bool) $stmt->fetch();
     }
 
     /**

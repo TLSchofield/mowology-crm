@@ -86,6 +86,22 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
         \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
         $existingIntent = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
+        // Guard (Fable review 2026-10-12): an intent that already succeeded or is still
+        // processing means the money is (or is about to be) taken. Falling through used to
+        // null the id and create a second intent — a double charge while the webhook lagged.
+        // Same guard as public/customer/api/invoice-payment-intent.php.
+        if (in_array($existingIntent->status, ['succeeded', 'processing'], true)) {
+            http_response_code(409);
+            echo json_encode([
+                'already_paid' => true,
+                'status'       => $existingIntent->status,
+                'error'        => $existingIntent->status === 'processing'
+                    ? 'A payment for this invoice is already processing. Wait for it to finish before taking another.'
+                    : 'This invoice has already been paid by card. The payment will show on the invoice shortly.',
+            ]);
+            exit;
+        }
+
         // Reuse if still valid and amount matches
         if (
             in_array($existingIntent->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
@@ -109,8 +125,15 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
         // Clear the stale ID so we don't try to reuse it again
         $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")->execute([$invoiceId]);
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        // Intent not found or API error — clear it and create a new one below
         error_log('[Stripe] Could not retrieve existing PaymentIntent: ' . $e->getMessage());
+        // Only a missing intent is safe to forget. Any other error (network, rate limit)
+        // leaves us unable to tell whether the old intent was paid — stop rather than
+        // risk a second charge.
+        if ($e->getStripeCode() !== 'resource_missing') {
+            http_response_code(502);
+            echo json_encode(['error' => 'Could not check the earlier card payment for this invoice. Try again in a minute.']);
+            exit;
+        }
         $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")->execute([$invoiceId]);
     }
 }

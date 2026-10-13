@@ -196,8 +196,12 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
     }
 
     $paidAmount  = $amountCents / 100.0;
-    $balanceDue  = max(0, (float) $invoice['balance_due'] - $paidAmount);
-    $newStatus   = $balanceDue <= 0.005 ? 'paid' : 'partial'; // tolerance for float rounding
+    // $balanceDue / $newStatus are computed from the LOCKED invoice row inside the
+    // transaction below. (Fable review 2026-10-12: they were computed here from an
+    // $invoice that did not exist yet, so every card payment — even a part payment —
+    // marked the invoice fully paid with a zero balance.)
+    $balanceDue  = 0.0;
+    $newStatus   = 'paid';
 
     $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
     $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
@@ -231,6 +235,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         $invoice = array_merge($invoice, $customer);
 
         $invoiceWasUnpaid = ($invoice['status'] !== 'paid');
+
+        // Derive the new balance from the row we hold the lock on.
+        $balanceDue = max(0, round((float) $invoice['balance_due'] - $paidAmount, 2));
+        $newStatus  = $balanceDue <= 0.005 ? 'paid' : 'partial'; // tolerance for float rounding
 
         if ($invoice['status'] === 'paid') {
             error_log('[Stripe Webhook] Invoice already paid (seen inside txn) — stripe_payments update only: ' . $invoiceId);
