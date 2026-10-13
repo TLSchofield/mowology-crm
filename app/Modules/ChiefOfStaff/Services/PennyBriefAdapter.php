@@ -147,7 +147,9 @@ class PennyBriefAdapter
         }
         foreach ($questions as $q) {
             $amount = (float)($q['amount'] ?? 0);
-            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => 'penny:unbilled', 'priority' => $amount >= self::BIG_QUESTION ? 1 : 2,
+            $source = ($q['kind'] ?? '') === 'payment_source';   // a receipt's payment source fixed from its bank line
+            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => $source ? 'penny:payment_source' : 'penny:unbilled',
+                        'priority' => $source ? (empty($q['ask']) ? 3 : 2) : ($amount >= self::BIG_QUESTION ? 1 : 2),
                         'text' => self::plainQuestion((string)($q['question'] ?? '')),
                         'url' => '/crm/dashboard_appstack.php#mw-pq', 'value' => round($amount, 2)];
         }
@@ -155,6 +157,7 @@ class PennyBriefAdapter
         $ready = (int)($stats['ready'] ?? 0);
         $bits = [];
         if ($ready > 0) $bits[] = $ready . ' receipt' . ($ready === 1 ? '' : 's') . ' ready';
+        $n -= count(array_filter($questions, fn($q) => ($q['kind'] ?? '') === 'payment_source'));
         if ($n > 0) $bits[] = $n . ' billing question' . ($n === 1 ? '' : 's');
         return [
             'head'     => 'penny',

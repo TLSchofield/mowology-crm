@@ -28,6 +28,20 @@ class AccountingService
         $this->db = $db;
     }
 
+    /**
+     * SQL: the row is counted in single-entry reports. A bank line linked to a receipt (matched_expense_id)
+     * whose receipt has its own expense row is the SAME money: the receipt row carries it (its category is
+     * the owner's), so the bank line is left out — it was counted twice (2026-10-12: 29 pairs, $3,565.96
+     * in 2026, e.g. Vital Auto bank line 43028 + receipt row 50823). An import-time match merges into the
+     * receipt row and was never doubled; a linked line whose receipt isn't approved yet still counts.
+     */
+    public static function countedSql(string $a = 't'): string
+    {
+        return "NOT ({$a}.reference_type = 'bank_import' AND {$a}.matched_expense_id IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM accounting_transactions mx WHERE mx.reference_type = 'expense'
+                      AND mx.reference_id = {$a}.matched_expense_id AND mx.type = 'expense' AND mx.status IN ('cleared', 'reconciled')))";
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // SYNC — pull records from operational tables into unified ledger
     // ══════════════════════════════════════════════════════════════════════════
@@ -326,6 +340,7 @@ class AccountingService
             WHERE t.type = 'expense'
               AND t.transaction_date BETWEEN ? AND ?
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             GROUP BY coa.id, coa.code, coa.name
             ORDER BY coa.display_order
         ");
@@ -363,6 +378,7 @@ class AccountingService
             FROM accounting_transactions t
             WHERE t.transaction_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             GROUP BY DATE_FORMAT(t.transaction_date, '%Y-%m')
             ORDER BY month ASC
         ");
@@ -389,13 +405,14 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                type,
-                SUM(amount) AS total
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-              AND type IN ('income', 'expense')
-            GROUP BY type
+                t.type,
+                SUM(t.amount) AS total
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND t.type IN ('income', 'expense')
+              AND " . self::countedSql('t') . "
+            GROUP BY t.type
         ");
         $stmt->execute([$dateFrom, $dateTo]);
 
@@ -422,14 +439,15 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                type,
-                SUM(gst_amount) AS gst_total,
-                SUM(pst_amount) AS pst_total
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-              AND type IN ('income', 'expense')
-            GROUP BY type
+                t.type,
+                SUM(t.gst_amount) AS gst_total,
+                SUM(t.pst_amount) AS pst_total
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND t.type IN ('income', 'expense')
+              AND " . self::countedSql('t') . "
+            GROUP BY t.type
         ");
         $stmt->execute([$dateFrom, $dateTo]);
 
@@ -477,6 +495,7 @@ class AccountingService
             LEFT JOIN accounting_transactions t ON t.job_id = jp.id
               AND t.transaction_date BETWEEN ? AND ?
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             LEFT JOIN companies  co ON co.id = jp.company_id
             LEFT JOIN properties p  ON p.id  = jp.property_id
             WHERE jp.status = 'completed'
@@ -583,11 +602,12 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END) AS revenue,
-                SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expenses
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
+                SUM(CASE WHEN t.type = 'income'  THEN t.amount ELSE 0 END) AS revenue,
+                SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS expenses
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
         ");
         $stmt->execute([$from, $to]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);

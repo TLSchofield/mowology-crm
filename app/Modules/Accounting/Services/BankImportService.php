@@ -564,6 +564,9 @@ class BankImportService
                         ]);
                     }
 
+                    // The statement line says where the money came from (2026-10-12).
+                    $this->checkReceiptFunding($expenseId, $txId, $userId ? (int)$userId : null);
+
                     // Capture rollback intent: a pre-existing expense tx is only
                     // un-reconciled; a tx we created in this session is deleted.
                     $row['_revert'] = $existingTxId
@@ -3915,7 +3918,22 @@ class BankImportService
             WHERE id = ?
         ")->execute([$expenseId, $confidence, (string)$userId, $transactionId]);
 
-        return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence];
+        // The bank line is the truth about where the money came from (Vital Auto #384, 2026-10-12).
+        $source = $this->checkReceiptFunding($expenseId, $transactionId, $userId);
+
+        return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence, 'payment_source' => $source];
+    }
+
+    /** Every receipt ↔ statement-line link: the receipt's payment method follows the line's account. */
+    private function checkReceiptFunding(int $expenseId, int $transactionId, ?int $userId): array
+    {
+        try {
+            require_once __DIR__ . '/ReceiptFundingCheck.php';
+            return (new ReceiptFundingCheck($this->db))->onLink($expenseId, $transactionId, $userId ?: null);
+        } catch (Throwable $e) {
+            error_log('Receipt funding check: ' . $e->getMessage());
+            return ['action' => 'error'];
+        }
     }
 
     /**

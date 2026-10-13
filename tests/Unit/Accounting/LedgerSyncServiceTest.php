@@ -105,6 +105,17 @@ class LedgerSyncServiceTest extends TestCase
         $this->assertSame('1010', $s->fundingAccountFor(''));
     }
 
+    /** @test 2026-10-12: "debit_card" contains "card" and used to post to 2400. */
+    public function funding_account_is_explicit_per_method(): void
+    {
+        foreach (['credit_card', 'Credit Card', 'company_card', 'company card', 'credit', 'visa', 'card'] as $m) {
+            $this->assertSame('2400', LedgerSyncService::fundingCodeFor($m), $m);
+        }
+        foreach (['debit', 'debit_card', 'Debit Card', 'debit-card', 'interac', 'etransfer', 'e_transfer', 'cheque', 'cash', '', null] as $m) {
+            $this->assertSame('1010', LedgerSyncService::fundingCodeFor($m), var_export($m, true));
+        }
+    }
+
     // ── bank-import row → journal entry (Step 6) ─────────────────────────────────
 
     private function lineByAccount(array $entry, int $accountId): array

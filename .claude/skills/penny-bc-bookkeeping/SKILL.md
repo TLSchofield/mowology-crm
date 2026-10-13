@@ -99,6 +99,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Who an invoice goes to (company/manager routing) | `companyRoutingRecipients()`, `resolveCompanyBillingRecipient()`, `resolveManagementBillingRecipient()`, `preferRecipients()` in `app/Modules/Invoices/Services/InvoiceRouting.php` | invoice screen, contract billing, visit invoices |
 | The "Bill to" company on every invoice header | `BillToResolver::INVOICE_COMPANY_NAME` + `INVOICE_COMPANY_JOINS` | PDF, CRM view, customer portal |
 | Penny's "unbilled materials" questions and answers | `PennyQuestionService` (answers: invoice, contract, not billable, already billed) | Penny's card |
+| A receipt linked to a bank / card line: its payment method follows the line (bank line is the truth) | `ReceiptFundingCheck::onLink()` (funding code: `LedgerSyncService::fundingCodeFor()`) | receipts page attach, Penny's bank desk, bank receipt sweep (all via `BankImportService::attachExpenseMatch()`), import auto-match, `sweep()` |
+| Single-entry reports count a linked bank line once | `AccountingService::countedSql()` | P&L, trend, cash flow, tax summary, job profit, dashboard, expense breakdown |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
 (`business_settings.gst_rate`); `TaxEngine::getRates()` (ledger, GST report) and the two on-screen

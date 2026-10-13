@@ -875,6 +875,15 @@
                 pqBox.innerHTML = '<div class="mw-pq-head"><b>' + head + '</b>' +
                     (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
                     qs.map(function (q) {
+                        if (q.kind === 'payment_source') {
+                            // The bank line said where the money came from (ReceiptFundingCheck).
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  (q.ask ? '<button type="button" data-ans="use_bank_line">✓ Use the bank line</button>' +
+                                           '<button type="button" data-ans="seen">Leave it</button>'
+                                         : '<button type="button" data-ans="seen">✓ Got it</button>') +
+                                '</div></div>';
+                        }
                         if (q.kind === 'service_account') {
                             return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
                                 '<div class="mw-pq-btns"><select class="mw-rc-in" data-pq-acct aria-label="Income account"><option value="">— pick an income account —</option>' +

@@ -184,3 +184,17 @@ Dropped / not done:
   the 2026 opening A/R. Don't open 2026 from the $51,948 until she answers.
 - **Colyvan (VR1450) pays through LeapAP.** Invoices go to their LeapAP address with the PDF. Reminders
   without a PDF are rejected there, so send them to the property manager instead.
+
+## 2026-10-12 — Receipt said credit card, the bank line said chequing (Vital Auto #384)
+#384 ($1,711.70) was saved as `credit_card` (posted Cr 2400) and then linked to chequing line tx 43028
+(Sep 16), which reversed the line's own entry: chequing was never credited and 2400 held a phantom
+liability. Also: `fundingAccountFor()` treated anything containing "card" as credit ("debit_card" →
+2400), and the receipt parser read "Visa Debit" as a credit card. Fixed: every link goes through
+`ReceiptFundingCheck::onLink()` — a clear mismatch sets the method from the line (gate source
+`bank_line`, re-posted, activity logged, Penny notice); company card on chequing or cash/cheque on the
+card statement is a Penny question, nothing changed. Sweep of all 98 links on 2026-10-12: no others.
+**Also found:** a manual link left the receipt's own `accounting_transactions` row (reference_type
+'expense') AND the bank line both counted as expenses in single-entry reports — 29 pairs, $3,565.96 in
+2026 (journal was fine: matched lines are not posted). Reports now use `AccountingService::countedSql()`.
+**Rule:** the statement line decides where money came from; a receipt's method is a claim to check.
+

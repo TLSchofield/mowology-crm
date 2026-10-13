@@ -1255,7 +1255,11 @@ function extractPaymentInfo(string $text): array
 
     // Payment method detection
     $textLower = strtolower($text);
-    if (strpos($textLower, 'visa') !== false) {
+    // "Visa Debit" / "Debit Mastercard" spend from chequing — checked before the brand
+    // (2026-10-12: brand-first read them as credit cards → 2400).
+    if (preg_match('/\b(?:visa|master\s?card|mc)\s+debit\b|\bdebit\s+(?:visa|master\s?card|mc)\b/', $textLower)) {
+        $result['payment_method'] = 'debit';
+    } elseif (strpos($textLower, 'visa') !== false) {
         $result['payment_method'] = 'credit_card';
     } elseif (strpos($textLower, 'mastercard') !== false || strpos($textLower, 'master card') !== false) {
         $result['payment_method'] = 'credit_card';

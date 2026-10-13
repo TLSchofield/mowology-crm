@@ -33,7 +33,7 @@
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
- * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
+ * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable|billed|account|seen|use_bank_line, csrf_token}
  *
  * ?mode=, not ?action= (see the /api/ router note in the vault). Owner/admin only:
  * every backtest call spends API credit.

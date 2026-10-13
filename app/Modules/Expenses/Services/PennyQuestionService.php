@@ -17,7 +17,9 @@ class PennyQuestionService
 {
     public const BILLABLE_CATEGORIES = ['Materials', 'Disposal/Dump', 'Subcontractors'];
     /** 'billed' (2026-10-12): it is already on an invoice Penny didn't connect (Marc Nelitz's hedge disposal). */
-    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account'];
+    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account', 'seen', 'use_bank_line'];
+    /** Answers to a payment-source notice / question (ReceiptFundingCheck, 2026-10-12). */
+    public const SOURCE_ANSWERS = ['seen', 'use_bank_line'];
     /** Give the owner time to invoice before asking; stop asking about old receipts. */
     public const MIN_AGE_DAYS = 3;
     public const MAX_AGE_DAYS = 60;
@@ -35,7 +37,8 @@ class PennyQuestionService
     public function ready(): bool
     {
         try {
-            return $this->db->query("SHOW TABLES LIKE 'penny_questions'")->rowCount() > 0;
+            $this->db->query("SELECT 1 FROM penny_questions LIMIT 1");   // portable (SQLite tests): SHOW TABLES is MySQL-only
+            return true;
         } catch (Throwable $e) {
             return false;
         }
@@ -304,7 +307,7 @@ class PennyQuestionService
             JOIN expenses e ON e.id = q.expense_id
             LEFT JOIN job_plans jp ON jp.id = COALESCE(e.job_id, q.plan_id)
             LEFT JOIN properties p ON p.id = jp.property_id
-            WHERE q.status = 'open' AND e.status <> 'rejected' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit * 2))
+            WHERE q.status = 'open' AND q.kind = 'unbilled_materials' AND e.status <> 'rejected' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit * 2))
         )->fetchAll(PDO::FETCH_ASSOC);
         $out = [];
         foreach ($rows as $r) {
@@ -323,7 +326,31 @@ class PennyQuestionService
             $out[] = $r;
         }
         usort($out, fn($a, $b) => [(float)$b['amount'], $a['id']] <=> [(float)$a['amount'], $b['id']]);
-        return array_slice(array_merge($service, $out), 0, max(1, $limit));
+        return array_slice(array_merge($this->paymentSource(), $service, $out), 0, max(1, $limit));
+    }
+
+    /**
+     * "Receipt #384 said credit card, but it was paid from chequing on Sep 16 — corrected" (a notice,
+     * answered 'seen'), or an ambiguous one Penny didn't change (a question: 'use_bank_line' / 'seen').
+     * Written by ReceiptFundingCheck whenever a receipt is linked to a bank / card line.
+     */
+    private function paymentSource(): array
+    {
+        try {
+            $rows = $this->db->query("SELECT q.id, q.kind, q.expense_id, q.amount, q.question, q.category, q.subject
+                                      FROM penny_questions q JOIN expenses e ON e.id = q.expense_id
+                                      WHERE q.status = 'open' AND q.kind = 'payment_source' AND e.status <> 'rejected'
+                                      ORDER BY q.id LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];   // before migration 1130 (no subject column)
+        }
+        foreach ($rows as &$r) {
+            $r['ask'] = ($r['category'] ?? '') === 'question';
+            $r['amount'] = (float)$r['amount'];
+            unset($r['category'], $r['subject']);
+        }
+        unset($r);
+        return $rows;
     }
 
     /** @return array{ok: bool, message: string, invoice_url?: string} */
@@ -340,6 +367,9 @@ class PennyQuestionService
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') {
             return ['ok' => false, 'message' => 'Already answered'];
+        }
+        if (($q['kind'] ?? '') === 'payment_source' || in_array($answer, self::SOURCE_ANSWERS, true)) {
+            return $this->answerPaymentSource($id, $answer, $userId, $name);
         }
         // "Which income account?" is answered with an account, nothing else — closing it as
         // "contract" left the account never set (review 2026-10-12).
@@ -358,6 +388,28 @@ class PennyQuestionService
             $out['invoice_url'] = '/crm/invoices/create.php?plan_id=' . (int)$q['plan_id'];
         }
         return $out;
+    }
+
+    private function answerPaymentSource(int $id, string $answer, int $userId, string $name): array
+    {
+        $s = $this->db->prepare("SELECT kind, expense_id, subject, category, status FROM penny_questions WHERE id = ?");
+        $s->execute([$id]);
+        $q = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$q || $q['status'] !== 'open') return ['ok' => false, 'message' => 'Already answered'];
+        if ($q['kind'] !== 'payment_source' || !in_array($answer, self::SOURCE_ANSWERS, true)) return ['ok' => false, 'message' => 'Unknown answer'];
+        $hi = $name !== '' ? ", {$name}" : '';
+        $msg = "Thanks{$hi}.";
+        if ($answer === 'use_bank_line') {
+            if (($q['category'] ?? '') !== 'question') return ['ok' => false, 'message' => 'Already corrected'];
+            require_once APP_ROOT . '/Modules/Accounting/Services/ReceiptFundingCheck.php';
+            if (!(new ReceiptFundingCheck($this->db))->applyAnswer((int)$q['expense_id'], (string)$q['subject'], $userId)) {
+                return ['ok' => false, 'message' => "I couldn't change that receipt."];
+            }
+            $msg = "Done{$hi} — receipt #" . (int)$q['expense_id'] . ' now says ' . ReceiptFundingCheck::methodWords((string)$q['subject']) . ' and the books follow.';
+        }
+        $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
+           ->execute([$answer, $userId, $id]);
+        return ['ok' => true, 'message' => $msg];
     }
 
     private function answerAccount(int $id, int $accountId, int $userId, string $name): array

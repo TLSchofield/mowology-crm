@@ -84,6 +84,7 @@ class CreditCardPayableAuditService
                        SUM(CASE WHEN EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'expense' AND je.source_id = e.id) THEN 1 ELSE 0 END) AS posted
                 FROM expenses e
                 WHERE (LOWER(COALESCE(e.payment_method, '')) LIKE '%card%' OR LOWER(COALESCE(e.payment_method, '')) LIKE '%credit%')
+                  AND LOWER(COALESCE(e.payment_method, '')) NOT LIKE '%debit%'
                   AND e.status IN ('approved', 'forwarded')
                 GROUP BY SUBSTR(e.expense_date, 1, 7) ORDER BY month
             ")->fetchAll(PDO::FETCH_ASSOC);

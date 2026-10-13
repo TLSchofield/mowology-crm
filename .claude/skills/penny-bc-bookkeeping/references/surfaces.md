@@ -27,6 +27,7 @@
 | Approve / reject | Penny ring + buttons | buttons (needs `expenses.approve`) | `ExpenseApprovalService` | — |
 | Approving teaches SKU names | yes (server) | yes (server) | `recordConfirmedSkuNames()` | — |
 | Mobile receipt capture | native camera, queue | `expenses_appstack.php?mode=quick` | intake services | Android native capture planned (after clock in/out) |
+| Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Charlie's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
 | Supplier forms, Otto buttons | server-sent buttons (1.3.20) | server-sent buttons (`otto-card.js`) | `SupplierFormService` | — |
 
 When you change a row, change the date in this file's heading.

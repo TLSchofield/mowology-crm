@@ -129,6 +129,7 @@ try {
                 WHERE t.type = 'expense'
                   AND t.transaction_date BETWEEN ? AND ?
                   AND t.status IN ('cleared', 'reconciled')
+                  AND " . AccountingService::countedSql('t') . "
                 GROUP BY coa.id, coa.code, coa.name
                 ORDER BY total DESC
             ");

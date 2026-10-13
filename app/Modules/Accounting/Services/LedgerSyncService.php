@@ -92,14 +92,31 @@ class LedgerSyncService
         ];
     }
 
-    /** Funding account code from a payment method. Card → 2400, else → 1010. */
+    /** Funding account code from a payment method (see fundingCodeFor). */
     public function fundingAccountFor(string $paymentMethod): string
     {
-        $pm = strtolower(trim($paymentMethod));
-        if (str_contains($pm, 'credit') || str_contains($pm, 'card')) {
+        return self::fundingCodeFor($paymentMethod);
+    }
+
+    /** Payment methods that are a credit card (2400). company_card = the Vancity Visa. */
+    public const CARD_METHODS = ['credit_card', 'credit', 'company_card', 'visa', 'mastercard', 'amex', 'card'];
+
+    /**
+     * Funding account code from a payment method — explicit, not "contains card" (2026-10-12:
+     * "debit_card" went to 2400 Credit Card Payable). credit_card / company_card → 2400;
+     * debit / debit_card / interac / etransfer / cheque / cash / unknown → 1010 Chequing (the
+     * chart has no petty-cash account). Pure.
+     */
+    public static function fundingCodeFor(?string $paymentMethod): string
+    {
+        $pm = trim((string)preg_replace('/[\s\-]+/', '_', strtolower(trim((string)$paymentMethod))), '_');
+        if ($pm === '' || str_contains($pm, 'debit')) {
+            return LedgerService::ACC_BANK;        // 1010 — a debit card spends from chequing
+        }
+        if (in_array($pm, self::CARD_METHODS, true) || str_contains($pm, 'credit')) {
             return LedgerService::ACC_CREDIT_CARD; // 2400
         }
-        return LedgerService::ACC_BANK; // 1010
+        return LedgerService::ACC_BANK;            // 1010 — interac, etransfer, cheque, cash, anything else
     }
 
     /**
