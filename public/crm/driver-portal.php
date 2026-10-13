@@ -165,6 +165,7 @@ $bodyClass  = 'mw-page-driver'; // Suppresses global mobile nav bars — driver 
 $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260420a" rel="stylesheet">';
 
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- ════════════════════════════════════════════════════════════════════════════

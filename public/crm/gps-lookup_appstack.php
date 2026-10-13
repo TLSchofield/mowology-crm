@@ -15,21 +15,22 @@ $radiusMetres  = max(50, min(5000, (int)($_GET['radius'] ?? 500)));
 $properties      = [];
 $crewPings       = [];
 $visitPoints     = [];
-$error           = '';
+$debugErrors     = [];
 
+try {
 if ($searchName !== '') {
     $like = '%' . $searchName . '%';
-    // Split into two parts for first/last name search
     $parts = explode(' ', $searchName, 2);
     $first = '%' . ($parts[0] ?? $searchName) . '%';
     $last  = '%' . ($parts[1] ?? $searchName) . '%';
 
     $stmt = $db->prepare("
         SELECT p.id, p.address, p.city, p.province, p.latitude, p.longitude,
-               c.full_name AS contact_name, c.id AS contact_id
+               CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
+               c.id AS contact_id
         FROM contacts c
         JOIN properties p ON p.site_contact_id = c.id
-        WHERE c.full_name LIKE ?
+        WHERE CONCAT(c.first_name, ' ', c.last_name) LIKE ?
            OR c.first_name LIKE ?
            OR c.last_name  LIKE ?
            OR p.address    LIKE ?
@@ -46,7 +47,16 @@ if ($searchName !== '') {
         $lat = (float)$prop['latitude'];
         $lng = (float)$prop['longitude'];
 
-        // crew_location_history proximity query
+        // Bounding box delta in degrees (~111km/degree latitude, ~73km/degree longitude at 49°N)
+        $latDelta = $radiusMetres / 111000;
+        $lngDelta = $radiusMetres / 73000;
+        $latMin = $lat - $latDelta;
+        $latMax = $lat + $latDelta;
+        $lngMin = $lng - $lngDelta;
+        $lngMax = $lng + $lngDelta;
+
+        // crew_location_history — bounding box pre-filter, then exact Haversine HAVING
+        // :lat appears twice in haversine, use :lat1/:lat2 (emulated prepares are OFF in this project)
         $stmt2 = $db->prepare("
             SELECT
                 u.full_name AS crew_name,
@@ -54,53 +64,74 @@ if ($searchName !== '') {
                 clh.timestamp,
                 clh.accuracy_meters,
                 ROUND(6371000 * acos(GREATEST(-1, LEAST(1,
-                    cos(radians(:lat)) * cos(radians(clh.latitude)) *
-                    cos(radians(clh.longitude) - radians(:lng)) +
-                    sin(radians(:lat)) * sin(radians(clh.latitude))
+                    cos(radians(:lat1)) * cos(radians(clh.latitude)) *
+                    cos(radians(clh.longitude) - radians(:lng1)) +
+                    sin(radians(:lat2)) * sin(radians(clh.latitude))
                 )))) AS distance_m
             FROM crew_location_history clh
             JOIN users u ON u.id = clh.crew_id
-            HAVING distance_m <= :radius
+            WHERE clh.latitude BETWEEN :latMin AND :latMax
+              AND clh.longitude BETWEEN :lngMin AND :lngMax
+            HAVING distance_m <= :radius1
             ORDER BY clh.timestamp DESC
             LIMIT 300
         ");
-        $stmt2->execute([':lat' => $lat, ':lng' => $lng, ':radius' => $radiusMetres]);
+        $stmt2->execute([
+            ':lat1' => $lat, ':lat2' => $lat, ':lng1' => $lng,
+            ':latMin' => $latMin, ':latMax' => $latMax,
+            ':lngMin' => $lngMin, ':lngMax' => $lngMax,
+            ':radius1' => $radiusMetres,
+        ]);
         $rows = $stmt2->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as $row) {
-            $row['property_address'] = $prop['address'] . ', ' . $prop['city'];
+            $row['property_address'] = $prop['address'] . ', ' . ($prop['city'] ?? '');
             $row['source'] = 'crew_ping';
             $crewPings[] = $row;
         }
 
-        // visit_gps_points proximity query
-        $stmt3 = $db->prepare("
-            SELECT
-                u.full_name AS crew_name,
-                vgp.lat AS latitude,
-                vgp.lng AS longitude,
-                vgp.ts AS timestamp,
-                vgp.accuracy_m AS accuracy_meters,
-                vgp.visit_id,
-                ROUND(6371000 * acos(GREATEST(-1, LEAST(1,
-                    cos(radians(:lat)) * cos(radians(vgp.lat)) *
-                    cos(radians(vgp.lng) - radians(:lng)) +
-                    sin(radians(:lat)) * sin(radians(vgp.lat))
-                )))) AS distance_m
-            FROM visit_gps_points vgp
-            JOIN job_visits jv ON jv.id = vgp.visit_id
-            JOIN users u ON u.id = jv.assigned_crew_id
-            HAVING distance_m <= :radius
-            ORDER BY vgp.ts DESC
-            LIMIT 300
-        ");
-        $stmt3->execute([':lat' => $lat, ':lng' => $lng, ':radius' => $radiusMetres]);
-        $rows3 = $stmt3->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows3 as $row) {
-            $row['property_address'] = $prop['address'] . ', ' . $prop['city'];
-            $row['source'] = 'visit_point';
-            $visitPoints[] = $row;
+        // visit_gps_points — same pattern, table may not exist on all environments
+        try {
+            $stmt3 = $db->prepare("
+                SELECT
+                    u.full_name AS crew_name,
+                    vgp.lat AS latitude,
+                    vgp.lng AS longitude,
+                    vgp.ts AS timestamp,
+                    vgp.accuracy_m AS accuracy_meters,
+                    vgp.visit_id,
+                    ROUND(6371000 * acos(GREATEST(-1, LEAST(1,
+                        cos(radians(:lat1)) * cos(radians(vgp.lat)) *
+                        cos(radians(vgp.lng) - radians(:lng1)) +
+                        sin(radians(:lat2)) * sin(radians(vgp.lat))
+                    )))) AS distance_m
+                FROM visit_gps_points vgp
+                JOIN job_visits jv ON jv.id = vgp.visit_id
+                JOIN users u ON u.id = jv.assigned_crew_id
+                WHERE vgp.lat BETWEEN :latMin AND :latMax
+                  AND vgp.lng BETWEEN :lngMin AND :lngMax
+                HAVING distance_m <= :radius1
+                ORDER BY vgp.ts DESC
+                LIMIT 300
+            ");
+            $stmt3->execute([
+                ':lat1' => $lat, ':lat2' => $lat, ':lng1' => $lng,
+                ':latMin' => $latMin, ':latMax' => $latMax,
+                ':lngMin' => $lngMin, ':lngMax' => $lngMax,
+                ':radius1' => $radiusMetres,
+            ]);
+            $rows3 = $stmt3->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows3 as $row) {
+                $row['property_address'] = $prop['address'] . ', ' . ($prop['city'] ?? '');
+                $row['source'] = 'visit_point';
+                $visitPoints[] = $row;
+            }
+        } catch (PDOException $e) {
+            $debugErrors[] = 'visit_gps_points: ' . $e->getMessage();
         }
     }
+}
+} catch (Throwable $e) {
+    $debugErrors[] = get_class($e) . ': ' . $e->getMessage() . ' (line ' . $e->getLine() . ')';
 }
 
 // Combine + sort all results by timestamp desc
@@ -148,6 +179,19 @@ if ($allResults) {
         </div>
     </div>
 </div>
+
+<?php if (!empty($debugErrors)): ?>
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-danger">
+            <strong>Query error(s):</strong>
+            <ul class="mb-0 mt-1"><?php foreach ($debugErrors as $e): ?>
+                <li><?= htmlspecialchars($e) ?></li>
+            <?php endforeach; ?></ul>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if ($searchName !== ''): ?>
 

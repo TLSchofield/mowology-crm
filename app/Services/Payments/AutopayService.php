@@ -419,7 +419,19 @@ class AutopayService
         <p>If you have questions, call us at (778) 846-9273.</p>
         <p>— Mowology Landscaping</p>';
 
-        sendEmail($email, $subject, $body);
+        // Every customer email about an invoice carries the invoice PDF (owner rule
+        // 2026-10-06). No PDF → this notice is held and recorded; Charlie emails the
+        // owner (who also gets the authentication_required payment alert).
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+        $pdfGate    = new InvoicePdfGate($this->db);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        if ($attachPath === null || !$pdfGate->isUsable($attachPath)) {
+            $pdfGate->recordBlocked($invoiceId, 'autopay_auth_notice');
+            error_log("[autopay] 3DS notice for invoice {$invoiceId} NOT sent — " . InvoicePdfGate::NOT_SENT_MESSAGE);
+            return;
+        }
+
+        sendEmail($email, $subject, $body, $attachPath);
     }
 
     /**
