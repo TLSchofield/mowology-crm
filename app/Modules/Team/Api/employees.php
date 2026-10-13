@@ -176,9 +176,9 @@ try {
             if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Valid email is required');
             if (strlen($password) < 8) throw new Exception('Password must be at least 8 characters');
             if (!in_array($role, ['admin', 'manager', 'user'])) throw new Exception('Invalid role');
-            // Only users.manage (admins) may create managers or admins — a manager must not be able to mint an
-            // admin account (Fable review 2026-10-12).
-            if ($role !== 'user' && !userHasPermission('users.manage')) throw new Exception('Only an admin can create manager or admin accounts');
+            // Managers may create crew and managers; only users.manage (admins) may create an admin — a manager
+            // must not be able to mint an admin account (Fable review 2026-10-12; Tim: admin and manager edit).
+            if ($role === 'admin' && !userHasPermission('users.manage')) throw new Exception('Only an admin can create admin accounts');
 
             $checkStmt = $db->prepare("SELECT id FROM users WHERE email = ?");
             $checkStmt->execute([$email]);
@@ -231,14 +231,13 @@ try {
             $checkStmt->execute([$id]);
             $target = $checkStmt->fetch(PDO::FETCH_ASSOC);
             if (!$target) throw new Exception('Employee not found');
-            // Role, active flag and password are admin-only (users.manage), and nobody without it may edit an
-            // admin at all: team.edit is held by managers, who could otherwise promote themselves, reset Tim's
-            // password or deactivate him (Fable review 2026-10-12). Fields sent unchanged are fine.
+            // Admins and managers both edit staff (Tim, 2026-10-12). What needs users.manage (admins) is anything
+            // touching an admin: editing an admin account, or making someone an admin. team.edit is held by
+            // managers, who could otherwise promote themselves, reset Tim's password or deactivate him (Fable
+            // review 2026-10-12). Fields sent unchanged are fine.
             if (!userHasPermission('users.manage')) {
                 if ($target['role'] === 'admin') throw new Exception('Only an admin can edit an admin account');
-                if (isset($input['role']) && $input['role'] !== $target['role']) throw new Exception('Only an admin can change roles');
-                if (isset($input['is_active']) && (int)(bool)$input['is_active'] !== (int)$target['is_active']) throw new Exception('Only an admin can activate or deactivate accounts');
-                if (!empty($input['password'])) throw new Exception('Only an admin can set passwords');
+                if (isset($input['role']) && $input['role'] === 'admin') throw new Exception('Only an admin can make someone an admin');
             }
 
             $updates = [];
