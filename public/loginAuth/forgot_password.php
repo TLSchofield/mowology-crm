@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/auth.php';
+require_once APP_ROOT . '/Core/Auth/AttemptThrottle.php';
+require_once APP_ROOT . '/Core/Auth/ResetCaptcha.php';
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
@@ -20,14 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $message = 'Please enter a valid email address.';
             $messageType = 'error';
-        } elseif (isLoginRateLimited($email)) {
-            // Reuses the login_attempts rate limiter — nothing previously throttled
-            // repeated reset requests, letting an attacker flood a target's inbox
-            // or hammer the mail-send path indefinitely.
-            $message = 'Too many requests. Please try again in a few minutes.';
+        } elseif (!ResetCaptcha::passes((string)($_POST['recaptcha_v3_token'] ?? ''), $_SERVER['REMOTE_ADDR'] ?? null)) {
+            $message = 'Security check failed. Please try again, or call (778) 846-9273.';
             $messageType = 'error';
+        } elseif (!AttemptThrottle::takeResetSlot(getDB(), $email, (string)($_SERVER['REMOTE_ADDR'] ?? ''))) {
+            // Own throttle (#9, Fable audit 2026-10-12): 3 per email / 10 per IP per hour, keyed 'reset:'
+            // so it never locks a login. Same message as a real request.
+            $message = 'If an account exists with that email, you will receive password reset instructions shortly.';
+            $messageType = 'success';
         } else {
-            recordFailedLogin($email);
             $db = getDB();
 
             try {
@@ -348,6 +351,7 @@ $csrf_token = generateCSRFToken();
             color: var(--forest-main);
         }
     </style>
+<?= ResetCaptcha::headTags() ?>
 </head>
 <body>
     <div class="container">
@@ -364,7 +368,7 @@ $csrf_token = generateCSRFToken();
                 <div class="message message-<?php echo $messageType; ?>"><?php echo htmlspecialchars($message); ?></div>
             <?php endif; ?>
 
-            <form method="POST" action="">
+            <form method="POST" action="" id="resetForm">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
 
                 <div class="form-group">
@@ -382,6 +386,7 @@ $csrf_token = generateCSRFToken();
                 </div>
 
                 <button type="submit" class="submit-button">Send Reset Link</button>
+                <?= ResetCaptcha::formTags('resetForm') ?>
             </form>
 
             <a href="login.php" class="back-link">&larr; Back to Login</a>

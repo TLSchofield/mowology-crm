@@ -96,6 +96,16 @@ try {
             $value = json_encode($value);
         }
 
+        // The pre-trip bypass PIN is stored hashed (#10, Fable audit 2026-10-12).
+        if ($key === 'manager_override_pin') {
+            require_once APP_ROOT . '/Modules/Settings/Services/ManagerPin.php';
+            try {
+                $value = ManagerPin::forStorage($value);
+            } catch (InvalidArgumentException $e) {
+                throw new Exception($e->getMessage());
+            }
+        }
+
         $stmt = $db->prepare("
             INSERT INTO ops_settings (setting_key, setting_value, description, updated_by)
             VALUES (?, ?, ?, ?)

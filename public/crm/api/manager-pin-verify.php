@@ -26,6 +26,8 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Core/Auth/AttemptThrottle.php';
+    require_once APP_ROOT . '/Modules/Settings/Services/ManagerPin.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -55,6 +57,17 @@ try {
     }
 
     $db = getDB();
+    $userId = (int)$user['id'];
+    $ip     = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+
+    // Lockout (#10, Fable audit 2026-10-12): 5 wrong PINs in 10 minutes locks this user out of the
+    // bypass. A 4-digit PIN otherwise falls to 10,000 tries.
+    if (AttemptThrottle::pinIsLocked($db, $userId)) {
+        logActivity($userId, null, 'Manager PIN locked out', 'IP: ' . $ip);
+        http_response_code(429);
+        echo json_encode(['error' => 'Too many wrong PINs. Try again in 10 minutes or call the office.']);
+        exit;
+    }
 
     // Fetch stored PIN — empty means PIN bypasses are disabled
     $pinRow    = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'manager_override_pin'")->fetch(PDO::FETCH_ASSOC);
@@ -66,14 +79,22 @@ try {
         exit;
     }
 
-    if (!hash_equals($storedPin, $pin)) {
-        error_log('[manager-pin-verify] failed PIN attempt for user #' . $user['id']);
+    // Stored hashed (settings save path); a legacy plaintext value is accepted once and re-hashed.
+    $check = ManagerPin::verify($pin, (string)$storedPin);
+    if (!$check['ok']) {
+        AttemptThrottle::record($db, AttemptThrottle::pinKey($userId), $ip);
+        error_log('[manager-pin-verify] failed PIN attempt for user #' . $userId);
+        logActivity($userId, null, 'Manager PIN failed', 'IP: ' . $ip);
         http_response_code(403);
         echo json_encode(['error' => 'Incorrect PIN']);
         exit;
     }
+    AttemptThrottle::clear($db, AttemptThrottle::pinKey($userId));
+    if ($check['rehash'] !== null) {
+        $db->prepare("UPDATE ops_settings SET setting_value = ? WHERE setting_key = 'manager_override_pin' AND setting_value = ?")
+           ->execute([$check['rehash'], (string)$storedPin]);
+    }
 
-    $userId = (int)$user['id'];
     $today  = date('Y-m-d');
 
     // Upsert vehicle_trip_reports to mark pre-trip as skipped.
@@ -115,6 +136,6 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['error' => 'Server error']);
     error_log('[manager-pin-verify] ' . $e->getMessage());
 }
