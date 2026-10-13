@@ -159,7 +159,9 @@ class PrivacyService
     /**
      * Anonymise a contact under PIPEDA right to erasure.
      *
-     * What IS anonymised: name, email, phone, GPS coordinates on visits.
+     * What IS anonymised: name, email, phone, notes, GPS coordinates on visits, and the
+     *   email copied onto invoice_contacts delivery rows.
+     * Not touched (for Tim): activity_log descriptions may still name the contact.
      * What IS NOT anonymised (legal hold): invoices, quotes, stripe_payments,
      *   consent_log (PIPEDA itself requires keeping consent proof).
      *
@@ -195,9 +197,22 @@ class PrivacyService
                     email      = CONCAT('anonymized-', id, '@deleted.invalid'),
                     phone      = '',
                     mobile     = '',
+                    notes      = NULL,
                     updated_at = NOW()
                 WHERE id = ?
             ")->execute([$contactId]);
+
+            // 1b — Invoice delivery rows keep their own copy of the address the invoice was
+            //      sent to; blank it for this contact and for any row sent to their old email
+            //      (Fable review 2026-10-12). The invoices themselves stay (legal hold).
+            $oldEmail = trim((string)($contact['email'] ?? ''));
+            $this->db->prepare("
+                UPDATE invoice_contacts
+                   SET email_address = CONCAT('anonymized-', ?, '@deleted.invalid'),
+                       bounce_reason = NULL
+                 WHERE contact_id = ?
+                    OR (? <> '' AND email_address = ?)
+            ")->execute([$contactId, $contactId, $oldEmail, $oldEmail]);
 
             // 2 — Null out GPS coordinates on job_visits for this contact's plans
             $this->db->prepare("
