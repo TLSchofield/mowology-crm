@@ -871,6 +871,7 @@ class EtransferInboxService
              LEFT JOIN accounting_transactions at ON n.bank_transaction_id = at.id
              LEFT JOIN bank_import_rows bir ON bir.transaction_id = at.id
                  WHERE n.status IN ('pending', 'partially_recorded')
+                   AND NOT (n.status = 'pending' AND i.status <=> 'paid') /* invoice already paid another way — nothing to record (2026-10-13) */
               ORDER BY n.email_date DESC, n.id DESC";
         return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -878,7 +879,8 @@ class EtransferInboxService
     public function countPending(): int
     {
         return (int) $this->db->query(
-            "SELECT COUNT(*) FROM etransfer_notifications WHERE status IN ('pending', 'partially_recorded')"
+            "SELECT COUNT(*) FROM etransfer_notifications n LEFT JOIN invoices i ON n.matched_invoice_id = i.id
+              WHERE n.status IN ('pending', 'partially_recorded') AND NOT (n.status = 'pending' AND i.status <=> 'paid')"
         )->fetchColumn();
     }
 
