@@ -144,6 +144,11 @@ enum APIEndpoint {
     /// receipt's anomaly score: {score, tier, summary, flags:[{code, detail, penny}]} (JWT, admin).
     case bookkeeperRisk(expenseId: Int)
 
+    /// GET /api/expenses/bookkeeper-mobile?mode=suggestion&expense_id=N — Penny's read on one
+    /// receipt where it differs (PennyReadService). Crew get it for their own receipts.
+    /// "Use Penny's version" / "Keep mine" POST to .bookkeeperAction with mode penny_apply / penny_keep.
+    case bookkeeperSuggestion(expenseId: Int)
+
     /// GET /api/sales/sales-head-mobile?mode=desk — Sam's desk: stats, follow-up queue (with
     /// drafts), leads, questions, replies waiting (JWT, admin or billing.edit).
     case salesDesk
@@ -397,6 +402,11 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "mode", value: "risk"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
             return components?.url
 
+        case .bookkeeperSuggestion(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "suggestion"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
         case .salesDesk:
             var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "desk")]
@@ -600,6 +610,7 @@ enum APIEndpoint {
              .bookkeeperQueue,
              .bookkeeperAction,
              .bookkeeperRisk,
+             .bookkeeperSuggestion,
              .salesDesk,
              .salesThread,
              .salesAction,
@@ -677,6 +688,7 @@ enum APIEndpoint {
         case .expenseList,
              .bookkeeperQueue,
              .bookkeeperRisk,
+             .bookkeeperSuggestion,
              .salesDesk,
              .salesThread,
              .teamHeadBrief,

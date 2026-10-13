@@ -212,6 +212,33 @@ final class ReceiptsViewModel: ObservableObject {
         try? await apiClient.request(.bookkeeperRisk(expenseId: expenseId))
     }
 
+    /// Penny's read on this receipt where it differs from it (nil = nothing of hers to show,
+    /// or it couldn't be loaded — the receipt works without it).
+    func loadPennyRead(expenseId: Int) async -> PennyRead? {
+        let r: PennyReadResponse? = try? await apiClient.request(.bookkeeperSuggestion(expenseId: expenseId))
+        return r?.ok == true ? r?.read : nil
+    }
+
+    /// "Use Penny's version" (useHers) or "Keep mine". The server decides who may do which
+    /// (PennyReadService::rights) and whether applying also approves. Refreshes the list on success.
+    func decidePennyRead(expenseId: Int, useHers: Bool) async -> BookkeeperActionResponse? {
+        isPerformingAction = true
+        defer { isPerformingAction = false }
+        do {
+            let r: BookkeeperActionResponse = try await apiClient.request(
+                .bookkeeperAction, body: ["mode": useHers ? "penny_apply" : "penny_keep", "expense_id": expenseId])
+            if r.ok {
+                await loadExpenses()
+            } else {
+                actionError = r.message ?? r.error ?? "Not saved."
+            }
+            return r
+        } catch {
+            actionError = (error as? APIError)?.errorDescription ?? "Not saved."
+            return nil
+        }
+    }
+
     /// The saved items, or the reason they couldn't be loaded — never a silent empty list
     /// (a failed load used to read "No line items recorded").
     func loadLineItems(expenseId: Int) async -> Result<LineItemsResponse, Error> {

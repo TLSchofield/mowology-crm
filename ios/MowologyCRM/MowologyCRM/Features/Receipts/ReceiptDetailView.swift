@@ -24,6 +24,11 @@ struct ReceiptDetailView: View {
     @State private var risk: ReceiptRiskResponse?
     @State private var riskFailed = false
 
+    // Penny's read (bookkeeper-mobile ?mode=suggestion): her pending suggestion where it differs
+    // from the receipt — the reader may have missed items she read (Chevron #424, 2026-10-13).
+    @State private var pennyRead: PennyRead?
+    @State private var pennyNote: String?
+
     @State private var showRejectSheet = false
     @State private var rejectReason = ""
     @State private var showErrorAlert = false
@@ -51,6 +56,9 @@ struct ReceiptDetailView: View {
             Form {
                 imageSection
                 statusSection
+                if let read = pennyRead, read.differs || read.appliedDraft {
+                    pennyReadSection(read)
+                }
                 detailsSection
                 lineItemsSection
 
@@ -62,6 +70,8 @@ struct ReceiptDetailView: View {
                     }
                 }
             }
+            // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
+            .refreshable { await refreshAll() }
             .navigationTitle("Receipt")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -115,6 +125,7 @@ struct ReceiptDetailView: View {
         }
         .task { await loadLineItems() }
         .task(id: expense.id) { await loadRisk() }
+        .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) }
         .alert("Rename item", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
             TextField("Item name", text: $renameText)
             Button("Save") {
@@ -151,6 +162,109 @@ struct ReceiptDetailView: View {
             }
             Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
         }
+    }
+
+    // MARK: - Penny's read
+
+    private func refreshAll() async {
+        await loadLineItems()
+        pennyRead = await viewModel.loadPennyRead(expenseId: expense.id)
+        if isAdmin, risk == nil { riskFailed = false; await loadRisk() }
+    }
+
+    private func pennyReadSection(_ read: PennyRead) -> some View {
+        Section {
+            if !read.differs {
+                Label("Using Penny's version — waiting for the office to approve.", systemImage: "checkmark.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(read.fields) { f in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(f.label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(f.penny ?? "—").font(.subheadline.weight(.semibold)).foregroundStyle(Color.MW.green)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        Text("Receipt says: \(f.receipt ?? "—")").font(.caption2).foregroundStyle(.secondary)
+                        if !f.reason.isEmpty {
+                            Text(f.reason + (f.confidence == "low" ? " (she's unsure)" : ""))
+                                .font(.caption).foregroundStyle(f.confidence == "low" ? Color.MW.orange : Color.secondary)
+                        }
+                    }
+                }
+                if let items = read.items {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Penny's items").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(String(format: "$%.2f", items.pennySum)).font(.caption.weight(.semibold))
+                        }
+                        ForEach(Array(items.penny.enumerated()), id: \.offset) { _, i in
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(i.name).font(.subheadline)
+                                Spacer()
+                                Text(String(format: "$%.2f", i.amount)).font(.subheadline)
+                            }
+                        }
+                        Text(items.receipt.isEmpty
+                             ? "The receipt has no items."
+                             : "The receipt has \(items.receipt.count) item\(items.receipt.count == 1 ? "" : "s") for " + String(format: "$%.2f", items.receiptSum) + ": "
+                               + items.receipt.map { $0.name }.joined(separator: ", "))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                if !read.notes.isEmpty {
+                    Text(read.notes).font(.caption).italic().foregroundStyle(.secondary)
+                }
+                if read.canApply || read.canKeep {
+                    HStack(spacing: 10) {
+                        if read.canApply {
+                            Button { Task { await decidePenny(useHers: true) } } label: {
+                                Text("Use Penny's version").font(.subheadline.weight(.semibold))
+                                    .frame(maxWidth: .infinity, minHeight: 40)
+                                    .background(Color.MW.green).foregroundStyle(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        if read.canKeep {
+                            Button { Task { await decidePenny(useHers: false) } } label: {
+                                Text("Keep mine").font(.subheadline.weight(.semibold))
+                                    .frame(maxWidth: .infinity, minHeight: 40)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.4)))
+                                    .foregroundStyle(Color.primary)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .disabled(viewModel.isPerformingAction)
+                    if read.canApply {
+                        Text(read.applyNote).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let note = pennyNote {
+                Text(note).font(.caption).foregroundStyle(Color.MW.green)
+            }
+        } header: {
+            Label("Penny's read", systemImage: "sparkles")
+        } footer: {
+            if read.differs {
+                Text("Penny read this receipt differently. Using her version replaces the items and teaches the receipt reader this store's layout.")
+            }
+        }
+    }
+
+    private func decidePenny(useHers: Bool) async {
+        guard let r = await viewModel.decidePennyRead(expenseId: expense.id, useHers: useHers), r.ok else { return }
+        if r.approved == true {
+            dismiss()
+            return
+        }
+        pennyNote = r.message
+        await loadLineItems()
+        pennyRead = await viewModel.loadPennyRead(expenseId: expense.id)
     }
 
     // MARK: - Line items

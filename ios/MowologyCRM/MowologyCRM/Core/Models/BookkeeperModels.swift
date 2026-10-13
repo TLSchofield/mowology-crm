@@ -475,3 +475,106 @@ struct ReceiptRiskResponse: Decodable, Equatable {
         flags = (try? c.decodeIfPresent([ReceiptRiskFlag].self, forKey: .flags)) ?? []
     }
 }
+
+// MARK: - Penny's read on one receipt (GET /api/expenses/bookkeeper-mobile?mode=suggestion)
+// PennyReadService::read() — her pending suggestion where it differs from the receipt (2026-10-13).
+
+struct PennyReadField: Decodable, Identifiable, Equatable {
+    var id: String { field }
+    let field: String
+    let label: String
+    let penny: String?
+    let receipt: String?
+    let reason: String
+    let confidence: String
+
+    private enum CodingKeys: String, CodingKey { case field, label, penny, receipt, reason, confidence }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        field = c.bkString(.field) ?? ""
+        label = c.bkString(.label) ?? ""
+        penny = c.bkString(.penny)
+        receipt = c.bkString(.receipt)
+        reason = c.bkString(.reason) ?? ""
+        confidence = c.bkString(.confidence) ?? ""
+    }
+}
+
+struct PennyReadItem: Decodable, Equatable {
+    let name: String
+    let amount: Double
+
+    private enum CodingKeys: String, CodingKey { case name, amount }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.bkString(.name) ?? ""
+        amount = c.bkDouble(.amount) ?? 0
+    }
+}
+
+struct PennyReadItems: Decodable, Equatable {
+    let penny: [PennyReadItem]
+    let receipt: [PennyReadItem]
+    let pennySum: Double
+    let receiptSum: Double
+
+    private enum CodingKeys: String, CodingKey { case penny, receipt, pennySum = "penny_sum", receiptSum = "receipt_sum" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        penny = (try? c.decodeIfPresent([PennyReadItem].self, forKey: .penny)) ?? []
+        receipt = (try? c.decodeIfPresent([PennyReadItem].self, forKey: .receipt)) ?? []
+        pennySum = c.bkDouble(.pennySum) ?? 0
+        receiptSum = c.bkDouble(.receiptSum) ?? 0
+    }
+}
+
+struct PennyRead: Decodable, Equatable {
+    let suggestionId: Int
+    let differs: Bool
+    let fields: [PennyReadField]
+    let items: PennyReadItems?
+    let notes: String
+    let appliedDraft: Bool
+    let canApply: Bool
+    let applyApproves: Bool
+    let canKeep: Bool
+    let applyNote: String
+
+    private enum CodingKeys: String, CodingKey {
+        case suggestionId = "suggestion_id", differs, fields, items, notes, appliedDraft = "applied_draft",
+             canApply = "can_apply", applyApproves = "apply_approves", canKeep = "can_keep", applyNote = "apply_note"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        suggestionId = c.bkInt(.suggestionId) ?? 0
+        differs = c.bkBool(.differs) ?? false
+        fields = (try? c.decodeIfPresent([PennyReadField].self, forKey: .fields)) ?? []
+        items = try? c.decodeIfPresent(PennyReadItems.self, forKey: .items)
+        notes = c.bkString(.notes) ?? ""
+        appliedDraft = c.bkBool(.appliedDraft) ?? false
+        canApply = c.bkBool(.canApply) ?? false
+        applyApproves = c.bkBool(.applyApproves) ?? false
+        canKeep = c.bkBool(.canKeep) ?? false
+        applyNote = c.bkString(.applyNote) ?? ""
+    }
+}
+
+/// {ok, read: PennyRead | null}
+struct PennyReadResponse: Decodable {
+    let ok: Bool
+    let read: PennyRead?
+    let error: String?
+
+    private enum CodingKeys: String, CodingKey { case ok, read, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        read = try? c.decodeIfPresent(PennyRead.self, forKey: .read)
+        error = c.bkString(.error)
+    }
+}
