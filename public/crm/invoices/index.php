@@ -308,7 +308,7 @@ $activePage = 'invoices';
                             <div class="mw-et-line1">
                                 <strong><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
                                 <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
-                                <?php if ($isClaim): ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
+                                <?php if ($isClaim && !$hasBankMatch): /* once the deposit is in the bank it has been claimed (2026-10-13) */ ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
                                 <?php if ($likelyDuplicate): ?><span class="mw-et-badge claim">⚠ possibly already recorded</span>
                                 <?php elseif ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
                                 <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
@@ -333,7 +333,7 @@ $activePage = 'invoices';
                             <?php endif; ?>
                             <div class="mw-et-recon mw-et-recon--<?php echo $reconciledCount; ?>">
                                 <?php if ($reconciledCount === 3): ?>
-                                    ✓ Fully reconciled — bank deposit, invoice &amp; email all match
+                                    ✓ Ready to record — bank deposit, invoice &amp; email all match. Press Record to mark the invoice paid.
                                 <?php else: ?>
                                     <?php echo $reconciledCount; ?>/3 confirmed — missing
                                     <?php
