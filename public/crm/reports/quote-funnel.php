@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
 
 $pageTitle  = 'Quote Funnel';
 $activePage = 'reports';
@@ -60,6 +60,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           var _mwChart = null;
           function mwLoadReport() {
               var start = document.getElementById('mwStartDate').value;
@@ -93,7 +94,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                           var pct = ((1 - r.count / data.table[i-1].count) * 100).toFixed(1);
                           dropoff = pct + '%';
                       }
-                      tbody += '<tr><td>' + r.stage + '</td><td class="text-right">' + r.count + '</td><td class="text-right text-muted">' + dropoff + '</td></tr>';
+                      tbody += '<tr><td>' + mwEsc(r.stage) + '</td><td class="text-right">' + mwEsc(r.count) + '</td><td class="text-right text-muted">' + dropoff + '</td></tr>';
                   });
                   document.querySelector('#mwTable tbody').innerHTML = tbody || '<tr><td colspan="3" class="text-center text-muted py-4">No data for selected period</td></tr>';
               });

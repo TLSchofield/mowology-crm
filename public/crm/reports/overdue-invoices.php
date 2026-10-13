@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
 
 $pageTitle  = 'Overdue Invoices';
 $activePage = 'reports';
@@ -34,6 +34,7 @@ $activePage = 'reports';
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           function mwLoadReport() {
               fetch('/crm/api/reports.php?report=overdue-invoices')
               .then(function(r){ return r.json(); })
@@ -50,19 +51,19 @@ $activePage = 'reports';
                   data.table.forEach(function(r) {
                       var urgency = Number(r.days_overdue) > 30 ? 'text-danger font-weight-bold' : Number(r.days_overdue) > 14 ? 'text-warning' : '';
                       var contact = '';
-                      if (r.email) contact += '<a href="mailto:' + r.email + '">' + r.email + '</a>';
-                      if (r.phone) contact += (contact ? '<br>' : '') + r.phone;
+                      if (r.email) contact += '<a href="mailto:' + mwEsc(r.email) + '">' + mwEsc(r.email) + '</a>';
+                      if (r.phone) contact += (contact ? '<br>' : '') + mwEsc(r.phone);
                       if (!contact) contact = '—';
 
                       tbody += '<tr>' +
-                          '<td><a href="/crm/invoices/view.php?id=' + r.id + '">' + r.invoice_number + '</a></td>' +
-                          '<td>' + r.client_name + '</td>' +
-                          '<td>' + r.issue_date + '</td>' +
-                          '<td>' + r.due_date + '</td>' +
+                          '<td><a href="/crm/invoices/view.php?id=' + encodeURIComponent(r.id) + '">' + mwEsc(r.invoice_number) + '</a></td>' +
+                          '<td>' + mwEsc(r.client_name) + '</td>' +
+                          '<td>' + mwEsc(r.issue_date) + '</td>' +
+                          '<td>' + mwEsc(r.due_date) + '</td>' +
                           '<td class="text-right">$' + Number(r.total).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.amount_paid).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right font-weight-bold">$' + Number(r.balance_due).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
-                          '<td class="text-right ' + urgency + '">' + r.days_overdue + ' days</td>' +
+                          '<td class="text-right ' + urgency + '">' + mwEsc(r.days_overdue) + ' days</td>' +
                           '<td class="small">' + contact + '</td></tr>';
                   });
                   document.querySelector('#mwTable tbody').innerHTML = tbody || '<tr><td colspan="9" class="text-center text-muted py-4">No overdue invoices</td></tr>';

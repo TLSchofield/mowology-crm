@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
 
 $pageTitle  = 'Revenue by Month';
 $activePage = 'reports';
@@ -60,6 +60,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           var _mwChart = null;
           function mwLoadReport() {
               var start = document.getElementById('mwStartDate').value;
@@ -93,7 +94,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                   // Table
                   var tbody = '';
                   data.table.forEach(function(r) {
-                      tbody += '<tr><td>' + r.month_label + '</td><td class="text-right">' + r.invoice_count + '</td>' +
+                      tbody += '<tr><td>' + mwEsc(r.month_label) + '</td><td class="text-right">' + mwEsc(r.invoice_count) + '</td>' +
                           '<td class="text-right">$' + Number(r.total_revenue).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.total_collected).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.total_outstanding).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td></tr>';

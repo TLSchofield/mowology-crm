@@ -3,7 +3,8 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
+requirePermission('team.edit'); // labour cost per worker — office only
 
 $pageTitle  = 'Crew Profitability';
 $activePage = 'reports';
@@ -57,6 +58,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           var _mwChart = null;
           function mwLoadReport() {
               var start = document.getElementById('mwStartDate').value;
@@ -82,7 +84,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                   var tbody = '';
                   data.table.forEach(function(r) {
                       var marginClass = Number(r.avg_margin_pct) >= 40 ? 'text-success' : Number(r.avg_margin_pct) >= 20 ? 'text-warning' : 'text-danger';
-                      tbody += '<tr><td>' + r.crew_name + '</td><td class="text-right">' + r.visit_count + '</td>' +
+                      tbody += '<tr><td>' + mwEsc(r.crew_name) + '</td><td class="text-right">' + mwEsc(r.visit_count) + '</td>' +
                           '<td class="text-right">$' + Number(r.revenue).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.labor_cost).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.material_cost).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +

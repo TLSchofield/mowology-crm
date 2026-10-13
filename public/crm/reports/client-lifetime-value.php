@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
 
 $pageTitle  = 'Client Lifetime Value';
 $activePage = 'reports';
@@ -47,6 +47,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           var _mwChart = null;
           function mwLoadReport() {
               var limit = document.getElementById('mwLimit').value;
@@ -71,11 +72,11 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
 
                   var tbody = '';
                   data.table.forEach(function(r, i) {
-                      tbody += '<tr><td>' + (i+1) + '</td><td><a href="/crm/clients_appstack.php?id=' + r.id + '">' + r.client_name + '</a></td>' +
-                          '<td>' + (r.email || '—') + '</td><td>' + (r.phone || '—') + '</td>' +
-                          '<td class="text-right">' + r.invoice_count + '</td>' +
+                      tbody += '<tr><td>' + (i+1) + '</td><td><a href="/crm/clients_appstack.php?id=' + encodeURIComponent(r.id) + '">' + mwEsc(r.client_name) + '</a></td>' +
+                          '<td>' + mwEsc(r.email || '—') + '</td><td>' + mwEsc(r.phone || '—') + '</td>' +
+                          '<td class="text-right">' + mwEsc(r.invoice_count) + '</td>' +
                           '<td class="text-right font-weight-bold">$' + Number(r.total_paid).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
-                          '<td>' + (r.first_invoice || '—') + '</td><td>' + (r.last_invoice || '—') + '</td></tr>';
+                          '<td>' + mwEsc(r.first_invoice || '—') + '</td><td>' + mwEsc(r.last_invoice || '—') + '</td></tr>';
                   });
                   document.querySelector('#mwTable tbody').innerHTML = tbody || '<tr><td colspan="8" class="text-center text-muted py-4">No invoice data found</td></tr>';
               });

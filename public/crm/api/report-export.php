@@ -18,7 +18,13 @@ unset($__dir, $__i);
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 requireLogin();
-requirePermission('expenses.view');
+// Money and client reports are office-only: billing.view (crew hold expenses.view, not this).
+// Crew profitability shows each worker's labour cost, so it also needs team.edit (managers
+// hold both). Fable review 2026-10-12.
+requirePermission('billing.view');
+if ((($_GET['report'] ?? '') === 'crew-profitability')) {
+    requirePermission('team.edit');
+}
 session_write_close();
 
 $report = $_GET['report'] ?? '';

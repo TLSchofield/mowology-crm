@@ -3,7 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('billing.view');
 
 $pageTitle  = 'Revenue by Service';
 $activePage = 'reports';
@@ -60,6 +60,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
           </div>
 
           <script>
+          function mwEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           var _mwChart = null;
           function mwLoadReport() {
               var start = document.getElementById('mwStartDate').value;
@@ -87,7 +88,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                   var tbody = '';
                   data.table.forEach(function(r) {
                       var svc = r.service_type.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
-                      tbody += '<tr><td>' + svc + '</td><td class="text-right">' + r.visit_count + '</td>' +
+                      tbody += '<tr><td>' + mwEsc(svc) + '</td><td class="text-right">' + mwEsc(r.visit_count) + '</td>' +
                           '<td class="text-right">$' + Number(r.revenue).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">$' + Number(r.margin).toLocaleString(undefined,{minimumFractionDigits:2}) + '</td>' +
                           '<td class="text-right">' + (r.avg_margin_pct !== null ? Number(r.avg_margin_pct).toFixed(1) + '%' : '—') + '</td></tr>';
