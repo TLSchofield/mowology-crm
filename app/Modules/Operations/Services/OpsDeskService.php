@@ -24,7 +24,9 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'supplier_form', 'supplier_chase'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'visit_date', 'duration', 'no_pin', 'pin_off', 'default_border', 'border_overlap', 'supplier_form', 'supplier_chase'];
+    /** Pins and borders (migration 1285, PropertyBorderService). */
+    public const BORDER_KINDS = ['no_pin', 'pin_off', 'default_border', 'border_overlap'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
     public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
     /** Crew training kinds (quiz + certification watched by Otto). */
@@ -33,11 +35,19 @@ class OpsDeskService
 
     private PDO $db;
     private string $today;
+    private bool $neverFill = false;
 
     public function __construct(PDO $db, ?string $today = null)
     {
         $this->db = $db;
         $this->today = $today ?? date('Y-m-d');
+    }
+
+    /** Record suggestions (persist) without ever reading uncached GPS days — the schedule strip. */
+    public function neverFill(): self
+    {
+        $this->neverFill = true;
+        return $this;
     }
 
     /** Migrations 1150–1152 have run. */
@@ -115,12 +125,14 @@ class OpsDeskService
 
     /**
      * Everything Otto would suggest right now, minus what the owner already decided.
-     * @param bool $persist record new suggestions and expire ones that no longer apply
+     * @param bool $persist record new suggestions and expire ones that no longer apply; also computes
+     *                      up to a few uncached unscheduled-work days (the GPS scan) unless neverFill()
      * @return array<int, array> items, most urgent first
      */
     public function current(bool $persist = false): array
     {
-        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems(), $this->supplierItems());
+        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems(),
+            $this->unscheduledItems($persist && !$this->neverFill), $this->durationItems(), $this->borderItems(), $this->supplierItems());
         $known = $this->known();
         $open = [];
         foreach ($items as $it) {
@@ -154,6 +166,11 @@ class OpsDeskService
             'dispatch' => array_sum(array_intersect_key($by, array_flip(self::DISPATCH_KINDS))),
             'training' => array_sum(array_intersect_key($by, array_flip(self::TRAINING_KINDS))),
             'silent'  => $silent,
+            'unscheduled' => $by['unscheduled'] + $by['extra_work'],
+            'durations' => $by['duration'],
+            'borders' => $by['no_pin'] + $by['pin_off'] + $by['border_overlap'],
+            'default_borders' => $by['default_border'],
+            'coverage' => $this->coverage(),
             'right_first_time' => $this->rightFirstTime(),
             'outlook' => $this->outlookLine(),
         ];
@@ -176,6 +193,7 @@ class OpsDeskService
         ], $ownerFirstName);
         $out = [];
         foreach ($items as $it) {
+            if ($it['kind'] === 'default_border') continue;   // one per property — the card and review page carry them, not the brief
             $out[] = [
                 'key' => $it['key'], 'kind' => $it['kind'], 'text' => $it['text'], 'url' => $it['url'],
                 'priority' => (int)$it['priority'], 'value' => $it['value'] ?? null, 'since' => $it['since'] ?? null,
@@ -508,6 +526,54 @@ class OpsDeskService
             error_log('Otto training: ' . $e->getMessage());
         }
         return $out;
+    }
+
+    // ── Work with nothing scheduled; real visit lengths (migrations 1265 / 1266) ─
+
+    /** $fill: compute up to a few uncached days (the API call), never on a page render. */
+    private function unscheduledItems(bool $fill): array
+    {
+        try {
+            require_once __DIR__ . '/UnscheduledWorkService.php';
+            return (new UnscheduledWorkService($this->db, $this->today))->items($fill);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function durationItems(): array
+    {
+        try {
+            require_once __DIR__ . '/VisitDurationService.php';
+            return (new VisitDurationService($this->db, $this->today))->items();
+        } catch (Throwable $e) {
+            error_log('Otto durations: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Pins and borders for every active client property — stored tables only, never GPS (migration 1285). */
+    private function borderItems(): array
+    {
+        try {
+            require_once __DIR__ . '/PropertyBorderService.php';
+            return (new PropertyBorderService($this->db, $this->today))->items();
+        } catch (Throwable $e) {
+            error_log('Otto borders: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Share of visits completed in the last 60 days that have a job timer. */
+    public function coverage(): ?array
+    {
+        try {
+            require_once __DIR__ . '/VisitDurationService.php';
+            return (new VisitDurationService($this->db, $this->today))->coverage();
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,1032 @@
+<?php
+/**
+ * UnscheduledWorkService — Otto: days the crew worked at a client property with nothing scheduled.
+ *
+ * Loads the evidence, hands it to UnscheduledWorkRules (pure, tested), and applies the owner's
+ * answer. See UnscheduledWorkRules for what counts.
+ *
+ *   evidence(date)   truck stops + crew dwells for one day, property-attributed. Days that have
+ *                    ended are cached in otto_unscheduled_days (migration 1265) — the crew GPS
+ *                    for a day is thousands of rows and the answer does not change once the
+ *                    day's data is in. Whether a property was SCHEDULED is never cached: adding
+ *                    the visit makes the item go away on the next look.
+ *   review(from,to)  every candidate in the range with its evidence (the dry run and the review
+ *                    page). Read-only: no cache writes.
+ *   items()          Otto's suggestions (kind 'unscheduled') for the last 14 ended days.
+ *   apply()          Add the visit (to an existing plan, or as a one-off job) as a COMPLETED visit
+ *                    with the observed times — then optionally open a draft invoice for it, or
+ *                    link it to the invoice the owner already made by hand. Or "not work".
+ *
+ * Adding the visit completes it quietly: no job-complete email, no Google review request, no push.
+ * It is a record of work already done days ago (VisitLifecycleService::updateVisitStatus would
+ * email the customer as if the crew had just left).
+ *
+ * No namespace / no autoloader in production: require_once and `new`.
+ */
+require_once __DIR__ . '/UnscheduledWorkRules.php';
+require_once __DIR__ . '/TripSegmentService.php';
+
+class UnscheduledWorkService
+{
+    /** Bump when the shape of a cached day changes; older rows are recomputed. */
+    public const CACHE_VERSION = 3;   // 2: crew dwells carry a per-fix track; 3: stops use every ping + list nearby lots
+    /** Must match UnscheduledWorkRules::BUILD — the dry run shows both, so a half-refreshed OPcache is visible. */
+    public const BUILD = '2026-10-08c';
+    /** Uncached days filled per call from the card's API (the first run needs a few calls). */
+    public const FILL_PER_CALL = 3;
+    /** Phone fixes closer together than this are thinned (5 s native cadence → 1 a minute). */
+    public const THIN_SECONDS = 60;
+
+    protected PDO $db;
+    private string $today;
+
+    public function __construct(PDO $db, ?string $today = null)
+    {
+        $this->db = $db;
+        $this->today = $today ?? date('Y-m-d');
+    }
+
+    public function cacheReady(): bool
+    {
+        try {
+            return $this->db->query("SELECT 1 FROM otto_unscheduled_days LIMIT 1") !== false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Evidence for one day
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @return array{date: string, truck: array, crew: array, meta: array}
+     *   meta: truck_pings, phone_fixes [uid => n], clock_fixes, timer_fixes, users [uid => name], cached
+     */
+    public function evidence(string $date, bool $useCache = true, bool $writeCache = false): array
+    {
+        if ($useCache && ($c = $this->cached($date)) !== null) return $c + ['cached' => true];
+
+        $seg = new TripSegmentService($this->db);
+        $pings = $this->truckPings($seg, $date);
+        $fixes = $this->crewFixes($date);
+        $all = $pings;
+        foreach ($fixes as $list) foreach ($list as $f) $all[] = $f;
+        $properties = $this->propertiesNear($all);
+        $fences = $this->fences($all);
+        $places = $this->places($seg);
+        $zones = array_merge($this->placeZones($places), $this->officeZones(), $this->homeZones());
+
+        $segments = $pings ? TripSegmentService::segments($pings, $properties, $places) : [];
+        $truck = UnscheduledWorkRules::truckDwells($segments, $properties, $fences, $zones, $pings);
+        $crew = [];
+        $meta = ['truck_pings' => count($pings), 'phone_fixes' => [], 'clock_fixes' => 0, 'timer_fixes' => 0];
+        foreach ($fixes as $uid => $list) {
+            foreach ($list as $f) {
+                if ($f['src'] === 'clock') $meta['clock_fixes']++;
+                elseif ($f['src'] === 'timer') $meta['timer_fixes']++;
+                else $meta['phone_fixes'][$uid] = ($meta['phone_fixes'][$uid] ?? 0) + 1;
+            }
+            $d = UnscheduledWorkRules::crewDwells($list, $properties, $fences, $zones);
+            if ($d) $crew[$uid] = $d;
+        }
+        $meta['zones'] = count($zones);
+        // Every truck stop of the day with its label and nearest client pin — so a dry run that
+        // misses a job shows why (parked 180 m away, labelled as a supplier, …).
+        $meta['stops'] = [];
+        foreach ($segments as $sg) {
+            if ($sg['type'] !== 'stop' || $sg['end'] - $sg['start'] < UnscheduledWorkRules::KEEP_DWELL_MIN * 60) continue;
+            $near = null;
+            foreach ($properties as $p) {
+                $m = UnscheduledWorkRules::meters((float)$sg['lat'], (float)$sg['lng'], (float)$p['latitude'], (float)$p['longitude']);
+                if ($near === null || $m < $near[1]) $near = [(int)$p['id'], $m];
+            }
+            $meta['stops'][] = ['from' => (int)$sg['start'], 'to' => (int)$sg['end'], 'label' => $sg['label']['type'] . ': ' . $sg['label']['name'],
+                'excluded_by' => UnscheduledWorkRules::excludedBy((float)$sg['lat'], (float)$sg['lng'], $zones),
+                'nearest_property' => $near ? $near[0] : null, 'nearest_m' => $near ? (int)round($near[1]) : null];
+        }
+        $out = ['date' => $date, 'v' => self::CACHE_VERSION, 'truck' => $truck, 'crew' => $crew, 'meta' => $meta];
+        if ($writeCache && $date < $this->today) $this->store($date, $out);
+        return $out + ['cached' => false];
+    }
+
+    private function truckPings(TripSegmentService $seg, string $date): array
+    {
+        try {
+            return $seg->pings($date);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled truck: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** [uid => [{lat, lng, t, src: phone|clock|timer}]] — office pings excluded, phone thinned to 1/min. */
+    public function crewFixes(string $date): array
+    {
+        $from = $date . ' 00:00:00';
+        $to = $date . ' 23:59:59';
+        $out = [];
+        try {
+            $s = $this->db->prepare("
+                SELECT crew_id, latitude, longitude, `timestamp` AS t
+                FROM crew_location_history
+                WHERE `timestamp` BETWEEN ? AND ? AND COALESCE(is_office, 0) = 0
+                  AND latitude IS NOT NULL AND longitude IS NOT NULL
+                ORDER BY crew_id, `timestamp`
+            ");
+            $s->execute([$from, $to]);
+            $last = [];
+            while ($r = $s->fetch(PDO::FETCH_ASSOC)) {
+                $uid = (int)$r['crew_id'];
+                $t = (int)strtotime((string)$r['t']);
+                if (isset($last[$uid]) && $t - $last[$uid] < self::THIN_SECONDS) continue;
+                $last[$uid] = $t;
+                $out[$uid][] = ['lat' => (float)$r['latitude'], 'lng' => (float)$r['longitude'], 't' => $t, 'src' => 'phone'];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled phones: ' . $e->getMessage());
+        }
+        try {
+            $s = $this->db->prepare("
+                SELECT user_id, clock_in, clock_in_lat, clock_in_lng, clock_out, clock_out_lat, clock_out_lng
+                FROM time_clock_entries
+                WHERE clock_in BETWEEN ? AND ? AND status <> 'void'
+            ");
+            $s->execute([$from, $to]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                foreach (['in', 'out'] as $w) {
+                    if (is_numeric($r["clock_{$w}_lat"] ?? null) && is_numeric($r["clock_{$w}_lng"] ?? null) && !empty($r["clock_{$w}"])) {
+                        $out[(int)$r['user_id']][] = ['lat' => (float)$r["clock_{$w}_lat"], 'lng' => (float)$r["clock_{$w}_lng"], 't' => (int)strtotime((string)$r["clock_{$w}"]), 'src' => 'clock'];
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled clock: ' . $e->getMessage());
+        }
+        try {
+            $s = $this->db->prepare("
+                SELECT user_id, start_time, start_lat, start_lng, end_time, end_lat, end_lng
+                FROM job_time_entries
+                WHERE start_time BETWEEN ? AND ? AND status <> 'void'
+            ");
+            $s->execute([$from, $to]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                foreach (['start', 'end'] as $w) {
+                    if (is_numeric($r["{$w}_lat"] ?? null) && is_numeric($r["{$w}_lng"] ?? null) && !empty($r["{$w}_time"])) {
+                        $out[(int)$r['user_id']][] = ['lat' => (float)$r["{$w}_lat"], 'lng' => (float)$r["{$w}_lng"], 't' => (int)strtotime((string)$r["{$w}_time"]), 'src' => 'timer'];
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled timers: ' . $e->getMessage());
+        }
+        return $out;
+    }
+
+    /** Properties with real coordinates inside the box the day's points cover. */
+    private function propertiesNear(array $points): array
+    {
+        if (!$points) return [];
+        [$a, $b, $c, $d] = self::bbox($points, 0.003);
+        $s = $this->db->prepare("
+            SELECT id, latitude, longitude, address, property_name FROM properties
+            WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?
+              AND NOT (latitude = 0 AND longitude = 0)
+        ");
+        $s->execute([$a, $b, $c, $d]);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function fences(array $points): array
+    {
+        if (!$points) return [];
+        [$a, $b, $c, $d] = self::bbox($points, 0.003);
+        try {
+            $s = $this->db->prepare("
+                SELECT property_id, polygon_json, bbox_lat_min, bbox_lat_max, bbox_lng_min, bbox_lng_max
+                FROM job_geofences
+                WHERE bbox_lat_max >= ? AND bbox_lat_min <= ? AND bbox_lng_max >= ? AND bbox_lng_min <= ?
+            ");
+            $s->execute([$a, $b, $c, $d]);
+            $out = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[] = ['property_id' => (int)$r['property_id'], 'ring' => UnscheduledWorkRules::ring($r['polygon_json']),
+                          'lat_min' => (float)$r['bbox_lat_min'], 'lat_max' => (float)$r['bbox_lat_max'],
+                          'lng_min' => (float)$r['bbox_lng_min'], 'lng_max' => (float)$r['bbox_lng_max']];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function places(TripSegmentService $seg): array
+    {
+        return $seg->places();
+    }
+
+    private function placeZones(array $places): array
+    {
+        return array_map(fn($p) => ['lat' => (float)$p['lat'], 'lng' => (float)$p['lng'], 'radius_m' => (float)($p['radius_m'] ?: 150),
+            'name' => (string)$p['name'], 'kind' => (string)$p['kind']], $places);
+    }
+
+    private function officeZones(): array
+    {
+        try {
+            $rows = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('office_latitude', 'office_longitude')")
+                             ->fetchAll(PDO::FETCH_KEY_PAIR);
+            if (is_numeric($rows['office_latitude'] ?? null) && is_numeric($rows['office_longitude'] ?? null)) {
+                return [['lat' => (float)$rows['office_latitude'], 'lng' => (float)$rows['office_longitude'],
+                         'radius_m' => UnscheduledWorkRules::OFFICE_RADIUS_M, 'name' => 'the office', 'kind' => 'office']];
+            }
+        } catch (Throwable $e) { /* no office set */ }
+        return [];
+    }
+
+    private function homeZones(): array
+    {
+        try {
+            $rows = $this->db->query("SELECT id, full_name, home_lat, home_lng, home_radius_meters FROM users WHERE home_lat IS NOT NULL AND home_lng IS NOT NULL")
+                             ->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        return array_map(fn($u) => ['lat' => (float)$u['home_lat'], 'lng' => (float)$u['home_lng'],
+            'radius_m' => max(UnscheduledWorkRules::HOME_RADIUS_M, (int)($u['home_radius_meters'] ?? 0)),
+            'name' => 'home (' . strtok(trim((string)$u['full_name']), ' ') . ')', 'kind' => 'home'], $rows);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // What was scheduled
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** A timer on a visit scheduled this many days either side of the day it ran = that visit was done that day. */
+    public const DONE_OTHER_DAY_DAYS = 7;
+
+    /**
+     * [property_id => list of the visits done that day] — the ONE definition of "scheduled" every path uses
+     * (unscheduled, extra work, neighbour split, contract auto-log):
+     *   - a visit scheduled that day (scheduled / in progress / completed), or completed that day;
+     *   - a visit of the property scheduled within ±DONE_OTHER_DAY_DAYS that has a timer STARTED that day
+     *     (crew run timers on the wrong day's visit — prod: Oct 5 Oakridge timers on #2160 sched Oct 6 and
+     *     #2159 sched Oct 7) → counted as done that day, with moved_from = its scheduled date;
+     *   - NOT a visit scheduled that day whose timers all ran on another day (it was done then);
+     *   - NOT skipped / cancelled visits, and NOT a calendar stop with no visit on it (see emptyStops()).
+     * Each row: {visit_id, visit_number, plan_id, plan_number, service_type, status, planned_min (plan length =
+     * on-site crew time), timer_min (on-site minutes from that day's timers), moved_from (null or Y-m-d)}.
+     */
+    public function scheduledIds(string $date): array
+    {
+        $out = [];
+        try {
+            $cols = "v.id, v.visit_number, v.status, v.scheduled_date, jp.id AS plan_id, jp.plan_number, jp.service_type, jp.title,
+                     jp.estimated_duration_minutes, jp.property_id";
+            $s = $this->db->prepare("
+                SELECT {$cols}
+                FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id
+                WHERE (v.scheduled_date = ? AND v.status IN ('scheduled', 'in_progress', 'completed'))
+                   OR (v.completed_at >= ? AND v.completed_at <= ? AND v.status = 'completed')
+            ");
+            $s->execute([$date, $date . ' 00:00:00', $date . ' 23:59:59']);
+            $rows = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] = $r;
+            // Visits of another day (±7) that were timed today.
+            $s = $this->db->prepare("
+                SELECT DISTINCT {$cols}
+                FROM job_time_entries jte
+                JOIN job_visits v ON v.id = jte.visit_id
+                JOIN job_plans jp ON jp.id = v.plan_id
+                WHERE jte.start_time BETWEEN ? AND ? AND jte.status <> 'void'
+                  AND v.scheduled_date <> ? AND v.scheduled_date BETWEEN ? AND ? AND v.status <> 'cancelled'
+            ");
+            $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date,
+                date('Y-m-d', strtotime($date . ' -' . self::DONE_OTHER_DAY_DAYS . ' days')), date('Y-m-d', strtotime($date . ' +' . self::DONE_OTHER_DAY_DAYS . ' days'))]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] ??= $r + ['_moved' => true];
+
+            $t = $this->timerDays(array_keys($rows));
+            foreach ($rows as $id => $r) {
+                $days = $t[$id]['days'] ?? [];
+                $moved = !empty($r['_moved']);
+                // Scheduled today but every timer ran on another day within the window → done that other day.
+                if (!$moved && $days && !isset($days[$date]) && (string)$r['scheduled_date'] === $date && $r['status'] !== 'completed') {
+                    $near = array_filter(array_keys($days), fn($d) => abs(strtotime($d) - strtotime($date)) <= self::DONE_OTHER_DAY_DAYS * 86400);
+                    if ($near) continue;
+                }
+                $out[(int)$r['property_id']][] = [
+                    'visit_id' => (int)$id, 'visit_number' => (string)($r['visit_number'] ?? ''), 'status' => (string)$r['status'],
+                    'plan_id' => (int)$r['plan_id'], 'plan_number' => (string)($r['plan_number'] ?? ''),
+                    'service_type' => (string)(($r['service_type'] ?? '') ?: ($r['title'] ?? '')),
+                    'planned_min' => $r['estimated_duration_minutes'] !== null ? (int)$r['estimated_duration_minutes'] : null,
+                    'timer_min' => $t[$id]['minutes'][$date] ?? null,
+                    'moved_from' => $moved ? (string)$r['scheduled_date'] : null,
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled visits: ' . $e->getMessage());
+        }
+        return $out;
+    }
+
+    /**
+     * Per visit: the days its timers started on, and the on-site minutes per day (union of everyone's
+     * timers that day; the truck login only when nobody else timed it).
+     * @return array<int, array{days: array<string, true>, minutes: array<string, int>}>
+     */
+    private function timerDays(array $visitIds): array
+    {
+        if (!$visitIds) return [];
+        require_once __DIR__ . '/VisitDurationRules.php';
+        $by = [];
+        try {
+            $in = implode(',', array_fill(0, count($visitIds), '?'));
+            $s = $this->db->prepare("
+                SELECT jte.visit_id, jte.user_id, jte.start_time, jte.end_time, COALESCE(u.device_type, 'personal') AS device_type
+                FROM job_time_entries jte LEFT JOIN users u ON u.id = jte.user_id
+                WHERE jte.visit_id IN ({$in}) AND jte.status <> 'void'
+            ");
+            $s->execute(array_values($visitIds));
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $st = (int)strtotime((string)$r['start_time']);
+                $by[(int)$r['visit_id']][date('Y-m-d', $st)][] = ['user_id' => (int)$r['user_id'], 'truck' => $r['device_type'] === 'truck', 'start' => $st,
+                    // A timer still running is counted to now, never past the end of its day.
+                    'end' => $r['end_time'] ? (int)strtotime((string)$r['end_time']) : min(time(), (int)strtotime(date('Y-m-d 23:59:59', $st))),
+                    'duration' => null, 'auto_stopped' => false, 'end_gps' => true];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled timers: ' . $e->getMessage());
+        }
+        $out = [];
+        foreach ($by as $vid => $perDay) {
+            foreach ($perDay as $day => $entries) {
+                $out[$vid]['days'][$day] = true;
+                $m = VisitDurationRules::visitMinutes($entries);
+                if ($m['excluded'] !== 'untimed') $out[$vid]['minutes'][$day] = $m['crew_min'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Visits done on $date but scheduled for another day (see scheduledIds), for "move it" items.
+     * @return list<array> scheduledIds rows + property_id
+     */
+    public function movedVisits(string $date): array
+    {
+        $out = [];
+        foreach ($this->scheduledIds($date) as $pid => $list) {
+            foreach ($list as $v) if ($v['moved_from'] !== null) $out[] = $v + ['property_id' => (int)$pid, 'done_on' => $date];
+        }
+        return $out;
+    }
+
+    /**
+     * Move a visit's date to the day it was really done: a new (or existing) calendar stop for that day, the
+     * old stop's status recomputed. Any status but cancelled. @return bool
+     */
+    public function moveVisitDate(int $visitId, string $toDate): bool
+    {
+        $this->loadPlanFunctions();
+        $s = $this->db->prepare("
+            SELECT v.id, v.stop_id, v.assigned_crew_id, v.scheduled_date, jp.property_id, jp.default_crew_id
+            FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id WHERE v.id = ? AND v.status <> 'cancelled'
+        ");
+        $s->execute([$visitId]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v || (string)$v['scheduled_date'] === $toDate) return false;
+        $crew = $v['assigned_crew_id'] ?? $v['default_crew_id'];
+        $stop = ensureCalendarStop((int)$v['property_id'], $toDate, $crew !== null ? (int)$crew : null);
+        $u = $this->db->prepare("UPDATE job_visits SET scheduled_date = ?, stop_id = ? WHERE id = ? AND status <> 'cancelled'");
+        $u->execute([$toDate, $stop ?: null, $visitId]);
+        if ($u->rowCount() === 0) return false;
+        if (class_exists('VisitLifecycleService')) {
+            foreach (array_filter([(int)$v['stop_id'], (int)$stop]) as $sid) {
+                try { VisitLifecycleService::propagateStopStatus($sid); } catch (Throwable $e) { /* catches up later */ }
+            }
+        }
+        return true;
+    }
+
+    /** [property_id => true] — the owner said "not work" here twice. */
+    public function notWork(): array
+    {
+        $out = [];
+        try {
+            $s = $this->db->prepare("SELECT scope_key, value_json FROM otto_lessons WHERE scope = 'unscheduled'");
+            $s->execute();
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $v = json_decode((string)$r['value_json'], true) ?: [];
+                if (preg_match('/^property:(\d+)$/', (string)$r['scope_key'], $m) && (int)($v['not_work'] ?? 0) >= 2) $out[(int)$m[1]] = true;
+            }
+        } catch (Throwable $e) { /* no lessons yet */ }
+        return $out;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Review (dry run) and Otto's items
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Every candidate between two dates with the evidence, flagged first. Read-only unless
+     * $writeCache (the review page stores ended days it had to compute; the dry run never does).
+     * @return array{days: list<array>, flagged: int}
+     */
+    public function review(string $from, string $to, bool $useCache = true, bool $writeCache = false): array
+    {
+        $notWork = $this->notWork();
+        $auto = null;
+        try {
+            require_once __DIR__ . '/OttoContractLogService.php';
+            $auto = new OttoContractLogService($this->db, $this, $this->today);
+            if (!$auto->ready()) $auto = null;
+        } catch (Throwable $e) {
+            $auto = null;
+        }
+        $days = [];
+        $flagged = 0;
+        for ($d = $from; $d <= $to; $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
+            $ev = $this->evidence($d, $useCache, $writeCache);
+            $cands = UnscheduledWorkRules::candidates($d, $ev['truck'], $ev['crew'], $this->scheduledIds($d), $notWork);
+            $cands = $this->describe($cands);
+            // Contract sites (migration 1267): what Otto did / would do by himself — read-only here.
+            if ($auto) {
+                foreach ($cands as &$c) {
+                    $row = $auto->row((int)$c['property_id'], $d);
+                    $c['auto'] = $row ? ['id' => (int)$row['id'], 'status' => (string)$row['status'], 'visit_id' => $row['visit_id'] !== null ? (int)$row['visit_id'] : null,
+                        'reason' => (string)($row['reason'] ?? '')] : null;
+                    $c['contract'] = $c['flag'] ? $auto->preview($c) : null;
+                    if ($c['auto'] && in_array($c['auto']['status'], ['logged', 'logging'], true)) { $c['flag'] = false; $c['ignored'] = 'logged_by_otto'; }
+                }
+                unset($c);
+            }
+            $flagged += count(array_filter($cands, fn($c) => $c['flag']));
+            $days[] = ['date' => $d, 'sources' => $ev['meta'] + ['cached' => $ev['cached']], 'candidates' => $cands];
+        }
+        return ['days' => $days, 'flagged' => $flagged];
+    }
+
+    /**
+     * Otto's suggestions for the last LOOKBACK_DAYS ended days. Only cached days are read;
+     * with $fill, up to FILL_PER_CALL missing days are computed and cached first.
+     */
+    public function items(bool $fill = false): array
+    {
+        if (!$this->cacheReady()) return [];
+        $notWork = $this->notWork();
+        $auto = null;
+        try {
+            require_once __DIR__ . '/OttoContractLogService.php';
+            $auto = new OttoContractLogService($this->db, $this, $this->today);
+            if (!$auto->ready()) $auto = null;
+        } catch (Throwable $e) {
+            $auto = null;
+        }
+        $filled = 0;
+        $out = [];
+        for ($i = 1; $i <= UnscheduledWorkRules::LOOKBACK_DAYS; $i++) { // newest first: yesterday is filled first
+            $d = date('Y-m-d', strtotime($this->today . " -{$i} days"));
+            $ev = $this->cached($d);
+            if ($ev === null) {
+                if ($fill && $filled < self::FILL_PER_CALL) {
+                    $ev = $this->evidence($d, false, true);
+                    $filled++;
+                } else {
+                    // An early or old-version row still beats nothing (and keeps its open item from expiring).
+                    $ev = $this->cached($d, false);
+                    if ($ev === null) continue;
+                }
+            }
+            $cands = UnscheduledWorkRules::candidates($d, $ev['truck'], $ev['crew'], $this->scheduledIds($d), $notWork);
+            foreach ($cands as $c) {
+                // A day Otto already logged at a contract site is done — its own visit must not re-flag it.
+                if ($auto && in_array(($auto->row((int)$c['property_id'], $d)['status'] ?? ''), ['logged', 'logging'], true)) continue;
+                if (!$c['flag']) continue;
+                $c = $this->describe([$c])[0];
+                if ($auto) {
+                    // Contract sites: Otto logs, never asks (owner, 2026-10-07). Only with $fill (the card API /
+                    // the daily pass) — a page render never writes.
+                    $r = $fill ? $auto->log($c) : null;
+                    if ($r && $r['done']) continue;
+                    if (!$fill && ($pv = $auto->preview($c)) && $pv['log']) continue;   // it will be logged on the next pass
+                    if ($r && $r['reason'] !== 'not a contract site') $c['contract_note'] = 'Contract site, but ' . $r['reason'];
+                }
+                $out[] = $this->item($c);
+            }
+            // Visits timed today but scheduled another day: move contract ones, ask about the rest.
+            foreach ($this->movedVisits($d) as $v) {
+                if ($auto) {
+                    $m = $fill ? $auto->move($v, $d) : null;
+                    if ($m && $m['done']) continue;
+                    if (!$fill && $auto->contractFor((int)$v['property_id'], $d) !== null) continue;   // moved on the next pass
+                }
+                $out[] = $this->movedItem($v, $d);
+            }
+        }
+        return $out;
+    }
+
+    /** "Visit #2160 (lawn maintenance, 6015 Tisdall St) was done Mon Oct 5, not Tue Oct 6 → move it." */
+    private function movedItem(array $v, string $day): array
+    {
+        $p = $this->property((int)$v['property_id']);
+        $street = self::street((string)($p['address'] ?? ''));
+        $what = strtolower(trim($v['service_type'])) ?: 'visit';
+        return [
+            'key' => 'otto:vdate:' . $v['visit_id'] . ':' . $day, 'kind' => 'visit_date', 'subject_type' => 'visit', 'subject_id' => (int)$v['visit_id'],
+            'for_date' => $day, 'user_id' => null, 'priority' => 3,
+            'text' => 'Visit #' . $v['visit_id'] . ' (' . $what . ', ' . $street . ') was done ' . date('D M j', strtotime($day))
+                . ', not ' . date('D M j', strtotime((string)$v['moved_from'])) . ' → move it.',
+            'detail' => 'Its timer ran on ' . date('D M j', strtotime($day)) . ($v['timer_min'] !== null ? ' (' . (int)$v['timer_min'] . ' min)' : '')
+                . ' · ' . $v['plan_number'] . ' · ' . $v['status'],
+            'url' => '/crm/jobs/visit-detail.php?id=' . (int)$v['visit_id'],
+            'value' => $v['timer_min'], 'since' => $day,
+            'propose' => ['visit_id' => (int)$v['visit_id'], 'to' => $day, 'from' => $v['moved_from'], 'to_label' => date('D M j', strtotime($day))],
+        ];
+    }
+
+    /** describe() for OttoContractLogService's daily pass. */
+    public function describePublic(array $cands): array
+    {
+        return $this->describe($cands);
+    }
+
+    private function item(array $c): array
+    {
+        $street = self::street((string)$c['address']);
+        $crewId = null;
+        foreach ($c['crew_people'] as $p) if (!$p['truck']) { $crewId = $p['id']; break; }
+        $extra = ($c['kind'] ?? '') === 'extra';
+        // The unexplained remainder (after any scheduled visit, placed where the crew was).
+        $from = $c['start'];
+        return [
+            'key' => 'otto:' . ($extra ? 'extra' : 'unsched') . ':' . $c['property_id'] . ':' . $c['date'], 'kind' => $extra ? 'extra_work' : 'unscheduled',
+            'subject_type' => 'property', 'subject_id' => (int)$c['property_id'], 'for_date' => $c['date'],
+            'user_id' => $crewId, 'priority' => $c['confidence'] === 'low' ? 3 : 2,
+            'text' => UnscheduledWorkRules::text($c, $street, $c['site_names'] ?? []),
+            'detail' => $c['evidence'] . ($c['client'] !== '' ? ' · ' . $c['client'] : '') . (!empty($c['contract_note']) ? ' · ' . $c['contract_note'] : ''),
+            'url' => '/crm/properties/view.php?id=' . (int)$c['property_id'],
+            'value' => $c['minutes'], 'since' => $c['date'],
+            'propose' => [
+                'date' => $c['date'], 'start' => date('H:i', $from), 'end' => date('H:i', $c['end']),
+                'minutes' => (int)round(($c['end'] - $from) / 60), 'stay_minutes' => (int)($c['site_minutes'] ?? $c['minutes']),
+                'crew_id' => $crewId, 'people' => count(array_filter($c['crew_people'], fn($p) => !$p['truck'])) ?: null,
+                'confidence' => $c['confidence'], 'basis' => $c['basis'],
+                'plans' => $c['plans'], 'invoices' => $c['invoices'], 'street' => $street,
+                'extra' => $extra, 'scheduled_visits' => $c['scheduled_visits'] ?? [],
+                'planned_min' => $c['planned_min'] ?? null, 'extra_min' => $c['extra_min'] ?? null,
+                'scheduled_label' => $extra ? (count($c['scheduled_visits']) === 1 ? (strtolower(trim((string)$c['scheduled_visits'][0]['service_type'])) ?: 'visit') : 'scheduled visits') : null,
+            ],
+        ];
+    }
+
+    /** Adds address, client, names, plans, nearby visits and invoices to candidates. */
+    private function describe(array $cands): array
+    {
+        if (!$cands) return [];
+        $names = $this->userNames();
+        foreach ($cands as &$c) {
+            $pid = (int)$c['property_id'];
+            $p = $this->property($pid);
+            $c['address'] = (string)($p['address'] ?? ('Property #' . $pid));
+            $c['client'] = trim((string)($p['client'] ?? ''));
+            $c['crew_people'] = array_map(fn($uid) => ['id' => $uid, 'name' => $names[$uid]['name'] ?? ('#' . $uid), 'truck' => !empty($names[$uid]['truck'])], $c['people']);
+            $c['evidence'] = UnscheduledWorkRules::evidenceLine($c, array_map(fn($n) => $n['name'], $names));
+            $c['plans'] = $this->plans($pid);
+            $c['visits_near'] = $this->visitsNear($pid, $c['date']);
+            $c['invoices'] = $this->invoicesAfter($pid, $c['date']);
+            $c['empty_stops'] = $this->emptyStops($c['date'])[$pid] ?? [];
+            $c['stray_timers'] = array_map(fn($t) => $t + ['who' => $names[$t['user_id']]['name'] ?? ('#' . $t['user_id'])], $this->strayTimers($c['date'])[$pid] ?? []);
+            $extra = [];
+            foreach ($c['empty_stops'] as $st) $extra[] = UnscheduledWorkRules::emptyStopLine($st);
+            foreach ($c['stray_timers'] as $t) $extra[] = UnscheduledWorkRules::strayTimerLine($t);
+            if ($extra) $c['evidence'] .= ' · ' . implode(' · ', $extra);
+            $c['window'] = date('H:i', $c['start']) . '–' . date('H:i', $c['end']);
+            $c['window_site'] = date('H:i', (int)($c['site_start'] ?? $c['start'])) . '–' . date('H:i', (int)($c['site_end'] ?? $c['end']));
+            $c['site_names'] = [];
+            foreach ((array)($c['site_props'] ?? [$pid]) as $sp) {
+                $pp = $this->property((int)$sp);
+                $c['site_names'][(int)$sp] = ['street' => self::street((string)($pp['address'] ?? '')), 'client' => trim((string)($pp['client'] ?? ''))];
+            }
+        }
+        unset($c);
+        return $cands;
+    }
+
+    /**
+     * [property_id => [{id, created_at, crew_id}]] — calendar stops that day with no non-cancelled visit on
+     * them. Usually left behind when the visit was moved or rolled over to another day.
+     */
+    public function emptyStops(string $date): array
+    {
+        if (isset($this->memo['es' . $date])) return $this->memo['es' . $date];
+        $out = [];
+        try {
+            $s = $this->db->prepare("
+                SELECT cs.id, cs.property_id, cs.created_at, cs.crew_id FROM calendar_stops cs
+                WHERE cs.stop_date = ?
+                  AND NOT EXISTS (SELECT 1 FROM job_visits v WHERE v.stop_id = cs.id AND v.status <> 'cancelled')
+            ");
+            $s->execute([$date]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[(int)$r['property_id']][] = ['id' => (int)$r['id'], 'created_at' => $r['created_at'] ?? null, 'crew_id' => $r['crew_id'] !== null ? (int)$r['crew_id'] : null];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto empty stops: ' . $e->getMessage());
+        }
+        return $this->memo['es' . $date] = $out;
+    }
+
+    /**
+     * [property_id => [{user_id, start, end, minutes, visit_id, visit_date, plan_number}]] — job timers
+     * started that day that are NOT on a visit of that day: no visit (plan only), or a visit scheduled
+     * for another day (moved / rolled over after the timer ran).
+     */
+    public function strayTimers(string $date): array
+    {
+        if (isset($this->memo['st' . $date])) return $this->memo['st' . $date];
+        $rows = [];
+        $sql = "
+            SELECT jte.user_id, jte.start_time, jte.end_time, jte.duration_minutes, jte.visit_id, v.scheduled_date AS visit_date,
+                   COALESCE(jpv.property_id, jpp.property_id) AS property_id, COALESCE(jpv.plan_number, jpp.plan_number) AS plan_number
+            FROM job_time_entries jte
+            LEFT JOIN job_visits v ON v.id = jte.visit_id
+            LEFT JOIN job_plans jpv ON jpv.id = v.plan_id
+            LEFT JOIN job_plans jpp ON jpp.id = jte.plan_id
+            WHERE jte.start_time BETWEEN ? AND ? AND jte.status <> 'void'
+              AND (jte.visit_id IS NULL OR v.scheduled_date <> ?)";
+        try {
+            $s = $this->db->prepare($sql);
+            $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // No job_time_entries.plan_id on this database: visits only.
+            try {
+                $s = $this->db->prepare(str_replace(['COALESCE(jpv.property_id, jpp.property_id)', 'COALESCE(jpv.plan_number, jpp.plan_number)', 'LEFT JOIN job_plans jpp ON jpp.id = jte.plan_id'],
+                    ['jpv.property_id', 'jpv.plan_number', ''], $sql));
+                $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date]);
+                $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e2) {
+                error_log('Otto stray timers: ' . $e2->getMessage());
+            }
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            if ($r['property_id'] === null) continue;
+            // A timer on a visit scheduled within ±DONE_OTHER_DAY_DAYS explains the time (scheduledIds: done that day).
+            if ($r['visit_date'] !== null && abs(strtotime((string)$r['visit_date']) - strtotime($date)) <= self::DONE_OTHER_DAY_DAYS * 86400) continue;
+            $st = (int)strtotime((string)$r['start_time']);
+            $en = $r['end_time'] ? (int)strtotime((string)$r['end_time']) : null;
+            $min = $r['duration_minutes'] !== null ? (int)$r['duration_minutes'] : ($en ? (int)round(($en - $st) / 60) : null);
+            $out[(int)$r['property_id']][] = ['user_id' => (int)$r['user_id'], 'start' => $st, 'end' => $en, 'minutes' => $min,
+                'visit_id' => $r['visit_id'] !== null ? (int)$r['visit_id'] : null, 'visit_date' => $r['visit_date'] ?? null, 'plan_number' => (string)($r['plan_number'] ?? '')];
+        }
+        return $this->memo['st' . $date] = $out;
+    }
+
+    private array $memo = [];
+
+    private function userNames(): array
+    {
+        if (isset($this->memo['users'])) return $this->memo['users'];
+        $out = [];
+        try {
+            foreach ($this->db->query("SELECT id, full_name, device_type FROM users")->fetchAll(PDO::FETCH_ASSOC) as $u) {
+                $out[(int)$u['id']] = ['name' => (string)strtok(trim((string)$u['full_name']) ?: ('#' . $u['id']), ' '), 'truck' => ($u['device_type'] ?? '') === 'truck'];
+            }
+        } catch (Throwable $e) { /* names are a nicety */ }
+        return $this->memo['users'] = $out;
+    }
+
+    private function property(int $id): array
+    {
+        if (isset($this->memo['p' . $id])) return $this->memo['p' . $id];
+        try {
+            $s = $this->db->prepare("
+                SELECT p.address, TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))) AS client
+                FROM properties p LEFT JOIN contacts c ON c.id = p.site_contact_id
+                WHERE p.id = ?
+            ");
+            $s->execute([$id]);
+            $r = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            $r = [];
+        }
+        return $this->memo['p' . $id] = $r;
+    }
+
+    /** Active plans on the property (recurring first) — where "Add the visit" can go. */
+    public function plans(int $propertyId): array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT id, plan_number, title, service_type, is_recurring, estimated_duration_minutes
+                FROM job_plans WHERE property_id = ? AND status = 'active'
+                ORDER BY is_recurring DESC, id DESC LIMIT 6
+            ");
+            $s->execute([$propertyId]);
+            return array_map(fn($r) => ['id' => (int)$r['id'], 'number' => (string)$r['plan_number'], 'title' => (string)$r['title'],
+                'service_type' => (string)$r['service_type'], 'recurring' => (int)$r['is_recurring'] === 1], $s->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Visits on this property 3 days either side — "it was due Tuesday" explains a lot. */
+    private function visitsNear(int $propertyId, string $date): array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT v.id, v.scheduled_date, v.status, jp.plan_number
+                FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id
+                WHERE jp.property_id = ? AND v.scheduled_date BETWEEN ? AND ? AND v.status <> 'cancelled'
+                ORDER BY v.scheduled_date
+            ");
+            $s->execute([$propertyId, date('Y-m-d', strtotime($date . ' -3 days')), date('Y-m-d', strtotime($date . ' +3 days'))]);
+            return array_map(fn($r) => ['id' => (int)$r['id'], 'date' => (string)$r['scheduled_date'], 'status' => (string)$r['status'], 'plan' => (string)$r['plan_number']],
+                $s->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Invoices for the property dated that day to 21 days after — the owner may have billed it by hand. */
+    private function invoicesAfter(int $propertyId, string $date): array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT id, invoice_number, issue_date, total, status, contract_id
+                FROM invoices
+                WHERE property_id = ? AND issue_date BETWEEN ? AND ? AND status NOT IN ('void', 'cancelled')
+                ORDER BY issue_date LIMIT 5
+            ");
+            $s->execute([$propertyId, $date, date('Y-m-d', strtotime($date . ' +21 days'))]);
+            return array_map(fn($r) => ['id' => (int)$r['id'], 'number' => (string)$r['invoice_number'], 'date' => (string)$r['issue_date'],
+                'total' => $r['total'] !== null ? (float)$r['total'] : null, 'status' => (string)$r['status'],
+                'contract_id' => $r['contract_id'] !== null ? (int)$r['contract_id'] : null], $s->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Cache
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function cached(string $date, bool $strict = true): ?array
+    {
+        if ($date >= $this->today || !$this->cacheReady()) return null;
+        try {
+            $s = $this->db->prepare("SELECT evidence_json, computed_at FROM otto_unscheduled_days WHERE day = ?");
+            $s->execute([$date]);
+            $r = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$r) return null;
+            // Computed before the next morning = late offline uploads may be missing.
+            if ($strict && strtotime((string)$r['computed_at']) < strtotime($date . ' +1 day 06:00')) return null;
+            $v = json_decode((string)$r['evidence_json'], true);
+            if (!is_array($v) || !isset($v['truck'], $v['crew']) || ($strict && (int)($v['v'] ?? 0) !== self::CACHE_VERSION)) return null;
+            return $v;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function store(string $date, array $ev): void
+    {
+        try {
+            $this->db->prepare("
+                INSERT INTO otto_unscheduled_days (day, evidence_json, computed_at) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE evidence_json = VALUES(evidence_json), computed_at = VALUES(computed_at)
+            ")->execute([$date, json_encode($ev), date('Y-m-d H:i:s')]);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled cache: ' . $e->getMessage());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The owner's answer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @param array $sug    the otto_suggestions row
+     * @param array $in     choice: add_visit (plan_id) | oneoff (service_type, title) | not_work
+     *                      then: none | invoice | link (invoice_id)
+     * @return array{ok: bool, message: string, status?: string, outcome?: array, redirect?: string}
+     */
+    public function apply(array $sug, array $in, int $actorId): array
+    {
+        $p = json_decode((string)$sug['suggestion_json'], true) ?: [];
+        $pid = (int)$sug['subject_id'];
+        $date = (string)$sug['for_date'];
+        $choice = (string)($in['choice'] ?? '');
+        if ($choice === 'not_work') {
+            $n = $this->learnNotWork($pid);
+            return ['ok' => true, 'status' => 'dismissed', 'outcome' => ['choice' => 'not_work', 'times' => $n],
+                'message' => $n >= 2 ? "Got it. That's twice for this property — I'll stop flagging time there." : 'Got it. Not work.'];
+        }
+        if ($choice === 'all_scheduled') {
+            return ['ok' => true, 'status' => 'dismissed', 'outcome' => ['choice' => 'all_scheduled', 'planned_min' => $p['planned_min'] ?? null, 'stay_min' => $p['stay_minutes'] ?? null],
+                'message' => 'Got it. It was all the ' . ($p['scheduled_label'] ?? 'visit') . '.'];
+        }
+        if (!in_array($choice, ['add_visit', 'oneoff'], true)) return ['ok' => false, 'message' => 'Add the visit, or not work?'];
+        $start = self::hm((string)($in['start'] ?? ($p['start'] ?? '')));
+        $end = self::hm((string)($in['end'] ?? ($p['end'] ?? '')));
+        if (!$start || !$end || $end <= $start) return ['ok' => false, 'message' => 'The end time has to be after the start.'];
+        $crewId = (int)($in['crew_id'] ?? ($p['crew_id'] ?? 0)) ?: $actorId;
+
+        $this->loadPlanFunctions();
+        if ($choice === 'add_visit') {
+            $planId = (int)($in['plan_id'] ?? 0);
+            $ok = false;
+            foreach ($this->plans($pid) as $pl) if ($pl['id'] === $planId) $ok = true;
+            if (!$ok) return ['ok' => false, 'message' => 'Pick one of the active plans on this property.'];
+            // The plan already has a visit that day (the lawn cut) → a second visit, never the same one.
+            $r = $this->planHasVisitOn($planId, $date) ? $this->addExtraVisit($planId, $date, $crewId) : addAdHocVisit($planId, $date, $crewId, $actorId);
+            if (empty($r['success'])) return ['ok' => false, 'message' => implode(' ', $r['errors'] ?? ['Could not add the visit.'])];
+            $visitId = (int)$r['visit_id'];
+        } else {
+            $service = trim((string)($in['service_type'] ?? '')) ?: 'Other';
+            $title = trim((string)($in['title'] ?? '')) ?: $service;
+            $r = createJobPlan([
+                'property_id' => $pid, 'title' => mb_substr($title, 0, 200), 'service_type' => mb_substr($service, 0, 100),
+                'description' => 'Added from Otto: the crew was here on ' . date('D M j', strtotime($date))
+                    . (!empty($p['extra']) ? ' doing more than the scheduled ' . ($p['scheduled_label'] ?? 'visit') . '.' : ' with nothing scheduled.'),
+                'plan_start_date' => $date, 'default_crew_id' => $crewId, 'crew_ids' => [$crewId],
+                'pricing_model' => 'per_visit', 'is_recurring' => 0,
+                'estimated_duration_minutes' => self::minutes($start, $end),
+            ], $actorId);
+            if (empty($r['success'])) return ['ok' => false, 'message' => implode(' ', $r['errors'] ?? ['Could not create the job.'])];
+            $planId = (int)$r['plan_id'];
+            $s = $this->db->prepare("SELECT id FROM job_visits WHERE plan_id = ? AND status <> 'cancelled' ORDER BY id LIMIT 1");
+            $s->execute([$planId]);
+            $visitId = (int)$s->fetchColumn();
+            if ($visitId <= 0) return ['ok' => false, 'message' => 'The job was made (plan #' . $planId . ') but no visit came with it. Add it from the job page.'];
+        }
+        $done = $this->completeQuietly($visitId, $date, $start, $end, isset($p['people']) ? (int)$p['people'] : null, (string)($p['basis'] ?? ''), $actorId);
+        if (!$done) return ['ok' => false, 'message' => 'That visit was already started or done — nothing changed. Open it to check.'];
+
+        $outcome = ['choice' => $choice, 'plan_id' => $planId, 'visit_id' => $visitId, 'start' => $start, 'end' => $end,
+            'suggested' => ['start' => $p['start'] ?? null, 'end' => $p['end'] ?? null]];
+        $then = (string)($in['then'] ?? 'none');
+        $msg = 'Visit added and marked done, ' . date('g:i', strtotime($start)) . '–' . date('g:i a', strtotime($end)) . '.';
+        $redirect = null;
+        if ($then === 'link') {
+            $invId = (int)($in['invoice_id'] ?? 0);
+            $ok = false;
+            foreach ((array)($p['invoices'] ?? []) as $inv) if ((int)$inv['id'] === $invId) $ok = true;
+            if (!$ok) return ['ok' => true, 'status' => 'edited', 'outcome' => $outcome, 'message' => $msg . ' I could not link that invoice — link it from the visit.'];
+            $this->db->prepare("UPDATE job_visits SET invoice_id = ?, is_invoiced = 1 WHERE id = ? AND invoice_id IS NULL")->execute([$invId, $visitId]);
+            $outcome['invoice_id'] = $invId;
+            $msg .= ' Linked to the invoice you already sent.';
+        } elseif ($then === 'invoice') {
+            $redirect = '/crm/invoices/create.php?visit_id=' . $visitId;
+            $msg .= ' Opening a draft invoice…';
+        }
+        $kept = $start === ($p['start'] ?? null) && $end === ($p['end'] ?? null);
+        return ['ok' => true, 'status' => $kept ? 'accepted' : 'edited', 'outcome' => $outcome, 'message' => $msg, 'redirect' => $redirect, 'visit_id' => $visitId];
+    }
+
+    /**
+     * Marks a just-added visit completed with the observed times, and its stop — without the
+     * customer email / review request / push that a live completion sends. Only a 'scheduled'
+     * visit is touched (addAdHocVisit returns an existing visit if one was already there).
+     */
+    public function completeQuietly(int $visitId, string $date, string $start, string $end, ?int $people, string $basis, int $actorId = 0): bool
+    {
+        $minutes = self::minutes($start, $end);
+        $s = $this->db->prepare("
+            UPDATE job_visits
+            SET status = 'completed', status_changed_at = ?, started_at = ?, completed_at = ?,
+                scheduled_time_start = ?, scheduled_time_end = ?, actual_duration_minutes = ?, actual_crew_count = ?,
+                completion_notes = ?
+            WHERE id = ? AND status = 'scheduled'
+        ");
+        $s->execute([
+            date('Y-m-d H:i:s'), $date . ' ' . $start . ':00', $date . ' ' . $end . ':00', $start . ':00', $end . ':00', $minutes, $people,
+            'Added from Otto after the fact: ' . ($basis === 'crew' ? 'crew GPS' : 'truck GPS' . ($basis === 'truck+crew' ? ' + crew GPS' : '')) . ' had the crew here (not on the schedule).',
+            $visitId,
+        ]);
+        if ($s->rowCount() === 0) return false;
+        $st = $this->db->prepare("SELECT stop_id FROM job_visits WHERE id = ?");
+        $st->execute([$visitId]);
+        $stopId = (int)$st->fetchColumn();
+        if ($stopId > 0) {
+            $this->db->prepare("
+                UPDATE calendar_stops SET estimated_arrival = COALESCE(estimated_arrival, ?), estimated_departure = COALESCE(estimated_departure, ?)
+                WHERE id = ?
+            ")->execute([$start . ':00', $end . ':00', $stopId]);
+            if (class_exists('VisitLifecycleService')) VisitLifecycleService::propagateStopStatus($stopId);
+        }
+        $this->captureCosts($visitId, $actorId);
+        return true;
+    }
+
+    /** Cost snapshot (labour / drive) — no messages in it. */
+    protected function captureCosts(int $visitId, int $actorId): void
+    {
+        try {
+            $f = dirname(__DIR__, 2) . '/Jobs/Services/VisitCompletionService.php';
+            if (!class_exists('VisitCompletionService') && is_file($f)) require_once $f;
+            if (class_exists('VisitCompletionService')) VisitCompletionService::capture($visitId, $actorId);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled capture: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * A new visit on $planId for $date: a second one when the plan already has a visit that day (so the
+     * existing one is never re-used), else addAdHocVisit(). @return array{success: bool, visit_id?: int, errors?: array}
+     */
+    public function addVisitFor(int $planId, string $date, int $crewId): array
+    {
+        $this->loadPlanFunctions();
+        return $this->planHasVisitOn($planId, $date) ? $this->addExtraVisit($planId, $date, $crewId) : addAdHocVisit($planId, $date, $crewId, $crewId);
+    }
+
+    public function planHasVisitOn(int $planId, string $date): bool
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND scheduled_date = ? AND status <> 'cancelled'");
+        $s->execute([$planId, $date]);
+        return (int)$s->fetchColumn() > 0;
+    }
+
+    /**
+     * A second visit on a plan that already has one that day — addAdHocVisit() would hand back the
+     * existing one. Same stop, crew and numbering as addAdHocVisit; the next sequence_index keeps it
+     * clear of uk_plan_date_seq.
+     */
+    public function addExtraVisit(int $planId, string $date, int $crewId): array
+    {
+        $s = $this->db->prepare("SELECT * FROM job_plans WHERE id = ?");
+        $s->execute([$planId]);
+        $plan = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$plan || $plan['status'] !== 'active') return ['success' => false, 'errors' => ['This job is not active.']];
+        try {
+            $stopId = ensureCalendarStop((int)$plan['property_id'], $date, $crewId);
+            $q = $this->db->prepare("SELECT MAX(sequence_index) FROM job_visits WHERE plan_id = ?");
+            $q->execute([$planId]);
+            $seq = (int)$q->fetchColumn() + 1;
+            $number = generateVisitNumber((string)$plan['plan_number'], $seq);
+            $this->db->prepare("
+                INSERT INTO job_visits (visit_number, plan_id, stop_id, scheduled_date, sequence_index, assigned_crew_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
+            ")->execute([$number, $planId, $stopId ?: null, $date, $seq, $crewId]);
+            $visitId = (int)$this->db->lastInsertId();
+            if ($stopId) $this->db->prepare("INSERT IGNORE INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)")->execute([$stopId, $crewId]);
+            return ['success' => true, 'visit_id' => $visitId, 'visit_number' => $number];
+        } catch (Throwable $e) {
+            error_log('Otto extra visit: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['Could not add the extra visit.']];
+        }
+    }
+
+    private function learnNotWork(int $propertyId): int
+    {
+        $n = 0;
+        try {
+            $s = $this->db->prepare("SELECT value_json FROM otto_lessons WHERE scope = 'unscheduled' AND scope_key = ?");
+            $s->execute(['property:' . $propertyId]);
+            $v = json_decode((string)$s->fetchColumn(), true) ?: [];
+            $n = (int)($v['not_work'] ?? 0) + 1;
+            $v['not_work'] = $n;
+            $v['last'] = date('Y-m-d');
+            $this->db->prepare("
+                INSERT INTO otto_lessons (scope, scope_key, value_json) VALUES ('unscheduled', ?, ?)
+                ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+            ")->execute(['property:' . $propertyId, json_encode($v)]);
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled lesson: ' . $e->getMessage());
+        }
+        return $n;
+    }
+
+    public function loadPlanFunctions(): void
+    {
+        if (!function_exists('addAdHocVisit')) require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
+    }
+
+    // ── Small helpers ───────────────────────────────────────────────────────
+
+    public static function bbox(array $points, float $margin): array
+    {
+        $lats = array_column($points, 'lat');
+        $lngs = array_column($points, 'lng');
+        return [min($lats) - $margin, max($lats) + $margin, min($lngs) - $margin, max($lngs) + $margin];
+    }
+
+    /** "8:10" / "08:10:00" → "08:10", else null. */
+    public static function hm(string $t): ?string
+    {
+        return preg_match('/^(\d{1,2}):(\d{2})/', trim($t), $m) && (int)$m[1] < 24 && (int)$m[2] < 60 ? sprintf('%02d:%02d', $m[1], $m[2]) : null;
+    }
+
+    public static function minutes(string $start, string $end): int
+    {
+        return (int)round((strtotime('2000-01-01 ' . $end) - strtotime('2000-01-01 ' . $start)) / 60);
+    }
+
+    public static function street(string $address): string
+    {
+        $a = trim(explode(',', $address)[0] ?? '');
+        return $a !== '' ? $a : 'the property';
+    }
+}
