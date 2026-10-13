@@ -37,7 +37,8 @@ while [ $# -gt 0 ]; do
 done
 [ $# -gt 0 ] || { echo "usage: $0 [-d] <repo-path> [repo-path...]" >&2; exit 2; }
 
-FTP_PASS="$(git config git-ftp.password)" || { echo "git config git-ftp.password is not set" >&2; exit 1; }
+. "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"   # host, TLS verification on, Keychain password
+mw_ftp_check || exit 1
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/prod-file.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -59,9 +60,9 @@ done
 
 # `set cmd:fail-exit no` so ONE missing file does not abort the rest of the batch;
 # a file that never arrives is reported as PROD-MISSING below.
-lftp -u "claude@mowology.ca,$FTP_PASS" \
-     -e "set ssl:verify-certificate no; set ftp:ssl-force true; set net:max-retries 3; set cmd:fail-exit no; ${GETS} quit" \
-     ftp://ftp.mowology.ca >/dev/null 2>&1 || true
+# stderr kept (filtered to fatal lines) so a certificate failure is not mistaken for PROD-MISSING.
+mw_lftp "set net:max-retries 3; set cmd:fail-exit no; ${GETS} quit" 2>&1 >/dev/null \
+  | grep -i -E "fatal|certificate|login" >&2 || true
 
 status=0
 for f in "$@"; do

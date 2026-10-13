@@ -36,7 +36,8 @@ case "$LOCAL" in
   *)        REMOTE="/$LOCAL" ;;
 esac
 
-FTP_PASS="$(git config git-ftp.password)" || { echo "git config git-ftp.password is not set" >&2; exit 1; }
+. "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"   # host, TLS verification on, Keychain password
+mw_ftp_check || exit 1
 MIRROR="$(mktemp -d "${TMPDIR:-/tmp}/prod-drift.XXXXXX")"
 
 echo "Mirroring ftp:$REMOTE → $MIRROR (read-only)…" >&2
@@ -46,7 +47,7 @@ for g in vendor/ node_modules/ .git/ uploads/ storage/ Storage/ sessions/ secret
   EXCLUDES+=" --exclude-glob $g"
 done
 # One line on purpose: lftp mis-parses a multi-line -e string ("mirror: Not connected").
-lftp -u "claude@mowology.ca,$FTP_PASS" -e "set ssl:verify-certificate no; set ftp:ssl-force true; set net:max-retries 3; mirror --parallel=4 --verbose=0$EXCLUDES $REMOTE $MIRROR/tree; quit" ftp://ftp.mowology.ca >&2
+mw_lftp "set net:max-retries 3; mirror --parallel=4 --verbose=0$EXCLUDES $REMOTE $MIRROR/tree; quit" >&2
 # Target must NOT pre-exist: given an existing dir, lftp nests the source inside it
 # (…/app/app/…) and every path misses. A fresh name makes it mirror INTO that path.
 MIRROR="$MIRROR/tree"

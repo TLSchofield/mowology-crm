@@ -19,9 +19,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-FTP_HOST="ftp.mowology.ca"
-FTP_USER=$(git config --get git-ftp.user   2>/dev/null || echo "")
-FTP_PASS=$(git config --get git-ftp.password 2>/dev/null || echo "")
+# shellcheck source=scripts/lib/ftp.sh
+. "$(cd "$(dirname "$0")" && pwd)/scripts/lib/ftp.sh"   # host, TLS verification, Keychain password
+FTP_USER=$(mw_ftp_user)
+FTP_PASS=$(mw_ftp_password || echo "")
 SYNCROOT=$(git config --get git-ftp.syncroot 2>/dev/null || echo "public/")
 DRY_RUN=false
 SPECIFIC_FILE=""
@@ -42,13 +43,10 @@ done
 
 # ── Validate ──────────────────────────────────────────────────────────────────
 if [[ -z "$FTP_USER" || -z "$FTP_PASS" ]]; then
-  echo "ERROR: FTP credentials not found in git config."
-  echo "  git config git-ftp.user     'your@email.com'"
-  echo "  git config git-ftp.password 'yourpassword'"
+  echo "ERROR: FTP credentials not found (Keychain service mowology-ftp, or git config git-ftp.password)."
   exit 1
 fi
 
-LFTP_BASE="lftp -u \"$FTP_USER,$FTP_PASS\" -e \"set ssl:verify-certificate no; set ftp:ssl-force true;"
 
 # ── Helper: upload one file ───────────────────────────────────────────────────
 upload_file() {
@@ -63,9 +61,7 @@ upload_file() {
   fi
 
   echo "  Uploading: $local_path"
-  lftp -u "$FTP_USER,$FTP_PASS" \
-       -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O $ftp_dir/ $local_path; quit" \
-       "ftp://$FTP_HOST" 2>&1
+  mw_lftp "put -O $ftp_dir/ $local_path; quit" 2>&1
 }
 
 # ── Handle files outside syncroot (e.g. app/ directory) ──────────────────────
@@ -80,9 +76,7 @@ upload_file_absolute() {
   fi
 
   echo "  Uploading (non-syncroot): $local_path"
-  lftp -u "$FTP_USER,$FTP_PASS" \
-       -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O $ftp_dir/ $local_path; quit" \
-       "ftp://$FTP_HOST" 2>&1
+  mw_lftp "put -O $ftp_dir/ $local_path; quit" 2>&1
 }
 
 # ── Single-file mode ──────────────────────────────────────────────────────────
@@ -147,9 +141,7 @@ if [[ $ERRORS -eq 0 ]]; then
   echo "Updating remote deploy marker..."
   HEAD=$(git rev-parse HEAD)
   echo "$HEAD" > /tmp/git-ftp-log.txt
-  lftp -u "$FTP_USER,$FTP_PASS" \
-       -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit" \
-       "ftp://$FTP_HOST" 2>&1
+  mw_lftp "put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit" 2>&1
   rm -f /tmp/git-ftp-log.txt
   echo "Deploy complete. Remote is now at $(git rev-parse --short HEAD)."
 else

@@ -86,15 +86,15 @@ def main():
     branch, base, files = args[0], args[1], args[2:]
     repo = run(['git', 'rev-parse', '--show-toplevel']).strip()
     os.chdir(repo)
-    user = run(['git', 'config', 'git-ftp.user']).strip()
-    pw = run(['git', 'config', 'git-ftp.password']).strip()
+    # FTP host, TLS verification and the password all come from scripts/lib/ftp.sh.
+    ftp_lib = os.path.join(repo, 'scripts', 'lib', 'ftp.sh')
 
     tmp = tempfile.mkdtemp(prefix='deploy-merged-')
     live_dir = os.path.join(tmp, 'live'); os.makedirs(live_dir)
     gets = '; '.join(f'get {remote_path(f)} -o {live_dir}/{i}' for i, f in enumerate(files))
-    subprocess.run(['lftp', '-u', f'{user},{pw}', '-e',
-                    f'set ssl:verify-certificate no; set ftp:ssl-force true; set net:max-retries 2; set cmd:fail-exit no; {gets}; bye',
-                    'ftp.mowology.ca'], capture_output=True, text=True)
+    subprocess.run(['bash', '-c', '. "$0" && mw_lftp "$1"', ftp_lib,
+                    f'set net:max-retries 2; set cmd:fail-exit no; {gets}; bye'],
+                   capture_output=True, text=True)
 
     final, live_copies = {}, {}
     for i, f in enumerate(files):

@@ -189,15 +189,8 @@ fi
 
 # ── Read FTP credentials ────────────────────────────────────────────────────
 
-FTP_PASS="$(git config git-ftp.password 2>/dev/null || true)"
-if [[ -z "$FTP_PASS" ]]; then
-    echo "ERROR: git config git-ftp.password is not set" >&2
-    echo "       Configure with: git config git-ftp.password '<password>'" >&2
-    exit 4
-fi
-
-FTP_USER="claude@mowology.ca"
-FTP_HOST="ftp.mowology.ca"
+. "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"   # host, TLS verification on, Keychain password
+mw_ftp_check || exit 4
 
 # ── Upload via lftp ─────────────────────────────────────────────────────────
 #
@@ -206,7 +199,7 @@ FTP_HOST="ftp.mowology.ca"
 #     filename. Even if shell quoting were ever broken, the `-o` argument
 #     pins the destination filename to the source basename — preventing any
 #     trick where a bad LOCAL value relocates the file.
-#   - `set ftp:ssl-force true` forces TLS on the data channel.
+#   - scripts/lib/ftp.sh forces TLS (control + data) and verifies the certificate.
 
 if ! command -v lftp >/dev/null 2>&1; then
     echo "ERROR: lftp is not installed in PATH" >&2
@@ -221,13 +214,11 @@ trap 'rm -f "$LFTP_OUT"' EXIT
 TEMP_NAME="${FILENAME}.deploying"
 TEMP_DEST="${REMOTE_DIR}${TEMP_NAME}"
 
-if ! lftp -u "$FTP_USER,$FTP_PASS" -e "
-    set ssl:verify-certificate no
-    set ftp:ssl-force true
+if ! mw_lftp "
     put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'
     mv '$TEMP_DEST' '$EXPECTED_DEST'
     quit
-" "ftp://$FTP_HOST" >"$LFTP_OUT" 2>&1; then
+" >"$LFTP_OUT" 2>&1; then
     echo "ERROR: lftp upload failed" >&2
     cat "$LFTP_OUT" >&2
     exit 5

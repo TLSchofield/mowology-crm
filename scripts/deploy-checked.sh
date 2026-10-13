@@ -48,10 +48,9 @@ for f in "${FILES[@]}"; do
     remote_dir "$f" >/dev/null || { echo "Refused (unknown destination): $f"; exit 3; }
 done
 
-U=$(git config git-ftp.user || true); P=$(git config git-ftp.password || true)
-[[ -n "$U" && -n "$P" ]] || { echo "FTP credentials missing (git config git-ftp.user / git-ftp.password)"; exit 4; }
-HOST="ftp.mowology.ca"
-LFTP_SET="set ssl:verify-certificate no; set ftp:ssl-force true; set net:max-retries 2;"
+. "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"   # host, TLS verification on, Keychain password
+mw_ftp_check || exit 4
+LFTP_SET="set net:max-retries 2;"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
@@ -63,7 +62,7 @@ for i in "${!FILES[@]}"; do
         GET+=" get $(remote_dir "$f")/$(basename "$f") -o $TMP/pre$i;"
     fi
 done
-[[ -n "$GET" ]] && lftp -u "$U,$P" -e "$LFTP_SET $GET quit" "$HOST" >/dev/null 2>&1 || true
+[[ -n "$GET" ]] && mw_lftp "$LFTP_SET $GET quit" >/dev/null 2>&1 || true
 for i in "${!FILES[@]}"; do
     f="${FILES[$i]}"
     if git cat-file -e "$BASE:$f" 2>/dev/null; then
@@ -88,7 +87,7 @@ for i in "${!FILES[@]}"; do
     # loading mid-upload never reads a half-written (FTP truncates first) file.
     PUT+=" mkdir -pf $d; put $f -o $d/.$b.uploading; mv $d/.$b.uploading $d/$b; get $d/$b -o $TMP/post$i;"
 done
-lftp -u "$U,$P" -e "$LFTP_SET $PUT quit" "$HOST" >/dev/null 2>&1 || true
+mw_lftp "$LFTP_SET $PUT quit" >/dev/null 2>&1 || true
 for i in "${!FILES[@]}"; do
     f="${FILES[$i]}"
     cmp -s "$f" "$TMP/post$i" 2>/dev/null || { echo "FAILED $f — read-back differs or missing"; exit 6; }

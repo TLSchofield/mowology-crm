@@ -20,7 +20,7 @@
 # Still outside it: anything that opens a NEW PDO, files written to disk, emails, HTTP calls.
 #
 # Refused in preview: DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) — MySQL commits those implicitly.
-# Transport: the same one-time, token-guarded, self-deleting file as before (FTP creds from git config).
+# Transport: the same one-time, token-guarded, self-deleting file as before (FTP via scripts/lib/ftp.sh).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -81,8 +81,8 @@ PHP
 } > "$TMP/$NAME"
 php -l "$TMP/$NAME" >/dev/null || { echo "snippet does not parse" >&2; php -l "$TMP/$NAME"; exit 1; }
 
-U="$(git config git-ftp.user)"; P="$(git config git-ftp.password)"
-lftp -u "$U,$P" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put $TMP/$NAME -o /crm/api/$NAME; bye" ftp.mowology.ca >/dev/null 2>&1
+. "$(git rev-parse --show-toplevel)/scripts/lib/ftp.sh"   # host, TLS verification on, Keychain password
+mw_lftp "put $TMP/$NAME -o /crm/api/$NAME; bye" >/dev/null 2>&1
 curl -s -m 290 "https://mowology.ca/crm/api/$NAME?t=$TOK"
 echo
 # The file deletes itself on first request; make sure it is gone.
