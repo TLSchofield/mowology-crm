@@ -93,7 +93,14 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
 <ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-business" role="tablist">
     <li class="nav-item"><a class="nav-link active" id="company-tab" data-toggle="tab" href="#company" role="tab">Company Info</a></li>
     <li class="nav-item"><a class="nav-link" id="branding-tab" data-toggle="tab" href="#branding" role="tab">Branding</a></li>
+    <?php if (userHasPermission('users.manage')): ?>
+    <li class="nav-item"><a class="nav-link" id="accountant-tab" data-toggle="tab" href="#accountant" role="tab">Accountant</a></li>
+    <?php endif; ?>
 </ul>
+<?php if (userHasPermission('users.manage')): ?>
+<!-- "Invite your accountant" posts here; its fields live in the Accountant tab (form= attribute), outside settingsForm. -->
+<form id="mw-accountant-invite" method="post" action="/crm/ledger/invite.php"></form>
+<?php endif; ?>
 <ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-documents" role="tablist" style="display:none;">
     <li class="nav-item"><a class="nav-link" id="invoice-tab" data-toggle="tab" href="#invoice" role="tab">Invoices</a></li>
     <li class="nav-item"><a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a></li>
@@ -1142,6 +1149,29 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                 </div>
             </div>
         </div>
+
+        <?php if (userHasPermission('users.manage')): ?>
+        <!-- Accountant Tab (Accountant's Ledger, 2026-10-13) — creates a Ledger-only login; sends nothing -->
+        <div class="tab-pane fade" id="accountant" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Invite your accountant</h5></div>
+                <div class="card-body">
+                    <p>Your accountant gets the Ledger only: trial balance, journal with source documents, GIFI mapping and the locked-period exceptions.
+                       No clients, schedule, crew locations, payroll SINs or bank details. Nothing is emailed: you get a link to pass on, and they choose a password with it.</p>
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>" form="mw-accountant-invite">
+                    <input type="hidden" name="action" value="invite" form="mw-accountant-invite">
+                    <div class="mw-form-row">
+                        <div class="mw-form-group"><label class="form-label" for="acct-inv-name">Accountant's name</label>
+                            <input type="text" class="form-control" id="acct-inv-name" name="name" maxlength="120" form="mw-accountant-invite"></div>
+                        <div class="mw-form-group"><label class="form-label" for="acct-inv-email">Their email</label>
+                            <input type="email" class="form-control" id="acct-inv-email" name="email" maxlength="255" form="mw-accountant-invite"></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" form="mw-accountant-invite">Create login and show link</button>
+                    <a class="btn btn-link" href="/crm/ledger/invite.php">See accountant logins</a>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Quiz Tab -->
         <div class="tab-pane fade" id="quiz" role="tabpanel">

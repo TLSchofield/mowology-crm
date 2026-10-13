@@ -121,15 +121,17 @@
   <!-- Shared branded date-picker: instantiate with `new MwDatePicker(trigger, opts)`.
        Styles in mowology-brand.css (.mw-datepicker-*). -->
   <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
+  <?php if (empty($mwLedgerOnly)): /* the accountant's login never loads the clock / trip log / GPS bridge */ ?>
   <script src="/crm/js/time-clock-widget.min.js?v=20261012csrf"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20261007p"></script>
+  <?php endif; ?>
   <?php
   // On site at a property whose visit is booked another day → offer to do it now (field devices
   // only). OFF unless ops_settings pull_forward_enabled / pull_forward_user_ids says so — the
   // 2026-10-08 release cost Android crew every tap. Styles: mw-pull-forward.css (appstack_head.php).
   $__pfOn = false;
-  try {
+  if (empty($mwLedgerOnly)) try {
       require_once APP_ROOT . '/Modules/Jobs/Services/VisitPullForwardService.php';
       $__pfOn = !empty($user['id']) && VisitPullForwardService::enabledFor(getDB(), (int)$user['id']);
   } catch (Throwable $e) { $__pfOn = false; }
@@ -137,9 +139,11 @@
   <script src="/crm/js/mw-pull-forward.js?v=20261012csrf" defer></script>
   <?php endif; unset($__pfOn); ?>
   <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->
+  <?php if (empty($mwLedgerOnly)): ?>
   <script src="/crm/js/mw-camera-permission.js?v=20260625a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
+  <?php endif; ?>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->

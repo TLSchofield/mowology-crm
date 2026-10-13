@@ -164,7 +164,7 @@ try { $clientEmails = $lower($db->query("SELECT email FROM contacts WHERE email 
 $allowedSenders = ['mowology@icloud.com', 'office@mowology.ca'];
 if (defined('ICLOUD_IMAP_USER')) $allowedSenders[] = (string)ICLOUD_IMAP_USER;
 if (defined('RECEIPTS_ALLOWED_SENDERS')) $allowedSenders = array_merge($allowedSenders, explode(',', (string)RECEIPTS_ALLOWED_SENDERS));
-try { $allowedSenders = array_merge($allowedSenders, $db->query("SELECT email FROM users WHERE email IS NOT NULL AND (is_active = 1 OR is_active IS NULL)")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
+try { $allowedSenders = array_merge($allowedSenders, $db->query("SELECT email FROM users WHERE email IS NOT NULL AND (is_active = 1 OR is_active IS NULL) AND COALESCE(role, '') <> 'accountant'")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
 $allowedSenders = $lower($allowedSenders);
 require_once APP_ROOT . '/Modules/Expenses/Services/VendorMessageService.php';
 $knownVendors = (new VendorMessageService($db))->vendors();

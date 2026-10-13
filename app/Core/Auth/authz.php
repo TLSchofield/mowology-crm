@@ -25,7 +25,7 @@ if (!function_exists('getCurrentUser')) {
 // Cache version — bump this when you change role_permissions seeds
 // or when a user's roles are modified via the admin UI.
 if (!defined('PERM_CACHE_VERSION')) {
-    define('PERM_CACHE_VERSION', 5);
+    define('PERM_CACHE_VERSION', 6);
 }
 
 /**
@@ -146,7 +146,12 @@ function _legacyPermissions(int $userId): array
                 'team.view', 'team.edit',
                 'expenses.view', 'expenses.edit',
                 'settings.view',
+                'ledger.view',
             ];
+
+        // Outside accountant (2026-10-13): the Ledger only — never crew keys (AccountantFence also confines the login).
+        case 'accountant':
+            return ['ledger.view', 'ledger.propose'];
 
         // Crew — every other role string (staff, technician, user, team_member, unknown). Mirrors the
         // production 'staff' RBAC role. Never billing.* or anything office-only: a crew login with no

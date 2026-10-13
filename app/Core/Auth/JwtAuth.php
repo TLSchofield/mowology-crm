@@ -63,6 +63,8 @@ function jwtCurrentUser(int $userId, ?array $payload = null): ?array
         $st->execute([$userId]);
         $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         $cache[$userId] = ($u && (int)($u['is_active'] ?? 0) === 1) ? $u : null;
+        // An outside accountant never holds a working app token (Ledger only, 2026-10-13).
+        if ($cache[$userId] !== null && strtolower((string)($u['role'] ?? '')) === 'accountant') $cache[$userId] = null;
     }
     $u = $cache[$userId];
     if ($u === null) return null;

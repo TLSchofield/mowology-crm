@@ -157,6 +157,12 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 - **When to reach for it:** Any admin-facing page built from AppStack card components where letting the admin rearrange/resize sections is useful. It's gated on `window.MW_USER_ROLE === 'admin'` — no-op for other roles.
 - Auto-loaded globally via `appstack_footer.php` (deferred).
 
+### Keyboard table + drill-down in place (mw-ledger.js)
+- **File:** `public/crm/js/mw-ledger.js` (styles: "Ledger workspace" section of `mowology-brand.css`, `.mw-ledger-*`). Added 2026-10-13.
+- **Purpose:** dense data tables you drive from the keyboard: `/` focuses `[data-mw-ledger-search]`, `j`/`k` move between rows, `Enter` opens the row's detail under it (fetched, not a page load), `Esc` closes it.
+- **Usage:** `<table data-mw-keytable data-mw-detail-url="/crm/ledger/entry.php?id=">` with `<tr class="mw-ledger-row" tabindex="0" data-id="N">`; the detail URL gets `N&part=1` and returns an HTML fragment. Links inside a detail with `data-mw-entry="M"` load entry M into the same panel. Also wires `select[data-mw-autosubmit]`, `[data-mw-confirm="…"]` and `[data-mw-copy="#input"]` (no inline handlers).
+- Used by every Ledger page (`public/crm/ledger/*`). Reuse it for any office table that needs scanning and drill-down; it is not crew UI.
+
 ### Global Search (Spotlight)
 - **File:** `public/crm/js/global-search.js`
 - **Purpose:** ⌘K / Ctrl+K command-palette search across contacts, companies, properties, quotes, jobs, invoices, and team.

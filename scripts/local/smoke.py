@@ -142,12 +142,20 @@ def main():
         ("settings",           "/crm/settings.php"),
         ("users",              "/crm/users_appstack.php"),
         ("supplier price lists", "/crm/suppliers/price-lists.php"),
+        ("ledger",             "/crm/ledger/"),
+        ("ledger journal",     "/crm/ledger/journal.php"),
+        ("ledger entry",       "/crm/ledger/entry.php?id=1"),
+        ("ledger gifi",        "/crm/ledger/gifi.php"),
+        ("ledger exceptions",  "/crm/ledger/exceptions.php"),
+        ("trial balance",      "/crm/accounting/trial-balance.php"),
+        ("ledger access",      "/crm/ledger/invite.php"),
     ]
+    LEDGER = ("ledger", "ledger journal", "ledger entry", "ledger gifi", "ledger exceptions", "trial balance", "ledger access")
     # What each role should get (anything not listed = 200).
     expect = {
         "admin":   {},
-        "manager": {"settings": 403, "users": 403},
-        "crew":    {"reports": 403, "users": 403},
+        "manager": {"settings": 403, "users": 403, "ledger access": 403},
+        "crew":    {"reports": 403, "users": 403, **{n: 403 for n in LEDGER}},
     }
     sessions = {"admin": admin}
     for role in ("manager", "crew"):
@@ -160,7 +168,7 @@ def main():
     for role in ("admin", "manager", "crew"):
         s = sessions[role]
         for name, path in pages:
-            if role == "crew" and name not in ("schedule", "jobs/view", "clients", "contracts/view", "reports", "users", "supplier price lists"):
+            if role == "crew" and name not in ("schedule", "jobs/view", "clients", "contracts/view", "reports", "users", "supplier price lists") + LEDGER:
                 continue  # crew: field pages + the gates below
             exp = expect[role].get(name, 200)
             ok, st, detail = check_page(s, path, exp)
@@ -222,6 +230,45 @@ def main():
         st, final, _ = crew.req(path)
         results.append(("crew", name, st == 403, st, "403 refused" if st == 403 else "crew can open it"))
 
+    # ── The accountant: the Ledger and nothing else (migration 1355, AccountantFence) ──
+    if "accountant" in creds:
+        acct = Session()
+        ok, why = acct.login(*creds["accountant"])
+        results.append(("accountant", "login lands on the Ledger", ok and "/crm/ledger/" in why, "", why))
+        sessions["accountant"] = acct
+        for name in LEDGER:
+            path = dict(pages)[name]
+            exp = 403 if name == "ledger access" else 200
+            ok, st, detail = check_page(acct, path, exp)
+            results.append(("accountant", name, ok, st, detail))
+            if ok and exp == 200:
+                browser_targets.append(("accountant", name, path))
+        _, _, gp = acct.req("/crm/ledger/gifi.php")
+        ready = "Ready to export" in gp
+        st, _, body = acct.req("/crm/ledger/gifi.php?export=csv")
+        ok = (st == 200 and '"GIFI code",Amount' in body) if ready else st == 409
+        results.append(("accountant", "GIFI export follows the validator", ok, st,
+                        ("validates → CSV" if ready else "blocked (fresh reset: nothing mapped)") if ok else body[:80]))
+        st, _, body = acct.req("/crm/ledger/journal.php?export=csv")
+        results.append(("accountant", "journal CSV export", st == 200 and "Entity" in body[:40], st, f"{len(body)} bytes"))
+        for name, path in (("GATE clients", "/crm/clients_appstack.php"), ("GATE schedule", "/crm/jobs/schedule.php"),
+                           ("GATE payroll / SIN profile", "/crm/team/profile.php?id=1"), ("GATE payroll summary", "/crm/timeclock/payroll-summary.php"),
+                           ("GATE crew GPS map", "/crm/map.php"), ("GATE crew GPS api", "/crm/api/crew-location.php"),
+                           ("GATE settings / bank", "/crm/settings.php"), ("GATE chart of accounts", "/crm/accounting/chart-of-accounts.php"),
+                           ("GATE invoice page", f"/crm/invoices/view.php?id={ids['invoice']}"), ("GATE users", "/crm/users_appstack.php"),
+                           ("GATE expenses", "/crm/expenses_appstack.php"), ("GATE path trick", "/crm/ledger/../clients_appstack.php")):
+            st, final, body = acct.req(path)
+            refused = st == 403 or (name == "GATE path trick" and 400 <= st < 500)
+            results.append(("accountant", name, refused, st, f"{st} refused" if refused else f"reached {urllib.parse.urlparse(final).path}"))
+        st, final, _ = acct.req("/crm/dashboard_appstack.php")
+        results.append(("accountant", "dashboard → Ledger", urllib.parse.urlparse(final).path == "/crm/ledger/", st, urllib.parse.urlparse(final).path))
+        st, _, body = Session().req("/api/auth/token.php", json.dumps({"email": creds["accountant"][0], "password": creds["accountant"][1]}).encode(),
+                               {"Content-Type": "application/json"}, "POST")
+        results.append(("accountant", "no app (JWT) token", st in (401, 403) and '"token"' not in body, st, body.strip()[:80]))
+        _, _, page = admin.req("/crm/ledger/invite.php")
+        logged = "accountant@local.test" in page and re.search(r"accountant@local\.test.*?\d{4}-\d{2}-\d{2} \d{2}:\d{2}", page, re.S) is not None
+        results.append(("admin", "accountant's views are logged", logged, "", "last Ledger page shown" if logged else "no ledger.view row seen"))
+
     # ── Optional browser pass ──
     if use_browser:
         browser_pass(creds, browser_targets, results)
@@ -255,7 +302,9 @@ def browser_pass(creds, targets, results):
             browser = pw.chromium.launch(channel="chrome", headless=True)
         except Exception:
             browser = pw.chromium.launch(headless=True)
-        for role in ("admin", "manager", "crew"):
+        for role in ("admin", "manager", "crew", "accountant"):
+            if role not in creds:
+                continue
             ctx = browser.new_context()
             ctx.route("**/*", lambda route: route.continue_() if urllib.parse.urlparse(route.request.url).hostname in ("localhost", "127.0.0.1") else route.abort())
             page = ctx.new_page()

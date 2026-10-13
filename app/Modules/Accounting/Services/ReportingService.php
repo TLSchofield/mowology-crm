@@ -75,8 +75,14 @@ class ReportingService
         $netIncome = 0.0;
 
         foreach ($rows as $r) {
-            $bal = self::signedBalance($r['normal_balance'], (float)$r['debit'], (float)$r['credit']);
             $type = $r['type'];
+            // Each balance-sheet line is signed by its SECTION, not its own normal balance: a contra
+            // account (2210 GST/HST Input Tax Credits is a debit-normal liability) must REDUCE the
+            // liabilities. Signing it by its normal balance added it, and the sheet was out by twice
+            // the ITC balance ($1,021.78 on production, 2026-10-13).
+            $bal = isset($sections[$type])
+                ? self::signedBalance($type === 'asset' ? 'debit' : 'credit', (float)$r['debit'], (float)$r['credit'])
+                : self::signedBalance($r['normal_balance'], (float)$r['debit'], (float)$r['credit']);
             if (isset($sections[$type])) {
                 $sections[$type][] = ['code' => $r['code'], 'name' => $r['name'], 'balance' => $bal];
                 $totals[$type] += $bal;

@@ -6,7 +6,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+requirePermission('ledger.view');   // admin, manager, the accountant (2026-10-13; was expenses.view, which crew hold)
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 6; $__i++) {

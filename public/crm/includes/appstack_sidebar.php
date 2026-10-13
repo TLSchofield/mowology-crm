@@ -22,6 +22,25 @@
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
 
+// The outside accountant's login sees the Ledger and nothing else (AccountantFence, 2026-10-13).
+if (!empty($mwLedgerOnly)): ?>
+<nav id="sidebar" class="sidebar">
+    <div class="sidebar-content js-simplebar">
+        <a class="sidebar-brand" href="/crm/ledger/"><span class="align-middle">Ledger</span></a>
+        <ul class="sidebar-nav">
+            <li class="sidebar-header">Ledger</li>
+            <?php foreach ([['ledger', 'Overview', 'book', '/crm/ledger/'], ['ledger-tb', 'Trial balance', 'columns', '/crm/accounting/trial-balance.php'],
+                            ['ledger-journal', 'Journal', 'list', '/crm/ledger/journal.php'], ['ledger-gifi', 'GIFI mapping', 'hash', '/crm/ledger/gifi.php'],
+                            ['ledger-exceptions', 'Exceptions', 'alert-triangle', '/crm/ledger/exceptions.php']] as [$__k, $__l, $__i, $__h]): ?>
+            <li class="sidebar-item"><a class="sidebar-link" href="<?php echo $__h; ?>"><i class="align-middle" data-feather="<?php echo $__i; ?>"></i> <span class="align-middle"><?php echo htmlspecialchars($__l); ?></span></a></li>
+            <?php endforeach; ?>
+            <li class="sidebar-item"><a class="sidebar-link" href="/crm/logout_secure.php"><i class="align-middle" data-feather="log-out"></i> <span class="align-middle">Sign out</span></a></li>
+        </ul>
+        <p class="mw-ledger-sidebar-note">Read-only accountant access. Each page you open is recorded.</p>
+    </div>
+</nav>
+<?php return; endif;
+
 // Unread message count for badge (silent fail if messages table not yet created)
 $_mwUnreadMessages = 0;
 try {
@@ -84,6 +103,7 @@ $navItems = [
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
     ['key' => 'freedom',       'label' => 'Owner Freedom', 'icon' => 'compass',     'href' => '/crm/freedom_appstack.php',           'perm' => 'expenses.view'],
     ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
+    ['key' => 'ledger',       'label' => 'Ledger',        'icon' => 'book',        'href' => '/crm/ledger/',                         'perm' => 'ledger.view'],
     ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'billing.view'],
 
     // ── Growth ────────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         <i class="hamburger align-self-center"></i>
     </a>
 
+    <?php if (empty($mwLedgerOnly)): /* the accountant's login: no tracking dot, clock or receipt camera */ ?>
     <!-- Location Tracking Status Indicator -->
     <div class="mw-tracking-dot-wrapper" id="trackingDotWrapper" title="Loading...">
         <span class="mw-tracking-dot" id="trackingDot">
@@ -42,16 +43,19 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     </button>
     <?php endif; ?>
 
+    <?php endif; ?>
     <!-- Right cluster — margin-left:auto pushes to far right.
          Kept OUTSIDE .navbar-collapse so Bootstrap/Popper dropdown positioning works correctly. -->
     <div class="mw-topbar-right-cluster">
 
-        <!-- Global Search Trigger -->
+<?php if (empty($mwLedgerOnly)): ?>
+                <!-- Global Search Trigger -->
         <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             <span class="mw-spotlight-trigger-text">Search...</span>
             <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
         </button>
+        <?php endif; ?>
 
         <!-- Debug Panel Toggle -->
         <?php

@@ -226,3 +226,16 @@ layout (`teachReaderFromPenny()`): this Vision text prints each price ABOVE its 
 pair. **Rule:** whatever Penny knows about a receipt is shown wherever that receipt is opened; an accepted
 correction of the reader must teach the reader, not only Penny.
 
+
+## 2026-10-13 — Balance sheet out by twice the GST ITC balance
+`ReportingService::buildBalanceSheet()` signed each line by its own normal balance, so 2210 GST/HST Input Tax Credits
+(a debit-normal *liability*) was ADDED to liabilities: the sheet showed "does not balance" by $1,021.78 (2 × $510.89)
+on production while the trial balance and income statement agreed with journal_lines to the cent. Fixed: lines are
+signed by their section (assets debit-positive, liabilities/equity credit-positive). **Rule:** contra accounts are
+signed by the statement section they sit in, never by their own normal balance.
+
+## 2026-10-13 — 6850 is two things (not fixed — needs Tim / the accountant)
+On production 6850 is named "Meals & Entertainment" (BankDeskService, BankGuidanceService and the bank desk file meals
+there), but `StripePayoutService` books Stripe processing fees to 6850 as "Payment Processing Fees". Meals are 50% for
+ITCs and income tax (GIFI 8523); card fees are 100% (8716). Until they are split, the GIFI mapping of 6850 is wrong for
+one of them. **Rule:** one account number, one meaning — check the chart's name before posting to a code.

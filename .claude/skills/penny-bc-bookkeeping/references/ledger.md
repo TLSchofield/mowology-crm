@@ -100,6 +100,22 @@ reader needs Penny". `bank_memo_payers` has no
 person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests in
 `tests/Unit/Penny/Lessons20261012Test.php`.
 
+## The Accountant's Ledger (step 1 built 2026-10-13; plan `docs/plans/2026-10-13-accountants-ledger.md`)
+
+- **Pages:** `/crm/ledger/` (overview, journal, entry drill-down, GIFI mapping, exceptions, accountant access) + the existing
+  trial balance / balance sheet / income statement, now gated on `ledger.view` (admin, manager, accountant; crew no longer).
+- **Accountant login** (migration 1355): users.role `accountant` + RBAC role `accountant` (ledger.view, ledger.propose).
+  `ledger.post` is admin only. `AccountantFence` confines the login to the Ledger (403 elsewhere, dashboard → Ledger),
+  refuses app tokens, and writes an activity_log row per page view (`ledger.view`) or export (`ledger.export`).
+  Invite: Settings → Accountant, or `/crm/ledger/invite.php` — creates the login and shows a 72-hour set-password link
+  (password_reset_tokens); sends nothing.
+- **GIFI:** `chart_of_accounts.gifi_code / gifi_status ('suggested' | 'confirmed') / lead_group`; shared table `gifi_codes`.
+  Suggestions never count as mapped: the export is blocked until a person confirms every account with activity and the
+  totals recompute (2599 = 3499 + 3620; 9999 = the ledger's net income). Retained earnings start (3660) includes any prior
+  year's income-statement balance that no FY opening entry closed.
+- **journal_entries.entry_kind:** system | manual | aje | rje | reversal (`LedgerService::entryKindFor()` on every post).
+- **Locks:** `accounting_periods.status = 'locked'` (closed_at = when). FY2025's twelve months were locked 2026-10-07.
+
 ## Tables and columns that mislead
 
 | Column | What it really is |

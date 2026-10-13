@@ -67,6 +67,9 @@ $crewLite   = !empty($_COOKIE['mw_native']) || !empty($crewLite);
 // (classic.css 440 KB + mowology-brand.css 1 MB + app.js 3.5 MB) for the generated crew set
 // (crew-base.css + crew-brand.css, scripts/build-crew-css.py) and mw-ui-shim.js. Office pages
 // opened on the tablet keep the full bundle. Browsers outside the app never see this.
+// Ledger-only: the outside accountant's login (AccountantFence) gets a Ledger sidebar and none of the
+// crew chrome — no clock-in, location dot, receipt camera, search or bottom bar (2026-10-13).
+$mwLedgerOnly = class_exists('AccountantFence') && AccountantFence::activeForSession();
 $crewPage   = !empty($crewPage);
 $crewSlim   = $crewLite && $crewPage;
 
@@ -74,7 +77,7 @@ $crewSlim   = $crewLite && $crewPage;
 // browser signs out after 30 minutes without a page load. Crew pages, the crew app (mw_native) and
 // crew logins are exempt — a phone in a truck must not sign itself out mid-shift.
 if (!$crewPage && !$crewLite && function_exists('checkSessionTimeout') && class_exists('RoleRules')
-    && session_status() === PHP_SESSION_ACTIVE && RoleRules::isOffice((string)($_SESSION['user_role'] ?? '')) && !headers_sent()) {
+    && session_status() === PHP_SESSION_ACTIVE && RoleRules::hasIdleTimeout((string)($_SESSION['user_role'] ?? '')) && !headers_sent()) {
     checkSessionTimeout(1800);
 }
 
@@ -186,7 +189,7 @@ function _av(string $webPath): string {
   <script src="<?= _av('/crm/js/feather.min.js') ?>"></script>
 
   <!-- Global Spotlight Search (office only — the app has its own Search tab) -->
-  <?php if (!$crewLite): ?><script src="<?= _av('/crm/js/global-search.js') ?>" defer></script><?php endif; ?>
+  <?php if (!$crewLite && !$mwLedgerOnly): ?><script src="<?= _av('/crm/js/global-search.js') ?>" defer></script><?php endif; ?>
 
   <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
        fetch() calls when offline and queues them in IndexedDB for replay.
@@ -209,7 +212,7 @@ function _av(string $webPath): string {
 
 </head>
 <body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
-  <?php include __DIR__ . '/mobile-nav.php'; ?>
+  <?php if (!$mwLedgerOnly) include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
     <?php if (!$crewLite) include __DIR__ . '/appstack_sidebar.php'; ?>
 

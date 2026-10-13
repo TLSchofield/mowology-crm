@@ -145,6 +145,13 @@ if (!$user || !isset($user['password_hash']) || !password_verify($password, (str
     exit;
 }
 
+// The outside accountant's login is web-only and confined to the Ledger — never an app token (2026-10-13).
+if (!AccountantFence::jwtAllowed((string)($user['role'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['error' => 'This login works on the website only.']);
+    exit;
+}
+
 // ── Success — clear rate limit, log activity ───────────────────────────────
 clearLoginAttempts($email, $ip);
 

@@ -79,3 +79,8 @@ session_set_cookie_params([
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+
+// An outside accountant's login reaches the Ledger and nothing else — deny by default, before any
+// page code runs (Accountant's Ledger, 2026-10-13). auth.php repeats this and logs each view.
+require_once __DIR__ . '/Auth/AccountantFence.php';
+AccountantFence::enforce();

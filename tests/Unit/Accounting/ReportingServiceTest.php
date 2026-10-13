@@ -69,6 +69,21 @@ class ReportingServiceTest extends TestCase
         $this->assertTrue($bs['balances']);
     }
 
+    /** @test 2026-10-13: 2210 ITC is a debit-normal liability; it must reduce liabilities, not add to them. */
+    public function balance_sheet_contra_liability_reduces_liabilities(): void
+    {
+        $rows = [
+            ['code' => '1010', 'name' => 'Bank', 'type' => 'asset', 'normal_balance' => 'debit', 'debit' => 1050, 'credit' => 0],
+            ['code' => '2200', 'name' => 'GST collected', 'type' => 'liability', 'normal_balance' => 'credit', 'debit' => 0, 'credit' => 100],
+            ['code' => '2210', 'name' => 'GST ITC', 'type' => 'liability', 'normal_balance' => 'debit', 'debit' => 50, 'credit' => 0],
+            ['code' => '3100', 'name' => 'Capital', 'type' => 'equity', 'normal_balance' => 'credit', 'debit' => 0, 'credit' => 1000],
+        ];
+        $bs = $this->service()->buildBalanceSheet($rows);
+        $this->assertEqualsWithDelta(50.00, $bs['total_liabilities'], 0.001);
+        $this->assertEqualsWithDelta(-50.00, $bs['liabilities'][1]['balance'], 0.001);
+        $this->assertTrue($bs['balances']);
+    }
+
     // ── Income statement ─────────────────────────────────────────────────────────
 
     /** @test */

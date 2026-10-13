@@ -83,6 +83,7 @@ if (!function_exists('sanitizeInput')) {
 
 require_once __DIR__ . '/AuthFreshness.php';
 require_once __DIR__ . '/RoleRules.php';
+require_once __DIR__ . '/AccountantFence.php';
 
 function isLoggedIn(): bool {
     if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) return false;
@@ -271,7 +272,7 @@ function purgeExpiredLoginAttempts(): int {
 
 // -------------------- Login / Logout --------------------
 
-function loginUser(string $email, string $password, bool &$isDriver = false): bool {
+function loginUser(string $email, string $password, bool &$isDriver = false, ?string &$role = null): bool {
     $db = getDB();
 
     // Normalize input: trim, lowercase, strip invisible chars
@@ -318,6 +319,7 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
 
             // Capture driver flag NOW before session_write_close() clears $_SESSION.
             $isDriver = !empty($user['is_driver']);
+            $role     = (string)($user['role'] ?: 'user');
 
             // Release the session file lock now — all session writes are done.
             // Without this the lock is held through the DB calls below, and the
@@ -625,3 +627,13 @@ set_exception_handler(function (Throwable $e): void {
        . '</body></html>';
     exit(1);
 });
+
+// ── Accountant fence (2026-10-13) ─────────────────────────────────────────────
+// session_config.php already refused anything outside the Ledger; check again now that the role has
+// been re-read from users (isLoggedIn), and write the activity_log row for each accountant page view
+// or export ('ledger.view' / 'ledger.export').
+if (PHP_SAPI !== 'cli' && !empty($_SESSION['user_id'])) {
+    isLoggedIn();
+    AccountantFence::enforce();
+    AccountantFence::logRequest();
+}

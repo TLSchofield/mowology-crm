@@ -60,7 +60,9 @@ final class LowAuthGatesTest extends TestCase
     {
         $s = $this->src('public/crm/includes/appstack_head.php');
         $this->assertStringContainsString('if (!$crewPage && !$crewLite', $s);
-        $this->assertStringContainsString("RoleRules::isOffice((string)(\$_SESSION['user_role']", $s);
+        // Office staff and (since 2026-10-13) the outside accountant: RoleRules::hasIdleTimeout().
+        $this->assertStringContainsString("RoleRules::hasIdleTimeout((string)(\$_SESSION['user_role']", $s);
+        $this->assertTrue(RoleRules::hasIdleTimeout('admin') && RoleRules::hasIdleTimeout('manager') && !RoleRules::hasIdleTimeout('user'));
         $this->assertStringContainsString('checkSessionTimeout(1800);', $s);
     }
 

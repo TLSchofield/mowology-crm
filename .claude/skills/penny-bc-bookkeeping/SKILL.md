@@ -8,6 +8,9 @@ covers:
   - app/Services/Pdf/PdfFormFiller.php
   - app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php
   - public/crm/accounting/*
+  - app/Modules/Ledger/*
+  - public/crm/ledger/*
+  - app/Core/Auth/AccountantFence.php
   - public/crm/expenses_appstack.php
   - public/crm/invoices/*
   - app/Modules/Invoices/*
@@ -103,6 +106,10 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Single-entry reports count a linked bank line once | `AccountingService::countedSql()` | P&L, trend, cash flow, tax summary, job profit, dashboard, expense breakdown |
 | Penny's read on a receipt screen (her pending suggestion where it differs; "Use Penny's version" / "Keep mine") | `PennyReadService` (`read()`, `apply()` → `BookkeeperDeskService::decide()` with `line_items = 'penny'`, `keep()`) | iPhone receipt detail, web/Android expense modal (`penny-read.js`) |
 | The reader learning a vendor's item layout from Penny's accepted items | `teachReaderFromPenny()` (on approval, via `ExpenseGateHooks::learnConfirmed`) → `recordLineLayoutLessons()`; read back by `parseReceiptText()` through `getVendorLineItemProfile()['layout']` / `applyLineLayout()` | every receipt read |
+| The accountant's login: the Ledger and nothing else (deny by default; every view / export logged) | `AccountantFence::verdict()` in `app/Core/Auth/AccountantFence.php` (enforced from session_config.php + auth.php) | every session request from a users.role = 'accountant' login |
+| GIFI mapping + the export validator (RC4088 Rev. 23) | `GifiRules::build()` in `app/Modules/Ledger/Services/GifiRules.php`; data + saves `GifiService` | Ledger → GIFI mapping |
+| A journal entry's source document (invoice, receipt photo, bank line, Jobber row…) | `JournalBrowserService::source()` in `app/Modules/Ledger/Services/JournalBrowserService.php` | Ledger journal drill-down |
+| Changes inside a locked period after its lock | `LockExceptionService::classify()` in `app/Modules/Ledger/Services/LockExceptionService.php` | Ledger → Exceptions |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value

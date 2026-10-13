@@ -165,10 +165,11 @@ class LedgerService
         if ($own) $this->db->beginTransaction();
         try {
             $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
+            $withKind     = $this->hasColumn('journal_entries', 'entry_kind');   // migration 1355
             $hdr = $this->db->prepare(
                 "INSERT INTO journal_entries
-                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ")
-                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ")"
+                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ($withKind ? ', entry_kind' : '') . ")
+                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ($withKind ? ', ?' : '') . ")"
             );
             $vals = [
                 $entryDate,
@@ -180,6 +181,7 @@ class LedgerService
                 $entry['created_by'] ?? null,
             ];
             if ($withProposer) $vals[] = $entry['proposed_by'] ?? 'system';
+            if ($withKind) $vals[] = self::entryKindFor($sourceType, $entry['entry_kind'] ?? null);
             $vals[1] = $entry['memo'] ?? null;
             $hdr->execute($vals);
             $entryId = (int)$this->db->lastInsertId();
@@ -559,6 +561,21 @@ class LedgerService
             throw $e;
         }
         return $revId;
+    }
+
+    /** Entry kinds shown in the Ledger's journal (migration 1355). */
+    public const ENTRY_KINDS = ['system', 'manual', 'aje', 'rje', 'reversal'];
+
+    /**
+     * The kind of a new entry: an explicit kind when the caller gives a valid one, otherwise by source —
+     * manual / opening / fy_opening are a person's entries, 'adjusting' is a reversal, the rest system.
+     */
+    public static function entryKindFor(string $sourceType, ?string $explicit = null): string
+    {
+        if ($explicit !== null && in_array($explicit, self::ENTRY_KINDS, true)) return $explicit;
+        if (in_array($sourceType, ['manual', 'opening', 'fy_opening'], true)) return 'manual';
+        if ($sourceType === 'adjusting') return 'reversal';
+        return 'system';
     }
 
     /** Is the month containing $date locked? */

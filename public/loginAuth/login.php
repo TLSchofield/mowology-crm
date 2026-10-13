@@ -7,7 +7,8 @@ header('Pragma: no-cache');
 // If already logged in, route to the correct portal
 if (isLoggedIn()) {
     $u = getCurrentUser();
-    header('Location: ' . (!empty($u['is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php'));
+    header('Location: ' . (AccountantFence::isAccountantRole($u['role'] ?? '') ? AccountantFence::HOME
+        : (!empty($u['is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php')));
     exit();
 }
 
@@ -35,10 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             $isDriver = false;
-            if (loginUser($email, $password, $isDriver)) {
+            $loginRole = null;
+            if (loginUser($email, $password, $isDriver, $loginRole)) {
                 // Use the $isDriver flag captured by loginUser() before session_write_close()
                 // cleared $_SESSION — reading $_SESSION here would always return empty.
-                $dest = $isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php';
+                // The outside accountant lands on the Ledger (AccountantFence, 2026-10-13).
+                $dest = AccountantFence::isAccountantRole($loginRole) ? AccountantFence::HOME
+                    : ($isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php');
                 header('Location: ' . $dest);
                 exit();
             } else {

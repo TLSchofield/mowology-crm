@@ -363,3 +363,13 @@ require_once __DIR__ . '/../app/Services/Payments/AutopayEligibility.php';
 
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';
+
+// The Accountant's Ledger (2026-10-13): fence, GIFI, journal browser, lock exceptions, invite
+require_once __DIR__ . '/../app/Core/Auth/RoleRules.php';
+require_once __DIR__ . '/../app/Core/Auth/AccountantFence.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/GifiRules.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/GifiService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/JournalBrowserService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/LockExceptionService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/AccountantInviteService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/LedgerExport.php';
