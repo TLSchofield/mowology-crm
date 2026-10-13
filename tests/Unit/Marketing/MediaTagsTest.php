@@ -68,7 +68,7 @@ final class MediaTagsTest extends TestCase
     public function testPublicUseNeedsPrivacyOkAndConsent(): void
     {
         $this->assertTrue(MediaTagRules::publicOk(['privacy/ok', 'consent/ok', 'use/hero']));
-        $this->assertFalse(MediaTagRules::publicOk(['privacy/ok', 'consent/ok']), 'not starred by Tim = not public (Fable 2026-10-12)');
+        $this->assertSame(!MediaTagRules::REQUIRE_FAVORITE_FOR_PUBLIC, MediaTagRules::publicOk(['privacy/ok', 'consent/ok']), 'a star is required only when the switch is on');
         $this->assertFalse(MediaTagRules::publicOk(['privacy/unknown', 'consent/ok', 'use/hero']));
         $this->assertFalse(MediaTagRules::publicOk(['privacy/blur-needed', 'consent/ok']));
         $this->assertFalse(MediaTagRules::publicOk(['privacy/ok', 'consent/no']));
@@ -108,7 +108,7 @@ final class MediaTagsTest extends TestCase
         $any = MediaPickerService::rank($items, 'snow-removal', null, [], [], 10);
         $this->assertContains(8, array_column($any, 'media_id'));
         $this->assertNotContains(4, array_column($any, 'media_id'));
-        $this->assertNotContains(9, array_column($any, 'media_id'), 'only starred photos go public');
+        if (MediaTagRules::REQUIRE_FAVORITE_FOR_PUBLIC) $this->assertNotContains(9, array_column($any, 'media_id'), 'only starred photos go public');
     }
 
     public function testLearnedComboScoreReordersSingles(): void

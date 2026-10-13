@@ -15,7 +15,7 @@
  */
 final class QuoteUpsellRules
 {
-    public const ALLOW_AFTER_ACCEPT = false;
+    public const ALLOW_AFTER_ACCEPT = true;   // Tim keeps post-approval extras (office is notified); only real upsells of quoted items are allowed
 
     public static function addAllowed(string $status, bool $isContract = false): bool
     {

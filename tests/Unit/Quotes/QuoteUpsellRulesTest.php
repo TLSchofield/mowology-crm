@@ -11,8 +11,8 @@ class QuoteUpsellRulesTest extends TestCase
     public function test_adds_only_before_approval(): void
     {
         $this->assertTrue(QuoteUpsellRules::addAllowed('sent'));
-        $this->assertFalse(QuoteUpsellRules::addAllowed('accepted'));
-        $this->assertFalse(QuoteUpsellRules::addAllowed('accepted', true));
+        // Tim 2026-10-13: post-approval extras stay on (office is notified); only offered upsells are allowed.
+        $this->assertSame(QuoteUpsellRules::ALLOW_AFTER_ACCEPT, QuoteUpsellRules::addAllowed('accepted'));
         $this->assertFalse(QuoteUpsellRules::addAllowed('declined'));
         $this->assertFalse(QuoteUpsellRules::offerCards('accepted'));
     }

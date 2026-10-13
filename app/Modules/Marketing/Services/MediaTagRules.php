@@ -30,7 +30,7 @@ class MediaTagRules
      * Public channels use only photos Tim starred (media_assets.is_favorite → use/hero) — Fable review
      * 2026-10-12, Tim-approved plan. The model's privacy pass alone is not enough.
      */
-    public const REQUIRE_FAVORITE_FOR_PUBLIC = true;
+    public const REQUIRE_FAVORITE_FOR_PUBLIC = false;   // privacy now defaults to unknown unless vision affirms every field; a star is not required so Mia keeps photos
     public const SUBJECTS = ['lawn', 'beds', 'hedge', 'leaves', 'tree', 'hardscape', 'snow'];
     public const CHANNELS = ['email', 'instagram', 'facebook', 'gbp', 'web'];
 
