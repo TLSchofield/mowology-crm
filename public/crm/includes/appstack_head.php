@@ -50,6 +50,18 @@ set_exception_handler(function (Throwable $e) {
 if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
 $extraHead  = $extraHead  ?? '';
 $bodyClass  = $bodyClass  ?? '';
+// Crew-lite: the Android app (ca.mowology.crew) sets the mw_native cookie on launch
+// (app-launch.php / my-schedule.php). Inside the app there is no sidebar, no desktop
+// chrome and no iOS splash — skip the markup, fonts and scripts that only the office
+// uses. The topbar is kept (hidden by CSS) because the shared clock widget lives in it.
+$crewLite   = !empty($_COOKIE['mw_native']) || !empty($crewLite);
+// Crew-slim: a CREW page ($crewPage = true before this include: schedule, expenses, timesheet,
+// account, search, time clock, vehicle log, work record) inside the app swaps the vendor set
+// (classic.css 440 KB + mowology-brand.css 1 MB + app.js 3.5 MB) for the generated crew set
+// (crew-base.css + crew-brand.css, scripts/build-crew-css.py) and mw-ui-shim.js. Office pages
+// opened on the tablet keep the full bundle. Browsers outside the app never see this.
+$crewPage   = !empty($crewPage);
+$crewSlim   = $crewLite && $crewPage;
 
 /**
  * Return a URL with an automatic cache-busting query string derived from
@@ -88,6 +100,7 @@ function _av(string $webPath): string {
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
   <link rel="manifest" href="/assets/favicon/site.webmanifest">
 
+  <?php if (!$crewLite): ?>
   <!-- iOS Splash Screens (generated via /crm/pwa-splash.php) -->
   <!-- iPhone 15 Pro Max, 16 Plus (430x932) -->
   <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1290&h=2796" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)">
@@ -118,13 +131,23 @@ function _av(string $webPath): string {
   <!-- iPad Mini (768x1024) -->
   <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1536&h=2048" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)">
 
+  <?php endif; ?>
+
   <!-- Fonts (matches public website) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <?php if ($crewLite): ?>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <?php else: ?>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <?php endif; ?>
 
   <!-- AppStack base (vendor — DO NOT MODIFY) -->
+  <?php if ($crewSlim): ?>
+  <link href="<?= _av('/crm/css/crew-base.css') ?>" rel="stylesheet">
+  <?php else: ?>
   <link href="/crm/css/classic.css" rel="stylesheet">
+  <?php endif; ?>
 
   <!-- Design tokens — single source of truth for colour, type, space,
        radius, shadow, motion. Loaded before brand.css so brand rules
@@ -132,7 +155,11 @@ function _av(string $webPath): string {
   <link href="<?= _av('/crm/css/tokens.css') ?>" rel="stylesheet">
 
   <!-- Mowology brand override -->
+  <?php if ($crewSlim): ?>
+  <link href="<?= _av('/crm/css/crew-brand.css') ?>" rel="stylesheet">
+  <?php else: ?>
   <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
+  <?php endif; ?>
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
@@ -143,8 +170,8 @@ function _av(string $webPath): string {
   <!-- Feather Icons (self-hosted — no CDN dependency) -->
   <script src="<?= _av('/crm/js/feather.min.js') ?>"></script>
 
-  <!-- Global Spotlight Search -->
-  <script src="<?= _av('/crm/js/global-search.js') ?>" defer></script>
+  <!-- Global Spotlight Search (office only — the app has its own Search tab) -->
+  <?php if (!$crewLite): ?><script src="<?= _av('/crm/js/global-search.js') ?>" defer></script><?php endif; ?>
 
   <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
        fetch() calls when offline and queues them in IndexedDB for replay.
@@ -166,10 +193,10 @@ function _av(string $webPath): string {
        cleaned up by the new register script. -->
 
 </head>
-<body<?php echo $bodyClass ? ' class="' . htmlspecialchars($bodyClass) . '"' : ''; ?>>
+<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
   <?php include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
-    <?php include __DIR__ . '/appstack_sidebar.php'; ?>
+    <?php if (!$crewLite) include __DIR__ . '/appstack_sidebar.php'; ?>
 
     <div class="main">
       <?php include __DIR__ . '/appstack_topbar.php'; ?>

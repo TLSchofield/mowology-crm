@@ -57,12 +57,12 @@
         '/crm/api/time-clock.php',
         '/crm/api/pow-actions.php',
         '/crm/api/job-timer.php',
+        '/crm/api/field-job.php',
         // Only the move — offer/dryrun are reads and must not be queued.
         '/crm/api/visit-pull-forward.php?mode=accept'
     ];
 
     var _db = null;
-    var _storeHealed = false;
 
     // ── IndexedDB helpers ────────────────────────────────────────────────────────
 
@@ -81,21 +81,7 @@
             };
 
             req.onsuccess = function (e) {
-                var opened = e.target.result;
-                if (!opened.objectStoreNames.contains(STORE_NAME)) {
-                    // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
-                    // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
-                    // transaction threw "One of the specified object stores was not found". It holds
-                    // nothing, so drop it and open again (once).
-                    opened.close();
-                    if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
-                    _storeHealed = true;
-                    var del = indexedDB.deleteDatabase(DB_NAME);
-                    del.onsuccess = function () { openDB().then(resolve, reject); };
-                    del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
-                    return;
-                }
-                _db = opened;
+                _db = e.target.result;
                 resolve(_db);
             };
 
@@ -180,6 +166,12 @@
             if (body && body.action === 'stop')  return 'Stop Timer';
             return 'Job Timer';
         }
+        if (url.indexOf('field-job') !== -1) {
+            if (body && body.action === 'add_visit')         return 'Add Visit';
+            if (body && body.action === 'create_job')        return 'New Job';
+            if (body && body.action === 'create_client_job') return 'New Client Job';
+            return 'Field Job';
+        }
         if (url.indexOf('visit-pull-forward') !== -1) return 'Move Visit to Today';
         return 'Action';
     }
@@ -217,6 +209,11 @@
             return Object.assign({}, base, { clocked_in: false });
         }
 
+        // field-job: add_visit / create_job / create_client_job.
+        // Real ids are assigned server-side on replay; 0 signals offline-origin.
+        if (url.indexOf('field-job') !== -1) {
+            return Object.assign({}, base, { plan_id: 0, visit_id: 0 });
+        }
         if (url.indexOf('visit-pull-forward') !== -1) {
             return Object.assign({}, base, { already: false, visit_id: body && body.visit_id });
         }
@@ -276,11 +273,6 @@
         // Include idempotency key so the server deduplicates replays.
         if (record.idempotencyKey) {
             opts.headers['Idempotency-Key'] = record.idempotencyKey;
-        }
-        // When the action was really done (ms) — the special-request gate accepts a replay
-        // queued before a request was attached, so a queued action is never stuck.
-        if (record.timestamp) {
-            opts.headers['X-Queued-At'] = String(record.timestamp);
         }
 
         // Merge any original headers (e.g. X-Requested-With), don't override Content-Type
