@@ -36,7 +36,8 @@
 | Driver pre/post-trip | `DriverTripViews.swift` | web form | `trip-report.php` / web | — |
 | Snow route service choice | `VisitCompletionSheet.swift` | invoice sheet asks "What was done here?" | `SnowContractService` | — |
 | Special requests on arrival | `SpecialRequestStore.swift` | panel + gate | `SpecialRequestService`, `SpecialRequestGate` | flags OFF |
-| Trips / dump runs, equipment, bylaws, supplier directory | none | web only | `TripCostService`, `EquipmentService`, `MunicipalRuleService`, `SupplierDirectoryService` | office screens; iPhone not planned |
+| Trips / dump runs, equipment register, bylaws, supplier directory | none | web only | `TripCostService`, `EquipmentService`, `MunicipalRuleService`, `SupplierDirectoryService` | office screens; iPhone not planned |
+| Add equipment (snap the plate → confirm form) | `EquipmentAddView.swift` from Otto's card on the Team tab (camera / library, prefilled form, receipt pick) | `equipment.php` "Add equipment" card + `ops-equipment.js` (Android: same page, file input with camera) | `EquipmentService::readPlate()` / `EquipmentService::addFromPlate()` | iPhone has no list import, machine page, parts or manual reading — those are web (`equipment-item.php`) |
 | End-of-day missed-visit review | `OttoMissedReviewViews.swift` (Otto's card entry + sheet; opens from the push `open: otto_review`) | `otto-missed.js` in Otto's dashboard card + `/crm/ops/missed-visits.php` (Android opens the push's `data.url`) | `MissedVisitReviewService`, `MissedVisitRules` | iPhone date = SwiftUI graphical picker, web = MwDatePicker |
 | Supplier form send | server-sent buttons | server-sent buttons | `SupplierFormService` | — |
 

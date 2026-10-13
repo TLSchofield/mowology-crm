@@ -3,6 +3,8 @@ name: otto-operations
 description: Use BEFORE touching anything operations-related in the Mowology CRM / Ittai — Otto (the Operations head) and his card/suggestions, the schedule and calendar stops, crews and crew assignment, visits and job timers, the time clock, timesheets, breaks, GPS/tracking (crew phones, truck tablet, Trackimo), trip/dump/supply runs, trucks and equipment, weather moves, bylaw hours, bulk material deliveries, the supplier directory and supplier account forms, company documents (business licence, insurance), or snow/salt routes. Also when Tim asks "where is the crew…", "why didn't the phone track…", "who forgot to clock out…", "fill this supplier form…", or reports a wrong Otto suggestion. Holds how Otto is allowed to operate, the single source of truth for each job, iPhone vs web/Android parity, and the traps already hit.
 covers:
   - app/Modules/Operations/*
+  - app/Modules/Team/Api/equipment-mobile.php
+  - ios/MowologyCRM/MowologyCRM/Features/Team/EquipmentAddView.swift
   - app/Modules/Tracking/*
   - app/Modules/Comms/Services/SupplierInboxService.php
   - app/Services/Spreadsheet/*
@@ -109,6 +111,11 @@ reference that matches the task:
 | Weather moves | the noon guard `app/Modules/Jobs/Cron/weather_schedule_guard.php`; Otto's "move" reuses `public/crm/modules/scheduling/rescheduler.php`; learning `OttoActionService::learnWeather()` | card, Weather Actions page |
 | Bylaw hours, West End | `MunicipalRuleService::items()` + `DispatchRules::breach()` | `public/crm/ops/municipal-rules.php` |
 | Equipment, truck range, packs, maintenance | `EquipmentService::suggestionItems()`, `DispatchRules::dayCapKm()` | `public/crm/ops/equipment.php` |
+| Adding a machine: snap the plate → prefilled form → register (2026-10-13, migration 1350) | `EquipmentService::readPlate()` (photo + OCR via `LabelCaptureService::capture()` with no card proposal) → `EquipmentService::addFromPlate()`; plate text read by the pure `EquipmentPlateParser::parse()` (also the model/serial fallback inside `LabelReaderService::read()`); purchase receipts offered by `EquipmentService::receiptCandidates()` | web/Android `public/crm/ops/equipment.php` + `public/crm/js/ops-equipment.js` → `app/Modules/Operations/Api/dispatch.php`; iPhone `ios/MowologyCRM/MowologyCRM/Features/Team/EquipmentAddView.swift` → `app/Modules/Team/Api/equipment-mobile.php` |
+| A machine's MODEL (shared) vs its UNIT (private) | `EquipmentCatalogService::linkModel()` — family `tools`, part-number matcher on brand + model, never fuzzy (`CatalogService::resolve()` with suggest off); parts `EquipmentCatalogService::setPart()` (each part number is its own catalogue product, so a dealer parts list imported by `SupplierPriceListService` matches it); the manual's intervals `EquipmentCatalogService::recordManualInterval()` (written by `OttoManualService::confirm()`) and `EquipmentCatalogService::adoptShared()`. Shared tables never hold serials or prices | `EquipmentService::save()`, the machine page |
+| Which intervals apply to a machine and where each stands | `DispatchRules::intervalsFor()` (item > model > class) + `EquipmentService::intervalRows()` (`DispatchRules::intervalState()`) | Otto's maintenance suggestions, the machine page, Otto's care view (`ProductCareService::machines()`) |
+| The machine's page: intervals due, log service, receipts, cost this year | `EquipmentService::detail()` / `EquipmentService::yearCost()` (own receipts = purchase + service-log receipts; plus its share of receipts tagged `equipment`/`truck`) | `public/crm/ops/equipment-item.php` |
+| Equipment list import (CSV / xlsx) | `EquipmentImportService::preview()` / `EquipmentImportService::commit()` (reads with `SheetReader::read()`; serial already registered = skipped) | `public/crm/ops/equipment.php` |
 | Crew training gaps | `TrainingService::items()` | card |
 | Truck day → stops, drives, labels | `TripSegmentService::detectStops()` / `TripSegmentService::label()` | breaks, trip cost, evidence |
 | Dump / supply run cost | `TripCostService::process()` (cron `app/Modules/Operations/Cron/trip_runs_daily.php`) | `app/Modules/Operations/Api/trips.php`, Penny |

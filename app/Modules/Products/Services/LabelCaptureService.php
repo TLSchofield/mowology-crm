@@ -44,11 +44,27 @@ class LabelCaptureService
 
     /**
      * @param array $file $_FILES shape
-     * @return array{success: bool, error?: string, http_code?: int, capture_id?: int, media_id?: int, kind?: string, title?: string, message?: string, read?: array}
+     * @param bool $propose false = Otto's Add equipment flow: read and keep the photo, but make no card
+     *                      proposal (the person is confirming the machine on the form right now)
+     * @return array{success: bool, error?: string, http_code?: int, capture_id?: int, media_id?: int, kind?: string, title?: string, message?: string, read?: array, text?: string}
      */
-    public function capture(int $userId, array $file, ?float $lat, ?float $lng): array
+    public function capture(int $userId, array $file, ?float $lat, ?float $lng, bool $propose = true): array
     {
         if (!$this->ready()) return ['success' => false, 'error' => 'Label photos need migration 1225.', 'http_code' => 503];
+        $stored = $this->storePhoto($userId, $file, 'label', 'Product / machine label photo', 'label', $lat, $lng);
+        if (empty($stored['success'])) return $stored;
+        $ocr = $this->runOcr($stored['path']);
+        return $this->record($userId, (int)$stored['media_id'], $lat, $lng, $ocr['text'], $ocr['source'], null, $propose);
+    }
+
+    /**
+     * Keep one photo the way receipts are kept: validated (ReceiptIntakeService rules), in the deny-all
+     * /uploads/receipts/ folder served by the auth-gated serve-receipt.php, EXIF stripped, a media_assets row.
+     * Also used for the machine photo in Otto's Add equipment flow (context 'equipment').
+     * @return array{success: bool, error?: string, http_code?: int, media_id?: int, path?: string}
+     */
+    public function storePhoto(int $userId, array $file, string $context, string $alt, string $prefix, ?float $lat = null, ?float $lng = null): array
+    {
         if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return ['success' => false, 'error' => 'No photo received.', 'http_code' => 400];
         }
@@ -62,7 +78,7 @@ class LabelCaptureService
         $dir = PUBLIC_ROOT . '/uploads/receipts/';
         if (!is_dir($dir)) mkdir($dir, 0755, true);
         $ext = ReceiptIntakeService::resolveStoredExtension((string)$file['name']);
-        $stored = 'label-' . date('Ymd-His') . '-' . uniqid() . '.' . $ext;
+        $stored = $prefix . '-' . date('Ymd-His') . '-' . uniqid() . '.' . $ext;
         $path = $dir . $stored;
         if (!move_uploaded_file($file['tmp_name'], $path)) {
             return ['success' => false, 'error' => 'Failed to save the photo.', 'http_code' => 500];
@@ -73,16 +89,14 @@ class LabelCaptureService
         $w = $h = null;
         if ($info = @getimagesize($path)) { [$w, $h] = $info; }
         $this->db->prepare("INSERT INTO media_assets (original_filename, stored_filename, file_path, file_type, mime_type, file_size, image_width, image_height, gps_lat, gps_lng, sha256, alt_text, context_type, created_by)
-                            VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, 'Product / machine label photo', 'label', ?)")
-             ->execute([(string)$file['name'], $stored, '/uploads/receipts/' . $stored, $mime, (int)$file['size'], $w, $h, $lat, $lng, hash_file('sha256', $path) ?: null, $userId]);
-        $mediaId = (int)$this->db->lastInsertId();
-
-        $ocr = $this->runOcr($path);
-        return $this->record($userId, $mediaId, $lat, $lng, $ocr['text'], $ocr['source']);
+                            VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+             ->execute([(string)$file['name'], $stored, '/uploads/receipts/' . $stored, $mime, (int)$file['size'], $w, $h, $lat, $lng, hash_file('sha256', $path) ?: null,
+                        $alt, $context, $userId]);
+        return ['success' => true, 'media_id' => (int)$this->db->lastInsertId(), 'path' => $path];
     }
 
     /** Read + store + propose. Split from capture() so tests run it without a file upload. */
-    public function record(int $userId, ?int $mediaId, ?float $lat, ?float $lng, string $text, string $source, ?string $at = null): array
+    public function record(int $userId, ?int $mediaId, ?float $lat, ?float $lng, string $text, string $source, ?string $at = null, bool $propose = true): array
     {
         $read = LabelReaderService::read($text);
         $this->db->prepare("INSERT INTO label_captures (media_id, captured_by, captured_at, lat, lng, ocr_text, ocr_source, parsed_json, status)
@@ -91,8 +105,12 @@ class LabelCaptureService
                         json_encode($read, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
         $captureId = (int)$this->db->lastInsertId();
         if (trim($text) === '') {
-            return ['success' => true, 'capture_id' => $captureId, 'media_id' => $mediaId, 'kind' => null, 'title' => null,
+            return ['success' => true, 'capture_id' => $captureId, 'media_id' => $mediaId, 'kind' => null, 'title' => null, 'text' => '',
                     'message' => 'Photo saved, but I could not read any text on it. Try again closer, in good light.'];
+        }
+        if (!$propose) {
+            return ['success' => true, 'capture_id' => $captureId, 'media_id' => $mediaId, 'kind' => $read['kind'], 'title' => $read['display_name'],
+                    'text' => $text, 'message' => 'Read.'];
         }
         $p = (new ProductProposalService($this->db, null, $at ? substr($at, 0, 10) : null))->proposeFromLabel($captureId);
         return ['success' => true, 'capture_id' => $captureId, 'media_id' => $mediaId, 'kind' => $read['kind'],

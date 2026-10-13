@@ -180,6 +180,9 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php'
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentPlateParser.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentCatalogService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentImportService.php';
 require_once __DIR__ . '/Unit/Operations/PriceListFixtures.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieDeskService.php';

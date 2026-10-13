@@ -151,9 +151,12 @@ class CatalogService
 
     /**
      * Link one supplier line to the catalogue.
+     * $suggest = false skips the fuzzy tier: a machine model number that matches no exact tier is a
+     * different model (HRX217 is not HRC216), so it becomes its own product instead of a review item
+     * (EquipmentCatalogService, 2026-10-13).
      * @return array{product_id: ?int, confidence: ?float, how: string, name_key: string, suggested_id: ?int}
      */
-    public function resolve(string $family, array $item, ?int $categoryId = null): array
+    public function resolve(string $family, array $item, ?int $categoryId = null, bool $suggest = true): array
     {
         $m = $this->matcher($family);
         $p = $m->parse($item);
@@ -186,7 +189,7 @@ class CatalogService
             }
         }
         if ($out['product_id'] === null) {
-            [$bestId, $score] = $this->closest($family, $m, $p);
+            [$bestId, $score] = $suggest ? $this->closest($family, $m, $p) : [null, 0.0];
             if ($bestId !== null && $score >= self::SUGGEST_AT) {
                 $this->enqueue($family, $p['key'], (string)$item['name'], $bestId, $score);
                 $out['suggested_id'] = $bestId;

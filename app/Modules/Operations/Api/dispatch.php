@@ -13,8 +13,17 @@
  *   save_equipment {id?, name, equipment_class, ...}
  *   save_interval {equipment_class | equipment_id, task, every_hours, every_days}
  *   delete_interval {id}
- *   log_service {equipment_id, task, done_on}
+ *   log_service {equipment_id, task, done_on, expense_id?, note?}
  *   log_run {equipment_id, runtime_min, run_date, ran_flat}
+ *   Otto's equipment input (migration 1350):
+ *   plate_read      multipart: plate_photo (+ machine_photo)  → what the plate says, receipts, known model
+ *   add_equipment   {name, equipment_class, make, model, serial_no, power_source, purchase_date, cost,
+ *                    expense_id?, assigned_user_id?, truck_id?, plate_media_id?, photo_media_id?, label_capture_id?, model_name?}
+ *   receipt_candidates {make?, model?, date?, cost?, text?}
+ *   link_receipt    {id, expense_id|null}                     the purchase receipt
+ *   import_preview / import_commit   multipart: file (.csv / .xlsx)
+ *   set_part        {catalog_product_id, key, value}          shared: the model's part numbers
+ *   adopt_intervals {catalog_product_id}                      the manual's intervals → every unit of the model
  *
  * ?mode=, never ?action= (see the /api/ router note in the vault). jobs.edit only.
  * Nothing here moves a visit or messages anyone.
@@ -49,7 +58,8 @@ try {
         echo json_encode(['ok' => false, 'error' => 'POST only']);
         exit;
     }
-    $in = json_decode((string)file_get_contents('php://input'), true) ?? [];
+    $isMultipart = stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data') !== false;
+    $in = $isMultipart ? $_POST : (json_decode((string)file_get_contents('php://input'), true) ?? []);
     if (!verifyCSRFToken((string)($in['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')))) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token — reload the page and try again.']);
@@ -83,7 +93,34 @@ try {
         case 'save_equipment':   $r = $eq->save($in); break;
         case 'save_interval':    $r = $eq->saveInterval($in); break;
         case 'delete_interval':  $eq->deleteInterval((int)($in['id'] ?? 0)); $r = ['ok' => true, 'message' => 'Removed.']; break;
-        case 'log_service':      $r = $eq->logService((int)($in['equipment_id'] ?? 0), (string)($in['task'] ?? ''), $in['done_on'] ?? null, $actor); break;
+        case 'log_service':      $r = $eq->logService((int)($in['equipment_id'] ?? 0), (string)($in['task'] ?? ''), $in['done_on'] ?? null, $actor, null,
+                                                      isset($in['note']) ? (string)$in['note'] : null, !empty($in['expense_id']) ? (int)$in['expense_id'] : null); break;
+        case 'plate_read':
+            if (function_exists('set_time_limit')) @set_time_limit(90);
+            $r = $eq->readPlate($actor, $_FILES['plate_photo'] ?? [], $_FILES['machine_photo'] ?? []);
+            if (!empty($r['http_code'])) { http_response_code((int)$r['http_code']); unset($r['http_code']); echo json_encode($r); exit; }
+            break;
+        case 'add_equipment':    $r = $eq->addFromPlate($in, $actor); break;
+        case 'receipt_candidates': $r = ['ok' => true, 'receipts' => $eq->receiptCandidates($in)]; break;
+        case 'link_receipt':     $r = $eq->linkPurchase((int)($in['id'] ?? 0), !empty($in['expense_id']) ? (int)$in['expense_id'] : null); break;
+        case 'import_preview':
+        case 'import_commit':
+            require_once APP_ROOT . '/Modules/Operations/Services/EquipmentImportService.php';
+            $f = $_FILES['file'] ?? [];
+            if (empty($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || (int)$f['size'] > 5 * 1024 * 1024) { $r = ['ok' => false, 'message' => 'Choose a .csv or .xlsx file (5 MB at most).']; break; }
+            $imp = new EquipmentImportService($db, $eq);
+            $bytes = (string)file_get_contents($f['tmp_name']);
+            $r = $mode === 'import_preview' ? $imp->preview($bytes, (string)$f['name']) : $imp->commit($bytes, (string)$f['name']);
+            break;
+        case 'set_part':
+            require_once APP_ROOT . '/Modules/Operations/Services/EquipmentCatalogService.php';
+            $r = (new EquipmentCatalogService($db))->setPart((int)($in['catalog_product_id'] ?? 0), (string)($in['key'] ?? ''), (string)($in['value'] ?? ''));
+            break;
+        case 'adopt_intervals':
+            require_once APP_ROOT . '/Modules/Operations/Services/EquipmentCatalogService.php';
+            $n = (new EquipmentCatalogService($db))->adoptShared((int)($in['catalog_product_id'] ?? 0));
+            $r = ['ok' => true, 'added' => $n, 'message' => $n ? "Added {$n} interval" . ($n === 1 ? '' : 's') . ' for every unit of this model. I\'ll tell you when one is due.' : 'Nothing new to add.'];
+            break;
         case 'log_run':          $r = $eq->logRun((int)($in['equipment_id'] ?? 0), (int)($in['runtime_min'] ?? 0), $in['run_date'] ?? null, !empty($in['ran_flat']), $actor); break;
         default:
             http_response_code(400);

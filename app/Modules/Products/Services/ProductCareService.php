@@ -118,9 +118,8 @@ class ProductCareService
      */
     public static function intervalState(?float $everyH, ?int $everyD, float $hours, int $days): string
     {
-        if (($everyH && $hours >= $everyH) || ($everyD && $days >= $everyD)) return 'due';
-        if (($everyH && $hours >= 0.8 * $everyH) || ($everyD && $days >= 0.8 * $everyD)) return 'soon';
-        return 'ok';
+        require_once dirname(__DIR__, 2) . '/Operations/Services/DispatchRules.php';
+        return DispatchRules::intervalState($everyH, $everyD, $hours, $days);
     }
 
     /** Active machines with intervals and where each stands (job-timer hours), plus manual-read suggestions waiting. */
@@ -145,18 +144,10 @@ class ProductCareService
         $out = [];
         foreach ($items as $it) {
             if ($it['equipment_class'] === 'truck') continue;
-            $start = $it['purchase_date'] ?: substr((string)$it['created_at'], 0, 10);
-            $rows = [];
-            foreach (DispatchRules::intervalsFor($it, $intervals) as $iv) {
-                $h = $iv['every_hours'] !== null ? (float)$iv['every_hours'] : null;
-                $d = $iv['every_days'] !== null ? (int)$iv['every_days'] : null;
-                $l = $last[(int)$it['id']][strtolower(trim((string)$iv['task']))] ?? null;
-                $from = $l ?? $start;
-                $hours = $eq->hoursSince($it, $from) + ($l === null ? (float)$it['hours_baseline'] : 0.0);
-                $days = (int)floor((strtotime($today) - strtotime($from)) / 86400);
-                $rows[] = ['task' => (string)$iv['task'], 'every' => OttoManualService::every($h, $d), 'state' => self::intervalState($h, $d, $hours, $days),
-                           'hours' => round($hours, 1), 'days' => $days, 'last' => $l];
-            }
+            // One place for "where each interval stands": EquipmentService::intervalRows() (the machine page uses it too).
+            $rows = array_map(fn($r) => ['task' => $r['task'], 'every' => OttoManualService::every($r['every_hours'], $r['every_days']), 'state' => $r['state'],
+                                         'hours' => $r['hours'], 'days' => $r['days'], 'last' => $r['last']],
+                              $eq->intervalRows($it, $intervals, $last[(int)$it['id']] ?? []));
             $out[] = [
                 'id' => (int)$it['id'], 'name' => (string)$it['name'], 'class' => (string)$it['equipment_class'],
                 'make' => $it['make'], 'model' => $it['model'], 'serial_no' => $it['serial_no'], 'intervals' => $rows,

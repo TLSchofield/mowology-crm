@@ -13,6 +13,17 @@ open and Otto's missed-visit review shows it next day; a visit decided in the re
 (`otto_missed_review_items`, migration 1349) is left alone. Times in a cron's comment are the
 server's; check `cron_runs` before promising a time.
 
+## 2026-10-13 — Equipment input: plates and a shared worktree
+- **Plates print the label and the value on separate lines** ("MODEL" / "HRC216K3HXCH" / "SERIAL NO." /
+  "MAKA-2058647" on Tim's Honda). `LabelReaderService::read()` only read same-line values and named the
+  machine "Model". **Rule:** model/serial reading lives in `EquipmentPlateParser::parse()`; the label reader
+  falls back to it. Add new plate layouts as fixtures in `EquipmentPlateParserTest`, never a second regex.
+- **A model number is not fuzzy.** The catalogue's fuzzy tier would queue HRX217 as "nearly" HRC216 —
+  machines resolve with `CatalogService::resolve(…, suggest: false)` via `EquipmentCatalogService::linkModel()`.
+- **`git commit` in a shared worktree commits the WHOLE index** — another agent's staged files went
+  into the equipment iOS commit (b533037b, message amended to say so). **Rule:** commit with explicit
+  paths (`git commit -m … -- <paths>`), never a bare `git commit` after `git add`.
+
 ## 2026-10-12 — Fable review: time, pay, visits, GPS, suppliers
 Independent reviews found 33 defects; fixed the same day. **Rules now enforced:**
 - **Pay** is BC overtime per DAY (8 h → 1.5×, 12 h → 2×) and per Monday–Sunday WEEK (40 h), summed

@@ -13,6 +13,10 @@
  * a daily cap (ops_settings otto_manual_daily_cap, default 10); every call's tokens and
  * cost are kept in equipment_manual_reads (migration 1225).
  *
+ * When the machine is linked to its catalogue model (migration 1350) a confirmed line is saved for
+ * every unit of that model, and the manual's own line is kept on the model for every company
+ * (EquipmentCatalogService::recordManualInterval) — read once, shared, never re-bought.
+ *
  * Claude is called over HTTP (no SDK on the FTP-deployed host); the transport is injectable
  * so tests never call the API. No namespace / no autoloader: require_once and `new`.
  */
@@ -204,11 +208,28 @@ TXT;
         $task = trim((string)($in['task'] ?? $items[$index]['task']));
         $h = array_key_exists('every_hours', $in) ? $in['every_hours'] : $items[$index]['every_hours'];
         $d = array_key_exists('every_days', $in) ? $in['every_days'] : $items[$index]['every_days'];
-        $r = (new EquipmentService($this->db))->saveInterval([
-            'equipment_id' => (int)$row['equipment_id'], 'task' => $task,
+        // A machine linked to its catalogue model (migration 1350): Tim's numbers apply to every unit of
+        // that model here, and the manual's own line (numbers, words, page) becomes shared knowledge for
+        // the model — the next company with this model needs no Claude call.
+        $eqSvc = new EquipmentService($this->db);
+        $eq = $eqSvc->row((int)$row['equipment_id']);
+        $model = $eq && !empty($eq['catalog_product_id']) ? (int)$eq['catalog_product_id'] : null;
+        $r = $eqSvc->saveInterval([
+            'equipment_id' => $model ? null : (int)$row['equipment_id'], 'catalog_product_id' => $model, 'task' => $task,
             'every_hours' => $h !== null && (float)$h > 0 ? (float)$h : '', 'every_days' => $d !== null && (int)$d > 0 ? (int)$d : '',
         ]);
         if (!$r['ok']) return $r;
+        if ($model) {
+            try {
+                require_once __DIR__ . '/EquipmentCatalogService.php';
+                $it = $items[$index];
+                (new EquipmentCatalogService($this->db))->recordManualInterval($model, (string)$it['task'],
+                    isset($it['every_hours']) ? (float)$it['every_hours'] : null, isset($it['every_days']) ? (int)$it['every_days'] : null,
+                    (string)($it['page'] ?? ''), (string)($it['quote'] ?? ''));
+            } catch (Throwable $e) {
+                error_log('OttoManual shared interval: ' . $e->getMessage());
+            }
+        }
         $items[$index]['status'] = 'saved';
         $items[$index]['saved_by'] = $userId ?: null;
         $this->saveItems($readId, $items);

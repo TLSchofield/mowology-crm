@@ -185,6 +185,17 @@ class LabelReaderService
         }
         if (!$out['brand'] && $out['maker']) $out['brand'] = trim(preg_replace('/\b(inc|ltd|limited|corp|corporation|llc|co)\b\.?/i', '', $out['maker']));
 
+        // Plates that print the label and the value on separate lines ("MODEL" / "HRC216K3HXCH"):
+        // the plate parser reads them (EquipmentPlateParser — one place for model/serial reading).
+        require_once dirname(__DIR__, 2) . '/Operations/Services/EquipmentPlateParser.php';
+        $plate = EquipmentPlateParser::parse($text);
+        if (!$out['model'] && $plate['model']) { $out['model'] = $plate['model']; $out['cues'][] = 'model'; }
+        if (!$out['serial'] && $plate['serial']) { $out['serial'] = $plate['serial']; $out['cues'][] = 'serial'; }
+        foreach ($lines as $i => $l) {
+            if (preg_match('/^(model|mod\.?|serial(\s*no\.?)?|s\/n|type)\s*[:.]?$/i', $l)
+                || ($out['model'] && strcasecmp($l, $out['model']) === 0) || ($out['serial'] && strcasecmp($l, $out['serial']) === 0)) $used[$i] = true;
+        }
+
         // Kind
         $mScore = count(array_unique($out['cues'])) + ($out['serial'] ? 1 : 0) + ($out['model'] ? 1 : 0);
         $pScore = ($out['composition'] ? 2 : 0) + ($out['sku'] ? 1 : 0) + ($out['batch'] ? 1 : 0) + ($out['grade'] ? 1 : 0)
@@ -199,16 +210,19 @@ class LabelReaderService
             if (isset($used[$i]) || $i === $makerIdx) { if ($title) break; continue; }
             if (preg_match('/\d|%|:|@|www\.|http/i', $l) && !($out['kind'] === 'machine' && preg_match('/^\d+v\b/i', $l))) { if ($title) break; continue; }
             if ($out['brand'] && strcasecmp(trim($l), $out['brand']) === 0) continue;
-            if (preg_match('/^(made in|product of|distributed|imported)/i', $l)) continue;
+            if (preg_match('/^(made in|product of|distributed|imported|assembled)/i', $l)) continue;
             $title[] = $l;
             if (count($title) >= 3 || $i > 6) break;
         }
         if ($out['kind'] === 'machine') {
             $out['equipment_class'] = self::equipmentClass($all);
-            $out['power_source'] = self::powerSource($all, $out['voltage']);
+            if ($out['equipment_class'] === 'other' && in_array($plate['equipment_class'], ['mower', 'trimmer', 'blower', 'battery_pack', 'truck'], true)) {
+                $out['equipment_class'] = $plate['equipment_class'];
+            }
+            $out['power_source'] = $plate['power_source'] ?? self::powerSource($all, $out['voltage']);
             $what = self::classWord($all);
             $name = trim(($out['brand'] ? $out['brand'] . ' ' : '') . ($out['model'] ?? '') . ($what ? ' ' . $what : ''));
-            $out['name'] = $what ?: ($title ? self::titleCase(implode(' ', $title)) : null);
+            $out['name'] = $what ?: ($plate['model_name'] ?: ($title ? self::titleCase(implode(' ', $title)) : null));
             $out['display_name'] = $name !== '' ? $name : $out['name'];
         } else {
             $name = $title ? self::titleCase(implode(' ', $title)) : null;

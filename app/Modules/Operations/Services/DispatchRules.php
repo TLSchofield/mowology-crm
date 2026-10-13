@@ -265,17 +265,40 @@ class DispatchRules
         return $out;
     }
 
-    /** Item intervals override class intervals for the same task. */
+    /**
+     * The intervals that apply to one item, one per task: an item row beats a model row
+     * (catalog_product_id — every unit of that model, migration 1350) beats a class row.
+     */
     public static function intervalsFor(array $item, array $all): array
     {
         $byTask = [];
+        $rank = [];
         foreach ($all as $iv) {
-            if (!empty($iv['equipment_id']) && (int)$iv['equipment_id'] !== (int)$item['id']) continue;
-            if (empty($iv['equipment_id']) && ($iv['equipment_class'] ?? '') !== $item['equipment_class']) continue;
+            if (!empty($iv['equipment_id'])) {
+                if ((int)$iv['equipment_id'] !== (int)$item['id']) continue;
+                $r = 3;
+            } elseif (!empty($iv['catalog_product_id'])) {
+                if (empty($item['catalog_product_id']) || (int)$iv['catalog_product_id'] !== (int)$item['catalog_product_id']) continue;
+                $r = 2;
+            } else {
+                if (($iv['equipment_class'] ?? '') !== $item['equipment_class']) continue;
+                $r = 1;
+            }
             $t = strtolower(trim((string)$iv['task']));
-            if (!isset($byTask[$t]) || !empty($iv['equipment_id'])) $byTask[$t] = $iv;
+            if (!isset($byTask[$t]) || $r > $rank[$t]) { $byTask[$t] = $iv + ['scope' => [1 => 'class', 2 => 'model', 3 => 'item'][$r]]; $rank[$t] = $r; }
         }
         return array_values($byTask);
+    }
+
+    /**
+     * Where one interval stands: due (past it), soon (80% of the way) or ok.
+     * $hours / $days = used since the last service (or since purchase).
+     */
+    public static function intervalState(?float $everyH, ?int $everyD, float $hours, int $days): string
+    {
+        if (($everyH && $hours >= $everyH) || ($everyD && $days >= $everyD)) return 'due';
+        if (($everyH && $hours >= 0.8 * $everyH) || ($everyD && $days >= 0.8 * $everyD)) return 'soon';
+        return 'ok';
     }
 
     /**

@@ -2,6 +2,8 @@
 /**
  * Equipment register — Otto the Dispatcher.
  *
+ * Add equipment: snap the plate (EquipmentService::readPlate → confirm → addFromPlate), or import a
+ * CSV/xlsx list (EquipmentImportService). Each machine has its own page: /crm/ops/equipment-item.php.
  * Every mower, trimmer, blower, battery pack and truck: purchase, cost (from the linked
  * receipt — never typed twice), CCA class (recorded for the accountant), hours, service
  * intervals and log, battery runs logged by hand, and the Might-E's next days against its
@@ -47,7 +49,8 @@ if ($ready) {
         error_log('Equipment page: ' . $e->getMessage());
     }
 }
-$classLabels = ['mower' => 'Mower', 'trimmer' => 'Trimmer', 'blower' => 'Blower', 'battery_pack' => 'Battery pack', 'truck' => 'Truck', 'other' => 'Other'];
+$classLabels = EquipmentService::CLASS_LABELS;
+$formOpts = $ready ? $svc->formOptions() : ['people' => [], 'trucks' => []];
 $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
 $opts = function (array $o, $val): string {
     $h = '';
@@ -67,7 +70,7 @@ $form = function (array $it) use ($classLabels, $opts, $peopleOpts): string {
     <div class="mw-ops-form" data-row data-id="<?= (int)($it['id'] ?? 0) ?>">
       <label>Name <input name="name" class="form-control form-control-sm" value="<?= $v('name') ?>" placeholder="EGO mower #2"></label>
       <label>Type <select name="equipment_class" class="form-control form-control-sm"><?= $opts($classLabels, $it['equipment_class'] ?? 'mower') ?></select></label>
-      <label>Power <select name="power_source" class="form-control form-control-sm"><?= $opts(['battery' => 'Battery', 'gas' => 'Gas', 'electric' => 'Electric', 'diesel' => 'Diesel'], $it['power_source'] ?? 'battery') ?></select></label>
+      <label>Power <select name="power_source" class="form-control form-control-sm"><?= $opts(EquipmentService::POWER_LABELS, $it['power_source'] ?? 'battery') ?></select></label>
       <label>Make <input name="make" class="form-control form-control-sm" value="<?= $v('make') ?>"></label>
       <label>Model <input name="model" class="form-control form-control-sm" value="<?= $v('model') ?>"></label>
       <label>Serial <input name="serial_no" class="form-control form-control-sm" value="<?= $v('serial_no') ?>"></label>
@@ -107,6 +110,54 @@ $form = function (array $it) use ($classLabels, $opts, $peopleOpts): string {
     <div class="alert alert-warning">Run migrations 1155–1158 first.</div>
   <?php else: ?>
 
+  <div class="card" id="mw-eq-add"><div class="card-body">
+    <h2 class="h5">Add equipment</h2>
+    <p class="mw-ops-hint">Photograph the model / serial plate. I read the make, model and serial; you check them and add the rest.
+      The model is shared knowledge (specs, parts, the manual's service intervals) — the serial, price and receipt stay yours.</p>
+    <div class="mw-ops-form" data-eq-snap>
+      <label>Plate photo <input type="file" name="plate_photo" accept="image/*" capture="environment" class="form-control form-control-sm"></label>
+      <label>Machine photo (optional) <input type="file" name="machine_photo" accept="image/*" capture="environment" class="form-control form-control-sm"></label>
+      <div class="mw-ops-wide">
+        <button type="button" class="btn btn-sm btn-success" data-eq-read>Read the plate</button>
+        <button type="button" class="btn btn-sm btn-link" data-eq-manual>or type it in</button>
+        <span class="mw-ops-msg" data-eq-snap-msg></span>
+      </div>
+    </div>
+
+    <div class="mw-ops-form mt-3" data-eq-confirm hidden>
+      <input type="hidden" name="plate_media_id"><input type="hidden" name="photo_media_id"><input type="hidden" name="label_capture_id"><input type="hidden" name="model_name">
+      <label>Name / nickname <input name="name" class="form-control form-control-sm" placeholder="Honda HRC216 mower #2"></label>
+      <label>Type <select name="equipment_class" class="form-control form-control-sm"><?= $opts($classLabels, 'mower') ?></select></label>
+      <label>Power <select name="power_source" class="form-control form-control-sm"><?= $opts(EquipmentService::POWER_LABELS, 'gas') ?></select></label>
+      <label>Make <input name="make" class="form-control form-control-sm"></label>
+      <label>Model <input name="model" class="form-control form-control-sm"></label>
+      <label>Serial <input name="serial_no" class="form-control form-control-sm"></label>
+      <div class="mw-form-group">
+        <label class="d-block mb-1">Bought</label>
+        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mw-eq-purchase-date" aria-haspopup="true" aria-expanded="false">
+          <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span class="mw-datepicker-date" data-mw-dp-label></span>
+          <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <input type="date" id="mw-eq-purchase-date" name="purchase_date" hidden value="<?= h(date('Y-m-d')) ?>">
+      </div>
+      <label>Cost (before tax) <input type="number" step="0.01" min="0" name="cost" class="form-control form-control-sm"></label>
+      <label>Used by <select name="assigned_user_id" class="form-control form-control-sm"><?= $opts($peopleOpts, '') ?></select></label>
+      <label>Truck / trailer <select name="truck_id" class="form-control form-control-sm"><?php
+          $truckOpts = ['' => '—']; foreach ($formOpts['trucks'] as $t) $truckOpts[(int)$t['id']] = $t['name']; echo $opts($truckOpts, ''); ?></select></label>
+      <div class="mw-ops-wide">
+        <b>Purchase receipt</b> <button type="button" class="btn btn-sm btn-link p-0" data-eq-receipts-search>find receipts by date and cost</button>
+        <div data-eq-receipts class="mt-1"></div>
+        <label class="mt-1">Receipt # <input type="number" name="expense_id" class="form-control form-control-sm" title="The purchase in Expenses — the cost then comes from it"></label>
+      </div>
+      <div class="mw-ops-wide" data-eq-known></div>
+      <div class="mw-ops-wide">
+        <button type="button" class="btn btn-sm btn-success" data-eq-save>Add to equipment</button>
+        <span class="mw-ops-msg" data-eq-confirm-msg></span>
+      </div>
+    </div>
+  </div></div>
+
   <div class="card"><div class="card-body">
     <h2 class="h5">Register</h2>
     <?php if (!$items): ?><p class="mw-ops-hint">Nothing registered yet. Add the Might-E first, then the mowers and packs.</p><?php endif; ?>
@@ -117,14 +168,14 @@ $form = function (array $it) use ($classLabels, $opts, $peopleOpts): string {
         <?php foreach ($items as $it):
             $hrs = (float)$it['hours_baseline'] + $svc->hoursSince($it, $it['purchase_date'] ?: substr((string)$it['created_at'], 0, 10)); ?>
           <tr id="eq-<?= (int)$it['id'] ?>" class="<?= $it['status'] === 'retired' ? 'mw-ops-retired' : '' ?>">
-            <td><b><?= h($it['name']) ?></b><br><small class="text-muted"><?= h(trim(($it['make'] ?? '') . ' ' . ($it['model'] ?? ''))) ?></small></td>
+            <td><a href="/crm/ops/equipment-item.php?id=<?= (int)$it['id'] ?>"><b><?= h($it['name']) ?></b></a><br><small class="text-muted"><?= h(trim(($it['make'] ?? '') . ' ' . ($it['model'] ?? ''))) ?><?= !empty($it['truck_name']) ? ' · on ' . h($it['truck_name']) : '' ?></small></td>
             <td><?= h($classLabels[$it['equipment_class']] ?? $it['equipment_class']) ?></td>
             <td><?= h(ucfirst((string)$it['power_source'])) ?></td>
             <td><?= h($it['assigned_name'] ?? '—') ?></td>
             <td><?= h($it['purchase_date'] ? date('M j, Y', strtotime($it['purchase_date'])) : '—') ?></td>
             <td><?= h($money($it['cost'])) ?><?php if ($it['cost_source'] === 'receipt'): ?><br><a href="/crm/expenses_appstack.php" class="mw-ops-src">receipt #<?= (int)$it['expense_id'] ?></a><?php endif; ?></td>
             <td><?= h($it['cca_class'] ?: '—') ?></td>
-            <td><?= in_array($it['equipment_class'], ['mower', 'trimmer', 'blower'], true) ? number_format($hrs, 1) : '—' ?></td>
+            <td><?= in_array($it['equipment_class'], EquipmentService::TIMED, true) ? number_format($hrs, 1) : '—' ?></td>
             <td><?= h(ucfirst((string)$it['status'])) ?></td>
           </tr>
           <tr class="mw-ops-edit"><td colspan="9"><details><summary>Edit</summary><?= $form($it) ?></details></td></tr>
@@ -133,7 +184,22 @@ $form = function (array $it) use ($classLabels, $opts, $peopleOpts): string {
       </table>
     </div>
     <p class="mw-ops-hint">* Hours: the person's job-timer time on visits whose service uses this kind of tool (ticked on <a href="/crm/ops/municipal-rules.php">Bylaw rules</a>), plus the hours it had when added.</p>
-    <details class="mw-ops-add"><summary class="btn btn-sm btn-outline-success">Add an item</summary><?= $form([]) ?></details>
+    <details class="mw-ops-add"><summary class="btn btn-sm btn-outline-success">Add an item (every field)</summary><?= $form([]) ?></details>
+  </div></div>
+
+  <div class="card" id="mw-eq-import"><div class="card-body">
+    <h2 class="h5">Import a list</h2>
+    <p class="mw-ops-hint">A .csv or .xlsx with a header row: Name, Make, Model, Serial, Type, Power, Purchase date, Cost, Truck, Used by, Hours, Notes
+      (any order; only Name or Make + Model is needed). I show what each row becomes before anything is added; a serial already registered is skipped.</p>
+    <div class="mw-ops-form" data-eq-import>
+      <label class="mw-ops-wide">File <input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="form-control form-control-sm"></label>
+      <div class="mw-ops-wide">
+        <button type="button" class="btn btn-sm btn-outline-success" data-eq-import-preview>Preview</button>
+        <button type="button" class="btn btn-sm btn-success" data-eq-import-commit hidden>Add them</button>
+        <span class="mw-ops-msg" data-eq-import-msg></span>
+      </div>
+    </div>
+    <div data-eq-import-rows class="table-responsive mt-2"></div>
   </div></div>
 
   <?php foreach ($truckDays as $tid => $days): $t = null; foreach ($items as $it) if ((int)$it['id'] === $tid) $t = $it; ?>
@@ -239,4 +305,5 @@ $form = function (array $it) use ($classLabels, $opts, $peopleOpts): string {
 </div>
 
 <script src="<?= function_exists('_av') ? _av('/crm/js/ops-dispatch.js') : '/crm/js/ops-dispatch.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/ops-equipment.js') : '/crm/js/ops-equipment.js' ?>" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
