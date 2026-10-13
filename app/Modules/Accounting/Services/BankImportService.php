@@ -32,6 +32,16 @@ class BankImportService
     /** Per-page raw OCR text captured during extractTextViaImagickOcr(). */
     private array $rawPageTexts = [];
 
+    /**
+     * One preview run's bookkeeping (reset by preview()/enrichRows()), 2026-10-13:
+     *   dupUsed     — existing lines already counted as "this row is a duplicate". A file with TWO
+     *                 identical charges (Lawnboy $84 x2 on Oct 7) against ONE existing line is one
+     *                 duplicate and one new line, not two duplicates.
+     *   expClaimed  — receipts already matched to a row in this file: one receipt, one bank charge.
+     */
+    private array $dupUsed = [];
+    private array $expClaimed = [];
+
     // Known bank/credit-card CSV presets — column mapping, skip-header-rows count,
     // and `kind` ('bank' | 'credit_card'). `kind` drives transaction routing:
     //   bank        — debit=expense, credit=income (income rows are invoice-matched)
@@ -252,6 +262,7 @@ class BankImportService
 
         $rows   = $this->parseCSV($content, $mapping, $skipRows, $kind);
         $totals = ['income' => 0, 'expense' => 0, 'duplicates' => 0, 'matched' => 0, 'rows' => count($rows)];
+        $this->dupUsed = []; $this->expClaimed = [];
 
         // Load account IDs for defaults
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
@@ -489,6 +500,15 @@ class BankImportService
                         $matchStatus, null,
                     ]);
                     continue;
+                }
+
+                // A receipt already joined to a statement line (earlier in this file, or an earlier
+                // import) takes no second one: this row is its own charge (2026-10-13, Lawnboy $84 x2).
+                if (!empty($row['match_candidate']) && !empty($row['matched_expense_id'])) {
+                    $taken = $this->db->prepare("SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
+                                                  WHERE x.reference_type = 'expense' AND x.reference_id = ? LIMIT 1");
+                    $taken->execute([(int)$row['matched_expense_id']]);
+                    if ($taken->fetchColumn()) { $row['match_candidate'] = false; $row['matched_expense_id'] = null; }
                 }
 
                 // ── Reconcile matched expense receipts ────────────────────────
@@ -2170,6 +2190,7 @@ class BankImportService
 
     private function enrichRows(array $rows, string $bankName, string $source, string $kind = 'bank'): array
     {
+        $this->dupUsed = []; $this->expClaimed = [];
         require_once __DIR__ . '/RulesEngine.php';
         $engine = new RulesEngine($this->db);
 
@@ -3600,15 +3621,24 @@ class BankImportService
             WHERE type IN (?, 'transfer')
               AND ABS(amount - ?) < 0.01
               AND ABS(DATEDIFF(transaction_date, ?)) <= 1
-              AND reference_type = 'bank_import'
+              AND (reference_type = 'bank_import'
+                   /* a statement line joined to its receipt at import is still a statement line
+                      (2026-10-13): re-importing it re-matched the receipt instead of skipping */
+                   OR (reference_type = 'expense' AND EXISTS (SELECT 1 FROM bank_import_rows bir WHERE bir.transaction_id = accounting_transactions.id)))
               " . ($kind === null ? '' : ($kind === 'credit_card'
                     ? "AND bank_account_id IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card')"
                     : "AND (bank_account_id IS NULL OR bank_account_id NOT IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card'))")) . "
-            LIMIT 1
+            ORDER BY ABS(DATEDIFF(transaction_date, ?)), id
+            LIMIT 20
         ");
-        $stmt->execute([$type, $amount, $date]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (int)$row['id'] : null;
+        $stmt->execute([$type, $amount, $date, $date]);
+        // Count-aware: each existing line answers for ONE row of this file.
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (isset($this->dupUsed[(int)$id])) continue;
+            $this->dupUsed[(int)$id] = true;
+            return (int)$id;
+        }
+        return null;
     }
 
     /**
@@ -3644,11 +3674,15 @@ class BankImportService
                                     AND DATE_ADD(?, INTERVAL 3 DAY)
               AND e.status IN ('approved','forwarded')
               AND bt.id IS NULL
+              -- already joined to a statement line at an earlier import: one receipt, one charge (2026-10-13)
+              AND NOT EXISTS (SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
+                               WHERE x.reference_type = 'expense' AND x.reference_id = e.id)
             ORDER BY day_diff ASC, e.expense_date DESC
             LIMIT 5
         ");
         $stmt->execute([$date, $amount, $date, $date]);
-        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $candidates = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
+            fn($c) => !isset($this->expClaimed[(int)$c['id']])));   // matched to an earlier row of this file
 
         if (empty($candidates)) return null;
 
@@ -3674,6 +3708,7 @@ class BankImportService
         }
 
         if (!$best) return null;
+        $this->expClaimed[(int)$best['id']] = true;
 
         return ['expense' => $best, 'confidence' => min($bestScore, 100)];
     }

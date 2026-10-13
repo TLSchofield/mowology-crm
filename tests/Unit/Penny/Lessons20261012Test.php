@@ -191,17 +191,29 @@ class Lessons20261012Test extends TestCase
                    reference_type TEXT, bank_account_id INT)");
         $db->exec("CREATE TABLE bank_statement_accounts (id INTEGER PRIMARY KEY, account_id INT, kind TEXT)");
         $db->exec("INSERT INTO bank_statement_accounts (account_id, kind) VALUES (1, 'bank'), (3, 'card')");
+        $db->exec("CREATE TABLE bank_import_rows (id INTEGER PRIMARY KEY, transaction_id INT)");
         $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, reference_type, bank_account_id) VALUES
                    (8301, '2026-03-13', 'expense', 1234.56, 'FAKEPAY PYRL 00991', 'bank_import', 1),
                    (8302, '2026-03-20', 'transfer', 600.00, 'Card bill payment FAKE VISA', 'bank_import', 1)");
-        $svc = new BankImportService($db);
         $dup = new ReflectionMethod(BankImportService::class, 'checkTrueDuplicate');
+        // Each check is its own import (a fresh service): within ONE file, an existing line answers for one row only.
+        $check = fn(...$args) => $dup->invoke(new BankImportService($db), ...$args);
 
-        $this->assertSame(8301, $dup->invoke($svc, '2026-03-13', 1234.56, 'expense', 'bank'), 'the payroll run imported again');
-        $this->assertSame(8301, $dup->invoke($svc, '2026-03-14', 1234.56, 'expense', 'bank'), 'a day off between exports');
-        $this->assertNull($dup->invoke($svc, '2026-03-20', 600.00, 'income', 'credit_card'), "the card statement's own payment line is a different line");
-        $this->assertNull($dup->invoke($svc, '2026-03-13', 1234.66, 'expense', 'bank'), 'a different amount is another line');
-        $this->assertNull($dup->invoke($svc, '2026-03-16', 1234.56, 'expense', 'bank'), 'three days later is another run');
+        $this->assertSame(8301, $check('2026-03-13', 1234.56, 'expense', 'bank'), 'the payroll run imported again');
+        $this->assertSame(8301, $check('2026-03-14', 1234.56, 'expense', 'bank'), 'a day off between exports');
+        $this->assertNull($check('2026-03-20', 600.00, 'income', 'credit_card'), "the card statement's own payment line is a different line");
+        $this->assertNull($check('2026-03-13', 1234.66, 'expense', 'bank'), 'a different amount is another line');
+        $this->assertNull($check('2026-03-16', 1234.56, 'expense', 'bank'), 'three days later is another run');
+
+        // 2026-10-13: two identical charges in one file against one existing line → one duplicate, one new line;
+        // a line joined to its receipt at import still counts as already imported.
+        $svc = new BankImportService($db);
+        $this->assertSame(8301, $dup->invoke($svc, '2026-03-13', 1234.56, 'expense', 'bank'));
+        $this->assertNull($dup->invoke($svc, '2026-03-13', 1234.56, 'expense', 'bank'), 'the second identical charge is real');
+        $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, reference_type, bank_account_id) VALUES
+                   (8303, '2026-10-07', 'expense', 84.00, '', 'expense', 1)");
+        $db->exec("INSERT INTO bank_import_rows (transaction_id) VALUES (8303)");
+        $this->assertSame(8303, $check('2026-10-07', 84.00, 'expense', 'bank'), 'a receipt-joined statement line is not imported again');
     }
 
     // ── i) ──────────────────────────────────────────────────────────────

@@ -851,13 +851,13 @@ class BankImportServiceTest extends TestCase
     {
         $stmt = $this->createMock(PDOStatement::class);
         $stmt->expects($this->once())->method('execute')
-            ->with(['expense', 23.61, '2026-07-31']);
-        $stmt->method('fetch')->willReturn(['id' => 555]);
+            ->with(['expense', 23.61, '2026-07-31', '2026-07-31']);
+        $stmt->method('fetchAll')->willReturn([555]);
 
         $pdo = $this->createMock(PDO::class);
         $pdo->expects($this->once())->method('prepare')
             ->with($this->callback(function (string $sql) {
-                return strpos($sql, 'bank_import_rows') === false
+                return strpos($sql, 'JOIN bank_import_rows') === false   // never REQUIRES the audit row
                     && strpos($sql, 'FROM accounting_transactions') !== false
                     && strpos($sql, "reference_type = 'bank_import'") !== false;
             }))
@@ -875,7 +875,7 @@ class BankImportServiceTest extends TestCase
     {
         $stmt = $this->createMock(PDOStatement::class);
         $stmt->method('execute')->willReturn(true);
-        $stmt->method('fetch')->willReturn(false);
+        $stmt->method('fetchAll')->willReturn([]);
 
         $pdo = $this->createMock(PDO::class);
         $pdo->method('prepare')->willReturn($stmt);
@@ -903,8 +903,8 @@ class BankImportServiceTest extends TestCase
     {
         $stmt = $this->createMock(PDOStatement::class);
         $stmt->expects($this->once())->method('execute')
-            ->with(['income', 63.68, '2026-07-19']);
-        $stmt->method('fetch')->willReturn(['id' => 24440]);
+            ->with(['income', 63.68, '2026-07-19', '2026-07-19']);
+        $stmt->method('fetchAll')->willReturn([24440]);
 
         $pdo = $this->createMock(PDO::class);
         $pdo->expects($this->once())->method('prepare')
