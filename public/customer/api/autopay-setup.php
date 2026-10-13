@@ -8,7 +8,10 @@
  * Actions:
  *   create_setup_intent   — returns a SetupIntent client_secret for new-card enrollment
  *                           (webhook setup_intent.succeeded then persists the PM + enables autopay)
- *   enable_existing_card  — marks autopay_enabled=1 when the contact already has a card on file
+ *   enable_existing_card  — REFUSED since 2026-10-12 (security review #13): an invoice link is a bearer
+ *                           token, so "use the card on file" let whoever held the link turn autopay on.
+ *                           The cardholder now re-enters the card (create_setup_intent). Each attempt is
+ *                           logged with the IP.
  *
  * Request: { token: string, action: string }
  */
@@ -67,6 +70,20 @@ if (!$row) {
 }
 
 $contactId        = (int) $row['contact_id'];
+
+require_once APP_ROOT . '/Services/Payments/AutopayEnrollmentPolicy.php';
+$ipAddr = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+$who = AutopayEnrollmentPolicy::actor('invoice link #' . (int)$row['invoice_id'],
+                                     (string)($_SERVER['REMOTE_ADDR'] ?? ''), (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+if ($action === 'enable_existing_card' && AutopayEnrollmentPolicy::existingCardNeedsConfirmation()) {
+    $db->prepare("INSERT INTO activity_log (user_id, contact_id, action, details, ip_address, created_at) VALUES (NULL, ?, 'Autopay enrolment refused', ?, ?, NOW())")
+       ->execute([$contactId, "Saved-card autopay request needs the cardholder to re-enter the card — {$who}", $ipAddr]);
+    http_response_code(409);
+    echo json_encode(['error' => 'To turn on autopay, please re-enter your card so we know it is yours. Questions? Call (778) 846-9273.',
+                      'requires_card' => true]);
+    exit;
+}
 $stripeCustomerId = $row['stripe_customer_id'];
 
 \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
@@ -108,8 +125,12 @@ if ($action === 'create_setup_intent') {
             'metadata'             => [
                 'contact_id' => (string) $contactId,
                 'source'     => 'autopay_enrollment',
+                'invoice_id' => (string) $row['invoice_id'],
+                'ip'         => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
             ],
         ]);
+        $db->prepare("INSERT INTO activity_log (user_id, contact_id, action, details, ip_address, created_at) VALUES (NULL, ?, 'Autopay setup started', ?, ?, NOW())")
+           ->execute([$contactId, "Card form opened for autopay (SetupIntent {$setupIntent->id}) — {$who}", $ipAddr]);
 
         echo json_encode([
             'client_secret'    => $setupIntent->client_secret,
@@ -121,29 +142,6 @@ if ($action === 'create_setup_intent') {
         http_response_code(500);
         echo json_encode(['error' => 'Could not initialise card setup. Please try again.']);
     }
-
-} elseif ($action === 'enable_existing_card') {
-    // Saved-card flow: contact has a card on file — just record consent.
-    if (empty($row['stripe_payment_method_id'])) {
-        http_response_code(422);
-        echo json_encode(['error' => 'No payment method found. Please add a new card.']);
-        exit;
-    }
-
-    $db->prepare("
-        UPDATE contacts
-        SET autopay_enabled = 1, autopay_enrolled_at = NOW()
-        WHERE id = ?
-    ")->execute([$contactId]);
-
-    $db->prepare("
-        INSERT INTO activity_log (user_id, action, details, created_at)
-        VALUES (NULL, 'Autopay enrolled', ?, NOW())
-    ")->execute([
-        sprintf('Contact %d enrolled in autopay using existing card on file.', $contactId),
-    ]);
-
-    echo json_encode(['success' => true]);
 
 } else {
     http_response_code(400);

@@ -182,16 +182,16 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
                     Expires <?php echo htmlspecialchars($contact['stripe_card_exp'] ?? ''); ?>
                 </div>
             </div>
-            <p style="font-size:.9rem;color:#777;margin-top:-10px;">We&rsquo;ll use this card for autopay. You can update it next time you make a payment.</p>
+            <p style="font-size:.9rem;color:#777;margin-top:-10px;">To keep your card safe, please re-enter it below to confirm it&rsquo;s yours. You won&rsquo;t be charged today.</p>
         <?php else: ?>
-            <!-- No card on file — collect via SetupIntent -->
             <p style="font-size:.9rem;color:#777;margin-bottom:16px;">Enter a card to save securely. You won&rsquo;t be charged today.</p>
-            <div id="stripe-element-wrapper">
-                <div id="stripe-payment-element"></div>
-            </div>
         <?php endif; ?>
 
         <div class="consent-block">
+        <!-- Autopay is always confirmed by the cardholder entering the card (SetupIntent) — security review #13 -->
+        <div id="stripe-element-wrapper">
+            <div id="stripe-payment-element"></div>
+        </div>
             <label>
                 <input type="checkbox" id="consent-check">
                 <span>I authorise Mowology Landscaping to charge my card on file for future invoices on my approved service plan(s). I understand I can cancel this at any time by contacting Mowology.</span>
@@ -211,7 +211,9 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
 
     <script>
     (function () {
-        var hasSavedCard = <?php echo $hasSavedCard ? 'true' : 'false'; ?>;
+        // Even with a card on file, enrolment goes through the card form (security review #13):
+        // "use my saved card" let anyone holding the invoice link turn autopay on.
+        var hasSavedCard = false;
         var token        = <?php echo json_encode($token); ?>;
         var consentCheck = document.getElementById('consent-check');
         var autopayBtn   = document.getElementById('autopay-btn');

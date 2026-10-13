@@ -698,12 +698,9 @@ function fmtDate(string $d): string {
                     }
                 } else if (result.paymentIntent && (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')) {
                     if (wantsAutopay) {
-                        // Enroll the existing card in autopay (contact already has a saved PM)
-                        fetch('/customer/api/autopay-setup.php', {
-                            method : 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, action: 'enable_existing_card' })
-                        }).then(function () { showSuccess(); }).catch(function () { showSuccess(); });
+                        // Autopay with the card on file needs the cardholder to re-enter it (security
+                        // review #13) — send them to the autopay page's card form.
+                        window.location.href = '/customer/autopay.php?token=' + encodeURIComponent(<?php echo json_encode($token); ?>);
                     } else {
                         showSuccess();
                     }

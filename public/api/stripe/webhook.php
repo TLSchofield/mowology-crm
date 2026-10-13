@@ -353,6 +353,13 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 
         // ── Save card details to contact (if applicable) ──────────────────────
         if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
+            // Autopay only from a NEWLY entered card (security review #13): paying with the card
+            // already on file proves nothing about who holds the invoice link.
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Payments/AutopayEnrollmentPolicy.php';
+            $savedPmStmt = $db->prepare("SELECT stripe_payment_method_id FROM contacts WHERE id = ?");
+            $savedPmStmt->execute([$contactId]);
+            $wantsAutopay = AutopayEnrollmentPolicy::mayEnableFromPayment($wantsAutopay, $paymentMethodId, $savedPmStmt->fetchColumn() ?: null);
             // Persist card details whenever a Stripe customer is attached
             // (covers both save_card=true and subsequent payments with saved card)
             $updateContact = $db->prepare("
@@ -690,10 +697,15 @@ function handleSetupIntentSucceeded(\Stripe\SetupIntent $intent): void
         $contactId, $intent->id, $pmId
     ));
 
+    // Who did it (security review #13): the cardholder confirmed the card in Stripe's form; the IP the
+    // card form was opened from travels in the SetupIntent metadata.
     $db->prepare("
-        INSERT INTO activity_log (user_id, action, details, created_at)
-        VALUES (NULL, 'Autopay enrolled', ?, NOW())
+        INSERT INTO activity_log (user_id, contact_id, action, details, ip_address, created_at)
+        VALUES (NULL, ?, 'Autopay enrolled', ?, ?, NOW())
     ")->execute([
-        sprintf('Contact %d enrolled in autopay via SetupIntent %s.', $contactId, $intent->id),
+        $contactId,
+        sprintf('Contact %d enrolled in autopay via SetupIntent %s (card confirmed by the cardholder; invoice link #%s).',
+                $contactId, $intent->id, (string)($intent->metadata['invoice_id'] ?? '?')),
+        substr((string)($intent->metadata['ip'] ?? ''), 0, 45) ?: null,
     ]);
 }
