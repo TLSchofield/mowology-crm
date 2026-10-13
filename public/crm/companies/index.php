@@ -24,6 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['CONTENT_TYPE']) && 
             echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
             exit;
         }
+        // Hard delete is an office decision (crew hold clients.view only) — Fable review 2026-10-12.
+        if (!userHasPermission('clients.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'You do not have permission to delete companies']);
+            exit;
+        }
 
         $ids = array_filter(array_map('intval', $jsonData['ids'] ?? []), function($id) { return $id > 0; });
         if (empty($ids)) {
@@ -39,44 +45,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['CONTENT_TYPE']) && 
         }
 
         try {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            // Never cascade-delete invoices or strand job plans: a company with any quote, job
+            // plan or invoice is skipped (archive it instead).
+            require_once APP_ROOT . '/Modules/Contacts/Services/CompanyDeleteGuard.php';
+            $guard     = new CompanyDeleteGuard($db);
+            $deletable = $guard->deletable($ids);
+            $skipped   = count($ids) - count($deletable);
+            $deleted   = 0;
 
-            // Count related records for the response
-            $relatedJobs = 0;
-            $relatedInvoices = 0;
-            try {
-                $stmt = $db->prepare("SELECT COUNT(*) FROM job_plans WHERE company_id IN ({$placeholders})");
-                $stmt->execute($ids);
-                $relatedJobs = (int)$stmt->fetchColumn();
-            } catch (Exception $e) {}
-            try {
-                $stmt = $db->prepare("SELECT COUNT(*) FROM invoices WHERE company_id IN ({$placeholders})");
-                $stmt->execute($ids);
-                $relatedInvoices = (int)$stmt->fetchColumn();
-            } catch (Exception $e) {}
-
-            $db->beginTransaction();
-
-            // Clean up activity_log (no FK constraint)
-            try {
-                $db->prepare("DELETE FROM activity_log WHERE company_id IN ({$placeholders})")->execute($ids);
-            } catch (Exception $e) {}
-
-            // Delete companies (cascades via FK: company_properties, etc.)
-            $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
-            $stmt->execute($ids);
-            $deleted = $stmt->rowCount();
-
-            $db->commit();
+            if ($deletable) {
+                $placeholders = implode(',', array_fill(0, count($deletable), '?'));
+                $db->beginTransaction();
+                try {
+                    $db->prepare("DELETE FROM activity_log WHERE company_id IN ({$placeholders})")->execute($deletable);
+                } catch (Exception $e) {}
+                $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
+                $stmt->execute($deletable);
+                $deleted = $stmt->rowCount();
+                $db->commit();
+            }
 
             echo json_encode([
-                'success' => true,
+                'success'       => true,
                 'deleted_count' => $deleted,
-                'related_jobs' => $relatedJobs,
-                'related_invoices' => $relatedInvoices
+                'skipped_count' => $skipped,
             ]);
         } catch (Exception $e) {
-            $db->rollBack();
+            if ($db->inTransaction()) $db->rollBack();
             http_response_code(500);
             echo json_encode(['success' => false, 'error' => 'Delete failed']);
         }
@@ -408,10 +403,7 @@ function mwBulkDeleteCompanies() {
 
     var response = prompt(
         'WARNING: Permanently delete ' + count + ' company(ies)?\n\n' +
-        'This will CASCADE DELETE all their:\n' +
-        '• Jobs\n' +
-        '• Invoices\n' +
-        '• Property associations\n\n' +
+        'Companies with any quote, job or invoice are skipped — archive those instead.\n\n' +
         'This is IRREVERSIBLE. Type DELETE to confirm:'
     );
     if (response !== 'DELETE') return;
@@ -428,8 +420,7 @@ function mwBulkDeleteCompanies() {
     .then(function(data) {
         if (data.success) {
             var msg = data.deleted_count + ' company(ies) deleted.';
-            if (data.related_jobs > 0) msg += '\n' + data.related_jobs + ' job(s) cascade-deleted.';
-            if (data.related_invoices > 0) msg += '\n' + data.related_invoices + ' invoice(s) cascade-deleted.';
+            if (data.skipped_count > 0) msg += '\n' + data.skipped_count + ' skipped: they have quotes, jobs or invoices (archive them instead).';
             alert(msg);
             location.reload();
         } else {
