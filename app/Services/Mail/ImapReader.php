@@ -27,10 +27,24 @@ class ImapReader
         return defined('FT_PEEK') ? (int)FT_PEEK : 2;
     }
 
-    /** "{host:993/imap/ssl}" for a MailboxConfig entry. */
-    public static function serverRef(array $mb, bool $novalidate = false): string
+    /**
+     * "{host:993/imap/ssl}" for a MailboxConfig entry. c-client validates the certificate by
+     * default for /ssl, and nothing here turns that off any more: the old no-validation retry
+     * let anyone on the path read the mailbox password and feed forged payment notices (security
+     * audit 2026-10-12). Proved 2026-10-12 from production (scripts/prod-run.sh probe): this ref
+     * opens mail.mowology.ca, and the same ref by IP address is refused (validation is on).
+     */
+    public static function serverRef(array $mb): string
     {
-        return '{' . $mb['host'] . ':' . (int)($mb['port'] ?? 993) . '/imap/ssl' . ($novalidate ? '/novalidate-cert' : '') . '}';
+        return '{' . $mb['host'] . ':' . (int)($mb['port'] ?? 993) . '/imap/ssl}';
+    }
+
+    /** Log why an open failed (cert errors included) — never retried without validation. */
+    private static function logFailure(string $what, array $mb, string $folder): void
+    {
+        $errs = function_exists('imap_errors') ? (imap_errors() ?: []) : [];
+        error_log(sprintf('[ImapReader] %s failed for %s@%s %s: %s', $what, (string)($mb['user'] ?? '?'),
+            (string)($mb['host'] ?? '?'), $folder, $errs ? implode(' | ', array_map('strval', $errs)) : 'no error text'));
     }
 
     /** Bounded timeouts so a hung server can never hang a cron. */
@@ -44,14 +58,14 @@ class ImapReader
     }
 
     /**
-     * Open one folder of a mailbox READ-ONLY (falls back to novalidate-cert, as the readers did).
+     * Open one folder of a mailbox READ-ONLY, certificate validated. On failure: logged, false.
      * @return resource|\IMAP\Connection|false
      */
     public static function open(array $mb, string $folder = 'INBOX')
     {
         $flags = self::readOnlyFlag();
         $c = @imap_open(self::serverRef($mb) . $folder, $mb['user'], $mb['pass'], $flags, 1);
-        if ($c === false) $c = @imap_open(self::serverRef($mb, true) . $folder, $mb['user'], $mb['pass'], $flags, 1);
+        if ($c === false) self::logFailure('imap_open', $mb, $folder);
         return $c;
     }
 
@@ -63,7 +77,8 @@ class ImapReader
     {
         $flags = self::readOnlyFlag();
         if (@imap_reopen($conn, self::serverRef($mb) . $folder, $flags)) return true;
-        return (bool)@imap_reopen($conn, self::serverRef($mb, true) . $folder, $flags);
+        self::logFailure('imap_reopen', $mb, $folder);
+        return false;
     }
 
     /** Folder names (server prefix stripped). */
