@@ -48,6 +48,10 @@
   run on a photo it is never picked for public use.
 - Tim's rule (2026-10-06): use all client property photos unless the client opted out; privacy
   blur still blocks public use.
+- Fable review 2026-10-12 (Tim-approved plan): `privacy/ok` only when the vision pass affirms every
+  privacy field false — anything missing is `privacy/unknown` (never picked). Public picks also need
+  Tim's star (`use/hero`, `media_assets.is_favorite`) while `MediaTagRules::REQUIRE_FAVORITE_FOR_PUBLIC`
+  is true — until he stars photos, Mia's GBP/social drafts get no library photo.
 
 ## She learns only from what Tim and customers do
 | Lesson | Taught by | Where |
