@@ -77,7 +77,14 @@ foreach ($allJobsToday as $aj) {
 
 $pageTitle = 'My Schedule';
 $activePage = 'timeclock';
+// The Android crew app's start URL is this page (capacitor.config.ts). The crew's real
+// home is the pre-shift flow (app-launch.php → homebase.php → schedule), which already
+// skips straight to the schedule when they are clocked in. Send native WebViews there
+// before anything renders; browsers (office, desktop) keep this page. Mirrors the
+// inverse check at the top of app-launch.php. APK 1.3.4 moves the start URL itself.
+$extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());if(n){document.cookie="mw_native=1; path=/; max-age=31536000; SameSite=Lax; Secure";window.location.replace("/crm/app-launch.php");}})();</script>';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- ═══ Mobile/Tablet: In-Page Clock Section (no JS dependency) ═══ -->
