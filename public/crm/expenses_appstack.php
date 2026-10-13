@@ -3375,6 +3375,10 @@ async function submitReceiptExport() {
         .catch(function() {});
     function findDuplicateGroups(expenses) {
         var groups = [], inGroupIds = new Set();
+        // A receipt already set aside (rejected, e.g. "Merged into receipt #7") is no longer a copy:
+        // left in, Review & Merge kept picking it as the one to remove and never reached the live
+        // copies — Home Depot $64.26 x4 (2026-10-13).
+        expenses = expenses.filter(function(e) { return e.status !== 'rejected'; });
         for (var i = 0; i < expenses.length; i++) {
             if (inGroupIds.has(expenses[i].id)) continue;
             var group = [expenses[i]];
