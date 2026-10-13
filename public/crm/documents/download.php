@@ -2,7 +2,8 @@
 /**
  * CRM Document Download / Preview
  *
- * Streams a PDF stored under STORAGE_ROOT to the browser (inline).
+ * Streams a PDF stored under STORAGE_ROOT/pdfs/{invoices,quotes,salt-reports,trip-reports,pow,zone-report}
+ * to the browser (inline). Nothing else (StoredPdfPath).
  * Accepts paths of the form "storage/pdfs/<subdir>/<file>.pdf" as stored
  * in salt_run_reports.pdf_path, job_visits.pdf_path, etc.
  *
@@ -36,39 +37,16 @@ if (!$rawPath) {
     exit('No path specified.');
 }
 
-// Block path traversal
-if (strpos($rawPath, '..') !== false || strpos($rawPath, "\0") !== false) {
-    http_response_code(400);
-    exit('Invalid path.');
-}
-
-// Map "storage/pdfs/<subdir>/<file>" → STORAGE_ROOT . "/pdfs/<subdir>/<file>"
-// The stored pdf_path uses "storage/" as the STORAGE_ROOT marker.
-if (strncmp($rawPath, 'storage/', 8) === 0) {
-    $relativePart = substr($rawPath, 8); // "pdfs/salt-reports/salt_42_v1.pdf"
-    $absPath = rtrim(STORAGE_ROOT, '/') . '/' . $relativePart;
-} else {
-    // Fallback: treat as relative to PUBLIC_ROOT
-    $absPath = rtrim(PUBLIC_ROOT, '/') . '/' . ltrim($rawPath, '/');
-}
-
-// Ensure the resolved path stays within STORAGE_ROOT
-$realStorage = realpath(STORAGE_ROOT);
-$realAbs     = realpath($absPath);
-
-if ($realAbs === false || $realStorage === false || strncmp($realAbs, $realStorage, strlen($realStorage)) !== 0) {
-    http_response_code(403);
-    exit('Access denied.');
-}
-
-if (!is_file($realAbs)) {
+// Fable #8 (2026-10-12): only PDFs in the document folders — never anything else in storage
+// (token caches, schema snapshots, supplier/company documents, backups).
+require_once APP_ROOT . '/Core/StoredPdfPath.php';
+$realAbs = StoredPdfPath::resolve($rawPath, STORAGE_ROOT);
+if ($realAbs === null) {
     http_response_code(404);
     exit('File not found.');
 }
 
-$ext      = strtolower(pathinfo($realAbs, PATHINFO_EXTENSION));
-$mimeMap  = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
-$mimeType = $mimeMap[$ext] ?? 'application/octet-stream';
+$mimeType = 'application/pdf';
 
 $filename = basename($realAbs);
 
