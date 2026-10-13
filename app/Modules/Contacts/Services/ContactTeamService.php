@@ -50,7 +50,7 @@ class ContactTeamService
         'penny'   => ['Penny', 'Bookkeeper'],
         'otto'    => ['Otto', 'Operations'],
         'mia'     => ['Mia', 'Marketing'],
-        'charlie' => ['Charlie', 'Foreman'],
+        'charlie' => ['Charlie', 'Chief of Staff'],
     ];
 
     /** A "says they paid" message counts this long. */

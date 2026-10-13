@@ -293,4 +293,15 @@ class UnclaimedReplyServiceTest extends TestCase
         $this->assertSame('client', UnclaimedReplyService::lane('Re: Gate code', 'The gate code changed to 4411'));
         $this->assertSame('quote', UnclaimedReplyService::lane('Re: Quote from Mowology', 'Can we push it a week?'));
     }
+
+    /** A client's own newsletter is not a reply (Tim Louis Law on Mia's lane, 2026-10-13). */
+    public function test_a_clients_newsletter_is_not_a_reply(): void
+    {
+        $this->assertTrue(UnclaimedReplyService::isAutomated('timlouis@timlouislaw.com', 'My Latest Political Blog',
+            'View this email in your browser (https://mailchi.mp/timlouis/latest) My=20Latest'));
+        $this->assertTrue(UnclaimedReplyService::isAutomated('news@example.com', 'October news', 'Hello friends … unsubscribe from this list'));
+        $this->assertFalse(UnclaimedReplyService::isAutomated('linda@example.com', 'Re: Town Villa quote', 'Hi Tim, yes please go ahead with the fall cleanup'));
+        $this->assertSame('My Latest Political Blog - Record Turnout',
+            UnclaimedReplyService::cleanSubject('=?utf-8?Q?My=20Latest=20Political=20Blog=20=2D=20Record=20Turnout?='));
+    }
 }

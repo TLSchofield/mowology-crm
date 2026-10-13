@@ -563,6 +563,13 @@ class UnclaimedReplyService
         if (preg_match('/^\s*(automatic reply|auto(matic)?[- ]?reply|autoreply|out of (the )?office|undeliverable|delivery status notification|mail delivery (failed|failure)|returned mail)\b/i', $subject)) {
             return true;
         }
+        // A client's own newsletter is not a reply to us: Tim Louis Law's Mailchimp blog landed on
+        // Mia's lane as "Tim replied 'View this email in your browser (https://mailchi.mp…' Answer
+        // them" (2026-10-13). Newsletters open with the browser link or carry a list footer.
+        if (preg_match('/^\s*(view (this|it|the) (e-?mail|message|newsletter)? ?(in|on) (your|a|the) (web )?browser|having trouble (viewing|reading) this|is this email not displaying)/i', $snippet)
+            || preg_match('/(mailchi\.mp|list-manage\.com|unsubscribe from this list|update your preferences|you are receiving this (e-?mail|newsletter) because)/i', $snippet)) {
+            return true;
+        }
         return (bool)preg_match('/\b(this is an automated (message|response|reply)|i am (currently )?(out of the office|away from the office|on vacation|on leave)'
             . '|i\'m (currently )?(out of the office|away from the office|on vacation|on leave)'
             . '|(will|i\'ll) (respond|reply|get back to you)[^.]{0,40}(when|upon) (i|my) return'
@@ -653,6 +660,8 @@ class UnclaimedReplyService
     /** The subject without Re:/Fwd: and without anything that identifies a person. */
     public static function cleanSubject(string $s): string
     {
+        // Encoded subjects ("=?utf-8?Q?My=20Latest…?=") read as words (2026-10-13)
+        if (strpos($s, '=?') !== false && function_exists('mb_decode_mimeheader')) $s = mb_decode_mimeheader($s);
         $s = preg_replace('/^\s*((re|fwd?|fw)\s*:\s*)+/i', '', $s);
         $s = self::scrub($s);
         return mb_strlen($s) > 80 ? rtrim(mb_substr($s, 0, 79)) . '…' : $s;

@@ -25,14 +25,14 @@
 
     // Who each head is on the board. Unknown heads (and the Work Queue) are Charlie's.
     var HEADS = {
-        charlie: { name: 'Charlie', face: 'charlie', role: 'Foreman' },
+        charlie: { name: 'Charlie', face: 'charlie', role: 'Chief of Staff' },
         penny:   { name: 'Penny',   face: 'penny',   role: 'Bookkeeper' },
         sam:     { name: 'Sam',     face: 'sam',     role: 'Sales' },
         otto:    { name: 'Otto',    face: 'otto',    role: 'Operations' },
         mia:     { name: 'Mia',     face: 'mia',     role: 'Marketing' },
         yui:     { name: 'Yui',     face: 'yui',     role: 'Comms' },
         ada:     { name: 'Ada',     face: 'ada',     role: 'Technology' },
-        house:   { name: 'Charlie', face: 'charlie', role: 'Foreman' }
+        house:   { name: 'Charlie', face: 'charlie', role: 'Chief of Staff' }
     };
     var PER_COL = 3;     // items shown under each head before "+N more"
     var ROUTE_API = '/crm/api/inbound-route.php';
@@ -99,10 +99,10 @@
         var w = waited(it);
         return '<li class="mw-ab-row' + (first ? ' is-top' : '') + '" data-key="' + esc(it.key) + '">'
             +   '<div class="mw-ab-text">' + esc(it.text) + '</div>'
+            +   (movable(String(it.key)) ? '<div class="mw-ab-movebar">' + moveMenu(it) + '</div>' : '')
             +   '<div class="mw-ab-foot">'
             +     (w ? '<span class="mw-ab-wait" title="How long this has been waiting">' + esc(w) + '</span>' : '<span></span>')
             +     '<span class="mw-ab-acts">'
-            +       (movable(String(it.key)) ? moveMenu(it) : '')
             +       '<button type="button" class="mw-ab-later" data-ab-snooze title="Bring it back tomorrow">Not now</button>'
             +       (u ? '<a class="btn btn-sm btn-primary mw-ab-go" href="' + esc(u) + '" data-ab-open>' + esc(label(it)) + '</a>' : '')
             +     '</span>'
