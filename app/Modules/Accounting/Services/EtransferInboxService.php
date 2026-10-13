@@ -860,19 +860,40 @@ class EtransferInboxService
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
-    /** Pending (incl. partially-allocated) notifications, newest first, with the suggested invoice's + bank deposit's details. */
+    /**
+     * Pending (incl. partially-allocated) notifications, newest first, with what the three cards on the
+     * Invoices page show (2026-10-13): the suggested invoice (number, date, client), the bank deposit
+     * (date, amount, memo) or the likely one, and when Penny last asked this payer to switch to Auto-deposit.
+     */
     public function listPending(): array
     {
-        $sql = "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
-                       i.status AS matched_invoice_status,
-                       bir.description AS bank_description, at.transaction_date AS bank_transaction_date,
+        try {
+            return $this->db->query($this->pendingSql(true))->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            // etransfer_address_nudges (migration 1301) missing — the cards just go without Penny's note
+            return $this->db->query($this->pendingSql(false))->fetchAll(PDO::FETCH_ASSOC);
+        }
+    }
+
+    private function pendingSql(bool $withNudge): string
+    {
+        $nudge = $withNudge
+            ? "(SELECT MAX(g.sent_at) FROM etransfer_address_nudges g
+                 WHERE g.status = 'sent' AND (g.notification_id = n.id OR g.sender_name = n.sender_name)) AS nudged_at"
+            : "NULL AS nudged_at";
+        return "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
+                       i.status AS matched_invoice_status, i.invoice_date AS matched_invoice_date,
+                       i.total AS matched_total, i.company_id AS matched_company_id, i.contact_id AS matched_contact_id,
+                       bir.description AS bank_description, bir.amount AS bank_amount,
+                       at.transaction_date AS bank_transaction_date,
                        /* a same-amount e-Transfer credit that landed after the email and no other email
                           claims — it was probably deposited already; Interac then says it was already deposited (2026-10-13) */
                        (SELECT MIN(d.transaction_date) FROM accounting_transactions d
                          WHERE n.bank_transaction_id IS NULL AND d.reference_type = 'bank_import'
                            AND ABS(d.amount - n.amount) < 0.01 AND d.description LIKE '%e-Transfer%'
                            AND d.transaction_date BETWEEN DATE(n.email_date) AND DATE_ADD(DATE(n.email_date), INTERVAL 30 DAY)
-                           AND NOT EXISTS (SELECT 1 FROM etransfer_notifications o WHERE o.bank_transaction_id = d.id)) AS likely_deposit_date
+                           AND NOT EXISTS (SELECT 1 FROM etransfer_notifications o WHERE o.bank_transaction_id = d.id)) AS likely_deposit_date,
+                       {$nudge}
                   FROM etransfer_notifications n
              LEFT JOIN invoices i ON n.matched_invoice_id = i.id
              LEFT JOIN accounting_transactions at ON n.bank_transaction_id = at.id
@@ -880,7 +901,6 @@ class EtransferInboxService
                  WHERE n.status IN ('pending', 'partially_recorded')
                    AND NOT (n.status = 'pending' AND i.status <=> 'paid') /* invoice already paid another way — nothing to record (2026-10-13) */
               ORDER BY n.email_date DESC, n.id DESC";
-        return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function countPending(): int

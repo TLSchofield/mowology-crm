@@ -188,6 +188,7 @@ $csrfToken = generateCSRFToken();
 // Pending Interac e-Transfer notifications (filled by the inbox poller cron).
 $pendingEtransfers = [];
 $etransferSvc = null;
+$etNudgeOn    = false;
 if (defined('APP_ROOT')) {
     $__etSvc = APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
     if (is_file($__etSvc)) {
@@ -195,6 +196,10 @@ if (defined('APP_ROOT')) {
         try {
             $etransferSvc      = new EtransferInboxService(getDB());
             $pendingEtransfers = $etransferSvc->listPending();
+            // Penny's "please use info@" note on claim cards (EtransferNudgeService, kill switch in ops_settings)
+            $etNudgeOn = false;
+            require_once APP_ROOT . '/Modules/Accounting/Services/EtransferNudgeService.php';
+            $etNudgeOn = (new EtransferNudgeService(getDB()))->enabled();
         } catch (\Throwable $__e) {
             error_log('[invoices] e-Transfer panel load failed: ' . $__e->getMessage());
         }
@@ -303,54 +308,103 @@ $activePage = 'invoices';
                     $isValueGuess   = $valueFallback !== null;
                     $nothingLeftFor = $isPartial && !$likelyDuplicate && empty($spreadLines);
                     ?>
-                    <div class="mw-et-row" data-id="<?php echo (int)$et['id']; ?>">
-                        <div class="mw-et-main">
-                            <div class="mw-et-line1">
-                                <strong><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
-                                <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
-                                <?php if ($isClaim && !$hasBankMatch): /* once the deposit is in the bank it has been claimed (2026-10-13) */
-                                    $claimUrl = (string)($et['deposit_url'] ?? '');
-                                    $claimExp = !empty($et['expires_on']) ? ' · expires ' . date('M j', strtotime($et['expires_on'])) : '';
-                                    if (!empty($et['likely_deposit_date'])): ?><span class="mw-et-badge med" title="A bank e-Transfer credit for this amount arrived after the email — it was most likely claimed already">probably deposited <?php echo htmlspecialchars(date('M j', strtotime($et['likely_deposit_date']))); ?> — check the bank line</span>
-                                    <?php elseif (strpos($claimUrl, 'https://etransfer.interac.ca/') === 0): /* the Interac deposit link from the email — only ever Interac's own https host */ ?><a class="mw-et-badge claim" href="<?php echo htmlspecialchars($claimUrl); ?>" target="_blank" rel="noopener noreferrer" title="Opens Interac's deposit page — choose Vancity and sign in there">Claim it now ↗<?php echo htmlspecialchars($claimExp); ?></a>
-                                    <?php else: ?><span class="mw-et-badge claim">needs claiming in online banking<?php echo htmlspecialchars($claimExp); ?></span><?php endif; ?>
+                    <?php
+                    // ── Three cards: the Interac email → the invoice → the bank deposit (2026-10-13). ──
+                    // Green = confirmed, amber = Penny's best guess (check it), dashed = still waiting.
+                    $etD = static function ($d, string $f = 'M j') { return $d && strtotime((string)$d) ? date($f, strtotime((string)$d)) : ''; };
+                    $matchedId = (int)($et['matched_invoice_id'] ?? 0);
+                    $clientUrl = !empty($et['matched_company_id']) ? '/crm/companies/view.php?id=' . (int)$et['matched_company_id']
+                               : (!empty($et['matched_contact_id']) ? '/crm/clients_appstack.php?action=view_contact&id=' . (int)$et['matched_contact_id'] : '');
+
+                    if ($likelyDuplicate || $nothingLeftFor || $isValueGuess || $spansMultiple || $conf === 'medium') $invState = 'warn';
+                    elseif ($hasInvoiceMatch) $invState = 'on';
+                    elseif (!empty($spreadLines)) $invState = 'warn';
+                    else $invState = 'off';
+                    $bankState = $hasBankMatch ? 'on' : (!empty($et['likely_deposit_date']) ? 'warn' : 'off');
+                    $lit       = 1 + ($invState === 'on' ? 1 : 0) + ($bankState === 'on' ? 1 : 0);
+                    $needsLook = $invState === 'warn' || $bankState === 'warn';
+                    $claimUrl  = (string)($et['deposit_url'] ?? '');
+                    $claimOk   = strpos($claimUrl, 'https://etransfer.interac.ca/') === 0;   // only Interac's own https host
+                    $type      = (string)($et['transfer_type'] ?? '');
+                    ?>
+                    <div class="mw-et-row mw-et-chainrow" data-id="<?php echo (int)$et['id']; ?>">
+                        <div class="mw-et-head">
+                            <strong class="mw-et-sender"><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
+                            <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
+                            <?php if ($clientUrl): ?><a class="mw-et-client" href="<?php echo htmlspecialchars($clientUrl); ?>"><i data-feather="user"></i> All invoices &amp; payments</a><?php endif; ?>
+                            <span class="mw-et-status mw-et-status--<?php echo $lit === 3 ? 'ready' : ($needsLook ? 'look' : 'wait'); ?>">
+                                <?php echo $lit; ?> of 3<?php echo $lit === 3 ? ' — ready to record' : ($needsLook ? ' — check the amber card' : ''); ?>
+                            </span>
+                        </div>
+
+                        <div class="mw-et-chain">
+                            <div class="mw-et-card is-on">
+                                <div class="mw-et-card-title"><i data-feather="mail"></i> Interac email <i data-feather="check" class="mw-et-tick"></i></div>
+                                <div class="mw-et-card-main"><?php echo htmlspecialchars($etD($et['email_date'] ?? null, 'M j, g:i a')); ?></div>
+                                <div class="mw-et-card-sub"><?php echo !empty($et['memo']) ? '“' . htmlspecialchars($et['memo']) . '”' : 'No memo'; ?></div>
+                                <div class="mw-et-card-sub">To <?php echo htmlspecialchars((string)($et['mailbox'] ?? '')); ?><?php
+                                    echo $type === 'autodeposit' ? ' · auto-deposited' : ($type === 'claim' ? ' · had to be claimed' : ''); ?></div>
+                                <?php if ($type === 'claim'): ?>
+                                    <?php if (!empty($et['nudged_at'])): ?>
+                                        <div class="mw-et-penny"><i data-feather="message-circle"></i> Penny asked them to send to <?php echo htmlspecialchars(EtransferNudgeService::AUTODEPOSIT_ADDRESS); ?> next time (<?php echo htmlspecialchars($etD($et['nudged_at'])); ?>)</div>
+                                    <?php elseif ($etNudgeOn): ?>
+                                        <div class="mw-et-penny is-later"><i data-feather="clock"></i> Penny will ask them to use <?php echo htmlspecialchars(EtransferNudgeService::AUTODEPOSIT_ADDRESS); ?> once it's recorded</div>
+                                    <?php endif; ?>
                                 <?php endif; ?>
-                                <?php if ($likelyDuplicate): ?><span class="mw-et-badge claim">⚠ possibly already recorded</span>
-                                <?php elseif ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
-                                <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
-                                <?php elseif ($isValueGuess): ?><span class="mw-et-badge med">no sender match — exactly clears <?php echo htmlspecialchars($valueFallback['payer_name']); ?></span>
-                                <?php elseif ($spansMultiple): ?><span class="mw-et-badge med">spans <?php echo count($spreadLines); ?> invoices — oldest first</span>
-                                <?php elseif ($nothingLeftFor): ?><span class="mw-et-badge med"><?php echo formatCurrency($allocated); ?> already applied — <?php echo formatCurrency($remaining); ?> unassigned</span>
-                                <?php else: ?><span class="mw-et-badge none">no match — enter invoice #</span><?php endif; ?>
                             </div>
-                            <?php if (!empty($et['memo'])): ?>
-                                <div class="mw-et-memo">“<?php echo htmlspecialchars($et['memo']); ?>”</div>
-                            <?php endif; ?>
-                            <?php if ($likelyDuplicate): ?>
-                                <div class="mw-et-memo">This amount exactly matches <?php echo count($likelyDuplicate['invoice_numbers']); ?> e-Transfer payment(s) already recorded on
-                                    <?php echo htmlspecialchars(date('M j, Y', strtotime($likelyDuplicate['pay_date']))); ?> against
-                                    <?php echo htmlspecialchars(implode(', ', $likelyDuplicate['invoice_numbers'])); ?> — likely this same transfer, recorded before this notification was matched. Verify, then dismiss rather than record again.</div>
-                            <?php elseif ($isValueGuess): ?>
-                                <div class="mw-et-memo">No name match — but this amount exactly clears <?php echo htmlspecialchars($valueFallback['payer_name']); ?>'s entire open balance (e.g. someone paying on their behalf). Verify before recording:</div>
-                            <?php elseif ($spansMultiple): ?>
-                                <div class="mw-et-memo">Suggested spread — oldest invoice first (standard AR application), applied to balance before moving to the next:</div>
-                            <?php elseif ($nothingLeftFor): ?>
-                                <div class="mw-et-memo"><?php echo formatCurrency($allocated); ?> of this transfer is already recorded. No open invoices remain for this payer to apply the leftover <?php echo formatCurrency($remaining); ?> against — check for a duplicate, an overpayment, or an invoice not yet in the system.</div>
-                            <?php endif; ?>
-                            <div class="mw-et-recon mw-et-recon--<?php echo $reconciledCount; ?>">
-                                <?php if ($reconciledCount === 3): ?>
-                                    ✓ Ready to record — bank deposit, invoice &amp; email all match. Press Record to mark the invoice paid.
+
+                            <div class="mw-et-link<?php echo $invState === 'on' ? ' is-on' : ''; ?>" aria-hidden="true"></div>
+
+                            <div class="mw-et-card is-<?php echo $invState; ?>">
+                                <div class="mw-et-card-title"><i data-feather="file-text"></i> Invoice<?php if ($invState === 'on'): ?> <i data-feather="check" class="mw-et-tick"></i><?php endif; ?></div>
+                                <?php if ($likelyDuplicate): ?>
+                                    <div class="mw-et-card-main">Possibly already recorded</div>
+                                    <div class="mw-et-card-sub">Same amount recorded <?php echo htmlspecialchars($etD($likelyDuplicate['pay_date'])); ?> on <?php echo htmlspecialchars(implode(', ', $likelyDuplicate['invoice_numbers'])); ?>. Check, then dismiss rather than record again.</div>
+                                <?php elseif ($nothingLeftFor): ?>
+                                    <div class="mw-et-card-main"><?php echo formatCurrency($allocated); ?> applied</div>
+                                    <div class="mw-et-card-sub"><?php echo formatCurrency($remaining); ?> left and no open invoice for this payer — an overpayment, a duplicate, or an invoice not in the CRM yet.</div>
+                                <?php elseif ($matchedId && $conf !== 'none' && !$isValueGuess && !$spansMultiple): ?>
+                                    <div class="mw-et-card-main"><a href="/crm/invoices/view.php?id=<?php echo $matchedId; ?>"><?php echo htmlspecialchars($matchedNo); ?></a><?php echo $conf === 'medium' ? ' <span class="mw-et-guess">likely</span>' : ''; ?></div>
+                                    <div class="mw-et-card-sub">Issued <?php echo htmlspecialchars($etD($et['matched_invoice_date'] ?? null)); ?> · <?php echo formatCurrency((float)($et['matched_balance'] ?? 0)); ?> owing</div>
+                                    <div class="mw-et-card-sub"><?php
+                                        $how = (string)($et['match_method'] ?? '');
+                                        echo $how === 'invoice_number' ? 'Named in the email memo' : ($how === 'reference_number' ? 'Interac reference matches' : 'Matched by the sender’s name — check it'); ?></div>
+                                <?php elseif (!empty($spreadLines)): ?>
+                                    <div class="mw-et-card-main"><?php echo $isValueGuess ? 'Clears ' . htmlspecialchars($valueFallback['payer_name']) . '’s balance' : (count($spreadLines) > 1 ? count($spreadLines) . ' invoices, oldest first' : 'Oldest open invoice'); ?></div>
+                                    <?php foreach (array_slice($spreadLines, 0, 4) as $sl): ?>
+                                        <div class="mw-et-card-sub"><?php echo htmlspecialchars($sl['invoice_number']); ?> · <?php echo formatCurrency((float)$sl['apply_amount']); ?></div>
+                                    <?php endforeach; ?>
+                                    <?php if ($isValueGuess): ?><div class="mw-et-card-sub">The sender’s name matches no client — maybe paying for someone. Check it.</div><?php endif; ?>
                                 <?php else: ?>
-                                    <?php echo $reconciledCount; ?>/3 confirmed — missing
-                                    <?php
-                                    $missing = [];
-                                    if (!$hasInvoiceMatch) $missing[] = 'invoice match';
-                                    if (!$hasBankMatch)    $missing[] = 'bank deposit';
-                                    echo htmlspecialchars(implode(' & ', $missing));
-                                    ?>
+                                    <div class="mw-et-card-main">Waiting</div>
+                                    <div class="mw-et-card-sub">Type the invoice number below.</div>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="mw-et-link<?php echo $invState === 'on' && $bankState === 'on' ? ' is-on' : ''; ?>" aria-hidden="true"></div>
+
+                            <div class="mw-et-card is-<?php echo $bankState; ?>">
+                                <div class="mw-et-card-title"><i data-feather="briefcase"></i> Bank deposit<?php if ($bankState === 'on'): ?> <i data-feather="check" class="mw-et-tick"></i><?php endif; ?></div>
+                                <?php if ($bankState === 'on'): ?>
+                                    <div class="mw-et-card-main"><?php echo htmlspecialchars($etD($et['bank_transaction_date'] ?? null)); ?> · <?php echo formatCurrency((float)($et['bank_amount'] ?? $etAmount)); ?></div>
+                                    <div class="mw-et-card-sub"><?php echo htmlspecialchars(mb_strimwidth((string)($et['bank_description'] ?? ''), 0, 60, '…')); ?></div>
+                                <?php elseif ($bankState === 'warn'): ?>
+                                    <div class="mw-et-card-main">Probably <?php echo htmlspecialchars($etD($et['likely_deposit_date'])); ?></div>
+                                    <div class="mw-et-card-sub">A <?php echo formatCurrency($etAmount); ?> e-Transfer credit came in after the email, so it was most likely claimed already.</div>
+                                <?php else: ?>
+                                    <div class="mw-et-card-main">Not in the bank yet</div>
+                                    <?php if ($type === 'claim' && $claimOk): ?>
+                                        <a class="mw-et-claim" href="<?php echo htmlspecialchars($claimUrl); ?>" target="_blank" rel="noopener noreferrer" title="Opens Interac's deposit page — choose Vancity and sign in there">Claim it now ↗</a>
+                                        <?php if (!empty($et['expires_on'])): ?><div class="mw-et-card-sub">Expires <?php echo htmlspecialchars($etD($et['expires_on'])); ?></div><?php endif; ?>
+                                    <?php elseif ($type === 'claim'): ?>
+                                        <div class="mw-et-card-sub">Claim it in online banking<?php echo !empty($et['expires_on']) ? ' by ' . htmlspecialchars($etD($et['expires_on'])) : ''; ?>.</div>
+                                    <?php else: ?>
+                                        <div class="mw-et-card-sub">It shows here after the next bank statement import.</div>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </div>
                         </div>
+
                         <div class="mw-et-actions">
                             <div class="mw-et-splits">
                                 <?php if (!empty($spreadLines)): ?>
@@ -373,7 +427,7 @@ $activePage = 'invoices';
                             </div>
                             <button type="button" class="btn btn-link btn-sm mw-et-add-split">+ split across another invoice</button>
                             <div class="mw-et-buttons">
-                                <button class="btn btn-primary btn-sm mw-et-record">Record</button>
+                                <button class="btn btn-primary btn-sm mw-et-record">Record payment</button>
                                 <button class="btn btn-outline-secondary btn-sm mw-et-dismiss" title="Dismiss">&times;</button>
                             </div>
                         </div>

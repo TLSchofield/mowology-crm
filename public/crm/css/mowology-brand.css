@@ -36438,6 +36438,66 @@ span.mw-icon-box--missing {
 .mw-et-recon--2 { color: #b45309; }
 .mw-et-recon--1 { color: #94a3a0; }
 
+/* ── e-Transfer chain: Interac email → invoice → bank deposit, three cards that light up (2026-10-13) ── */
+:root {
+  --mw-amber:      #b45309;
+  --mw-amber-bg:   #fff7ea;
+  --mw-amber-line: #f2c98a;
+  --mw-wait:       #8a9590;
+  --mw-wait-line:  #cfd6d3;
+  --mw-card:       #ffffff;
+}
+.mw-et-chainrow { display: block; padding: 1rem 1.1rem 1.1rem; }
+.mw-et-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.mw-et-sender { font-size: 1rem; color: var(--mw-forest); }
+.mw-et-chainrow .mw-et-amount { font-size: 1rem; }
+.mw-et-client { font-size: .8rem; color: var(--mw-dark); display: inline-flex; align-items: center; gap: .25rem; }
+.mw-et-client svg { width: 13px; height: 13px; }
+.mw-et-client:hover { color: var(--mw-green); }
+.mw-et-status { margin-left: auto; font-size: .75rem; font-weight: 600; padding: .2rem .65rem; border-radius: 999px; white-space: nowrap; }
+.mw-et-status--ready { background: var(--mw-green); color: var(--mw-card); }
+.mw-et-status--look  { background: var(--mw-amber-bg); color: var(--mw-amber); border: 1px solid var(--mw-amber-line); }
+.mw-et-status--wait  { background: var(--mw-light); color: var(--mw-dark); }
+
+.mw-et-chain { display: grid; grid-template-columns: minmax(0,1fr) 28px minmax(0,1fr) 28px minmax(0,1fr); align-items: stretch; }
+.mw-et-link { position: relative; }
+.mw-et-link::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px solid var(--mw-wait-line); }
+.mw-et-link.is-on::before { border-color: var(--mw-green); }
+.mw-et-card {
+  border-radius: 12px; padding: .7rem .85rem; font-size: .82rem; line-height: 1.45; min-height: 112px;
+  background: var(--mw-card); border: 1.5px dashed var(--mw-wait-line); color: var(--mw-wait);
+  transition: background .25s ease, border-color .25s ease;
+}
+.mw-et-card.is-on   { background: var(--mw-light); border: 1.5px solid var(--mw-green); color: var(--mw-forest); }
+.mw-et-card.is-warn { background: var(--mw-amber-bg); border: 1.5px solid var(--mw-amber-line); color: var(--mw-forest); }
+.mw-et-card-title { display: flex; align-items: center; gap: .35rem; font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: .3rem; }
+.mw-et-card.is-on .mw-et-card-title   { color: var(--mw-green); }
+.mw-et-card.is-warn .mw-et-card-title { color: var(--mw-amber); }
+.mw-et-card-title svg { width: 14px; height: 14px; }
+.mw-et-tick { margin-left: auto; }
+.mw-et-card-main { font-weight: 600; font-size: .9rem; }
+.mw-et-card-main a { color: inherit; text-decoration: underline; text-decoration-color: var(--mw-lime); text-underline-offset: 2px; }
+.mw-et-card-sub { color: inherit; opacity: .85; }
+.mw-et-card.is-off .mw-et-card-sub { opacity: 1; }
+.mw-et-guess { font-size: .7rem; font-weight: 600; color: var(--mw-amber); background: var(--mw-card); border-radius: 999px; padding: 0 .4rem; margin-left: .2rem; }
+.mw-et-penny { margin-top: .45rem; font-size: .75rem; padding: .3rem .5rem; border-radius: 8px; background: var(--mw-card); border: 1px solid var(--mw-green); color: var(--mw-dark); display: flex; gap: .3rem; align-items: flex-start; }
+.mw-et-penny.is-later { border-color: var(--mw-wait-line); color: var(--mw-wait); }
+.mw-et-penny svg { width: 13px; height: 13px; flex: 0 0 auto; margin-top: 2px; }
+.mw-et-claim { display: inline-block; margin: .3rem 0 .15rem; font-weight: 600; font-size: .8rem; padding: .2rem .6rem; border-radius: 8px; background: var(--mw-amber-bg); color: var(--mw-amber); border: 1px solid var(--mw-amber-line); }
+.mw-et-claim:hover { background: var(--mw-amber); color: var(--mw-card); text-decoration: none; }
+
+.mw-et-chainrow .mw-et-actions { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-top: .75rem; }
+.mw-et-chainrow .mw-et-add-split { align-self: center; }
+
+@media (max-width: 767.98px) {
+  .mw-et-chain { grid-template-columns: minmax(0,1fr); }
+  .mw-et-link { height: 14px; }
+  .mw-et-link::before { left: 50%; right: auto; top: 0; bottom: 0; border-top: 0; border-left: 2px solid var(--mw-wait-line); }
+  .mw-et-card { min-height: 0; }
+  .mw-et-status { margin-left: 0; }
+  .mw-et-chainrow .mw-et-actions { justify-content: flex-start; }
+}
+
 @media (max-width: 640px) {
     .mw-et-actions { width: 100%; align-items: stretch; }
     .mw-et-split-line { flex-wrap: wrap; }
