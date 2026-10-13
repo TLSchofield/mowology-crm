@@ -95,6 +95,10 @@ Rules now enforced in code:
   (`QuoteService::acceptNonce()`). Expired quotes show "call us". The legacy
   `public/crm/customer/quote.php` 301s to the real page.
 - The client PDF link is `customer/api/quote-pdf.php?token=` (the CRM endpoint sent clients to login).
+- 2026-10-12 (Fable, Tim-approved plan): `quote-upsell.php` add-upsell accepts only an upsell
+  offered (`product_upsells`, active) for a base product on THAT quote, priced from that offer
+  row, and nothing once the quote is accepted (`QuoteUpsellRules::ALLOW_AFTER_ACCEPT = false`;
+  get-upsells returns no cards). The post-approval path below is dormant until that flips.
 - `quote-upsell.php`: an add after approval calls `QuoteApprovalService::afterPostAcceptChange()`
   (note back on "Just approved", activity row, push to admins); after approval only post-approval
   extras can be removed; bundle matching is exact, in PHP.

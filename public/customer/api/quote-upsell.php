@@ -27,6 +27,7 @@ require_once APP_ROOT . '/Services/MeasurementService.php';
 require_once APP_ROOT . '/Services/QuoteCalculator.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
 require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteUpsellRules.php';
 
 /** Exactly this bundle (not 1 matching 10, 12…): read the snapshot in PHP, no JSON_EXTRACT (MySQL 5.7). */
 function upsellBundleLineIds(PDO $db, int $quoteId, int $bundleId, bool $postAcceptOnly = false): array {
@@ -152,6 +153,11 @@ try {
     $propertyId = (int)$quote['property_id'];
 
     if ($action === 'get-upsells') {
+        // No cards once the quote is approved (QuoteUpsellRules, Fable review 2026-10-12).
+        if (!QuoteUpsellRules::offerCards((string)$quote['status'], !empty($quote['is_contract']))) {
+            echo json_encode(['success' => true, 'upsells' => []]);
+            exit;
+        }
         // Get product IDs from this quote's line items
         $productIds = $db->prepare("
             SELECT DISTINCT product_id FROM quote_line_items
@@ -318,6 +324,26 @@ try {
 
         if (!$upsellProductId && !$upsellBundleId) throw new Exception('Upsell product or bundle ID required');
 
+        // Fable review 2026-10-12: only before approval, and only an upsell actually offered for a
+        // product on THIS quote — priced from that offer (any product id used to be accepted).
+        if (!QuoteUpsellRules::addAllowed((string)$quote['status'], !empty($quote['is_contract']))) {
+            throw new Exception('This quote has been approved. To add work, please call us at (778) 846-9273.');
+        }
+        $baseSql = "SELECT DISTINCT product_id FROM quote_line_items WHERE quote_id = ? AND product_id IS NOT NULL AND is_upsell = 0";
+        try {
+            $offStmt = $db->prepare("SELECT upsell_product_id, upsell_bundle_id, bundled_price FROM product_upsells
+                                     WHERE is_active = 1 AND base_product_id IN ($baseSql)");
+            $offStmt->execute([$quoteId]);
+        } catch (PDOException $e) { // before migration 1021 (no upsell_bundle_id)
+            $offStmt = $db->prepare("SELECT upsell_product_id, NULL AS upsell_bundle_id, bundled_price FROM product_upsells
+                                     WHERE is_active = 1 AND base_product_id IN ($baseSql)");
+            $offStmt->execute([$quoteId]);
+        }
+        $offer = QuoteUpsellRules::matchOffer($offStmt->fetchAll(PDO::FETCH_ASSOC), $upsellProductId, $upsellBundleId);
+        if ($offer === null) {
+            throw new Exception('That item is not offered with this quote.');
+        }
+
         $isBundle = $upsellBundleId > 0;
 
         if ($isBundle) {
@@ -362,23 +388,8 @@ try {
             }
         }
 
-        // Look up the product_upsells row for admin-set bundled_price (product OR bundle)
-        if ($isBundle) {
-            $upsellMetaStmt = $db->prepare("
-                SELECT bundled_price FROM product_upsells
-                WHERE upsell_bundle_id = ? AND is_active = 1
-                LIMIT 1
-            ");
-            $upsellMetaStmt->execute([$upsellBundleId]);
-        } else {
-            $upsellMetaStmt = $db->prepare("
-                SELECT bundled_price FROM product_upsells
-                WHERE upsell_product_id = ? AND is_active = 1
-                LIMIT 1
-            ");
-            $upsellMetaStmt->execute([$upsellProductId]);
-        }
-        $upsellMeta = $upsellMetaStmt->fetch(PDO::FETCH_ASSOC);
+        // Admin-set bundled_price from the matching offer row (not any row naming this product).
+        $upsellMeta = $offer;
         $adminBundledPrice = $upsellMeta && $upsellMeta['bundled_price'] !== null
             ? (float)$upsellMeta['bundled_price'] : null;
 
