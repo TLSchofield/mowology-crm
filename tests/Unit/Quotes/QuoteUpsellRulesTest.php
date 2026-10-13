@@ -14,7 +14,8 @@ class QuoteUpsellRulesTest extends TestCase
         // Tim 2026-10-13: post-approval extras stay on (office is notified); only offered upsells are allowed.
         $this->assertSame(QuoteUpsellRules::ALLOW_AFTER_ACCEPT, QuoteUpsellRules::addAllowed('accepted'));
         $this->assertFalse(QuoteUpsellRules::addAllowed('declined'));
-        $this->assertFalse(QuoteUpsellRules::offerCards('accepted'));
+        $this->assertSame(QuoteUpsellRules::ALLOW_AFTER_ACCEPT, QuoteUpsellRules::offerCards('accepted'));
+        $this->assertFalse(QuoteUpsellRules::addAllowed('accepted', true), 'contracts never take extras after approval');
     }
 
     public function test_only_offered_items_match(): void

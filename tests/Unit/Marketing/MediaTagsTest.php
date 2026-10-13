@@ -74,7 +74,7 @@ final class MediaTagsTest extends TestCase
         $this->assertFalse(MediaTagRules::publicOk(['privacy/ok', 'consent/no']));
         $this->assertFalse(MediaTagRules::publicOk(['consent/ok']), 'not checked yet = not public');
         $this->assertTrue(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok', 'use/hero'], ['stage/after', 'privacy/ok', 'use/hero']]));
-        $this->assertFalse(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok', 'use/hero']]));
+        $this->assertSame(!MediaTagRules::REQUIRE_FAVORITE_FOR_PUBLIC, MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok', 'use/hero']]));
         $this->assertFalse(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok'], ['stage/during', 'privacy/blur-needed']]));
         $this->assertFalse(MediaTagRules::visitPublicOk([['stage/after', 'privacy/ok']]), 'needs a before too');
     }
