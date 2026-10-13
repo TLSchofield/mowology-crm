@@ -865,7 +865,14 @@ class EtransferInboxService
     {
         $sql = "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
                        i.status AS matched_invoice_status,
-                       bir.description AS bank_description, at.transaction_date AS bank_transaction_date
+                       bir.description AS bank_description, at.transaction_date AS bank_transaction_date,
+                       /* a same-amount e-Transfer credit that landed after the email and no other email
+                          claims — it was probably deposited already; Interac then says it was already deposited (2026-10-13) */
+                       (SELECT MIN(d.transaction_date) FROM accounting_transactions d
+                         WHERE n.bank_transaction_id IS NULL AND d.reference_type = 'bank_import'
+                           AND ABS(d.amount - n.amount) < 0.01 AND d.description LIKE '%e-Transfer%'
+                           AND d.transaction_date BETWEEN DATE(n.email_date) AND DATE_ADD(DATE(n.email_date), INTERVAL 30 DAY)
+                           AND NOT EXISTS (SELECT 1 FROM etransfer_notifications o WHERE o.bank_transaction_id = d.id)) AS likely_deposit_date
                   FROM etransfer_notifications n
              LEFT JOIN invoices i ON n.matched_invoice_id = i.id
              LEFT JOIN accounting_transactions at ON n.bank_transaction_id = at.id

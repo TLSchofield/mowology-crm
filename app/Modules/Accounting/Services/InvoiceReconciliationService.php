@@ -113,8 +113,11 @@ class InvoiceReconciliationService
      * @param array $allocations  [ ['invoice_id'=>int, 'amount'=>float], ... ]
      * @return array  summary: recorded[], deposit_remaining, fully_allocated
      */
-    public function attach(int $transactionId, array $allocations, int $userId): array
+    public function attach(int $transactionId, array $allocations, int $userId, bool $force = false): array
     {
+        if (!$force && ($named = $this->emailNamesOtherInvoice($transactionId, array_column($allocations, 'invoice_id')))) {
+            throw new InvalidArgumentException("The Interac email for this deposit says it pays {$named} — record it against {$named} instead.");
+        }
         $clean = [];
         foreach ($allocations as $a) {
             $iid = (int)($a['invoice_id'] ?? 0);
@@ -182,6 +185,39 @@ class InvoiceReconciliationService
             'deposit_remaining' => $remainingAfter,
             'fully_allocated'   => $remainingAfter <= 0.005,
         ];
+    }
+
+    /**
+     * The Interac email for this deposit names, by invoice number, an open invoice that is not
+     * among $invoiceIds — returns that number, else null. A payer who sends the same amount every
+     * month (strata BCS4079, $262.50) let amount-and-name matching put the Oct 8 deposit on last
+     * month's invoice while the email said "invoice 2026 0425" (2026-10-13). The email is the one
+     * linked to this deposit, or else the nearest same-amount one sent in the 21 days before it.
+     */
+    public function emailNamesOtherInvoice(int $transactionId, array $invoiceIds): ?string
+    {
+        $ids = array_map('intval', $invoiceIds);
+        try {
+            $s = $this->db->prepare("
+                SELECT n.matched_invoice_id, i.invoice_number
+                  FROM accounting_transactions at
+                  JOIN etransfer_notifications n
+                    ON n.status <> 'dismissed'
+                   AND n.match_confidence = 'high' AND n.match_method IN ('invoice_number', 'reference_number')
+                   AND (n.bank_transaction_id = at.id
+                        OR (n.bank_transaction_id IS NULL AND ABS(n.amount - at.amount) < 0.01
+                            AND n.email_date BETWEEN DATE_SUB(at.transaction_date, INTERVAL 21 DAY) AND DATE_ADD(at.transaction_date, INTERVAL 2 DAY)))
+                  JOIN invoices i ON i.id = n.matched_invoice_id AND i.balance_due > 0.005
+                 WHERE at.id = ?
+              ORDER BY (n.bank_transaction_id = at.id) DESC, ABS(DATEDIFF(n.email_date, at.transaction_date)) ASC
+                 LIMIT 1");
+            $s->execute([$transactionId]);
+            $row = $s->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return null;   // before the e-Transfer columns exist — never blocks a recording
+        }
+        if (!$row || in_array((int)$row['matched_invoice_id'], $ids, true)) return null;
+        return (string)$row['invoice_number'];
     }
 
     /**

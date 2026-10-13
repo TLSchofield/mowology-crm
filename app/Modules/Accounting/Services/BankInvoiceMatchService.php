@@ -144,6 +144,9 @@ class BankInvoiceMatchService
         }
         $email = $this->emailFor($line);
         if (($sender === null || trim($sender) === '') && $email) $sender = $email['sender_name'] ?? null;
+        if (!$force && ($named = $this->recon->emailNamesOtherInvoice($txId, array_column($clean, 'invoice_id')))) {
+            return ['ok' => false, 'message' => "The Interac email for this deposit says it pays {$named} — tick {$named}, or choose Record anyway."];
+        }
         if (!$force) {
             $rec = self::pickRecorded($this->unlinkedPayments($date), $amount, $date, $email ? (int)$email['id'] : null);
             if ($rec || $this->legacyPaid($amount, $date)) {
@@ -175,7 +178,7 @@ class BankInvoiceMatchService
                 $numbers = $linked['invoice_numbers'];
                 $left = 0.0;
             } else {
-                $res = $this->recon->attach($txId, $clean, $userId);
+                $res = $this->recon->attach($txId, $clean, $userId, true);   // the email check ran above
                 $numbers = array_column($res['recorded'], 'invoice_number');
                 $left = (float)$res['deposit_remaining'];
                 $this->review($txId, $userId);
