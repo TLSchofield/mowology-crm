@@ -249,7 +249,11 @@ try {
             }
 
             // Verify HMAC token (same method as TemplateRenderer::generateUnsubscribeUrl)
-            $secret = defined('UNSUBSCRIBE_SECRET') ? UNSUBSCRIBE_SECRET : 'mowology-unsub-2026';
+            if (!defined('UNSUBSCRIBE_SECRET') || (string)UNSUBSCRIBE_SECRET === '') {
+                error_log('optin.php: UNSUBSCRIBE_SECRET is not defined — token refused');
+                echo json_encode(['success' => false, 'error' => 'Invalid token']); break;
+            }
+            $secret = (string)UNSUBSCRIBE_SECRET;
             $sendId = (int)($_GET['sid'] ?? 0);
             $expected = hash_hmac('sha256', $email . '|' . $sendId, $secret);
             if (!hash_equals($expected, $token)) {

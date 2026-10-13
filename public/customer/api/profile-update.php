@@ -38,7 +38,9 @@ try {
 
     $db = getDB();
 
-    $stmt = $db->prepare("SELECT id, email FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, mobile, preferred_contact_method,
+                                 receive_marketing, receive_sms
+                          FROM contacts WHERE portal_token = ? LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) throw new Exception('Client not found');
@@ -102,6 +104,15 @@ try {
         $upd = $db->prepare("UPDATE contacts SET " . implode(', ', $sets) . " WHERE id = ?");
         $upd->execute($params);
     }
+
+    // Trail for every change (Fable review 2026-10-12) — the token is permanent, so an email/phone
+    // change made with it must be visible to the office afterwards.
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalProfileAudit.php';
+    PortalProfileAudit::record($db, (int)$contact['id'], PortalProfileAudit::diff($contact, [
+        'first_name' => $firstName, 'last_name' => $lastName, 'email' => $email, 'phone' => $phone,
+        'mobile' => $mobile, 'preferred_contact_method' => $preferred,
+        'receive_marketing' => $receiveMarketing, 'receive_sms' => $receiveSms,
+    ]), (string)($_SERVER['REMOTE_ADDR'] ?? ''), (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
 
     echo json_encode(['success' => true]);
 

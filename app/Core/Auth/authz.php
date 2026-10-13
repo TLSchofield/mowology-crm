@@ -62,12 +62,12 @@ function getUserRoles(int $userId): array
  */
 function getUserPermissions(int $userId): array
 {
-    // Check session cache first
+    // Check session cache first — it now expires after AuthFreshness::PERM_CACHE_TTL seconds, so a
+    // role change made by an admin reaches the user's open session (Fable review 2026-10-12).
     if (
         isset($_SESSION['perm_cache'])
-        && is_array($_SESSION['perm_cache'])
-        && ($_SESSION['perm_cache']['user_id'] ?? 0) === $userId
-        && ($_SESSION['perm_cache']['version'] ?? 0) === PERM_CACHE_VERSION
+        && class_exists('AuthFreshness')
+        && AuthFreshness::permCacheFresh($_SESSION['perm_cache'], $userId, PERM_CACHE_VERSION, time())
     ) {
         return $_SESSION['perm_cache']['permissions'];
     }
@@ -108,6 +108,7 @@ function getUserPermissions(int $userId): array
         'user_id'     => $userId,
         'version'     => PERM_CACHE_VERSION,
         'permissions'  => $perms,
+        'at'          => time(),
     ];
 
     return $perms;

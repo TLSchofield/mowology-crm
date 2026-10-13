@@ -36,7 +36,8 @@
     var DB_NAME    = 'mowology-actions';
     var DB_VERSION = 1;
     var STORE_NAME = 'pending-actions';
-    var MAX_RETRIES = 5;
+    var MAX_RETRIES = 5;   // a record the server REFUSES (4xx) this many times is dropped, with a notice
+    var _syncing    = null; // in-flight latch: one replay pass at a time (Fable review 2026-10-12)
 
     // ── UUID v4 generator ────────────────────────────────────────────────────────
 
@@ -109,6 +110,17 @@
                 var req = tx.objectStore(STORE_NAME).getAll();
                 req.onsuccess = function () { resolve(req.result || []); };
                 req.onerror   = function () { resolve([]); };
+            });
+        });
+    }
+
+    function putRecord(record) {
+        return openDB().then(function (database) {
+            return new Promise(function (resolve) {
+                var tx = database.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put(record);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror    = function () { resolve(); };
             });
         });
     }
@@ -288,10 +300,37 @@
             if (res.ok) {
                 return deleteRecord(record.id).then(function () { return true; });
             }
+            // The server refused it (4xx). 401/403 (signed out / stale token), 408 and 429 are
+            // passing states — keep the action for the next pass. Any other 4xx counts; after
+            // MAX_RETRIES refusals it is dropped and the user is told, instead of replaying forever.
+            var s = res.status;
+            if (s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429) {
+                record.retries = (record.retries || 0) + 1;
+                if (record.retries >= MAX_RETRIES) {
+                    return deleteRecord(record.id).then(function () {
+                        notifyDropped(record, s);
+                        return false;
+                    });
+                }
+                return putRecord(record).then(function () { return false; });
+            }
             return false;
         }).catch(function () {
             return false;
         });
+    }
+
+    /** A queued action the server kept refusing was dropped — say so; never lose it silently. */
+    function notifyDropped(record, status) {
+        var when = '';
+        try { when = new Date(record.timestamp).toLocaleString(); } catch (e) {}
+        var msg = 'An offline action could not be saved and was removed: ' + (record.label || 'Action')
+                + (when ? ' (' + when + ')' : '') + '. Please re-enter it or tell the office.';
+        try { console.warn('[offline-queue] dropped after ' + MAX_RETRIES + ' refusals (HTTP ' + status + ')', record); } catch (e) {}
+        try {
+            if (typeof window.mwToast === 'function') window.mwToast(msg, 'error', 10000);
+            else window.alert(msg);
+        } catch (e) {}
     }
 
     /**
@@ -301,8 +340,11 @@
      */
     function syncNow() {
         if (!isOnline()) return Promise.resolve({ replayed: 0, failed: 0 });
+        // online/visibility/SW-message triggers can fire together — a second pass while the first
+        // is replaying would send the same action twice. Share the pass in flight instead.
+        if (_syncing) return _syncing;
 
-        return getAllRecords().then(function (records) {
+        _syncing = getAllRecords().then(function (records) {
             if (!records.length) return { replayed: 0, failed: 0 };
 
             var replayed = 0, failed = 0;
@@ -320,7 +362,9 @@
                 updateUI();
                 return { replayed: replayed, failed: failed };
             });
-        });
+        }).then(function (r) { _syncing = null; return r; },
+                function (e) { _syncing = null; throw e; });
+        return _syncing;
     }
 
     // ── UI indicators ────────────────────────────────────────────────────────────

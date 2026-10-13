@@ -266,7 +266,7 @@ $hasAnyPings = !empty($visitPings);
 $firstName   = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
 $hasAnything = !empty($quotes) || !empty($invoices) || !empty($completedVisits);
-$baseUrl     = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+$baseUrl     = (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca'); // never the Host header
 $portalUrl   = $contact && !empty($contact['portal_token'])
                ? $baseUrl . '/customer/portal.php?token=' . urlencode($contact['portal_token'])
                : '';

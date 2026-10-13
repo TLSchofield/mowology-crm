@@ -77,8 +77,43 @@ if (!function_exists('sanitizeInput')) {
 
 // -------------------- Auth helpers --------------------
 
+require_once __DIR__ . '/AuthFreshness.php';
+
 function isLoggedIn(): bool {
-    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) return false;
+    _recheckSessionUser();
+    return !empty($_SESSION['user_id']);
+}
+
+/**
+ * Re-read the signed-in user's role and active flag at most every AuthFreshness::RECHECK_SECONDS
+ * (Fable review 2026-10-12): deactivating or demoting someone now reaches their open sessions
+ * within a minute instead of at their next sign-in. A database error leaves the session alone
+ * (and tries again on the next request) — a hiccup must not sign the office out.
+ */
+function _recheckSessionUser(): void {
+    $now = time();
+    if (!AuthFreshness::recheckDue((int)($_SESSION['user_checked_at'] ?? 0), $now)) return;
+    try {
+        $st = getDB()->prepare("SELECT role, is_active, is_driver FROM users WHERE id = ? LIMIT 1");
+        $st->execute([(int)$_SESSION['user_id']]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {
+        error_log('_recheckSessionUser: user check failed: ' . $e->getMessage());
+        return;
+    }
+    $verdict = AuthFreshness::sessionVerdict($row, (string)($_SESSION['user_role'] ?? 'user'), !empty($_SESSION['user_is_driver']));
+    if ($verdict === 'logout') {
+        error_log('_recheckSessionUser: user ' . (int)$_SESSION['user_id'] . ' is inactive or gone — session ended');
+        $_SESSION = [];
+        return;
+    }
+    if ($verdict === 'refresh') {
+        $_SESSION['user_role']      = (string)(($row['role'] ?? '') ?: 'user');
+        $_SESSION['user_is_driver'] = !empty($row['is_driver']);
+        unset($_SESSION['perm_cache']);
+    }
+    $_SESSION['user_checked_at'] = $now;
 }
 
 /**
@@ -151,9 +186,10 @@ function isLoginRateLimited(string $email, ?string $ip = null): bool {
         $n = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         return loginThrottled((int)($n['pair'] ?? 0), (int)($n['ip'] ?? 0), (int)($n['em'] ?? 0));
     } catch (Throwable $e) {
-        // If the table doesn't exist yet, fail open (don't block logins)
-        _loginDebugLog("isLoginRateLimited() error: " . $e->getMessage());
-        return false;
+        // Fail CLOSED (Fable review 2026-10-12): if the throttle can't be read, an attacker could
+        // guess without limit. Callers show "try again shortly"-style text for a true return.
+        error_log("isLoginRateLimited() error — refusing login: " . $e->getMessage());
+        return true;
     }
 }
 
@@ -297,6 +333,7 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
             $_SESSION['user_is_driver']  = !empty($user['is_driver']);
             $_SESSION['login_time']      = time();
             $_SESSION['last_activity']   = time();
+            $_SESSION['user_checked_at'] = time();
 
             // Capture driver flag NOW before session_write_close() clears $_SESSION.
             $isDriver = !empty($user['is_driver']);
@@ -412,8 +449,9 @@ function verifyCSRFToken(string $token): bool {
  * session cookie on the very first POST (cookie-store flush race), causing the
  * standard session-based CSRF check to fail and force a re-attempt.
  *
- * The secret is derived from stable server-specific values so it is
- * effectively per-installation without needing a dedicated secrets.php entry.
+ * The secret mixes the server's JWT secret (secrets.php) into stable server values — the
+ * save path and session name alone are guessable, so a forged token was possible before
+ * (Fable review 2026-10-12).
  * Token is valid for the current and previous 5-minute window (up to 10 min).
  */
 function _loginCSRFSecret(): string {
@@ -421,7 +459,15 @@ function _loginCSRFSecret(): string {
     // this function is ever called, so they are stable across requests.
     static $secret = null;
     if ($secret === null) {
-        $secret = hash('sha256', session_save_path() . ':' . session_name() . ':mow-login-csrf-v1', true);
+        $key = (defined('BLUEMOON_JWT_SECRET') && strlen((string)BLUEMOON_JWT_SECRET) >= 32)
+            ? (string)BLUEMOON_JWT_SECRET
+            : '';
+        if ($key === '') {
+            // Fail closed: a random per-request key means no token verifies (login shows "Invalid request").
+            error_log('_loginCSRFSecret: BLUEMOON_JWT_SECRET missing or short — login form refused');
+            $key = random_bytes(32);
+        }
+        $secret = hash_hmac('sha256', session_save_path() . ':' . session_name() . ':mow-login-csrf-v2', $key, true);
     }
     return $secret;
 }

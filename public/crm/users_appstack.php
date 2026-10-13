@@ -92,11 +92,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($targetUserId <= 0) {
                         throw new Exception('Invalid user ID.');
                     }
-                    if (strlen($newPass) < 8) {
-                        throw new Exception('Password must be at least 8 characters.');
+                    // Setting an admin's password needs an admin (Fable review 2026-10-12) — rules in
+                    // PasswordChangeRules (min 12 characters, same as the reset pages).
+                    require_once APP_ROOT . '/Modules/Team/Services/PasswordChangeRules.php';
+                    $tgt = $db->prepare("SELECT u.role,
+                                                EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                                                       WHERE ur.user_id = u.id AND r.name = 'admin') AS has_admin_role
+                                         FROM users u WHERE u.id = ? LIMIT 1");
+                    $tgt->execute([$targetUserId]);
+                    $tgtRow = $tgt->fetch(PDO::FETCH_ASSOC);
+                    if (!$tgtRow) {
+                        throw new Exception('Invalid user ID.');
                     }
-                    if ($newPass !== $confirmPass) {
-                        throw new Exception('Passwords do not match.');
+                    $pwErr = PasswordChangeRules::check(
+                        (string)$newPass,
+                        (string)$confirmPass,
+                        ($tgtRow['role'] ?? '') === 'admin' || !empty($tgtRow['has_admin_role']),
+                        userHasPermission('users.manage'),
+                        ($user['role'] ?? '') === 'admin'
+                    );
+                    if ($pwErr !== null) {
+                        throw new Exception($pwErr);
                     }
 
                     $hash = password_hash($newPass, PASSWORD_DEFAULT);
@@ -414,13 +430,13 @@ $csrfToken = generateCSRFToken();
                     <div class="form-group">
                       <label for="pw_new_<?php echo $uid; ?>">New Password</label>
                       <input type="password" class="form-control" id="pw_new_<?php echo $uid; ?>"
-                             name="new_password" required minlength="8"
-                             placeholder="Minimum 8 characters" autocomplete="new-password">
+                             name="new_password" required minlength="12"
+                             placeholder="Minimum 12 characters" autocomplete="new-password">
                     </div>
                     <div class="form-group mb-0">
                       <label for="pw_confirm_<?php echo $uid; ?>">Confirm Password</label>
                       <input type="password" class="form-control" id="pw_confirm_<?php echo $uid; ?>"
-                             name="confirm_password" required minlength="8"
+                             name="confirm_password" required minlength="12"
                              placeholder="Re-enter new password" autocomplete="new-password">
                     </div>
                   </div>

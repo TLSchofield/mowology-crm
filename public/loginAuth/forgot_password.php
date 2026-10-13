@@ -47,11 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))");
                     $stmt->execute([$user['id'], hash('sha256', $token)]);
 
-                    // Build reset URL
-                    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-                    $host = $_SERVER['HTTP_HOST'];
-                    $path = dirname($_SERVER['REQUEST_URI']);
-                    $resetUrl = "{$protocol}://{$host}{$path}/reset_password.php?token={$token}";
+                    // Build reset URL from the site's own address — never the request's Host header,
+                    // which a caller controls (a forged Host would mail the token to their server).
+                    $siteUrl  = defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca';
+                    $resetUrl = $siteUrl . '/loginAuth/reset_password.php?token=' . $token;
 
                     // Send email
                     $to = $user['email'];

@@ -26,6 +26,7 @@ $error     = '';
 if (isset($_GET['contact_id'])) {
     require_once dirname(__DIR__) . '/loginAuth/auth.php';
     requireLogin();
+    requirePermission('billing.view'); // staff preview shows cards and balances (Fable review 2026-10-12)
     $adminMode = true;
     $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token,
                                  stripe_card_brand, stripe_card_last4, stripe_card_exp, autopay_enabled
@@ -147,7 +148,7 @@ function portalFmtMoney(float $n): string {
     return '$' . number_format($n, 2);
 }
 
-$baseUrl    = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+$baseUrl    = (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca'); // never the Host header
 $firstName  = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $fullName   = $contact ? htmlspecialchars(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : '';
 $companyName = $company ? htmlspecialchars($company['company_name']) : '';

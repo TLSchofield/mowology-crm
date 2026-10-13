@@ -187,6 +187,8 @@ $payload = base64url_encode(json_encode([
     'role'  => (string)($user['role'] ?? 'user'),
     'iat'   => $now,
     'exp'   => $now + $ttl,
+    // A password change or reset invalidates this token (Fable review 2026-10-12; JwtAuth checks it).
+    'pwd_v' => substr(hash('sha256', (string)$user['password_hash']), 0, 8),
 ]));
 
 $signature = base64url_encode(

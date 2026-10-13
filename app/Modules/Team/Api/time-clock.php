@@ -112,6 +112,28 @@ try {
     // Heightened interval from global settings (used during high-risk jobs)
     $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
 
+    // Idempotency-Key (sent by offline-queue.js replays and the apps): a clock in/out that already
+    // succeeded under this key answers with the same response instead of running again — a replay
+    // after a lost response must not clock out twice (Fable review 2026-10-12; same helper as job-timer).
+    $idempKey = '';
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET' && in_array($action, ['clock_in', 'clock_out'], true)) {
+        $idempKey = trim((string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
+        if ($idempKey !== '') {
+            require_once APP_ROOT . '/Core/IdempotencyHelper.php';
+            $cached = null;
+            try {
+                $cached = idempotencyCheck($db, $idempKey, (int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('[time-clock] idempotency check failed: ' . $e->getMessage());
+            }
+            if ($cached !== null) {
+                echo $cached;
+                exit;
+            }
+            ob_start();
+        }
+    }
+
     switch ($action) {
         case 'status':
             $entry = getActiveClockEntry($user['id']);
@@ -457,6 +479,20 @@ try {
         default:
             http_response_code(400);
             echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void, admin_add_entry']);
+    }
+
+    if ($idempKey !== '') {
+        $idempBody = (string)ob_get_clean();
+        $idempCode = http_response_code();
+        $idempData = json_decode($idempBody, true);
+        if (($idempCode === 200 || $idempCode === false) && is_array($idempData) && !empty($idempData['success'])) {
+            try {
+                idempotencyStore($db, $idempKey, (int)$user['id'], 'time-clock', $action, $idempBody);
+            } catch (Throwable $e) {
+                error_log('[time-clock] idempotency store failed: ' . $e->getMessage());
+            }
+        }
+        echo $idempBody;
     }
 
 } catch (Exception $e) {

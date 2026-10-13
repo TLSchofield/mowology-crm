@@ -52,8 +52,14 @@ if ($quoteId) {
         // Snow & salt contract quotes get the same set-up as signing online does
         // (per-visit contract + daily route plan, one rate billed per run). The
         // generic form would put every rate on one plan and bill the sum.
+        // It writes a contract and a plan, so it runs only on the confirm button
+        // (POST + CSRF) — never on a page load or a prefetch (Fable review 2026-10-12).
         require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
-        if (SnowContractService::isSnowContractQuote($quote)) {
+        $isSnowQuote = SnowContractService::isSnowContractQuote($quote);
+        if ($isSnowQuote
+            && $_SERVER['REQUEST_METHOD'] === 'POST'
+            && ($_POST['action'] ?? '') === 'snow_setup'
+            && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
             require_once CRM_INCLUDES . '/plan-functions.php';
             $snowSetup = (new SnowContractService($db))->setupFromSignedQuote($quoteId);
             if (!empty($snowSetup['contract_id']) && in_array($snowSetup['status'], ['done', 'already'], true)) {
@@ -97,7 +103,7 @@ $termsTemplates = $termsSvc->listTemplates(true);
 
 // ── POST: create contract ─────────────────────────────────────────────────
 $error = $snowSetupError ?? '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'snow_setup' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $data = [
         'property_id'    => intval($_POST['property_id'] ?? 0),
         'contact_id'     => intval($_POST['contact_id'] ?? 0),
@@ -109,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         'start_date'     => $_POST['start_date'] ?? '',
         'end_date'       => $_POST['end_date'] ?? '',
         'renewal_date'   => $_POST['renewal_date'] ?? '',
+        'renewal_increase_pct' => $_POST['renewal_increase_pct'] ?? '',
         'notes'          => trim($_POST['notes'] ?? ''),
         'terms_template_id' => intval($_POST['terms_template_id'] ?? 0) ?: null,
     ];
@@ -166,6 +173,8 @@ $defaultStartDate   = $quote && $quote['accepted_at'] ? date('Y-m-d', strtotime(
 // always prefilled $0.00). No thousands separator: "1,024.28" posts as 1.
 $defaultBillingAmt  = $quote ? number_format((float)($quote['amount'] ?? 0), 2, '.', '') : '';
 $defaultBillingCycle = 'monthly';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+$defaultRenewalPct  = ContractService::defaultRenewalIncreasePct($db);
 $contactName        = $prefilledContactName;
 $propertyAddress    = $quote ? trim(($quote['property_address'] ?? '') . ', ' . ($quote['property_city'] ?? '')) : '';
 
@@ -193,6 +202,19 @@ $activePage = 'contracts';
               <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
           <?php endif; ?>
 
+          <?php if ($quote && !empty($isSnowQuote) && empty($snowSetupError)): ?>
+              <div class="card mb-3">
+                  <div class="card-header"><h5 class="card-title mb-0">Snow &amp; salt contract</h5></div>
+                  <div class="card-body">
+                      <p class="mb-3">This quote is a snow &amp; salt contract. Setting it up creates a per-visit contract and the daily route plan, billed one rate per run — the same set-up as when a client signs online.</p>
+                      <form method="POST">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="snow_setup">
+                          <button type="submit" class="btn btn-primary">Set up snow &amp; salt contract</button>
+                      </form>
+                  </div>
+              </div>
+          <?php else: ?>
           <form method="POST" id="contractForm">
               <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
               <input type="hidden" name="quote_id"    value="<?php echo (int)$quoteId; ?>">
@@ -368,6 +390,17 @@ $activePage = 'contracts';
                               </div>
 
                               <div class="mw-form-row">
+                                  <label class="mw-form-label" for="renewal_increase_pct">Annual Increase %</label>
+                                  <div class="input-group">
+                                      <input type="number" id="renewal_increase_pct" name="renewal_increase_pct" class="form-control"
+                                             step="0.1" min="0" max="50"
+                                             value="<?php echo htmlspecialchars(number_format((float)$defaultRenewalPct, 1, '.', '')); ?>">
+                                      <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                  </div>
+                                  <small class="form-text text-muted">Applied to the billing amount on each renewal.</small>
+                              </div>
+
+                              <div class="mw-form-row">
                                   <label class="mw-form-label" for="notes">Notes <span class="text-muted">(optional)</span></label>
                                   <textarea id="notes" name="notes" class="form-control" rows="3"
                                             placeholder="Internal notes about this contract…"></textarea>
@@ -453,6 +486,7 @@ $activePage = 'contracts';
 
               </div><!-- /row -->
           </form>
+          <?php endif; ?>
 
 <?php if (!$quote): ?>
 <script>

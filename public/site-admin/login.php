@@ -17,7 +17,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if (!$email || !$password) {
+    if (!verifySiteCsrf()) {
+        $error = 'Your session expired — please try again.';
+    } elseif (!$email || !$password) {
         $error = 'Email and password are required.';
     } else {
         $user = siteLogin($email, $password);
@@ -28,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . $redirectPath);
             exit;
         } else {
-            $error = 'Invalid email or password.';
+            $error = 'Invalid email or password, or too many attempts — try again shortly.';
         }
     }
 }
@@ -68,6 +70,7 @@ $siteName   = defined('SITE_NAME') ? SITE_NAME : 'My Site';
   <?php endif; ?>
 
   <form method="POST">
+    <?= siteCsrfField() ?>
     <div class="sa-form-group">
       <label class="sa-label" for="email">Email</label>
       <input

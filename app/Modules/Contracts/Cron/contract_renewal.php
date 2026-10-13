@@ -50,6 +50,18 @@ if (!$isCli) {
     $user = getCurrentUser();
     if (($user['role'] ?? '') !== 'admin') { http_response_code(403); exit; }
     header('Content-Type: application/json; charset=utf-8');
+    // "Run Now" (database_appstack runCron) sends the token as a header and in the JSON body.
+    $__csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if ($__csrf === '') {
+        $__body = json_decode((string)file_get_contents('php://input'), true);
+        $__csrf = (string)(is_array($__body) ? ($__body['csrf_token'] ?? '') : ($_POST['csrf_token'] ?? ''));
+    }
+    if (!verifyCSRFToken($__csrf)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+    unset($__csrf, $__body);
 } else {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once PUBLIC_ROOT . '/crm/includes/functions.php';
@@ -166,8 +178,11 @@ foreach ($dueCtr as $ctr) {
         $newEndStr     = $newEnd   ? $newEnd->format('Y-m-d')   : null;
         $newRenewalStr = $newRenewal->format('Y-m-d');
 
-        // Update contract record
-        $db->prepare("
+        // Contract, plan prices and plan dates move together or not at all (Fable review
+        // 2026-10-12): a half-applied renewal raised the price but left the plans on the
+        // old term. The WHERE repeats the "not yet renewed" test so two runs can't both renew.
+        $db->beginTransaction();
+        $upd = $db->prepare("
             UPDATE contracts
             SET billing_amount  = ?,
                 start_date      = ?,
@@ -176,7 +191,14 @@ foreach ($dueCtr as $ctr) {
                 last_renewed_at = NOW(),
                 updated_at      = NOW()
             WHERE id = ?
-        ")->execute([$newAmount, $newStartStr, $newEndStr, $newRenewalStr, $contractId]);
+              AND status = 'active'
+              AND (last_renewed_at IS NULL OR last_renewed_at < renewal_date)
+        ");
+        $upd->execute([$newAmount, $newStartStr, $newEndStr, $newRenewalStr, $contractId]);
+        if ($upd->rowCount() === 0) {
+            $db->rollBack();
+            continue;
+        }
 
         // Recalculate plan prices from the new billing amount
         recalcContractPlanPrices($contractId, $newAmount, $billingCycle);
@@ -190,6 +212,8 @@ foreach ($dueCtr as $ctr) {
             WHERE contract_id = ?
               AND status != 'cancelled'
         ")->execute([$newStartStr, $newEndStr, $contractId]);
+
+        $db->commit();
 
         // Log activity (user_id = 0 for system action)
         logActivityExtended(
@@ -210,6 +234,7 @@ foreach ($dueCtr as $ctr) {
         $renewed[] = $ctr['contract_number'] . ' ($' . number_format($newAmount, 2) . ')';
 
     } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
         $errors[] = ($ctr['contract_number'] ?? "CTR-{$ctr['id']}") . ': ' . $e->getMessage();
         error_log('[contract_renewal] Error renewing ' . ($ctr['contract_number'] ?? $ctr['id']) . ': ' . $e->getMessage());
     }

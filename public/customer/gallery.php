@@ -146,7 +146,7 @@ if (!$error && $contact) {
 $clientName = $contact ? trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) : '';
 $year       = date('Y');
 $siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-$annJson    = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto) : '{}';
+$annJson    = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : '{}';
 
 $serviceLabels = [
     'fertilizer'     => 'Fertilizer Treatment',
@@ -765,7 +765,7 @@ window.mwToggleConsent = function(photoId, btn) {
   var next = current ? 0 : 1;
   btn.disabled = true;
   var formData = new FormData();
-  formData.append('token', <?= json_encode($token) ?>);
+  formData.append('token', <?= json_encode($token, JSON_HEX_TAG | JSON_HEX_AMP) ?>);
   formData.append('photo_id', photoId);
   formData.append('consent', next);
   fetch('/customer/api/photo-consent.php', { method: 'POST', body: formData })

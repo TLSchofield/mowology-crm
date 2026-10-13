@@ -272,6 +272,46 @@ function cms_authenticateSiteUser(int $siteId, string $email, string $password):
 }
 
 /**
+ * Site-admin login throttle (Fable review 2026-10-12). Uses the CRM's login_attempts table with
+ * the email prefixed "site-admin:" — 5 per (email, IP), 20 per IP, 15 per email in 10 minutes.
+ * A database error refuses the login (fail closed) and is logged.
+ */
+function cms_siteLoginThrottled(string $email, string $ip): bool
+{
+    $key = 'site-admin:' . strtolower(trim($email));
+    try {
+        $st = getDB()->prepare("
+            SELECT SUM(email = ? AND ip_address = ?) AS pair, SUM(ip_address = ?) AS ip, SUM(email = ?) AS em
+            FROM login_attempts
+            WHERE (email = ? OR ip_address = ?)
+              AND attempted_at > DATE_SUB(NOW(), INTERVAL 600 SECOND)
+        ");
+        $st->execute([$key, $ip, $ip, $key, $key, $ip]);
+        $n = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+        return cms_siteLoginOverLimit((int)($n['pair'] ?? 0), (int)($n['ip'] ?? 0), (int)($n['em'] ?? 0));
+    } catch (Throwable $e) {
+        error_log('cms_siteLoginThrottled: ' . $e->getMessage() . ' — refusing login');
+        return true;
+    }
+}
+
+/** Pure: the ceilings for cms_siteLoginThrottled(). */
+function cms_siteLoginOverLimit(int $pair, int $perIp, int $perEmail): bool
+{
+    return $pair >= 5 || $perIp >= 20 || $perEmail >= 15;
+}
+
+function cms_recordSiteLoginFailure(string $email, string $ip): void
+{
+    try {
+        getDB()->prepare("INSERT INTO login_attempts (email, ip_address) VALUES (?, ?)")
+               ->execute(['site-admin:' . strtolower(trim($email)), $ip]);
+    } catch (Throwable $e) {
+        error_log('cms_recordSiteLoginFailure: ' . $e->getMessage());
+    }
+}
+
+/**
  * Create a site user.
  *
  * @param int    $siteId   Site ID

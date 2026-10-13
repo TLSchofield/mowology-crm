@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
             $error = 'Please confirm you have read and agree to the terms and conditions.';
         } else {
             $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
-            $saved    = $svc->recordSignature($token, $signatureData, $signerIp, $acknowledged);
+            $saved    = $svc->recordSignature($token, $signatureData, $signerIp, $acknowledged, $signerName);
             if ($saved) {
                 $success = 'Contract signed successfully. We will be in touch to confirm your service schedule.';
                 $row     = null; // don't re-show the form

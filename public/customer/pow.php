@@ -82,7 +82,7 @@ if (!$error && $visit) {
     // Photos (public)
     $stmt = $db->prepare("
         SELECT id, photo_type, filename, caption FROM visit_photos
-        WHERE visit_id = ? ORDER BY photo_type, uploaded_at
+        WHERE visit_id = ? AND deleted_at IS NULL ORDER BY photo_type, uploaded_at
     ");
     $stmt->execute([$visitId]);
     $photos = $stmt->fetchAll(PDO::FETCH_ASSOC);

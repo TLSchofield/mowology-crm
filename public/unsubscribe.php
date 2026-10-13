@@ -29,15 +29,17 @@ if (defined('APP_ROOT')) {
     require_once APP_ROOT . '/Core/config.php';
 }
 
-$secret = defined('UNSUBSCRIBE_SECRET') ? UNSUBSCRIBE_SECRET : 'mowology-unsub-2026';
+// No hard-coded fallback (Fable review 2026-10-12): without the secret no token can be valid.
+$secret = (defined('UNSUBSCRIBE_SECRET') && (string)UNSUBSCRIBE_SECRET !== '') ? (string)UNSUBSCRIBE_SECRET : null;
+if ($secret === null) error_log('unsubscribe.php: UNSUBSCRIBE_SECRET is not defined — every token refused');
 
 $email = strtolower(trim($_GET['email'] ?? $_POST['email'] ?? ''));
 $token = $_GET['token'] ?? $_POST['token'] ?? '';
 $sendId = (int)($_GET['sid'] ?? $_POST['sid'] ?? 0);
 
 // Validate token
-$expectedToken = hash_hmac('sha256', $email, $secret);
-$validToken = hash_equals($expectedToken, $token);
+$validToken = $secret !== null && is_string($token)
+    && hash_equals(hash_hmac('sha256', $email, $secret), $token);
 
 $message = '';
 $success = false;

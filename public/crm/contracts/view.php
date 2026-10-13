@@ -32,6 +32,15 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
+    // Changing a contract is office work: jobs.edit (managers hold it, crew hold jobs.view).
+    // Price, billing cycle, payer and PM-billing changes also need billing.edit (Fable review 2026-10-12).
+    if (in_array($action, ['pause_contract', 'resume_contract', 'cancel_contract', 'update_contract'], true)
+        && !userHasPermission('jobs.edit')) {
+        $message     = 'You do not have permission to change contracts.';
+        $messageType = 'error';
+        $action      = '';
+    }
+
     if ($action === 'pause_contract' && $contract['status'] === 'active') {
         $db->prepare("UPDATE contracts SET status = 'paused', updated_at = NOW() WHERE id = ?")
            ->execute([$contractId]);
@@ -62,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     }
 
     if ($action === 'update_contract') {
+        $canBilling = userHasPermission('billing.edit');
         $data = [
             'title'                => trim($_POST['title'] ?? ''),
             'billing_cycle'        => $_POST['billing_cycle'] ?? 'monthly',
@@ -74,13 +84,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'notes'                => trim($_POST['notes'] ?? ''),
             'contact_id'           => !empty($_POST['contact_id']) ? (int)$_POST['contact_id'] : null,
         ];
+        if (!$canBilling) {
+            // Without billing.edit the money and payer fields stay as they are.
+            $data['billing_cycle']        = $contract['billing_cycle'];
+            $data['billing_amount']       = $contract['billing_amount'] === null ? '' : (string)$contract['billing_amount'];
+            $data['renewal_increase_pct'] = (string)($contract['renewal_increase_pct'] ?? '0');
+            $data['contact_id']           = null; // updateContract leaves contact_id alone when null
+        }
         $result = updateContract($contractId, $data, (int)$user['id']);
 
         // PM-billing write-through: set the property's billing entity, management
         // company, and property-manager person from this one screen, and derive
         // the canonical client_id. One place to configure PM-managed billing.
         $propId = (int)($contract['property_id'] ?? 0);
-        if ($result['success'] && $propId) {
+        if ($result['success'] && $propId && $canBilling) {
             try {
                 $pcols = [];
                 foreach ($db->query("SHOW COLUMNS FROM properties")->fetchAll(PDO::FETCH_COLUMN) as $c) { $pcols[$c] = true; }

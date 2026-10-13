@@ -18,16 +18,27 @@
  *   4. Favicon set from /assets/favicon/
  */
 
-// ── DEV ERROR MODE — show all errors inline for fast debugging ───────────────
-// Single-user system; remove or gate on IP if external users are added.
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
+// ── ERROR MODE (Fable review 2026-10-12) ─────────────────────────────────────
+// Errors are LOGGED, never printed to staff. The full trace is shown only on a debug box
+// (APP_DEBUG, never production) to an admin; everyone else gets a plain "something went wrong".
+$__mwShowErrors = defined('APP_DEBUG') && APP_DEBUG && (($_SESSION['user_role'] ?? '') === 'admin');
+ini_set('display_errors', $__mwShowErrors ? '1' : '0');
+ini_set('display_startup_errors', $__mwShowErrors ? '1' : '0');
 error_reporting(E_ALL);
 
-// Capture uncaught exceptions and show a top-of-page banner instead of a blank screen
-set_exception_handler(function (Throwable $e) {
+// Capture uncaught exceptions: log them, then show a top-of-page banner instead of a blank screen
+set_exception_handler(function (Throwable $e) use ($__mwShowErrors) {
+    error_log('CRM uncaught ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()
+        . ' (' . ($_SERVER['REQUEST_URI'] ?? '') . ")\n" . $e->getTraceAsString());
     // Flush any partial output
     if (ob_get_level()) ob_end_clean();
+    if (!headers_sent()) http_response_code(500);
+    $detail = $__mwShowErrors
+        ? '<h2>' . htmlspecialchars(get_class($e)) . ': ' . htmlspecialchars($e->getMessage()) . '</h2>'
+          . '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>'
+          . '<p class="mw-err-meta">in <strong>' . htmlspecialchars($e->getFile()) . '</strong> on line <strong>' . $e->getLine() . '</strong></p>'
+        : '<h2>Something went wrong on this page.</h2>'
+          . '<p class="mw-err-meta">The error has been logged. Please go back and try again, or tell the office if it keeps happening.</p>';
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
        . '<title>Error — Mowology CRM</title>'
@@ -38,14 +49,10 @@ set_exception_handler(function (Throwable $e) {
        . 'font-size:0.78rem;overflow-x:auto;color:#1f2937;line-height:1.5;margin:8px 0 0;}'
        . '.mw-err-meta{font-size:0.8rem;color:#7f1d1d;margin-top:6px;}'
        . '</style></head><body>'
-       . '<div class="mw-err">'
-       . '<h2>🔴 ' . htmlspecialchars(get_class($e)) . ': ' . htmlspecialchars($e->getMessage()) . '</h2>'
-       . '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>'
-       . '<p class="mw-err-meta">in <strong>' . htmlspecialchars($e->getFile()) . '</strong> on line <strong>' . $e->getLine() . '</strong></p>'
-       . '</div></body></html>';
+       . '<div class="mw-err">' . $detail . '</div></body></html>';
     exit(1);
 });
-// ── END DEV ERROR MODE ────────────────────────────────────────────────────────
+// ── END ERROR MODE ────────────────────────────────────────────────────────────
 
 if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
 $extraHead  = $extraHead  ?? '';

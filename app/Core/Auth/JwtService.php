@@ -31,6 +31,8 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
 
     $secret = jwtSecret();
     $now    = time();
+    // pwd_v: a password change or reset makes this token invalid (Fable review 2026-10-12).
+    $pwdV   = jwtPasswordVersionFor($userId);
 
     $header  = _jwtB64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
     $payload = _jwtB64(json_encode([
@@ -42,7 +44,7 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
         'role'  => $role,
         'iat'   => $now,
         'exp'   => $now + $ttl,
-    ]));
+    ] + ($pwdV !== '' ? ['pwd_v' => $pwdV] : [])));
     $sig = _jwtB64(hash_hmac('sha256', $header . '.' . $payload, $secret, true));
 
     return $header . '.' . $payload . '.' . $sig;

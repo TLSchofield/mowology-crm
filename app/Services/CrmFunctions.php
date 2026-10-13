@@ -90,12 +90,18 @@ function createContract(array $data, int $userId): array {
     $db = getDB();
     try {
         $contractNumber = generateContractNumber();
+        // Every new contract carries a renewal increase (Tim: contracts rise 5% each
+        // March/April); the form passes one, other callers get the default.
+        require_once dirname(__DIR__) . '/Modules/Contracts/Services/ContractService.php';
+        $renewalPct = (isset($data['renewal_increase_pct']) && $data['renewal_increase_pct'] !== '' && is_numeric($data['renewal_increase_pct']))
+            ? ContractService::clampRenewalIncreasePct((float)$data['renewal_increase_pct'])
+            : ContractService::defaultRenewalIncreasePct($db);
         $stmt = $db->prepare("
             INSERT INTO contracts
                 (contract_number, property_id, contact_id, quote_id, title,
                  status, billing_cycle, billing_amount, invoice_timing, start_date, end_date,
-                 renewal_date, notes, created_by)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
+                 renewal_date, renewal_increase_pct, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $allowedTimings = ['after_visit', 'end_of_month', 'upfront'];
         $invoiceTiming = in_array($data['invoice_timing'] ?? '', $allowedTimings, true) ? $data['invoice_timing'] : 'after_visit';
@@ -111,6 +117,7 @@ function createContract(array $data, int $userId): array {
             $data['start_date'],
             !empty($data['end_date']) ? $data['end_date'] : null,
             !empty($data['renewal_date']) ? $data['renewal_date'] : null,
+            $renewalPct,
             !empty($data['notes']) ? trim($data['notes']) : null,
             $userId,
         ]);
@@ -278,7 +285,25 @@ function updateContract(int $contractId, array $data, int $userId): array {
     $newContactId = !empty($data['contact_id']) ? (int)$data['contact_id'] : null;
 
     $db = getDB();
+    $ownTx = !$db->inTransaction();
     try {
+        if ($ownTx) $db->beginTransaction();
+
+        // A signed contract keeps what the client signed as a version before it changes.
+        require_once dirname(__DIR__) . '/Modules/Contracts/Services/ContractService.php';
+        (new ContractService($db))->snapshotSignedBeforeEdit($contractId, [
+            'title'                => $data['title'] ?? null,
+            'billing_cycle'        => $data['billing_cycle'],
+            'billing_amount'       => $billingAmount,
+            'start_date'           => $data['start_date'],
+            'end_date'             => !empty($data['end_date']) ? $data['end_date'] : null,
+            'renewal_date'         => !empty($data['renewal_date']) ? $data['renewal_date'] : null,
+            'auto_renew'           => !empty($data['auto_renew']) ? 1 : 0,
+            'renewal_increase_pct' => isset($data['renewal_increase_pct']) ? (float)$data['renewal_increase_pct'] : 0.00,
+            'notes'                => $data['notes'] ?? null,
+            'contact_id'           => $newContactId,
+        ], $userId);
+
         $contactClause = $newContactId ? 'contact_id = ?,' : '';
         $sql = "
             UPDATE contracts
@@ -322,6 +347,8 @@ function updateContract(int $contractId, array $data, int $userId): array {
 
         syncContractPlanPricingModel($contractId, $data['billing_cycle']);
 
+        if ($ownTx) $db->commit();
+
         logActivityExtended(
             $userId,
             'contract_updated',
@@ -332,7 +359,8 @@ function updateContract(int $contractId, array $data, int $userId): array {
         );
 
         return ['success' => true, 'errors' => []];
-    } catch (PDOException $e) {
+    } catch (Throwable $e) {
+        if ($ownTx && $db->inTransaction()) $db->rollBack();
         error_log('updateContract error: ' . $e->getMessage());
         return ['success' => false, 'errors' => ['An error occurred while updating the contract.']];
     }

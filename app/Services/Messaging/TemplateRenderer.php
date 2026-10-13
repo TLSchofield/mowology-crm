@@ -230,7 +230,13 @@ function buildMergeData(
  */
 function generateUnsubscribeUrl(string $email, int $sendId = 0): string
 {
-    $secret = defined('UNSUBSCRIBE_SECRET') ? UNSUBSCRIBE_SECRET : 'mowology-unsub-2026';
+    if (defined('UNSUBSCRIBE_SECRET') && (string)UNSUBSCRIBE_SECRET !== '') {
+        $secret = (string)UNSUBSCRIBE_SECRET;
+    } else {
+        // No hard-coded fallback (Fable review 2026-10-12) — a guessable key lets anyone unsubscribe anyone.
+        error_log('generateUnsubscribeUrl: UNSUBSCRIBE_SECRET is not defined — link will not verify');
+        $secret = bin2hex(random_bytes(32));
+    }
     $token = hash_hmac('sha256', strtolower(trim($email)), $secret);
     $params = http_build_query([
         'email' => $email,

@@ -134,17 +134,29 @@ class ContractService
     // E-SIGNATURE — Record
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** The name recorded as having signed: what they typed, else the name the request went to. */
+    public static function signedByName(string $typed, ?string $requested): string
+    {
+        $typed = trim(preg_replace('/\s+/u', ' ', $typed) ?? '');
+        $name  = $typed !== '' ? $typed : trim((string)$requested);
+        return function_exists('mb_substr') ? mb_substr($name, 0, 255) : substr($name, 0, 255);
+    }
+
     /**
      * Record a successful signature.
      *
      * @param string $signatureData base64 PNG from SignaturePad canvas
+     * @param string $typedName     the full name the signer typed on the form — stored as the
+     *                              version's signed_by_name (Fable review 2026-10-12: it was
+     *                              discarded and the name the request was SENT to was stored)
      * @return bool true if saved; false if token was invalid/already used
      */
     public function recordSignature(
         string $token,
         string $signatureData,
         string $signerIp,
-        bool   $termsAcknowledged = false
+        bool   $termsAcknowledged = false,
+        string $typedName = ''
     ): bool {
         $row = $this->getSignatureRequest($token);
         if (!$row) {
@@ -195,7 +207,7 @@ class ContractService
                 UPDATE contract_versions
                 SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
                 WHERE contract_id = ? AND version_number = ?
-            ")->execute([$now, $row['signer_name'], $row['contract_id'], $row['contract_version']]);
+            ")->execute([$now, self::signedByName($typedName, $row['signer_name'] ?? null), $row['contract_id'], $row['contract_version']]);
 
             $this->db->commit();
             return true;

@@ -18,6 +18,8 @@ declare(strict_types=1);
  * No external dependencies. Hand-rolled HS256 to match token.php.
  */
 
+require_once __DIR__ . '/AuthFreshness.php';
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -46,19 +48,42 @@ function jwtSecret(): string
 /**
  * The user behind a token, as the database has them NOW (Fable review 2026-10-12): role and
  * active flag came from a 30-day token, so a deactivated or demoted user kept their access until
- * it expired. Cached per request. Returns null when the user is gone or inactive; throws when the
- * database can't be asked (callers answer 503, not 401 — a 401 signs the phone out).
+ * it expired. Cached per request. Returns null when the user is gone or inactive, or when the
+ * token's pwd_v no longer matches the password (changed or reset since it was issued — tokens
+ * without pwd_v, issued before 2026-10-12, are still accepted); throws when the database can't be
+ * asked (callers answer 503, not 401 — a 401 signs the phone out).
  */
-function jwtCurrentUser(int $userId): ?array
+function jwtCurrentUser(int $userId, ?array $payload = null): ?array
 {
     static $cache = [];
     if ($userId <= 0) return null;
-    if (array_key_exists($userId, $cache)) return $cache[$userId];
-    if (!function_exists('getDB')) throw new RuntimeException('no database for the JWT user check');
-    $st = getDB()->prepare('SELECT id, email, full_name AS name, role, is_active FROM users WHERE id = ? LIMIT 1');
-    $st->execute([$userId]);
-    $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-    return $cache[$userId] = ($u && (int)($u['is_active'] ?? 0) === 1) ? $u : null;
+    if (!array_key_exists($userId, $cache)) {
+        if (!function_exists('getDB')) throw new RuntimeException('no database for the JWT user check');
+        $st = getDB()->prepare('SELECT id, email, full_name AS name, role, is_active, password_hash FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$userId]);
+        $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        $cache[$userId] = ($u && (int)($u['is_active'] ?? 0) === 1) ? $u : null;
+    }
+    $u = $cache[$userId];
+    if ($u === null) return null;
+    if ($payload !== null && !AuthFreshness::jwtPasswordOk($payload, (string)($u['password_hash'] ?? ''))) {
+        return null;
+    }
+    unset($u['password_hash']);
+    return $u;
+}
+
+/** The pwd_v claim to put in a new token for this user (looked up by id). '' when unknown. */
+function jwtPasswordVersionFor(int $userId): string
+{
+    try {
+        $st = getDB()->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$userId]);
+        return AuthFreshness::passwordVersion((string)($st->fetchColumn() ?: ''));
+    } catch (Throwable $e) {
+        error_log('jwtPasswordVersionFor: ' . $e->getMessage());
+        return '';
+    }
 }
 
 /** Payload → the user array endpoints use, with role/name/email from the database row. */
@@ -160,7 +185,7 @@ function getJwtUser(): ?array
     }
 
     try {
-        $row = jwtCurrentUser((int)($payload['sub'] ?? 0));
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0), $payload);
     } catch (Throwable $e) {
         error_log('getJwtUser: user check failed: ' . $e->getMessage());
         return null;
@@ -192,7 +217,7 @@ function requireJwt(): array
     }
 
     try {
-        $row = jwtCurrentUser((int)($payload['sub'] ?? 0));
+        $row = jwtCurrentUser((int)($payload['sub'] ?? 0), $payload);
     } catch (Throwable $e) {
         error_log('requireJwt: user check failed: ' . $e->getMessage());
         http_response_code(503);
@@ -201,7 +226,7 @@ function requireJwt(): array
     }
     if ($row === null) {
         http_response_code(401);
-        echo json_encode(['error' => 'This account is no longer active', 'code' => 'inactive_user']);
+        echo json_encode(['error' => 'Please sign in again', 'code' => 'inactive_user']);
         exit;
     }
     return jwtUserFromPayload($payload, $row);

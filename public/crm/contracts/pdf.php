@@ -14,6 +14,8 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 requirePermission('jobs.view');
+// The contract carries prices and the client's signature — office only (Fable review 2026-10-12).
+requireAnyPermission(['billing.view', 'jobs.edit']);
 $user = getCurrentUser();
 
 $contractId = (int)($_GET['id'] ?? 0);

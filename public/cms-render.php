@@ -65,9 +65,11 @@ $previewTok    = $_GET['_tok'] ?? '';
 
 if ($previewPid > 0 && $previewExp > 0 && $previewTok !== '') {
     if ($previewExp >= time()) {
-        $previewSecret  = defined('CMS_PREVIEW_SECRET') ? CMS_PREVIEW_SECRET : 'mwly_cms_preview';
-        $expectedToken  = hash_hmac('sha256', $previewPid . '|' . $previewExp, $previewSecret);
-        if (hash_equals($expectedToken, $previewTok)) {
+        // No hard-coded fallback (Fable review 2026-10-12): no secret = no preview.
+        $previewSecret  = (defined('CMS_PREVIEW_SECRET') && (string)CMS_PREVIEW_SECRET !== '') ? (string)CMS_PREVIEW_SECRET : null;
+        if ($previewSecret === null) error_log('cms-render: CMS_PREVIEW_SECRET is not defined — preview refused');
+        $expectedToken  = $previewSecret !== null ? hash_hmac('sha256', $previewPid . '|' . $previewExp, $previewSecret) : '';
+        if ($previewSecret !== null && is_string($previewTok) && hash_equals($expectedToken, $previewTok)) {
             $isPreviewMode = true;
         }
     }

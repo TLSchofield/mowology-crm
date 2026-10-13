@@ -175,7 +175,7 @@ $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
 $year    = date('Y');
 
 // Encode annotations for JS
-$annJson = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto) : '{}';
+$annJson = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : '{}';
 ?>
 <!DOCTYPE html>
 <html lang="en">
