@@ -6,6 +6,19 @@ use PHPUnit\Framework\TestCase;
 require_once __DIR__ . '/../../../app/Modules/Accounting/Services/StripeEventLedgerService.php';
 require_once __DIR__ . '/../../../app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php';
 
+/** LedgerService caches code → id in a static shared by every test; read this test's chart instead. */
+class UncachedLedger extends LedgerService
+{
+    private PDO $pdo;
+    public function __construct(PDO $db) { parent::__construct($db); $this->pdo = $db; }
+    public function accountId(string $code): int
+    {
+        $s = $this->pdo->prepare("SELECT id FROM chart_of_accounts WHERE code = ?");
+        $s->execute([$code]);
+        return (int)$s->fetchColumn();
+    }
+}
+
 /**
  * Security review #21 (2026-10-12): Stripe disputes and refunds reach the books, once per event id.
  * Fixture events below have the shape Stripe sends (data.object of charge.dispute.* / charge.refunded).
@@ -56,7 +69,7 @@ class StripeEventLedgerServiceTest extends TestCase
 
     public function test_dispute_flags_invoice_posts_reversal_and_alerts_once(): void
     {
-        $svc = new StripeEventLedgerService($this->db);
+        $svc = new StripeEventLedgerService($this->db, new UncachedLedger($this->db));
         $r = $svc->disputeCreated($this->dispute('evt_d1'));
         $this->assertSame('done', $r['status']);
         $this->assertSame('disputed', $this->db->query("SELECT dispute_status FROM invoices WHERE id = 10")->fetchColumn());
@@ -74,7 +87,7 @@ class StripeEventLedgerServiceTest extends TestCase
 
     public function test_won_dispute_reverses_the_entry(): void
     {
-        $svc = new StripeEventLedgerService($this->db);
+        $svc = new StripeEventLedgerService($this->db, new UncachedLedger($this->db));
         $svc->disputeCreated($this->dispute('evt_d1'));
         $svc->disputeClosed($this->dispute('evt_d2', 'won'));
         $this->assertSame('won', $this->db->query("SELECT dispute_status FROM invoices WHERE id = 10")->fetchColumn());
@@ -83,7 +96,7 @@ class StripeEventLedgerServiceTest extends TestCase
 
     public function test_refunds_go_through_customer_deposits_and_only_the_new_part_is_booked(): void
     {
-        $svc = new StripeEventLedgerService($this->db);
+        $svc = new StripeEventLedgerService($this->db, new UncachedLedger($this->db));
         // charge.refunded carries the running total: $40 then $100 in all.
         $svc->refunded(['event_id' => 'evt_r1', 'charge_id' => 'ch_1', 'payment_intent_id' => 'pi_1', 'amount_refunded_cents' => 4000]);
         $svc->refunded(['event_id' => 'evt_r2', 'charge_id' => 'ch_1', 'payment_intent_id' => 'pi_1', 'amount_refunded_cents' => 10000]);
