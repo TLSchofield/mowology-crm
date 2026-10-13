@@ -72,8 +72,10 @@ function fcoLog(string $msg): void {
 fcoLog('=== Forgot Clock-Out SMS Cron started ===');
 
 // Check feature flag
-$enabledRow = $db->query("SELECT value FROM ops_settings WHERE `key` = 'forgot_clockout_sms_enabled' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-if (!$enabledRow || $enabledRow['value'] !== '1') {
+// ops_settings columns are setting_key / setting_value (migration 202). This read `value`/`key`
+// and died with "Unknown column 'value'" on every run until 2026-10-13.
+$enabledRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'forgot_clockout_sms_enabled' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+if (!$enabledRow || (string)$enabledRow['setting_value'] !== '1') {
     fcoLog('Feature disabled — exiting');
     // Disabled is a legitimate outcome, not a non-run — say so rather than stay silent.
     __fcoRecord('success', 'Feature disabled (forgot_clockout_sms_enabled != 1)');

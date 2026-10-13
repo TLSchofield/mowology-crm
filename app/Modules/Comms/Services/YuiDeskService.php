@@ -25,6 +25,19 @@ class YuiDeskService
     public const CARD_MAX = 12;
     public const NOT_TEST = 'ZZTEST';
 
+    /**
+     * SQL that drops ZZTEST rows, e.g. notTest('p.address', 'ct.title').
+     * Every column is collated to utf8mb4_general_ci first: production mixes utf8mb4_0900_ai_ci
+     * (properties, contacts, quotes) with utf8mb4_general_ci (contracts), and CONCAT_WS over
+     * both has no collation at all, so its LIKE failed with "Illegal mix of collations" —
+     * Yui's renewals section died every run until 2026-10-13. Column names are literals only.
+     */
+    public static function notTest(string ...$cols): string
+    {
+        $parts = array_map(fn($c) => preg_replace('/[^a-z0-9_.]/i', '', $c) . ' COLLATE utf8mb4_general_ci', $cols);
+        return "CONCAT_WS(' ', " . implode(', ', $parts) . ") NOT LIKE '%" . self::NOT_TEST . "%'";
+    }
+
     private PDO $db;
     private ?string $now;
     /** @var array<string, bool> */
@@ -184,7 +197,7 @@ class YuiDeskService
             FROM sales_messages m
             JOIN contacts c ON c.id = m.contact_id
             WHERE m.direction = 'inbound' AND m.contact_id IS NOT NULL AND m.sent_at >= ?
-              AND CONCAT_WS(' ', c.first_name, c.last_name) NOT LIKE '%" . self::NOT_TEST . "%'
+              AND " . self::notTest('c.first_name', 'c.last_name') . "
             ORDER BY m.sent_at DESC, m.id DESC
             LIMIT 600
         ");
@@ -236,7 +249,7 @@ class YuiDeskService
             JOIN companies co ON co.id = p.property_manager_id
             LEFT JOIN contacts sc ON sc.id = p.site_contact_id
             WHERE COALESCE(p.status, 'active') = 'active' AND {$busy}
-              AND CONCAT_WS(' ', p.address, co.company_name) NOT LIKE '%" . self::NOT_TEST . "%'
+              AND " . self::notTest('p.address', 'co.company_name') . "
             ORDER BY co.company_name, p.address
             LIMIT 400
         ");
@@ -258,7 +271,7 @@ class YuiDeskService
                 SELECT c.id AS contact_id, CONCAT_WS(' ', c.first_name, c.last_name) AS name, ct.id AS contract_id, ct.contract_number
                 FROM contracts ct JOIN contacts c ON c.id = ct.contact_id
                 WHERE ct.status = 'active' AND c.lifecycle_stage = 'lead'
-                  AND CONCAT_WS(' ', c.first_name, c.last_name) NOT LIKE '%" . self::NOT_TEST . "%'
+                  AND " . self::notTest('c.first_name', 'c.last_name') . "
                 ORDER BY ct.id
                 LIMIT 200
             ")->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -299,7 +312,7 @@ class YuiDeskService
                 JOIN properties p ON p.id = ct.property_id
                 LEFT JOIN quotes q ON q.id = ct.quote_id
                 WHERE ct.status <> 'cancelled' AND (ct.end_date IS NULL OR ct.end_date >= ?)
-                  AND CONCAT_WS(' ', p.address, ct.title) NOT LIKE '%" . self::NOT_TEST . "%'
+                  AND " . self::notTest('p.address', 'ct.title') . "
                 LIMIT 1000
             ");
             $s->execute([date('Y-m-d', strtotime($season['start'] . ' -' . YuiRules::LAST_SEASON_DAYS . ' days'))]);
@@ -375,7 +388,7 @@ class YuiDeskService
             LEFT JOIN contacts c ON c.id = i.contact_id
             WHERE i.status IN ('sent', 'viewed', 'partial', 'overdue') AND i.balance_due > 0.005
               AND i.due_date IS NOT NULL AND i.due_date < ?
-              AND CONCAT_WS(' ', c.first_name, c.last_name, co.company_name) NOT LIKE '%" . self::NOT_TEST . "%'
+              AND " . self::notTest('c.first_name', 'c.last_name', 'co.company_name') . "
             ORDER BY i.due_date
             LIMIT 300
         ");
