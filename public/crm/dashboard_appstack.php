@@ -1187,7 +1187,7 @@ function mwReconsentSkip(queueId, btn) {
         fetch('/crm/api/jobber-reconsent.php?action=skip', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ queue_id: queueId })
         })
         .then(function(r) { return r.json(); })
@@ -1237,7 +1237,7 @@ function mwReconsentSendBatch() {
         fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ limit: remaining })
         })
         .then(function(r) { return r.json(); })

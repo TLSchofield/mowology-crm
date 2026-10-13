@@ -35,6 +35,16 @@ function siOut(array $data): void {
 $action  = $input['action'] ?? '';
 $service = new InvoiceFromVisitService($db);
 
+// create / send change data and email the client: POST + the CSRF token the schedule page
+// already sends as `csrf` (Fable review 2026-10-12). preview only reads.
+if ($action === 'create' || $action === 'send') {
+    $csrf = (string)($input['csrf'] ?? $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST' || $csrf === '' || !verifyCSRFToken($csrf)) {
+        http_response_code(403);
+        siOut(['success' => false, 'error' => 'Your session expired. Reload the schedule and try again.']);
+    }
+}
+
 try {
     if ($action === 'preview') {
         siOut($service->preview((int)($input['visit_id'] ?? 0), (int)$user['id']));

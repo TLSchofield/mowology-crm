@@ -22,8 +22,12 @@ if (strlen($q) < 2) {
 $term = '%' . $q . '%';
 $results = [];
 
+// Each category only for those who may open its pages (Fable review 2026-10-12): crew were
+// listed staff emails/roles and invoice amounts without billing.view / team.view.
+$can = static fn(string $perm): bool => function_exists('userHasPermission') && userHasPermission($perm);
+
 // ── Contacts ──────────────────────────────────────────
-try {
+if ($can('clients.view')) try {
     $stmt = $db->prepare("
         SELECT id, first_name, last_name, email, phone
         FROM contacts
@@ -46,7 +50,7 @@ try {
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Companies ─────────────────────────────────────────
-try {
+if ($can('clients.view')) try {
     $stmt = $db->prepare("
         SELECT id, company_name, company_type, billing_city, account_status
         FROM companies
@@ -99,7 +103,7 @@ try {
 }
 
 // ── Properties ────────────────────────────────────────
-try {
+if ($can('clients.view')) try {
     $stmt = $db->prepare("
         SELECT p.id, p.address, p.city, p.postal_code, p.property_type, p.site_contact_id,
                c.first_name, c.last_name
@@ -130,7 +134,7 @@ try {
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Quotes ────────────────────────────────────────────
-try {
+if ($can('billing.view')) try {
     $stmt = $db->prepare("
         SELECT q.id, q.quote_number, q.title, q.status, q.total_amount
         FROM quotes q
@@ -153,7 +157,7 @@ try {
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Job Plans ─────────────────────────────────────────
-try {
+if ($can('jobs.view')) try {
     $stmt = $db->prepare("
         SELECT j.id, j.plan_number, j.title, j.status, j.service_type
         FROM job_plans j
@@ -178,7 +182,7 @@ try {
 // ── Contracts ─────────────────────────────────────────
 // By number, title, the property's address or the client's name — "laburnum" finds the
 // 5661 Laburnum Street contract, not just the property.
-try {
+if ($can('jobs.view')) try {
     $stmt = $db->prepare("
         SELECT c.id, c.contract_number, c.title, c.status,
                p.address, ct.first_name, ct.last_name
@@ -205,7 +209,7 @@ try {
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Invoices ──────────────────────────────────────────
-try {
+if ($can('billing.view')) try {
     $stmt = $db->prepare("
         SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due
         FROM invoices i
@@ -228,7 +232,7 @@ try {
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Team Members ──────────────────────────────────────
-try {
+if ($can('team.view')) try {
     $stmt = $db->prepare("
         SELECT id, full_name, email, role
         FROM users

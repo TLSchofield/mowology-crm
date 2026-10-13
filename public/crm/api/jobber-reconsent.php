@@ -37,6 +37,16 @@ requireLogin();
 $user = getCurrentUser();
 requirePermission('admin');
 
+// Every POST action changes data or sends mail: it needs the CSRF token (Fable review 2026-10-12).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '');
+    if ($csrf === '' || !verifyCSRFToken($csrf)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Your session expired. Reload the page and try again.']);
+        exit;
+    }
+}
+
 $action = $_GET['action'] ?? '';
 $db = getDB();
 
@@ -59,7 +69,8 @@ try {
 
             $allRows = [];
             foreach ([$file1, $file2] as $filePath) {
-                if (empty($filePath) || !is_file($filePath)) continue;
+                $filePath = reconsentCsvPath((string)$filePath);
+                if ($filePath === null) continue;
                 $parsed = parseJobberCsv($filePath);
                 $allRows = array_merge($allRows, $parsed);
             }
@@ -165,7 +176,8 @@ try {
 
             $allRows = [];
             foreach ([$file1, $file2] as $filePath) {
-                if (empty($filePath) || !is_file($filePath)) continue;
+                $filePath = reconsentCsvPath((string)$filePath);
+                if ($filePath === null) continue;
                 $parsed = parseJobberCsv($filePath);
                 $allRows = array_merge($allRows, $parsed);
             }
@@ -598,6 +610,21 @@ try {
 /**
  * Parse a Jobber CSV export into normalized associative arrays.
  */
+/**
+ * The CSV path the page sends, only if it is a file inside /crm/tmp/ (where the export is
+ * uploaded). Until the Fable review (2026-10-12) any server path went straight to fopen().
+ */
+function reconsentCsvPath(string $path): ?string
+{
+    if ($path === '') return null;
+    $base = realpath(PUBLIC_ROOT . '/crm/tmp');
+    $real = realpath($path);
+    if ($base === false || $real === false || !is_file($real)) return null;
+    if (strpos($real, $base . DIRECTORY_SEPARATOR) !== 0) return null;
+    if (strtolower(pathinfo($real, PATHINFO_EXTENSION)) !== 'csv') return null;
+    return $real;
+}
+
 function parseJobberCsv(string $filePath): array
 {
     $rows = [];

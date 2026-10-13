@@ -58,6 +58,16 @@ final class TrackingLinks
         return 'https://mowology.ca/crm/api/track-open.php?sid=' . $sid . '&s=' . self::sign($sid, 'open', $secret);
     }
 
+    /**
+     * Invoice email open pixel (invoice_contacts.id). Signed like the campaign pixel: an unsigned
+     * hit returns the image but records nothing (Fable review 2026-10-12 — the ids are sequential,
+     * so anyone could mark every invoice "opened").
+     */
+    public static function invoiceOpenUrl(int $rid, ?string $secret = null): string
+    {
+        return 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . $rid . '&s=' . self::sign($rid, 'invoice-open', $secret);
+    }
+
     public static function isOwnHost(string $url): bool
     {
         $host = strtolower((string)parse_url($url, PHP_URL_HOST));

@@ -182,7 +182,8 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             );
 
             if (!empty($recipient['id'])) {
-                $trackUrl  = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+                require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+                $trackUrl = TrackingLinks::invoiceOpenUrl((int)$recipient['id']);
                 $emailBody = str_replace('</body>', '<img src="' . $trackUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>', $emailBody);
             }
 

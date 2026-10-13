@@ -30,6 +30,13 @@ if (!$isCli) {
     requireLogin();
     requirePermission('admin');
     header('Content-Type: application/json; charset=utf-8');
+    // A GET (a link, an <img>) must never run the job — the Run-now button POSTs
+    // (Fable review 2026-10-12; same rule as estimating_feedback.php).
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'POST required']);
+        exit;
+    }
     session_write_close();
 }
 

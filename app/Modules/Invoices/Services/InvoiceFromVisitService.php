@@ -740,7 +740,8 @@ class InvoiceFromVisitService
             // Append email open tracking pixel (per-recipient). Only when this is a
             // real invoice_contacts row — the no-rows fallback recipient has no id.
             if (!empty($recipient['id'])) {
-                $trackPixelUrl = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+                require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+                $trackPixelUrl = TrackingLinks::invoiceOpenUrl((int)$recipient['id']);
                 $body = str_replace(
                     '</body>',
                     '<img src="' . $trackPixelUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>',

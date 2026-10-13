@@ -207,7 +207,7 @@ async function previewImport() {
     try {
         const res = await fetch(API + '?action=preview', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({
                 file1: document.getElementById('csvFile1').value,
                 file2: document.getElementById('csvFile2').value,
@@ -255,7 +255,7 @@ async function runImport() {
     try {
         const res = await fetch(API + '?action=import', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({
                 file1: document.getElementById('csvFile1').value,
                 file2: document.getElementById('csvFile2').value,
@@ -330,7 +330,7 @@ async function approveFsa(fsa, approved) {
     try {
         const res = await fetch(API + '?action=approve-fsa', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({ fsa, approved, batch_id: currentBatchId })
         });
         const data = await res.json();
@@ -344,7 +344,7 @@ async function approveAll() {
     try {
         const res = await fetch(API + '?action=approve-all', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({ batch_id: currentBatchId })
         });
         const data = await res.json();
@@ -430,7 +430,7 @@ async function triggerManualSend(limit) {
     try {
         const res = await fetch(API + '?action=trigger-send', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({ limit })
         });
         const data = await res.json();

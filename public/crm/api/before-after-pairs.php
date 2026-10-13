@@ -3,7 +3,7 @@
  * API: Before & After Pairs
  *
  * GET  ?limit=6          — fetch published pairs for public module
- * GET  ?limit=100&admin=1 — fetch all pairs for admin panel (requires login)
+ * GET  ?limit=100&admin=1 — fetch all pairs for admin panel (requires portfolio.edit)
  *
  * Returns JSON with pairs[] array, each item containing:
  *   id, before_id, after_id, before_url, after_url,
@@ -29,7 +29,10 @@ require_once CRM_INCLUDES . '/functions.php';
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
 
-$isAdmin = isset($_GET['admin']) && $_GET['admin'] === '1' && isLoggedIn();
+// The full list (pending pairs, consent state) is for those who approve them — portfolio.edit
+// (managers/admins). Any login used to get it (Fable review 2026-10-12); others get the public feed.
+$isAdmin = isset($_GET['admin']) && $_GET['admin'] === '1' && isLoggedIn()
+    && function_exists('userHasPermission') && userHasPermission('portfolio.edit');
 $limit   = min((int)($_GET['limit'] ?? 6), 100);
 
 try {
