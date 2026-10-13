@@ -66,3 +66,9 @@ trades first. The AI back office is the edge.
 - Each tenant site gets the same checks.
 - Before any outside tenant: real tenant isolation, a data-only DB user, tested backups, nonce CSP,
   and an independent penetration test (audit report 2026-10-12).
+
+## "Personal" on receipts and bank lines (Penny) — plan 2026-10-13
+- `docs/plans/2026-10-13-move-to-personal.md`: one button covers three cases (personal on own card →
+  out of the books; business on own card → owed to the owner; personal on the business card →
+  shareholder account). A personal list with T1 tags exports for the accountant. Not a second ledger.
+- Shared: the seed list of usually-personal vendor types. Private: each owner's own personal vendors.
