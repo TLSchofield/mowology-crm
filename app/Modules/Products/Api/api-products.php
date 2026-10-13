@@ -157,10 +157,8 @@ try {
         try {
             $colCheck = $db->query("SHOW COLUMNS FROM products LIKE 'min_price'");
             $hasMinPrice = ($colCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasMinPrice = false;
-            error_log(sprintf('[%s] schema check for products.min_price failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore — column doesn't exist
         }
 
         // Check if weather_policy column exists (migration 204)
@@ -168,10 +166,8 @@ try {
         try {
             $wpCheck = $db->query("SHOW COLUMNS FROM products LIKE 'weather_policy'");
             $hasWeatherPolicy = ($wpCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasWeatherPolicy = false;
-            error_log(sprintf('[%s] schema check for products.weather_policy failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if rollover columns exist (migration 502)
@@ -179,10 +175,8 @@ try {
         try {
             $roCheck = $db->query("SHOW COLUMNS FROM products LIKE 'auto_rollover'");
             $hasRollover = ($roCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasRollover = false;
-            error_log(sprintf('[%s] schema check for products.auto_rollover failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if product intelligence columns exist (migration 600)
@@ -190,19 +184,8 @@ try {
         try {
             $piCheck = $db->query("SHOW COLUMNS FROM products LIKE 'sds_sheet_url'");
             $hasProductIntel = ($piCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasProductIntel = false;
-            error_log(sprintf('[%s] schema check for products.sds_sheet_url failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
-
-        // Check if social season columns exist (migration 1034)
-        $hasSocialSeason = false;
-        try {
-            $ssCheck = $db->query("SHOW COLUMNS FROM products LIKE 'social_cadence'");
-            $hasSocialSeason = ($ssCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasSocialSeason = false;
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if spreader coverage columns exist (migration 601)
@@ -210,10 +193,8 @@ try {
         try {
             $spCheck = $db->query("SHOW COLUMNS FROM products LIKE 'coverage_sqft_per_unit'");
             $hasSpreaderData = ($spCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasSpreaderData = false;
-            error_log(sprintf('[%s] schema check for products.coverage_sqft_per_unit failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if icon system columns exist (migration 502)
@@ -221,10 +202,8 @@ try {
         try {
             $icCheck = $db->query("SHOW COLUMNS FROM products LIKE 'icon_base_path'");
             $hasIconSystem = ($icCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasIconSystem = false;
-            error_log(sprintf('[%s] schema check for products.icon_base_path failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if icon_set_id column exists (migration 910)
@@ -232,10 +211,8 @@ try {
         try {
             $isCheck = $db->query("SHOW COLUMNS FROM products LIKE 'icon_set_id'");
             $hasIconSetId = ($isCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasIconSetId = false;
-            error_log(sprintf('[%s] schema check for products.icon_set_id failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Check if tracking flag columns exist (tracking flags migration)
@@ -246,11 +223,8 @@ try {
             $hasTrackingFlags = ($tfCheck->rowCount() > 0);
             $aciCheck = $db->query("SHOW COLUMNS FROM products LIKE 'auto_clock_in'");
             $hasAutoClockIn = ($aciCheck->rowCount() > 0);
-        } catch (\Throwable $e) {
-            $hasTrackingFlags = false;
-            $hasAutoClockIn = false;
-            error_log(sprintf('[%s] schema check for products tracking flags failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // Ignore
         }
 
         // Validate weather_policy value
@@ -348,13 +322,6 @@ try {
                 $params[] = !empty($data['application_rate']) ? $data['application_rate'] : null;
                 $params[] = !empty($data['safety_warnings']) ? $data['safety_warnings'] : null;
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
-            }
-
-            if ($hasSocialSeason) {
-                $columns .= ", service_type, social_cadence";
-                $placeholders .= ", ?, ?";
-                $params[] = !empty($data['service_type']) ? trim($data['service_type']) : null;
-                $params[] = !empty($data['social_cadence']) ? trim($data['social_cadence']) : null;
             }
 
             if ($hasSpreaderData) {
@@ -464,12 +431,6 @@ try {
                 $params[] = !empty($data['application_rate']) ? $data['application_rate'] : null;
                 $params[] = !empty($data['safety_warnings']) ? $data['safety_warnings'] : null;
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
-            }
-
-            if ($hasSocialSeason) {
-                $setClauses .= ", service_type = ?, social_cadence = ?";
-                $params[] = !empty($data['service_type']) ? trim($data['service_type']) : null;
-                $params[] = !empty($data['social_cadence']) ? trim($data['social_cadence']) : null;
             }
 
             if ($hasSpreaderData) {
@@ -741,7 +702,7 @@ try {
             throw new Exception('Product, measurement group, and pricing model are required');
         }
 
-        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft'];
+        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft', 'per_yard_area'];
         if (!in_array($data['pricing_model'], $validModels)) {
             throw new Exception('Invalid pricing model');
         }
@@ -749,6 +710,16 @@ try {
         $validFreqs = ['one_off', 'daily', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
         $freq = (isset($data['default_frequency']) && in_array($data['default_frequency'], $validFreqs))
             ? $data['default_frequency'] : 'one_off';
+
+        // per_yard_area (migration 1189): depth + minimum yards go in their own UPDATE, so the
+        // INSERT/UPDATE below stay exactly as on production (and work before 1189 runs).
+        $saveYardParams = function ($ruleId) use ($db, $data) {
+            if (($data['pricing_model'] ?? '') !== 'per_yard_area') return;
+            require_once APP_ROOT . '/Services/QuoteCalculator.php';
+            $p = QuoteCalculator::yardRuleParams($data);
+            $db->prepare("UPDATE product_pricing_rules SET depth_inches = ?, min_units = ? WHERE id = ?")
+               ->execute([$p['depth_inches'], $p['min_units'], (int)$ruleId]);
+        };
 
         if (!empty($data['id'])) {
             // Update
@@ -773,6 +744,7 @@ try {
                 $data['id'],
                 $data['product_id'],
             ]);
+            $saveYardParams($data['id']);
             echo json_encode(['success' => true, 'message' => 'Pricing rule updated']);
         } else {
             // Create
@@ -796,7 +768,9 @@ try {
                 $data['notes'] ?? null,
                 $data['is_active'] ?? 1,
             ]);
-            echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'message' => 'Pricing rule created']);
+            $newRuleId = $db->lastInsertId();
+            $saveYardParams($newRuleId);
+            echo json_encode(['success' => true, 'id' => $newRuleId, 'message' => 'Pricing rule created']);
         }
 
     } elseif ($action === 'delete-pricing-rule') {
@@ -911,18 +885,12 @@ try {
         try {
             $db->query("SHOW COLUMNS FROM product_bundles LIKE 'image_url'")
                ->rowCount() === 0 && $db->exec("ALTER TABLE product_bundles ADD COLUMN image_url varchar(500) DEFAULT NULL AFTER description");
-        } catch (\Throwable $e) {
-            error_log(sprintf('[%s] schema migration for product_bundles.image_url failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) { /* ignore */ }
         // Ensure is_obsidian_root column exists
         try {
             $db->query("SHOW COLUMNS FROM product_bundles LIKE 'is_obsidian_root'")
                ->rowCount() === 0 && $db->exec("ALTER TABLE product_bundles ADD COLUMN is_obsidian_root TINYINT(1) NOT NULL DEFAULT 0");
-        } catch (\Throwable $e) {
-            error_log(sprintf('[%s] schema migration for product_bundles.is_obsidian_root failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) { /* ignore */ }
 
         $stmt = $db->query("
             SELECT b.*, GROUP_CONCAT(bi.product_id ORDER BY bi.sort_order) as product_ids
@@ -976,11 +944,7 @@ try {
         $hasImageUrl = false;
         try {
             $hasImageUrl = $db->query("SHOW COLUMNS FROM product_bundles LIKE 'image_url'")->rowCount() > 0;
-        } catch (\Throwable $e) {
-            $hasImageUrl = false;
-            error_log(sprintf('[%s] schema check for product_bundles.image_url failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) { /* ignore */ }
 
         $imageUrl = !empty($data['image_url']) ? $data['image_url'] : null;
 
@@ -1045,11 +1009,7 @@ try {
             $hasSeasonalFields = false;
             try {
                 $hasSeasonalFields = $db->query("SHOW COLUMNS FROM product_bundles LIKE 'application_count'")->rowCount() > 0;
-            } catch (\Throwable $e) {
-                $hasSeasonalFields = false;
-                error_log(sprintf('[%s] schema check for product_bundles.application_count failed — %s in %s:%d',
-                    basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) { /* ignore */ }
             if ($hasSeasonalFields) {
                 $appCount = isset($data['application_count']) && $data['application_count'] !== null
                     ? (int)$data['application_count'] : null;
@@ -1065,10 +1025,7 @@ try {
                     $db->prepare("UPDATE product_bundles SET is_obsidian_root = ? WHERE id = ?")
                        ->execute([$isOR, $bundleId]);
                 }
-            } catch (\Throwable $e) {
-                error_log(sprintf('[%s] schema check or update for product_bundles.is_obsidian_root failed — %s in %s:%d',
-                    basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) { /* ignore */ }
 
             // Insert bundle items
             if (!empty($data['items']) && is_array($data['items'])) {
@@ -1237,11 +1194,7 @@ try {
         try {
             $db->query("SELECT 1 FROM contact_product_history LIMIT 0");
             $hasHistory = true;
-        } catch (\Throwable $e) {
-            $hasHistory = false;
-            error_log(sprintf('[%s] table existence check for contact_product_history failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) {}
 
         if (!$hasHistory) {
             echo json_encode([
@@ -1271,22 +1224,14 @@ try {
             try {
                 $mCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'receive_marketing'");
                 $hasMarketing = ($mCheck->rowCount() > 0);
-            } catch (\Throwable $e) {
-                $hasMarketing = false;
-                error_log(sprintf('[%s] schema check for contacts.receive_marketing failed — %s in %s:%d',
-                    basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) {}
 
             // Check if contacts.last_service_date column exists
             $hasLastService = false;
             try {
                 $lsCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'last_service_date'");
                 $hasLastService = ($lsCheck->rowCount() > 0);
-            } catch (\Throwable $e) {
-                $hasLastService = false;
-                error_log(sprintf('[%s] schema check for contacts.last_service_date failed — %s in %s:%d',
-                    basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) {}
 
             $lastServiceCol = $hasLastService ? ', c.last_service_date' : ", NULL AS last_service_date";
             $marketingWhere = $hasMarketing ? 'AND c.receive_marketing = 1' : '';
