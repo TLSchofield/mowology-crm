@@ -273,6 +273,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                       </span>
                   </div>
               </div>
+              <?php
+              // Otto owns the schedule: his strip for the same 7 days (jobs.edit only; loads after the page).
+              $ottoStrip = ['from' => $opsStartDate->format('Y-m-d'), 'to' => (clone $opsStartDate)->modify('+6 days')->format('Y-m-d'), 'focus' => $todayStr];
+              include __DIR__ . '/includes/otto-schedule-strip.php';
+              ?>
               <div class="mw-daily-ops-grid">
                   <?php
                   $opsDate = clone $opsStartDate;
