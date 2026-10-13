@@ -13,7 +13,8 @@ if (!function_exists('mwLedgerPages')) {
     {
         return [
             'overview'   => ['Overview', '/crm/ledger/', 'book'],
-            'tb'         => ['Trial balance', '/crm/accounting/trial-balance.php', 'columns'],
+            'tb'         => ['Trial balance', '/crm/ledger/trial-balance.php', 'columns'],
+            'gl'         => ['General ledger', '/crm/ledger/general-ledger.php', 'book-open'],
             'journal'    => ['Journal', '/crm/ledger/journal.php', 'list'],
             'bs'         => ['Balance sheet', '/crm/accounting/balance-sheet.php', 'layers'],
             'is'         => ['Income statement', '/crm/accounting/income-statement.php', 'trending-up'],

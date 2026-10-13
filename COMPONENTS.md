@@ -162,6 +162,12 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 - **Purpose:** dense data tables you drive from the keyboard: `/` focuses `[data-mw-ledger-search]`, `j`/`k` move between rows, `Enter` opens the row's detail under it (fetched, not a page load), `Esc` closes it.
 - **Usage:** `<table data-mw-keytable data-mw-detail-url="/crm/ledger/entry.php?id=">` with `<tr class="mw-ledger-row" tabindex="0" data-id="N">`; the detail URL gets `N&part=1` and returns an HTML fragment. Links inside a detail with `data-mw-entry="M"` load entry M into the same panel. Also wires `select[data-mw-autosubmit]`, `[data-mw-confirm="…"]` and `[data-mw-copy="#input"]` (no inline handlers).
 - Used by every Ledger page (`public/crm/ledger/*`). Reuse it for any office table that needs scanning and drill-down; it is not crew UI.
+- A table with no detail URL whose rows carry `data-mw-row-href` opens that page on `Enter`/click (trial balance → account ledger). A fetched detail answering 401 (or redirected) sends the browser to the login page.
+
+### XLSX writer + report exports (XlsxWriter, LedgerExport tables)
+- **Files:** `app/Services/Spreadsheet/XlsxWriter.php` (no Composer: ZipArchive + OOXML, the writing half of `XlsxReader`); `app/Modules/Ledger/Services/LedgerExport.php` (`sendTable()`). Added 2026-10-13.
+- **Purpose:** one table shape → XLSX / CSV / PDF with a header block (entity, report, period, lock status, run time), numbers as numbers, real Excel dates, frozen heading row, no merged cells. PDF via mPDF (`public/vendor`). There is no PhpSpreadsheet in this codebase — use this.
+- **Usage:** `LedgerExport::sendTable($db, ['title'=>…, 'period'=>…, 'from'=>…, 'to'=>…, 'columns'=>[[label, 'text'|'money'|'int'|'date', width]], 'rows'=>[…]], 'xlsx', 'basename', 'what')` — logs `ledger.export`. Streamed CSV for big files: `LedgerExport::csvStream()` + `csvLine()`.
 
 ### Global Search (Spotlight)
 - **File:** `public/crm/js/global-search.js`

@@ -375,3 +375,10 @@ require_once __DIR__ . '/../app/Modules/Ledger/Services/AccountantInviteService.
 require_once __DIR__ . '/../app/Modules/Ledger/Services/LedgerExport.php';
 require_once __DIR__ . '/../app/Modules/Ledger/Services/FiscalYear.php';
 require_once __DIR__ . '/../app/Modules/Ledger/Services/LedgerSite.php';
+// Ledger step 2: comparative TB, GL, QBO journal, XLSX writer
+require_once __DIR__ . '/../app/Services/Spreadsheet/XlsxWriter.php';
+require_once __DIR__ . '/../app/Services/Spreadsheet/XlsxReader.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/ComparativeTrialBalanceService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/GeneralLedgerService.php';
+require_once __DIR__ . '/../app/Modules/Ledger/Services/QboJournalExport.php';

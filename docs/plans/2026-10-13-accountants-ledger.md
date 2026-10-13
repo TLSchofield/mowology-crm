@@ -1,6 +1,6 @@
 # Plan — The Accountant's Ledger (everything a CPA needs, export with ease)
 
-Status: **step 1 BUILT and deployed 2026-10-13** (commit ee7cb50e, migration 1355); steps 2–8 not started. This comes before the bad-debt write-off,
+Status: **steps 1–2 BUILT 2026-10-13** — step 1 ee7cb50e (migration 1355); review fixes 0df28f4a (migration 1356: lock history, late_for, fiscal_year_end, crm_url); step 2 comparative TB, GL, exports, QBO journal CSV. Steps 3–8 not started. This comes before the bad-debt write-off,
 which becomes the first real accountant's adjustment in it.
 
 ## Why

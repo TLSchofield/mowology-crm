@@ -114,7 +114,14 @@ person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests i
   totals recompute (2599 = 3499 + 3620; 9999 = the ledger's net income). Retained earnings start (3660) includes any prior
   year's income-statement balance that no FY opening entry closed.
 - **journal_entries.entry_kind:** system | manual | aje | rje | reversal (`LedgerService::entryKindFor()` on every post).
-- **Locks:** `accounting_periods.status = 'locked'` (closed_at = when). FY2025's twelve months were locked 2026-10-07.
+- **Locks:** `accounting_periods.status = 'locked'` (current state only; a re-lock overwrites closed_at). Every lock/unlock is also a row in
+  `accounting_period_locks` (migration 1356; `StatementCloseService::lockMonth` writes it); the exception report counts from the FIRST lock.
+  Late automatic postings carry `journal_entries.late_for` (the original date). FY2025's twelve months were locked 2026-10-07.
+- **Fiscal year:** `business_settings.fiscal_year_end` (MM-DD, default 12-31) via `FiscalYear` — never assume the calendar year.
+- **Step 2 (2026-10-13):** `/crm/ledger/trial-balance.php` (comparative: unadjusted, proposed [empty until step 3], AJE [entry_kind aje/rje],
+  adjusted [= the office TB], FY-1 as filed = lines to FY-1 end + that year's `fy_opening` entry, FY-2), `/crm/ledger/general-ledger.php`
+  (opening + lines + running balance = closing), `/crm/ledger/export.php` (tb/gl/journal/aging-stub/bs/is in xlsx/csv/pdf; QBO journal CSV
+  summary or detailed). Revenue/expense are signed by SECTION everywhere (a contra-revenue account reduces revenue).
 
 ## Tables and columns that mislead
 

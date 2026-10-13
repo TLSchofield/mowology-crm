@@ -46,7 +46,7 @@ $pageTitle = 'Ledger';
   </header>
 
   <div class="mw-ledger-stats">
-    <a class="mw-ledger-stat" href="/crm/accounting/trial-balance.php">
+    <a class="mw-ledger-stat" href="/crm/ledger/trial-balance.php">
       <span class="mw-ledger-stat-label">Trial balance today</span>
       <span class="mw-ledger-stat-value mw-num"><?= mwLedgerMoney($tb['total_debit']) ?></span>
       <span class="mw-ledger-stat-note <?= $tb['in_balance'] ? 'is-ok' : 'is-bad' ?>"><?= $tb['in_balance'] ? 'Debits equal credits' : 'OUT OF BALANCE' ?></span>
@@ -68,6 +68,38 @@ $pageTitle = 'Ledger';
     </a>
   </div>
 
+  <?php
+  [$fyFrom] = FiscalYear::bounds($year, $fye);
+  $x = static fn(array $q): string => '/crm/ledger/export.php?' . http_build_query($q);
+  $exports = [
+      ['Trial balance (comparative)', 'As at ' . $today, ['report' => 'tb', 'as_of' => $today], ['xlsx', 'csv', 'pdf']],
+      ['General ledger, every account', $fyFrom . ' to ' . $today, ['report' => 'gl', 'from' => $fyFrom, 'to' => $today], ['xlsx', 'csv']],
+      ['Journal', $fyFrom . ' to ' . $today, ['report' => 'journal', 'from' => $fyFrom, 'to' => $today], ['xlsx', 'csv']],
+      ['Balance sheet', 'As at ' . $today, ['report' => 'bs', 'as_of' => $today], ['xlsx', 'csv', 'pdf']],
+      ['Income statement', $fyFrom . ' to ' . $today, ['report' => 'is', 'from' => $fyFrom, 'to' => $today], ['xlsx', 'csv', 'pdf']],
+      ['A/R and A/P control balances (aging stub)', 'As at ' . $today, ['report' => 'aging', 'as_of' => $today], ['xlsx', 'csv']],
+  ];
+  ?>
+  <h2 class="mw-ledger-h2">Exports — FY<?= (int)$year ?> to date</h2>
+  <div class="mw-ledger-tablewrap mw-ledger-tablewrap--auto">
+    <table class="mw-ledger-table mw-ledger-table--exports">
+      <thead><tr><th scope="col">File</th><th scope="col" class="mw-ledger-hide-sm">Period</th><th scope="col">Download</th></tr></thead>
+      <tbody>
+      <?php foreach ($exports as [$label, $period, $q, $fmts]): ?>
+        <tr><td><?= h($label) ?></td><td class="mw-ledger-hide-sm mw-nowrap"><?= h($period) ?></td>
+          <td class="mw-ledger-exports"><?php foreach ($fmts as $fm): ?><a class="btn btn-sm btn-outline-secondary" href="<?= h($x($q + ['format' => $fm])) ?>"><?= strtoupper($fm) ?></a><?php endforeach; ?></td></tr>
+      <?php endforeach; ?>
+        <tr><td>QuickBooks Online journal import (Canada)</td><td class="mw-ledger-hide-sm mw-nowrap"><?= h($fyFrom . ' to ' . $today) ?></td>
+          <td class="mw-ledger-exports">
+            <a class="btn btn-sm btn-outline-secondary" href="<?= h($x(['report' => 'qbo', 'mode' => 'summary', 'from' => $fyFrom, 'to' => $today])) ?>">Monthly summary</a>
+            <a class="btn btn-sm btn-outline-secondary" href="<?= h($x(['report' => 'qbo', 'mode' => 'detailed', 'from' => $fyFrom, 'to' => $today])) ?>">Every entry</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="mw-ledger-explain mw-ledger-small">Each file opens with the entity, period, run time and lock status (the QuickBooks file carries them in its name,
+    since QuickBooks reads its first row as column names). Dates in the QuickBooks file are day/month/year. Other periods: the trial balance, general ledger
+    and journal pages export what they show.</p>
+
   <h2 class="mw-ledger-h2">Latest entries</h2>
   <div class="mw-ledger-tablewrap">
     <table class="mw-ledger-table" data-mw-keytable data-mw-detail-url="/crm/ledger/entry.php?id=">
@@ -87,5 +119,5 @@ $pageTitle = 'Ledger';
   </div>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013c" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -8,6 +8,8 @@
  *   j / k  next / previous row (also ArrowDown / ArrowUp while a row has focus)
  *   Enter  open the row's detail under it (fetches detail-url + id + '&part=1'); Enter/Esc again closes
  *   Links with data-mw-entry="N" inside a detail open entry N in that same panel.
+ *   A table without a detail URL whose rows carry data-mw-row-href opens that page on Enter / click
+ *   (the trial balance → the account's general ledger).
  *
  * Also: <select data-mw-autosubmit>, <button data-mw-confirm="…">, <button data-mw-copy="#input">.
  * No dependencies; works without it (rows link to full pages through the detail URL).
@@ -76,12 +78,18 @@
       }
       if (e.target.closest('a, button, input, select, textarea, label, form')) return;
       var row = e.target.closest('tr.mw-ledger-row');
-      if (row && url) toggleDetail(table, row);
+      if (!row) return;
+      if (url) toggleDetail(table, row);
+      else if (row.getAttribute('data-mw-row-href')) window.location.href = row.getAttribute('data-mw-row-href');
     });
     table.addEventListener('keydown', function (e) {
       var row = e.target.closest && e.target.closest('tr.mw-ledger-row');
       if (!row || e.target !== row) return;
-      if (e.key === 'Enter') { e.preventDefault(); toggleDetail(table, row); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (url) toggleDetail(table, row);
+        else if (row.getAttribute('data-mw-row-href')) window.location.href = row.getAttribute('data-mw-row-href');
+      }
       else if (e.key === 'Escape') { closeDetail(row); }
     });
   }

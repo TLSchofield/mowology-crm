@@ -111,5 +111,5 @@ $pageTitle = 'Accountant access — Ledger';
   <p class="mw-ledger-small"><a href="/crm/audit-trail_appstack.php">The audit trail</a> lists every page an accountant opened (actions ledger.view and ledger.export).</p>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013c" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

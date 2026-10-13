@@ -55,6 +55,7 @@ $activePage = 'accounting';
         </button>
         <input type="date" id="is-date-to" name="date_to" value="<?= htmlspecialchars($to) ?>" class="form-control form-control-sm" hidden>
         <button class="btn btn-sm btn-primary">Update</button>
+        <?php foreach (['xlsx' => 'XLSX', 'csv' => 'CSV', 'pdf' => 'PDF'] as $__f => $__l): ?><a class="btn btn-sm btn-outline-secondary" href="/crm/ledger/export.php?<?= htmlspecialchars(http_build_query(['report' => 'is', 'from' => $from, 'to' => $to] + ['format' => $__f])) ?>"><?= $__l ?></a><?php endforeach; ?>
         <?php if (empty($mwLedgerOnly)): /* the Ledger nav above covers it for the accountant */ ?><a href="/crm/accounting/balance-sheet.php" class="btn btn-sm btn-outline-secondary">Balance Sheet</a><?php endif; ?>
     </form>
 </div>

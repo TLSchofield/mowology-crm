@@ -53,7 +53,20 @@ $pageTitle = 'Journal — Ledger';
         <?= $f['from'] || $f['to'] ? '· ' . h($f['from'] ?: 'start') . ' to ' . h($f['to'] ?: 'today') : '' ?>
         · <kbd>/</kbd> search · <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Enter</kbd> open</p>
     </div>
-    <a class="btn btn-sm btn-outline-secondary" href="<?= h($qs(['export' => 'csv', 'page' => null])) ?>">Export CSV</a>
+    <?php
+      $xf = $f['from'] ?: (FiscalYear::bounds(FiscalYear::of(date('Y-m-d'), FiscalYear::setting($db)), FiscalYear::setting($db))[0]);
+      $xt = $f['to'] ?: date('Y-m-d');
+      $xq = static fn(array $q): string => '/crm/ledger/export.php?' . http_build_query(array_filter(array_merge(
+          ['account' => $f['account'], 'source' => $f['source'], 'kind' => $f['kind'], 'user' => $f['user'], 'q' => $f['q']], $q), static fn($v) => $v !== null && $v !== ''));
+    ?>
+    <div class="mw-ledger-exports" role="group" aria-label="Export the journal">
+      <a class="btn btn-sm btn-outline-secondary" href="<?= h($qs(['export' => 'csv', 'page' => null])) ?>">CSV</a>
+      <a class="btn btn-sm btn-outline-secondary" href="<?= h($xq(['report' => 'journal', 'format' => 'xlsx', 'from' => $xf, 'to' => $xt])) ?>">XLSX</a>
+      <a class="btn btn-sm btn-outline-secondary" href="<?= h($xq(['report' => 'journal', 'format' => 'pdf', 'from' => $xf, 'to' => $xt])) ?>">PDF</a>
+      <span class="mw-ledger-exports-label">QuickBooks</span>
+      <a class="btn btn-sm btn-outline-secondary" href="<?= h('/crm/ledger/export.php?' . http_build_query(['report' => 'qbo', 'mode' => 'summary', 'from' => $xf, 'to' => $xt])) ?>" title="One journal per month, net per account (all entries in the dates)">Monthly</a>
+      <a class="btn btn-sm btn-outline-secondary" href="<?= h('/crm/ledger/export.php?' . http_build_query(['report' => 'qbo', 'mode' => 'detailed', 'from' => $xf, 'to' => $xt])) ?>" title="One journal per entry (all entries in the dates)">Detailed</a>
+    </div>
   </header>
 
   <form class="mw-ledger-filters" method="get" action="/crm/ledger/journal.php" role="search">
@@ -131,5 +144,5 @@ $pageTitle = 'Journal — Ledger';
   <?php endif; ?>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013c" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

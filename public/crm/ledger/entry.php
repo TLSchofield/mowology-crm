@@ -124,5 +124,5 @@ $pageTitle = $e ? 'Entry #' . (int)$e['id'] . ' — Ledger' : 'Entry not found �
   <p><a href="/crm/ledger/journal.php">← Journal</a></p>
   <?= $panel ?: '<p>Entry not found.</p>' ?>
 </div>
-<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013c" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

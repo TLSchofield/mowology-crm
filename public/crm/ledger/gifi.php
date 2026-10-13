@@ -184,5 +184,5 @@ $pageTitle = 'GIFI mapping — Ledger';
     Required items checked: 2599, 3499, 3620, 3849, 8299, 9368, 9999; assets must equal liabilities plus equity, and 9999 must equal the ledger's net income.</p>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013c" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
