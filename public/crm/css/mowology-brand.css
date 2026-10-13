@@ -39766,3 +39766,30 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
   .mw-ada { grid-template-columns: 1fr; }
   .mw-ada-stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Penny's read on a receipt (expense modal, web + Android; /crm/js/penny-read.js, 2026-10-13) ── */
+.mw-penny-read { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--mw-green); border-radius: 10px; background: var(--mw-light); font-size: .85rem; }
+.mw-penny-read.is-applied { border-color: var(--mw-ink-200); background: var(--mw-ink-0); }
+.mw-penny-read-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; }
+.mw-penny-read-title { font-weight: 700; color: var(--mw-forest); }
+.mw-penny-read-sub, .mw-penny-read-note, .mw-penny-read-was { color: var(--mw-ink-500); font-size: .78rem; }
+.mw-penny-read-row { padding: 6px 0; border-top: 1px solid var(--mw-ink-200); }
+.mw-penny-read-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--mw-ink-500); }
+.mw-penny-read-vals { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.mw-penny-read-penny { font-weight: 700; color: var(--mw-forest); overflow-wrap: anywhere; }
+.mw-penny-read-why { color: var(--mw-ink-500); font-size: .78rem; margin-top: 2px; }
+.mw-penny-read-conf { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: .68rem; font-weight: 700; background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); }
+.mw-penny-read-conf.is-high { color: var(--mw-green); border-color: var(--mw-green); }
+.mw-penny-read-conf.is-low { color: var(--mw-orange); border-color: var(--mw-orange); }
+.mw-penny-read-items { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
+.mw-penny-read-col { font-size: .72rem; font-weight: 700; color: var(--mw-ink-500); margin-bottom: 2px; }
+.mw-penny-read-item { display: flex; justify-content: space-between; gap: 8px; }
+.mw-penny-read-item span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.mw-penny-read-was-col { color: var(--mw-ink-500); }
+.mw-penny-read-notes { padding-top: 6px; border-top: 1px solid var(--mw-ink-200); color: var(--mw-ink-700); font-style: italic; }
+.mw-penny-read-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mw-penny-read-actions .btn { min-height: 38px; }
+@media (max-width: 575px) {
+  .mw-penny-read-items { grid-template-columns: 1fr; }
+  .mw-penny-read-actions .btn { flex: 1 1 100%; }
+}

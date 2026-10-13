@@ -8,6 +8,8 @@
  * POST: {action: 'update', id, ...fields}
  * POST: {action: 'delete', id}
  * POST: {action: 'suggest', ocr_text, lat, lng, job_id}  — smart categorization
+ * GET:  ?action=penny_read&id=X  — Penny's pending read where it differs (PennyReadService)
+ * POST: {action: 'penny_apply'|'penny_keep', id, csrf_token}  — "Use Penny's version" / "Keep mine"
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -207,6 +209,15 @@ try {
             handleUpdateLineItem($db, $input);
             break;
 
+        case 'penny_read':
+        case 'penny_apply':
+        case 'penny_keep':
+            // "Penny's read" in the expense modal (web + Android): her pending suggestion where it
+            // differs, "Use Penny's version" / "Keep mine" (PennyReadService, 2026-10-13). Rights are
+            // per receipt — crew see and apply on their own open receipts, approvers apply + approve.
+            handlePennyRead($db, $action, $input ?? null, $user);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -225,6 +236,27 @@ function expenseActor(): array
     $u = getCurrentUser() ?: [];
     return ['id' => (int)($u['id'] ?? 0),
             'is_admin' => ExpenseService::isOffice((string)($u['role'] ?? ''), userHasPermission('expenses.approve'))];
+}
+
+/** GET ?action=penny_read&id=N · POST {action: penny_apply|penny_keep, id, csrf_token} */
+function handlePennyRead(PDO $db, string $action, ?array $input, array $user): void
+{
+    require_once APP_ROOT . '/Modules/Expenses/Services/PennyReadService.php';
+    $canApprove = userHasPermission('expenses.approve');
+    $actor = ['id' => (int)($user['id'] ?? 0), 'office' => ExpenseService::isOffice((string)($user['role'] ?? ''), $canApprove),
+              'can_approve' => $canApprove];
+    $svc = new PennyReadService($db);
+    if ($action === 'penny_read') {
+        $res = $svc->read((int)($_GET['id'] ?? 0), $actor);
+        if (!$res['ok']) http_response_code((int)($res['code'] ?? 400));
+        echo json_encode($res['ok'] ? ['success' => true, 'read' => $res['read']] : ['success' => false, 'error' => $res['error']]);
+        return;
+    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $id = (int)($input['id'] ?? 0);
+    $res = $action === 'penny_apply' ? $svc->apply($id, $user, $actor) : $svc->keep($id, $user, $actor);
+    echo json_encode(['success' => !empty($res['ok'])] + $res);
 }
 
 /** Refuse a desktop change the iPhone path would refuse (ExpenseService::editBlockReason). */

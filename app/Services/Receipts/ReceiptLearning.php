@@ -562,7 +562,7 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         if (empty($parsed[$field]) && !empty($fix['corrected_value']) && $fix['times_seen'] >= 3) {
             // Don't auto-fill amounts — those change per receipt
             // Only auto-fill structural patterns (labels, formats)
-            if (!in_array($field, ['total', 'gst', 'subtotal', 'line_item_name', 'accounting_category'])) {
+            if (!in_array($field, ['total', 'gst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
                 $parsed[$field] = $fix['corrected_value'];
                 $parsed[$field . '_source'] = 'learned';
             }
@@ -1272,7 +1272,7 @@ function recordSkuLink(PDO $db, int $vendorId, string $skuRaw, ?int $productId, 
 function getVendorLineItemProfile(?int $vendorId): array
 {
     static $cache = [];
-    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'sku_names' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => []];
+    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'sku_names' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => [], 'layout' => []];
     if (!$vendorId) return $empty;
     if (isset($cache[$vendorId])) return $cache[$vendorId];
 
@@ -1333,6 +1333,10 @@ function getVendorLineItemProfile(?int $vendorId): array
             }
         } catch (Throwable $e) { /* non-fatal */ }
 
+        // The vendor's learned layout: items an owner accepted from Penny's read, located on the
+        // receipt (recordLineLayoutLessons). One owner acceptance teaches it; newest first.
+        $out['layout'] = getVendorLineLayout($db, $vendorId);
+
         // The vendor's own purchase history is the best dictionary of what its receipts say.
         $stmt = $db->prepare("
             SELECT eli.name, COUNT(*) AS c
@@ -1377,12 +1381,17 @@ function applyLineItemLearning(int $vendorId, array $parsed): array
             $item['ocr_name'] = $orig;
         }
 
-        if ($key !== '' && empty($item['is_adjustment']) && in_array($key, $p['noise'], true)) {
+        // An item read by the learned layout is already the name the owner accepted.
+        $fromLayout = ($item['name_source'] ?? '') === 'layout';
+
+        if (!$fromLayout && $key !== '' && empty($item['is_adjustment']) && in_array($key, $p['noise'], true)) {
             $parsed['line_items_noise_removed'] = ($parsed['line_items_noise_removed'] ?? 0) + 1;
             continue;
         }
 
-        if ($key !== '' && isset($p['name_map'][$key])) {
+        if ($fromLayout) {
+            // keep the taught name
+        } elseif ($key !== '' && isset($p['name_map'][$key])) {
             $item['name']        = $p['name_map'][$key];
             $item['name_source'] = 'learned';
         } else {
@@ -1460,6 +1469,169 @@ function deriveLineItemPatterns(PDO $db, int $vendorId, ?array $profileRow): arr
         error_log('deriveLineItemPatterns: ' . $e->getMessage());
     }
     return $updates;
+}
+
+
+// ============================================================================
+//  Reader taught by Penny (2026-10-13). When the owner accepts Penny's line items
+//  over the reader's (her "Penny's read" panel on the phone, or her desk card), the
+//  accepted items are located on the receipt text and stored as the vendor's layout
+//  (receipt_parse_lessons field 'line_item_layout': ocr_value = the printed anchor's
+//  key, corrected_value = the item name, learned_pattern = {"off","idx"} — where the
+//  amount sits). parseReceiptText() reads the next same-layout receipt with it
+//  (getVendorLineItemProfile()['layout']). Each case is also a head_lessons row
+//  (source 'reader_corrected_by_penny') so the scorecard can count how often the
+//  reader needs her.
+// ============================================================================
+
+/** The vendor's learned layout, newest first: [{key, name, off, idx}]. */
+function getVendorLineLayout(PDO $db, int $vendorId): array
+{
+    try {
+        $s = $db->prepare("SELECT ocr_value, corrected_value, learned_pattern FROM receipt_parse_lessons
+                           WHERE vendor_id = ? AND field_name = 'line_item_layout' AND learned_pattern IS NOT NULL
+                           ORDER BY updated_at DESC, id DESC LIMIT 60");
+        $s->execute([$vendorId]);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $pos = json_decode((string)$r['learned_pattern'], true);
+            if (!is_array($pos) || !isset($pos['off'], $pos['idx']) || trim((string)$r['ocr_value']) === '' || trim((string)$r['corrected_value']) === '') continue;
+            $out[] = ['key' => (string)$r['ocr_value'], 'name' => (string)$r['corrected_value'], 'off' => (int)$pos['off'], 'idx' => (int)$pos['idx']];
+        }
+        return $out;
+    } catch (Throwable $e) {
+        error_log('getVendorLineLayout: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Store accepted items as this vendor's layout (one row per printed anchor, updated in place).
+ * @param array $items [{name, line_total|amount}] — the items the owner accepted
+ * @return int how many items were located on the receipt and stored
+ */
+function recordLineLayoutLessons(PDO $db, int $vendorId, ?string $vendorName, string $ocrText, array $items): int
+{
+    if (!function_exists('learnLineLayout')) {
+        require_once __DIR__ . '/ReceiptParser.php';
+    }
+    if (trim($ocrText) === '' || !$items) return 0;
+    $n = 0;
+    foreach (learnLineLayout($ocrText, $items) as $l) {
+        try {
+            $pattern = json_encode(['off' => $l['off'], 'idx' => $l['idx']]);
+            $context = 'layout: ' . $l['key'] . ' → ' . $l['name'] . ' (amount ' . ($l['off'] >= 0 ? '+' : '') . $l['off'] . ' line(s), #' . $l['idx'] . ' from the right)';
+            $f = $db->prepare("SELECT id FROM receipt_parse_lessons WHERE vendor_id = ? AND field_name = 'line_item_layout' AND ocr_value = ? LIMIT 1");
+            $f->execute([$vendorId, $l['key']]);
+            $id = $f->fetchColumn();
+            if ($id) {
+                $db->prepare("UPDATE receipt_parse_lessons SET corrected_value = ?, learned_pattern = ?, pattern_confidence = 100, ocr_context = ?,
+                                     times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+                   ->execute([$l['name'], $pattern, $context, (int)$id]);
+            } else {
+                $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context, learned_pattern, pattern_confidence)
+                              VALUES (?, ?, 'line_item_layout', ?, ?, ?, ?, 100)")
+                   ->execute([$vendorId, $vendorName, $l['key'], $l['name'], $context, $pattern]);
+            }
+            $n++;
+        } catch (Throwable $e) {
+            error_log('recordLineLayoutLessons: ' . $e->getMessage());
+        }
+    }
+    return $n;
+}
+
+/**
+ * Did the reader's items differ from the items kept? By amounts when the reader's carry
+ * them (names are cosmetic), else by name. Pure.
+ * @param array $reader [{name, amount|line_total}] or [string name, …]
+ * @param array $kept   [{name, line_total|amount}]
+ */
+function readerItemsDiffer(array $reader, array $kept): bool
+{
+    $amt = function (array $items): ?array {
+        $out = [];
+        foreach ($items as $i) {
+            if (!is_array($i)) return null;
+            $v = $i['line_total'] ?? $i['amount'] ?? null;
+            if ($v === null || !is_numeric($v)) return null;
+            $out[] = number_format(round((float)$v, 2), 2, '.', '');
+        }
+        sort($out);
+        return $out;
+    };
+    $a = $amt($reader);
+    $b = $amt($kept);
+    if ($a !== null && $b !== null) return $a !== $b;
+    $names = function (array $items): array {
+        $out = array_map(fn($i) => preg_replace('/[^A-Z0-9]/', '', strtoupper(is_array($i) ? (string)($i['name'] ?? '') : (string)$i)), $items);
+        sort($out);
+        return $out;
+    };
+    return $names($reader) !== $names($kept);
+}
+
+/** "CRF 0.07 $0.07; BISTRO $2.49" — items as one line for a lesson. Pure. */
+function lineItemsSummary(array $items): string
+{
+    $parts = [];
+    foreach ($items as $i) {
+        if (!is_array($i)) { $parts[] = (string)$i; continue; }
+        $v = $i['line_total'] ?? $i['amount'] ?? null;
+        $parts[] = trim((string)($i['name'] ?? '')) . ($v !== null && is_numeric($v) ? ' $' . number_format((float)$v, 2, '.', '') : '');
+    }
+    return implode('; ', $parts);
+}
+
+/**
+ * A receipt whose line items came from Penny (line_items_source 'penny') has just been approved:
+ * when they differ from what the reader read, the owner has confirmed the reader was wrong —
+ * teach the reader the layout and record the case (head_lessons). Once per approval (the gate
+ * calls it on the move into approved). Never throws.
+ * @return array{taught: bool, layout_lines: int}
+ */
+function teachReaderFromPenny(PDO $db, int $expenseId): array
+{
+    $none = ['taught' => false, 'layout_lines' => 0];
+    try {
+        $s = $db->prepare("SELECT e.*, v.name AS vendor_name FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
+        $s->execute([$expenseId]);
+        $e = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$e || ($e['line_items_source'] ?? '') !== 'penny' || !in_array($e['status'], ['approved', 'forwarded'], true) || empty($e['vendor_id'])) {
+            return $none;
+        }
+        $k = $db->prepare("SELECT name, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+        $k->execute([$expenseId]);
+        $kept = $k->fetchAll(PDO::FETCH_ASSOC);
+        if (!$kept) return $none;
+
+        // What the reader read: its capture baseline (with amounts), else the names Penny was shown.
+        $reader = null;
+        $base = captureBaseline($e['ocr_parsed_json'] ?? null);
+        if ($base && is_array($base['line_items'] ?? null)) $reader = $base['line_items'];
+        if ($reader === null) {
+            $c = $db->prepare("SELECT current_json FROM expense_suggestions WHERE expense_id = ? AND source = 'live' ORDER BY id DESC LIMIT 1");
+            $c->execute([$expenseId]);
+            $cur = json_decode((string)$c->fetchColumn(), true) ?: [];
+            $reader = is_array($cur['line_items'] ?? null) ? $cur['line_items'] : [];
+        }
+        if (!readerItemsDiffer($reader, $kept)) return $none;
+
+        $vendorId = (int)$e['vendor_id'];
+        $vendorName = $e['vendor_name'] ?: ($e['vendor_name_raw'] ?? null);
+        $n = recordLineLayoutLessons($db, $vendorId, $vendorName, ocrTextFromStored($e['raw_ocr_json'] ?? null), $kept);
+
+        if (!class_exists('PennyLessons')) {
+            require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 2)) . '/Modules/Accounting/Services/PennyLessons.php';
+        }
+        PennyLessons::expense($db, $expenseId, 'reader_line_items', lineItemsSummary($reader) ?: '(none)', lineItemsSummary($kept),
+                              'reader_corrected_by_penny', !empty($e['approved_by']) ? (int)$e['approved_by'] : null,
+                              'Reader corrected by Penny, accepted by owner; ' . $n . ' line(s) of the layout learned');
+        return ['taught' => true, 'layout_lines' => $n];
+    } catch (Throwable $ex) {
+        error_log('teachReaderFromPenny #' . $expenseId . ': ' . $ex->getMessage());
+        return $none;
+    }
 }
 
 

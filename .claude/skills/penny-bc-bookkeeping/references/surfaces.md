@@ -16,7 +16,7 @@
 3. **iPhone needs a build** (bump MARKETING_VERSION, push `feature/language` → TestFlight);
    web/Android need a deploy (lftp, OPcache). Server first, then the app that relies on it.
 
-## Parity table (checked 2026-10-11)
+## Parity table (checked 2026-10-13)
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
@@ -28,6 +28,7 @@
 | Approving teaches SKU names | yes (server) | yes (server) | `recordConfirmedSkuNames()` | — |
 | Mobile receipt capture | native camera, queue | `expenses_appstack.php?mode=quick` | intake services | Android native capture planned (after clock in/out) |
 | Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Charlie's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
+| Penny's read on a receipt (her fields that differ + reasons, her items, notes; Use hers / Keep mine) | "Penny's read" section in `ReceiptDetailView` (1.3.31), pull to refresh | `#expPennyRead` in the expense modal (`penny-read.js`) | `PennyReadService` via `bookkeeper-mobile.php` `mode=suggestion` / `penny_apply` / `penny_keep` and `expenses.php` `penny_read` / `penny_apply` / `penny_keep` | none; crew see / apply (as a draft) only their own open receipts |
 | Supplier forms, Otto buttons | server-sent buttons (1.3.20) | server-sent buttons (`otto-card.js`) | `SupplierFormService` | — |
 
 When you change a row, change the date in this file's heading.

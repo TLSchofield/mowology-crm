@@ -9,8 +9,10 @@
  * A decision writes the approved values to the expense, records per field whether the
  * owner accepted Penny's value (her scorecard, and the worked examples for her next
  * receipt), then approves through ExpenseApprovalService — which also teaches the
- * receipt reader (learnFromConfirmedExpense). Line items are shown, not changed, in
- * this version.
+ * receipt reader (learnFromConfirmedExpense). Line items are shown, not changed, unless
+ * the decision says overrides.line_items = 'penny' ("Use Penny's version" on the receipt
+ * screen, PennyReadService): then her items replace the reader's, and approval teaches the
+ * reader that layout (teachReaderFromPenny).
  *
  * Preparation is text-only by default — the backtest (2026-10-05, 57 receipts) had
  * text-only ahead on category (91% vs 84%) and line items (84% vs 71%) at 3.5¢ vs 5¢ —
@@ -524,6 +526,15 @@ class BookkeeperDeskService
                 if ($val !== null) $changes[$col] = $val;          // COALESCE: an empty field keeps what is stored
             }
             if ($split !== null) $changes['allocations'] = $split;
+            // "Use Penny's version" (receipt screen, 2026-10-13): her line items replace the reader's.
+            // On approval the gate's learnConfirmed → teachReaderFromPenny() teaches the reader.
+            if (($overrides['line_items'] ?? null) === 'penny') {
+                $items = self::pennyItems(json_decode((string)$row['suggestion_json'], true) ?: []);
+                if ($items) {
+                    $changes['line_items'] = $items;
+                    $changes['line_items_source'] = 'penny';
+                }
+            }
             $this->gate()->apply((int)$row['expense_id'], $changes, ['id' => (int)$user['id'], 'kind' => 'user'], 'penny_card');
             if ($approve) {
                 $this->db->prepare("
@@ -569,6 +580,19 @@ class BookkeeperDeskService
                ->execute([json_encode(['draft' => $f, 'saved_by' => (int)$user['id'], 'saved_at' => date('c')]), $suggestionId]);
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true, 'message' => 'Not approved: ' . $e->getMessage() . ' — your edits are saved'];
         }
+    }
+
+    /** Penny's line items as expense lines (name, quantity 1, line total). Pure. */
+    public static function pennyItems(array $suggestion): array
+    {
+        $out = [];
+        foreach ((array)($suggestion['line_items'] ?? []) as $it) {
+            $name = trim((string)($it['name'] ?? ''));
+            if ($name === '' || !isset($it['amount']) || !is_numeric($it['amount'])) continue;
+            $out[] = ['name' => mb_substr($name, 0, 255), 'quantity' => 1, 'unit_price' => null,
+                      'line_total' => round((float)$it['amount'], 2)];
+        }
+        return $out;
     }
 
     /**
@@ -800,7 +824,7 @@ class BookkeeperDeskService
             WHERE e.status IN ('pending_approval', 'draft')
               AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
               AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
-                              WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
+                              WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error', 'kept'))
               " . ($hold ? 'AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '') . "
             ORDER BY (e.status = 'pending_approval') DESC,
                      (e.created_at >= DATE_SUB(NOW(), INTERVAL 3 DAY)) DESC,   -- just arrived (emailed) before the old backlog

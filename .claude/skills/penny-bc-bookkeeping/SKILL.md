@@ -101,6 +101,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Penny's "unbilled materials" questions and answers | `PennyQuestionService` (answers: invoice, contract, not billable, already billed) | Penny's card |
 | A receipt linked to a bank / card line: its payment method follows the line (bank line is the truth) | `ReceiptFundingCheck::onLink()` (funding code: `LedgerSyncService::fundingCodeFor()`) | receipts page attach, Penny's bank desk, bank receipt sweep (all via `BankImportService::attachExpenseMatch()`), import auto-match, `sweep()` |
 | Single-entry reports count a linked bank line once | `AccountingService::countedSql()` | P&L, trend, cash flow, tax summary, job profit, dashboard, expense breakdown |
+| Penny's read on a receipt screen (her pending suggestion where it differs; "Use Penny's version" / "Keep mine") | `PennyReadService` (`read()`, `apply()` → `BookkeeperDeskService::decide()` with `line_items = 'penny'`, `keep()`) | iPhone receipt detail, web/Android expense modal (`penny-read.js`) |
+| The reader learning a vendor's item layout from Penny's accepted items | `teachReaderFromPenny()` (on approval, via `ExpenseGateHooks::learnConfirmed`) → `recordLineLayoutLessons()`; read back by `parseReceiptText()` through `getVendorLineItemProfile()['layout']` / `applyLineLayout()` | every receipt read |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value

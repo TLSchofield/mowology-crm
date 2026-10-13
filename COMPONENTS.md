@@ -386,6 +386,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Usage:** `var state = MwExpenseSplit.render(el, data, { categories: [...], autoOn: true|false, state: previous, locked: bool })` with `data` from `/crm/api/expenses.php?action=split&id=N` (or Penny's queue item `.split`); send `MwExpenseSplit.value(state)` (null = send nothing) as `split` on `expenses.php` `update`, or `overrides.split` on Penny's `decide`. Both save through `ExpenseGate`.
 - **Used by:** Penny's receipt card (`bookkeeper-card.js`, loads the script itself) and the expense edit modal (`expenses_appstack.php`, `#expSplitPanel`).
 
+### Penny's read on a receipt (MwPennyRead)
+- **JS:** `public/crm/js/penny-read.js`; **CSS:** `mowology-brand.css` (`.mw-penny-read*`); **Service:** `app/Modules/Expenses/Services/PennyReadService.php`.
+- **Purpose:** Penny's pending suggestion for one receipt, only where it differs from the receipt — each field with her reason and confidence, her line items next to the receipt's, her notes — with "Use Penny's version" (applies everything through `BookkeeperDeskService::decide`; approvers also approve) and "Keep mine" (approvers). Renders nothing when she agrees or has no open suggestion.
+- **Usage:** `<div id="expPennyRead" hidden></div>` + `MwPennyRead.load(el, expenseId, { csrf: CSRF, onDone: fn(res) })`; data from `/crm/api/expenses.php?action=penny_read&id=N`, POST `penny_apply` / `penny_keep`. The iPhone receipt detail draws the same data natively (`bookkeeper-mobile` `mode=suggestion`).
+- **Used by:** the expense modal (`expenses_appstack.php`, loads the script on first use) — the receipt screen on web and in the Android app.
+
 ---
 
-**Total: 21 components documented.**
+**Total: 22 components documented.**

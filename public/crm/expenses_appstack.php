@@ -1215,6 +1215,8 @@ async function submitReceiptExport() {
                     </div>
                     <!-- Right: Form Fields -->
                     <div class="col-lg-7" id="expFormCol">
+                        <!-- Penny's read: her pending suggestion where it differs (/crm/js/penny-read.js, PennyReadService) -->
+                        <div id="expPennyRead" hidden></div>
                         <!-- Section: Purchase Details -->
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
@@ -3940,6 +3942,10 @@ async function submitReceiptExport() {
                 anomalySection.style.display = 'none';
             }
 
+            // Penny's read — her pending suggestion where it differs, with Use hers / Keep mine
+            // (/crm/js/penny-read.js, loaded on first use; PennyReadService).
+            loadPennyRead(e.id);
+
             renderExpenseMatchArea(e);
 
             if (window.feather) feather.replace();
@@ -4114,6 +4120,26 @@ async function submitReceiptExport() {
             loadStats();
         } catch(e) { alert('Error: ' + e.message); }
     };
+
+    /** Penny's read in the edit modal (shared with the iPhone receipt detail via PennyReadService). */
+    function loadPennyRead(expenseId) {
+        var el = document.getElementById('expPennyRead');
+        if (!el) return;
+        var go = function () {
+            window.MwPennyRead.load(el, expenseId, {
+                csrf: CSRF,
+                onDone: function (res) {
+                    if (typeof loadExpenses === 'function') loadExpenses(typeof currentPage !== 'undefined' ? currentPage : 1);
+                    if (res && res.approved) { $('#expenseModal').modal('hide'); } else { window.editExpense(expenseId); }
+                }
+            });
+        };
+        if (window.MwPennyRead) return go();
+        var sc = document.createElement('script');
+        sc.src = '/crm/js/penny-read.js?v=20261013';
+        sc.onload = go;
+        document.head.appendChild(sc);
+    }
 
     // ── Approve / Reject / Send from the edit modal ──────────────
     // These route through the same audited endpoints as the desktop Review Queue

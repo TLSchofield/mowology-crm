@@ -22,8 +22,18 @@
  *      → {ok, score, tier, summary, flags:[{code, detail, penny}]}  (RiskExplainer: why the
  *        receipt has its anomaly score, in Penny's words; added 2026-10-07, read-only)
  *
+ * GET  ?mode=suggestion&expense_id=N
+ *      → {ok, read: null | {suggestion_id, differs, fields:[{field, label, penny, receipt, reason, confidence}],
+ *         items: null | {penny:[{name, amount}], receipt:[…], penny_sum, receipt_sum}, notes, applied_draft,
+ *         can_apply, apply_approves, can_keep, apply_note}}
+ *      "Penny's read" on the receipt detail (PennyReadService; added 2026-10-13). Open to crew
+ *      for their OWN receipts (see / apply as a draft) — checked before the expenses.approve gate.
+ * POST {mode: 'penny_apply', expense_id}  "Use Penny's version" (approvers: applied + approved)
+ * POST {mode: 'penny_keep', expense_id}   "Keep mine" (approvers only)
+ *
  * Auth: Authorization: Bearer <jwt>, admin/manager role or the expenses.approve
- * permission (no CSRF token: there is no session). Skip is client-side, as on the web.
+ * permission (no CSRF token: there is no session) — except the three Penny's-read modes
+ * above, which PennyReadService::rights() decides per receipt. Skip is client-side, as on the web.
  *
  * The mobile counterpart of bookkeeper.php's dashboard-card modes: the SAME service
  * calls (BookkeeperDeskService::queue/decide, DuplicateReceiptService::dismiss,
@@ -96,6 +106,31 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     $jwtUser = requireJwt();
+
+    // Penny's read on one receipt (iPhone receipt detail): rights per receipt, so crew reach it
+    // for their own receipts. Before the expenses.approve gate on purpose.
+    $earlyMode = $_SERVER['REQUEST_METHOD'] === 'POST'
+        ? (string)((json_decode((string)file_get_contents('php://input'), true) ?? [])['mode'] ?? '')
+        : (string)($_GET['mode'] ?? '');
+    if (in_array($earlyMode, ['suggestion', 'penny_apply', 'penny_keep'], true)) {
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyReadService.php';
+        $canApprove = jwtUserHasPermission($jwtUser, 'expenses.approve');
+        $actor = ['id' => (int)$jwtUser['id'], 'office' => ExpenseService::isOffice((string)$jwtUser['role'], $canApprove), 'can_approve' => $canApprove];
+        $user = ['id' => (int)$jwtUser['id'], 'role' => $jwtUser['role'], 'full_name' => $jwtUser['name']];
+        $svc = new PennyReadService(getDB());
+        if ($earlyMode === 'suggestion') {
+            $res = $svc->read((int)($_GET['expense_id'] ?? 0), $actor);
+            if (!$res['ok']) http_response_code((int)($res['code'] ?? 400));
+            echo json_encode($res['ok'] ? ['ok' => true, 'read' => $res['read']] : ['ok' => false, 'error' => $res['error']]);
+            exit;
+        }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new RuntimeException('POST required');
+        $body = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $expenseId = (int)($body['expense_id'] ?? 0);
+        echo json_encode($earlyMode === 'penny_apply' ? $svc->apply($expenseId, $user, $actor) : $svc->keep($expenseId, $user, $actor));
+        exit;
+    }
+
     // expenses.approve, as on the web bookkeeper — a manager role string alone no longer passes
     // (#17, Fable audit 2026-10-12). Managers hold expenses.approve through their RBAC role.
     if (!jwtUserHasPermission($jwtUser, 'expenses.approve')) {

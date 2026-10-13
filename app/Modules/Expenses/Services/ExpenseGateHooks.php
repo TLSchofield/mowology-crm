@@ -144,6 +144,8 @@ class ExpenseGateHooks
         try {
             $this->receiptLearning();
             learnFromConfirmedExpense($this->db, $expenseId, $fallbackBaseline);
+            // Items taken from Penny's read over the reader's: the reader learns the layout (2026-10-13).
+            if (function_exists('teachReaderFromPenny')) teachReaderFromPenny($this->db, $expenseId);
         } catch (Throwable $e) {
             error_log('Gate confirm lessons #' . $expenseId . ': ' . $e->getMessage());
         }

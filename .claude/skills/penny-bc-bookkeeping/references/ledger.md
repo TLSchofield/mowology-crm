@@ -92,7 +92,11 @@ sources `penny_card`, `bank_desk`, `bank_line` skip it), Penny's card (`Bookkeep
 against her suggestion), `BankLineMoveService::move` (not when Penny proposed the account), bank desk
 "keep", `attachExpenseMatch` / unlink, `ReceiptFundingCheck` (bank line corrects the method), Penny's
 question answers, reconciliation attach / detach / already-recorded, the deposit card, payer teaching,
-`correctManualPayment`, Jobber `linkManual` / `bookMatched`, "not a duplicate". `bank_memo_payers` has no
+`correctManualPayment`, Jobber `linkManual` / `bookMatched`, "not a duplicate", "Keep mine" on Penny's read
+(source `receipt_keep_mine`, `PennyReadService::keep`). **The reader, not Penny:** when an approved receipt carries
+Penny's items (`line_items_source = 'penny'`) and they differ from what the reader read, one row with field
+`reader_line_items`, source `reader_corrected_by_penny` (`teachReaderFromPenny()`) — count those for "how often the
+reader needs Penny". `bank_memo_payers` has no
 person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests in
 `tests/Unit/Penny/Lessons20261012Test.php`.
 

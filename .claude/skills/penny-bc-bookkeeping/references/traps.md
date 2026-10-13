@@ -214,3 +214,15 @@ Now enforced in code — don't undo:
   a NEW card) — never from an invoice link's "use saved card".
 - Scanned bank statements OCR through Google Vision or local Tesseract only, never OCR.space.
 - AI receipt calls have a daily ceiling (`LlmDailyCap`; ops_settings `llm_daily_cap_<bucket>`).
+
+## 2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)
+The reader (Vision text, `line_items_source = 'vision'`) kept two "CRF 0.07" lines and guessed Fuel; Penny's
+suggestion #248 read the coffee, two Diet Cokes, the deposit and the CRF ($8.83) and said Meals. The phone receipt
+screens showed only the reader's version, so it looked as if Penny had missed the drinks. The same receipt also
+read "GST 5.0000 % 0.42" as GST 5.00 (the rate's "5.00", subtotal −2.33): fixed in `extractLabeledTax()`.
+**Fixed:** her pending read shows on the iPhone detail and the web/Android modal (`PennyReadService`), "Use Penny's
+version" goes through `decide()` (her items replace the reader's), and approval teaches the reader the vendor's
+layout (`teachReaderFromPenny()`): this Vision text prints each price ABOVE its name, which the generic pass can't
+pair. **Rule:** whatever Penny knows about a receipt is shown wherever that receipt is opened; an accepted
+correction of the reader must teach the reader, not only Penny.
+

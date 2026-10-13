@@ -154,6 +154,13 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         }
     }
 
+    // This vendor's learned layout (items an owner accepted from Penny's read, with where each
+    // amount sits relative to its printed name): used when it adds up better than the generic
+    // pass. Before the quality signal, so a receipt it reads right is not escalated to Vision/LLM.
+    if (!empty($vendorProfile['layout'])) {
+        $result = mergeLayoutItems($result, applyLineLayout($ocrText, $vendorProfile['layout']));
+    }
+
     // Line-item quality signal: do the parsed items add up to the subtotal?
     // 'match' | 'mismatch' | 'none'. Drives the Tesseract→Vision escalation and the
     // LLM tier (ReceiptLineItemIntelligence.php) and is shown on the review card.
@@ -188,6 +195,153 @@ function assessLineItemQuality(array $parsed): array
         $quality   = abs($sum - $reference) <= $tolerance ? 'match' : 'mismatch';
     }
     return ['items_sum' => number_format($sum, 2, '.', ''), 'line_items_quality' => $quality];
+}
+
+
+// ============================================================================
+//  Learned line layout (2026-10-13) — the reader taught by Penny's accepted read.
+//
+//  When the owner accepts Penny's line items over the reader's, each accepted item is
+//  located on the receipt text: its printed name line (the anchor) and where its amount
+//  sits from there (line offset + which amount on that line, counted from the right).
+//  The next receipt with the same layout from that vendor reads those items the same way,
+//  whatever the prices are. Stored as receipt_parse_lessons rows (field 'line_item_layout',
+//  ReceiptLearning::recordLineLayoutLessons); read by getVendorLineItemProfile()['layout'].
+// ============================================================================
+
+/**
+ * A printed line (or an item name) as a layout key: money amounts, "@" prices and bare
+ * numbers (quantities) dropped, letters+digits words kept, upper case, no spaces.
+ * "2 Deposit ($0.20)" → "DEPOSIT"; "CRF 0.07" → "CRF"; "BISTRO 24OZ HOT BE" → "BISTRO24OZHOTBE". Pure.
+ */
+function lineLayoutKey(string $s): string
+{
+    $s = strtoupper($s);
+    $s = preg_replace('/\$?\s*\d{1,6}[.,]\d{2}(?!\d)/', ' ', $s);      // money
+    $s = preg_replace('/(?<![A-Z0-9])\d+(?![A-Z0-9])/', ' ', $s);        // bare numbers (qty, "x2")
+    $s = preg_replace('/(?<![A-Z0-9])X(?![A-Z0-9])/', ' ', $s);           // a lone "x" left by "x2"
+    return (string)preg_replace('/[^A-Z0-9]/', '', $s);
+}
+
+/** Every money amount on a line, left to right ("2.49 2.49P" → [2.49, 2.49]). Pure. */
+function lineMoneyAmounts(string $line): array
+{
+    preg_match_all('/(?<![\d.,])(\d{1,6})[.,](\d{2})(?!\d)/', $line, $m, PREG_SET_ORDER);
+    return array_map(fn($x) => round((float)($x[1] . '.' . $x[2]), 2), $m);
+}
+
+/** An item name without the prices printed in it ("BP COKE (2 @ $3.00)" → "BP COKE (2)"). Pure. */
+function layoutItemName(string $name): string
+{
+    $n = preg_replace('/@?\s*\$?\s*\d{1,6}[.,]\d{2}(?!\d)/', '', $name);
+    $n = preg_replace('/\(\s*\)/', '', (string)$n);
+    $n = preg_replace('/\s+\)/', ')', (string)$n);
+    $n = trim((string)preg_replace('/\s{2,}/', ' ', (string)$n));
+    return $n !== '' ? $n : trim($name);
+}
+
+/**
+ * Where each accepted item is printed on this receipt. Items whose name or amount can't be
+ * found are left out (nothing is guessed). Pure.
+ *
+ * @param array $items [{name, amount|line_total}]
+ * @return list<array{key: string, name: string, off: int, idx: int}>
+ *   key = the anchor line's layoutKey; off = amount line − anchor line; idx = the amount's
+ *   position on that line counted from the right (0 = last).
+ */
+function learnLineLayout(string $ocrText, array $items): array
+{
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $ocrText)), fn($l) => $l !== ''));
+    $keys = array_map('lineLayoutKey', $lines);
+    $used = [];
+    $out = [];
+    foreach ($items as $it) {
+        $name = trim((string)($it['name'] ?? ''));
+        $amount = $it['amount'] ?? $it['line_total'] ?? null;
+        if ($name === '' || $amount === null || !is_numeric($amount)) continue;
+        $amount = round((float)$amount, 2);
+        if ($amount == 0.0) continue;
+        $nameKey = lineLayoutKey((string)preg_replace('/\([^)]*\)/', ' ', $name));
+        if (strlen($nameKey) < 3) continue;
+        $anchor = null;
+        foreach ($keys as $i => $k) {
+            if (isset($used[$i]) || strlen($k) < 3) continue;
+            $short = min(strlen($k), strlen($nameKey));
+            if ($k === $nameKey || ($short >= 5 && (str_starts_with($nameKey, $k) || str_starts_with($k, $nameKey)))) {
+                $anchor = $i;
+                break;
+            }
+        }
+        if ($anchor === null) continue;
+        $found = null;
+        foreach ([0, -1, 1, -2, 2, -3, 3] as $off) {
+            $j = $anchor + $off;
+            if (!isset($lines[$j])) continue;
+            $amts = lineMoneyAmounts($lines[$j]);
+            for ($a = count($amts) - 1; $a >= 0; $a--) {
+                if (abs($amts[$a] - $amount) < 0.005) { $found = [$off, count($amts) - 1 - $a]; break 2; }
+            }
+        }
+        if ($found === null) continue;
+        $used[$anchor] = true;
+        $out[] = ['key' => $keys[$anchor], 'name' => layoutItemName($name), 'off' => $found[0], 'idx' => $found[1]];
+    }
+    return $out;
+}
+
+/**
+ * Read items off a receipt with a learned layout. Each anchor line found yields one item:
+ * the name it was taught, the amount at its offset / position. Receipt order. Pure.
+ *
+ * @param list<array{key: string, name: string, off: int, idx: int}> $layout
+ * @return list<array> parser-shaped items (name, amount, quantity, unit_price, sku_raw, ocr_name, name_source 'layout')
+ */
+function applyLineLayout(string $ocrText, array $layout): array
+{
+    if (!$layout) return [];
+    $byKey = [];
+    foreach ($layout as $l) {
+        $k = (string)($l['key'] ?? '');
+        if (strlen($k) >= 3 && !isset($byKey[$k])) $byKey[$k] = $l;       // first = newest (caller's order)
+    }
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $ocrText)), fn($l) => $l !== ''));
+    $found = [];
+    foreach ($lines as $i => $line) {
+        $k = lineLayoutKey($line);
+        if (!isset($byKey[$k])) continue;
+        $l = $byKey[$k];
+        $j = $i + (int)$l['off'];
+        if (!isset($lines[$j])) continue;
+        $amts = lineMoneyAmounts($lines[$j]);
+        $pos = count($amts) - 1 - (int)$l['idx'];
+        if ($pos < 0 || !isset($amts[$pos]) || $amts[$pos] <= 0) continue;
+        $found[] = ['name' => (string)$l['name'], 'amount' => number_format($amts[$pos], 2, '.', ''), 'quantity' => 1,
+                    'unit_price' => null, 'sku_raw' => null, 'ocr_name' => $line, 'name_source' => 'layout'];
+    }
+    return $found;
+}
+
+/**
+ * Use the layout's items when they add up to the receipt better than the generic pass's
+ * (subtotal, else total). Pure.
+ */
+function mergeLayoutItems(array $parsed, array $layoutItems): array
+{
+    if (!$layoutItems) return $parsed;
+    $ref = null;
+    foreach (['subtotal', 'total'] as $f) {
+        if (isset($parsed[$f]) && is_numeric($parsed[$f]) && (float)$parsed[$f] > 0) { $ref = (float)$parsed[$f]; break; }
+    }
+    if ($ref === null) return $parsed;
+    $sum = fn(array $items) => array_sum(array_map(fn($i) => (float)($i['line_total'] ?? $i['amount'] ?? 0), $items));
+    $layoutGap = abs($sum($layoutItems) - $ref);
+    $parserGap = abs($sum($parsed['line_items'] ?? []) - $ref);
+    $tolerance = max(0.05, $ref * 0.01);
+    if ($layoutGap <= $tolerance || ($layoutGap < $parserGap && empty($parsed['line_items']))) {
+        $parsed['line_items'] = $layoutItems;
+        $parsed['line_items_layout'] = count($layoutItems);
+    }
+    return $parsed;
 }
 
 
@@ -1075,7 +1229,9 @@ function extractLabeledTax(string $text, string $labelPattern, bool $withInclude
         // Same-line, tolerant of filler between the label and the $ amount.
         '/' . $labelPattern . '[^\n$]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
         // Same-line, no $ sign — filler tolerated, but must not swallow a rate like "5%".
-        '/' . $labelPattern . '[^\n%$]*?(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+        // An optional printed rate is skipped: "GST 5.0000 % 0.42" (Chevron, 2026-10-13) used to
+        // read 5.00 — "5.00" + "00 %" slipped past a lookahead that allowed no space before "%".
+        '/' . $labelPattern . '(?:[^\n%$]*?\d+(?:[.,]\d+)?[^\S\n]*%)?[^\n%$]*?(?<![\d.,])(\d{1,6}[.,]\d{2})(?!\d*[^\S\n]*%)(?!\d)/i',
     ];
     if ($withIncludedVariant) {
         // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "HST INCL $0.95"
