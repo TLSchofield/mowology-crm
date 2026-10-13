@@ -23,12 +23,16 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Core/session_config.php';
 require_once APP_ROOT . '/Core/config.php';
 
-// Temporary debug logger — writes to standard PHP error log AND to a
-// file inside /storage/ so we can retrieve it via FTP.
-// TODO: remove after the Capacitor Nigel login issue is resolved.
+// Auth error logger — writes to the PHP error log. The extra file copy in /storage/ is written ONLY
+// when LOGIN_DEBUG is defined (e.g. in secrets.php while chasing a login bug). Never log raw login
+// input or anything derived from the password (security audit 2026-10-12 #24: the old per-attempt
+// trace recorded every identifier, IP and password length, unbounded).
 if (!function_exists('_loginDebugLog')) {
     function _loginDebugLog(string $msg): void {
         error_log($msg);
+        if (!defined('LOGIN_DEBUG') || !LOGIN_DEBUG) {
+            return;
+        }
         try {
             $path = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 3) . '/public') . '/storage/login-debug.log';
             $line = '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n";
@@ -270,24 +274,9 @@ function purgeExpiredLoginAttempts(): int {
 function loginUser(string $email, string $password, bool &$isDriver = false): bool {
     $db = getDB();
 
-    $rawInput = $email;
-
     // Normalize input: trim, lowercase, strip invisible chars
     $email = strtolower(trim($email));
     $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
-
-    $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    _loginDebugLog(sprintf(
-        '[login-debug] attempt raw=%s normalized=%s rawLen=%d normLen=%d pwLen=%d ip=%s ua=%s',
-        json_encode($rawInput),
-        json_encode($email),
-        strlen((string)$rawInput),
-        strlen($email),
-        strlen($password),
-        $ip,
-        substr($ua, 0, 120)
-    ));
 
     try {
         // Accept username OR email — drivers use short usernames (e.g. "nigel", "dodgeram")
@@ -300,34 +289,9 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
         $stmt->execute([$email, $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$user) {
-            _loginDebugLog('[login-debug] no user row matched input=' . json_encode($email));
-        } else {
-            _loginDebugLog(sprintf(
-                '[login-debug] row found id=%d email=%s username=%s is_active=%s is_driver=%s hashPresent=%s hashLen=%d',
-                (int)$user['id'],
-                json_encode($user['email'] ?? null),
-                json_encode($user['username'] ?? null),
-                var_export($user['is_active'] ?? null, true),
-                var_export($user['is_driver'] ?? null, true),
-                !empty($user['password_hash']) ? 'yes' : 'no',
-                strlen((string)($user['password_hash'] ?? ''))
-            ));
-        }
-
         // Explicitly deactivated users (is_active = 0) cannot log in; NULL/1 are both OK
         if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
-            _loginDebugLog('[login-debug] rejecting — is_active=0 for user id=' . (int)$user['id']);
             $user = false;
-        }
-
-        if ($user && isset($user['password_hash'])) {
-            $pwOk = password_verify($password, (string)$user['password_hash']);
-            _loginDebugLog(sprintf(
-                '[login-debug] password_verify result=%s for user id=%d',
-                $pwOk ? 'PASS' : 'FAIL',
-                (int)$user['id']
-            ));
         }
 
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
