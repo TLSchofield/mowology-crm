@@ -308,7 +308,12 @@ $activePage = 'invoices';
                             <div class="mw-et-line1">
                                 <strong><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
                                 <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
-                                <?php if ($isClaim && !$hasBankMatch): /* once the deposit is in the bank it has been claimed (2026-10-13) */ ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
+                                <?php if ($isClaim && !$hasBankMatch): /* once the deposit is in the bank it has been claimed (2026-10-13) */
+                                    $claimUrl = (string)($et['deposit_url'] ?? '');
+                                    $claimExp = !empty($et['expires_on']) ? ' · expires ' . date('M j', strtotime($et['expires_on'])) : '';
+                                    if (strpos($claimUrl, 'https://etransfer.interac.ca/') === 0): /* the Interac deposit link from the email — only ever Interac's own https host */ ?><a class="mw-et-badge claim" href="<?php echo htmlspecialchars($claimUrl); ?>" target="_blank" rel="noopener noreferrer" title="Opens Interac's deposit page — choose Vancity and sign in there">Claim it now ↗<?php echo htmlspecialchars($claimExp); ?></a>
+                                    <?php else: ?><span class="mw-et-badge claim">needs claiming in online banking<?php echo htmlspecialchars($claimExp); ?></span><?php endif; ?>
+                                <?php endif; ?>
                                 <?php if ($likelyDuplicate): ?><span class="mw-et-badge claim">⚠ possibly already recorded</span>
                                 <?php elseif ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
                                 <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
