@@ -1089,7 +1089,16 @@ function _loadPhpMailer(): bool
         return $loaded;
     }
 
+    // Already loaded (e.g. by Composer's autoloader) — never require a second copy.
+    if (class_exists(\PHPMailer\PHPMailer\PHPMailer::class, false)) {
+        $loaded = true;
+        return true;
+    }
+
     $possibleBases = [
+        // Composer-managed copy first, so `composer audit` covers the PHPMailer actually in use
+        // (security audit 2026-10-12, dependencies). The older hand-copied folders stay as fallbacks.
+        PUBLIC_ROOT . '/vendor/phpmailer/phpmailer/src',
         PUBLIC_ROOT . '/crm/vendor/phpmailer/src',
         PUBLIC_ROOT . '/vendor/phpmailer/src',
         ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/vendor/phpmailer/src',
