@@ -117,4 +117,35 @@ class ReceiptParserDiscountTest extends TestCase
         $this->assertTrue($items[0]['is_adjustment']);
         $this->assertTrue($items[1]['is_adjustment']);
     }
+
+    /** Home Depot Feb 26: "Buy 10 Get 10%" nets into the lime; "4@12.98" alone gives the quantity (2026-10-13). */
+    public function test_home_depot_multi_buy_discount_and_split_quantity_lines(): void
+    {
+        $lines = [
+            '065797202099 MOSS CONTROL <A>', '4@12.98', '51.92',
+            '-------Buy 10 Get 10% Bagged Lime-------',
+            '058262309331 CILPrillLime <A>', '10@14.98', '149.80G',
+            'MAX REFUND VALUE $134.82/10',
+            'Bu 10 Get 10% Bagged Lim -14.98',
+            'SUBTOTAL 186.74',
+        ];
+        $items = extractLineItems($lines);
+        $this->assertCount(2, $items);
+        $this->assertSame(['MOSS CONTROL', 4, 12.98, '51.92'], [$items[0]['name'], $items[0]['quantity'], $items[0]['unit_price'], $items[0]['amount']]);
+        $this->assertSame(['CILPrillLime', 10, 13.48, '134.82'], [$items[1]['name'], $items[1]['quantity'], $items[1]['unit_price'], $items[1]['amount']]);
+        $this->assertSame(14.98, $items[1]['original_unit_price']);
+    }
+
+    public function test_multi_buy_discount_after_a_one_line_quantity_total(): void
+    {
+        $items = extractLineItems(['058262309331 CILPrillLime <A>', '10@14.98   149.80G', 'Buy 10 Get 10% Bagged Lim -14.98', 'SUBTOTAL 134.82']);
+        $this->assertCount(1, $items);
+        $this->assertSame('134.82', $items[0]['amount']);
+    }
+
+    public function test_percent_off_line_with_trailing_minus_nets_in(): void
+    {
+        $items = extractLineItems(['012345678 Mulch Black', '20.00', '20% OFF MULCH 4.00-', 'SUBTOTAL 16.00']);
+        $this->assertSame('16.00', $items[0]['amount']);
+    }
 }

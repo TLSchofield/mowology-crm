@@ -523,6 +523,17 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
         // Learned noise for this vendor — skip outright
         if ($noiseKeys && in_array(strtoupper($line), $noiseKeys, true)) continue;
 
+        // Multi-buy promotion with an amount — Home Depot prints "Buy 10 Get 10% Bagged Lim -14.98"
+        // (OCR often "Bu 10 Get…") under the item it discounts: net it into that item, so the lime
+        // reads 10 x $13.48 = $134.82, not $149.80 (2026-10-13). The "----Buy 10 Get 10%----" banner
+        // has no amount and is skipped above.
+        if (preg_match('/\bget\s*\d{1,3}\s*%|\b\d{1,3}\s*%\s*off\b|\bbuy\s*\d+\s*get\b/i', $line)
+            && preg_match('/-\s*\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$|\$?(\d{1,6}\.\d{2})\s*-\s*$/', $line, $dm)) {
+            $items = netDiscountIntoLastItem($items, '-' . (($dm[1] ?? '') !== '' ? $dm[1] : $dm[2]));
+            $inItemZone = true;
+            continue;
+        }
+
         // Learned discount prefix (e.g. "PROMO" at a vendor that doesn't say DISCOUNT)
         if ($discountPrefix && preg_match('/^' . $discountPrefix . '/i', $line)
             && preg_match('/(-?\d{1,6}\.\d{2})/', $line, $dm)) {
@@ -712,6 +723,17 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
                     ];
                     $inItemZone = true;
                 }
+            }
+            continue;
+        }
+
+        // "4@12.98" alone, its total on the next line (OCR splits Home Depot's two columns): the
+        // quantity and unit price of the queued item; the next price line is its total (2026-10-13).
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*@\s*\$?(\d{1,6}\.\d{2})\s*$/', $line, $m)) {
+            if (!empty($pendingContext)) {
+                $k = count($pendingContext) - 1;
+                $pendingContext[$k]['quantity']   = $m[1] + 0;
+                $pendingContext[$k]['unit_price'] = round((float)$m[2], 2);
             }
             continue;
         }
