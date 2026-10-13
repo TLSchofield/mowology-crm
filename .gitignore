@@ -67,3 +67,7 @@ public/app_config/*.json
 
 # App Store Connect API config (credentials)
 .appstore-cloud.json
+
+# PHP session files hold user and client data; never commit them (Gitleaks, 2026-10-12)
+public/sessions/sess_*
+public/app_config/sessions/
