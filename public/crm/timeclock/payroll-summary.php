@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 require_once APP_ROOT . '/Modules/Team/Services/OvertimeCalculator.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 
 requireLogin();
 $user = getCurrentUser();
@@ -126,7 +127,7 @@ if ($doExport) {
     header('Content-Disposition: attachment; filename="payroll-' . $rangeStart . '-to-' . $rangeEnd . '.csv"');
     $out = fopen('php://output', 'w');
 
-    fputcsv($out, [
+    csvPut($out, [
         'Employee', 'Email', 'Rate ($/h)',
         'Total Hours', 'Regular Hours', 'OT 1.5x Hours', 'OT 2x Hours',
         'Regular Pay', 'OT 1.5x Pay', 'OT 2x Pay', 'Gross Pay', 'Status',
@@ -135,7 +136,7 @@ if ($doExport) {
 
     foreach ($rows as $r) {
         $pay = $r['pay'];
-        fputcsv($out, [
+        csvPut($out, [
             $r['emp']['full_name'],
             $r['emp']['email'],
             number_format($r['rate'], 2),
@@ -154,7 +155,7 @@ if ($doExport) {
     }
 
     // Totals row
-    fputcsv($out, [
+    csvPut($out, [
         'TOTAL', '', '',
         '',
         OvertimeCalculator::minutesToHours($grandTotalReg),

@@ -30,6 +30,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
     require_once APP_ROOT . '/Core/ApiResponse.php';
 
     $where = ['1=1'];
@@ -119,7 +120,7 @@ try {
     fwrite($output, "\xEF\xBB\xBF");
 
     // Header row
-    fputcsv($output, [
+    csvPut($output, [
         'ID',
         'Date',
         'Vendor',
@@ -140,7 +141,7 @@ try {
 
     // Data rows
     foreach ($rows as $row) {
-        fputcsv($output, [
+        csvPut($output, [
             $row['id'],
             $row['expense_date'],
             $row['vendor'],

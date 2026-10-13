@@ -681,21 +681,28 @@ async function exportCSV() {
     if (!rows.length) { alert('No data to export.'); return; }
 
     const headers = ['Date','Type','Account Code','Account','Amount','GST','PST','Description','Reference','Vendor','Job #','Client','Status'];
+    // Same rule as PHP csvCell() (audit #18): text starting = + - @ tab CR opens as a formula in a
+    // spreadsheet, so it gets a leading apostrophe; plain numbers are left alone.
+    const cell = v => {
+        const s = String(v ?? '');
+        const safe = (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d{1,3}(,\d{3})+|\d+)?(\.\d+)?%?$/.test(s)) ? "'" + s : s;
+        return `"${safe.replace(/"/g,'""')}"`;
+    };
     const lines   = [
         headers.join(','),
         ...rows.map(tx => [
             tx.transaction_date,
             tx.type,
-            tx.account_code,
-            `"${(tx.account_name || '').replace(/"/g,'""')}"`,
+            cell(tx.account_code),
+            cell(tx.account_name),
             tx.amount,
             tx.gst_amount,
             tx.pst_amount,
-            `"${(tx.description || '').replace(/"/g,'""')}"`,
-            tx.reference_type + (tx.reference_id ? '#' + tx.reference_id : ''),
-            `"${(tx.vendor_name || '').replace(/"/g,'""')}"`,
-            tx.job_number || '',
-            `"${(tx.client_name || '').replace(/"/g,'""')}"`,
+            cell(tx.description),
+            cell(tx.reference_type + (tx.reference_id ? '#' + tx.reference_id : '')),
+            cell(tx.vendor_name),
+            cell(tx.job_number),
+            cell(tx.client_name),
             tx.status,
         ].join(',')),
     ];

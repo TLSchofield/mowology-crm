@@ -26,6 +26,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('billing.view');
 session_write_close();
@@ -110,28 +111,28 @@ if ($fmt === 'csv') {
     fwrite($out, "\xEF\xBB\xBF");
 
     // Summary block
-    fputcsv($out, ['CRA GST/HST Report — ' . $businessName]);
-    fputcsv($out, ['GST Registration #', $gstRegNumber]);
-    fputcsv($out, ['Reporting Period', $periodLabel]);
-    fputcsv($out, ['Date Range', $dateFrom . ' to ' . $dateTo]);
-    fputcsv($out, ['Generated', date('Y-m-d H:i')]);
-    fputcsv($out, []);
-    fputcsv($out, ['GST34 FILING SUMMARY']);
-    fputcsv($out, ['Line 101 — Total sales and other revenues', number_format($totalRevenue, 2)]);
-    fputcsv($out, ['Line 103 — GST/HST collected', number_format($totalGstOut, 2)]);
-    fputcsv($out, ['GST paid on approved/posted expenses', number_format($itcGross, 2)]);
+    csvPut($out, ['CRA GST/HST Report — ' . $businessName]);
+    csvPut($out, ['GST Registration #', $gstRegNumber]);
+    csvPut($out, ['Reporting Period', $periodLabel]);
+    csvPut($out, ['Date Range', $dateFrom . ' to ' . $dateTo]);
+    csvPut($out, ['Generated', date('Y-m-d H:i')]);
+    csvPut($out, []);
+    csvPut($out, ['GST34 FILING SUMMARY']);
+    csvPut($out, ['Line 101 — Total sales and other revenues', number_format($totalRevenue, 2)]);
+    csvPut($out, ['Line 103 — GST/HST collected', number_format($totalGstOut, 2)]);
+    csvPut($out, ['GST paid on approved/posted expenses', number_format($itcGross, 2)]);
     if ($mealsLimit > 0) {
-        fputcsv($out, [$mealsLabel, number_format(-$mealsLimit, 2)]);
+        csvPut($out, [$mealsLabel, number_format(-$mealsLimit, 2)]);
     }
-    fputcsv($out, ['Line 106 — Input Tax Credits (ITCs)', number_format($totalITC, 2)]);
-    fputcsv($out, ['Line 109 — Net tax owing (Line 103 - Line 106)', number_format($netTax, 2)]);
-    fputcsv($out, []);
+    csvPut($out, ['Line 106 — Input Tax Credits (ITCs)', number_format($totalITC, 2)]);
+    csvPut($out, ['Line 109 — Net tax owing (Line 103 - Line 106)', number_format($netTax, 2)]);
+    csvPut($out, []);
 
     // Invoice detail
-    fputcsv($out, ['INVOICE DETAIL']);
-    fputcsv($out, ['Invoice #', 'Client', 'Issue Date', 'Status', 'Subtotal', 'GST Rate %', 'GST Reg #', 'GST Collected', 'Total', 'Paid', 'Balance Due', 'Payment Method']);
+    csvPut($out, ['INVOICE DETAIL']);
+    csvPut($out, ['Invoice #', 'Client', 'Issue Date', 'Status', 'Subtotal', 'GST Rate %', 'GST Reg #', 'GST Collected', 'Total', 'Paid', 'Balance Due', 'Payment Method']);
     foreach ($invoices as $inv) {
-        fputcsv($out, [
+        csvPut($out, [
             $inv['invoice_number'],
             $inv['client_name'],
             $inv['issue_date'],
@@ -148,11 +149,11 @@ if ($fmt === 'csv') {
     }
 
     if ($expenses) {
-        fputcsv($out, []);
-        fputcsv($out, ['EXPENSE / INPUT TAX CREDITS (ITCs)']);
-        fputcsv($out, ['Date', 'Vendor', 'Description', 'Category', 'Status', 'Pre-tax Amount', 'GST Paid', 'ITC Claimed']);
+        csvPut($out, []);
+        csvPut($out, ['EXPENSE / INPUT TAX CREDITS (ITCs)']);
+        csvPut($out, ['Date', 'Vendor', 'Description', 'Category', 'Status', 'Pre-tax Amount', 'GST Paid', 'ITC Claimed']);
         foreach ($expenses as $exp) {
-            fputcsv($out, [
+            csvPut($out, [
                 $exp['expense_date'],
                 $exp['vendor_name'] ?? '',
                 $exp['description'] ?? '',

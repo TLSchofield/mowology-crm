@@ -16,6 +16,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('billing.view');
 session_write_close();
@@ -44,7 +45,7 @@ header('Content-Disposition: attachment; filename="invoices-' . date('Y-m-d') . 
 $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 
-fputcsv($out, [
+csvPut($out, [
     'Invoice #', 'Client', 'Status',
     'Subtotal', 'GST Rate (%)', 'GST Amount', 'GST Reg #',
     'Total', 'Paid', 'Balance Due',
@@ -53,7 +54,7 @@ fputcsv($out, [
 ]);
 
 foreach ($rows as $r) {
-    fputcsv($out, [
+    csvPut($out, [
         $r['invoice_number'],
         $r['client_name'],
         $r['status'],

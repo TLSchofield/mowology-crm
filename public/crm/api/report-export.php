@@ -17,6 +17,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 // Money and client reports are office-only: billing.view (crew hold expenses.view, not this).
 // Crew profitability shows each worker's labour cost, so it also needs team.edit (managers
@@ -45,7 +46,7 @@ try {
     switch ($report) {
 
         case 'revenue-by-month':
-            fputcsv($out, ['Month', 'Invoice Count', 'Total Invoiced', 'Total Collected', 'Outstanding']);
+            csvPut($out, ['Month', 'Invoice Count', 'Total Invoiced', 'Total Collected', 'Outstanding']);
             $stmt = $db->prepare("
                 SELECT DATE_FORMAT(i.issue_date, '%b %Y') AS month_label,
                        COUNT(*) AS invoice_count,
@@ -59,12 +60,12 @@ try {
             ");
             $stmt->execute([$start, $end]);
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [$r['month_label'], $r['invoice_count'], number_format((float)$r['total_revenue'], 2), number_format((float)$r['total_collected'], 2), number_format((float)$r['total_outstanding'], 2)]);
+                csvPut($out, [$r['month_label'], $r['invoice_count'], number_format((float)$r['total_revenue'], 2), number_format((float)$r['total_collected'], 2), number_format((float)$r['total_outstanding'], 2)]);
             }
             break;
 
         case 'revenue-by-service':
-            fputcsv($out, ['Service Type', 'Visits', 'Revenue', 'Margin', 'Margin %']);
+            csvPut($out, ['Service Type', 'Visits', 'Revenue', 'Margin', 'Margin %']);
             $stmt = $db->prepare("
                 SELECT COALESCE(vms.service_type, 'other') AS service_type, COUNT(*) AS visit_count,
                        COALESCE(SUM(vms.quoted_amount), 0) AS revenue, COALESCE(SUM(vms.gross_margin), 0) AS margin,
@@ -74,21 +75,21 @@ try {
             ");
             $stmt->execute([$start, $end]);
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [ucwords(str_replace('_', ' ', $r['service_type'])), $r['visit_count'], number_format((float)$r['revenue'], 2), number_format((float)$r['margin'], 2), round((float)$r['avg_margin_pct'], 1) . '%']);
+                csvPut($out, [ucwords(str_replace('_', ' ', $r['service_type'])), $r['visit_count'], number_format((float)$r['revenue'], 2), number_format((float)$r['margin'], 2), round((float)$r['avg_margin_pct'], 1) . '%']);
             }
             break;
 
         case 'quote-funnel':
-            fputcsv($out, ['Status', 'Count', 'Total Value']);
+            csvPut($out, ['Status', 'Count', 'Total Value']);
             $stmt = $db->prepare("SELECT status, COUNT(*) AS cnt, COALESCE(SUM(total_amount), 0) AS total_value FROM quotes WHERE created_at BETWEEN ? AND ? GROUP BY status ORDER BY FIELD(status,'draft','sent','accepted','declined','expired')");
             $stmt->execute([$start, $end . ' 23:59:59']);
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [ucfirst($r['status']), $r['cnt'], number_format((float)$r['total_value'], 2)]);
+                csvPut($out, [ucfirst($r['status']), $r['cnt'], number_format((float)$r['total_value'], 2)]);
             }
             break;
 
         case 'crew-profitability':
-            fputcsv($out, ['Crew Member', 'Visits', 'Revenue', 'Labor Cost', 'Material Cost', 'Drive Cost', 'Gross Margin', 'Margin %']);
+            csvPut($out, ['Crew Member', 'Visits', 'Revenue', 'Labor Cost', 'Material Cost', 'Drive Cost', 'Gross Margin', 'Margin %']);
             $stmt = $db->prepare("
                 SELECT COALESCE(u.full_name, CONCAT(u.first_name,' ',u.last_name), 'Unassigned') AS crew_name,
                        COUNT(*) AS visit_count, COALESCE(SUM(vms.quoted_amount), 0) AS revenue,
@@ -100,12 +101,12 @@ try {
             ");
             $stmt->execute([$start, $end]);
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [$r['crew_name'], $r['visit_count'], number_format((float)$r['revenue'], 2), number_format((float)$r['labor_cost'], 2), number_format((float)$r['material_cost'], 2), number_format((float)$r['drive_cost'], 2), number_format((float)$r['gross_margin'], 2), round((float)$r['avg_margin_pct'], 1) . '%']);
+                csvPut($out, [$r['crew_name'], $r['visit_count'], number_format((float)$r['revenue'], 2), number_format((float)$r['labor_cost'], 2), number_format((float)$r['material_cost'], 2), number_format((float)$r['drive_cost'], 2), number_format((float)$r['gross_margin'], 2), round((float)$r['avg_margin_pct'], 1) . '%']);
             }
             break;
 
         case 'client-lifetime-value':
-            fputcsv($out, ['Client', 'Email', 'Phone', 'Invoices', 'Total Invoiced', 'Total Paid', 'First Invoice', 'Last Invoice']);
+            csvPut($out, ['Client', 'Email', 'Phone', 'Invoices', 'Total Invoiced', 'Total Paid', 'First Invoice', 'Last Invoice']);
             $stmt = $db->prepare("
                 SELECT CONCAT(c.first_name,' ',c.last_name) AS client_name, c.email, c.phone,
                        COUNT(DISTINCT i.id) AS invoice_count, COALESCE(SUM(i.total), 0) AS total_invoiced,
@@ -115,12 +116,12 @@ try {
             ");
             $stmt->execute([$limit]);
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [$r['client_name'], $r['email'], $r['phone'], $r['invoice_count'], number_format((float)$r['total_invoiced'], 2), number_format((float)$r['total_paid'], 2), $r['first_invoice'], $r['last_invoice']]);
+                csvPut($out, [$r['client_name'], $r['email'], $r['phone'], $r['invoice_count'], number_format((float)$r['total_invoiced'], 2), number_format((float)$r['total_paid'], 2), $r['first_invoice'], $r['last_invoice']]);
             }
             break;
 
         case 'overdue-invoices':
-            fputcsv($out, ['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance Due', 'Days Overdue', 'Email', 'Phone']);
+            csvPut($out, ['Invoice #', 'Client', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance Due', 'Days Overdue', 'Email', 'Phone']);
             $stmt = $db->query("
                 SELECT i.invoice_number, COALESCE(CONCAT(ct.first_name,' ',ct.last_name), c.company_name, 'N/A') AS client_name,
                        i.issue_date, i.due_date, i.total, i.amount_paid, i.balance_due,
@@ -130,12 +131,12 @@ try {
                 ORDER BY i.due_date ASC
             ");
             while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                fputcsv($out, [$r['invoice_number'], $r['client_name'], $r['issue_date'], $r['due_date'], number_format((float)$r['total'], 2), number_format((float)$r['amount_paid'], 2), number_format((float)$r['balance_due'], 2), $r['days_overdue'], $r['email'], $r['phone']]);
+                csvPut($out, [$r['invoice_number'], $r['client_name'], $r['issue_date'], $r['due_date'], number_format((float)$r['total'], 2), number_format((float)$r['amount_paid'], 2), number_format((float)$r['balance_due'], 2), $r['days_overdue'], $r['email'], $r['phone']]);
             }
             break;
     }
 } catch (Throwable $e) {
-    fputcsv($out, ['Error generating report']);
+    csvPut($out, ['Error generating report']);
 }
 
 fclose($out);
