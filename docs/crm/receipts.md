@@ -338,6 +338,21 @@ suggestion is closed as `kept` and not prepared again). `PennyReadService`; JWT
 `penny_read|penny_apply|penny_keep`. Why: Chevron #424 — the reader kept two "CRF 0.07"
 lines and guessed Fuel, and her correct read was only on the desktop card.
 
+When she has no read of a receipt yet (she prepares only some each day), the modal offers
+**Ask Penny**: `expenses.php` `penny_ask` → `PennyReadService::ask()` →
+`BookkeeperDeskService::askOne()` (same daily cap as her rounds, plus `LlmDailyCap`). A
+**Rescan** re-reads her open read too (`ExpenseRescanService` → `recheck()`), and replaces
+stored amounts that cannot be true (negative subtotal, tax at or over the total) when the new
+read agrees on the total (`ExpenseRescanService::amountRepair()`). Chevron #355, 2026-10-13.
+
+### The "Add Item" picker (2026-10-13)
+
+`ExpenseLookupService::vendorItemSuggestions()` — this vendor's usual items first (past
+receipt lines and SKU memory, ranked by how often and how lately, tax lines and header words
+left out), then the vendor's catalogue (`vendor_products`), and other CRM products only on a
+typed search. Web `expenses.php?action=item_suggestions`; JWT `expense-lookup?type=vendor_items`
+(not used by the iPhone yet). Why: a Chevron coffee was offered Crusher Dust and Road Base.
+
 ## Line items
 
 `ReceiptParser::extractLineItems()` parses each OCR'd product line and persists them
