@@ -48,6 +48,11 @@ final class MediaTagsTest extends TestCase
         $ok = MediaTagRules::visionTags(['subjects' => ['hedge', 'lawn', 'spaceship'], 'quality' => 5, 'faces' => false, 'children' => false,
                                          'house_numbers' => false, 'licence_plates' => false, 'identifiable_street_front' => false]);
         $this->assertSame(['subject/hedge', 'subject/lawn', 'quality/5', 'privacy/ok'], $ok);
+        // Fable 2026-10-12: 'ok' only when every privacy field is affirmed false.
+        $this->assertContains('privacy/unknown', MediaTagRules::visionTags(['quality' => 5]));
+        $this->assertContains('privacy/unknown', MediaTagRules::visionTags(['quality' => 5, 'faces' => false, 'children' => false,
+                                         'house_numbers' => 'no', 'licence_plates' => false, 'identifiable_street_front' => false]));
+        $this->assertContains('privacy/unknown', MediaTagRules::visionTags(['faces' => false, 'children' => false, 'house_numbers' => false, 'licence_plates' => false]));
         foreach (['faces', 'children', 'house_numbers', 'licence_plates', 'identifiable_street_front'] as $flag) {
             $this->assertContains('privacy/blur-needed', MediaTagRules::visionTags(['quality' => 4, $flag => true]), $flag);
         }
@@ -62,11 +67,14 @@ final class MediaTagsTest extends TestCase
 
     public function testPublicUseNeedsPrivacyOkAndConsent(): void
     {
-        $this->assertTrue(MediaTagRules::publicOk(['privacy/ok', 'consent/ok']));
+        $this->assertTrue(MediaTagRules::publicOk(['privacy/ok', 'consent/ok', 'use/hero']));
+        $this->assertFalse(MediaTagRules::publicOk(['privacy/ok', 'consent/ok']), 'not starred by Tim = not public (Fable 2026-10-12)');
+        $this->assertFalse(MediaTagRules::publicOk(['privacy/unknown', 'consent/ok', 'use/hero']));
         $this->assertFalse(MediaTagRules::publicOk(['privacy/blur-needed', 'consent/ok']));
         $this->assertFalse(MediaTagRules::publicOk(['privacy/ok', 'consent/no']));
         $this->assertFalse(MediaTagRules::publicOk(['consent/ok']), 'not checked yet = not public');
-        $this->assertTrue(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok']]));
+        $this->assertTrue(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok', 'use/hero'], ['stage/after', 'privacy/ok', 'use/hero']]));
+        $this->assertFalse(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok', 'use/hero']]));
         $this->assertFalse(MediaTagRules::visitPublicOk([['stage/before', 'privacy/ok'], ['stage/after', 'privacy/ok'], ['stage/during', 'privacy/blur-needed']]));
         $this->assertFalse(MediaTagRules::visitPublicOk([['stage/after', 'privacy/ok']]), 'needs a before too');
     }
@@ -78,7 +86,7 @@ final class MediaTagsTest extends TestCase
 
     public function testPickerRanksPairsFirstAndExcludesUnsafeLowAndRecent(): void
     {
-        $safe = ['privacy/ok', 'consent/ok', 'quality/4', 'season/fall', 'service/fall-cleanup'];
+        $safe = ['privacy/ok', 'consent/ok', 'quality/4', 'season/fall', 'service/fall-cleanup', 'use/hero'];
         $items = [
             self::item(1, array_merge($safe, ['stage/before', 'pair/10'])),
             self::item(2, array_merge($safe, ['stage/after', 'pair/10'])),
@@ -87,7 +95,8 @@ final class MediaTagsTest extends TestCase
             self::item(5, ['privacy/ok', 'consent/no', 'quality/5', 'service/fall-cleanup']),          // opted out
             self::item(6, ['privacy/ok', 'consent/ok', 'quality/3', 'service/fall-cleanup']),          // low quality
             self::item(7, $safe),                                                                      // used recently
-            self::item(8, ['privacy/ok', 'consent/ok', 'quality/5', 'service/hedge-trimming']),        // other service
+            self::item(8, ['privacy/ok', 'consent/ok', 'quality/5', 'service/hedge-trimming', 'use/hero']), // other service
+            self::item(9, ['privacy/ok', 'consent/ok', 'quality/5', 'service/hedge-trimming']),        // not starred
         ];
         $picks = MediaPickerService::rank($items, 'fall-cleanup', 'fall', [], [7 => '2026-09-01'], 5);
         $this->assertSame(['pair', 'single'], array_column($picks, 'kind'));
@@ -99,12 +108,13 @@ final class MediaTagsTest extends TestCase
         $any = MediaPickerService::rank($items, 'snow-removal', null, [], [], 10);
         $this->assertContains(8, array_column($any, 'media_id'));
         $this->assertNotContains(4, array_column($any, 'media_id'));
+        $this->assertNotContains(9, array_column($any, 'media_id'), 'only starred photos go public');
     }
 
     public function testLearnedComboScoreReordersSingles(): void
     {
-        $a = self::item(1, ['privacy/ok', 'quality/4', 'service/hedge-trimming', 'subject/hedge', 'stage/after']);
-        $b = self::item(2, ['privacy/ok', 'quality/4', 'service/hedge-trimming', 'subject/lawn', 'stage/after']);
+        $a = self::item(1, ['privacy/ok', 'quality/4', 'service/hedge-trimming', 'subject/hedge', 'stage/after', 'use/hero']);
+        $b = self::item(2, ['privacy/ok', 'quality/4', 'service/hedge-trimming', 'subject/lawn', 'stage/after', 'use/hero']);
         $plain = MediaPickerService::rank([$a, $b], 'hedge', null, [], [], 2);
         $this->assertSame(2, $plain[0]['media_id'], 'tie → newest id');
         $learned = MediaPickerService::rank([$a, $b], 'hedge', null, ['hedge-trimming|hedge|after' => 1.0], [], 2);
