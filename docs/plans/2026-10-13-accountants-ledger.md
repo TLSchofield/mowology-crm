@@ -1,6 +1,6 @@
 # Plan — The Accountant's Ledger (everything a CPA needs, export with ease)
 
-Status: **plan, waiting for Tim's approval** (2026-10-13). This comes before the bad-debt write-off,
+Status: **step 1 BUILT and deployed 2026-10-13** (commit ee7cb50e, migration 1355); steps 2–8 not started. This comes before the bad-debt write-off,
 which becomes the first real accountant's adjustment in it.
 
 ## Why
