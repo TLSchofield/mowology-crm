@@ -8,6 +8,8 @@
  *   invoice_pdf — an invoice email (send, contract billing, reminder, autopay notice) was
  *             NOT sent because its PDF could not be made (InvoicePdfGate, last 48 h);
  *             one alert per invoice
+ *   dispute — a customer disputed a Stripe charge (chargeback; StripeEventLedgerService logs
+ *             'stripe_dispute', last 7 days); also a dispute / refund the ledger could not post
  * (client complaints join when Sam or Mia can flag them — phase B3.)
  *
  * Each alert is sent once (charlie_alerts.alert_key), by email to the owner through
@@ -92,6 +94,19 @@ class CharlieUrgentService
             foreach (self::pdfBlockedAlerts($s->fetchAll(PDO::FETCH_ASSOC)) as $a) $out[] = $a;
         } catch (Throwable $e) { /* no activity_log — nothing to watch */ }
 
+        try {
+            // Stripe chargebacks and ledger postings that failed (security review #21, 2026-10-12).
+            $s = $this->db->prepare("
+                SELECT al.id, al.action, al.invoice_id, al.details, i.invoice_number
+                FROM activity_log al
+                LEFT JOIN invoices i ON i.id = al.invoice_id
+                WHERE al.action IN ('stripe_dispute', 'stripe_ledger_failed') AND al.created_at >= ?
+                ORDER BY al.id DESC
+            ");
+            $s->execute([date('Y-m-d H:i:s', strtotime('-7 days'))]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = self::disputeAlert($r);
+        } catch (Throwable $e) { /* no activity_log — nothing to watch */ }
+
         if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php')) {
             try {
                 require_once APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php';
@@ -116,6 +131,26 @@ class CharlieUrgentService
             'key'  => 'urgent:payment:' . (int)$r['id'],
             'kind' => 'payment',
             'text' => "Autopay failed: {$amt} from {$who}" . (!empty($r['invoice_number']) ? ' (invoice ' . $r['invoice_number'] . ')' : '') . " — {$why}.",
+            'url'  => !empty($r['invoice_id']) ? '/crm/invoices/view.php?id=' . (int)$r['invoice_id'] : '/crm/invoices/index.php',
+        ];
+    }
+
+    /** Pure: one 'stripe_dispute' / 'stripe_ledger_failed' activity row → an alert. */
+    public static function disputeAlert(array $r): array
+    {
+        $d = json_decode((string)($r['details'] ?? ''), true) ?: [];
+        $amt = '$' . number_format((float)($d['amount'] ?? 0), 2);
+        $inv = trim((string)($r['invoice_number'] ?? ($d['invoice_number'] ?? '')));
+        if (($r['action'] ?? '') === 'stripe_ledger_failed') {
+            $text = "A Stripe {$amt} " . str_replace('stripe_', '', (string)($d['source'] ?? 'event')) . ' could not be posted to the books — post it by hand.';
+        } else {
+            $text = "Card payment disputed: {$amt}" . ($inv !== '' ? " on invoice {$inv}" : '') . ' (' . ($d['reason'] ?? 'no reason given')
+                  . '). Stripe has taken the money back; answer the dispute in Stripe before its deadline.';
+        }
+        return [
+            'key'  => 'urgent:stripe:' . (int)$r['id'],
+            'kind' => 'payment',
+            'text' => $text,
             'url'  => !empty($r['invoice_id']) ? '/crm/invoices/view.php?id=' . (int)$r['invoice_id'] : '/crm/invoices/index.php',
         ];
     }

@@ -13,7 +13,11 @@
  *
  * Handled events:
  *  - payment_intent.succeeded  → mark invoice paid, store payment record
- *  - payment_intent.payment_failed → log failure, update stripe_payments record
+ *  - payment_intent.payment_failed → log failure, update stripe_payments record (never over a succeeded one)
+ *  - charge.refunded               → customer email + refund entry DR 2160 / CR 1010 (StripeEventLedgerService)
+ *  - charge.dispute.created        → invoice flagged 'disputed', DR 1100 / CR 1010, Charlie alerts Tim
+ *  - charge.dispute.closed         → won: dispute entry reversed; lost: flag only
+ * Dispute / refund booking is idempotent per event id (stripe_webhook_events, migration 1342).
  */
 
 declare(strict_types=1);
@@ -74,6 +78,29 @@ switch ($event->type) {
 
     case 'charge.refunded':
         handleChargeRefunded($event->data->object);
+        $ok = stripeLedger(fn(StripeEventLedgerService $svc) => $svc->refunded([
+            'event_id'              => $event->id,
+            'charge_id'             => $event->data->object->id,
+            'payment_intent_id'     => stripeId($event->data->object->payment_intent ?? null),
+            'amount_refunded_cents' => (int) $event->data->object->amount_refunded,
+        ]));
+        break;
+
+    case 'charge.dispute.created':
+    case 'charge.dispute.closed':
+        $dispute = $event->data->object;
+        $ok = stripeLedger(function (StripeEventLedgerService $svc) use ($event, $dispute) {
+            $d = [
+                'event_id'          => $event->id,
+                'dispute_id'        => (string) $dispute->id,
+                'charge_id'         => stripeId($dispute->charge ?? null),
+                'payment_intent_id' => stripeId($dispute->payment_intent ?? null),
+                'amount_cents'      => (int) ($dispute->amount ?? 0),
+                'reason'            => $dispute->reason ?? null,
+                'status'            => $dispute->status ?? null,
+            ];
+            return $event->type === 'charge.dispute.created' ? $svc->disputeCreated($d) : $svc->disputeClosed($d);
+        });
         break;
 
     default:
@@ -95,6 +122,32 @@ http_response_code(200);
 exit;
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
+
+/** A Stripe expandable field (string id or object) → its id. */
+function stripeId($v): ?string
+{
+    if (is_string($v) && $v !== '') return $v;
+    if (is_object($v) && !empty($v->id)) return (string) $v->id;
+    return null;
+}
+
+/**
+ * Book a dispute / refund through StripeEventLedgerService (security review #21). A thrown error
+ * returns false → 500 → Stripe retries; the service is idempotent per event id.
+ */
+function stripeLedger(callable $fn): bool
+{
+    try {
+        $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+        require_once $appRoot . '/Modules/Accounting/Services/StripeEventLedgerService.php';
+        $r = $fn(new StripeEventLedgerService(getDB()));
+        error_log('[Stripe Webhook] ledger: ' . json_encode($r));
+        return true;
+    } catch (\Throwable $e) {
+        error_log('[Stripe Webhook] ledger error: ' . $e->getMessage());
+        return false;
+    }
+}
 
 /**
  * Handle payment_intent.succeeded
@@ -445,20 +498,17 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
 
     $db = getDB();
 
-    // Upsert the stripe_payments record with failure info
-    $stmt = $db->prepare("
-        INSERT INTO stripe_payments
-            (invoice_id, payment_intent_id, amount_cents, currency,
-             status, failure_code, failure_message,
-             raw_event_type, webhook_received_at)
-        VALUES (?, ?, ?, 'cad', 'failed', ?, ?, 'payment_intent.payment_failed', NOW())
-        ON DUPLICATE KEY UPDATE
-            status              = 'failed',
-            failure_code        = VALUES(failure_code),
-            failure_message     = VALUES(failure_message),
-            raw_event_type      = VALUES(raw_event_type),
-            webhook_received_at = NOW()
-    ");
+    // Upsert the stripe_payments record with failure info — an out-of-order failure event never
+    // overwrites a succeeded payment (security review, low).
+    $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+    require_once $appRoot . '/Modules/Accounting/Services/StripeEventLedgerService.php';
+    $done = $db->prepare("SELECT status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1");
+    $done->execute([$paymentIntentId]);
+    if ($done->fetchColumn() === 'succeeded') {
+        error_log('[Stripe Webhook] payment_failed after success for ' . $paymentIntentId . ' — ignored');
+        return;
+    }
+    $stmt = $db->prepare(StripeEventLedgerService::paymentFailedUpsertSql());
     $stmt->execute([
         $invoiceId,
         $paymentIntentId,
