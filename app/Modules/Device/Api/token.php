@@ -58,7 +58,7 @@ try {
 
     // Sign-out on this phone (iOS sends remove:true before it drops its JWT): stop all pushes to it.
     if (!empty($input['remove'])) {
-        DeviceTokenService::forget($db, $deviceToken);
+        DeviceTokenService::forget($db, $deviceToken, $userId);   // only the caller's own registration
         echo json_encode(['success' => true]);
         exit;
     }

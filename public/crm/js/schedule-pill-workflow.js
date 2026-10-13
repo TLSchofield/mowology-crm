@@ -38,6 +38,28 @@
     var cachedGps = null;
     var _camPermState = null;   // 'granted' | 'denied' | 'prompt' | null (unknown) — see refreshCameraPermission()
 
+    /**
+     * POST to job-timer.php with the CSRF token (required on session POSTs since 2026-10-12).
+     * opts = { body: <JSON string> }. A stale token (cached page) is refreshed from
+     * /crm/api/get-csrf.php and the call retried once. Resolves to the fetch Response.
+     */
+    function jobTimerFetch(opts, retried) {
+        return fetch('/crm/api/job-timer.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf || window.MW_CSRF_TOKEN || '' },
+            body: opts.body
+        }).then(function(r) {
+            if (r.status !== 403 || retried) return r;
+            return r.clone().json().then(function(d) {
+                if (!d || d.code !== 'CSRF_INVALID') return r;
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(t) { return t.json(); })
+                    .then(function(t) { if (t && t.token) state.csrf = t.token; return jobTimerFetch(opts, true); });
+            }, function() { return r; });
+        });
+    }
+
     // True when running inside the native Capacitor Android shell. Camera
     // permission handling and timer re-arming only apply here; browsers and
     // iOS keep their existing behaviour untouched.
@@ -580,9 +602,7 @@
 
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] Sending start timer request for visit ' + visitId);
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'start',
                     visit_id: visitId,
@@ -677,9 +697,7 @@
         var originalHtml = v.pill.innerHTML;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'stop',
                     visit_id: visitId,
@@ -747,9 +765,7 @@
         if (!v) return;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'stop',
                     visit_id: visitId,
@@ -3271,9 +3287,7 @@
                     clockInBtn.disabled = true;
                     clockInBtn.innerHTML = '<span>Starting…</span>';
                     getGps(function(lat, lng) {
-                        fetch('/crm/api/job-timer.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                        jobTimerFetch({
                             body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
                         })
                         .then(function(r) { return r.json(); })
@@ -3559,9 +3573,7 @@
         // (clockIn reads activeDrawer for the button loading state).
         // We use null — clockIn already guards against null activeDrawer.
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
             })
             .then(function(r) { return r.json(); })

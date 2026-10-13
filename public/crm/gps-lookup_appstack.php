@@ -3,6 +3,7 @@ require_once __DIR__ . '/../loginAuth/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
+requirePermission('team.edit');   // every crew member's GPS trail near any address — office only (2026-10-12 review)
 
 $pageTitle  = 'GPS Lookup';
 $activePage = 'map';

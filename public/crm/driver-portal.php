@@ -691,10 +691,11 @@ function dpClockIn() {
                 if (window.MwNative && window.MwNative.geo && !window.MwNative.geo.watchId) {
                     window.MwNative.geo.startBackgroundTracking(function (pos) {
                         if (!pos) return;
+                        // crew-location.php requires the CSRF token (it 403'd these silently — 2026-10-12)
                         fetch('/crm/api/crew-location.php', {
                             method: 'POST',
                             credentials: 'same-origin',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || DP.csrf || '' },
                             body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy })
                         }).catch(function () {});
                     });

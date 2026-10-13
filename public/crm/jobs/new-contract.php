@@ -14,6 +14,7 @@ require_once dirname(__DIR__) . '/includes/plan-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('jobs.edit');   // creating a contract is office work (2026-10-12 review)
 
 $db   = getDB();
 $csrf = generateCSRFToken();

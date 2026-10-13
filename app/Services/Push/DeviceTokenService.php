@@ -45,9 +45,19 @@ final class DeviceTokenService
     }
 
     /** Sign-out on this phone: no pushes to it for anyone until someone signs in again. */
-    public static function forget(PDO $db, string $token): int
+    /**
+     * Switch a token off. With $userId (the API's "remove" — a caller signing out) only that user's
+     * row is touched: any login could otherwise silence pushes to someone else's phone by posting
+     * its token (2026-10-12 review). Without it (server-side logout of the session's own token) all rows.
+     */
+    public static function forget(PDO $db, string $token, ?int $userId = null): int
     {
         if ($token === '') return 0;
+        if ($userId !== null) {
+            $st = $db->prepare("UPDATE device_tokens SET is_active = 0 WHERE device_token = ? AND user_id = ? AND is_active = 1");
+            $st->execute([$token, $userId]);
+            return $st->rowCount();
+        }
         $st = $db->prepare("UPDATE device_tokens SET is_active = 0 WHERE device_token = ? AND is_active = 1");
         $st->execute([$token]);
         return $st->rowCount();

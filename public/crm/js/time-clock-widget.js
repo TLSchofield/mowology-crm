@@ -698,15 +698,26 @@
                      acc: p.accuracy, speed: p.speed, heading: p.heading };
         });
 
-        fetch('/api/team/location-ping', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ points: points })
-        }).then(function(r) {
-            if (r.status === 401) { showSessionExpiredBanner(); return null; }
-            return r.ok ? r.json() : null;
-        }).then(function(data) {
+        // location-ping needs the CSRF token on the session path (2026-10-12); a stale token is
+        // refreshed from get-csrf.php and the batch retried once. A refusal leaves the queue intact.
+        function sendBatch(retried) {
+            return fetch('/api/team/location-ping', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                body: JSON.stringify({ points: points })
+            }).then(function(r) {
+                if (r.status === 401) { showSessionExpiredBanner(); return null; }
+                if (r.status === 403 && !retried) {
+                    return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                        .then(function(t) { return t.json(); })
+                        .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; return sendBatch(true); });
+                }
+                return r.ok ? r.json() : null;
+            });
+        }
+
+        sendBatch(false).then(function(data) {
             // Only a definite answer empties the queue; anything else leaves it for next time.
             if (data && data.success) {
                 var sent = queue.length;

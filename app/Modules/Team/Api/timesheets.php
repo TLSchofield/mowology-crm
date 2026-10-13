@@ -90,6 +90,23 @@ if ($action === 'reopen') {
     exit;
 }
 
+// Approving locks the week's hours — refuse while a shift or job timer is still running in it
+// (a later clock-out would change approved hours; 2026-10-12 review).
+if ($action === 'approve') {
+    require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+    $wk = $db->prepare("SELECT week_start FROM timesheets WHERE id = ?");
+    $wk->execute([$timesheetId]);
+    $weekStart = (string)$wk->fetchColumn();
+    $blocked = TimeEntryGuard::approveRefusal($db, (int)$ts['user_id'], $weekStart);
+    if ($blocked !== null) {
+        $_SESSION['flash_error'] = $blocked;
+        header("Location: /crm/timeclock/timesheet-detail.php?id={$timesheetId}");
+        exit;
+    }
+    // Bring the totals up to date before they are locked.
+    recalculateTimesheetTotals((int)$ts['user_id'], $weekStart);
+}
+
 // Update status
 $newStatus = ($action === 'approve') ? 'approved' : 'rejected';
 

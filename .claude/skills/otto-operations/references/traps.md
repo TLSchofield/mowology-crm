@@ -38,6 +38,24 @@ Independent reviews found 33 defects; fixed the same day. **Rules now enforced:*
 with older tzdata — production has no 2026-11-01 change. **Open:** supplier mail still sends from
 no-reply@ with Reply-To office@ (MessagingService); Ada/Tim to decide.
 
+## 2026-10-12 — Fable review, round 2: web timers, crons, GPS endpoints
+- `app/Modules/Jobs/Api/job-timer.php` (web/Android) stamped `NOW()` on offline replays while
+  `timer.php` already used `OfflineTime::accept()`; its auto clock-in bypassed `clockIn()`. Both now
+  take the tap time (`client_time`, else the offline queue's `X-Queued-At`). **Rule:** a second
+  endpoint for the same action gets the same fix the same day — grep for the sibling.
+- Approved weeks were rewritten by crons: `recalculateTimesheetTotals()` now skips (and logs) an
+  approved week; approving refuses while a shift or job timer is still open in it
+  (`TimeEntryGuard::approveRefusal()`).
+- The rollover cron closed live timers at `NOW()`, uncapped: it now caps like the orphan-timer cron
+  (`TimeclockRules::cappedTimerMinutes()`), flags them and recalculates.
+- **CSRF added** to job-timer, location-ping, truck-ping, clusters (session path; JWT exempt). Every
+  web caller was updated AND its pinned `?v=` bumped (`schedule.php` pill workflow,
+  `appstack_footer.php` widget + pull-forward) — the host caches JS 24 h, and an old script without
+  the token would have 403'd crew job starts. **Rule:** adding CSRF to a crew endpoint = update every
+  caller + bump its `?v=` in the same deploy.
+- iPhone `ClockQueue` dropped a punch after 5 server errors and counted it as sent; it is now kept,
+  marked refused and shown on the Time Clock screen until the person clears it.
+
 ## 2026-10-10 — GPS break flags flooded by the truck and forgotten clock-outs
 First 14-day run flagged 19 of 24 shifts: the truck login is a vehicle, and 12 h shifts were
 forgotten clock-outs. Fixed in `BreakService` (people only; ≥ 690 min ignored) → 6 flags. GPS

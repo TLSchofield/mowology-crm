@@ -95,6 +95,40 @@ final class TimeclockRules
         return false;
     }
 
+    /**
+     * May a week's stored totals be recalculated? Never an approved week: its totals are what was
+     * approved and paid — a cron closing a late entry must not rewrite them (2026-10-12 review).
+     */
+    public static function mayRecalculateWeek(?string $timesheetStatus): bool
+    {
+        return $timesheetStatus !== 'approved';
+    }
+
+    /**
+     * Why a week can't be approved yet, or null. A shift or job timer still running in the week
+     * would change its hours after approval (2026-10-12 review).
+     */
+    public static function approveBlockedMessage(int $openShifts, int $openTimers): ?string
+    {
+        if ($openShifts <= 0 && $openTimers <= 0) return null;
+        $what = [];
+        if ($openShifts > 0) $what[] = $openShifts === 1 ? 'a shift still clocked in' : "{$openShifts} shifts still clocked in";
+        if ($openTimers > 0) $what[] = $openTimers === 1 ? 'a job timer still running' : "{$openTimers} job timers still running";
+        return 'This week has ' . implode(' and ', $what) . '. Clock out / stop the timer first, then approve.';
+    }
+
+    /**
+     * Minutes to record for a job timer a cron closes (nobody stopped it): never more than the
+     * person's shift that day, and never more than $capHours when there is no shift to go by.
+     * Shared by the orphan-timer cron and the rollover cron (2026-10-12 review).
+     */
+    public static function cappedTimerMinutes(int $rawMinutes, ?int $shiftMinutes, int $capHours = 12): int
+    {
+        $raw = max(0, $rawMinutes);
+        if ($shiftMinutes !== null && $shiftMinutes > 0) return min($raw, $shiftMinutes);
+        return min($raw, $capHours * 60);
+    }
+
     /** The message every edit path returns for a week that is already approved. */
     public static function approvedWeekMessage(string $weekStart): string
     {

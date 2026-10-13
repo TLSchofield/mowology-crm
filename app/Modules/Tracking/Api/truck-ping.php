@@ -42,6 +42,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// Session-only endpoint: the X-CSRF-Token header is required (2026-10-12 review).
+if (!verifyCSRFToken((string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token — reload the page', 'code' => 'CSRF_INVALID']);
+    exit;
+}
+
 $deviceId = defined('TRACKIMO_DEVICE_ID') ? (string)TRACKIMO_DEVICE_ID : '';
 if ($deviceId === '') {
     echo json_encode(['ok' => false, 'error' => 'Tracker not configured']);

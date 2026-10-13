@@ -366,16 +366,33 @@ session_write_close();
     }
 
     // ── Clock out after post-trip is saved ────────────────────────
+    // time-clock.php POST with the token in the header and body; on a stale token, refresh it
+    // from get-csrf.php and retry once (as dpTimeClockPost() on the driver portal).
+    function timeClockPost(payload) {
+        var send = function () {
+            return fetch('/crm/api/time-clock.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF || '' },
+                body: JSON.stringify(Object.assign({}, payload, { csrf_token: CSRF }))
+            }).then(function (r) { return r.json(); });
+        };
+        return send().then(function (d) {
+            if (d && !d.success && d.error && String(d.error).indexOf('CSRF') !== -1) {
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (t) { if (t && t.token) CSRF = t.token; return send(); });
+            }
+            return d;
+        });
+    }
+
     function clockOut(lat, lng) {
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'clock_out', csrf_token: CSRF, lat: lat, lng: lng })
-        })
-        .then(function (r) { return r.json(); })
+        timeClockPost({ action: 'clock_out', lat: lat, lng: lng })
         .then(function (d) {
-            if (d.success || !d.clocked_in) {
+            // Success only when the server says so, or says plainly they are no longer clocked in
+            // (an error reply has no clocked_in, and used to count as a clock-out — 2026-10-12).
+            if (d && (d.success || d.clocked_in === false)) {
                 // Stop the native foreground GPS service on clock-out.
                 try {
                     if (window.MwNative && window.MwNative.geo) {

@@ -10,6 +10,7 @@ declare(strict_types=1);
  *   GET  list           — all active clusters with member details
  *   GET  detect         — run auto-detection, return candidates
  *   GET  session        — get open session for a cluster+date
+ *   GET  properties     — active properties for the cluster picker (office)
  *   POST create         — create a cluster (manual or from candidate)
  *   POST update         — rename / change travel time
  *   POST delete         — soft-deactivate
@@ -34,18 +35,30 @@ header('X-Content-Type-Options: nosniff');
 
 try {
     require_once APP_ROOT . '/Core/config.php';
+    // requireLoginOrJwt(), verifyCSRFToken(), userHasPermission() live in auth.php — config.php
+    // alone does not define them.
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/ClusterService.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/ClusterDetectionService.php';
 
-    requireLoginOrJwt();
-    $user   = getCurrentUser();
-    $isAdmin = in_array($user['role'] ?? '', ['admin', 'manager'], true);
+    // Under JWT getCurrentUser() is null — use the user requireLoginOrJwt() returns (2026-10-12).
+    $isJwt  = strpos($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '', 'Bearer ') === 0;
+    $user   = requireLoginOrJwt();
+    $can    = function (string $perm) use ($isJwt, $user): bool {
+        return $isJwt ? jwtUserHasPermission($user, $perm) : userHasPermission($perm);
+    };
+    // Creating / changing clusters, or opening a session for someone else, is office work:
+    // the people who edit the schedule (admins AND managers), by permission key.
+    $isAdmin = $can('schedule.edit') || $can('jobs.edit');
 
     $method = $_SERVER['REQUEST_METHOD'];
+    // GET actions come as ?mode= — through the /api/jobs/clusters router `action` is taken by the
+    // route itself (QSA duplicates it), so ?action= never reached this file. ?action= kept for
+    // direct callers.
     $action = $method === 'GET'
-        ? trim($_GET['action'] ?? '')
+        ? trim((string)($_GET['mode'] ?? $_GET['action'] ?? ''))
         : (json_decode(file_get_contents('php://input'), true)['action'] ?? '');
 
     $db        = getDB();
@@ -83,6 +96,12 @@ try {
                 echo json_encode(['success' => true, 'clusters' => $rows]);
                 break;
 
+            case 'properties':
+                // Picker for a new cluster (office only — the page is admin/manager).
+                if (!$isAdmin) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Not allowed']); exit; }
+                echo json_encode(['success' => true, 'properties' => $clusters->listActiveProperties()]);
+                break;
+
             case 'detect':
                 $candidates = $detection->detectCandidates();
                 echo json_encode(['success' => true, 'candidates' => $candidates]);
@@ -113,6 +132,16 @@ try {
     }
 
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+    // Session POSTs carry the CSRF token (header or body); JWT callers are exempt.
+    if (!$isJwt) {
+        $token = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $input['csrf_token'] ?? '');
+        if (!verifyCSRFToken($token)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid CSRF token — refresh and retry', 'code' => 'CSRF_INVALID']);
+            exit;
+        }
+    }
 
     switch ($action) {
 
@@ -161,6 +190,11 @@ try {
             $clusterId = (int)($input['cluster_id'] ?? 0);
             $date      = $input['date'] ?? date('Y-m-d');
             $crewId    = isset($input['crew_id']) ? (int)$input['crew_id'] : (int)$user['id'];
+            if ($crewId !== (int)$user['id'] && !$isAdmin) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'You can only open a session for yourself']);
+                exit;
+            }
             $lat       = (float)($input['lat'] ?? 0);
             $lng       = (float)($input['lng'] ?? 0);
             $source    = in_array($input['source'] ?? '', ['gps', 'manual'], true) ? $input['source'] : 'manual';

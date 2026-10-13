@@ -480,16 +480,30 @@ $extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.is
 
     // ── API Calls ──
 
+    // job-timer.php POSTs carry the CSRF token; a stale one (cached page) is refreshed from
+    // get-csrf.php and the call retried once. Resolves to the fetch Response (2026-10-12).
+    function jobTimerFetch(body, retried) {
+        return fetch('/crm/api/job-timer.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify(body)
+        }).then(function(r) {
+            if (r.status !== 403 || retried) return r;
+            return r.clone().json().then(function(d) {
+                if (!d || d.code !== 'CSRF_INVALID') return r;
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(t) { return t.json(); })
+                    .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; return jobTimerFetch(body, true); });
+            }, function() { return r; });
+        });
+    }
+
     window.startJob = function(jobId, autoStarted) {
         var body = { action: 'start', visit_id: jobId, auto_started: !!autoStarted };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
@@ -509,12 +523,7 @@ $extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.is
         var body = { action: 'stop', visit_id: jobId, complete_visit: true };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
@@ -532,12 +541,7 @@ $extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.is
         var body = { action: 'pause', visit_id: jobId };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
-        fetch('/crm/api/job-timer.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        })
+        jobTimerFetch(body)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {

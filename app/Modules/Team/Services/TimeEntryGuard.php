@@ -60,6 +60,24 @@ final class TimeEntryGuard
         return null;
     }
 
+    /**
+     * Message refusing approval while a shift or job timer is still open in the week (Monday
+     * $weekStart), or null when the week may be approved.
+     */
+    public static function approveRefusal(PDO $db, int $userId, string $weekStart): ?string
+    {
+        $weekEnd = date('Y-m-d', strtotime($weekStart . ' +6 days'));
+        $c = $db->prepare("SELECT COUNT(*) FROM time_clock_entries
+                           WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
+                             AND DATE(clock_in) BETWEEN ? AND ?");
+        $c->execute([$userId, $weekStart, $weekEnd]);
+        $t = $db->prepare("SELECT COUNT(*) FROM job_time_entries
+                           WHERE user_id = ? AND status = 'active' AND end_time IS NULL
+                             AND DATE(start_time) BETWEEN ? AND ?");
+        $t->execute([$userId, $weekStart, $weekEnd]);
+        return TimeclockRules::approveBlockedMessage((int)$c->fetchColumn(), (int)$t->fetchColumn());
+    }
+
     /** Recalculate (creating if needed) every week the given datetimes fall in. */
     public static function recalcWeeks(int $userId, array $whens): void
     {

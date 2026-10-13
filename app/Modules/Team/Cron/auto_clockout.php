@@ -98,15 +98,19 @@ foreach ($entries as $entry) {
 
         ensureTimesheetExists((int)$entry['user_id'], $clockInDate);
 
-        // Close any open trip reports for that date
+        // Close any open trip reports for that date at the auto clock-out time (never before the
+        // pre-trip), remarked "auto-closed" — not pre_trip + 8 h, which could be before or after
+        // the shift ended and read as a real post-trip inspection (2026-10-12 review).
         $db->prepare("
             UPDATE vehicle_trip_reports
-            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            SET post_trip_at       = GREATEST(pre_trip_at, DATE_ADD(?, INTERVAL ? HOUR)),
+                end_of_day_remarks = TRIM(CONCAT(COALESCE(end_of_day_remarks, ''),
+                                     ' [auto-closed: shift auto clocked out — no post-trip inspection was done]'))
             WHERE driver_id    = ?
               AND report_date  = ?
               AND pre_trip_at  IS NOT NULL
               AND post_trip_at IS NULL
-        ")->execute([$entry['user_id'], $clockInDate]);
+        ")->execute([$entry['clock_in'], $autoHours, $entry['user_id'], $clockInDate]);
 
         // SMS notification — no URLs, 160 chars max
         if (!empty($entry['phone'])) {

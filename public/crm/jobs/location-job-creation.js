@@ -381,7 +381,7 @@ const LocationJobCreation = {
     reverseGeocode() {
       fetch('/crm/jobs/jobs_create_location_appstack.php?action=reverse_geocode', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
         body: JSON.stringify({
           latitude: this.crewLocation.lat,
           longitude: this.crewLocation.lng
@@ -399,7 +399,7 @@ const LocationJobCreation = {
     findNearbyProperties() {
       fetch('/crm/jobs/jobs_create_location_appstack.php?action=find_nearby_properties', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
         body: JSON.stringify({
           latitude: this.crewLocation.lat,
           longitude: this.crewLocation.lng,
@@ -433,7 +433,7 @@ const LocationJobCreation = {
 
       fetch('/crm/jobs/jobs_create_location_appstack.php?action=get_property_summary', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
         body: JSON.stringify({ property_id: property.id })
       })
         .then(r => r.json())
@@ -471,7 +471,7 @@ const LocationJobCreation = {
 
       fetch('/crm/jobs/jobs_create_location_appstack.php?action=search_clients', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
         body: JSON.stringify({ query: this.newProperty.clientSearch })
       })
         .then(r => r.json())
@@ -557,7 +557,7 @@ const LocationJobCreation = {
     logCrewLocation() {
       fetch('/crm/jobs/jobs_create_location_appstack.php?action=log_crew_location', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
         body: JSON.stringify({
           latitude: this.crewLocation.lat,
           longitude: this.crewLocation.lng,

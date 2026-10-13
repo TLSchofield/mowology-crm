@@ -63,6 +63,15 @@ try {
         exit;
     }
 
+    // Session (cookie) callers send X-CSRF-Token; JWT callers (iOS) are exempt (2026-10-12 review).
+    // Must run before session_write_close() — verifyCSRFToken() reads the session.
+    if (!($jwtUser && !empty($jwtUser['id']))
+        && !verifyCSRFToken((string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid CSRF token — refresh and retry', 'code' => 'CSRF_INVALID']);
+        exit;
+    }
+
     // Release the session lock as early as possible — this endpoint never writes
     // to $_SESSION, and we don't want the heartbeat to block page navigation.
     if (session_status() === PHP_SESSION_ACTIVE) {

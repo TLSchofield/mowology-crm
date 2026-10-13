@@ -1814,7 +1814,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         fetch('/crm/api/truck-ping.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' }
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {

@@ -596,6 +596,21 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     $db = getDB();
     $weekEnd = date('Y-m-d', strtotime($weekStart . ' +6 days'));
 
+    // An approved week keeps the totals that were approved — a cron or late stop closing an entry
+    // in it must not rewrite them silently (2026-10-12 review). Skip, and leave a trail.
+    require_once __DIR__ . '/TimeclockRules.php';
+    $st = $db->prepare("SELECT status FROM timesheets WHERE user_id = ? AND week_start = ?");
+    $st->execute([$userId, $weekStart]);
+    $status = $st->fetchColumn();
+    if (!TimeclockRules::mayRecalculateWeek($status === false ? null : (string)$status)) {
+        $msg = "Approved timesheet not recalculated (user {$userId}, week {$weekStart}) — reopen it to change its hours";
+        error_log('[timesheets] ' . $msg);
+        if (function_exists('logActivity')) {
+            try { logActivity((int)$userId, null, 'timesheet_recalc_skipped_approved', $msg); } catch (Throwable $e) { /* trail only */ }
+        }
+        return;
+    }
+
     // Total shift minutes from clock entries
     $stmt = $db->prepare("
         SELECT COALESCE(SUM(total_minutes), 0) as total

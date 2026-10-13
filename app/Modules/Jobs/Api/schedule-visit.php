@@ -79,6 +79,22 @@ try {
         throw new Exception('Visit is already scheduled to a stop');
     }
 
+    // Who may place a visit on the calendar: the office (schedule.edit / jobs.edit — admins and
+    // managers). A crew member may only put their OWN plan's visit on a day for themselves
+    // (auto_assign_self, plan's default crew = them). 2026-10-12 review: any login could
+    // schedule any visit.
+    $mayEdit = userHasPermission('schedule.edit') || userHasPermission('jobs.edit');
+    if (!$mayEdit) {
+        $ownPlan = !empty($input['auto_assign_self'])
+            && (int)($visit['default_crew_id'] ?? 0) === (int)$user['id'];
+        if (!$ownPlan) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Only the office can schedule this visit']);
+            exit;
+        }
+        $autoAssignSelf = true;
+    }
+
     $propertyId = (int)$visit['property_id'];
 
     $db->beginTransaction();

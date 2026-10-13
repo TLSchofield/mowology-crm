@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Pause plan
     if ($action === 'pause_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $reason = trim($_POST['pause_reason'] ?? '');
         if (pausePlan($planId, $user['id'], $reason)) {
             $message = 'Plan paused. Future scheduled visits have been cancelled.';
@@ -42,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Resume plan
     if ($action === 'resume_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         if (resumePlan($planId, $user['id'])) {
             header("Location: view.php?id={$planId}&resumed=1");
             exit;
@@ -56,9 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         requirePermission('jobs.edit');
 
         // Guard: no completed visits
-        $cvCount = (int)$db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'")
-                            ->execute([$planId]) ? $db->query("SELECT COUNT(*) FROM job_visits WHERE plan_id = " . (int)$planId . " AND status = 'completed'")->fetchColumn() : 0;
-        // Use prepared statement properly
         $cvStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'");
         $cvStmt->execute([$planId]);
         $cvCount = (int)$cvStmt->fetchColumn();
@@ -209,6 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Update tracking overrides
     if ($action === 'update_tracking') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $trackingLevel = $_POST['tracking_level_override'] ?? 'inherit';
         $autoClockIn = $_POST['auto_clock_in_override'] ?? 'inherit';
         $clockIn = $_POST['require_clock_in_override'] ?? 'inherit';
@@ -258,6 +258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Edit plan details
     if ($action === 'edit_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $isRecurring = ($_POST['plan_type'] ?? 'one_time') === 'recurring' ? 1 : 0;
         $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
         $recurrenceInterval = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
@@ -332,6 +333,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Update line items
     if ($action === 'update_line_items') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $formItems = [];
         if (!empty($_POST['items']) && is_array($_POST['items'])) {
             foreach ($_POST['items'] as $item) {
@@ -516,6 +518,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Edit visit
     if ($action === 'edit_visit') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $visitId = intval($_POST['edit_visit_id'] ?? 0);
         $newDate = $_POST['visit_date'] ?? '';
         $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;

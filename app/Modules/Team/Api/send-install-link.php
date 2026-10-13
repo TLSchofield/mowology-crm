@@ -120,9 +120,14 @@ try {
         if (empty($emp['phone'])) {
             $results['sms'] = ['success' => false, 'error' => 'No phone number on file'];
             $anyError = true;
+        } elseif (!($results['email']['success'] ?? false)) {
+            // The text only points at the email — carriers silently drop any SMS with a link
+            // (2026-10-12 review: the old text carried the URL and was recorded as sent).
+            $results['sms'] = ['success' => false, 'error' => 'Text not sent: it points to the email, and the email was not sent'];
+            $anyError = true;
         } else {
-            // SMS must be short — strip to first sentence + URL
-            $smsBody = "Mowology App Install: {$installUrl}";
+            // Plain text, no URL, under 160 characters, office phone as the fallback (SMS rules).
+            $smsBody = 'Mowology: your field app install link is in your email. Questions? Call (778) 846-9273';
 
             $smsResult = sendSms($emp['phone'], $smsBody);
             $results['sms'] = $smsResult;

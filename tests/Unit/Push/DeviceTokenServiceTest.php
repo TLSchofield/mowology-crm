@@ -30,5 +30,7 @@ class DeviceTokenServiceTest extends TestCase
         $this->assertStringContainsString('WHERE device_token = ? AND user_id <> ?', $sql[1]);
         $this->assertSame(2, DeviceTokenService::forget($db, 'tok'));
         $this->assertSame(0, DeviceTokenService::forget($db, ''));
+        DeviceTokenService::forget($db, 'tok', 7);
+        $this->assertStringContainsString('WHERE device_token = ? AND user_id = ? AND is_active = 1', end($sql));
     }
 }

@@ -306,6 +306,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanProfitabilityService.p
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanMaterialsService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanHelpersService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitLifecycleService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/ClusterService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitWorkService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitPhotoService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/FieldJobService.php';

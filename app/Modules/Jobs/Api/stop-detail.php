@@ -175,6 +175,21 @@ try {
 
     $crewIds = array_values(array_filter(array_column($crewList, 'user_id')));
 
+    // Who may see this (2026-10-12 review: every login could read any stop's client contact and
+    // every crew member's live GPS + clock-in): the office (schedule.edit / team.edit) sees all;
+    // crew on this stop see it with only their OWN position and clock-in; anyone else is refused.
+    $isOffice = userHasPermission('schedule.edit') || userHasPermission('team.edit');
+    $me = (int)$user['id'];
+    if (!$isOffice && !in_array($me, array_map('intval', $crewIds), true)) {
+        $own = $db->prepare("SELECT 1 FROM job_visits WHERE stop_id = ? AND assigned_crew_id = ? LIMIT 1");
+        $own->execute([$stopId, $me]);
+        if (!$own->fetchColumn()) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Not your stop']);
+            exit;
+        }
+    }
+
     // ── F: GPS + clock-in per crew (batched, MySQL 5.7 MAX subquery) ─────
     $crewData = [];
     if (!empty($crewIds)) {
@@ -216,6 +231,12 @@ try {
 
             $parts    = explode(' ', $cr['full_name'], 2);
             $initials = strtoupper(substr($parts[0] ?? '', 0, 1) . substr($parts[1] ?? '', 0, 1));
+
+            if (!$isOffice && (int)$cr['user_id'] !== $me) {
+                // Crew see who is on the stop, not where their teammates are or when they clocked in.
+                $gpsLat = $gpsLng = null; $secondsAgo = null; $distKm = null;
+                $cr['clock_in_time'] = null; $cr['accuracy_meters'] = null;
+            }
 
             $crewData[] = [
                 'user_id'         => (int)$cr['user_id'],

@@ -108,7 +108,25 @@ $activePage = 'jobs';
 
 <script>
 (function () {
-    const API = '/api/jobs/clusters.php';
+    // Router URL (/api/jobs/clusters.php never resolved). GETs use ?mode= — ?action= collides with
+    // the router's own action parameter.
+    const API = '/api/jobs/clusters';
+
+    // POSTs carry the CSRF token; a stale one is refreshed from get-csrf.php and retried once.
+    function postApi(body, retried) {
+        return fetch(API, { method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify(body) })
+            .then(r => r.json())
+            .then(data => {
+                if (!retried && data && data.code === 'CSRF_INVALID') {
+                    return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                        .then(t => t.json())
+                        .then(t => { if (t && t.token) window.MW_CSRF_TOKEN = t.token; return postApi(body, true); });
+                }
+                return data;
+            });
+    }
     let allProperties = [];
 
     // ── Boot ────────────────────────────────────────────────────────────
@@ -120,7 +138,7 @@ $activePage = 'jobs';
 
     // ── Suggested ───────────────────────────────────────────────────────
     function loadSuggested() {
-        fetch(API + '?action=detect')
+        fetch(API + '?mode=detect')
             .then(r => r.json())
             .then(data => {
                 const el    = document.getElementById('suggestedList');
@@ -199,7 +217,7 @@ $activePage = 'jobs';
 
     // ── Active ──────────────────────────────────────────────────────────
     function loadActive() {
-        fetch(API + '?action=list')
+        fetch(API + '?mode=list')
             .then(r => r.json())
             .then(data => {
                 const el    = document.getElementById('activeList');
@@ -261,9 +279,7 @@ $activePage = 'jobs';
 
     window.deleteCluster = function(id, name) {
         if (!confirm(`Remove cluster "${name}"? This will not delete any time records.`)) return;
-        fetch(API, { method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ action: 'delete', cluster_id: id }) })
-            .then(r => r.json())
+        postApi({ action: 'delete', cluster_id: id })
             .then(data => { if (data.success) location.reload(); });
     };
 
@@ -280,9 +296,7 @@ $activePage = 'jobs';
 
         if (id) {
             // Edit — no property changes
-            fetch(API, { method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ action: 'update', cluster_id: parseInt(id), name, travel_minutes: travel, notes }) })
-                .then(r => r.json())
+            postApi({ action: 'update', cluster_id: parseInt(id), name, travel_minutes: travel, notes })
                 .then(data => {
                     if (data.success) { $('#createModal').modal('hide'); location.reload(); }
                     else showError(data.message || 'Save failed.');
@@ -292,9 +306,7 @@ $activePage = 'jobs';
             const propIds = checked.map(cb => parseInt(cb.value));
             if (propIds.length < 2) { showError('Select at least 2 properties.'); return; }
 
-            fetch(API, { method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ action: 'create', name, travel_minutes: travel, notes, property_ids: propIds }) })
-                .then(r => r.json())
+            postApi({ action: 'create', name, travel_minutes: travel, notes, property_ids: propIds })
                 .then(data => {
                     if (data.success) { $('#createModal').modal('hide'); location.reload(); }
                     else showError(data.message || 'Save failed.');
@@ -304,7 +316,7 @@ $activePage = 'jobs';
 
     // ── Properties picker ───────────────────────────────────────────────
     function loadProperties() {
-        fetch('/api/properties.php?action=list_active')
+        fetch(API + '?mode=properties')
             .then(r => r.json())
             .then(data => {
                 allProperties = data.properties || [];

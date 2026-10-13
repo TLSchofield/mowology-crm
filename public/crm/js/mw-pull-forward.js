@@ -272,11 +272,10 @@
         var b = { action: 'start', visit_id: visitId };
         var fix = current && current.fix;
         if (fix && fix.lat && fix.lng) { b.lat = fix.lat; b.lng = fix.lng; }
-        return withTimeout(fetch('/crm/api/job-timer.php', {
-            method: 'POST', credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': uuid() },
-            body: JSON.stringify(b)
-        }).then(function (r) { return r.json(); }), REQUEST_TIMEOUT_MS);
+        // job-timer.php needs the CSRF token on session POSTs (2026-10-12) — postJson sends it and
+        // retries once on a stale token; the same Idempotency-Key rides on both attempts.
+        return postJson('/crm/api/job-timer.php', b, { 'Idempotency-Key': uuid() })
+            .then(function (res) { return res.data; });
     }
 
     function afterStart(visitId, data, label, queuedMove) {

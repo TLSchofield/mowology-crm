@@ -121,7 +121,7 @@
   <!-- Shared branded date-picker: instantiate with `new MwDatePicker(trigger, opts)`.
        Styles in mowology-brand.css (.mw-datepicker-*). -->
   <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
-  <script src="/crm/js/time-clock-widget.min.js?v=20261002a"></script>
+  <script src="/crm/js/time-clock-widget.min.js?v=20261012csrf"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20261007p"></script>
   <?php
@@ -134,7 +134,7 @@
       $__pfOn = !empty($user['id']) && VisitPullForwardService::enabledFor(getDB(), (int)$user['id']);
   } catch (Throwable $e) { $__pfOn = false; }
   if ($__pfOn): ?>
-  <script src="/crm/js/mw-pull-forward.js?v=20261008b" defer></script>
+  <script src="/crm/js/mw-pull-forward.js?v=20261012csrf" defer></script>
   <?php endif; unset($__pfOn); ?>
   <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->
   <script src="/crm/js/mw-camera-permission.js?v=20260625a"></script>

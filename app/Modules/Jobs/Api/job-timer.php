@@ -34,6 +34,7 @@ try {
     // both fatals with "Cannot redeclare findNearbyProperties()". This file
     // doesn't call either variant, so it never needed the include.
 
+    $isJwt = strpos($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '', 'Bearer ') === 0;
     $user = requireLoginOrJwt();
     requirePermission('timer.start');
 
@@ -44,8 +45,42 @@ try {
         $action = $_GET['action'] ?? '';
     } else {
         $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) $input = [];
         $action = $input['action'] ?? '';
+
+        // Session POSTs carry the CSRF token (X-CSRF-Token header or csrf_token in the body);
+        // JWT callers (iOS) are exempt. A stale token answers CSRF_INVALID so the page refreshes
+        // it from /crm/api/get-csrf.php and retries once (2026-10-12 review, as visit-pull-forward).
+        if (!$isJwt) {
+            $token = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $input['csrf_token'] ?? '');
+            if (!verifyCSRFToken($token)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token — refresh and retry', 'code' => 'CSRF_INVALID']);
+                exit;
+            }
+        }
     }
+
+    // Plan time log / GPS pings show every crew member's on-site times and positions — office only
+    // (2026-10-12 review: any login could read anyone's GPS trail through these).
+    if (in_array($action, ['plan_time_log', 'gps_pings'], true)
+        && !array_filter(['schedule.edit', 'team.edit'], function ($p) use ($isJwt, $user) {
+               return $isJwt ? jwtUserHasPermission($user, $p) : userHasPermission($p);
+           })) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Not allowed']);
+        exit;
+    }
+
+    // When the phone says it happened: client_time (ISO) from the app, else the web offline
+    // queue's X-Queued-At (ms). OfflineTime::accept() decides whether to trust it.
+    $clientTime = null;
+    if (!empty($input['client_time'])) {
+        $clientTime = (string)$input['client_time'];
+    } elseif (!empty($_SERVER['HTTP_X_QUEUED_AT']) && ctype_digit((string)$_SERVER['HTTP_X_QUEUED_AT'])) {
+        $clientTime = date('c', intdiv((int)$_SERVER['HTTP_X_QUEUED_AT'], 1000));
+    }
+    $isQueued = !empty($input['queued']) || !empty($_SERVER['HTTP_X_QUEUED_AT']);
 
     switch ($action) {
         case 'active':
@@ -100,27 +135,35 @@ try {
                 $idempKey !== '' || !empty($_SERVER['HTTP_X_QUEUED_AT']),
                 $_SERVER['HTTP_X_QUEUED_AT'] ?? null, $autoStarted ? 'auto_start' : 'start', 'error');
 
-            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
+            // Queued offline? Record when it was tapped, not when it arrived (OfflineTime) —
+            // same rule as app/Modules/Schedule/Api/timer.php.
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $when = OfflineTime::accept($clientTime, date('Y-m-d H:i:s'));
+            if ($when['reject']) {   // over 7 days old: record nothing (the office enters it by hand)
+                if (function_exists('logActivity')) logActivity($user['id'], null, 'job_start_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
+            $tapped = $when['from_phone'] ? $when['at'] : null;
 
-            // Auto clock-in globally if user is not already clocked in
+            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted, $tapped, $isQueued);
+            if ($isQueued && ($lat === null || $lng === null)) {
+                $when['note'] = trim(($when['note'] ?? '') . ' No location (offline).');
+            }
+            if ($when['note']) {
+                getDB()->prepare("UPDATE job_time_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
+                       ->execute([$when['note'], $entryId]);
+            }
+
+            // Auto clock-in globally if user is not already clocked in — through clockIn(), at the
+            // same tapped time as the timer.
             $autoClockInPerformed = false;
             $autoClockInTime      = null;
             try {
-                if (!isset($db)) $db = getDB();
-                $ckChk = $db->prepare(
-                    "SELECT id FROM time_clock_entries
-                     WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
-                     LIMIT 1"
-                );
-                $ckChk->execute([$user['id']]);
-                if (!$ckChk->fetch()) {
-                    $db->prepare(
-                        "INSERT INTO time_clock_entries
-                         (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
-                         VALUES (?, NOW(), ?, ?, 'active', NOW())"
-                    )->execute([$user['id'], $lat, $lng]);
+                if (!getActiveClockEntry($user['id'])) {
+                    clockIn($user['id'], $lat, $lng, false, $tapped);
                     $autoClockInPerformed = true;
-                    $autoClockInTime      = date('Y-m-d H:i:s');
+                    $autoClockInTime      = $when['at'];
                 }
             } catch (Exception $e) {
                 // Non-fatal — timer already started successfully
@@ -137,7 +180,8 @@ try {
                 'message' => 'Visit timer started',
                 'entry_id' => $entryId,
                 'visit_id' => $visitId,
-                'start_time' => date('Y-m-d H:i:s'),
+                'start_time' => $when['at'],
+                'time_flag' => $when['flag'],
                 'auto_started' => $autoStarted,
                 'auto_clock_in' => (bool)($trackingReqs['auto_clock_in'] ?? false),
                 'tracking_level' => $trackingReqs['tracking_level'] ?? 'standard',
@@ -179,7 +223,23 @@ try {
             $notes = $input['notes'] ?? null;
             $completeVisit = $input['complete_visit'] ?? true;
 
-            $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit);
+            // Queued offline? The stop counts from when it was tapped — never before this
+            // person's own timer started (OfflineTime notBefore).
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $ownStart = getDB()->prepare("SELECT MAX(start_time) FROM job_time_entries
+                                          WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL");
+            $ownStart->execute([$visitId, $user['id']]);
+            $startedAt = $ownStart->fetchColumn() ?: null;
+            $when = OfflineTime::accept($clientTime, date('Y-m-d H:i:s'), $startedAt ? (string)$startedAt : null);
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($user['id'], null, 'job_stop_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
+            if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
+
+            $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit,
+                                       $when['from_phone'] ? $when['at'] : null);
 
             // Special-request extra work answered before completion goes on the visit's extras now.
             if ($completeVisit) {

@@ -51,4 +51,28 @@ final class TimeclockRulesTest extends TestCase
         // Sunday 2026-10-11 → week of Oct 5; moved to Monday Oct 12 → week of Oct 12: both recalculated.
         $this->assertSame(['2026-10-05', '2026-10-12'], TimeclockRules::weekStarts(['2026-10-11 20:00:00', '2026-10-12 06:00:00', null]));
     }
+
+    public function testApprovedWeekIsNeverRecalculated(): void
+    {
+        $this->assertFalse(TimeclockRules::mayRecalculateWeek('approved'));
+        $this->assertTrue(TimeclockRules::mayRecalculateWeek('pending'));
+        $this->assertTrue(TimeclockRules::mayRecalculateWeek('submitted'));
+        $this->assertTrue(TimeclockRules::mayRecalculateWeek(null));
+    }
+
+    public function testWeekWithOpenWorkCannotBeApproved(): void
+    {
+        $this->assertNull(TimeclockRules::approveBlockedMessage(0, 0));
+        $this->assertStringContainsString('a shift still clocked in', (string)TimeclockRules::approveBlockedMessage(1, 0));
+        $this->assertStringContainsString('2 job timers still running', (string)TimeclockRules::approveBlockedMessage(0, 2));
+        $this->assertStringContainsString(' and ', (string)TimeclockRules::approveBlockedMessage(1, 1));
+    }
+
+    public function testCronClosedTimerIsCappedAtTheShiftOrTwelveHours(): void
+    {
+        $this->assertSame(480, TimeclockRules::cappedTimerMinutes(1300, 480));      // shift 8 h
+        $this->assertSame(720, TimeclockRules::cappedTimerMinutes(1300, null));     // no shift → 12 h
+        $this->assertSame(90, TimeclockRules::cappedTimerMinutes(90, 480));         // under the cap
+        $this->assertSame(0, TimeclockRules::cappedTimerMinutes(-5, null));
+    }
 }
