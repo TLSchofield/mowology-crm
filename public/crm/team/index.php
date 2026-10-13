@@ -432,7 +432,7 @@ $activePage = 'team';
                         <div class="form-group">
                             <label>Password <span class="text-danger">*</span></label>
                             <input type="password" class="form-control" name="password" id="empPassword"
-                                   minlength="8" placeholder="Min. 8 characters"
+                                   minlength="12" placeholder="Min. 12 characters"
                                    autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                             <small class="form-text text-muted">Employee will use this to log in.</small>
                         </div>

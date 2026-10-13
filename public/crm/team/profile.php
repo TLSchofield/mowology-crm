@@ -571,8 +571,8 @@ if ($apiKey) {
                                 <div class="col-sm-12">
                                     <div class="form-group">
                                         <label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
-                                        <input type="password" class="form-control" name="password" minlength="8"
-                                               placeholder="Min. 8 characters"
+                                        <input type="password" class="form-control" name="password" minlength="12"
+                                               placeholder="Min. 12 characters"
                                                autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                                     </div>
                                 </div>

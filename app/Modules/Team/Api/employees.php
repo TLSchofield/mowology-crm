@@ -29,6 +29,7 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/EmployeeAccountService.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -174,7 +175,7 @@ try {
             if (!$firstName) throw new Exception('First name is required');
             if (!$lastName) throw new Exception('Last name is required');
             if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Valid email is required');
-            if (strlen($password) < 8) throw new Exception('Password must be at least 8 characters');
+            if (strlen($password) < PasswordChangeRules::MIN_LENGTH) throw new Exception('Password must be at least ' . PasswordChangeRules::MIN_LENGTH . ' characters');
             if (!in_array($role, ['admin', 'manager', 'user'])) throw new Exception('Invalid role');
             // Managers may create crew and managers; only users.manage (admins) may create an admin — a manager
             // must not be able to mint an admin account (Fable review 2026-10-12; Tim: admin and manager edit).
@@ -216,6 +217,10 @@ try {
             ]);
 
             $newId = (int)$db->lastInsertId();
+            // Every new account gets the RBAC role matching its role — staff for crew, manager, admin — so
+            // nobody runs on the legacy fallback list (#3, Fable audit 2026-10-12).
+            $rbacRole = EmployeeAccountService::assignRbacRole($db, $newId, $role);
+            logActivity($user['id'], null, 'Created employee #' . $newId, 'role: ' . $role . ' (RBAC ' . ($rbacRole ?? 'none') . '), email: ' . $email);
             echo json_encode(['success' => true, 'message' => 'Employee created successfully', 'employee_id' => $newId]);
             break;
 
@@ -227,18 +232,25 @@ try {
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Employee ID required');
 
-            $checkStmt = $db->prepare("SELECT id, role, is_active FROM users WHERE id = ?");
+            $checkStmt = $db->prepare("SELECT id, email, role, is_active FROM users WHERE id = ?");
             $checkStmt->execute([$id]);
             $target = $checkStmt->fetch(PDO::FETCH_ASSOC);
             if (!$target) throw new Exception('Employee not found');
             // Admins and managers both edit staff (Tim, 2026-10-12). What needs users.manage (admins) is anything
-            // touching an admin: editing an admin account, or making someone an admin. team.edit is held by
-            // managers, who could otherwise promote themselves, reset Tim's password or deactivate him (Fable
-            // review 2026-10-12). Fields sent unchanged are fine.
-            if (!userHasPermission('users.manage')) {
-                if ($target['role'] === 'admin') throw new Exception('Only an admin can edit an admin account');
-                if (isset($input['role']) && $input['role'] === 'admin') throw new Exception('Only an admin can make someone an admin');
-            }
+            // touching an admin (legacy role OR RBAC admin role), making someone an admin, or changing someone
+            // else's email (the reset link goes there). Passwords follow PasswordChangeRules — 12 characters, an
+            // admin's only by an admin (#11, Fable audit 2026-10-12). Fields sent unchanged are fine.
+            $refusal = EmployeeAccountService::updateRefusal(
+                $target,
+                $input,
+                EmployeeAccountService::isAdminTarget($db, $id),
+                $id === (int)$user['id'],
+                $canEdit,
+                userHasPermission('users.manage'),
+                RoleRules::isAdmin($user['role'] ?? '')
+            );
+            if ($refusal !== null) throw new Exception($refusal);
+            $audited = [];
 
             $updates = [];
             $params  = [];
@@ -267,12 +279,14 @@ try {
                 $emailCheck->execute([trim($input['email']), $id]);
                 if ($emailCheck->fetch()) throw new Exception('Email already in use by another employee');
                 $updates[] = 'email = ?'; $params[] = trim($input['email']);
+                $audited['email'] = trim($input['email']);
             }
             if (isset($input['phone'])) {
                 $updates[] = 'phone = ?'; $params[] = trim($input['phone']) ?: null;
             }
             if (isset($input['role']) && in_array($input['role'], ['admin', 'manager', 'user'])) {
                 $updates[] = 'role = ?'; $params[] = $input['role'];
+                $audited['role'] = $input['role'];
             }
             if (isset($input['hourly_rate'])) {
                 $updates[] = 'hourly_rate = ?';
@@ -289,6 +303,7 @@ try {
             }
             if (isset($input['is_active'])) {
                 $updates[] = 'is_active = ?'; $params[] = $input['is_active'] ? 1 : 0;
+                $audited['is_active'] = $input['is_active'] ? '1' : '0';
             }
             if (isset($input['location_tracking_enabled'])) {
                 $updates[] = 'location_tracking_enabled = ?'; $params[] = $input['location_tracking_enabled'] ? 1 : 0;
@@ -338,14 +353,29 @@ try {
                 }
                 $updates[] = 'assigned_truck_user_id = ?'; $params[] = $truckId;
             }
-            if (!empty($input['password']) && strlen($input['password']) >= 8) {
-                $updates[] = 'password_hash = ?'; $params[] = hashPassword($input['password']);
+            $newHash = null;
+            if (!empty($input['password'])) {   // length + admin rule checked above (PasswordChangeRules)
+                $newHash = hashPassword((string)$input['password']);
+                $updates[] = 'password_hash = ?'; $params[] = $newHash;
             }
 
             if (empty($updates)) throw new Exception('No changes provided');
 
             $params[] = $id;
             $db->prepare("UPDATE users SET " . implode(', ', $updates) . " WHERE id = ?")->execute($params);
+
+            if (isset($audited['role']) && $audited['role'] !== (string)$target['role']) {
+                // Permissions come from RBAC once a user has roles — keep the matching role in step.
+                EmployeeAccountService::syncRbacRoleOnChange($db, $id, (string)$target['role'], (string)$audited['role']);
+            }
+            if ($newHash !== null && $id === (int)$user['id']) {
+                // Own password: keep this session (others end on their next check — #12).
+                $_SESSION['pwd_v'] = AuthFreshness::passwordVersion($newHash);
+            }
+            $changeLines = EmployeeAccountService::changeLog($target, $audited, $newHash !== null);
+            if ($changeLines) {
+                logActivity($user['id'], null, 'Changed employee #' . $id . ' account', implode('; ', $changeLines));
+            }
 
             echo json_encode(['success' => true, 'message' => 'Employee updated successfully']);
             break;

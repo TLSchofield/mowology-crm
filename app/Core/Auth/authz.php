@@ -148,8 +148,14 @@ function _legacyPermissions(int $userId): array
                 'settings.view',
             ];
 
+        // Crew — every other role string (staff, technician, user, team_member, unknown). Mirrors the
+        // production 'staff' RBAC role. Never billing.* or anything office-only: a crew login with no
+        // RBAC rows used to get billing.view here and could export every invoice (#3, Fable audit 2026-10-12).
         case 'staff':
         case 'technician':
+        case 'user':
+        case 'team_member':
+        default:
             return [
                 'jobs.view', 'jobs.create_field',
                 'schedule.view',
@@ -160,21 +166,6 @@ function _legacyPermissions(int $userId): array
                 'portfolio.view',
                 'team.view',
                 'expenses.view', 'expenses.edit',
-            ];
-
-        case 'user':
-        default:
-            return [
-                'jobs.view', 'jobs.create_field',
-                'schedule.view',
-                'timer.start', 'timer.stop',
-                'photos.upload',
-                'clients.view',
-                'billing.view',
-                'products.view',
-                'portfolio.view',
-                'team.view',
-                'expenses.view',
             ];
     }
 }

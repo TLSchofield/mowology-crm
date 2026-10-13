@@ -81,11 +81,11 @@ $csrfToken = generateCSRFToken();
                 </div>
                 <div class="col-md-4">
                     <label for="ob_password" class="form-label">Password <span class="text-danger">*</span></label>
-                    <input type="password" class="form-control" id="ob_password" minlength="8" placeholder="Min 8 characters">
+                    <input type="password" class="form-control" id="ob_password" minlength="12" placeholder="Min 12 characters">
                 </div>
                 <div class="col-md-4">
                     <label for="ob_password_confirm" class="form-label">Confirm Password <span class="text-danger">*</span></label>
-                    <input type="password" class="form-control" id="ob_password_confirm" minlength="8">
+                    <input type="password" class="form-control" id="ob_password_confirm" minlength="12">
                 </div>
             </div>
         </div>
@@ -306,7 +306,7 @@ $csrfToken = generateCSRFToken();
                 if (!firstName) { showError('First name is required.'); return; }
                 if (!lastName) { showError('Last name is required.'); return; }
                 if (!email) { showError('Email address is required.'); return; }
-                if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
+                if (password.length < 12) { showError('Password must be at least 12 characters.'); return; }
                 if (password !== confirm) { showError('Passwords do not match.'); return; }
 
                 showStep(2);
