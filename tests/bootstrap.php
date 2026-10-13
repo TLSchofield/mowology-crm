@@ -64,6 +64,7 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AuditDiff.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AuditTrail.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaSecurityRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaSecurityWatch.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AuditExportService.php';
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
