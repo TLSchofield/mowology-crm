@@ -79,14 +79,34 @@ class CertificationService
         int $examSessionId,
         int $questionId,
         ?int $selectedOptionId,
-        int $timeTaken
+        int $timeTaken,
+        int $userId
     ): array {
-        $session = $this->getExamSession($examSessionId);
+        // Only the person sitting the exam answers it, only its own questions, once each
+        // (Fable review 2026-10-12: anyone could answer any session, any question, repeatedly).
+        $session = $this->getExamSession($examSessionId, $userId);
         if (!$session) {
             throw new \RuntimeException('Exam session not found.');
         }
         if ($session['passed'] !== null) {
             throw new \RuntimeException('Exam is already completed.');
+        }
+        if (!in_array($questionId, self::sessionQuestionIds($session), true)) {
+            throw new \RuntimeException('That question is not part of this exam.');
+        }
+        $dup = $this->db->prepare(
+            "SELECT COUNT(*) FROM cert_exam_answers WHERE exam_session_id = ? AND question_id = ?"
+        );
+        $dup->execute([$examSessionId, $questionId]);
+        if ((int)$dup->fetchColumn() > 0) {
+            throw new \RuntimeException('That question has already been answered.');
+        }
+        if ($selectedOptionId !== null) {
+            $own = $this->db->prepare("SELECT COUNT(*) FROM quiz_options WHERE id = ? AND question_id = ?");
+            $own->execute([$selectedOptionId, $questionId]);
+            if ((int)$own->fetchColumn() === 0) {
+                throw new \RuntimeException('That answer does not belong to this question.');
+            }
         }
 
         // Get correct option
@@ -621,12 +641,28 @@ class CertificationService
         return $row ?: null;
     }
 
-    private function getExamSession(int $sessionId): ?array
+    /**
+     * An exam session — only when it belongs to $userId (null = any owner; internal use only).
+     */
+    private function getExamSession(int $sessionId, ?int $userId = null): ?array
     {
         $stmt = $this->db->prepare("SELECT * FROM cert_exam_sessions WHERE id = ? LIMIT 1");
         $stmt->execute([$sessionId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ?: null;
+        if (!$row) return null;
+        if ($userId !== null && (int)$row['user_id'] !== $userId) return null;
+        return $row;
+    }
+
+    /** @return int[] the question ids drawn for this session */
+    public static function sessionQuestionIds(array $session): array
+    {
+        $ids = [];
+        foreach (explode(',', (string)($session['question_ids'] ?? '')) as $q) {
+            $q = (int)trim($q);
+            if ($q > 0) $ids[] = $q;
+        }
+        return $ids;
     }
 
     private function getTierLevel(int $tierId): int

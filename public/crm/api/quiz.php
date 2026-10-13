@@ -63,8 +63,10 @@ function postInput(): array
 
 function verifyCsrf(array $input): void
 {
-    if (function_exists('verifyCSRFToken')) {
-        verifyCSRFToken($input['csrf_token'] ?? '');
+    // The result used to be ignored, so any page could post here as the user (Fable review 2026-10-12).
+    $token = (string)($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($token)) {
+        qErr('Invalid CSRF token', 403);
     }
 }
 
@@ -839,6 +841,11 @@ switch ($action) {
         $session = $sess->fetch(PDO::FETCH_ASSOC);
         if (!$session) qErr('Session not found or already complete', 404);
 
+        // Question membership — same guard as app/Modules/Quiz/Api/answer.php: an answer
+        // for a question outside the session would farm mastery on arbitrary questions.
+        $sessionQids = array_map('intval', explode(',', (string)($session['question_ids'] ?? '')));
+        if (!in_array($questionId, $sessionQids, true)) qErr('Question not part of this session', 403);
+
         $dup = $db->prepare("SELECT id FROM quiz_answers WHERE session_id=? AND question_id=?");
         $dup->execute([$sessionId, $questionId]);
         if ($dup->fetch()) qErr('Already answered this question');
@@ -1412,6 +1419,23 @@ switch ($action) {
         $sessionId = (int)($input['session_id'] ?? 0);
         $correct   = max(0, (int)($input['questions_correct'] ?? 0));
         $asked     = max(1, (int)($input['questions_asked'] ?? 3));
+        if ($sessionId > 0) {
+            // The score comes from the caller's own session, never from the numbers posted
+            // (Fable review 2026-10-12). Not tied to completed_at: the app posts this in
+            // parallel with 'finish', so the answers are the record.
+            $own = $db->prepare("SELECT questions_count FROM quiz_sessions WHERE id = ? AND user_id = ?");
+            $own->execute([$sessionId, $userId]);
+            $ownRow = $own->fetch(PDO::FETCH_ASSOC);
+            if (!$ownRow) qErr('Session not found', 404);
+            $agg = $db->prepare("SELECT COUNT(*) AS answered, COALESCE(SUM(is_correct), 0) AS correct FROM quiz_answers WHERE session_id = ?");
+            $agg->execute([$sessionId]);
+            $aggRow  = $agg->fetch(PDO::FETCH_ASSOC) ?: ['answered' => 0, 'correct' => 0];
+            if ((int)$aggRow['answered'] === 0) qErr('No answers recorded for this session');
+            $asked   = max(1, (int)$ownRow['questions_count'], (int)$aggRow['answered']);
+            $correct = min($asked, (int)$aggRow['correct']);
+        }
+        // No session id = an offline quiz synced later (mw-quiz-offline.js); its numbers are
+        // still the device's (listed for Tim).
         $pct       = (int)round($correct / $asked * 100);
 
         // INSERT IGNORE — idempotent, safe to call twice on same day

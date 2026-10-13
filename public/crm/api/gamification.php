@@ -70,7 +70,12 @@ try {
         }
     } elseif ($method === 'POST') {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        verifyCSRFToken($input['csrf_token'] ?? '');
+        // The check's result used to be ignored (Fable review 2026-10-12).
+        if (!verifyCSRFToken((string)($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')))) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
         session_write_close();
 
         switch ($action) {

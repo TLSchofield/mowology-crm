@@ -68,6 +68,9 @@ try {
          FROM quiz_questions q
          JOIN quiz_categories c ON c.id = q.category_id
          WHERE q.is_active = 1
+           -- Certification exam questions never leave the server with their answers
+           -- (Fable review 2026-10-12: the offline bundle shipped is_correct for them).
+           AND q.id NOT IN (SELECT ccq.question_id FROM cert_course_questions ccq)
          ORDER BY q.category_id, q.id"
     );
     $rawQuestions = $qStmt->fetchAll(PDO::FETCH_ASSOC);

@@ -241,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $timeTaken  = (int)($input['time_taken_seconds'] ?? 0);
             if (!$sessionId || !$questionId) certErr('exam_session_id and question_id required');
             try {
-                $result = $certSvc->submitAnswer($sessionId, $questionId, $optionId, $timeTaken);
+                $result = $certSvc->submitAnswer($sessionId, $questionId, $optionId, $timeTaken, (int)$userId);
                 certOk($result);
             } catch (\RuntimeException $e) {
                 certErr($e->getMessage());
