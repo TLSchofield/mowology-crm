@@ -45,16 +45,16 @@ if (!empty($_POST['website'])) {
 }
 
 // ── Input collection & sanitisation ───────────────────────────────────────
-$name      = trim(strip_tags($_POST['name']      ?? ''));
-$email     = trim($_POST['email']     ?? '');
-$phone     = trim(strip_tags($_POST['phone']     ?? ''));
-$message   = trim(strip_tags($_POST['message']   ?? ''));
-$formId    = trim(strip_tags($_POST['form_id']   ?? 'cms-contact'));
-$sourceUrl = trim($_POST['source_url'] ?? '');
-$ip        = $_SERVER['HTTP_CF_CONNECTING_IP']
-          ?? $_SERVER['HTTP_X_FORWARDED_FOR']
-          ?? $_SERVER['REMOTE_ADDR']
-          ?? '';
+// Fable review 2026-10-12: fields clipped, IP = REMOTE_ADDR only (forwarded headers are spoofable).
+require_once APP_ROOT . '/Modules/CMS/Services/CmsFormSubmitRules.php';
+$f         = CmsFormSubmitRules::fields($_POST);
+$name      = $f['name'];
+$email     = $f['email'];
+$phone     = $f['phone'];
+$message   = $f['message'];
+$formId    = $f['form_id'];
+$sourceUrl = $f['source_url'];
+$ip        = CmsFormSubmitRules::clientIp($_SERVER);
 
 // ── Validation ─────────────────────────────────────────────────────────────
 $errors = [];
@@ -73,6 +73,17 @@ if (!empty($errors)) {
 try {
     $db = getDB();
 
+    // Rate limit: 3 per IP per 24 h (same rule as privacy-submit).
+    if ($ip !== '') {
+        $rc = $db->prepare("SELECT COUNT(*) FROM cms_form_submissions WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)");
+        $rc->execute([$ip]);
+        if (CmsFormSubmitRules::overLimit((int)$rc->fetchColumn())) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => 'Thanks — we already have your message. Please call (778) 846-9273 if it is urgent.']);
+            exit;
+        }
+    }
+
     $db->prepare("
         INSERT INTO cms_form_submissions
             (form_id, name, email, phone, message, source_url, ip_address, created_at)
@@ -89,10 +100,11 @@ try {
 
     $submissionId = (int)$db->lastInsertId();
 
-    // ── Optional: send notification email ─────────────────────────────────
-    // Only if sendCrmEmail is available (messaging.php loaded)
+    // ── Notification email ────────────────────────────────────────────────
+    // messaging.php was never loaded here, so the admin notice silently never fired (Fable 2026-10-12).
+    require_once CRM_INCLUDES . '/messaging.php';
     if (function_exists('sendCrmEmail')) {
-        $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : 'admin@mowology.ca';
+        $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : 'office@mowology.ca'; // same inbox as rebook notices
         $subject    = 'New Website Enquiry — ' . $formId;
         $body = '<h3>New Form Submission</h3>'
               . '<p><strong>Form:</strong> ' . htmlspecialchars($formId) . '</p>'
