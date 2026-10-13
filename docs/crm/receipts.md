@@ -310,6 +310,7 @@ and where they come from:
 | Rename (`line_item_name`), "not an item" (`line_item_noise`), manual add (`line_item_missed`) | Review card save on every client (`ocr_name` / `removed` / `manual` flags per item → `recordLineItemCorrectionsFromPayload()`), and post-save edits via `ExpenseLineItemService` (web modal + iOS `expense-line-items.php`) | `applyLineItemLearning()` — drops noise, renames misreads (≥2 sightings); `deriveLineItemPatterns()` fills `vendor_parse_profiles.noise_patterns` / `barcode_length` which `extractLineItems()` reads |
 | SKU → product (`vendor_product_skus`) | Every save records SKU→name; a product link records SKU→product | `applyLineItemLearning()` auto-links `product_id` by SKU, then by `vendor_products` name/alias; `matchVendorProducts()` step 5 links by confident catalog match |
 | Purchase history (`expense_line_items` names per vendor) | — | `extractLineItems()` queues a bare line matching a known name; the LLM tier gets the list as its dictionary |
+| Layout taught by Penny (`line_item_layout`, 2026-10-13): printed anchor line key → item name + where its amount sits (`learned_pattern` `{"off","idx"}`) | An approved receipt whose items came from Penny (`line_items_source = 'penny'`) and differ from the reader's → `teachReaderFromPenny()` (from `ExpenseGateHooks::learnConfirmed`) → `recordLineLayoutLessons()`; one owner approval teaches it | `parseReceiptText()` via `getVendorLineItemProfile()['layout']` → `applyLineLayout()` / `mergeLayoutItems()` — used when it adds up to the subtotal, before the quality gate (so no Vision/LLM escalation) |
 | Items-sum vs subtotal (`line_items_quality`) | `assessLineItemQuality()` in `parseReceiptText()` | `ReceiptLineItemIntelligence.php`: Tesseract→Vision re-OCR, then the LLM tier, only when items don't add up; `line_item_accuracy` feeds `getVendorTesseractThreshold()` |
 
 **LLM tier** (`app/Services/Receipts/ReceiptLlmExtractor.php`): line items only, never
@@ -324,6 +325,18 @@ missed item before saving; the desktop review panel does the same inline. After 
 the desktop edit modal and the iOS detail sheet edit, delete, add and link items through
 the same service. `raw_ocr_json` may be a JSON Vision blob after a rescan —
 `ocrTextFromStored()` recovers the text before any re-parse.
+
+### Penny's read on the receipt screens (2026-10-13)
+
+When Penny has a pending suggestion for a receipt, the iPhone detail and the web/Android
+expense modal show it where it differs from the receipt — each field with her reason, her
+items beside the receipt's, her notes — with **Use Penny's version** (through
+`BookkeeperDeskService::decide()`, her items replace the reader's; approvers also approve,
+crew on their own open receipt leave it for the office) and **Keep mine** (approvers; her
+suggestion is closed as `kept` and not prepared again). `PennyReadService`; JWT
+`bookkeeper-mobile` `mode=suggestion|penny_apply|penny_keep`, web `expenses.php`
+`penny_read|penny_apply|penny_keep`. Why: Chevron #424 — the reader kept two "CRF 0.07"
+lines and guessed Fuel, and her correct read was only on the desktop card.
 
 ## Line items
 
