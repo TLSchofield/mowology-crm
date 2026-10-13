@@ -7,14 +7,14 @@
 require_once __DIR__ . '/auth.php';
 
 if (!isLoggedIn()) {
-    header('Location: login.php');
+    header('Location: /loginAuth/login.php');
     exit();
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
     && verifyCSRFToken((string)($_POST['csrf_token'] ?? $_POST['csrf'] ?? ''))) {
     logoutUser();
-    header('Location: login.php');
+    header('Location: /loginAuth/login.php');
     exit();
 }
 

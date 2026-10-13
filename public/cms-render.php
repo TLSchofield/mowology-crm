@@ -121,6 +121,12 @@ try {
             . '; db-now=' . (int)($__meta['db_now'] ?? 0) . '; php-now=' . time());
     }
     if ($cachedHtml !== null) {
+        // The cached HTML carries the nonce of the render that cached it. Give this response a fresh nonce,
+        // swap it into the cached scripts and send the CSP header — head.php never runs on a cache hit,
+        // so without this cached pages went out with no CSP at all (deploy check 2026-10-13).
+        require_once APP_ROOT . '/Core/Csp.php';
+        $cachedHtml = preg_replace('/\bnonce="[A-Za-z0-9_\-]+"/', 'nonce="' . MwCsp::nonce() . '"', $cachedHtml);
+        MwCsp::send();
         echo $cachedHtml;
         exit;
     }
