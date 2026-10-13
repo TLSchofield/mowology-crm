@@ -450,9 +450,34 @@ try {
                 $params[] = !empty($data['icon_set_id']) ? (int)$data['icon_set_id'] : null;
             }
 
+            // Price audit (Fable audit #25, 2026-10-12): record what the price was and what it became.
+            $priceFields = $hasMinPrice ? ['base_price', 'min_price', 'base_cost'] : ['base_price', 'base_cost'];
+            $priceBefore = null;
+            try {
+                $pb = $db->prepare("SELECT name, " . implode(', ', $priceFields) . " FROM products WHERE id = ?");
+                $pb->execute([$data['id']]);
+                $priceBefore = $pb->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (\Throwable $e) {
+                error_log('[api-products] price snapshot failed for product #' . (int)$data['id'] . ': ' . $e->getMessage());
+            }
+
             $params[] = $data['id'];
             $stmt = $db->prepare("UPDATE products SET {$setClauses} WHERE id = ?");
             $stmt->execute($params);
+
+            if ($priceBefore !== null) {
+                require_once APP_ROOT . '/Modules/Technology/Services/AuditDiff.php';
+                $priceAfter = [
+                    'base_price' => $data['base_price'] ?? 0,
+                    'min_price'  => !empty($data['min_price']) ? $data['min_price'] : null,
+                    'base_cost'  => $data['base_cost'] ?? 0,
+                ];
+                $priceChanges = AuditDiff::changes($priceBefore, $priceAfter, $priceFields, $priceFields);
+                if ($priceChanges && function_exists('logActivityExtended')) {
+                    logActivityExtended((int)$user['id'], 'Product price changed',
+                        'Product #' . (int)$data['id'] . ' ' . (string)$priceBefore['name'] . ': ' . AuditDiff::describe($priceChanges));
+                }
+            }
 
             (new FieldRecommendationService($db))->applyProductFlags((int)$data['id'], $data);
 

@@ -325,7 +325,14 @@ class InvoiceReconciliationService
                         ")->execute([$newPaid, $newBalance, $newStatus, $alloc['invoice_id']]);
                         $this->upsertInvoiceIncomeRow((int)$alloc['invoice_id']);
                     }
-                    $reversed[] = ['invoice_id' => (int)$alloc['invoice_id'], 'amount' => (float)$alloc['amount']];
+                    $reversed[] = [
+                        'invoice_id'     => (int)$alloc['invoice_id'],
+                        'invoice_number' => (string)$inv['invoice_number'],
+                        'amount'         => (float)$alloc['amount'],
+                        // Before → after for the audit trail (Fable audit #25, 2026-10-12).
+                        'before'         => ['status' => $inv['status'], 'amount_paid' => $inv['amount_paid'], 'balance_due' => $inv['balance_due']],
+                        'after'          => ['status' => $newStatus, 'amount_paid' => $newPaid <= 0.005 ? 0 : $newPaid, 'balance_due' => $newPaid <= 0.005 ? $total : $newBalance],
+                    ];
                 }
 
                 $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")
@@ -340,6 +347,11 @@ class InvoiceReconciliationService
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
+        }
+
+        // Audit after commit: every caller (Reconcile page, income clean-up undo) is covered.
+        foreach ($reversed as $r) {
+            self::audit($userId, 'Payment detached', self::detachAuditLine($transactionId, $r), (int)$r['invoice_id']);
         }
 
         return ['reversed' => $reversed, 'deposit_remaining' => $this->remainingForDeposit($transactionId)];
@@ -1322,6 +1334,24 @@ class InvoiceReconciliationService
         );
         $stmt->execute([$txId]);
         return round((float)$stmt->fetchColumn(), 2);
+    }
+
+    /** Pure: the activity_log line for one unapplied allocation, before → after. */
+    public static function detachAuditLine(int $transactionId, array $r): string
+    {
+        require_once dirname(__DIR__, 2) . '/Technology/Services/AuditDiff.php';
+        $f = ['status', 'amount_paid', 'balance_due'];
+        $diff = AuditDiff::describe(AuditDiff::changes($r['before'] ?? [], $r['after'] ?? [], $f, ['amount_paid', 'balance_due']));
+        return 'Bank deposit #' . $transactionId . ' detached from invoice ' . ($r['invoice_number'] ?? ('#' . $r['invoice_id']))
+             . ': $' . number_format((float)$r['amount'], 2) . ' unapplied' . ($diff !== '' ? ' — ' . $diff : '');
+    }
+
+    /** Writes an activity_log row when the CRM's logger is loaded (it is not in unit tests). */
+    private static function audit(int $userId, string $action, string $details, ?int $invoiceId): void
+    {
+        if (function_exists('logActivityExtended')) {
+            logActivityExtended($userId, $action, $details, null, null, null, $invoiceId);
+        }
     }
 
     private function lockInvoice(int $invoiceId): ?array

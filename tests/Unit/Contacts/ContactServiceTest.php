@@ -276,14 +276,22 @@ class ContactServiceTest extends TestCase
         $cntStmt2 = $makeStmt(0); // Company 2: 0 related records → delete
         $passStmt = $makeStmt(0); // DELETE calls (execute only, fetchColumn irrelevant)
 
-        $pdo->method('prepare')
-            ->willReturnOnConsecutiveCalls($cntStmt1, $cntStmt2, $passStmt, $passStmt);
+        $sqls = [];
+        $queue = [$cntStmt1, $cntStmt2];
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use (&$sqls, &$queue, $passStmt) {
+            $sqls[] = preg_replace('/\s+/', ' ', $sql);
+            return $queue ? array_shift($queue) : $passStmt;
+        });
 
         $svc    = new ContactService($pdo);
         $result = $svc->bulkDeleteCompanies([1, 2]);
 
         $this->assertSame(1, $result['deleted']);
         $this->assertSame(1, $result['skipped']);
+        // Audit rows are never deleted (Fable audit #25): the link is cut instead.
+        $all = implode("\n", $sqls);
+        $this->assertStringNotContainsString('DELETE FROM activity_log', $all);
+        $this->assertStringContainsString('UPDATE activity_log SET company_id = NULL WHERE company_id IN (?)', $all);
     }
 
     /** @test */

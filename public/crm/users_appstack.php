@@ -50,6 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
+                    // Roles before the change, for the audit line (Fable audit #25, 2026-10-12).
+                    $roleNames = static function (PDO $db, int $uid): string {
+                        $s = $db->prepare("SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? ORDER BY r.name");
+                        $s->execute([$uid]);
+                        return implode(', ', $s->fetchAll(PDO::FETCH_COLUMN)) ?: '(none)';
+                    };
+                    $rolesBefore = $roleNames($db, $targetUserId);
+
                     // Delete existing roles
                     $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetUserId]);
 
@@ -64,7 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Clear perm cache for that user's session (bump version)
                     // The user will get fresh permissions on their next request
                     $flash = 'Roles updated successfully.';
-                    logActivity($user['id'], null, 'Updated roles for user #' . $targetUserId, 'Roles: ' . implode(',', $roleIds));
+                    logActivity($user['id'], null, 'Updated roles for user #' . $targetUserId,
+                        'Roles: ' . $rolesBefore . ' → ' . $roleNames($db, $targetUserId));
                     break;
 
                 // ── Toggle active status ────────────────────
@@ -80,7 +89,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $db->prepare("UPDATE users SET is_active = NOT is_active WHERE id = ?");
                     $stmt->execute([$targetUserId]);
                     $flash = 'User status updated.';
-                    logActivity($user['id'], null, 'Toggled active status for user #' . $targetUserId, null);
+                    $nowActive = $db->prepare("SELECT is_active FROM users WHERE id = ?");
+                    $nowActive->execute([$targetUserId]);
+                    $nowActive = (int)$nowActive->fetchColumn();
+                    logActivity($user['id'], null, 'Toggled active status for user #' . $targetUserId,
+                        'Active: ' . ($nowActive ? 'no → yes' : 'yes → no'));
                     break;
 
                 // ── Change password for a user ──────────────

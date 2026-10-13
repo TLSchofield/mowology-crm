@@ -457,8 +457,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $db->beginTransaction();
 
-                // Clean up activity_log references (no FK constraint)
-                $db->prepare("DELETE FROM activity_log WHERE quote_id = ?")->execute([$quoteId]);
+                // Keep the quote's history: cut the link, never delete audit rows (Fable audit #25).
+                require_once APP_ROOT . '/Modules/Technology/Services/AuditTrail.php';
+                AuditTrail::detachQuote($db, $quoteId);
 
                 // quote_line_items and quote_notes cascade automatically via FK
                 $db->prepare("DELETE FROM quotes WHERE id = ?")->execute([$quoteId]);
@@ -466,7 +467,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->commit();
 
                 // Log after commit (quote is gone, log under property/contact context)
-                logActivityExtended($user['id'], 'Quote deleted', "Deleted quote {$quote['quote_number']}");
+                logActivityExtended($user['id'], 'Quote deleted', "Deleted quote {$quote['quote_number']} (#{$quoteId}) — its earlier activity rows are kept with quote_id cleared");
 
                 // Redirect to quotes list
                 header("Location: ../quotes_appstack.php?deleted=1");

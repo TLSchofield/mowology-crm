@@ -120,14 +120,8 @@ try {
             $invoiceId = isset($input['invoice_id']) ? (int)$input['invoice_id'] : null;
             if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
 
+            // detach() writes the 'Payment detached' audit rows itself, with before → after.
             $result = $svc->detach($txId, $invoiceId ?: null, (int)$user['id']);
-
-            if (function_exists('logActivityExtended')) {
-                foreach ($result['reversed'] as $r) {
-                    logActivityExtended((int)$user['id'], 'Payment detached',
-                        'Bank deposit detached: $' . number_format($r['amount'], 2), null, null, null, (int)$r['invoice_id']);
-                }
-            }
 
             echo json_encode(['ok' => true, 'result' => $result]);
             break;

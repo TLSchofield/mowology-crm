@@ -832,9 +832,17 @@ class BankImportService
      *
      * @return int Number of ledger rows deleted.
      */
-    public function rollback(int $sessionId): int
+    public function rollback(int $sessionId, ?int $userId = null): int
     {
         $ownTransaction = !$this->db->inTransaction();
+        // Audit trail (Fable audit #25, 2026-10-12): every invoice this undo touches, before → after.
+        $audit = [];
+        $invSnap = $this->db->prepare("SELECT invoice_number, status, amount_paid, balance_due, payment_method, paid_at FROM invoices WHERE id = ?");
+        $snap = function (int $id) use ($invSnap): ?array {
+            $invSnap->execute([$id]);
+            return $invSnap->fetch(PDO::FETCH_ASSOC) ?: null;
+        };
+        $allocSnap = $this->db->prepare("SELECT a.invoice_id, a.amount, i.invoice_number FROM invoice_payment_allocations a LEFT JOIN invoices i ON i.id = a.invoice_id WHERE a.id = ?");
         if ($ownTransaction) {
             $this->db->beginTransaction();
         }
@@ -873,6 +881,8 @@ class BankImportService
                 if (!empty($revert['reopen_invoice']['id'])) {
                     // Sessions committed before 2026-10-07 (invoice closed directly).
                     $pi = $revert['reopen_invoice'];
+                    $before = $snap((int)$pi['id']);
+                    if ($before && $before['status'] === 'paid') $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
                     $reopen->execute([
                         $pi['status'], $pi['amount_paid'], $pi['balance_due'],
                         $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
@@ -881,10 +891,13 @@ class BankImportService
                 // A payment recorded through the allocation ledger: remove the allocation,
                 // then put the invoice and its income ledger row back as they were.
                 foreach (($revert['delete_allocations'] ?? []) as $allocId) {
+                    $allocSnap->execute([(int)$allocId]);
+                    if ($a = $allocSnap->fetch(PDO::FETCH_ASSOC)) $audit[] = ['allocation', (int)$a['invoice_id'], $a, null];
                     $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")->execute([(int)$allocId]);
                 }
                 if (!empty($revert['restore_invoice']['id'])) {
                     $pi = $revert['restore_invoice'];
+                    if ($before = $snap((int)$pi['id'])) $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
                     $this->db->prepare("
                         UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
                         WHERE id = ?
@@ -917,6 +930,12 @@ class BankImportService
             if ($ownTransaction) {
                 $this->db->commit();
             }
+            foreach (self::rollbackAuditLines($sessionId, $deleted, $audit) as [$invoiceId, $line]) {
+                if (function_exists('logActivityExtended')) {
+                    logActivityExtended($userId, $invoiceId ? 'Payment unapplied (bank import undone)' : 'Bank import rolled back',
+                        $line, null, null, null, $invoiceId);
+                }
+            }
             return $deleted;
 
         } catch (Throwable $e) {
@@ -925,6 +944,32 @@ class BankImportService
             }
             throw $e;
         }
+    }
+
+    /**
+     * Pure: the audit lines for one rollback — one per invoice touched (before → after), then
+     * a summary line. @return array<int, array{0: ?int, 1: string}>  [invoice_id or null, details]
+     */
+    public static function rollbackAuditLines(int $sessionId, int $deleted, array $audit): array
+    {
+        require_once dirname(__DIR__, 2) . '/Technology/Services/AuditDiff.php';
+        $out = [];
+        foreach ($audit as [$kind, $invoiceId, $before, $after]) {
+            if ($kind === 'allocation') {
+                $out[] = [$invoiceId, 'Bank import session #' . $sessionId . ' undone: payment of $' . number_format((float)$before['amount'], 2)
+                    . ' removed from invoice ' . ((string)($before['invoice_number'] ?? '') ?: '#' . $invoiceId)];
+                continue;
+            }
+            $diff = AuditDiff::describe(AuditDiff::changes($before, $after,
+                ['status', 'amount_paid', 'balance_due', 'payment_method', 'paid_at'], ['amount_paid', 'balance_due']));
+            if ($diff === '') continue;
+            $out[] = [$invoiceId, 'Bank import session #' . $sessionId . ' undone: invoice '
+                . ((string)($before['invoice_number'] ?? '') ?: '#' . $invoiceId) . ' — ' . $diff];
+        }
+        $out[] = [null, 'Bank import session #' . $sessionId . ' rolled back: ' . $deleted . ' ledger row(s) deleted, '
+            . count(array_filter($audit, fn($a) => $a[0] === 'invoice')) . ' invoice(s) restored, '
+            . count(array_filter($audit, fn($a) => $a[0] === 'allocation')) . ' payment allocation(s) removed.'];
+        return $out;
     }
 
     // ══════════════════════════════════════════════════════════════════════════

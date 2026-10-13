@@ -428,8 +428,12 @@ class ContactService
                 continue;
             }
 
-            $this->db->prepare("DELETE FROM activity_log WHERE entity_id = ? AND entity_type = 'company'")->execute([$id]);
+            // Never delete audit rows: cut their link to the company instead (Fable audit #25).
+            // (The old DELETE named entity_id/entity_type, columns activity_log does not have.)
+            require_once dirname(__DIR__, 2) . '/Technology/Services/AuditTrail.php';
+            $names = AuditTrail::detachCompanies($this->db, [$id]);
             $this->db->prepare("DELETE FROM companies WHERE id = ?")->execute([$id]);
+            AuditTrail::logCompaniesDeleted(isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null, $names);
             $deleted++;
         }
 

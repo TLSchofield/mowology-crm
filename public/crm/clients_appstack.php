@@ -184,14 +184,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
 
             if ($deletable) {
                 $placeholders = implode(',', array_fill(0, count($deletable), '?'));
+                // Never delete audit rows: cut their link to the company instead (Fable audit #25).
+                require_once APP_ROOT . '/Modules/Technology/Services/AuditTrail.php';
                 $db->beginTransaction();
-                try {
-                    $db->prepare("DELETE FROM activity_log WHERE company_id IN ({$placeholders})")->execute($deletable);
-                } catch (Exception $e) {}
+                $deletedNames = AuditTrail::detachCompanies($db, $deletable);
                 $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
                 $stmt->execute($deletable);
                 $deleted = $stmt->rowCount();
                 $db->commit();
+                AuditTrail::logCompaniesDeleted(isset($user['id']) ? (int)$user['id'] : null, $deletedNames);
             }
 
             echo json_encode([

@@ -221,7 +221,7 @@ try {
             if (!userHasPermission('billing.edit')) throw new Exception('Only the office (billing) can undo an import.', 403);
             $sessionId = (int)($input['session_id'] ?? 0);
             if (!$sessionId) throw new Exception('Missing session_id');
-            $deleted = $importer->rollback($sessionId);
+            $deleted = $importer->rollback($sessionId, (int)$user['id']);   // writes its own audit rows
             try {
                 require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
                 (new StatementCoverageService($db))->forget();
