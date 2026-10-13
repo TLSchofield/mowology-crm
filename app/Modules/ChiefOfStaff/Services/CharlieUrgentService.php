@@ -10,6 +10,8 @@
  *             one alert per invoice
  *   dispute — a customer disputed a Stripe charge (chargeback; StripeEventLedgerService logs
  *             'stripe_dispute', last 7 days); also a dispute / refund the ledger could not post
+ *   security — Ada: failed-login spike, role change, system log cleared (AdaSecurityWatch), and
+ *             each NEW red from the nightly security-posture checks (SecurityPostureService)
  * (client complaints join when Sam or Mia can flag them — phase B3.)
  *
  * Each alert is sent once (charlie_alerts.alert_key), by email to the owner through
@@ -114,6 +116,16 @@ class CharlieUrgentService
                 foreach ((new AdaSecurityWatch($this->db))->urgent() as $a) $out[] = $a;
             } catch (Throwable $e) {
                 error_log('Charlie urgent: Ada security watch unavailable: ' . $e->getMessage());
+            }
+        }
+
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Technology/Services/SecurityPostureService.php')) {
+            try {
+                // Ada's nightly security-posture reds: one email per NEW red (keyed by when it turned red).
+                require_once APP_ROOT . '/Modules/Technology/Services/SecurityPostureService.php';
+                foreach ((new SecurityPostureService($this->db))->urgent() as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: Ada security posture unavailable: ' . $e->getMessage());
             }
         }
 

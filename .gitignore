@@ -74,3 +74,6 @@ public/app_config/sessions/
 
 # Local test site (scripts/local-site.sh) — generated fake logins; never commit
 scripts/local/.credentials.local
+
+# Ada backup heartbeat token (scripts/lib/heartbeat.sh) — never commit
+scripts/.backup-heartbeat-token

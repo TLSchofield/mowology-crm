@@ -7,7 +7,8 @@
 #      if prod differs, someone changed prod (or the repo is behind it): STOP, upload
 #      nothing, and say which file drifted;
 #   2. upload every file atomically (temporary name, then rename over the live file);
-#   3. read each back and compare with the local file.
+#   3. read each back and compare with the local file;
+#   4. merge each file's sha1 into app/Storage/deploy-manifest.json (Ada's drift check).
 # Files that don't exist at <base-ref> are new: no drift check, still read back.
 #
 # Mapping (same as scripts/deploy-file.sh, plus migrations):
@@ -93,4 +94,6 @@ for i in "${!FILES[@]}"; do
     cmp -s "$f" "$TMP/post$i" 2>/dev/null || { echo "FAILED $f — read-back differs or missing"; exit 6; }
     echo "live   $f"
 done
+# 4. Record what was deployed (sha1 per file) for Ada's nightly drift check — never fails the deploy.
+python3 "$(cd "$(dirname "$0")" && pwd)/lib/deploy_manifest.py" "${FILES[@]}" || echo "WARNING: deploy manifest not updated (Ada's drift check will flag these files)"
 echo "Deployed ${#FILES[@]} file(s). Next: reset OPcache, then verify the page."

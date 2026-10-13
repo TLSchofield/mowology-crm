@@ -19,6 +19,9 @@ covers:
   - app/Modules/ChiefOfStaff/Services/CharlieBriefService.php
   - app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php
   - public/crm/database_appstack.php
+  - public/crm/api/backup-heartbeat.php
+  - public/crm/cron/security_posture.php
+  - app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php
   - public/crm/api/opcache-reset.php
   - public/crm/api/app-version.php
   - public/crm/downloads/app-version.json
@@ -52,6 +55,11 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | How Ada may act: evidence lines, hand-offs, thresholds | `references/operating-rules.md` |
 | Where Ada will appear (Charlie's brief, health page, iPhone) | `references/surfaces.md` |
 | The silent failures that justify her (read before building any check) | `references/traps.md` |
+
+> **Built (2026-10-13):** nightly security posture — cron `security_posture`,
+> `SecurityPostureRules` / `SecurityPostureService`, 15 checks in the Security group, a new red emailed
+> once via Charlie; Mac heartbeats (`scripts/lib/heartbeat.sh`) and the deploy manifest
+> (`scripts/lib/deploy_manifest.py`). See `references/checks.md` section (7).
 
 **Build order (agreed):** (1) scheduled jobs and (2) outside connections — BUILT; first security slice (unused logins) — BUILT. Next: apps, deploys, migrations never run, data soundness, the rest of security.
 

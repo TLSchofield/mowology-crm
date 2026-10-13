@@ -27,6 +27,9 @@ Usage:
     branch-ref  what to deploy, e.g. origin/feature/otto-dispatcher-phase2
     base-ref    the ref the branch's changes are relative to (usually the branch it was
                 cut from, whose version of each shared file is already live)
+  4. deploy-checked.sh then records each uploaded file's sha1 (and the repo's migration list) in
+     app/Storage/deploy-manifest.json via scripts/lib/deploy_manifest.py — Ada's nightly drift
+     and pending-migration checks read it.
 Then: run migrations, reset OPcache (/crm/api/opcache-reset.php), verify to </html>.
 """
 import os, re, subprocess, sys, tempfile, shutil

@@ -9,7 +9,9 @@
  *   (2) connections — Facebook / Instagram / Google Business (SocialAccountHealth's stored
  *       result), Search Console (gsc_sync_history), Apple push (push_queue), Stripe
  *       (stripe_payments), truck GPS (vehicle_location_pings);
- *   (3) security — active logins with no login and no phone seen for 90 days.
+ *   (3) security — active logins with no login and no phone seen for 90 days, the JWT key, failed
+ *       logins and sensitive changes (AdaSecurityWatch), and the nightly security-posture rows
+ *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group.
  * Each check fails on its own (logged, then shown as "can't tell") — one bad query never
  * blanks the page or Charlie's brief.
  *
@@ -243,6 +245,9 @@ class AdaDeskService
         // Failed-login spikes and role / password / migration / log-clear changes (Fable audit #25d).
         require_once __DIR__ . '/AdaSecurityWatch.php';
         foreach ((new AdaSecurityWatch($this->db, $this->now))->checks() as $c) $out[] = $c;
+        // The nightly security-posture checks (cron security_posture): stored rows, read back cheaply.
+        require_once __DIR__ . '/SecurityPostureService.php';
+        foreach ((new SecurityPostureService($this->db, $this->now))->deskChecks() as $c) $out[] = $c;
         return $out;
     }
 }

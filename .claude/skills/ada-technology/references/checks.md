@@ -1,4 +1,4 @@
-# Ada's checks — (1), (2) and the logins check BUILT 2026-10-11; the rest PLANNED
+# Ada's checks — (1), (2), the security checks and the nightly security posture (7) BUILT; the rest PLANNED
 
 Every check below is PLANNED. The data source named for each is EXISTING (verified 2026-10-11
 in this repo unless marked). Production can differ from the repo — confirm with
@@ -103,8 +103,41 @@ is owed. The live file was not checked. Ada compares offered vs run, not repo vs
 | App sign-in key — BUILT 2026-10-12 (`AdaRules::jwtSecretCheck()`) | `BLUEMOON_JWT_SECRET` defined and ≥ 32 characters — length only, the value never leaves secrets.php; red when missing/short (no fallback key since 2026-10-12, so nobody can sign in on the iPhone) |
 | Failed-login spikes — BUILT 2026-10-12 (`AdaSecurityRules::loginFailuresCheck()`, read by `AdaSecurityWatch`) | `login_attempts` per clock hour, last 24 h; any hour over 50 is red and urgent (Charlie emails once per hour, key `urgent:security:logins:<hour>`). A successful login deletes its own email+IP rows, so counts are a floor |
 | Role / password / account / migration / log-clear changes — BUILT 2026-10-12 (`AdaSecurityRules::sensitiveChangesCheck()`) | `activity_log` rows of the last 24 h matching `AdaSecurityRules::ACTION_LIKES` ('Updated roles…', 'Changed employee #N account' with a role/password line, 'Changed password…', 'Toggled active status…', 'Created employee…', 'Migration run', 'system_log_cleared'); amber with who/when, red when the system log was cleared; a role change or a cleared log is urgent through `CharlieUrgentService::find()` |
-| Audit copy outside the database — BUILT 2026-10-12 (`AuditExportService`, cron `audit_export`) | daily append of activity_log to `/home/mowology/audit/activity_log.jsonl`, hash-chained; check its `cron_runs` like any job ('warning' = it fell back to inside the web root). PLANNED: a check that re-verifies the chain |
+| Audit copy outside the database — BUILT 2026-10-12 (`AuditExportService`, cron `audit_export`) | daily append of activity_log to `/home/mowology/audit/activity_log.jsonl`, hash-chained; check its `cron_runs` like any job ('warning' = it fell back to inside the web root). Chain re-verified nightly by check (7)#7 |
 | Admin-only endpoints still guarded | cron web shims use a shared `_guard.php` (Tech-Debt-Map, 2026-06-18); recheck unverified |
+
+## (7) Nightly security posture — BUILT 2026-10-13
+
+Cron `security_posture` (daily 03:40, `app/Modules/Technology/Cron/security_posture.php`, shim
+`public/crm/cron/security_posture.php` behind `_guard.php`). Facts gathered by
+`SecurityPostureService::run()`, decisions in `SecurityPostureRules` (tested in
+`tests/Unit/Technology/SecurityPostureRulesTest.php`), stored one row per check in table
+security_posture_checks (migration `database/migrations/1347_security_posture.sql`) and read back
+cheaply by `SecurityPostureService::deskChecks()` into the desk's "Security" group (with the
+failed-login, sensitive-change, unused-login and JWT-key checks). A row "Nightly security checks"
+turns amber when the run is missing or older than 36 h. **Alerts:** each NEW red goes to Tim once
+through `CharlieUrgentService::find()` → `SecurityPostureService::urgent()`, keyed
+`urgent:posture:<check>:<time it turned red>` — a red that stays red is not re-sent; a red that
+clears and returns is new. Ada only checks: nothing here changes a setting, credential, cron or Stripe.
+
+| # | Check (system) | Green means | Amber / red | Source |
+|---|---|---|---|---|
+| 1 | posture:blocked-paths | every URL in `SecurityPostureRules::BLOCKED_PATHS` answers 401/403/404/410 over HTTPS from the server itself | red on any 2xx (lists the URLs); amber on 3xx/5xx | curl to https://mowology.ca |
+| 2 | posture:stray-files | no csv/zip/gz/tgz/tar/xlsx/sql/bak/dump under the web root outside uploads/, _media/, vendor/ and database/migrations/ | amber, up to 20 paths | file walk of PUBLIC_ROOT (also finds `error_log` files for #14) |
+| 3 | posture:db-privileges | `SHOW GRANTS FOR CURRENT_USER()` gives data privileges only | red while ALL PRIVILEGES / CREATE / DROP / ALTER: "app login can change tables — finish step 3 (data-only user)" | MySQL |
+| 4 | posture:stripe-webhook | the endpoint for /api/stripe/webhook is enabled and sends charge.dispute.created, charge.dispute.closed, charge.refunded, payment_intent.succeeded, payment_intent.payment_failed (or `*`) | amber naming missing events or no endpoint; red when disabled; "can't tell" with no key | read-only GET /v1/webhook_endpoints with STRIPE_SECRET_KEY |
+| 5 | posture:payment-mail | in the last 7 days no source has held mail while none verified | red when Yardi or Interac has held > 0 and verified = 0 ("real Yardi/Interac mail may be failing the signature check") | etransfer_notifications.sender_verified (Yardi auto-recorded rows count as verified; Fwd: notices are not "held") |
+| 6a | posture:backup-db | an ok db heartbeat in the last 36 h | red | backup_heartbeats, posted by `scripts/backup-nightly.sh` via `scripts/lib/heartbeat.sh` to `public/crm/api/backup-heartbeat.php` |
+| 6b | posture:backup-files | an ok files heartbeat in the last 36 h | amber | same |
+| 7 | posture:audit-copy | activity_log.jsonl (home audit dir, AUDIT_EXPORT_DIR or STORAGE_ROOT/audit) written within 36 h and its last 500 lines' hash chain verifies (`SecurityPostureRules::verifyAuditTail()`) | red when missing, stale or broken | the file |
+| 8 | posture:certificate | mowology.ca:443 certificate has 21+ days left | amber < 21 days, red < 7 | stream_socket_client capture_peer_cert |
+| 9 | posture:dependencies | a composer heartbeat within 14 days with 0 advisories | amber on advisories > 0, an old report or none | `scripts/composer-audit-report.sh` (Mac; root + public/) |
+| 10 | security:login-failures, security:sensitive-changes | see (6) above | see (6) | `AdaSecurityWatch` — same Security group |
+| 11 | posture:drift | every file in app/Storage/deploy-manifest.json still has the sha1 it was deployed with | amber with the list; red when a changed file is under app/Core, app/Modules/Accounting or public/api; "can't tell" before the first manifest | manifest written by `scripts/lib/deploy_manifest.py`, called by `scripts/deploy-checked.sh` (and so by `scripts/deploy-merged.py`) |
+| 12 | posture:page-render | /, /services, /about, /contact, /privacy-request, /loginAuth/login.php, /forgot-password.php → 200 and end with </html>; a bad-token customer invoice → non-5xx friendly page ending </html> | red on a wrong status or a cut-off page | curl, full body |
+| 13 | posture:migrations | every numbered NNN_*.sql (server folder + the manifest's list) has a success row in migrations_log | amber with the numbers (done-/problem-/todo- files ignored, like the migrations manager) | migrations_log |
+| 14 | posture:php-errors | ≤ 50 timestamped lines in 24 h across ini_get('error_log'), ~/error_log and every error_log file in the web root | amber > 50, red > 500; top 5 messages deduped and redacted (`SecurityPostureRules::redact()`) | last 16 MB of each log ("at least" when the window runs past it) |
+| 15 | posture:mail-dns | SPF allows the SMTP host's IP (ip4/a/mx/include evaluated), a DMARC record, a DKIM key at default._domainkey (or DKIM_SELECTOR) | amber when any is missing | dns_get_record |
 
 ## Per tenant (Ittai) — later
 

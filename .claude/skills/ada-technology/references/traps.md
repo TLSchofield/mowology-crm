@@ -135,3 +135,23 @@ repo's Capacitor SameSite=None branch was never deployed).
   heartbeat, the server cannot see the Mac).
 - **Apple push:** pending rows 30+ min overdue are red; a 'quiet' push no longer vouches for push_drain.
 - login-debug.log only with `LOGIN_DEBUG`; the old file on production should be deleted.
+
+## 2026-10-13 — Security fixes that silently stop being true (why the nightly posture check exists)
+Every 2026-10-12 remediation was verified once, by hand, and nothing re-checked it: an .htaccess
+overwritten by a deploy re-exposes /crm/tmp; the audit copy (`audit_export`) was built but on
+2026-10-13 **no activity_log.jsonl existed on production** — the cron line was never added, and only
+cron_runs would have said so; the Mac backup agent writes only to a Mac log the server cannot see; a
+live-edited file (the "prod ahead of repo" trap) is invisible until the next deploy's drift stop.
+**Caught by:** cron `security_posture` (checks.md (7)). Its own traps:
+- The server fetching its own URLs proves what the public sees only because it goes out by name over
+  HTTPS (verified 2026-10-13: 200 with a full body); a local run needs MW_POSTURE_BASE_URL.
+- Drift reads app/Storage/deploy-manifest.json, which only `scripts/deploy-checked.sh` (and so
+  `scripts/deploy-merged.py`) writes. A file uploaded any other way (lftp by hand, cPanel editor,
+  `/deploy`) reads as "changed on the server" — that is the point; redeploy it through the checked path.
+- The production PHP error log is NOT ~/error_log alone: ini_get('error_log') is
+  /home/mowology/logs/mowology_ca.php.error.log, and ~/error_log was 93 MB (CLI crons) on 2026-10-13.
+  Counting reads the last 16 MB of each and says "at least" when the 24 h window runs past it.
+- `SYSTEM` is a reserved word in MySQL 8 (the local site), so the table's key column is check_key.
+- Payment-mail: Yardi lines that auto-record are stored with sender_verified NULL and status
+  'recorded' (only proven mail auto-records) — count them as verified, or a quiet week of good
+  Yardi mail reads as "all held".
