@@ -91,6 +91,10 @@ Rules now enforced in code:
   28, 78, 1316 lost implied email consent that a later job had re-granted.
 - CMS block/page endpoints need `marketing.edit`; block HTML goes through `CmsHtmlSanitizer` on
   save and on render (rich_text, custom, text sections).
+- CMS URL fields (any config key ending `url`/`href`/`link`/`src`, plus `image*`) go through
+  `CmsHtmlSanitizer::safeUrl()` on save (`cleanConfig`, `cms_create/updateSection`) and on render
+  (`cleanConfigUrls` in `cms_renderBlock` and the snippet previews → `#`). `java\tscript:` and
+  `&#106;avascript:` used to pass. A new URL field must use one of those key names.
 - Tracking links are signed (`TrackingLinks`): unsigned clicks redirect only to mowology.ca and
   count nothing; unsubscribe links are never tracked. Opens count only with a signed pixel.
 - `campaign_sender.php` holds a MySQL named lock and claims each row pending → sending; a row left

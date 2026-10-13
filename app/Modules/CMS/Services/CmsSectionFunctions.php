@@ -20,6 +20,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/CmsHtmlSanitizer.php';
+
 // ─── Block type registry ──────────────────────────────────────────────────────
 
 function cms_getSectionBlockTypes(): array {
@@ -70,6 +72,9 @@ function cms_getSectionById(int $id, int $siteId): ?array {
 }
 
 function cms_createSection(int $pageId, int $siteId, string $blockType, array $data, int $sortOrder = 0): int {
+    // Fable #7 (2026-10-12): every URL field through safeUrl(), HTML through the allow-list.
+    require_once __DIR__ . '/CmsHtmlSanitizer.php';
+    $data = CmsHtmlSanitizer::cleanConfig($data);
     $db   = getDB();
     $stmt = $db->prepare(
         'INSERT INTO cms_page_sections (page_id, site_id, block_type, sort_order, data)
@@ -80,6 +85,8 @@ function cms_createSection(int $pageId, int $siteId, string $blockType, array $d
 }
 
 function cms_updateSection(int $id, int $siteId, array $data): bool {
+    require_once __DIR__ . '/CmsHtmlSanitizer.php';
+    $data = CmsHtmlSanitizer::cleanConfig($data);
     try {
         $db   = getDB();
         $stmt = $db->prepare(
@@ -132,6 +139,9 @@ function cms_reorderSections(array $orderedIds, int $siteId): bool {
 function cms_renderSection(array $section): string {
     $type = $section['block_type'] ?? '';
     $data = is_array($section['data']) ? $section['data'] : (json_decode($section['data'] ?? '{}', true) ?: []);
+    // Rows saved before 2026-10-12 may hold javascript: links — unsafe URLs render as '#'.
+    require_once __DIR__ . '/CmsHtmlSanitizer.php';
+    $data = CmsHtmlSanitizer::cleanConfigUrls($data, '#');
 
     switch ($type) {
         case 'hero':         return cms_renderHero($data);
@@ -185,7 +195,7 @@ function cms_renderHero(array $d): string {
         $html .= '<p class="cms-sec-hero__sub">' . htmlspecialchars($sub) . '</p>';
     }
     if ($ctaText) {
-        $html .= '<a href="' . htmlspecialchars($ctaUrl) . '" class="cms-sec-btn cms-sec-btn--accent">' . htmlspecialchars($ctaText) . '</a>';
+        $html .= '<a href="' . htmlspecialchars(CmsHtmlSanitizer::href($ctaUrl)) . '" class="cms-sec-btn cms-sec-btn--accent">' . htmlspecialchars($ctaText) . '</a>';
     }
     $html .= '</div></section>';
     return $html;
@@ -280,7 +290,7 @@ function cms_renderCtaBanner(array $d): string {
     if ($subtext)  $html .= '<p class="cms-sec-cta__sub">'     . htmlspecialchars($subtext)  . '</p>';
     $html .= '</div>';
     if ($ctaText) {
-        $html .= '<a href="' . htmlspecialchars($ctaUrl) . '" class="cms-sec-btn ' . $btnClass . '">' . htmlspecialchars($ctaText) . '</a>';
+        $html .= '<a href="' . htmlspecialchars(CmsHtmlSanitizer::href($ctaUrl)) . '" class="cms-sec-btn ' . $btnClass . '">' . htmlspecialchars($ctaText) . '</a>';
     }
     $html .= '</div></section>';
     return $html;
@@ -310,7 +320,7 @@ function cms_renderImageText(array $d): string {
     // Image column
     $html .= '<div class="cms-sec-imgtext__img">';
     if ($imageUrl) {
-        $html .= '<img src="' . htmlspecialchars($imageUrl) . '" alt="' . htmlspecialchars($imageAlt) . '" loading="lazy">';
+        $html .= '<img src="' . htmlspecialchars(CmsHtmlSanitizer::href($imageUrl, '')) . '" alt="' . htmlspecialchars($imageAlt) . '" loading="lazy">';
     } else {
         $html .= '<div class="cms-sec-imgtext__placeholder"></div>';
     }
@@ -320,8 +330,8 @@ function cms_renderImageText(array $d): string {
     $html .= '<div class="cms-sec-imgtext__text">';
     if ($badge)    $html .= '<span class="cms-sec-badge cms-sec-badge--muted">' . htmlspecialchars($badge) . '</span>';
     if ($headline) $html .= '<h2 class="cms-sec-imgtext__heading">' . htmlspecialchars($headline) . '</h2>';
-    if ($body)     $html .= '<div class="cms-sec-prose">' . $body . '</div>';
-    if ($ctaText)  $html .= '<a href="' . htmlspecialchars($ctaUrl) . '" class="cms-sec-btn cms-sec-btn--outline">' . htmlspecialchars($ctaText) . '</a>';
+    if ($body)     $html .= '<div class="cms-sec-prose">' . CmsHtmlSanitizer::clean((string)$body) . '</div>';
+    if ($ctaText)  $html .= '<a href="' . htmlspecialchars(CmsHtmlSanitizer::href($ctaUrl)) . '" class="cms-sec-btn cms-sec-btn--outline">' . htmlspecialchars($ctaText) . '</a>';
     $html .= '</div>';
 
     $html .= '</div></section>';

@@ -64,12 +64,26 @@ final class CmsHtmlSanitizer
         }, $out) ?? $out;
     }
 
-    /** Clean every string in a (nested) block config that could hold markup. */
+    /**
+     * Config keys that hold a link or an image address. Their values go through safeUrl() whatever
+     * they contain (Fable #7, 2026-10-12: "java\tscript:" in cta_url passed the old '<'/'javascript:'
+     * probe). Keys like link_text / image_alt are NOT matched.
+     */
+    private const URL_KEY = '/(^|_)(url|href|link|src)$|^(image|image_tablet|image_mobile|background_image|bg_image)$/i';
+
+    public static function isUrlKey($key): bool
+    {
+        return is_string($key) && preg_match(self::URL_KEY, $key) === 1;
+    }
+
+    /** Clean every string in a (nested) block config that could hold markup or a link. */
     public static function cleanConfig(array $config): array
     {
         foreach ($config as $k => $v) {
             if (is_array($v)) {
                 $config[$k] = self::cleanConfig($v);
+            } elseif (is_string($v) && self::isUrlKey($k)) {
+                $config[$k] = self::safeUrl($v) ?? '';
             } elseif (is_string($v) && (strpos($v, '<') !== false || stripos($v, 'javascript:') !== false)) {
                 $config[$k] = self::clean($v);
                 if (stripos($config[$k], 'javascript:') !== false && strpos($config[$k], '<') === false) {
@@ -80,13 +94,55 @@ final class CmsHtmlSanitizer
         return $config;
     }
 
+    /**
+     * Render-side pass: only the URL-keyed fields, unsafe ones become $fallback. Leaves every
+     * other field alone (block templates escape text themselves; HTML fields are clean()ed there).
+     */
+    public static function cleanConfigUrls(array $config, string $fallback = '#'): array
+    {
+        foreach ($config as $k => $v) {
+            if (is_array($v)) {
+                $config[$k] = self::cleanConfigUrls($v, $fallback);
+            } elseif (is_string($v) && self::isUrlKey($k)) {
+                $config[$k] = self::safeUrl($v) ?? $fallback;
+            }
+        }
+        return $config;
+    }
+
+    /** safeUrl() with a fallback, for templates: href="<?= h(CmsHtmlSanitizer::href($u)) ?>". */
+    public static function href($url, string $fallback = '#'): string
+    {
+        if (!is_string($url)) return $fallback;
+        return self::safeUrl($url) ?? $fallback;
+    }
+
     /** A URL that may go into href/src, or null. Relative, http(s), mailto and tel only. */
     public static function safeUrl(string $url): ?string
     {
-        $probe = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+        // Decode until stable (browsers also accept numeric references without the ';'),
+        // then drop every control/space character browsers ignore inside a scheme.
+        $probe = $url;
+        for ($i = 0; $i < 5; $i++) {
+            $next = preg_replace_callback('/&#(x[0-9a-f]+|[0-9]+);?/i', static function (array $m): string {
+                $n = ($m[1][0] === 'x' || $m[1][0] === 'X') ? hexdec(substr($m[1], 1)) : (int)$m[1];
+                return ($n > 0 && $n < 0x110000) ? mb_chr((int)$n, 'UTF-8') : '';
+            }, $probe) ?? $probe;
+            $next = html_entity_decode($next, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($next === $probe) break;
+            $probe = $next;
+        }
+        $probe = strtolower(preg_replace('/[\x00-\x20\x7f]+|\xc2\xa0/', '', $probe) ?? '');
         if ($probe === '') return $url;
+        if (strpos($probe, '\\') === 0 || strpos($probe, '/\\') === 0) return null; // "\\evil" = protocol-relative in browsers
         if (preg_match('/^([a-z][a-z0-9+.\-]*):/', $probe, $m)) {
             return in_array($m[1], ['http', 'https', 'mailto', 'tel'], true) ? $url : null;
+        }
+        // No scheme before the first : / ? # — but a colon earlier than any of those means one.
+        $colon = strpos($probe, ':');
+        if ($colon !== false) {
+            $stop = strcspn($probe, '/?#');
+            if ($colon < $stop) return null;
         }
         return $url;
     }

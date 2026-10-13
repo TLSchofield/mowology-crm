@@ -137,6 +137,12 @@ function cms_renderBlock(array $block): string
         // Extract config/content for use in renderer
         $config = $block['config'] ?? [];
         $content = $block['content'] ?? null;
+        // Fable #7 (2026-10-12): every URL-keyed field (cta_url, primary_url, services[].url, image…)
+        // through safeUrl() — a javascript:/data: link saved before the fix renders as '#'.
+        if (is_array($config)) {
+            require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+            $config = CmsHtmlSanitizer::cleanConfigUrls($config, '#');
+        }
 
         // Include renderer (has access to $config, $content, $block)
         include $rendererPath;
