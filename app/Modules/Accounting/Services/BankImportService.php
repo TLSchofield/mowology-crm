@@ -3918,6 +3918,14 @@ class BankImportService
             WHERE id = ?
         ")->execute([$expenseId, $confidence, (string)$userId, $transactionId]);
 
+        // A person linked this receipt (head_lessons, migration 1348): what Penny's scoring made of the pair.
+        if ($userId > 0) {
+            require_once __DIR__ . '/PennyLessons.php';
+            PennyLessons::bankLine($this->db, $transactionId, 'receipt_link',
+                $confidence > 0 ? 'possible match (' . (int)$confidence . '%)' : 'no match', 'receipt #' . $expenseId,
+                'receipt_link', $userId);
+        }
+
         // The bank line is the truth about where the money came from (Vital Auto #384, 2026-10-12).
         $source = $this->checkReceiptFunding($expenseId, $transactionId, $userId);
 

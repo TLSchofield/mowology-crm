@@ -139,6 +139,10 @@ class ReceiptFundingCheck
             if ($d['action'] === 'correct') {
                 $this->setMethod($expenseId, (string)$d['to'], $userId,
                     'payment source corrected from ' . self::methodWords($from) . ' to ' . self::methodWords($d['to']) . ' by bank line #' . $transactionId);
+                // The receipt (Penny's read) was wrong about where the money came from (head_lessons).
+                require_once __DIR__ . '/PennyLessons.php';
+                PennyLessons::expense($this->db, $expenseId, 'payment_method', $from, (string)$d['to'], 'receipt_funding', $userId,
+                                      'bank line #' . $transactionId . ' is ' . self::lineWords($line));
             }
             $this->tell($expenseId, $d['action'], (string)$d['to'], (float)$e['total'], (string)($e['vendor_name_raw'] ?? ''), $msg);
             return ['action' => $d['action'], 'from' => $from, 'to' => $d['to'], 'message' => $msg];
@@ -180,6 +184,9 @@ class ReceiptFundingCheck
         if (!$e) return false;
         $this->setMethod($expenseId, $toMethod, $userId,
             'payment source corrected from ' . self::methodWords($e['payment_method'] ?? null) . ' to ' . self::methodWords($toMethod) . ' — owner answered Penny');
+        require_once __DIR__ . '/PennyLessons.php';
+        PennyLessons::expense($this->db, $expenseId, 'payment_method', $e['payment_method'] ?? null, $toMethod, 'penny_question:payment_source',
+                              $userId, 'owner: use what the bank line says');
         return true;
     }
 

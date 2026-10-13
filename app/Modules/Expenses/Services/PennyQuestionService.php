@@ -378,6 +378,7 @@ class PennyQuestionService
         }
         $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
            ->execute([$answer, $userId, $id]);
+        if ($answer !== 'invoice') $this->lesson($id, 'billable', 'not billed yet', $answer, $userId);
         $hi = $name !== '' ? ", {$name}" : '';
         $msg = ['invoice'      => "Thanks{$hi} — I'll open a fresh invoice for that job.",
                 'contract'     => "Got it{$hi} — covered by the contract. I won't ask about this supplier on this job again.",
@@ -409,7 +410,34 @@ class PennyQuestionService
         }
         $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
            ->execute([$answer, $userId, $id]);
+        if ($answer === 'seen' && ($q['category'] ?? '') === 'question') {
+            // She asked "was it <subject>?" and the owner kept the receipt as it is: she was wrong.
+            $this->lesson($id, 'payment_method', (string)$q['subject'], 'keep as the receipt says', $userId);
+        }
         return ['ok' => true, 'message' => $msg];
+    }
+
+    /**
+     * The owner's answer overrode what Penny presumed (head_lessons, migration 1348). Subject = the
+     * receipt's vendor, or the question's subject when it has no receipt. Never blocks the answer.
+     */
+    private function lesson(int $questionId, string $field, ?string $said, ?string $correct, int $userId): void
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+            $s = $this->db->prepare("SELECT kind, subject, expense_id, vendor_name FROM penny_questions WHERE id = ?");
+            $s->execute([$questionId]);
+            $q = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+            $source = 'penny_question:' . ($q['kind'] ?? 'unknown');
+            if (!empty($q['expense_id'])) {
+                PennyLessons::expense($this->db, (int)$q['expense_id'], $field, $said, $correct, $source, $userId, 'question #' . $questionId);
+            } else {
+                PennyLessons::subject($this->db, (string)($q['kind'] ?? 'question'), (string)($q['subject'] ?? $q['vendor_name'] ?? 'unknown'),
+                                      $field, $said, $correct, $source, $userId, 'penny_question', $questionId);
+            }
+        } catch (Throwable $e) {
+            error_log('Penny question lesson #' . $questionId . ': ' . $e->getMessage());
+        }
     }
 
     private function answerAccount(int $id, int $accountId, int $userId, string $name): array
@@ -424,6 +452,9 @@ class PennyQuestionService
         if (!$acct) return ['ok' => false, 'message' => 'Pick an income account'];
         require_once APP_ROOT . '/Modules/Accounting/Services/LedgerAccountMap.php';
         (new LedgerAccountMap($this->db))->setServiceAccount((string)$q['subject'], $accountId, $userId);
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        PennyLessons::subject($this->db, 'service_type', (string)$q['subject'], 'income_account', 'not mapped', $acct['code'] . ' ' . $acct['name'],
+                              'penny_question:service_account', $userId, 'penny_question', $id);
         $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = 'account', answered_by = ?, answered_at = NOW() WHERE id = ?")
            ->execute([$userId, $id]);
         $hi = $name !== '' ? ", {$name}" : '';

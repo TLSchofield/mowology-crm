@@ -336,6 +336,10 @@ class DuplicateReceiptService
         if (!$this->dismissalsReady()) return ['ok' => false, 'message' => 'Needs migration 1127'];
         $this->db->prepare("INSERT IGNORE INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (?, ?, ?)")
            ->execute([min($a, $b), max($a, $b), (int)$user['id']]);
+        // Penny flagged these as copies; the owner said they are two purchases (head_lessons, migration 1348).
+        if (!defined('APP_ROOT')) require_once dirname(__DIR__, 3) . '/Core/paths.php';
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        PennyLessons::expense($this->db, min($a, $b), 'duplicate', 'copy of #' . max($a, $b), 'not a duplicate', 'duplicate_dismiss', (int)$user['id']);
         return ['ok' => true, 'message' => 'Got it — not a duplicate. Both go on for approval.'];
     }
 

@@ -32,6 +32,9 @@ require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteRecipientService.ph
 
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';
+// head_lessons (migration 1348): one learning record for every head; Penny's adapter
+require_once __DIR__ . '/../app/Services/HeadLessons.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 
 // Sales — Sam, the sales head
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';

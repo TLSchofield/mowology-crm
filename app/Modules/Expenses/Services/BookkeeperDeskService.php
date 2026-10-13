@@ -541,6 +541,9 @@ class BookkeeperDeskService
             throw $e;
         }
 
+        if ($approve) {
+            $this->recordLessons((int)$row['expense_id'], $resolved['outcome'], (int)$user['id']);
+        }
         if ($blocked) {
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true,
                     'message' => "Not approved — you submitted this receipt, and the self-approval rule stops you approving your own. Your edits are saved. Turn on \"Allow approving own submitted expenses\" for yourself in Team."];
@@ -565,6 +568,30 @@ class BookkeeperDeskService
             $this->db->prepare("UPDATE expense_suggestions SET status = 'pending', decided_by = NULL, decided_at = NULL, outcome_json = ? WHERE id = ?")
                ->execute([json_encode(['draft' => $f, 'saved_by' => (int)$user['id'], 'saved_at' => date('c')]), $suggestionId]);
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true, 'message' => 'Not approved: ' . $e->getMessage() . ' — your edits are saved'];
+        }
+    }
+
+    /**
+     * The owner changed what Penny suggested on her card: one head_lessons row per field she got
+     * wrong (migration 1348). Recording only; never blocks the decision.
+     */
+    private function recordLessons(int $expenseId, array $outcome, int $userId): void
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+            foreach ($outcome as $field => $o) {
+                if (!empty($o['accepted'])) continue;
+                if ($field === 'vendor' && trim((string)($o['suggested'] ?? '')) !== '') {
+                    // Subject = the vendor as Penny read it (the receipt now carries the owner's).
+                    PennyLessons::subject($this->db, 'vendor', (string)$o['suggested'], 'vendor', $o['suggested'], $o['final'] ?? null,
+                                          'penny_card', $userId, 'expense', $expenseId);
+                    continue;
+                }
+                PennyLessons::expense($this->db, $expenseId, $field === 'job' ? 'job_id' : $field, $o['suggested'] ?? null, $o['final'] ?? null,
+                                      'penny_card', $userId);
+            }
+        } catch (Throwable $e) {
+            error_log('Penny card lessons #' . $expenseId . ': ' . $e->getMessage());
         }
     }
 

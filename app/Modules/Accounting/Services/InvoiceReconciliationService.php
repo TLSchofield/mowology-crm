@@ -817,6 +817,10 @@ class InvoiceReconciliationService
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
+        // A person corrected a recorded payment (head_lessons, migration 1348).
+        require_once __DIR__ . '/PennyLessons.php';
+        PennyLessons::subject($this->db, 'invoice', (string)$inv['invoice_number'], 'amount_paid', round((float)$inv['amount_paid'], 2), $newPaid,
+                              'invoice_correct_payment', $userId, 'invoice', $invoiceId, $reason);
 
         return [
             'invoice_id'       => $invoiceId,

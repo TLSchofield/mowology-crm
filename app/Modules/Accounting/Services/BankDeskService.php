@@ -278,8 +278,14 @@ class BankDeskService
             // One way to move a line (BankLineMoveService): the type follows the account
             // (a bill booked as a card payoff becomes a cost; a loan payment a transfer) and
             // the journal entry moves with it. A receipt link reverses the entry itself.
+            // A person's pick over Penny's suggestion is a lesson (head_lessons): she said the suggestion.
+            $lesson = ['source' => 'bank_desk'];
+            if ($suggestedId) {
+                require_once __DIR__ . '/PennyLessons.php';
+                $lesson['said'] = PennyLessons::accountLabel($this->db, $suggestedId);
+            }
             $moved = (new BankLineMoveService($this->db))->move($transactionId, $accountId, (int)$user['id'],
-                $suggestedId && $suggestedId === $accountId ? 'penny' : 'owner', !$expenseId);
+                $suggestedId && $suggestedId === $accountId ? 'penny' : 'owner', !$expenseId, $lesson);
             if (empty($moved['ok'])) return $moved;
             $learned = (new BankRuleLearning($this->db))->learnFromCorrection($transactionId, $accountId, (int)$user['id']);
             if ($expenseId) {
@@ -288,6 +294,12 @@ class BankDeskService
                 else (new BankLineMoveService($this->db))->rejournal($transactionId, (int)$user['id']);
             }
             $outcome = $suggestedId && $suggestedId === $accountId ? 'accepted' : 'edited';
+        } elseif ($suggestedId && $suggestedId !== (int)($tx['account_id'] ?? 0)) {
+            // "Keep it as it is" over Penny's suggestion: she was wrong about this line.
+            require_once __DIR__ . '/PennyLessons.php';
+            PennyLessons::bankLine($this->db, $transactionId, 'account', PennyLessons::accountLabel($this->db, $suggestedId),
+                                   PennyLessons::accountLabel($this->db, (int)($tx['account_id'] ?? 0) ?: null) ?? 'kept as it is',
+                                   'bank_desk_keep', (int)$user['id']);
         }
         $this->db->prepare("
             INSERT INTO bank_line_reviews (transaction_id, suggested_account_id, final_account_id, outcome, decided_by)

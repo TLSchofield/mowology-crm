@@ -101,6 +101,7 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Penny's "unbilled materials" questions and answers | `PennyQuestionService` (answers: invoice, contract, not billable, already billed) | Penny's card |
 | A receipt linked to a bank / card line: its payment method follows the line (bank line is the truth) | `ReceiptFundingCheck::onLink()` (funding code: `LedgerSyncService::fundingCodeFor()`) | receipts page attach, Penny's bank desk, bank receipt sweep (all via `BankImportService::attachExpenseMatch()`), import auto-match, `sweep()` |
 | Single-entry reports count a linked bank line once | `AccountingService::countedSql()` | P&L, trend, cash flow, tax summary, job profit, dashboard, expense breakdown |
+| Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
 (`business_settings.gst_rate`); `TaxEngine::getRates()` (ledger, GST report) and the two on-screen

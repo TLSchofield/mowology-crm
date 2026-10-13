@@ -73,6 +73,7 @@ try {
     $svc = new InvoiceReconciliationService($db);
 
     require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+    require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';   // a person's override → head_lessons (quiet)
     $bankImportSvc = new BankImportService($db);
 
     switch ($action) {
@@ -93,6 +94,8 @@ try {
             }
 
             $result = $svc->attach($txId, $allocations, (int)$user['id']);
+            PennyLessons::bankLine($db, $txId, 'paid_invoices', 'unmatched', implode(', ', array_column($result['recorded'], 'invoice_number')),
+                                   'reconcile_attach', (int)$user['id']);
 
             // Activity log + marketing attribution (kept out of the pure service)
             foreach ($result['recorded'] as $r) {
@@ -123,6 +126,8 @@ try {
 
             // detach() writes the 'Payment detached' audit rows itself, with before → after.
             $result = $svc->detach($txId, $invoiceId ?: null, (int)$user['id']);
+            PennyLessons::bankLine($db, $txId, 'paid_invoices', implode(', ', array_column($result['reversed'], 'invoice_number')), 'not these invoices',
+                                   'reconcile_detach', (int)$user['id']);
 
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
@@ -132,6 +137,8 @@ try {
             $txId = (int)($input['transaction_id'] ?? 0);
             if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
             $result = $svc->markDepositAlreadyRecorded($txId, (int)$user['id'], (string)($input['note'] ?? ''));
+            PennyLessons::bankLine($db, $txId, 'already_recorded', 'new income', 'already recorded', 'reconcile_mark_recorded',
+                                   (int)$user['id'], (string)($input['note'] ?? '') ?: null);
             if (function_exists('logActivityExtended')) {
                 logActivityExtended((int)$user['id'], 'Deposit marked recorded',
                     'Bank deposit #' . $txId . ' ($' . number_format($result['amount'], 2) . ') marked as already recorded');
@@ -178,6 +185,10 @@ try {
                 if ($db->inTransaction()) $db->rollBack();
                 throw $e;
             }
+            if ($result) {
+                PennyLessons::bankLine($db, $txId, 'already_recorded', 'new income', 'recorded on ' . implode(', ', $result['invoice_numbers']),
+                                       'reconcile_link_recorded', (int)$user['id']);
+            }
             if ($result && function_exists('logActivityExtended')) {
                 logActivityExtended((int)$user['id'], 'Deposit linked',
                     'Bank deposit #' . $txId . ' linked to recorded payment(s) on ' . implode(', ', $result['invoice_numbers']));
@@ -190,6 +201,7 @@ try {
             $txId = (int)($input['transaction_id'] ?? 0);
             if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
             $result = $svc->unmarkDepositAlreadyRecorded($txId);
+            PennyLessons::bankLine($db, $txId, 'already_recorded', 'already recorded', 'new income', 'reconcile_unmark_recorded', (int)$user['id']);
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
         }
@@ -231,6 +243,7 @@ try {
             if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
 
             $result = $bankImportSvc->detachExpenseMatch($txId, (int)$user['id']);
+            PennyLessons::bankLine($db, $txId, 'receipt_link', 'receipt #' . $result['expense_id'], 'not this receipt', 'receipt_unlink', (int)$user['id']);
 
             if (function_exists('logActivityExtended')) {
                 logActivityExtended((int)$user['id'], 'Receipt match removed',

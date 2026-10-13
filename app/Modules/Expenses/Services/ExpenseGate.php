@@ -63,6 +63,10 @@ class ExpenseGate
     /** What the books carry for a posted receipt — a change re-posts it. */
     public const BOOKS = ['expense_date', 'vendor_id', 'amount', 'gst_amount', 'pst_amount', 'total', 'accounting_category',
                           'payment_method', 'job_id', 'asset_tag'];
+    /** A person changing one of these overrides what Penny / the receipt reader said (head_lessons). */
+    public const LESSON_FIELDS = ['accounting_category', 'payment_method', 'job_id', 'vendor_id', 'vendor_name_raw', 'asset_tag'];
+    /** Sources that record their own lesson (against Penny's suggestion) or are not a person's override. */
+    public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line'];
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
     /** The audited transition that may set each closed status. */
@@ -319,6 +323,13 @@ class ExpenseGate
         }
         if (!$create && $person && in_array('accounting_category', $changed, true) && $source !== 'bank_desk') {
             $this->hooks->learnBank($id, $after, $actor['id'] ?? null);
+        }
+        // A person changed what the receipt said: one lesson per field (head_lessons, migration 1348).
+        // Penny's card records against her own suggestion (BookkeeperDeskService::decide) instead.
+        $overridden = array_values(array_intersect($changed, self::LESSON_FIELDS));
+        if (array_key_exists('allocations', $changes) && in_array('allocations', $changed, true)) $overridden[] = 'allocations';
+        if (!$create && $person && $overridden && !in_array($source, self::LESSON_SKIP_SOURCES, true)) {
+            $this->hooks->lessons($id, $before, $after, $overridden, $actor['id'] ?? null, $source, $extra['allocations'] ?? null);
         }
     }
 

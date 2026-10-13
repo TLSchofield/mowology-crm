@@ -80,6 +80,22 @@ email with the cheque number, invoice number and date cashed — a remittance as
 `vcfmoinvoices@vch.ca` (the company billing email); one-off work goes to Johnly Sareno
 (`laguiar@littlemountaincare.org`), who signs it off — leave the routing as "primary contact" (Tim, 2026-10-12).
 
+## Lessons record (`head_lessons`, migration 1348, 2026-10-13)
+
+Every time a person overrides Penny, one row is written: head, subject (`vendor`, `bank_wording`,
+`invoice`, `etransfer_sender`, `service_type`), field, what she said, what was right, who, the code path
+(`source`) and when. `site_id` keeps it tenant-private. Written by `HeadLessons::record()` through
+`PennyLessons` (`expense()`, `bankLine()`, `subject()`); a failure is logged and never blocks the person.
+Recording only so far: no learner reads it yet (plan 2026-10-13 A2 will, via `countConsistent()`).
+Wired paths: `ExpenseGate` (a person changing category, payment method, job, vendor, tag or split;
+sources `penny_card`, `bank_desk`, `bank_line` skip it), Penny's card (`BookkeeperDeskService::decide`,
+against her suggestion), `BankLineMoveService::move` (not when Penny proposed the account), bank desk
+"keep", `attachExpenseMatch` / unlink, `ReceiptFundingCheck` (bank line corrects the method), Penny's
+question answers, reconciliation attach / detach / already-recorded, the deposit card, payer teaching,
+`correctManualPayment`, Jobber `linkManual` / `bookMatched`, "not a duplicate". `bank_memo_payers` has no
+person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests in
+`tests/Unit/Penny/Lessons20261012Test.php`.
+
 ## Tables and columns that mislead
 
 | Column | What it really is |

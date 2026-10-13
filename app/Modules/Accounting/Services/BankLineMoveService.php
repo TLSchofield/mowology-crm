@@ -51,9 +51,12 @@ class BankLineMoveService
     /**
      * Move one bank line (or any transaction) to an account, with its journal entry.
      * @param bool $journal false = the caller links a receipt next (that reverses the entry itself)
+     * @param array $lesson  head_lessons (migration 1348) for a person's move: 'said' (Penny's suggestion,
+     *                       default = the line's account before) and 'source'. Not recorded when Penny
+     *                       proposed the account ($proposedBy 'penny') or the account didn't change.
      * @return array{ok: bool, message: string, journal?: string, type?: string, account?: array}
      */
-    public function move(int $txId, int $accountId, int $userId, string $proposedBy = 'owner', bool $journal = true): array
+    public function move(int $txId, int $accountId, int $userId, string $proposedBy = 'owner', bool $journal = true, array $lesson = []): array
     {
         $s = $this->db->prepare("SELECT * FROM accounting_transactions WHERE id = ?");
         $s->execute([$txId]);
@@ -76,6 +79,12 @@ class BankLineMoveService
         $done = 'none';
         if ($journal && ($tx['reference_type'] ?? '') === 'bank_import') {
             $done = $this->rejournal($txId, $userId, $proposedBy, 'moved to ' . $acct['code'] . ' ' . $acct['name']);
+        }
+        if ($proposedBy !== 'penny' && (int)($tx['account_id'] ?? 0) !== $accountId) {
+            require_once __DIR__ . '/PennyLessons.php';
+            $said = array_key_exists('said', $lesson) ? $lesson['said'] : PennyLessons::accountLabel($this->db, (int)($tx['account_id'] ?? 0) ?: null);
+            PennyLessons::bankLine($this->db, $txId, 'account', $said, trim($acct['code'] . ' ' . $acct['name']),
+                                   (string)($lesson['source'] ?? 'bank_line_move'), $userId ?: null);
         }
         return ['ok' => true, 'message' => 'Moved to ' . $acct['code'] . ' ' . $acct['name'] . '.', 'journal' => $done, 'type' => $type, 'account' => $acct];
     }
@@ -173,7 +182,7 @@ class BankLineMoveService
     {
         $moved = []; $failed = 0;
         foreach ($this->bulkCandidates($txId, $accountId) as $c) {
-            $r = $this->move($c['id'], $accountId, $userId, 'owner');
+            $r = $this->move($c['id'], $accountId, $userId, 'owner', true, ['source' => 'bank_bulk']);
             if (empty($r['ok'])) { $failed++; continue; }
             $moved[] = $c['id'];
             if ($this->hasTable('bank_line_reviews')) {

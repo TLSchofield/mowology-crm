@@ -713,6 +713,8 @@ class JobberLedgerService
         foreach ($invoices as $inv) $byId[(int)$inv['id']] = $inv;
         $batch = self::batchId();
         $this->bookProposal($p, $byId, $acct, $batch, $userId);
+        require_once __DIR__ . '/PennyLessons.php';   // a person matched it by hand (head_lessons, migration 1348)
+        PennyLessons::bankLine($this->db, $txId, 'jobber_invoices', 'unmatched', 'Jobber #' . implode(', #', $numbers), 'jobber_link_manual', $userId);
         return ['ok' => true, 'batch_id' => $batch, 'message' => 'Deposit booked against Jobber #' . implode(', #', $numbers) . '.'];
     }
 
@@ -775,6 +777,10 @@ class JobberLedgerService
         if ($p['locked']) return ['ok' => false, 'message' => substr($d['date'], 0, 7) . ' is locked.'];
         $batch = self::batchId();
         $this->bookProposal($p, $byId, $acct, $batch, $userId);
+        require_once __DIR__ . '/PennyLessons.php';   // a person matched it by hand (head_lessons, migration 1348)
+        PennyLessons::bankLine($this->db, $txId, 'jobber_invoices', 'unmatched',
+                               'Jobber ' . implode(', ', array_unique(array_filter(array_column($p['entry']['allocations'], 'invoice')))),
+                               'jobber_book_matched', $userId, mb_substr($how, 0, 120));
         return ['ok' => true, 'batch_id' => $batch, 'fy2025_part' => $p['fy2025_part'], 'income_after' => $p['income_after'],
                 'message' => 'Deposit booked against Jobber ' . implode(', ', array_unique(array_filter(array_column($p['entry']['allocations'], 'invoice')))) . '.'];
     }

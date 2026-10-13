@@ -184,6 +184,46 @@ class ExpenseGateHooks
         }
     }
 
+    /**
+     * A person overrode what the receipt said (head_lessons, migration 1348): one lesson per field.
+     * Subject = the vendor as Penny read it. Never blocks the change (PennyLessons is quiet).
+     */
+    public function lessons(int $expenseId, array $before, array $after, array $fields, ?int $userId, string $source, ?array $allocations = null): void
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+            // The vendor as it was (its record's name first, as PennyLessons::expense() does).
+            $vendor = '';
+            if (!empty($before['vendor_id'])) {
+                $v = $this->db->prepare("SELECT name FROM vendors WHERE id = ?");
+                $v->execute([(int)$before['vendor_id']]);
+                $vendor = trim((string)$v->fetchColumn());
+            }
+            if ($vendor === '') $vendor = trim((string)($before['vendor_name_raw'] ?? ''));
+            $vendor = $vendor !== '' ? $vendor : 'unknown vendor';
+            $src = 'expense_gate:' . $source;
+            // vendor_id + vendor_name_raw changed together = one vendor lesson.
+            if (in_array('vendor_id', $fields, true) && in_array('vendor_name_raw', $fields, true)) {
+                $fields = array_values(array_diff($fields, ['vendor_id']));
+            }
+            foreach ($fields as $f) {
+                if ($f === 'allocations') {
+                    $said = null;
+                    $correct = $allocations ? array_map(fn($a) => array_intersect_key((array)$a,
+                        array_flip(['label', 'job_id', 'accounting_category', 'asset_tag', 'is_stock'])), $allocations) : 'not split';
+                    $field = 'split';
+                } else {
+                    $said = $before[$f] ?? null;
+                    $correct = $after[$f] ?? null;
+                    $field = $f === 'vendor_name_raw' ? 'vendor' : $f;
+                }
+                PennyLessons::subject($this->db, 'vendor', $vendor, $field, $said, $correct, $src, $userId, 'expense', $expenseId);
+            }
+        } catch (Throwable $e) {
+            error_log('Gate lessons #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** A posted receipt changed: reverse its entry and post it again as it is now. @return bool re-posted */
     public function repost(int $expenseId, ?int $userId, string $why): bool
     {

@@ -338,7 +338,7 @@ try {
                 $sender = trim((string)($input['sender'] ?? ''));
                 $inv = (int)($input['invoice_id'] ?? 0);
                 if ($sender === '' || !$inv) throw new RuntimeException('sender and invoice_id required');
-                $ok = $match->teach($sender, [$inv]);
+                $ok = $match->teach($sender, [$inv], (int)$user['id']);
                 echo json_encode(['ok' => $ok, 'message' => $ok ? "Learned: {$sender} pays for that invoice's client." : 'Nothing new to learn (the names already match).']);
             }
             break;

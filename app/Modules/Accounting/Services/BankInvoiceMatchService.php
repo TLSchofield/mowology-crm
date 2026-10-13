@@ -180,7 +180,10 @@ class BankInvoiceMatchService
             if ($this->db->inTransaction()) $this->db->rollBack();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
-        $taught = $sender !== null && trim($sender) !== '' ? $this->teach(trim($sender), array_column($clean, 'invoice_id')) : false;
+        $taught = $sender !== null && trim($sender) !== '' ? $this->teach(trim($sender), array_column($clean, 'invoice_id'), $userId) : false;
+        // A person said which invoices this deposit paid (head_lessons, migration 1348).
+        require_once __DIR__ . '/PennyLessons.php';
+        PennyLessons::bankLine($this->db, $txId, 'paid_invoices', 'unmatched', implode(', ', $numbers), 'penny_deposit_card', $userId);
         return ['ok' => true, 'message' => 'Recorded on ' . implode(', ', $numbers) . ' — the deposit counts once now' .
                 ($left > 0.005 ? '; $' . number_format($left, 2) . ' of it is still unexplained' : '') . '.' .
                 ($taught ? ' I\'ll know ' . trim($sender) . ' next time.' : '')];
@@ -213,14 +216,22 @@ class BankInvoiceMatchService
             if ($this->db->inTransaction()) $this->db->rollBack();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+        require_once __DIR__ . '/PennyLessons.php';
+        PennyLessons::bankLine($this->db, $txId, 'already_recorded', 'new income', 'recorded on ' . implode(', ', $numbers), 'penny_deposit_card', $userId);
         return ['ok' => true, 'message' => 'Linked to the payment already on ' . implode(', ', $numbers) . ' — counted once now.'];
     }
 
     /** Teach: this sender pays for these invoices' payer. True when a new pairing was stored. */
-    public function teach(string $sender, array $invoiceIds): bool
+    public function teach(string $sender, array $invoiceIds, ?int $userId = null): bool
     {
         $before = $this->countLearned();
         $this->inbox->learnSender($sender, $invoiceIds);
+        if ($userId) {
+            // A person said who this sender pays for (head_lessons, migration 1348).
+            require_once __DIR__ . '/PennyLessons.php';
+            PennyLessons::subject($this->db, 'etransfer_sender', $sender, 'payer', 'unknown payer',
+                                  'pays ' . (PennyLessons::invoiceNumbers($this->db, $invoiceIds) ?? 'these invoices'), 'penny_teach_payer', $userId);
+        }
         return $this->countLearned() > $before || $this->timesFor($sender) > 0;
     }
 
