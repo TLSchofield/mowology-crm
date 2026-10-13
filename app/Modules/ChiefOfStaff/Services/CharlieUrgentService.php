@@ -107,6 +107,16 @@ class CharlieUrgentService
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = self::disputeAlert($r);
         } catch (Throwable $e) { /* no activity_log — nothing to watch */ }
 
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Technology/Services/AdaSecurityWatch.php')) {
+            try {
+                // Ada's urgent security alerts: failed-login spike, role change, system log cleared (#25d).
+                require_once APP_ROOT . '/Modules/Technology/Services/AdaSecurityWatch.php';
+                foreach ((new AdaSecurityWatch($this->db))->urgent() as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: Ada security watch unavailable: ' . $e->getMessage());
+            }
+        }
+
         if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php')) {
             try {
                 require_once APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php';
@@ -275,7 +285,7 @@ class CharlieUrgentService
             $url = preg_match('#^https?://#', $a['url']) ? $a['url'] : $base . '/' . ltrim($a['url'], '/');
             $html .= '<li><a href="' . $e($url) . '" style="color:#0D3B2E;">' . $e($a['text']) . '</a></li>';
         }
-        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent and same-day weather. — Charlie</p>';
+        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, same-day weather and security alarms. — Charlie</p>';
         return ['subject' => $subject, 'body' => $html];
     }
 }

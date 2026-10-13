@@ -238,7 +238,11 @@ class AdaDeskService
               WHERE u.is_active = 1 AND COALESCE(u.is_vehicle_tablet, 0) = 0
               GROUP BY u.id, name, u.role, u.last_login"
         )->fetchAll(PDO::FETCH_ASSOC);
-        return [AdaRules::loginsCheck($rows, $this->now()),
+        $out = [AdaRules::loginsCheck($rows, $this->now()),
                 AdaRules::jwtSecretCheck(defined('BLUEMOON_JWT_SECRET') ? strlen((string)BLUEMOON_JWT_SECRET) : null)];
+        // Failed-login spikes and role / password / migration / log-clear changes (Fable audit #25d).
+        require_once __DIR__ . '/AdaSecurityWatch.php';
+        foreach ((new AdaSecurityWatch($this->db, $this->now))->checks() as $c) $out[] = $c;
+        return $out;
     }
 }
