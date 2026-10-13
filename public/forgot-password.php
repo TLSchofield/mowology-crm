@@ -52,15 +52,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Generate a cryptographically secure token
             $rawToken  = bin2hex(random_bytes(32));           // 64 hex chars
             $tokenHash = hash('sha256', $rawToken);
-            $expiresAt = date('Y-m-d H:i:s', time() + 3600); // 1-hour window
 
-            // Invalidate any existing unused tokens for this user
-            $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL")
+            // Same table shape as the working loginAuth flow (2026-10-12): production's
+            // password_reset_tokens has `token` (the sha256 of the raw token), no token_hash/used_at —
+            // this page used to fatal on every request. One live link per user; used = deleted.
+            $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")
                ->execute([(int)$row['id']]);
 
-            // Store the hash (never the raw token)
-            $db->prepare("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-               ->execute([(int)$row['id'], $tokenHash, $expiresAt]);
+            // Store the hash (never the raw token). Expiry in MySQL time, compared with NOW() on use.
+            $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))")
+               ->execute([(int)$row['id'], $tokenHash]);
+            $expiresAt = (string)$db->query("SELECT DATE_ADD(NOW(), INTERVAL 1 HOUR)")->fetchColumn();
 
             // Build reset URL
             $resetUrl = 'https://mowology.ca/reset-password?token=' . urlencode($rawToken);

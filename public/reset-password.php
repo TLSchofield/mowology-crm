@@ -28,11 +28,11 @@ function lookupToken(PDO $db, string $rawToken): ?array
 {
     $hash = hash('sha256', $rawToken);
     $stmt = $db->prepare("
-        SELECT prt.id, prt.user_id, prt.expires_at, prt.used_at,
+        SELECT prt.id, prt.user_id, prt.expires_at, (prt.expires_at <= NOW()) AS expired,
                u.email, u.full_name
         FROM   password_reset_tokens prt
         JOIN   users u ON u.id = prt.user_id
-        WHERE  prt.token_hash = ?
+        WHERE  prt.token = ? AND (u.is_active = 1 OR u.is_active IS NULL)
         LIMIT  1
     ");
     $stmt->execute([$hash]);
@@ -52,9 +52,7 @@ if ($rawToken !== '') {
 
     if (!$tokenRow) {
         $error = 'This reset link is invalid. Please request a new one.';
-    } elseif ($tokenRow['used_at'] !== null) {
-        $error = 'This reset link has already been used. Please request a new one.';
-    } elseif (strtotime($tokenRow['expires_at']) < time()) {
+    } elseif (!empty($tokenRow['expired'])) {
         $error = 'This reset link has expired. Please request a new one.';
     } else {
         $tokenValid = true;
@@ -82,8 +80,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tokenValid && $tokenRow) {
             $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1")
                ->execute([$hash, (int)$tokenRow['user_id']]);
 
-            $db->prepare("UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ? LIMIT 1")
-               ->execute([(int)$tokenRow['id']]);
+            // Single use: the user's links are deleted (same as loginAuth/reset_password.php). A used
+            // link then reads as invalid. The password change also ends other sessions (#12).
+            $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")
+               ->execute([(int)$tokenRow['user_id']]);
 
             $db->commit();
             $done = true;
