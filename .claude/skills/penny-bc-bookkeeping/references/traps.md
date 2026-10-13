@@ -146,12 +146,41 @@ Now enforced in code — don't undo:
   drain only the signed-in person's items; "12,50" reads as 12.50.
 
 Dropped / not done:
-- `QBService::_qbLoadExpense` selects `e.tax_amount`, which doesn't exist on production — batch forward /
-  retry have been failing with a SQL error (now shown as a generic error). Not fixed: making it work
-  would start emailing the 110 approved-unsent receipts when someone clicks; Tim to decide.
+- `QBService::_qbLoadExpense` selects `e.tax_amount`, which doesn't exist on production, so batch forward /
+  retry fail. **Tim decided (2026-10-12): receipts are NEVER emailed to the accountant.** The accountant
+  downloads them or asks for them; each month's receipts get zipped and stored once that month is reconciled.
+  Leave batch forward dead.
 - Desktop `public/crm/api/receipt-send.php` still sends a draft (the office sending from the desktop is
   treated as approval) — left as is.
-- Freedom dashboard now leaves out ~244 draft receipts (2026 costs $34.7K → $10.8K until they're
-  approved); the profit reads high until the backlog is approved — Tim's call whether drafts should count.
+- Freedom dashboard: **Tim decided that drafts count** (2026-10-12). Costs = draft + pending + approved + forwarded,
+  pre-GST; rejected/cancelled excluded (2026 costs $33,396 at the time).
 - `process_ocr_queue` records a run only when there were jobs (a no-op every minute would flood
   cron_runs), so its "last run" can look old.
+
+## 2026-10-12 — bank balancing lessons (chequing vs Vancity)
+
+- **The bank line says where money came from.** Receipt #384 (Vital Auto $1,711.70) was saved as
+  credit_card and posted Cr 2400. The chequing debit was linked to it, which reversed the bank entry, so
+  chequing was never credited and a phantom card debt sat on the books. Tim: "no cheques, only debit card".
+  Linking a receipt to a bank/card line must make the receipt's payment source match that line, and tell the
+  user. `fundingAccountFor()` used to send anything containing "card" to 2400 (a debit card is chequing).
+- **Measure the gap the same way every time:** books = SUM(debit−credit) on 1010 to the statement's last
+  date; bank = the CSV running balance on that date; leave the +$5,325.33 opening out (waiting on the
+  accountant). Vancity changes same-day running balances between exports, so dedupe statement lines on
+  (date, amount), keeping the most copies any single file has. Never dedupe on balance.
+- **Same-day "deposit and take back" pairs are not payments.** Jan 20 $225.69 and Feb 4 $282.50: a
+  "Cheque deposit-branch" credit and a debit with the same wording the same day. Move both to 1100 as
+  transfers so they net to zero.
+- **Jobber "marked paid later":** a deposit can be days or months before the Jobber payment date, and
+  of a different kind (BGC's EFT was marked as an e-Transfer 7 days later). Match by invoice and amount,
+  then use the catch-up path. Never require the Jobber date to fall within 3 days.
+- **A chargeback after a batch of cheques** (Colyvan, Jul 3 $456.84 + $7.50) usually means one of them
+  was a duplicate payment. Pair it with the duplicate as transfers on 1100 and book the fee to bank
+  charges. NEVER undo a whole Jobber batch to move one deposit; batches hold many.
+- **Debit-marked receipts with no chequing line** are usually card purchases or duplicate captures
+  (Home Depot $64.26 ×4). Ask; don't book them to chequing.
+- **QuickBooks (the accountant's books)** held $51,948 of A/R at YE2025, about $48K of it pre-2025 and stale.
+  2025 itself was clean. Ricole (ricole@sitlim.com) was asked on 2026-10-12 about writing it off and about
+  the 2026 opening A/R. Don't open 2026 from the $51,948 until she answers.
+- **Colyvan (VR1450) pays through LeapAP.** Invoices go to their LeapAP address with the PDF. Reminders
+  without a PDF are rejected there, so send them to the property manager instead.
