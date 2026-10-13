@@ -412,20 +412,11 @@ class ContactTeamService
      * Pure: does this message say the customer has paid? "Paid. Thanks!", "sent the e-transfer",
      * "payment sent", "e-transferred it", a bare "done". Never a question, a negation
      * ("haven't paid", "unpaid") or a promise ("will pay Friday", "once it's paid").
+     * One rule with Yui's inbox: UnclaimedReplyService::isPaymentClaim() (2026-10-07).
      */
     public static function saysPaid(string $text): bool
     {
-        $t = mb_strtolower(trim(preg_replace('/\s+/u', ' ', str_replace(["\u{2019}", "\u{2018}"], "'", $text))));
-        if ($t === '' || strpos($t, '?') !== false) return false;
-        // Negations and promises anywhere near the payment words.
-        if (preg_match("/\b(?:not|never|haven't|hasn't|havent|hasnt|didn't|didnt|won't|can't|cannot|unable to|yet to|unpaid|still owe|before|once|when|if|after)\b[^.!]{0,25}\b(?:paid|pay|payment|sent|send|e-?\s?transfer)/", $t)) return false;
-        if (preg_match("/\b(?:will|'ll|going to|gonna|plan to|planning to|about to|tomorrow|next week|later)\b[^.!]{0,25}\b(?:paid|pay|payment|send|sent|e-?\s?transfer)/", $t)) return false;
-        if (preg_match("/\b(?:pay|send|e-?\s?transfer)\b[^.!]{0,25}\b(?:tomorrow|next week|later|friday|monday|soon|shortly)\b/", $t)) return false;
-        if (preg_match('/\bpaid\b/', $t)) return true;
-        if (preg_match('/\be-?\s?transferred\b/', $t)) return true;
-        if (preg_match('/\b(?:sent|made|submitted|done|completed)\b[^.!]{0,20}\b(?:e-?\s?transfer|etransfer|interac|payment)/', $t)) return true;
-        if (preg_match('/\b(?:e-?\s?transfer|etransfer|interac|payment)\b[^.!]{0,20}\b(?:sent|made|submitted|done|completed|went through|is through)\b/', $t)) return true;
-        return (bool)preg_match('/^(?:all )?done(?: and done)?[\s.,!]*(?:(?:thanks|thank you|thx|ty)(?: so much)?[\s.,!]*)?$/', $t);
+        return UnclaimedReplyService::isPaymentClaim($text);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -453,7 +444,9 @@ class ContactTeamService
         if ($sc['plans']) {
             $plans = self::in($sc['plans']);
             // Same definitions as getWorkQueueItems(): stuck = past date, still scheduled / in progress;
-            // unbilled = completed with no invoice.
+            // unbilled = UnbilledVisitService (completed, not covered by an invoice, a per-period
+            // contract, a flat-priced plan or no-charge — 2026-10-07: Alexandra's monthly upfront
+            // contract showed "6 finished visits not invoiced yet").
             $stuck = $this->db->query("SELECT jv.id, jv.plan_id, jv.scheduled_date FROM job_visits jv
                                        WHERE jv.plan_id IN ({$plans}) AND jv.scheduled_date < " . $this->db->quote($today) . "
                                          AND jv.status IN ('scheduled', 'in_progress') ORDER BY jv.scheduled_date")->fetchAll(PDO::FETCH_ASSOC);
@@ -463,12 +456,11 @@ class ContactTeamService
                     : count($stuck) . ' past visits are still open, oldest ' . self::day($stuck[0]['scheduled_date']) . '. Close or move them.',
                     'Open plan', '/crm/jobs/view.php?id=' . (int)$stuck[0]['plan_id'], 2);
             }
-            $unbilled = $this->db->query("SELECT jv.id, jv.plan_id, COALESCE(jv.actual_amount, jp.price_per_visit, 0) AS amt
-                                          FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id
-                                          WHERE jv.plan_id IN ({$plans}) AND jv.status = 'completed'
-                                            AND (jv.is_invoiced = 0 OR jv.invoice_id IS NULL)")->fetchAll(PDO::FETCH_ASSOC);
+            require_once dirname(__DIR__, 2) . '/Invoices/Services/UnbilledVisitService.php';
+            $ub = (new UnbilledVisitService($this->db))->summary(array_map('intval', $sc['plans']), $today);
+            $unbilled = $ub['visits'];
             if ($unbilled) {
-                $amt = array_sum(array_map(fn($r) => (float)$r['amt'], $unbilled));
+                $amt = (float)$ub['amount'];
                 $out[] = self::item('otto', 'unbilled_visits', self::G_MONEY, count($unbilled) . ' finished visit' . (count($unbilled) === 1 ? '' : 's')
                     . ' not invoiced yet' . ($amt > 0 ? ' (' . self::money2($amt) . ')' : '') . '.', 'Invoice it',
                     '/crm/invoices/create.php?contact_id=' . $sc['contact'], 2);
