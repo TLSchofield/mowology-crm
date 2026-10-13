@@ -95,6 +95,9 @@ Rules now enforced in code:
   `CmsHtmlSanitizer::safeUrl()` on save (`cleanConfig`, `cms_create/updateSection`) and on render
   (`cleanConfigUrls` in `cms_renderBlock` and the snippet previews → `#`). `java\tscript:` and
   `&#106;avascript:` used to pass. A new URL field must use one of those key names.
+- Unsubscribe links: ONE sign/verify, `UnsubscribeLink` (HMAC of the lower-cased email with
+  `UNSUBSCRIBE_SECRET`; sid not signed). `generateUnsubscribeUrl()`, `unsubscribe.php` and
+  `optin.php?action=unsubscribe` all use it — optin used to check `email|sid`, which no link matched.
 - Tracking links are signed (`TrackingLinks`): unsigned clicks redirect only to mowology.ca and
   count nothing; unsubscribe links are never tracked. Opens count only with a signed pixel.
 - `campaign_sender.php` holds a MySQL named lock and claims each row pending → sending; a row left

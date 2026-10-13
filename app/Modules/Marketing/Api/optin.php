@@ -248,15 +248,10 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Invalid unsubscribe link']); break;
             }
 
-            // Verify HMAC token (same method as TemplateRenderer::generateUnsubscribeUrl)
-            if (!defined('UNSUBSCRIBE_SECRET') || (string)UNSUBSCRIBE_SECRET === '') {
-                error_log('optin.php: UNSUBSCRIBE_SECRET is not defined — token refused');
-                echo json_encode(['success' => false, 'error' => 'Invalid token']); break;
-            }
-            $secret = (string)UNSUBSCRIBE_SECRET;
-            $sendId = (int)($_GET['sid'] ?? 0);
-            $expected = hash_hmac('sha256', $email . '|' . $sendId, $secret);
-            if (!hash_equals($expected, $token)) {
+            // Same sign/verify as every unsubscribe link (UnsubscribeLink, Fable review 2026-10-12).
+            // This used to check HMAC(email|sid), which no generated link ever matched.
+            require_once APP_ROOT . '/Modules/Marketing/Services/UnsubscribeLink.php';
+            if (!UnsubscribeLink::verify((string)$email, $token)) {
                 echo json_encode(['success' => false, 'error' => 'Invalid token']); break;
             }
 
