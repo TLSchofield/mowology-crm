@@ -112,8 +112,26 @@ Rules now enforced in code:
 - 3+ 'warning' runs in a row is red/failing in `AdaRules::cronCheck()`.
 - `public/vendor/` denies all HTTP; `documents/download.php` needs billing.view;
   `opcache-reset.php` is POST + CSRF (the URL shows a button).
-- `dev-context.php` reads `X-Context-Token`; `?token=` stays until `.claude/hooks/fetch-dev-context.sh`
-  sends the header (a config change left for Tim).
+- `dev-context.php` reads `X-Context-Token` only (query fallback removed 2026-10-12, group A); the hook
+  sends the header.
 Not changed: `session_config.php` — production already sends SameSite=Lax to every client (the
-repo's Capacitor SameSite=None branch was never deployed). FTP `ssl:verify-certificate no` in
-scripts/ — reported only.
+repo's Capacitor SameSite=None branch was never deployed).
+
+## 2026-10-12 — security remediation, group A (ops, backups)
+- **FTP TLS was never verified.** `ftp.mowology.ca` presents a `*.canadianwebhosting.com` cert, which
+  is why every script had verification switched off. All FTP now goes through `scripts/lib/ftp.sh`
+  (`mw_lftp`), which connects to the server's own name `cwhtor13.canadianwebhosting.com` and
+  verifies. If the host moves servers, every script fails loudly with "Certificate verification" —
+  re-derive the name (`dig +short -x $(dig +short ftp.mowology.ca)`), never switch verification off.
+  `DeployScriptTlsTest` enforces it.
+- **IMAP** (`ImapReader`) validates the certificate with no retry; mail.mowology.ca validates from
+  production (probe 2026-10-12). A cert failure now shows as a poller that logs
+  "[ImapReader] imap_open failed … Certificate failure" — check that before blaming credentials.
+- **Backups:** `scripts/prod-backup.sh` streams the dump (nothing on the server),
+  `scripts/prod-backup-files.sh` mirrors uploads/_media/storage docs (download only),
+  `scripts/prod-restore.sh --drill` proves a dump restores (row counts per table). Nightly 02:30 via
+  launchd `ca.mowology.backup` (`scripts/install-backup-agent.sh`); log `~/Backups/mowology/backup.log`.
+  **Check to build:** newest dump in ~/Backups/mowology older than 36 h → red (needs a Mac-side
+  heartbeat, the server cannot see the Mac).
+- **Apple push:** pending rows 30+ min overdue are red; a 'quiet' push no longer vouches for push_drain.
+- login-debug.log only with `LOGIN_DEBUG`; the old file on production should be deleted.
