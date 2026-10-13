@@ -254,3 +254,10 @@ stored amounts on open receipts when the read agrees on the total (`amountRepair
 "Ask Penny" in the modal; picker = `vendorItemSuggestions()`. **Rule:** an amount that cannot be true is a failed
 read, never a value; a re-read must be able to replace a value that cannot be true.
 
+
+## Same-amount monthly payers swap deposits (2026-10-13)
+- Strata BCS4079 pays $262.50 every month. The Oct 8 deposit (for INV-0425, email "invoice 2026 0425") was attached to INV-0366 from the invoice page's amount-and-name list. On 2026-10-12 the Sep 9 deposit (really INV-0366's) was marked "already recorded" against INV-0308, which already had its own Aug 21 deposit. Result: INV-0425 looked unpaid and its card said "claim it" for money already in the bank.
+- Fixed by re-linking: Sep 9 → INV-0366, Oct 8 → INV-0425 (+$262.50 income that had been missing).
+- Guard: `InvoiceReconciliationService::emailNamesOtherInvoice()` — `attach()` and the bank desk refuse a deposit whose Interac email names a different open invoice by number (override: Record anyway / `$force`).
+- Before marking a deposit "already recorded", check the invoice it names doesn't already have its own deposit.
+- e-Transfer cards: a same-amount bank credit after the email date shows "probably deposited <date>", not the claim link.
