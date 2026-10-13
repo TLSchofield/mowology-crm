@@ -11,6 +11,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 $__dir = __DIR__;

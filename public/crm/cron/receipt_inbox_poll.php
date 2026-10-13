@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -11,11 +12,5 @@ for ($__i = 0; $__i < 5; $__i++) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
-requireLogin();
-if (!isAdmin()) {
-    http_response_code(403);
-    echo 'Admin only';
-    exit;
-}
 
 require_once APP_ROOT . '/Modules/Expenses/Cron/receipt_inbox_poll.php';

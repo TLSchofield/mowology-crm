@@ -34,6 +34,11 @@ if (($user['role'] ?? '') !== 'admin') {
     echo json_encode(['error' => 'Admin only']);
     exit;
 }
+// GET stays a read-only count; any write needs POST + CSRF (Fable review 2026-10-12).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    require_once APP_ROOT . '/Core/AdminActionGuard.php';
+    adminActionGuard('the GPS dwell backfill');
+}
 
 // Check migration has run (columns must exist)
 $db = getDB();

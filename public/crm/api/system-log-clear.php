@@ -28,7 +28,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['error' => 'POST required']);
     exit;
 }
+// CSRF (Fable review 2026-10-12): a cross-site POST could wipe the log.
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('clear the system log');
 
 $db = getDB();
 $db->exec("TRUNCATE TABLE system_log");
+// Who cleared it — kept outside system_log (which was just emptied).
+$uid = (int)($user['id'] ?? 0);
+logActivity($uid, null, 'system_log_cleared', 'System log cleared by ' . ($user['full_name'] ?? $user['email'] ?? ('user ' . $uid)));
+error_log('[system-log-clear] system_log truncated by user ' . $uid . ' from ' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
 echo json_encode(['ok' => true]);

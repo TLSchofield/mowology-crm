@@ -9,6 +9,9 @@
  *  - CLI (the real cPanel-scheduled cron, which runs the app/ path directly
  *    OR a legacy crontab entry pointing at the shim) bypasses auth entirely.
  *  - Web (HTTP) requests must be a logged-in admin, otherwise 403 JSON.
+ *  - Web requests must also be a POST with the CSRF token (Fable review 2026-10-12): a GET only
+ *    shows a "Run it" confirmation button, so a link or <img> can never run autopay, mail polls
+ *    etc. The "Run Now" buttons POST with window.MW_CSRF_TOKEN in X-CSRF-Token.
  *
  * Returns 403 for anonymous AND non-admin web requests (we check the session
  * directly rather than requireLogin(), which would 302-redirect to the login
@@ -42,3 +45,6 @@ if (!isLoggedIn() || !isAdmin()) {
     echo json_encode(['error' => 'Admin only']);
     exit;
 }
+
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard(basename((string)($_SERVER['SCRIPT_NAME'] ?? 'cron'), '.php'));

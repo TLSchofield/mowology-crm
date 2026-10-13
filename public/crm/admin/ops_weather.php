@@ -865,7 +865,7 @@ $activePage = 'ops-weather';
             btn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Running...';
             if (typeof feather !== 'undefined') feather.replace();
 
-            fetch('/crm/cron/weather_schedule_guard.php', { method: 'POST' })
+            fetch('/crm/cron/weather_schedule_guard.php', { method: 'POST', headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } })
               .then(r => r.json())
               .then(data => {
                 btn.disabled = false;

@@ -2,21 +2,8 @@
 /**
  * One-shot backfill: populate visit_margin_snapshots for all completed visits.
  */
-// Override global error handler so we see actual errors (not JSON blob)
-set_error_handler(function($severity, $message, $file, $line) {
-    echo "[PHP ERROR] {$message} in {$file}:{$line}\n";
-    return true;
-});
-set_exception_handler(function(Throwable $e) {
-    echo "[EXCEPTION] " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n";
-    exit(1);
-});
-register_shutdown_function(function() {
-    $err = error_get_last();
-    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
-        echo "[FATAL] {$err['message']} in {$err['file']}:{$err['line']}\n";
-    }
-});
+// Fable review 2026-10-12: the old handlers echoed messages, file paths and full stack traces to
+// the browser. Errors now go to the server log only (the global handler in auth.php).
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -37,8 +24,11 @@ if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     die('Admin only.');
 }
+// A GET only shows a confirm button; the backfill runs on POST + CSRF (Fable review 2026-10-12).
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('the margin snapshot backfill');
 
-ini_set('display_errors', '1');
+ini_set('display_errors', '0');
 error_reporting(E_ALL);
 header('Content-Type: text/plain; charset=utf-8');
 // Disable output buffering so progress streams to browser

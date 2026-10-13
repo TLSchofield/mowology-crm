@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {

@@ -3,6 +3,7 @@
  * Shim — routes web POST to /app/Modules/Social/Cron/metrics_sync.php
  * Callable via web POST (admin only) or directly by cron.
  */
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 ini_set('display_errors', '0');
 register_shutdown_function(function () {

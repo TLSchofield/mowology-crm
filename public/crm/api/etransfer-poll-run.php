@@ -16,5 +16,8 @@ unset($__dir, $__i);
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 if (!isAdmin()) { http_response_code(403); exit('Admin only'); }
+// A GET only shows a confirm button; the poll runs on POST + CSRF (Fable review 2026-10-12).
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('the e-Transfer inbox poll');
 
 require APP_ROOT . '/Modules/Accounting/Cron/etransfer_inbox_poll.php';

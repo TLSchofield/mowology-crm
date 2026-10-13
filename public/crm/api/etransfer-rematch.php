@@ -18,6 +18,9 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 requireLogin();
 if (!isAdmin()) { http_response_code(403); echo json_encode(['success' => false, 'error' => 'Admin only']); exit; }
+// A GET only shows a confirm button; rematch runs on POST + CSRF (Fable review 2026-10-12).
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('the e-Transfer rematch');
 
 header('Content-Type: application/json; charset=utf-8');
 

@@ -770,7 +770,9 @@ function runCron(el, url) {
 
     // CSRF token from meta tag
     var csrfMeta  = document.querySelector('meta[name="csrf-token"]');
-    var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+    // There is no csrf-token meta on AppStack pages — the token is window.MW_CSRF_TOKEN (the cron
+    // shims refuse a POST without it since 2026-10-12).
+    var csrfToken = window.MW_CSRF_TOKEN || (csrfMeta ? csrfMeta.getAttribute('content') : '');
 
     // AbortController — 35s timeout
     var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
