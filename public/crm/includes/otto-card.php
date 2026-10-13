@@ -132,7 +132,7 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
     <div class="mw-otto-stat<?= ($__os['dispatch'] ?? 0) > 0 ? ' is-alert' : '' ?>">
       <div class="mw-k">Bylaws &amp; kit</div>
       <div class="mw-v"><?= (int)($__os['dispatch'] ?? 0) ?></div>
-      <div class="mw-n"><a href="/crm/ops/municipal-rules.php">Rules</a> · <a href="/crm/ops/equipment.php">Equipment</a></div>
+      <div class="mw-n"><a href="/crm/ops/municipal-rules.php">Rules</a> · <a href="/crm/ops/equipment.php">Equipment</a> · <a href="/crm/suppliers/price-lists.php">Price lists</a></div>
     </div>
     <div class="mw-otto-stat<?= ($__os['training'] ?? 0) > 0 ? ' is-alert' : '' ?>">
       <div class="mw-k">Training</div>

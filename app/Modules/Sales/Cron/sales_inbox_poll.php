@@ -151,13 +151,13 @@ try {
         require_once $supFile;
         $sup = new SupplierInboxService(getDB());
         $budget = microtime(true) + 25;
-        $tot = ['heard' => 0, 'forms' => 0, 'licences' => 0];
+        $tot = ['heard' => 0, 'forms' => 0, 'licences' => 0, 'lists' => 0];
         foreach (array_filter([['office@', $office], ['icloud', MailboxConfig::icloud()]], fn($m) => $m[1] !== null) as [$lab, $mb]) {
             $r = $sup->poll($mb, $lab, $budget);
-            foreach ($tot as $k => $v) $tot[$k] += $r[$k];
+            foreach ($tot as $k => $v) $tot[$k] += $r[$k] ?? 0;
             if ($r['errors'] > 0) { $errors += $r['errors']; $salesLog("Suppliers {$lab}: {$r['errors']} error(s) {$r['note']}"); }
         }
-        if (array_sum($tot) > 0) $summary .= " Suppliers: {$tot['heard']} email(s), {$tot['forms']} account form(s) for Otto, {$tot['licences']} licence(s) filed.";
+        if (array_sum($tot) > 0) $summary .= " Suppliers: {$tot['heard']} email(s), {$tot['forms']} account form(s) for Otto, {$tot['licences']} licence(s) filed, {$tot['lists']} price list(s) imported.";
     }
 } catch (Throwable $e) {
     $salesLog('Suppliers: ' . $e->getMessage());

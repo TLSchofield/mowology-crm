@@ -7,6 +7,11 @@
  *   - notes that we heard from them (last_heard_at: stops Otto's "hasn't answered" chase);
  *   - hands every PDF to SupplierFormService::capture(), which files account applications
  *     for Otto to fill and offer to send.
+ *   - price lists (migration 1331): when the sender's domain has a list format
+ *     (supplier_list_formats, e.g. Inline Nurseries' weekly Mailchimp email), the .xlsx/.csv links
+ *     in the email are downloaded (format's hosts only, https, 5 MB) and imported by
+ *     SupplierPriceListService — booking forms skipped; deduped by message + link and by
+ *     (supplier, kind, list date). A failure is logged and never stops the poll.
  * Also files the city's business licence email (ops_settings licence_sender) as the current
  * business licence (CompanyDocumentService) — renewed every year without anyone forwarding it.
  *
@@ -20,6 +25,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 3) . '/Services/Mail/ImapReader.php';
 require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierFormService.php';
+require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierPriceListService.php';
 
 class SupplierInboxService
 {
@@ -76,11 +82,11 @@ class SupplierInboxService
 
     /**
      * Read one mailbox. $mb: a MailboxConfig entry. Returns counts.
-     * @return array{heard: int, forms: int, licences: int, errors: int, note: string}
+     * @return array{heard: int, forms: int, licences: int, lists: int, errors: int, note: string}
      */
     public function poll(array $mb, string $label, ?float $deadline = null): array
     {
-        $out = ['heard' => 0, 'forms' => 0, 'licences' => 0, 'errors' => 0, 'note' => ''];
+        $out = ['heard' => 0, 'forms' => 0, 'licences' => 0, 'lists' => 0, 'errors' => 0, 'note' => ''];
         $dir = new SupplierDirectoryService($this->db);
         $forms = new SupplierFormService($this->db);
         if (!$dir->ready() || !$forms->ready()) { $out['note'] = 'migration 1320 not run'; return $out; }
@@ -114,6 +120,38 @@ class SupplierInboxService
             @imap_close($conn);
         }
         return $out;
+    }
+
+    /**
+     * The supplier's emailed price lists → SupplierPriceListService. Only for a sender whose domain
+     * has a list format. Never throws. Fills $body (plain + HTML text) for the caller to reuse.
+     * @return array{imported: int, failed: int}
+     */
+    private function priceLists($conn, int $no, $st, array $supplier, string $from, string $key, string $received, ?string &$body): array
+    {
+        $none = ['imported' => 0, 'failed' => 0];
+        try {
+            $svc = new SupplierPriceListService($this->db);
+            if (!$svc->ready()) return $none;
+            $format = $svc->formatForDomain(SupplierDirectoryService::domainOf(SupplierDirectoryService::addressOf($from)));
+            if (!$format) return $none;
+            $body = ImapReader::textBody($conn, $no, $st);
+            // Mailchimp puts the file links in the HTML part; read it too when the text part won.
+            $html = $st ? ImapReader::bodyPart($st) : null;
+            if ($html && $html['html']) {
+                $h = ImapReader::fetchPart($conn, $no, $html['pn'], (int)$html['encoding']);
+                if ($html['charset'] !== '' && $html['charset'] !== 'UTF-8') $h = (string)@mb_convert_encoding($h, 'UTF-8', $html['charset']);
+                if (strpos($body, $h) === false) $body .= "\n" . $h;
+            }
+            $r = $svc->importFromEmail($supplier, $format, $body, ['message_key' => $key, 'received_at' => $received]);
+            if ($r['imported'] || $r['failed']) {
+                error_log('[supplier inbox] price lists from ' . ($supplier['name'] ?? '?') . ": {$r['imported']} imported, {$r['duplicate']} already in, {$r['failed']} failed");
+            }
+            return ['imported' => $r['imported'], 'failed' => $r['failed']];
+        } catch (Throwable $e) {
+            error_log('[supplier inbox] price lists: ' . $e->getMessage());
+            return ['imported' => 0, 'failed' => 1];
+        }
     }
 
     private function one($conn, int $no, int $sid, string $label, SupplierDirectoryService $dir, SupplierFormService $forms, array &$out): void
@@ -156,8 +194,12 @@ class SupplierInboxService
         if (!$supplier) return;
         $dir->heardFrom($sid, date('Y-m-d H:i:s', $ts));
         $out['heard']++;
+        $body = null;
+        $r = $this->priceLists($conn, $no, $st, $supplier, $from, $key, date('Y-m-d H:i:s', $ts), $body);
+        $out['lists'] += $r['imported'];
+        $out['errors'] += $r['failed'];
         if (!$pdfs) return;
-        $body = ImapReader::textBody($conn, $no, $st);
+        $body = $body ?? ImapReader::textBody($conn, $no, $st);
         foreach ($pdfs as $a) {
             $bytes = ImapReader::fetchPart($conn, $no, $a['pn'], (int)$a['encoding']);
             $id = $forms->capture($supplier, ['message_key' => $key, 'mailbox' => $label, 'from' => $from, 'to_cc' => $toCc,

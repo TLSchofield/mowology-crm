@@ -38498,6 +38498,28 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-ops-chip b { margin-left: 4px; }
 .mw-ops-list { list-style: none; padding: 0; margin: 6px 0 0; font-size: .8rem; color: var(--mw-ink-700); }
 .mw-ops-list li { padding: 3px 0; border-bottom: 1px dashed var(--mw-ink-200); }
+/* Otto — Supplier price lists (/crm/suppliers/price-lists.php, migration 1331) */
+.mw-pl-summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+.mw-pl-summary .card { margin-bottom: 16px; }
+.mw-pl-diff { font-size: .84rem; }
+.mw-pl-new { color: var(--mw-green); font-weight: 600; }
+.mw-pl-up { color: var(--mw-orange); font-weight: 600; }
+.mw-pl-down { color: var(--mw-green); font-weight: 600; }
+.mw-pl-special { display: inline-block; padding: 1px 8px; border-radius: var(--mw-radius-pill); background: var(--mw-light); color: var(--mw-dark); font-weight: 700; }
+.mw-pl-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mw-pl-filters .form-control-sm { width: auto; min-width: 160px; }
+.mw-pl-filters input[type=search] { min-width: 240px; }
+.mw-pl-check { font-size: .8rem; margin: 0; display: inline-flex; align-items: center; gap: 4px; }
+.mw-pl-decide { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.mw-pl-decide .form-control-sm { width: 110px; min-width: 0; }
+.mw-pl-code { color: var(--mw-ink-500); font-variant-numeric: tabular-nums; }
+.mw-pl-table td.mw-pl-name { min-width: 220px; }
+.mw-pl-table td.text-right { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mw-pl-compare { border-left: 3px solid var(--mw-lime); }
+@media (max-width: 767px) {
+    .mw-pl-summary { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .mw-pl-filters .form-control-sm, .mw-pl-filters input[type=search] { min-width: 0; width: 100%; }
+}
 .mw-ops-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; padding: 10px 0; }
 .mw-ops-form label { font-size: .72rem; color: var(--mw-ink-500); font-weight: 600; margin: 0; }
 .mw-ops-form .mw-ops-wide { grid-column: 1 / -1; }

@@ -159,6 +159,15 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/CompanyProfileServic
 require_once __DIR__ . '/../app/Modules/Operations/Services/CompanyDocumentService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierDirectoryService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormService.php';
+// Supplier price lists + shared catalogue (migration 1331)
+require_once __DIR__ . '/../app/Services/Spreadsheet/XlsxReader.php';
+require_once __DIR__ . '/../app/Services/Spreadsheet/SheetReader.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/PlantNameNormalizer.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';
+require_once __DIR__ . '/Unit/Operations/PriceListFixtures.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefEmail.php';

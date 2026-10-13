@@ -67,6 +67,30 @@
 - Tenant split (Ittai): directory, documents and forms are private; the form field dictionary is
   shared knowledge.
 
+## Supplier price lists + shared catalogue (owner, 2026-10-12; migration 1331)
+- Yui's reader (`SupplierInboxService::poll()`) sees mail from a supplier whose domain has a row in
+  `supplier_list_formats`; the .xlsx/.csv links in it (format's `link_hosts`, https only, 5 MB, no
+  redirects; booking forms skipped) go to `SupplierPriceListService::importFromEmail()`. Dedupe:
+  message + link, and (site, supplier, kind, list date). A failure is logged, never stops the poll.
+- Formats are DATA: header anchor ("ProductID"), column synonyms ("Item"/"Plant", "Price"/"List
+  Price", "@month" = the specials column named after the month), date/title/rules cells, kinds,
+  valid-until patterns. One generic parser: `SupplierListParser::parse()`. New supplier = a new
+  format row, not code. "Price" on Inline's list is Tim's TRADE price (confirmed 2026-10-12).
+- Every line keeps the supplier's own name, code, size and category as given; the catalogue
+  link sits beside it (`catalog_product_id`, `size_code`, `match_how`, `match_confidence`).
+- Matching (`CatalogService::resolve()`): confirmed alias → exact key → second-tier key (plants:
+  same genus+species+cultivar, series written differently or left out; goods: UPC, part number,
+  brand+name) → fuzzy = SUGGESTED into the review queue only, never linked automatically.
+  Decisions (`CatalogService::decide()`: confirm / merge / separate) become shared aliases.
+- Plants never auto-link across a different series, a different growing form (STD standard vs
+  shrub), sister cultivars ('Little Lime' / 'Little Lime Punch') or colours ('… Red' / '… Orange')
+  — all seen on Inline's real list (`PlantNameNormalizer::similarity()`).
+- Ittai split: SHARED (no site_id, no prices) = formats, families, category tree + mappings,
+  catalogue products, attribute defs/values, size equivalences, aliases. PRIVATE (site_id) =
+  `tenant_catalog_families`, `supplier_price_lists`, `supplier_price_items`, `catalog_match_queue`.
+  Trade prices never leave the company that received them.
+- Page: `public/crm/suppliers/price-lists.php` (products.view; review decisions need products.edit).
+
 ## Bulk material delivery (owner, 2026-10-10; `MaterialDeliveryService::DEFAULTS`)
 - Lawnboy delivers: cost $73, charge the client $150, order 3 days ahead.
 - The trailer carries 2 yd. `MaterialDeliveryService::decide()` picks trailer runs vs delivery from

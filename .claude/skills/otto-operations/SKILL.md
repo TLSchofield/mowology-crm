@@ -5,6 +5,8 @@ covers:
   - app/Modules/Operations/*
   - app/Modules/Tracking/*
   - app/Modules/Comms/Services/SupplierInboxService.php
+  - app/Services/Spreadsheet/*
+  - public/crm/suppliers/*
   - app/Modules/Team/Services/TimeclockFunctions.php
   - app/Modules/Team/Services/TrackingIngestService.php
   - app/Modules/Team/Services/TrackingHealthService.php

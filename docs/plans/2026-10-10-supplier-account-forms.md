@@ -83,3 +83,6 @@ the same router is run on office@ for supplier mail (MailboxConfig 'office' is c
   Sam's depot geocode (CloserService) since 2026-10-08.
 - Not built yet: directory page (view/edit suppliers, add addresses), nearest-supplier use in Otto's trip
   planning, Penny's price comparison (needs the Inline list import).
+- 2026-10-12: supplier price-list import BUILT (not deployed): migration 1331, shared catalogue + list
+  formats as data, Inline Nurseries as the first format, page /crm/suppliers/price-lists.php. See the
+  otto-operations skill, "Supplier price lists + shared catalogue".
