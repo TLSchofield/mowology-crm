@@ -578,6 +578,91 @@ class ContractService
         )->execute([$contractId]);
     }
 
+    /** Tim: contracts rise 5% each March/April. Overridable by ops_settings.contract_renewal_increase_pct. */
+    public const DEFAULT_RENEWAL_INCREASE_PCT = 5.0;
+
+    /**
+     * The renewal increase a new contract starts with: ops_settings
+     * `contract_renewal_increase_pct` when set, else 5%. Clamped to 0–50 like the edit form.
+     */
+    public static function defaultRenewalIncreasePct(PDO $db): float
+    {
+        try {
+            $stmt = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ? LIMIT 1");
+            $stmt->execute(['contract_renewal_increase_pct']);
+            $v = $stmt->fetchColumn();
+            if ($v !== false && $v !== null && trim((string)$v) !== '' && is_numeric(trim((string)$v))) {
+                return self::clampRenewalIncreasePct((float)$v);
+            }
+        } catch (Throwable $e) {
+            // no ops_settings table / row — fall through to the default
+        }
+        return self::DEFAULT_RENEWAL_INCREASE_PCT;
+    }
+
+    public static function clampRenewalIncreasePct(float $pct): float
+    {
+        return round(max(0.0, min(50.0, $pct)), 2);
+    }
+
+    /** Fields a client agrees to when they sign; an edit to any of them is recorded. */
+    public const SIGNED_TERMS_FIELDS = [
+        'title', 'billing_cycle', 'billing_amount', 'start_date', 'end_date',
+        'renewal_date', 'auto_renew', 'renewal_increase_pct', 'notes', 'contact_id',
+    ];
+
+    /**
+     * Which agreed fields an edit would change. Absent / null contact_id means "unchanged"
+     * (updateContract only writes contact_id when one is given). Amounts compare to the cent.
+     *
+     * @return string[]
+     */
+    public static function changedSignedFields(array $current, array $new): array
+    {
+        $changed = [];
+        foreach (self::SIGNED_TERMS_FIELDS as $f) {
+            if (!array_key_exists($f, $new)) continue;
+            $a = $current[$f] ?? null;
+            $b = $new[$f];
+            if ($f === 'contact_id' && ($b === null || $b === '' || (int)$b === 0)) continue;
+            if (in_array($f, ['billing_amount', 'renewal_increase_pct'], true)) {
+                $na = ($a === null || $a === '') ? null : round((float)$a, 2);
+                $nb = ($b === null || $b === '') ? null : round((float)$b, 2);
+                if ($f === 'renewal_increase_pct') { $na = (float)$na; $nb = (float)$nb; }
+                if ($na !== $nb) $changed[] = $f;
+            } elseif (in_array($f, ['auto_renew', 'contact_id'], true)) {
+                if ((int)$a !== (int)$b) $changed[] = $f;
+            } else {
+                $sa = trim((string)$a);
+                $sb = trim((string)$b);
+                if ($sa !== $sb) $changed[] = $f;
+            }
+        }
+        return $changed;
+    }
+
+    /**
+     * Before a SIGNED contract is edited, keep what the client signed as a version
+     * (Fable review 2026-10-12: signed-contract edits left no record). Does nothing for
+     * unsigned contracts or when nothing agreed changes. The signature status is left as is —
+     * whether an edit needs re-signing is Tim's call (amendContract() does that when asked).
+     *
+     * @return bool true when a version was written
+     */
+    public function snapshotSignedBeforeEdit(int $contractId, array $new, int $userId): bool
+    {
+        $contract = $this->getContract($contractId);
+        if (!$contract || ($contract['signature_status'] ?? '') !== 'signed') {
+            return false;
+        }
+        $changed = self::changedSignedFields($contract, $new);
+        if (!$changed) {
+            return false;
+        }
+        $this->snapshotVersion($contractId, $userId, 'Signed terms before edit: ' . implode(', ', $changed));
+        return true;
+    }
+
     /**
      * Get all version history for a contract (most recent first).
      */
