@@ -10,6 +10,8 @@
  * POST: {action: 'suggest', ocr_text, lat, lng, job_id}  — smart categorization
  * GET:  ?action=penny_read&id=X  — Penny's pending read where it differs (PennyReadService)
  * POST: {action: 'penny_apply'|'penny_keep', id, csrf_token}  — "Use Penny's version" / "Keep mine"
+ * POST: {action: 'penny_ask', id, csrf_token}  — "Ask Penny": her live read of this one receipt (capped)
+ * GET:  ?action=item_suggestions&vendor_id=N&q=…  — "Add Item" picker (ExpenseLookupService)
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -209,9 +211,18 @@ try {
             handleUpdateLineItem($db, $input);
             break;
 
+        case 'item_suggestions':
+            // GET ?action=item_suggestions&vendor_id=N&q=… — the "Add Item" picker: this vendor's
+            // usual items, then its catalogue, other CRM products only on a typed search.
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+            echo json_encode(['success' => true] + (new ExpenseLookupService($db))
+                ->vendorItemSuggestions((int)($_GET['vendor_id'] ?? 0), (string)($_GET['q'] ?? '')));
+            break;
+
         case 'penny_read':
         case 'penny_apply':
         case 'penny_keep':
+        case 'penny_ask':
             // "Penny's read" in the expense modal (web + Android): her pending suggestion where it
             // differs, "Use Penny's version" / "Keep mine" (PennyReadService, 2026-10-13). Rights are
             // per receipt — crew see and apply on their own open receipts, approvers apply + approve.
@@ -249,12 +260,18 @@ function handlePennyRead(PDO $db, string $action, ?array $input, array $user): v
     if ($action === 'penny_read') {
         $res = $svc->read((int)($_GET['id'] ?? 0), $actor);
         if (!$res['ok']) http_response_code((int)($res['code'] ?? 400));
-        echo json_encode($res['ok'] ? ['success' => true, 'read' => $res['read']] : ['success' => false, 'error' => $res['error']]);
+        echo json_encode($res['ok'] ? ['success' => true, 'read' => $res['read'], 'can_ask' => !empty($res['can_ask'])]
+                                    : ['success' => false, 'error' => $res['error']]);
         return;
     }
     if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$input) throw new Exception('No data provided');
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
     $id = (int)($input['id'] ?? 0);
+    if ($action === 'penny_ask') {
+        $res = $svc->ask($id, $actor);
+        echo json_encode(['success' => !empty($res['ok'])] + $res);
+        return;
+    }
     $res = $action === 'penny_apply' ? $svc->apply($id, $user, $actor) : $svc->keep($id, $user, $actor);
     echo json_encode(['success' => !empty($res['ok'])] + $res);
 }

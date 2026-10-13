@@ -239,3 +239,18 @@ On production 6850 is named "Meals & Entertainment" (BankDeskService, BankGuidan
 there), but `StripePayoutService` books Stripe processing fees to 6850 as "Payment Processing Fees". Meals are 50% for
 ITCs and income tax (GIFI 8523); card fees are 100% (8716). Until they are split, the GIFI mapping of 6850 is wrong for
 one of them. **Rule:** one account number, one meaning — check the chart's name before posting to a code.
+
+## 2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)
+Stored at capture with GST 5.00 (the old "GST 5.0000 % 0.12" misread), subtotal −2.39. Rescan re-ran the (fixed)
+parser, but Vision printed the amount on the line BELOW "GST 5.0000 %": the split-line pattern didn't allow the space
+before "%", so GST was missed, the column fallback read GST 2.61 / subtotal 0.00, and the bare "0.12" pulled the tax
+label in as the only line item. The coffee line ("… 1 2.49 2.49P") matched no item pattern. And the rescan only filled
+EMPTY form fields, so the bad stored amounts survived every rescan. Penny had never read it (she prepares only some
+receipts a day) and the Add Item picker offered Crusher Dust / Road Base (Chevron has no vendor_products, so typing
+fell through to all CRM products). **Fixed:** split-line rate with a space; `NAME QTY UNIT TOTAL<flag>` items (flag
+required — a tilted photo's rebuilt rows add up by chance); `isTaxOrSummaryLabel()` / `dropTaxLineItems()` on every
+pass; `sanitizeReceiptAmounts()` (negative subtotal, tax ≥ total or > 14% → fall back); rescan repairs impossible
+stored amounts on open receipts when the read agrees on the total (`amountRepair()`), and re-reads Penny's open read;
+"Ask Penny" in the modal; picker = `vendorItemSuggestions()`. **Rule:** an amount that cannot be true is a failed
+read, never a value; a re-read must be able to replace a value that cannot be true.
+

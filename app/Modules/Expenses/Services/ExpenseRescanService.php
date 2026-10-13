@@ -104,6 +104,10 @@ class ExpenseRescanService
                 $parsed = applyLearnedPatterns($matchVendor, $parsed, $ocrText);
                 $parsed = matchVendorProducts($matchVendor, $ocrText, $parsed);
             }
+            // Whatever pass produced them (Vision/LLM tier, learned patterns): a tax line is never
+            // an item, and impossible amounts fall back (Chevron #355, 2026-10-13).
+            $parsed['line_items'] = dropTaxLineItems($parsed['line_items'] ?? []);
+            $parsed = sanitizeReceiptAmounts($parsed);
         }
 
         $baselineSet = false;
@@ -144,10 +148,88 @@ class ExpenseRescanService
             $parsed['line_items_stored'] = true;
         }
 
+        // Stored amounts that cannot be true (a negative subtotal, tax at or over the total) on an
+        // open receipt are replaced by this read when it agrees on the total. Before, a rescan only
+        // filled EMPTY form fields, so a bad first read (Chevron #355: GST 5.00, subtotal −2.39)
+        // survived every rescan.
+        $amountsRepaired = $frozen ? null : $this->repairAmounts($expenseId, $parsed, $actor, $source);
+
+        // Penny's read, when she has one open, is read again against the rescanned receipt.
+        $pennyRefreshed = $this->refreshPenny($expenseId);
+
         return [
             'success' => true, 'ocr_available' => $ocrAvailable, 'ocr_source' => $ocrSource, 'ocr_text' => $ocrText,
             'parsed' => $parsed, 'suggestions' => $suggestions, 'pre_screen' => $preScreen,
             'line_items_stored' => !empty($fresh), 'baseline_set' => $baselineSet,
+            'amounts_repaired' => $amountsRepaired, 'penny_refreshed' => $pennyRefreshed,
         ];
+    }
+
+    /**
+     * Stored subtotal / GST / PST that cannot be true. Pure.
+     * @param array $e ['amount', 'gst_amount', 'pst_amount', 'total']
+     */
+    public static function amountsImpossible(array $e): bool
+    {
+        $total = (float)($e['total'] ?? 0);
+        if ($total <= 0) return false;
+        $sub = (float)($e['amount'] ?? 0);
+        $gst = (float)($e['gst_amount'] ?? 0);
+        $pst = (float)($e['pst_amount'] ?? 0);
+        return $sub <= 0 || $gst < 0 || $pst < 0 || $gst + $pst >= $total || $gst > $total * 0.14 + 0.02;
+    }
+
+    /**
+     * The fix for impossible stored amounts, from a read that agrees on the total. Pure.
+     * @return array|null gate changes, or null when the read can't be trusted for it
+     */
+    public static function amountRepair(array $stored, array $parsed): ?array
+    {
+        if (!self::amountsImpossible($stored)) return null;
+        $total = (float)($stored['total'] ?? 0);
+        if (!isset($parsed['total']) || abs((float)$parsed['total'] - $total) >= 0.005) return null;
+        $sub = isset($parsed['subtotal']) && is_numeric($parsed['subtotal']) ? (float)$parsed['subtotal'] : 0.0;
+        $gst = isset($parsed['gst']) && is_numeric($parsed['gst']) ? (float)$parsed['gst'] : 0.0;
+        $pst = isset($parsed['pst']) && is_numeric($parsed['pst']) ? (float)$parsed['pst'] : 0.0;
+        $fix = ['amount' => round($sub, 2), 'gst_amount' => round($gst, 2), 'pst_amount' => round($pst, 2)];
+        return self::amountsImpossible($fix + ['total' => $total]) ? null : $fix;
+    }
+
+    private function repairAmounts(int $expenseId, array $parsed, array $actor, string $source): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT amount, gst_amount, pst_amount, total, status FROM expenses WHERE id = ?");
+            $s->execute([$expenseId]);
+            $e = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$e || !in_array($e['status'], ExpenseGate::OPEN, true)) return null;
+            $fix = self::amountRepair($e, $parsed);
+            if (!$fix) return null;
+            $this->gate->apply($expenseId, $fix, $actor, $source);
+            return ['before' => ['amount' => $e['amount'], 'gst_amount' => $e['gst_amount'], 'pst_amount' => $e['pst_amount']],
+                    'after' => $fix];
+        } catch (Throwable $ex) {
+            error_log('Rescan amount repair #' . $expenseId . ': ' . $ex->getMessage());
+            return null;
+        }
+    }
+
+    /** Re-read by Penny when she has a pending read on this receipt (owner-asked, ~5¢, LlmDailyCap). */
+    private function refreshPenny(int $expenseId): bool
+    {
+        try {
+            $s = $this->db->prepare("SELECT id FROM expense_suggestions WHERE expense_id = ? AND source = 'live' AND status = 'pending'
+                                     ORDER BY id DESC LIMIT 1");
+            $s->execute([$expenseId]);
+            $sid = (int)$s->fetchColumn();
+            if (!$sid) return false;
+            require_once __DIR__ . '/ReceiptBookkeeperService.php';
+            require_once __DIR__ . '/BookkeeperDeskService.php';
+            $desk = new BookkeeperDeskService($this->db, new ReceiptBookkeeperService($this->db), $this->gate);
+            if (!$desk->canAsk()) return false;
+            return !empty($desk->recheck($sid)['ok']);
+        } catch (Throwable $ex) {
+            error_log('Rescan Penny refresh #' . $expenseId . ': ' . $ex->getMessage());
+            return false;
+        }
     }
 }

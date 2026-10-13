@@ -743,19 +743,65 @@ class BookkeeperDeskService
 
         $done = [];
         foreach ($ids as $id) {
-            $r = $this->bookkeeper()->suggest((int)$id, 'live', false);
-            if (empty($r['error']) && self::needsPhoto($r['checks'] ?? [])) {
-                $retry = $this->bookkeeper()->suggest((int)$id, 'live', true);
-                if (empty($retry['error'])) {
-                    $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
-                    $r = $retry;
-                } else {
-                    $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$retry['id'] ?? 0]);
-                }
-            }
+            $r = $this->suggestOne((int)$id);
             $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
         }
         return ['prepared' => $done, 'capped' => false];
+    }
+
+    /** One live read: the text first, the photo only when the text's amounts don't add up. */
+    private function suggestOne(int $id): array
+    {
+        $r = $this->bookkeeper()->suggest($id, 'live', false);
+        if (empty($r['error']) && self::needsPhoto($r['checks'] ?? [])) {
+            $retry = $this->bookkeeper()->suggest($id, 'live', true);
+            if (empty($retry['error'])) {
+                $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
+                $r = $retry;
+            } else {
+                $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$retry['id'] ?? 0]);
+            }
+        }
+        return $r;
+    }
+
+    /** Penny can read a receipt on request (API key + suggestions table). */
+    public function canAsk(): bool
+    {
+        return $this->bookkeeper()->ready();
+    }
+
+    /**
+     * "Ask Penny" on one receipt (the expense modal, Chevron #355 2026-10-13): Penny prepares only
+     * some receipts each day, so a receipt can be open with no read of hers. This reads it now —
+     * within the same daily cap as prepare() (bookkeeper_daily_cap) and, inside suggest(), the
+     * AI-call ceiling (LlmDailyCap). A receipt that already has a pending read is left alone.
+     * @return array{ok: bool, message: string}
+     */
+    public function askOne(int $expenseId): array
+    {
+        if (!$this->canAsk()) return ['ok' => false, 'message' => 'Penny isn\'t switched on here'];
+        $s = $this->db->prepare("SELECT status, COALESCE(forwarded_to_accounting, 0) AS fwd FROM expenses WHERE id = ?");
+        $s->execute([$expenseId]);
+        $e = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$e || !in_array($e['status'], ['draft', 'pending_approval'], true) || (int)$e['fwd'] === 1) {
+            return ['ok' => false, 'message' => 'Penny reads open receipts only'];
+        }
+        $p = $this->db->prepare("SELECT COUNT(*) FROM expense_suggestions WHERE expense_id = ? AND source = 'live' AND status = 'pending'");
+        $p->execute([$expenseId]);
+        if ((int)$p->fetchColumn() > 0) return ['ok' => true, 'message' => 'Penny has already read this receipt'];
+        $today = (int)$this->db->query("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= CURDATE()")->fetchColumn();
+        if ($today >= $this->dailyCap()) {
+            return ['ok' => false, 'message' => 'Penny has read today\'s limit of receipts — she carries on tomorrow'];
+        }
+        $r = $this->suggestOne($expenseId);
+        if (!empty($r['error'])) {
+            if (!empty($r['id'])) {
+                $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
+            }
+            return ['ok' => false, 'message' => 'Penny couldn\'t read it: ' . $r['error']];
+        }
+        return ['ok' => true, 'message' => 'Penny has read the receipt'];
     }
 
     /**

@@ -16,19 +16,20 @@
 3. **iPhone needs a build** (bump MARKETING_VERSION, push `feature/language` → TestFlight);
    web/Android need a deploy (lftp, OPcache). Server first, then the app that relies on it.
 
-## Parity table (checked 2026-10-13)
+## Parity table (checked 2026-10-13, Chevron #355 pass)
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
 | Receipt line items: view, rename, remove, add, link | `ReceiptDetailView` (tap / swipe) | expense pop-up `#expLineItemsSection` (buttons) | `ExpenseLineItemService` | Android uses the desktop pop-up — not phone-shaped |
-| Rescan a saved receipt photo | "Rescan the photo" (1.3.22) → `expense-line-items.php` op `rescan` | `#expRescanBtn` → `expenses.php` action `rescan` | `ExpenseRescanService::rescan()` | none in behaviour |
+| Rescan a saved receipt photo (also fixes impossible stored amounts, re-reads Penny's open read) | "Rescan the photo" (1.3.22) → `expense-line-items.php` op `rescan` | `#expRescanBtn` → `expenses.php` action `rescan` (fills the corrected amounts, reloads Penny's panel) | `ExpenseRescanService::rescan()` | iPhone reloads the receipt itself after a rescan — check it re-reads amounts |
+| "Add Item" picker: this vendor's usual items first | not built — iPhone has only "Link Product" (typed search of CRM products) | `#expAddItemPanel` → `expenses.php` `item_suggestions` | `ExpenseLookupService::vendorItemSuggestions()` (JWT: `expense-lookup` `type=vendor_items`) | iPhone |
 | Item load failure shown | yes, with Try again (1.3.22) | no — empty looks like failure | — | web/Android |
 | Penny's reasons for a risk score | sentences (`RiskExplainer::say()` via `bookkeeper-mobile.php`) | score badge + flag chips; list icon is hover-only | `RiskExplainer` / `detectAnomalies()` | web/Android should show the sentences |
 | Approve / reject | Penny ring + buttons | buttons (needs `expenses.approve`) | `ExpenseApprovalService` | — |
 | Approving teaches SKU names | yes (server) | yes (server) | `recordConfirmedSkuNames()` | — |
 | Mobile receipt capture | native camera, queue | `expenses_appstack.php?mode=quick` | intake services | Android native capture planned (after clock in/out) |
 | Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Charlie's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
-| Penny's read on a receipt (her fields that differ + reasons, her items, notes; Use hers / Keep mine) | "Penny's read" section in `ReceiptDetailView` (1.3.31), pull to refresh | `#expPennyRead` in the expense modal (`penny-read.js`) | `PennyReadService` via `bookkeeper-mobile.php` `mode=suggestion` / `penny_apply` / `penny_keep` and `expenses.php` `penny_read` / `penny_apply` / `penny_keep` | none; crew see / apply (as a draft) only their own open receipts |
+| Penny's read on a receipt (her fields that differ + reasons, her items, notes; Use hers / Keep mine) | "Penny's read" section in `ReceiptDetailView` (1.3.31), pull to refresh | `#expPennyRead` in the expense modal (`penny-read.js`) | `PennyReadService` via `bookkeeper-mobile.php` `mode=suggestion` / `penny_apply` / `penny_keep` and `expenses.php` `penny_read` / `penny_apply` / `penny_keep` | "Ask Penny" (no read of hers yet) is web/Android only — iPhone gap (server: `PennyReadService::ask()`); crew see / apply (as a draft) only their own open receipts |
 | Supplier forms, Otto buttons | server-sent buttons (1.3.20) | server-sent buttons (`otto-card.js`) | `SupplierFormService` | — |
 
 When you change a row, change the date in this file's heading.

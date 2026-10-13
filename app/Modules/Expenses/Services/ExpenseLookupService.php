@@ -233,4 +233,133 @@ class ExpenseLookupService
 
         return $rows;
     }
+
+    // ── The receipt item picker ("Add Item") ───────────────────────────
+    //
+    // Chevron #355 (2026-10-13): the picker offered Crusher Dust, Road Base, Diesel and Traffic
+    // Cones for a gas-station coffee — Chevron has no vendor_products, so any typing fell through
+    // to the whole CRM product list. Now: this vendor's usual items first (what was bought there
+    // before, from past receipt lines and SKU memory, ranked by how often and how lately), then
+    // this vendor's catalogue, and the rest of the CRM products only on a typed search.
+
+    /** Header words a receipt reader once saved as "items". */
+    private const ITEM_JUNK = ['AMOUNT', 'PRODUCT', 'QTY', 'PRICE', 'ITEM', 'ITEMS', 'DESCRIPTION', 'TOTAL'];
+
+    /** A past item's display name: printed prices and "(x2)" removed ("CRF 0.84" → "CRF"). Pure. */
+    public static function usualItemName(string $name): string
+    {
+        if (!function_exists('layoutItemName')) require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+        $n = layoutItemName($name);
+        $n = preg_replace('/\(\s*x\s*\d+\s*\)/i', '', $n);
+        return trim((string)preg_replace('/\s{2,}/', ' ', (string)$n));
+    }
+
+    /** Not an item at all: tax / total labels, header words, no word of 3+ letters. Pure. */
+    public static function isJunkItemName(string $name): bool
+    {
+        if (!function_exists('isTaxOrSummaryLabel')) require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+        $n = trim($name);
+        return $n === '' || !preg_match('/[A-Za-z]{3,}/', $n) || isTaxOrSummaryLabel($n)
+            || in_array(strtoupper($n), self::ITEM_JUNK, true);
+    }
+
+    /**
+     * Rank a vendor's past items. Rows: {name, n, confirmed, last (Y-m-d), last_total, last_qty}.
+     * Grouped by display name (case-insensitive); score = times bought + times on an approved
+     * receipt + 3 when bought in the last 30 days (1.5 within 90). Ties: most recent first. Pure.
+     * @return list<array{name: string, price: ?float, times: int, last: ?string}>
+     */
+    public static function rankUsualItems(array $rows, string $today, ?string $q = null, int $limit = 12): array
+    {
+        $groups = [];
+        foreach ($rows as $r) {
+            $name = self::usualItemName((string)($r['name'] ?? ''));
+            if (self::isJunkItemName($name)) continue;
+            $k = strtolower($name);
+            $g = $groups[$k] ?? ['name' => $name, 'best' => -1, 'n' => 0, 'confirmed' => 0, 'last' => null, 'price' => null];
+            $n = (int)($r['n'] ?? 0);
+            $c = (int)($r['confirmed'] ?? 0);
+            $rank = $c * 1000 + $n;                                   // the spelling people confirmed most
+            if ($rank > $g['best']) { $g['best'] = $rank; $g['name'] = $name; }
+            $g['n'] += $n;
+            $g['confirmed'] += $c;
+            $last = $r['last'] ?? null;
+            if ($last && ($g['last'] === null || $last > $g['last'])) {
+                $g['last'] = $last;
+                $qty = (float)($r['last_qty'] ?? 1) ?: 1.0;
+                $g['price'] = isset($r['last_total']) && is_numeric($r['last_total']) && (float)$r['last_total'] > 0
+                    ? round((float)$r['last_total'] / $qty, 2) : $g['price'];
+            }
+            $groups[$k] = $g;
+        }
+        $q = $q !== null ? strtolower(trim($q)) : '';
+        $t = strtotime($today) ?: time();
+        $out = [];
+        foreach ($groups as $k => $g) {
+            if ($q !== '' && strpos($k, $q) === false) continue;
+            $days = $g['last'] ? ($t - (strtotime($g['last']) ?: $t)) / 86400 : 9999;
+            $score = $g['n'] + $g['confirmed'] + ($days <= 30 ? 3 : ($days <= 90 ? 1.5 : 0));
+            $out[] = ['name' => $g['name'], 'price' => $g['price'], 'times' => $g['n'], 'last' => $g['last'], '_s' => $score];
+        }
+        usort($out, fn($a, $b) => [$b['_s'], (string)$b['last']] <=> [$a['_s'], (string)$a['last']]);
+        return array_map(function ($i) { unset($i['_s']); return $i; }, array_slice($out, 0, $limit));
+    }
+
+    /**
+     * The "Add Item" picker for a receipt: {usual, catalogue, other}.
+     *   usual     — this vendor's past receipt lines + SKU memory, ranked (rankUsualItems)
+     *   catalogue — this vendor's vendor_products (active)
+     *   other     — CRM products, ONLY on a typed search (2+ characters)
+     * Web: expenses.php ?action=item_suggestions; iPhone: expense-lookup type=vendor_items.
+     */
+    public function vendorItemSuggestions(int $vendorId, ?string $q, int $limit = 12): array
+    {
+        $q = trim((string)$q);
+        $usual = [];
+        $catalogue = [];
+        if ($vendorId > 0) {
+            $rows = [];
+            try {
+                $s = $this->db->prepare("
+                    SELECT eli.name, COUNT(*) AS n,
+                           SUM(e.status IN ('approved', 'forwarded')) AS confirmed,
+                           MAX(e.expense_date) AS last,
+                           SUBSTRING_INDEX(GROUP_CONCAT(eli.line_total ORDER BY e.expense_date DESC, eli.id DESC), ',', 1) AS last_total,
+                           SUBSTRING_INDEX(GROUP_CONCAT(eli.quantity ORDER BY e.expense_date DESC, eli.id DESC), ',', 1) AS last_qty
+                    FROM expense_line_items eli
+                    JOIN expenses e ON e.id = eli.expense_id
+                    WHERE e.vendor_id = ? AND e.status NOT IN ('rejected', 'cancelled')
+                    GROUP BY eli.name
+                    ORDER BY MAX(e.expense_date) DESC
+                    LIMIT 300
+                ");
+                $s->execute([$vendorId]);
+                $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* no history */ }
+            try {
+                $s = $this->db->prepare("
+                    SELECT item_name AS name, times_seen AS n, COALESCE(times_confirmed, 0) AS confirmed,
+                           DATE(last_seen_at) AS last, NULL AS last_total, 1 AS last_qty
+                    FROM vendor_product_skus
+                    WHERE vendor_id = ? AND item_name IS NOT NULL AND item_name <> ''
+                    LIMIT 200
+                ");
+                $s->execute([$vendorId]);
+                $rows = array_merge($rows, $s->fetchAll(PDO::FETCH_ASSOC));
+            } catch (Throwable $e) { /* before migration 1115 */ }
+            $usual = self::rankUsualItems($rows, date('Y-m-d'), $q, $limit);
+
+            try {
+                $sql = "SELECT id, name, category, unit, price_per_unit FROM vendor_products WHERE vendor_id = ? AND is_active = 1";
+                $params = [$vendorId];
+                if ($q !== '') { $sql .= " AND (name LIKE ? OR ocr_aliases LIKE ?)"; $params[] = '%' . $q . '%'; $params[] = '%' . $q . '%'; }
+                $s = $this->db->prepare($sql . " ORDER BY category, name LIMIT 40");
+                $s->execute($params);
+                $catalogue = $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { /* no catalogue */ }
+        }
+        // The rest of the CRM's products: typed searches only — never offered unasked.
+        $other = self::normalizeQuery($q) !== null ? $this->searchProducts($q) : [];
+        return ['usual' => $usual, 'catalogue' => $catalogue, 'other' => $other];
+    }
 }

@@ -154,6 +154,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         }
     }
 
+    // Impossible amounts (negative subtotal, tax ≥ total) are a failed read — fall back.
+    $result = sanitizeReceiptAmounts($result);
+
     // This vendor's learned layout (items an owner accepted from Penny's read, with where each
     // amount sits relative to its printed name): used when it adds up better than the generic
     // pass. Before the quality signal, so a receipt it reads right is not escalated to Vision/LLM.
@@ -164,6 +167,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     // Line-item quality signal: do the parsed items add up to the subtotal?
     // 'match' | 'mismatch' | 'none'. Drives the Tesseract→Vision escalation and the
     // LLM tier (ReceiptLineItemIntelligence.php) and is shown on the review card.
+    $result['line_items'] = dropTaxLineItems($result['line_items'] ?? []);
     $result = array_merge($result, assessLineItemQuality($result));
 
     return $result;
@@ -810,6 +814,19 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
             continue;
         }
 
+        // Pattern: "NAME QTY UNIT TOTAL[flag]" on one line, single-spaced — Chevron's
+        // "BISTRO 24OZ HOT BE 1 2.49 2.49P" (P = GST flag). Only with the tax flag glued to the
+        // total and qty × unit = total: a tilted photo's reconstructed rows ("BISTRO 24OZ 2 0.07
+        // 0.14", Chevron #424) pass the arithmetic by chance but carry no flag.
+        if (preg_match('/^(.{3,}?)\s+(\d{1,3})\s+\$?(\d{1,6}\.\d{2})\s+\$?(\d{1,6}\.\d{2})[A-Z]{1,2}\s*$/', $line, $m)
+            && preg_match('/[A-Za-z]{3,}/', $m[1]) && !isTaxOrSummaryLabel($m[1])
+            && (int)$m[2] > 0 && abs((int)$m[2] * (float)$m[3] - (float)$m[4]) < 0.015) {
+            $items[] = ['name' => trim($m[1]), 'amount' => $m[4], 'quantity' => (int)$m[2],
+                        'unit_price' => round((float)$m[3], 2), 'sku_raw' => null];
+            $inItemZone = true;
+            continue;
+        }
+
         // Pattern: Generic inline — "Item Name   $XX.XX"
         if (preg_match('/^(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/', $line, $m)) {
             $name = trim($m[1]);
@@ -853,7 +870,66 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
     }
     unset($item);
 
-    return $items;
+    return dropTaxLineItems($items);
+}
+
+
+/**
+ * A tax or total label with nothing but a rate / amount after it: "GST 5.0000 %", "PST 7%",
+ * "GST/HST", "TAX", "SUBTOTAL", "TOTAL CAD $". Never an item name. Pure.
+ */
+function isTaxOrSummaryLabel(string $s): bool
+{
+    $s = trim($s);
+    return (bool)preg_match(
+        '/^(?:(?:GST|PST|HST|QST|RST)(?:\s*[\/&+]\s*(?:GST|PST|HST|QST|RST))?|(?:SALES\s+)?TAX(?:ES)?|SUB[\s\-]*TOTAL|TOTAL(?:\s+CAD)?|AMOUNT\s+DUE|BALANCE\s+DUE)\b[^A-Za-z]*$/i',
+        $s
+    );
+}
+
+/** Items without tax / total lines (whatever pass produced them). Pure. */
+function dropTaxLineItems(array $items): array
+{
+    return array_values(array_filter($items, fn($it) => !isTaxOrSummaryLabel((string)($it['name'] ?? ''))
+        && !isTaxOrSummaryLabel((string)($it['ocr_name'] ?? ''))));
+}
+
+/**
+ * Amounts that cannot be true are a parse failure, not a value: a negative or zero subtotal,
+ * GST/PST at or above the total, or more tax than any Canadian rate allows (15% HST is 13% of the total; 14% + rounding). Those are
+ * dropped and the usual fallback runs (subtotal = total − tax, else GST estimated at 5%).
+ * Chevron #355 (2026-10-13): GST read as 5.00 on a $2.61 receipt → subtotal −2.39. Pure.
+ */
+function sanitizeReceiptAmounts(array $r): array
+{
+    $total = isset($r['total']) && is_numeric($r['total']) ? (float)$r['total'] : null;
+    if ($total === null || $total <= 0) return $r;
+    $bad = false;
+    foreach (['gst', 'pst'] as $f) {
+        if (isset($r[$f]) && is_numeric($r[$f]) && ((float)$r[$f] < 0 || (float)$r[$f] > $total * 0.14 + 0.02)) {
+            $r[$f] = null; $bad = true;
+        }
+    }
+    $tax = (float)($r['gst'] ?? 0) + (float)($r['pst'] ?? 0);
+    if ($tax >= $total) { $r['gst'] = null; $r['pst'] = null; $bad = true; $tax = 0.0; }
+    if (isset($r['subtotal']) && is_numeric($r['subtotal'])) {
+        $sub = (float)$r['subtotal'];
+        $fits = $r['gst'] === null || abs($sub + $tax - $total) <= max(0.05, $total * 0.01) || $sub + $tax < $total;
+        if ($sub <= 0 || $sub > $total + 0.005 || !$fits) { $r['subtotal'] = null; $bad = true; }
+    }
+    if (!$bad) return $r;
+    $r['amounts_repaired'] = true;
+    unset($r['gst_estimated']);
+    if ($r['subtotal'] === null && $r['gst'] !== null) {
+        $sub = round($total - $tax, 2);
+        $r['subtotal'] = $sub > 0 ? number_format($sub, 2, '.', '') : null;
+    }
+    if ($r['gst'] === null) {
+        $r['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
+        $r['gst_estimated'] = true;
+        if ($r['subtotal'] === null) $r['subtotal'] = number_format($total - (float)$r['gst'] - (float)($r['pst'] ?? 0), 2, '.', '');
+    }
+    return $r;
 }
 
 
@@ -930,6 +1006,9 @@ function findBareItemNameBackward(array $lines, int $priceLineIdx): ?string
         if (preg_match('/^(?:Original|List|Regular|Retail|Reg\.?)\s*Price\s*:?\s*$/i', $prevLine)) continue;
         if (preg_match('/^Price\s*:?\s*$/i', $prevLine)) continue;
         if (preg_match('/^\d+\.?\d*\s*%?\s*$/', $prevLine)) continue; // a bare number/rate, not a name
+        // A tax / total label directly above the price owns it — never an item (Chevron #355:
+        // "GST 5.0000 %" then "0.12" became a line item).
+        if (isTaxOrSummaryLabel($prevLine)) return null;
 
         // Skip known receipt-noise shapes — also just keep searching further back.
         if (preg_match('/^(?:Receipt|Authorization|Auth|Order|Invoice|Ref|Transaction)\s*#?\s*:/i', $prevLine)) continue;
@@ -1259,7 +1338,10 @@ function extractLabeledTax(string $text, string $labelPattern, bool $withInclude
         $lineCount = count($lines);
         for ($i = 0; $i < $lineCount - 1; $i++) {
             $line = trim($lines[$i]);
-            if (preg_match('/^' . $labelPattern . '(?:\s*Sales\s*Tax)?\s*\(?[\d.]*%?\)?\s*:?\s*$/i', $line)) {
+            // A spaced rate is allowed: "GST 5.0000 %" then "0.12" on the next line (Chevron #355,
+            // 2026-10-13 — the space before "%" made the label line miss, and the column fallback
+            // then read GST 2.61 / subtotal 0.00).
+            if (preg_match('/^' . $labelPattern . '(?:\s*Sales\s*Tax)?\s*\(?[\d.]*\s*%?\)?\s*:?\s*$/i', $line)) {
                 $nextLine = trim($lines[$i + 1]);
                 if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
                     $totalTax += (float)str_replace(',', '.', $m[1]);

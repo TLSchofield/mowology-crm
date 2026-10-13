@@ -208,7 +208,11 @@ class PennyReadService
         if (!$r['see']) return ['ok' => false, 'code' => 403, 'error' => 'You can only see your own receipts'];
         $row = $this->pending($expenseId);
         $open = in_array($e['status'], ['draft', 'pending_approval'], true) && empty($e['forwarded_to_accounting']);
-        if (!$row || !$open) return ['ok' => true, 'read' => null];
+        // No read of hers yet (Penny prepares only some receipts each day): offer "Ask Penny" to
+        // whoever may apply her read here, when she can run (Chevron #355, 2026-10-13).
+        if (!$row || !$open) {
+            return ['ok' => true, 'read' => null, 'can_ask' => !$row && $open && $r['apply'] && $this->desk()->canAsk()];
+        }
 
         $s = json_decode((string)$row['suggestion_json'], true) ?: [];
         $titles = $this->titles(array_filter([(int)($s['job']['value'] ?? 0), (int)($e['job_id'] ?? 0)]));
@@ -255,6 +259,23 @@ class PennyReadService
             $res['message'] = 'Penny\'s version applied and approved';
         }
         return $res;
+    }
+
+    /**
+     * "Ask Penny": her live read of this one receipt now (text first, the photo when the text
+     * doesn't add up), within her daily cap and the AI-call ceiling (LlmDailyCap). Anyone who may
+     * apply her read here may ask. Nothing on the receipt changes — the read shows as usual.
+     * @return array{ok: bool, message: string, read?: ?array}
+     */
+    public function ask(int $expenseId, array $actor): array
+    {
+        $e = $this->expense($expenseId);
+        if (!$e) return ['ok' => false, 'message' => 'Receipt not found'];
+        if (!self::rights($e, $actor)['apply']) return ['ok' => false, 'message' => 'You can\'t change this receipt'];
+        $res = $this->desk()->askOne($expenseId);
+        if (empty($res['ok'])) return $res;
+        $read = $this->read($expenseId, $actor);
+        return ['ok' => true, 'message' => $res['message'], 'read' => $read['read'] ?? null];
     }
 
     /**

@@ -4136,7 +4136,7 @@ async function submitReceiptExport() {
         };
         if (window.MwPennyRead) return go();
         var sc = document.createElement('script');
-        sc.src = '/crm/js/penny-read.js?v=20261013';
+        sc.src = '/crm/js/penny-read.js?v=20261013b';
         sc.onload = go;
         document.head.appendChild(sc);
     }
@@ -6234,6 +6234,18 @@ async function submitReceiptExport() {
                 var cf = document.getElementById('expAcctCategory');
                 if (cf && !cf.value) cf.value = d.suggestions.accounting_category;
             }
+            // Stored amounts that couldn't be true (negative subtotal, tax ≥ total) were replaced by
+            // this read on the server (ExpenseRescanService::amountRepair) — show them.
+            if (d.amounts_repaired && d.amounts_repaired.after) {
+                var fix = d.amounts_repaired.after;
+                [['expAmount', 'amount'], ['expGst', 'gst_amount'], ['expPst', 'pst_amount']].forEach(function (m) {
+                    var f = document.getElementById(m[0]);
+                    if (f && fix[m[1]] != null) { f.value = Number(fix[m[1]]).toFixed(2); f.dispatchEvent(new Event('input', { bubbles: true })); }
+                });
+                msg += ' · amounts corrected';
+            }
+            // Penny's read follows the rescan (re-read on the server when she had one open).
+            loadPennyRead(parseInt(expId));
 
             // Update line items table — items are now persisted server-side,
             // so render with stored=true to show Link buttons immediately
@@ -6269,7 +6281,6 @@ async function submitReceiptExport() {
 
     // ── Add Line Item (manual) ──────────────────────────────────────
     // ── Smart Add Item Panel ─────────────────────────────────────────
-    var _aipProductCache = {}; // vendorId → products[]
 
     function _aipClearFields() {
         ['newItemName','newItemQty','newItemUnitPrice','newItemTotal'].forEach(function(id) {
@@ -6289,18 +6300,16 @@ async function submitReceiptExport() {
         var searchEl = document.getElementById('expAipSearch');
         if (searchEl) {
             searchEl.value = '';
-            var vName = ((document.getElementById('vendorName') || {}).value || '').trim();
-            searchEl.placeholder = vName ? 'Search ' + vName + ' products\u2026' : 'Search products\u2026';
+            var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+            searchEl.placeholder = vName ? 'Search ' + vName + ' items\u2026' : 'Search products\u2026';
             searchEl.focus();
         }
 
         var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
-        if (vendorId) {
-            _aipLoadProducts(vendorId);
-        } else {
-            var catalog = document.getElementById('expAipCatalog');
-            if (catalog) catalog.style.display = 'none';
-        }
+        var catalog = document.getElementById('expAipCatalog');
+        if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+        // This vendor's usual items show at once; nothing else until something is typed.
+        if (vendorId) _aipLoadProducts(vendorId, '');
     };
 
     window.cancelAddLineItem = function() {
@@ -6309,68 +6318,56 @@ async function submitReceiptExport() {
         _aipClearFields();
     };
 
-    async function _aipLoadProducts(vendorId) {
+    // The picker's list (ExpenseLookupService::vendorItemSuggestions via ?action=item_suggestions):
+    // this vendor's usual items first (past receipt lines + SKU memory, by how often / how lately),
+    // then its catalogue, other CRM products only on a typed search (Chevron #355, 2026-10-13 —
+    // a gas-station coffee was offered Crusher Dust and Road Base).
+    var _aipSeq = 0;
+    async function _aipLoadProducts(vendorId, q) {
         var catalog = document.getElementById('expAipCatalog');
         if (!catalog) return;
-        if (_aipProductCache[vendorId]) {
-            // Already cached \u2014 catalog stays hidden until user types
-            return;
-        }
+        var seq = ++_aipSeq;
         try {
-            var r = await fetch('/crm/api/vendors.php?action=get&id=' + vendorId, { credentials: 'same-origin' });
+            var r = await fetch('/crm/api/expenses.php?action=item_suggestions&vendor_id=' + (vendorId || 0) +
+                                '&q=' + encodeURIComponent(q || ''), { credentials: 'same-origin', cache: 'no-store' });
             var d = await r.json();
-            if (d.success && d.vendor && d.vendor.products && d.vendor.products.length) {
-                _aipProductCache[vendorId] = d.vendor.products;
-                // Update search placeholder with product count
-                var srch = document.getElementById('expAipSearch');
-                if (srch) srch.placeholder = 'Search ' + d.vendor.products.length + ' products\u2026';
-            }
-        } catch(e) { /* silent */ }
+            if (seq !== _aipSeq || !d.success) return;
+            _aipRenderGroups(d, q || '');
+        } catch(e) { /* silent — free-text entry still works */ }
     }
 
-    function _aipRender(products, searchTerm) {
+    function _aipRenderGroups(d, q) {
         var catalog = document.getElementById('expAipCatalog');
         if (!catalog) return;
-        var q = (searchTerm || '').toLowerCase().trim();
-        var filtered = products.filter(function(p) {
-            if (!q) return true;
-            return (p.name || '').toLowerCase().indexOf(q) !== -1 ||
-                   (p.category || '').toLowerCase().indexOf(q) !== -1 ||
-                   (p.ocr_aliases || '').toLowerCase().indexOf(q) !== -1;
-        });
-        if (!filtered.length) {
-            catalog.innerHTML = '<div class="mw-aip-no-products">No matches \u2014 type a custom name below.</div>';
-            catalog.style.display = 'block';
-            return;
-        }
-        // Group by category
-        var cats = {};
-        var catOrder = [];
-        filtered.forEach(function(p) {
-            var c = p.category || 'Other';
-            if (!cats[c]) { cats[c] = []; catOrder.push(c); }
-            cats[c].push(p);
-        });
+        var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+        var chip = function (name, price, unit) {
+            var p = parseFloat(price) || 0;
+            return '<button type="button" class="mw-aip-chip"' +
+                ' data-name="' + escHtml(name || '') + '" data-unit="' + escHtml(unit || '') + '"' +
+                ' data-price="' + escHtml(p ? p.toFixed(2) : '') + '" onclick="selectAipChip(this)">' + escHtml(name) +
+                (p ? ' <span class="mw-aip-chip-price">$' + p.toFixed(2) + (unit ? '/' + escHtml(unit) : '') + '</span>' : '') +
+                '</button>';
+        };
         var html = '';
-        catOrder.forEach(function(cat) {
-            html += '<div class="mw-aip-cat-label">' + escHtml(cat) + '</div><div class="mw-aip-chips">';
-            cats[cat].forEach(function(p) {
-                var price = p.price_per_unit
-                    ? '$' + parseFloat(p.price_per_unit).toFixed(0) + '/' + (p.unit || 'unit')
-                    : '';
-                // Serialize product as data-attr (safe via escHtml on individual fields)
-                html += '<button type="button" class="mw-aip-chip" data-pid="' + p.id + '"' +
-                    ' data-name="' + escHtml(p.name || '') + '"' +
-                    ' data-unit="' + escHtml(p.unit || '') + '"' +
-                    ' data-price="' + escHtml(String(p.price_per_unit || '')) + '"' +
-                    ' data-id="' + p.id + '"' +
-                    ' onclick="selectAipChip(this)">' +
-                    escHtml(p.name) +
-                    (price ? ' <span class="mw-aip-chip-price">' + price + '</span>' : '') +
-                    '</button>';
-            });
+        if ((d.usual || []).length) {
+            html += '<div class="mw-aip-cat-label">' + escHtml(vName ? 'Usual at ' + vName : 'Usual items') + '</div><div class="mw-aip-chips">';
+            d.usual.forEach(function (i) { html += chip(i.name, i.price, ''); });
             html += '</div>';
-        });
+        }
+        if ((d.catalogue || []).length) {
+            html += '<div class="mw-aip-cat-label">' + escHtml(vName ? vName + ' catalogue' : 'Catalogue') + '</div><div class="mw-aip-chips">';
+            d.catalogue.forEach(function (p) { html += chip(p.name, p.price_per_unit, p.unit); });
+            html += '</div>';
+        }
+        if ((d.other || []).length) {
+            html += '<div class="mw-aip-cat-label">Other products</div><div class="mw-aip-chips">';
+            d.other.forEach(function (p) { html += chip(p.name, null, ''); });
+            html += '</div>';
+        }
+        if (!html) {
+            if (!q) { catalog.innerHTML = ''; catalog.style.display = 'none'; return; }
+            html = '<div class="mw-aip-no-products">No matches \u2014 type a custom name below.</div>';
+        }
         catalog.innerHTML = html;
         catalog.style.display = 'block';
     }
@@ -6401,7 +6398,6 @@ async function submitReceiptExport() {
         searchEl.addEventListener('input', function() {
             var q = searchEl.value.trim();
             var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
-            var vendorProducts = vendorId ? (_aipProductCache[vendorId] || []) : [];
 
             // Mirror typed text into name field so free-text entry works
             var nameEl = document.getElementById('newItemName');
@@ -6409,42 +6405,17 @@ async function submitReceiptExport() {
                 nameEl.value = q;
             }
 
-            if (vendorProducts.length) {
-                // Vendor catalog loaded — show only when user is typing
-                if (q.length >= 1) {
-                    _aipRender(vendorProducts, q);
-                } else {
-                    var catalog = document.getElementById('expAipCatalog');
-                    if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
-                }
-            } else if (q.length >= 2) {
-                // No vendor catalog — fall back to global product search
-                clearTimeout(_aipGlobalTimer);
-                _aipGlobalTimer = setTimeout(function() { _aipGlobalSearch(q); }, 220);
-            } else {
+            // Vendor: its usual items + catalogue filtered as you type; other CRM products join
+            // only from 2 characters. No vendor: CRM products from 2 characters, as before.
+            clearTimeout(_aipGlobalTimer);
+            if (!vendorId && q.length < 2) {
                 var catalog = document.getElementById('expAipCatalog');
                 if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+                return;
             }
+            _aipGlobalTimer = setTimeout(function() { _aipLoadProducts(vendorId, q); }, 200);
         });
     }());
-
-    async function _aipGlobalSearch(q) {
-        var catalog = document.getElementById('expAipCatalog');
-        if (!catalog) return;
-        try {
-            var r = await fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q));
-            var d = await r.json();
-            if (d.success && d.products && d.products.length) {
-                _aipRender(d.products, q);
-            } else {
-                catalog.innerHTML = '<div class="mw-aip-no-products">No matches — type a custom name below.</div>';
-                catalog.style.display = 'block';
-            }
-        } catch(e) {
-            catalog.innerHTML = '';
-            catalog.style.display = 'none';
-        }
-    }
 
     window.commitAddLineItem = async function() {
         var expId = document.getElementById('expenseId').value;
