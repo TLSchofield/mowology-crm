@@ -253,7 +253,11 @@ class AdaRules
      */
     public const PROXIES = ['trackimo_poll' => 'trackimo', 'push_drain' => 'apple:push'];
 
-    /** A "can't tell" job becomes green when its proxy connection is green. */
+    /**
+     * A "can't tell" job becomes green when its proxy connection is green AND did real work
+     * ('ok'). A 'quiet' proxy proves nothing — a dead drain and an idle one look the same
+     * (security audit 2026-10-12 #23).
+     */
     public static function applyProxies(array $checks): array
     {
         $bySystem = [];
@@ -262,7 +266,7 @@ class AdaRules
             $key = substr((string)$c['system'], 5);
             if (strpos((string)$c['system'], 'cron:') !== 0 || $c['state'] !== 'unknown' || !isset(self::PROXIES[$key])) continue;
             $proxy = $bySystem[self::PROXIES[$key]] ?? null;
-            if (!$proxy || $proxy['state'] !== 'green') continue;
+            if (!$proxy || $proxy['state'] !== 'green' || ($proxy['problem'] ?? '') !== 'ok') continue;
             $checks[$i] = array_merge($c, [
                 'state' => 'green', 'problem' => 'ok-by-proxy', 'last_worked' => $proxy['last_worked'],
                 'evidence' => "{$c['name']}: keeps no record of its runs, but its work shows — " . lcfirst((string)$proxy['evidence']),
@@ -328,10 +332,27 @@ class AdaRules
             'Google Search Console: synced ' . self::ago($at, $now) . ', ' . (int)$last['rows_processed'] . ' rows.', null, null);
     }
 
-    /** Apple push: the last 48 hours of push_queue. */
-    public static function pushCheck(int $sent, int $failed, ?string $lastSentAt, ?string $lastError, string $now): array
+    /** Pending pushes older than this many minutes mean the drain is not draining. */
+    public const PUSH_STUCK_MINUTES = 30;
+
+    /**
+     * Apple push: the last 48 hours of push_queue, plus pending rows that should have gone out.
+     * $stuckPending = rows still 'pending' whose scheduled_at is more than PUSH_STUCK_MINUTES old;
+     * any such row is red — a dead queue used to show green 'quiet' (security audit 2026-10-12 #23).
+     */
+    public static function pushCheck(int $sent, int $failed, ?string $lastSentAt, ?string $lastError, string $now,
+                                     int $stuckPending = 0, ?string $oldestPendingAt = null): array
     {
         $base = ['system' => 'apple:push', 'group' => 'Connections', 'name' => 'Apple push notifications', 'last_worked' => $lastSentAt];
+        if ($stuckPending > 0) {
+            return $base + self::verdict('red', 'stuck',
+                "Apple push: {$stuckPending} notification" . ($stuckPending === 1 ? '' : 's') . ' waiting to send'
+                    . ($oldestPendingAt ? ', the oldest since ' . self::ago($oldestPendingAt, $now) : '')
+                    . ($lastSentAt ? ' (last sent ' . self::ago($lastSentAt, $now) . ')' : '') . ' — the send queue has stopped.',
+                "Ada: push_queue has {$stuckPending} 'pending' rows scheduled more than " . self::PUSH_STUCK_MINUTES
+                    . ' minutes ago. Check the push_drain cron (cPanel schedule, CronLock) and ApnsService.',
+                'developer');
+        }
         if ($failed > 0 && $failed >= max(3, $sent * 0.2)) {
             return $base + self::verdict('red', 'failing',
                 "Apple push: {$failed} of " . ($sent + $failed) . ' notifications failed in the last 48 hours' . ($lastError ? " (\"" . self::shortError($lastError) . "\")" : '') . '.',

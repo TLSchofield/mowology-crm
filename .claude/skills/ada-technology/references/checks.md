@@ -18,7 +18,7 @@ decisions settled on production data (2026-10-11):
   (`cron_runs_log` does not count). Text without it but with runs on record still reports
   through a shim — runs on record win;
 - a job that keeps no record but whose work shows elsewhere is green by proxy
-  (`AdaRules::PROXIES`: trackimo_poll → truck positions, push_drain → Apple push);
+  (`AdaRules::PROXIES`: trackimo_poll → truck positions, push_drain → Apple push; only a proxy whose verdict is `ok` promotes — a `quiet` one proves nothing);
 - never ran + records → amber "probably not in the cPanel schedule". Weak for scripts that exit
   before recording when idle (reconsent_sender does) — the wording says so.
 
@@ -59,7 +59,7 @@ the one-line fix; she does not guess from symptoms.
 | Google Business Profile | posts / reviews flowing | `gbp_reviews`; GBP API access not approved (memory, unverified now) | expected amber until approved |
 | Google Search Console | last successful sync | `gsc_sync_history`, `gsc_properties` | |
 | Google Maps (server side) | server geocode refused | `ops_settings` description "Depot geocode failed <date>" written by `CloserService::depot()` | no general record of Maps failures |
-| Apple push (APNs) | failed / expired share; stale tokens | `push_queue.status`, `device_tokens.last_seen_at`; failures also go to the PHP error log from `app/Services/Push/ApnsService.php` | error log not readable as a table |
+| Apple push (APNs) | failed / expired share; stale tokens; **red when any `pending` row is scheduled more than 30 min ago** (`AdaRules::PUSH_STUCK_MINUTES`, audit 2026-10-12 #23) | `push_queue.status`, `device_tokens.last_seen_at`; failures also go to the PHP error log from `app/Services/Push/ApnsService.php` | error log not readable as a table |
 | Mailboxes (IMAP) | configured? and did the last poll actually read mail? | `MailboxConfig::status()` (configured only) + poller summaries in `cron_runs` | login success not stored anywhere |
 | Stripe | webhooks and payments still arriving | `public/api/stripe/webhook.php`, table `stripe_payments` | no key-health record; "last event age" is the proxy (unverified that age is meaningful in winter) |
 | Trackimo | truck positions arriving | newest `vehicle_location_pings` row | poller records no run |

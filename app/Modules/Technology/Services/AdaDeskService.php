@@ -201,7 +201,12 @@ class AdaDeskService
             $st = $this->db->prepare("SELECT error_message FROM push_queue WHERE status = 'failed' AND created_at > ? ORDER BY id DESC LIMIT 1");
             $st->execute([$since]);
             $err = $st->fetchColumn() ?: null;
-            return [AdaRules::pushCheck((int)($n['sent'] ?? 0), (int)($n['failed'] ?? 0), $lastSent, $err, $now)];
+            // Pending rows that should already have gone out: the drain is dead (audit 2026-10-12 #23).
+            $st = $this->db->prepare("SELECT COUNT(*) AS n, MIN(scheduled_at) AS oldest FROM push_queue WHERE status = 'pending' AND scheduled_at < ?");
+            $st->execute([date('Y-m-d H:i:s', strtotime($now) - AdaRules::PUSH_STUCK_MINUTES * 60)]);
+            $stuck = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            return [AdaRules::pushCheck((int)($n['sent'] ?? 0), (int)($n['failed'] ?? 0), $lastSent, $err, $now,
+                (int)($stuck['n'] ?? 0), $stuck['oldest'] ?? null)];
         });
 
         $one('stripe', 'Stripe payments', function () use ($now) {
