@@ -415,7 +415,7 @@ class SecurityPostureRules
     {
         $b = self::base('migrations', 'Migrations not yet run');
         if (!$pending) return $b + self::v('green', 'ok', "Every numbered migration ({$known} known) is in migrations_log.");
-        $nums = array_map(fn($f) => preg_replace('/_.*$/', '', $f), $pending);
+        $nums = array_reverse(array_map(fn($f) => preg_replace('/_.*$/', '', $f), $pending));   // newest first: the recent ones matter
         return $b + self::v('amber', 'pending', count($pending) . ' migration(s) never run: ' . self::listed($nums, 15) . '.',
             'Open Database Manager → Migrations and run them in order (or confirm each is obsolete and rename it done-…/todo-…).', 'tim');
     }
@@ -433,6 +433,16 @@ class SecurityPostureRules
         }
         $d = DateTime::createFromFormat('d-M-Y H:i:s', $m[1], $tz ?: new DateTimeZone(date_default_timezone_get()));
         return $d ? [$d->getTimestamp(), $m[3]] : null;
+    }
+
+    /**
+     * Is a log line an error (not app chatter)? error_log() is also used for progress notes
+     * ("OCR queue worker started", "brief took 80 ms" — 2,900 of 3,465 lines on 2026-10-13), so only
+     * PHP's own severities and lines that say error / exception / failed / SQLSTATE / Uncaught count.
+     */
+    public static function isErrorMessage(string $msg): bool
+    {
+        return (bool)preg_match('/^PHP (Fatal|Parse|Warning|Notice|Deprecated|Recoverable|Catchable)|Uncaught|SQLSTATE|\b(error|errors|exception|failed|failure|fatal|denied|refused)\b/i', $msg);
     }
 
     /** One error message, made safe to show: secrets and long tokens removed, numbers kept short. */
@@ -456,14 +466,14 @@ class SecurityPostureRules
     }
 
     /** @param array<string, int> $top message => count (already sorted, top N) */
-    public static function phpErrorsCheck(int $count, bool $floor, array $top, array $files): array
+    public static function phpErrorsCheck(int $count, bool $floor, array $top, array $files, ?int $allLines = null): array
     {
         $b = self::base('php-errors', 'PHP error log (24 h)');
         if (!$files) return $b + self::v('unknown', 'no-log', 'No PHP error log found to read.');
         $n = ($floor ? 'at least ' : '') . $count;
         $lines = [];
         foreach ($top as $m => $c) $lines[] = "{$c}× {$m}";
-        $ev = "{$n} PHP error-log lines in 24 h" . ($lines ? '. Top: ' . implode(' | ', $lines) : '') . '.';
+        $ev = "{$n} error lines in the PHP error log in 24 h" . ($allLines !== null ? " (of {$allLines} log lines)" : '') . ($lines ? '. Top: ' . implode(' | ', $lines) : '') . '.';
         $hand = 'Fix the top messages first (each is one bug repeating). Log: ' . implode(', ', $files) . '.';
         if ($count > self::ERRORS_RED) return $b + self::v('red', 'spike', $ev, $hand, 'developer');
         if ($count > self::ERRORS_AMBER) return $b + self::v('amber', 'many', $ev, $hand, 'developer');

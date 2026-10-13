@@ -176,6 +176,7 @@ final class SecurityPostureRulesTest extends TestCase
         $c = SecurityPostureRules::migrationsCheck(['1347_security_posture.sql'], 3);
         $this->assertSame('amber', $c['state']);
         $this->assertStringContainsString('1347', $c['evidence']);
+        $this->assertStringContainsString('never run: 1347, 1200', SecurityPostureRules::migrationsCheck(['1200_a.sql', '1347_b.sql'], 3)['evidence'], 'newest first');
         $this->assertSame('green', SecurityPostureRules::migrationsCheck([], 3)['state']);
     }
 
@@ -194,6 +195,13 @@ final class SecurityPostureRulesTest extends TestCase
         $this->assertStringNotContainsString('bob@example.com', $r);
         $this->assertStringNotContainsString(str_repeat('a', 40), $r);
 
+        $this->assertTrue(SecurityPostureRules::isErrorMessage('PHP Fatal error:  Uncaught TypeError'));
+        $this->assertTrue(SecurityPostureRules::isErrorMessage("Yui renewals: SQLSTATE[HY000]: General error: 1267 Illegal mix of collations"));
+        $this->assertTrue(SecurityPostureRules::isErrorMessage('backup-heartbeat: insert failed'));
+        $this->assertFalse(SecurityPostureRules::isErrorMessage('process_ocr_queue: === OCR queue worker started ==='));
+        $this->assertFalse(SecurityPostureRules::isErrorMessage('process_ocr_queue: No pending jobs.'));
+        $this->assertFalse(SecurityPostureRules::isErrorMessage('Charlie: house brief took 80 ms'));
+        $this->assertStringContainsString('(of 3465 log lines)', SecurityPostureRules::phpErrorsCheck(10, false, [], ['~/error_log'], 3465)['evidence']);
         $this->assertSame('green', SecurityPostureRules::phpErrorsCheck(10, false, [], ['~/error_log'])['state']);
         $this->assertSame('amber', SecurityPostureRules::phpErrorsCheck(51, false, ['m' => 51], ['~/error_log'])['state']);
         $this->assertSame('red', SecurityPostureRules::phpErrorsCheck(501, true, ['m' => 501], ['~/error_log'])['state']);

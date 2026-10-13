@@ -394,6 +394,7 @@ class SecurityPostureService
         $files = array_keys($files);
         $since = strtotime($this->now()) - 86400;
         $count = 0;
+        $all = 0;
         $floor = false;
         $byKey = [];
         foreach ($files as $f) {
@@ -411,6 +412,8 @@ class SecurityPostureService
                 $p = SecurityPostureRules::parseErrorLine(rtrim($line, "\r\n"));
                 if ($p === null) continue;
                 if ($p[0] < $since) { $sawOld = true; continue; }
+                $all++;
+                if (!SecurityPostureRules::isErrorMessage($p[1])) continue;
                 $count++;
                 $k = SecurityPostureRules::errorKey($p[1]);
                 $byKey[$k] = ($byKey[$k] ?? 0) + 1;
@@ -420,7 +423,7 @@ class SecurityPostureService
         }
         arsort($byKey);
         $short = array_map(fn($f) => str_replace(dirname($this->publicRoot) . '/', '~/', $f), $files);
-        return [SecurityPostureRules::phpErrorsCheck($count, $floor, array_slice($byKey, 0, SecurityPostureRules::ERRORS_TOP, true), $short)];
+        return [SecurityPostureRules::phpErrorsCheck($count, $floor, array_slice($byKey, 0, SecurityPostureRules::ERRORS_TOP, true), $short, $all)];
     }
 
     private function checkMailDns(): array
