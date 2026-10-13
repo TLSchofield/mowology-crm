@@ -46,7 +46,17 @@ if (!userHasPermission('marketing.edit')) {
     exit;
 }
 
-$body = json_decode(file_get_contents('php://input'), true) ?? [];
+$raw  = (string)file_get_contents('php://input');
+$body = json_decode($raw, true) ?? [];
+
+// CSRF (Fable review 2026-10-12): the cascade creates social posts and an email campaign.
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+$csrf = AdminActionGuard::tokenFromRequest($_POST, $_SERVER, $raw);
+if ($csrf === '' || !verifyCSRFToken($csrf)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Security token missing or expired — reload the page and try again.']);
+    exit;
+}
 
 $article = [
     'id'               => (int)($body['article_id'] ?? 0),
@@ -60,6 +70,13 @@ $article = [
 if (!$article['id'] || !$article['title'] || !$article['url']) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'article_id, title, and url are required']);
+    exit;
+}
+
+require_once APP_ROOT . '/Modules/Marketing/Services/ContentCascadeService.php';
+if (!ContentCascadeService::isOwnArticleUrl($article['url'])) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'The article link must be on https://mowology.ca']);
     exit;
 }
 

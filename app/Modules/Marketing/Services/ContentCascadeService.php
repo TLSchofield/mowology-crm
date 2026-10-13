@@ -18,6 +18,18 @@ declare(strict_types=1);
 
 class ContentCascadeService
 {
+    /**
+     * The article URL that goes into posts, emails and PDF footers must be our own site
+     * (Fable review 2026-10-12): https://mowology.ca/... only — never a link someone else chose.
+     */
+    public static function isOwnArticleUrl(string $url): bool
+    {
+        $p = parse_url(trim($url));
+        if (!is_array($p) || strtolower((string)($p['scheme'] ?? '')) !== 'https') return false;
+        if (isset($p['user']) || isset($p['pass']) || isset($p['port'])) return false;
+        return strtolower((string)($p['host'] ?? '')) === 'mowology.ca';
+    }
+
     private const API_URL    = 'https://api.anthropic.com/v1/messages';
     private const MODEL      = 'claude-sonnet-4-6';
     private const MAX_TOKENS = 2000;

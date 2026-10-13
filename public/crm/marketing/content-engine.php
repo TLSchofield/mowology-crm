@@ -698,7 +698,7 @@ async function runCascade() {
     try {
         const res = await fetch('/crm/api/cascade.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({
                 article_id:       ceState.pageId,
                 title:            ceState.title,
