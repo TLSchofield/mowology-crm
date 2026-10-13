@@ -12,6 +12,7 @@ declare(strict_types=1);
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/GifiRules.php';
+require_once __DIR__ . '/FiscalYear.php';
 
 class GifiService
 {
@@ -22,10 +23,10 @@ class GifiService
         $this->db = $db;
     }
 
-    /** Fiscal year bounds (calendar year; Mowology's FY ends Dec 31). */
-    public static function yearBounds(int $year): array
+    /** Fiscal year bounds from the business's year end (FiscalYear; Mowology's FY ends Dec 31). */
+    public static function yearBounds(int $year, string $end = FiscalYear::DEFAULT_END): array
     {
-        return [sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year)];
+        return FiscalYear::bounds($year, $end);
     }
 
     /** code => name from the shared gifi_codes table. */
@@ -44,7 +45,7 @@ class GifiService
      */
     public function accounts(int $year): array
     {
-        [$from, $to] = self::yearBounds($year);
+        [$from, $to] = self::yearBounds($year, FiscalYear::setting($this->db));
         $sql = "
             SELECT coa.id, coa.code, coa.name, coa.type, coa.sub_type, coa.normal_balance, coa.is_active,
                    coa.gifi_code, coa.gifi_status, coa.gifi_note, coa.gifi_confirmed_by, coa.gifi_confirmed_at, coa.lead_group,

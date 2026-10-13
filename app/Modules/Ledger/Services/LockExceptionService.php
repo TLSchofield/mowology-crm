@@ -13,12 +13,15 @@ declare(strict_types=1);
  *
  *   inside   an entry DATED in a locked month but CREATED after the lock (should never happen —
  *            a direct database write, or a lock applied with an old created_at)
- *   late     an automatic entry for a locked month moved to the current month ("Late entry for …")
+ *   late     an automatic entry for a locked month moved to the current month (journal_entries.late_for,
+ *            set by LedgerService::postEntry; migration 1356)
  *   reversed an entry in a locked month reversed after the lock (who reversed it, and the reason the
  *            reversal's memo carries)
  *
  * Who: journal_entries.created_by (a person) and proposed_by (system | penny | owner). Why: the memo.
- * Pure rules in classify(); tested in tests/Unit/Ledger/LockExceptionServiceTest.php.
+ * "After the lock" means after the month was FIRST locked (accounting_period_locks, migration 1356): a change
+ * made while a month was reopened still counts.
+ * Pure rules in classify(); tested in tests/Unit/Ledger/JournalAndExceptionsTest.php.
  */
 class LockExceptionService
 {
@@ -29,13 +32,35 @@ class LockExceptionService
         $this->db = $db;
     }
 
-    /** 'YYYY-MM' => ['closed_at' => …, 'closed_by' => …, 'notes' => …] for every locked month. */
+    /**
+     * 'YYYY-MM' => ['closed_at' => the FIRST time the month was locked, 'last_locked_at' => …, 'closed_by', 'notes',
+     * 'relocked' => locked more than once] for every month locked now.
+     *
+     * accounting_periods holds only the current state and a re-lock overwrites closed_at, so the first lock
+     * comes from accounting_period_locks (migration 1356) — a change made while a month was reopened is
+     * still a change after it was first locked. Before 1356 it falls back to closed_at.
+     */
     public function lockedPeriods(): array
     {
         $out = [];
         foreach ($this->db->query("SELECT year, month, closed_at, closed_by, notes FROM accounting_periods WHERE status = 'locked'")
                      ->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $p['last_locked_at'] = $p['closed_at'];
+            $p['relocked'] = false;
             $out[sprintf('%04d-%02d', (int)$p['year'], (int)$p['month'])] = $p;
+        }
+        if (!$out) return $out;
+        try {
+            $h = $this->db->query("SELECT year, month, MIN(locked_at) AS first_at, COUNT(*) AS n FROM accounting_period_locks GROUP BY year, month")
+                          ->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            $h = [];   // before migration 1356
+        }
+        foreach ($h as $r) {
+            $ym = sprintf('%04d-%02d', (int)$r['year'], (int)$r['month']);
+            if (!isset($out[$ym]) || empty($r['first_at'])) continue;
+            if (empty($out[$ym]['closed_at']) || (string)$r['first_at'] < (string)$out[$ym]['closed_at']) $out[$ym]['closed_at'] = (string)$r['first_at'];
+            $out[$ym]['relocked'] = (int)$r['n'] > 1;
         }
         return $out;
     }
@@ -57,8 +82,10 @@ class LockExceptionService
                 $out[] = $e + ['kind' => 'inside', 'period' => $ym, 'locked_at' => $locked[$ym]['closed_at']];
                 continue;
             }
-            if (preg_match('/^Late entry for (\d{4}-\d{2})-\d{2}/', (string)($e['memo'] ?? ''), $m) && isset($locked[$m[1]])) {
-                $out[] = $e + ['kind' => 'late', 'period' => $m[1], 'locked_at' => $locked[$m[1]]['closed_at']];
+            $lateYm = !empty($e['late_for']) ? substr((string)$e['late_for'], 0, 7) : null;
+            if ($lateYm === null && preg_match('/^Late entry for (\d{4}-\d{2})-\d{2}/', (string)($e['memo'] ?? ''), $m)) $lateYm = $m[1];   // rows given without the flag
+            if ($lateYm !== null && isset($locked[$lateYm])) {
+                $out[] = $e + ['kind' => 'late', 'period' => $lateYm, 'locked_at' => $locked[$lateYm]['closed_at']];
                 continue;
             }
             if (($e['source_type'] ?? '') === 'adjusting' && !empty($e['orig_date'])) {
@@ -72,24 +99,57 @@ class LockExceptionService
         return $out;
     }
 
-    /** The exception report. */
+    /**
+     * The exception report. One indexed range per locked month (entry_date BETWEEN, not DATE_FORMAT, so
+     * the entry_date index is used) and the late_for flag set at post time (not memo LIKE).
+     */
     public function report(): array
     {
         $locked = $this->lockedPeriods();
         if (!$locked) return ['rows' => [], 'locked' => []];
-        $months = array_keys($locked);
-        $in = implode(',', array_fill(0, count($months), '?'));
-        $sql = "SELECT je.id, je.entry_date, je.created_at, je.memo, je.source_type, je.source_id, je.created_by, je.proposed_by,
+        [$inRange, $rangeParams] = self::rangesSql(array_keys($locked), 'je.entry_date');
+        [$origRange, $origParams] = self::rangesSql(array_keys($locked), 'o.entry_date');
+        $hasLate = $this->hasColumn('late_for');
+        $lateSel = $hasLate ? 'je.late_for' : 'NULL AS late_for';
+        $lateCond = $hasLate ? 'je.late_for IS NOT NULL' : "je.memo LIKE 'Late entry for %'";
+        $sql = "SELECT je.id, je.entry_date, je.created_at, je.memo, je.source_type, je.source_id, je.created_by, je.proposed_by, $lateSel,
                        u.full_name AS created_by_name, o.entry_date AS orig_date, o.memo AS orig_memo,
                        (SELECT COALESCE(SUM(l.debit), 0) FROM journal_lines l WHERE l.entry_id = je.id) AS amount
                 FROM journal_entries je
                 LEFT JOIN users u ON u.id = je.created_by
                 LEFT JOIN journal_entries o ON je.source_type = 'adjusting' AND o.id = je.source_id
-                WHERE DATE_FORMAT(je.entry_date, '%Y-%m') IN ($in)
-                   OR je.memo LIKE 'Late entry for %'
-                   OR (je.source_type = 'adjusting' AND DATE_FORMAT(o.entry_date, '%Y-%m') IN ($in))";
+                WHERE ($inRange)
+                   OR $lateCond
+                   OR (je.source_type = 'adjusting' AND ($origRange))";
         $st = $this->db->prepare($sql);
-        $st->execute(array_merge($months, $months));
+        $st->execute(array_merge($rangeParams, $origParams));
         return ['rows' => self::classify($st->fetchAll(PDO::FETCH_ASSOC), $locked), 'locked' => $locked];
+    }
+
+    /**
+     * "(col BETWEEN ? AND ?) OR …" for a list of months, adjacent months merged into one range. Pure.
+     * @return array{0: string, 1: array}
+     */
+    public static function rangesSql(array $months, string $col): array
+    {
+        sort($months);
+        $ranges = [];
+        foreach ($months as $ym) {
+            $first = $ym . '-01';
+            $last = date('Y-m-t', strtotime($first));
+            $n = count($ranges);
+            if ($n && date('Y-m-d', strtotime($ranges[$n - 1][1] . ' +1 day')) === $first) $ranges[$n - 1][1] = $last;
+            else $ranges[] = [$first, $last];
+        }
+        if (!$ranges) return ['1 = 0', []];
+        $sql = []; $p = [];
+        foreach ($ranges as [$a, $b]) { $sql[] = "$col BETWEEN ? AND ?"; $p[] = $a; $p[] = $b; }
+        return [implode(' OR ', $sql), $p];
+    }
+
+    private function hasColumn(string $col): bool
+    {
+        try { $this->db->query("SELECT $col FROM journal_entries LIMIT 1"); return true; }
+        catch (Throwable $e) { return false; }
     }
 }

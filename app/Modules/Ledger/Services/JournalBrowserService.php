@@ -127,6 +127,56 @@ class JournalBrowserService
     }
 
     /**
+     * Every line of every entry matching the filters, in entry then line order, one query, no cap
+     * (review 2026-10-13: the CSV stopped at 20,000 entries and ran a query per entry). $each gets one
+     * row per line: entry header fields + code, account_name, gifi_code, debit, credit, description,
+     * display_kind. On MySQL the result is read unbuffered, so a whole year never sits in memory.
+     * @return int lines passed to $each
+     */
+    public function streamLines(array $f, callable $each): int
+    {
+        $hasKind = $this->hasKindColumn();
+        [$where, $params] = self::whereFor($f, $hasKind);
+        $kindCol = $hasKind ? 'je.entry_kind' : "'system'";
+        $gifiCol = $this->hasGifiColumn() ? 'a.gifi_code' : 'NULL';
+        $sql = "SELECT je.id, je.entry_date, $kindCol AS entry_kind, je.source_type, je.source_id, je.memo, je.created_by, je.proposed_by,
+                       je.created_at, je.reversed_by_entry_id, u.full_name AS created_by_name,
+                       a.code, a.name AS account_name, $gifiCol AS gifi_code, jl.debit, jl.credit, jl.description
+                FROM journal_entries je
+                JOIN journal_lines jl ON jl.entry_id = je.id
+                JOIN chart_of_accounts a ON a.id = jl.account_id
+                LEFT JOIN users u ON u.id = je.created_by
+                WHERE $where
+                ORDER BY je.id, jl.id";
+        $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        if ($mysql) $this->db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+        $n = 0;
+        try {
+            $st = $this->db->prepare($sql);
+            $st->execute($params);
+            while ($r = $st->fetch(PDO::FETCH_ASSOC)) {
+                $r['display_kind'] = self::displayKind($r);
+                $each($r);
+                $n++;
+            }
+            $st->closeCursor();
+        } finally {
+            if ($mysql) $this->db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+        }
+        return $n;
+    }
+
+    private function hasGifiColumn(): bool
+    {
+        static $has = null;
+        if ($has === null) {
+            try { $has = $this->db->query("SELECT gifi_code FROM chart_of_accounts LIMIT 1") !== false; }
+            catch (Throwable $e) { $has = false; }
+        }
+        return $has;
+    }
+
+    /**
      * What to call an entry in the journal. A reversal entry and an entry that HAS been reversed are
      * both marked; AJE / RJE come from entry_kind. Pure.
      */

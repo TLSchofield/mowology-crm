@@ -16,8 +16,10 @@ for ($__i = 0; $__i < 6; $__i++) {
     if (is_file($__dir . '/app/Core/paths.php')) { require_once $__dir . '/app/Core/paths.php'; break; }
 }
 require_once APP_ROOT . '/Modules/Accounting/Services/ReportingService.php';
+require_once APP_ROOT . '/Modules/Ledger/Services/FiscalYear.php';
+require_once dirname(__DIR__) . '/ledger/_nav.php';
 
-$asOf = $_GET['as_of'] ?? date('Y-m-d');
+$asOf = FiscalYear::cleanDate($_GET['as_of'] ?? null);   // a real date or today (review 2026-10-13)
 $bs   = (new ReportingService(getDB()))->getBalanceSheet($asOf);
 
 $money = static fn($n) => '$' . number_format((float)$n, 2);
@@ -26,6 +28,10 @@ $pageTitle  = 'Balance Sheet';
 $activePage = 'accounting';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+<div class="mw-ledger mw-ledger--statement">
+<?php mwLedgerNav('bs', userHasPermission('users.manage')); ?>
+</div>
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
@@ -40,7 +46,7 @@ $activePage = 'accounting';
         </button>
         <input type="date" id="as-of-date" name="as_of" value="<?= htmlspecialchars($asOf) ?>" class="form-control form-control-sm" hidden>
         <button class="btn btn-sm btn-primary">Update</button>
-        <a href="/crm/accounting/trial-balance.php" class="btn btn-sm btn-outline-secondary">Trial Balance</a>
+        <?php if (empty($mwLedgerOnly)): /* the Ledger nav above covers it for the accountant */ ?><a href="/crm/accounting/trial-balance.php" class="btn btn-sm btn-outline-secondary">Trial Balance</a><?php endif; ?>
     </form>
 </div>
 

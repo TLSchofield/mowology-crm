@@ -151,8 +151,10 @@ class LedgerService
         // Period lock: an automatic posting (invoice, receipt, bank line, reversal) for a
         // locked month lands in the current month as a late entry — never inside the
         // locked month. Manual entries into a locked month are refused.
+        $lateFor = null;
         if ($sourceType !== 'manual' && $this->isLocked($entryDate) && !$this->isLocked(date('Y-m-d'))) {
             $entry['memo'] = 'Late entry for ' . $entryDate . ' — ' . ($entry['memo'] ?? '');
+            $lateFor = $entryDate;   // journal_entries.late_for — the Ledger's exception report reads this (migration 1356)
             $entryDate = date('Y-m-d');
         }
         $this->assertPeriodPostable($entryDate);
@@ -166,10 +168,11 @@ class LedgerService
         try {
             $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
             $withKind     = $this->hasColumn('journal_entries', 'entry_kind');   // migration 1355
+            $withLate     = $lateFor !== null && $this->hasColumn('journal_entries', 'late_for');   // migration 1356
             $hdr = $this->db->prepare(
                 "INSERT INTO journal_entries
-                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ($withKind ? ', entry_kind' : '') . ")
-                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ($withKind ? ', ?' : '') . ")"
+                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ($withKind ? ', entry_kind' : '') . ($withLate ? ', late_for' : '') . ")
+                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ($withKind ? ', ?' : '') . ($withLate ? ', ?' : '') . ")"
             );
             $vals = [
                 $entryDate,
@@ -182,6 +185,7 @@ class LedgerService
             ];
             if ($withProposer) $vals[] = $entry['proposed_by'] ?? 'system';
             if ($withKind) $vals[] = self::entryKindFor($sourceType, $entry['entry_kind'] ?? null);
+            if ($withLate) $vals[] = $lateFor;
             $vals[1] = $entry['memo'] ?? null;
             $hdr->execute($vals);
             $entryId = (int)$this->db->lastInsertId();

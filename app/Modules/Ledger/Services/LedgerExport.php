@@ -6,8 +6,9 @@ declare(strict_types=1);
  * rows (plan: "Every file carries entity, period, run time and lock status; numbers stored as
  * numbers"), and every export is logged to activity_log as 'ledger.export'.
  *
- * The accountant's exports are already logged by AccountantFence::logRequest() (any ?export= request);
- * this logs everyone else's, so each export is one row whoever made it.
+ * Logging: send() / csvStream() write the 'ledger.export' row for EVERY user, accountant included —
+ * only a file actually sent counts (the fence logs the page request as 'ledger.view'; a blocked export
+ * is a view, not an export — review 2026-10-13).
  */
 final class LedgerExport
 {
@@ -36,12 +37,17 @@ final class LedgerExport
         return $out;
     }
 
-    /** Log an export by someone other than the accountant (the fence logs theirs). */
-    public static function log(int $userId, string $what, array $params): void
+    /** One 'ledger.export' row in activity_log for a file sent, whoever sent it. */
+    public static function logExport(string $what, array $params = []): void
     {
-        if (class_exists('AccountantFence') && AccountantFence::activeForSession()) return;
-        if (function_exists('logActivity')) {
-            logActivity($userId, null, 'ledger.export', json_encode(['export' => $what, 'params' => $params], JSON_UNESCAPED_SLASHES));
+        if (!function_exists('logActivity')) return;
+        $uid = (int)($_SESSION['user_id'] ?? 0);
+        if ($uid <= 0) return;
+        try {
+            logActivity($uid, null, 'ledger.export', json_encode(['export' => $what, 'params' => $params],
+                        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR));
+        } catch (Throwable $e) {
+            error_log('ledger.export not logged: ' . $e->getMessage());
         }
     }
 
@@ -72,13 +78,42 @@ final class LedgerExport
         return $locked >= $months ? 'locked' : "partly locked ($locked month" . ($locked === 1 ? '' : 's') . ' locked)';
     }
 
-    /** Send a CSV download and stop. */
-    public static function send(string $filename, string $csv): void
+    /** Download headers for a file. */
+    private static function downloadHeaders(string $filename, string $type): void
     {
-        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Type: ' . $type);
         header('Content-Disposition: attachment; filename="' . preg_replace('/[^A-Za-z0-9._-]/', '_', $filename) . '"');
         header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
+    }
+
+    /** Send a CSV download, log it as an export, and stop. */
+    public static function send(string $filename, string $csv, string $what = '', array $params = []): void
+    {
+        self::logExport($what !== '' ? $what : $filename, $params);
+        self::downloadHeaders($filename, 'text/csv; charset=utf-8');
         echo "\xEF\xBB\xBF" . $csv;
         exit;
+    }
+
+    /**
+     * Start a streamed CSV download (no row cap, nothing held in memory): logs the export, sends the
+     * headers and the BOM, and returns the output handle for csvLine(). The caller exits when done.
+     */
+    public static function csvStream(string $filename, string $what, array $params = [])
+    {
+        require_once dirname(__DIR__, 3) . '/Core/Csv.php';
+        self::logExport($what, $params);
+        while (ob_get_level() > 0) ob_end_clean();
+        self::downloadHeaders($filename, 'text/csv; charset=utf-8');
+        $fh = fopen('php://output', 'w');
+        fwrite($fh, "\xEF\xBB\xBF");
+        return $fh;
+    }
+
+    /** One spreadsheet-safe CSV row to a stream. */
+    public static function csvLine($fh, array $row): void
+    {
+        csvPut($fh, array_values($row));
     }
 }

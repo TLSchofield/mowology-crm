@@ -14,9 +14,14 @@ for ($__i = 0; $__i < 6; $__i++) {
     if (is_file($__dir . '/app/Core/paths.php')) { require_once $__dir . '/app/Core/paths.php'; break; }
 }
 require_once APP_ROOT . '/Modules/Accounting/Services/ReportingService.php';
+require_once APP_ROOT . '/Modules/Ledger/Services/FiscalYear.php';
+require_once dirname(__DIR__) . '/ledger/_nav.php';
 
-$from = $_GET['date_from'] ?? date('Y-01-01');
-$to   = $_GET['date_to']   ?? date('Y-m-d');
+// Real dates or the fiscal year to date (review 2026-10-13: unvalidated dates went straight to the query).
+$__fye = FiscalYear::setting(getDB());
+$to   = FiscalYear::cleanDate($_GET['date_to'] ?? null);
+$from = FiscalYear::cleanDate($_GET['date_from'] ?? null, FiscalYear::bounds(FiscalYear::of($to, $__fye), $__fye)[0]);
+if ($from > $to) [$from, $to] = [$to, $from];
 $is   = (new ReportingService(getDB()))->getIncomeStatement($from, $to);
 $money = static fn($n) => '$' . number_format((float)$n, 2);
 
@@ -24,6 +29,10 @@ $pageTitle  = 'Income Statement';
 $activePage = 'accounting';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+<div class="mw-ledger mw-ledger--statement">
+<?php mwLedgerNav('is', userHasPermission('users.manage')); ?>
+</div>
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
@@ -46,7 +55,7 @@ $activePage = 'accounting';
         </button>
         <input type="date" id="is-date-to" name="date_to" value="<?= htmlspecialchars($to) ?>" class="form-control form-control-sm" hidden>
         <button class="btn btn-sm btn-primary">Update</button>
-        <a href="/crm/accounting/balance-sheet.php" class="btn btn-sm btn-outline-secondary">Balance Sheet</a>
+        <?php if (empty($mwLedgerOnly)): /* the Ledger nav above covers it for the accountant */ ?><a href="/crm/accounting/balance-sheet.php" class="btn btn-sm btn-outline-secondary">Balance Sheet</a><?php endif; ?>
     </form>
 </div>
 

@@ -38,6 +38,12 @@ class ReportingService
             : round($debit - $credit, 2);
     }
 
+    /** The side a statement SECTION is positive on: assets and expenses debit; liabilities, equity, revenue credit. */
+    public static function sectionSide(string $type): string
+    {
+        return in_array($type, ['asset', 'expense'], true) ? 'debit' : 'credit';
+    }
+
     /**
      * @param array $rows each ['code','name','type','normal_balance','debit','credit']
      */
@@ -80,16 +86,14 @@ class ReportingService
             // account (2210 GST/HST Input Tax Credits is a debit-normal liability) must REDUCE the
             // liabilities. Signing it by its normal balance added it, and the sheet was out by twice
             // the ITC balance ($1,021.78 on production, 2026-10-13).
-            $bal = isset($sections[$type])
-                ? self::signedBalance($type === 'asset' ? 'debit' : 'credit', (float)$r['debit'], (float)$r['credit'])
-                : self::signedBalance($r['normal_balance'], (float)$r['debit'], (float)$r['credit']);
+            $bal = self::signedBalance(self::sectionSide($type), (float)$r['debit'], (float)$r['credit']);
             if (isset($sections[$type])) {
                 $sections[$type][] = ['code' => $r['code'], 'name' => $r['name'], 'balance' => $bal];
                 $totals[$type] += $bal;
             } elseif ($type === 'revenue') {
-                $netIncome += $bal;            // revenue normal-credit → positive
+                $netIncome += $bal;            // revenue section is credit-positive; a contra-revenue debit reduces it
             } elseif ($type === 'expense') {
-                $netIncome -= $bal;            // expense normal-debit → reduces income
+                $netIncome -= $bal;            // expense section is debit-positive; a credit (rebate) reduces it
             }
         }
         $netIncome = round($netIncome, 2);
@@ -120,7 +124,10 @@ class ReportingService
         $revenue = []; $expenses = [];
         $totalRev = 0.0; $totalExp = 0.0;
         foreach ($rows as $r) {
-            $bal = self::signedBalance($r['normal_balance'], (float)$r['debit'], (float)$r['credit']);
+            // Signed by SECTION, not the account's own normal balance (review 2026-10-13, the same rule as the
+            // balance sheet and GifiRules): a contra-revenue account (discounts, refunds — debit-normal) must
+            // REDUCE revenue; signed by its normal balance it was added to it.
+            $bal = self::signedBalance(self::sectionSide((string)$r['type']), (float)$r['debit'], (float)$r['credit']);
             if ($r['type'] === 'revenue') {
                 $revenue[] = ['code' => $r['code'], 'name' => $r['name'], 'amount' => $bal];
                 $totalRev += $bal;

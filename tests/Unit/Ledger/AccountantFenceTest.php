@@ -98,7 +98,8 @@ class AccountantFenceTest extends TestCase
     public function test_every_view_and_export_is_an_audit_row_with_secrets_left_out(): void
     {
         $this->assertSame('ledger.view', AccountantFence::auditAction('/crm/ledger/journal.php?q=x', ['q' => 'x']));
-        $this->assertSame('ledger.export', AccountantFence::auditAction('/crm/ledger/gifi.php?export=csv', ['export' => 'csv']));
+        $this->assertSame('ledger.view', AccountantFence::auditAction('/crm/ledger/gifi.php?export=csv', ['export' => 'csv']),
+            'a request for an export is a view; LedgerExport logs ledger.export only when a file is sent (a blocked export is not one)');
         $this->assertSame('ledger.view', AccountantFence::auditAction('/api/expenses/receipt-image?m=1', ['m' => '1']));
         $this->assertNull(AccountantFence::auditAction('/crm/api/get-csrf.php', []));
         $this->assertNull(AccountantFence::auditAction('/loginAuth/login.php', []));

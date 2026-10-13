@@ -13,9 +13,9 @@ $db  = getDB();
 $svc = new AccountantInviteService($db);
 $result = null; $err = null; $note = null;
 
-$host = (string)($_SERVER['HTTP_HOST'] ?? '');
-$siteUrl = defined('SITE_URL') ? (string)SITE_URL
-    : (preg_match('/^(localhost|127\.0\.0\.1)(:\d+)?$/', $host) ? 'http://' . $host : 'https://mowology.ca');
+// The CRM's own address (CRM_SITE_URL, else business_settings.crm_url, else this host only when it is
+// the company's own domain or a local dev host) — never a hardcoded domain or a forged Host header.
+$siteUrl = LedgerSite::url($db);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) {
@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'revoke') {
                 $note = $svc->revoke((int)$_POST['user_id'], (int)$user['id']) ? 'Access revoked. The login is off and any unused link is gone.' : 'Nothing to revoke.';
             } else {
+                if ($siteUrl === null) throw new InvalidArgumentException("The CRM's own web address isn't set (Settings → business_settings.crm_url), so no link can be made.");
                 $result = $svc->invite((string)($_POST['name'] ?? ''), (string)($_POST['email'] ?? ''), (int)$user['id'], $siteUrl);
             }
         } catch (InvalidArgumentException $e) {
@@ -50,7 +51,7 @@ $pageTitle = 'Accountant access — Ledger';
     <div>
       <h1 class="mw-ledger-title">Invite your accountant</h1>
       <p class="mw-ledger-sub">They get the Ledger only: trial balance, journal with source documents, GIFI mapping, exceptions.
-        No clients, schedule, crew locations, payroll SINs or bank details. Every page they open and every export is recorded.</p>
+        Client names only where they are the payer on a source document; no client records, schedule, crew locations, payroll SINs or bank details. Every page they open and every export is recorded.</p>
     </div>
   </header>
 
@@ -110,5 +111,5 @@ $pageTitle = 'Accountant access — Ledger';
   <p class="mw-ledger-small"><a href="/crm/audit-trail_appstack.php">The audit trail</a> lists every page an accountant opened (actions ledger.view and ledger.export).</p>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013a" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

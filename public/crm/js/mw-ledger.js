@@ -32,8 +32,17 @@
   function load(cell, url, id) {
     cell.innerHTML = '<div class="mw-ledger-loading" role="status">Loading entry #' + id + '…</div>';
     fetch(url + encodeURIComponent(id) + '&part=1', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, text: t }; }); })
+      .then(function (r) {
+        // Signed out (idle timeout): the server answers 401, or a redirect lands on the login page.
+        // Go there — never paste the login page into the row.
+        if (r.status === 401 || r.redirected) {
+          window.location.href = '/loginAuth/login.php?timeout=1';
+          return null;
+        }
+        return r.text().then(function (t) { return { ok: r.ok, text: t }; });
+      })
       .then(function (res) {
+        if (!res) return;
         cell.innerHTML = res.ok ? res.text : '<div class="mw-ledger-detail"><p>Could not open entry #' + id + '.</p></div>';
       })
       .catch(function () { cell.innerHTML = '<div class="mw-ledger-detail"><p>Could not open entry #' + id + ' — check the connection.</p></div>'; });

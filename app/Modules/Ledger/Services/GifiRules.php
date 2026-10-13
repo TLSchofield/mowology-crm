@@ -161,6 +161,18 @@ final class GifiRules
         return $s(null, null, 'none', 'Unknown account type.');
     }
 
+    /**
+     * Does this account need a GIFI code? Yes when it has journal lines in the year, or a balance that
+     * reports: the year-end balance for a balance-sheet account, the year's activity for an income one.
+     * The one rule for the validator AND the mapping screen's counts (review 2026-10-13: they disagreed).
+     */
+    public static function isActive(array $a): bool
+    {
+        if ((int)($a['lines'] ?? 0) > 0) return true;
+        $isBs = self::accountStatement((string)($a['type'] ?? '')) === 'BS';
+        return abs(round((float)($isBs ? ($a['end'] ?? 0) : ($a['period'] ?? 0)), 2)) >= 0.005;
+    }
+
     /** Whole dollars, half away from zero (RC4088: amounts in dollars, no cents). */
     public static function dollars(float $amount): int
     {
@@ -193,8 +205,7 @@ final class GifiRules
             // Income-statement balances from before this year that were never closed (no FY opening entry
             // for that year) belong to retained earnings at the start of the year.
             if (!$isBs) $re['3660'] += -($end - $per);
-            $active = (int)($a['lines'] ?? 0) > 0 || abs($isBs ? $end : $per) >= 0.005;
-            if (!$active) continue;
+            if (!self::isActive($a)) continue;
 
             $code = trim((string)($a['gifi_code'] ?? ''));
             if ($code === '') {

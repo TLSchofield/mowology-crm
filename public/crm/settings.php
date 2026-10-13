@@ -1156,8 +1156,8 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
             <div class="card mb-3">
                 <div class="card-header"><h5 class="card-title mb-0">Invite your accountant</h5></div>
                 <div class="card-body">
-                    <p>Your accountant gets the Ledger only: trial balance, journal with source documents, GIFI mapping and the locked-period exceptions.
-                       No clients, schedule, crew locations, payroll SINs or bank details. Nothing is emailed: you get a link to pass on, and they choose a password with it.</p>
+                    <p>Your accountant gets the Ledger only: trial balance, journal with source documents, balance sheet, income statement, GIFI mapping and the locked-period exceptions.
+                       Client names only where they are the payer on a source document; no client records, schedule, crew locations, payroll SINs or bank details. Nothing is emailed: you get a link to pass on, and they choose a password with it.</p>
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>" form="mw-accountant-invite">
                     <input type="hidden" name="action" value="invite" form="mw-accountant-invite">
                     <div class="mw-form-row">

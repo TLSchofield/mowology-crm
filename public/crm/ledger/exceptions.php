@@ -23,8 +23,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     $csv = LedgerExport::csv(array_merge(
         LedgerExport::headerRows(LedgerExport::entity($db), 'Locked-period exception report', 'All locked periods',
                                  count($rep['locked']) . ' locked month(s)', date('Y-m-d H:i:s T')), $rows));
-    LedgerExport::log((int)$user['id'], 'exceptions.csv', []);
-    LedgerExport::send('locked-period-exceptions-' . date('Y-m-d') . '.csv', $csv);
+    LedgerExport::send('locked-period-exceptions-' . date('Y-m-d') . '.csv', $csv, 'exceptions.csv');
 }
 
 $lockedList = array_keys($rep['locked']);
@@ -75,5 +74,5 @@ $pageTitle = 'Exceptions — Ledger';
   </div>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013a" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

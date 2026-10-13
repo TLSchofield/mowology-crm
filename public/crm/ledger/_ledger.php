@@ -7,6 +7,25 @@ if (!defined('MW_LEDGER_PAGE')) { http_response_code(404); exit; }
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+
+// A drill-down fetched in place (?part=1) answers 401 when signed out — never a redirect to the login page,
+// whose HTML the journal would otherwise paste inside a table row (review 2026-10-13). The office idle
+// timeout (appstack_head.php, 30 minutes) applies here too; an expand counts as activity.
+if (!empty($_GET['part'])) {
+    if (isLoggedIn() && function_exists('checkSessionTimeout') && class_exists('RoleRules')
+        && RoleRules::hasIdleTimeout((string)($_SESSION['user_role'] ?? ''))) {
+        $__last = (int)($_SESSION['last_activity'] ?? 0);
+        if ($__last > 0 && time() - $__last > 1800) logoutUser();
+        elseif (isLoggedIn()) $_SESSION['last_activity'] = time();
+    }
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo 'Signed out';
+        exit;
+    }
+}
 requireLogin();
 $user = getCurrentUser();
 requirePermission('ledger.view');
@@ -16,6 +35,9 @@ require_once APP_ROOT . '/Modules/Ledger/Services/GifiService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/JournalBrowserService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/LockExceptionService.php';
 require_once APP_ROOT . '/Modules/Ledger/Services/LedgerExport.php';
+require_once APP_ROOT . '/Modules/Ledger/Services/FiscalYear.php';
+require_once APP_ROOT . '/Modules/Ledger/Services/LedgerSite.php';
+require_once __DIR__ . '/_nav.php';
 
 $ledgerCanPost    = userHasPermission('ledger.post');      // admin: post, edit GIFI
 $ledgerCanPropose = userHasPermission('ledger.propose');   // the accountant: propose, confirm GIFI
@@ -36,26 +58,6 @@ function mwLedgerDollars($n): string
 {
     $v = (int)$n;
     return $v < 0 ? '(' . number_format(abs($v)) . ')' : number_format($v);
-}
-
-/** The Ledger sub-nav. */
-function mwLedgerNav(string $active, bool $canInvite): void
-{
-    $items = [
-        'overview'   => ['Overview', '/crm/ledger/'],
-        'tb'         => ['Trial balance', '/crm/accounting/trial-balance.php'],
-        'journal'    => ['Journal', '/crm/ledger/journal.php'],
-        'gifi'       => ['GIFI mapping', '/crm/ledger/gifi.php'],
-        'exceptions' => ['Exceptions', '/crm/ledger/exceptions.php'],
-    ];
-    if ($canInvite) $items['access'] = ['Accountant access', '/crm/ledger/invite.php'];
-    if (!empty($GLOBALS['ledgerIsAccountant'])) $items['signout'] = ['Sign out', '/crm/logout_secure.php?stay=1'];
-    echo '<nav class="mw-ledger-nav" aria-label="Ledger"><span class="mw-ledger-nav-title">Ledger</span><ul>';
-    foreach ($items as $k => [$label, $href]) {
-        $cur = $k === $active ? ' aria-current="page" class="is-active"' : '';
-        echo '<li><a href="' . h($href) . '"' . $cur . '>' . h($label) . '</a></li>';
-    }
-    echo '</ul></nav>';
 }
 
 /** A branded date trigger + its hidden native input (CLAUDE.md rule 12, pattern B). */

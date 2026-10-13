@@ -13,7 +13,7 @@ declare(strict_types=1);
  * adds it here on purpose.
  *
  * Enforced from session_config.php (deny/redirect, no database needed) and auth.php (also logs every
- * allowed page view / export to activity_log as 'ledger.view' / 'ledger.export'). JWT: token.php
+ * allowed page view to activity_log as 'ledger.view'; LedgerExport logs each file sent as 'ledger.export'). JWT: token.php
  * refuses to issue a token to an accountant and jwtCurrentUser() treats one as signed out.
  *
  * Pure rules + two small effectful helpers. Tested in tests/Unit/Ledger/AccountantFenceTest.php.
@@ -109,13 +109,18 @@ final class AccountantFence
         return !self::isAccountantRole($role);
     }
 
-    /** Which activity_log action an allowed accountant request is, or null when it is not worth a row. */
+    /**
+     * Which activity_log action an allowed accountant request is, or null when it is not worth a row.
+     * Always 'ledger.view' (its params show any ?export= asked for): only a file actually sent is an
+     * export, and LedgerExport writes that 'ledger.export' row itself — a blocked GIFI export used to be
+     * logged here as an export (review 2026-10-13).
+     */
     public static function auditAction(string $uri, array $query): ?string
     {
         $path = self::pathOf($uri);
         if (strpos($path, '/loginAuth/') === 0 || $path === '/crm/api/get-csrf.php' || $path === '/crm/logout_secure.php') return null;
         if (!self::isFenced($path)) return null;
-        return (isset($query['export']) && $query['export'] !== '') ? 'ledger.export' : 'ledger.view';
+        return 'ledger.view';
     }
 
     // ── Effectful helpers (web requests only) ────────────────────────────────
@@ -154,7 +159,7 @@ final class AccountantFence
         exit;
     }
 
-    /** Called from auth.php once the database is available: one activity_log row per accountant page view / export. */
+    /** Called from auth.php once the database is available: one activity_log row per accountant page view. */
     public static function logRequest(): void
     {
         static $done = false;

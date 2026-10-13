@@ -13,30 +13,23 @@ if (!isset($q['from']) && !isset($q['to']) && !isset($q['q'])) { $q['from'] = da
 $f   = JournalBrowserService::normalizeFilters($q);
 
 if (($_GET['export'] ?? '') === 'csv') {
-    $f['per'] = 200; $rows = []; $page = 1;
-    do {
-        $f['page'] = $page;
-        $res = $svc->search($f);
-        foreach ($res['rows'] as $r) {
-            $e = $svc->entry((int)$r['id']);
-            foreach ($e['lines'] as $l) {
-                $rows[] = [(int)$e['id'], $e['entry_date'], $e['display_kind'], $e['source_type'], $e['source_id'], $e['memo'],
-                           $l['code'], $l['account_name'], $l['gifi_code'], (float)$l['debit'], (float)$l['credit'],
-                           $l['description'], $e['created_by_name'] ?: ($e['proposed_by'] ?: 'system'), $e['created_at'],
-                           $e['reversed_by_entry_id']];
-            }
-        }
-        $page++;
-    } while ($page <= $res['pages'] && $page <= 100);
+    // One streamed query, every line, no cap (review 2026-10-13).
     $from = $f['from'] ?: '0000-01-01'; $to = $f['to'] ?: date('Y-m-d');
-    $csv = LedgerExport::csv(array_merge(
-        LedgerExport::headerRows(LedgerExport::entity($db), 'Journal', ($f['from'] ?: 'start') . ' to ' . ($f['to'] ?: 'today'),
-                                 LedgerExport::lockStatus($db, $from, $to), date('Y-m-d H:i:s T')),
-        [['Entry', 'Date', 'Kind', 'Source type', 'Source id', 'Memo', 'Account', 'Account name', 'GIFI', 'Debit', 'Credit',
-          'Line description', 'By', 'Created at', 'Reversed by entry']],
-        $rows));
-    LedgerExport::log((int)$user['id'], 'journal.csv', array_filter($f, fn($v) => $v !== null));
-    LedgerExport::send('journal-' . ($f['from'] ?: 'all') . '-' . ($f['to'] ?: date('Y-m-d')) . '.csv', $csv);
+    $header = LedgerExport::headerRows(LedgerExport::entity($db), 'Journal', ($f['from'] ?: 'start') . ' to ' . ($f['to'] ?: 'today'),
+                                       LedgerExport::lockStatus($db, $from, $to), date('Y-m-d H:i:s T'));
+    $fh = LedgerExport::csvStream('journal-' . ($f['from'] ?: 'all') . '-' . ($f['to'] ?: date('Y-m-d')) . '.csv', 'journal.csv',
+                                  array_filter($f, fn($v) => $v !== null));
+    foreach ($header as $h) LedgerExport::csvLine($fh, $h);
+    LedgerExport::csvLine($fh, ['Entry', 'Date', 'Kind', 'Source type', 'Source id', 'Memo', 'Account', 'Account name', 'GIFI', 'Debit', 'Credit',
+                                'Line description', 'By', 'Created at', 'Reversed by entry']);
+    $svc->streamLines($f, static function (array $l) use ($fh): void {
+        LedgerExport::csvLine($fh, [(int)$l['id'], $l['entry_date'], $l['display_kind'], $l['source_type'], $l['source_id'] !== null ? (int)$l['source_id'] : null,
+                                    $l['memo'], $l['code'], $l['account_name'], $l['gifi_code'], (float)$l['debit'], (float)$l['credit'],
+                                    $l['description'], $l['created_by_name'] ?: ($l['proposed_by'] ?: 'system'), $l['created_at'],
+                                    $l['reversed_by_entry_id'] !== null ? (int)$l['reversed_by_entry_id'] : null]);
+    });
+    fclose($fh);
+    exit;
 }
 
 $res    = $svc->search($f);
@@ -138,5 +131,5 @@ $pageTitle = 'Journal — Ledger';
   <?php endif; ?>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013a" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

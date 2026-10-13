@@ -29,10 +29,10 @@ if (!empty($mwLedgerOnly)): ?>
         <a class="sidebar-brand" href="/crm/ledger/"><span class="align-middle">Ledger</span></a>
         <ul class="sidebar-nav">
             <li class="sidebar-header">Ledger</li>
-            <?php foreach ([['ledger', 'Overview', 'book', '/crm/ledger/'], ['ledger-tb', 'Trial balance', 'columns', '/crm/accounting/trial-balance.php'],
-                            ['ledger-journal', 'Journal', 'list', '/crm/ledger/journal.php'], ['ledger-gifi', 'GIFI mapping', 'hash', '/crm/ledger/gifi.php'],
-                            ['ledger-exceptions', 'Exceptions', 'alert-triangle', '/crm/ledger/exceptions.php']] as [$__k, $__l, $__i, $__h]): ?>
-            <li class="sidebar-item"><a class="sidebar-link" href="<?php echo $__h; ?>"><i class="align-middle" data-feather="<?php echo $__i; ?>"></i> <span class="align-middle"><?php echo htmlspecialchars($__l); ?></span></a></li>
+            <?php require_once dirname(__DIR__) . '/ledger/_nav.php';
+            $__here = strtok((string)($_SERVER['REQUEST_URI'] ?? ''), '?');
+            foreach (mwLedgerPages() as $__k => [$__l, $__h, $__i]): ?>
+            <li class="sidebar-item<?php echo $__here === $__h ? ' active' : ''; ?>"><a class="sidebar-link" href="<?php echo htmlspecialchars($__h); ?>"><i class="align-middle" data-feather="<?php echo htmlspecialchars($__i); ?>"></i> <span class="align-middle"><?php echo htmlspecialchars($__l); ?></span></a></li>
             <?php endforeach; ?>
             <li class="sidebar-item"><a class="sidebar-link" href="/crm/logout_secure.php"><i class="align-middle" data-feather="log-out"></i> <span class="align-middle">Sign out</span></a></li>
         </ul>

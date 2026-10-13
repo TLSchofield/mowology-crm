@@ -95,6 +95,27 @@ class ReportingServiceTest extends TestCase
         $this->assertEqualsWithDelta(200.00, $is['net_income'],     0.001);
     }
 
+    /** @test 2026-10-13 review: a contra-revenue account (debit-normal) must REDUCE revenue, on the IS and in the BS net income. */
+    public function contra_revenue_reduces_revenue_and_net_income(): void
+    {
+        $rows = [
+            ['code' => '1010', 'name' => 'Bank', 'type' => 'asset', 'normal_balance' => 'debit', 'debit' => 950, 'credit' => 0],
+            ['code' => '4100', 'name' => 'Lawn', 'type' => 'revenue', 'normal_balance' => 'credit', 'debit' => 0, 'credit' => 1000],
+            ['code' => '4950', 'name' => 'Sales discounts', 'type' => 'revenue', 'normal_balance' => 'debit', 'debit' => 50, 'credit' => 0],
+            ['code' => '6100', 'name' => 'Fuel', 'type' => 'expense', 'normal_balance' => 'debit', 'debit' => 100, 'credit' => 0],
+            ['code' => '6150', 'name' => 'Fuel rebate', 'type' => 'expense', 'normal_balance' => 'credit', 'debit' => 0, 'credit' => 100],
+            ['code' => '3100', 'name' => 'Capital', 'type' => 'equity', 'normal_balance' => 'credit', 'debit' => 0, 'credit' => 0],
+        ];
+        $is = $this->service()->buildIncomeStatement($rows);
+        $this->assertEqualsWithDelta(-50.00, $is['revenue'][1]['amount'], 0.001, 'the discount shows as negative revenue');
+        $this->assertEqualsWithDelta(950.00, $is['total_revenue'], 0.001);
+        $this->assertEqualsWithDelta(0.00, $is['total_expenses'], 0.001, 'the rebate (credit on an expense) reduces expenses');
+        $this->assertEqualsWithDelta(950.00, $is['net_income'], 0.001);
+        $bs = $this->service()->buildBalanceSheet($rows);
+        $this->assertEqualsWithDelta(950.00, $bs['net_income'], 0.001, 'the balance sheet uses the same signs');
+        $this->assertTrue($bs['balances']);
+    }
+
     // ── Cost drill-down ──────────────────────────────────────────────────────────
 
     /** @test */

@@ -127,4 +127,54 @@ class JournalAndExceptionsTest extends TestCase
         $this->assertSame('2025-12', $rows[0]['period']);
         $this->assertSame('2026-10-07 20:03:03', $rows[0]['locked_at']);
     }
+
+    public function test_exceptions_classify_against_the_first_lock(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $db->exec("CREATE TABLE accounting_periods (year INTEGER, month INTEGER, status TEXT, closed_at TEXT, closed_by INTEGER, notes TEXT)");
+        $db->exec("CREATE TABLE accounting_period_locks (id INTEGER PRIMARY KEY, year INTEGER, month INTEGER, locked_at TEXT, locked_by INTEGER,
+                   lock_reason TEXT, unlocked_at TEXT, unlocked_by INTEGER, unlock_reason TEXT)");
+        // March 2026: locked Apr 5, reopened Apr 20 for a fix, locked again May 2 — accounting_periods shows only May 2.
+        $db->exec("INSERT INTO accounting_periods VALUES (2026, 3, 'locked', '2026-05-02 09:00:00', 1, 'relocked')");
+        $db->exec("INSERT INTO accounting_period_locks (year, month, locked_at, unlocked_at, unlock_reason) VALUES
+                   (2026, 3, '2026-04-05 09:00:00', '2026-04-20 10:00:00', 'Missed deposit'), (2026, 3, '2026-05-02 09:00:00', NULL, NULL)");
+        $locked = (new LockExceptionService($db))->lockedPeriods();
+        $this->assertSame('2026-04-05 09:00:00', $locked['2026-03']['closed_at'], 'the first lock, not the re-lock');
+        $this->assertTrue($locked['2026-03']['relocked']);
+        $rows = LockExceptionService::classify([
+            // made while the month was reopened: still a change after it was first locked
+            ['id' => 20, 'entry_date' => '2026-03-31', 'created_at' => '2026-04-21 08:00:00', 'memo' => 'Missed deposit', 'source_type' => 'manual'],
+            ['id' => 21, 'entry_date' => '2026-03-15', 'created_at' => '2026-03-16 08:00:00', 'memo' => 'Before any lock', 'source_type' => 'manual'],
+            // the late flag (set at post time) — no memo needed
+            ['id' => 22, 'entry_date' => '2026-06-01', 'created_at' => '2026-06-01 08:00:00', 'memo' => 'Expense #9', 'source_type' => 'expense', 'late_for' => '2026-03-28'],
+        ], $locked);
+        $this->assertSame([22 => 'late', 20 => 'inside'], array_column($rows, 'kind', 'id'));
+    }
+
+    public function test_exceptions_query_uses_month_ranges(): void
+    {
+        [$sql, $p] = LockExceptionService::rangesSql(['2025-02', '2025-01', '2025-12', '2025-03'], 'je.entry_date');
+        $this->assertSame('je.entry_date BETWEEN ? AND ? OR je.entry_date BETWEEN ? AND ?', $sql, 'adjacent months merge');
+        $this->assertSame(['2025-01-01', '2025-03-31', '2025-12-01', '2025-12-31'], $p);
+        $this->assertSame(['1 = 0', []], LockExceptionService::rangesSql([], 'x'));
+    }
+
+    public function test_journal_export_streams_every_line_in_order(): void
+    {
+        $db = $this->db();
+        $db->exec("ALTER TABLE chart_of_accounts ADD COLUMN gifi_code TEXT");
+        // well past the old 20,000-entry cap would be slow here; what matters is one query, every line, entry then line order
+        $seen = [];
+        $n = (new JournalBrowserService($db))->streamLines(JournalBrowserService::normalizeFilters([]), function (array $l) use (&$seen) {
+            $seen[] = [(int)$l['id'], $l['code'], (float)$l['debit'], (float)$l['credit'], $l['display_kind']];
+        });
+        $this->assertSame(8, $n);
+        $this->assertSame([1, '6100', 80.5, 0.0, 'System'], $seen[0]);
+        $this->assertSame([4, '6100', 0.0, 80.5, 'Reversal'], $seen[7]);
+        $this->assertSame([1, 1, 2, 2, 3, 3, 4, 4], array_column($seen, 0));
+        $m = (new JournalBrowserService($db))->streamLines(JournalBrowserService::normalizeFilters(['account' => '4900']), function () {});
+        $this->assertSame(2, $m, 'filters apply: the entry with a 4900 line, all its lines');
+    }
 }

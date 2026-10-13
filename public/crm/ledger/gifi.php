@@ -49,6 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $rep = $svc->report($year);
+[$fyFrom, $fyTo] = FiscalYear::bounds($year, FiscalYear::setting($db));
+if ($_SERVER['REQUEST_METHOD'] === 'POST') LedgerSite::forget('gifi-' . $year);   // the overview's cached readiness
 
 if (($_GET['export'] ?? '') === 'csv') {
     if (!$rep['ok']) {
@@ -56,19 +58,17 @@ if (($_GET['export'] ?? '') === 'csv') {
         $flashErr = 'Export blocked: the GIFI does not validate yet — see the problems below.';
     } else {
         $csv = LedgerExport::csv(array_merge(
-            LedgerExport::headerRows(LedgerExport::entity($db), 'GIFI (whole dollars, CRA RC4088)', "FY$year ($year-01-01 to $year-12-31)",
-                                     LedgerExport::lockStatus($db, "$year-01-01", "$year-12-31"), date('Y-m-d H:i:s T')),
+            LedgerExport::headerRows(LedgerExport::entity($db), 'GIFI (whole dollars, CRA RC4088)', "FY$year ($fyFrom to $fyTo)",
+                                     LedgerExport::lockStatus($db, $fyFrom, $fyTo), date('Y-m-d H:i:s T')),
             GifiService::csvRows($rep)));
-        LedgerExport::log((int)$user['id'], 'gifi.csv', ['year' => $year]);
-        LedgerExport::send("gifi-fy$year.csv", $csv);
+        LedgerExport::send("gifi-fy$year.csv", $csv, 'gifi.csv', ['year' => $year]);
     }
 }
 
 $known = $rep['known'];
 $byStatus = ['confirmed' => 0, 'suggested' => 0, 'unmapped' => 0];
 foreach ($rep['accounts'] as $a) {
-    $active = $a['lines'] > 0 || abs($a['end']) >= 0.005 || abs($a['period']) >= 0.005;
-    if (!$active) continue;
+    if (!GifiRules::isActive($a)) continue;
     $st = $a['gifi_code'] ? ($a['gifi_status'] === 'confirmed' ? 'confirmed' : 'suggested') : 'unmapped';
     $byStatus[$st]++;
 }
@@ -145,7 +145,7 @@ $pageTitle = 'GIFI mapping — Ledger';
       </tr></thead>
       <tbody>
       <?php foreach ($rep['accounts'] as $a):
-          $active = $a['lines'] > 0 || abs($a['end']) >= 0.005 || abs($a['period']) >= 0.005;
+          $active = GifiRules::isActive($a);
           $st = $a['gifi_code'] ? ($a['gifi_status'] === 'confirmed' ? 'confirmed' : 'suggested') : ($active ? 'unmapped' : 'idle');
           $isBs = in_array($a['type'], ['asset', 'liability', 'equity'], true);
           $sug = $a['suggestion'];
@@ -184,5 +184,5 @@ $pageTitle = 'GIFI mapping — Ledger';
     Required items checked: 2599, 3499, 3620, 3849, 8299, 9368, 9999; assets must equal liabilities plus equity, and 9999 must equal the ledger's net income.</p>
 </div>
 
-<script src="/crm/js/mw-ledger.js?v=20261013a" defer></script>
+<script src="/crm/js/mw-ledger.js?v=20261013b" defer></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

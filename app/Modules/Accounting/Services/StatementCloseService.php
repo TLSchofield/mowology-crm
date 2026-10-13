@@ -151,6 +151,14 @@ class StatementCloseService
             VALUES (?, ?, ?, 'locked', NOW(), ?)
             ON DUPLICATE KEY UPDATE status = 'locked', closed_at = NOW(), closed_by = VALUES(closed_by)
         ")->execute([(int)$m[1], (int)$m[2], $ym, $userId]);
+        // Lock history (migration 1356): accounting_periods keeps only the latest closed_at, so the Ledger's
+        // exception report reads the FIRST lock from here.
+        try {
+            $this->db->prepare("INSERT INTO accounting_period_locks (year, month, locked_at, locked_by, lock_reason) VALUES (?, ?, NOW(), ?, ?)")
+                ->execute([(int)$m[1], (int)$m[2], $userId, 'Statement close']);
+        } catch (Throwable $e) {
+            error_log('lockMonth: lock history not written (' . $e->getMessage() . ')');
+        }
         return ['ok' => true, 'message' => "{$ym} is locked. Anything that turns up late for it goes into the current month."];
     }
 
