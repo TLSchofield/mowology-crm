@@ -140,7 +140,8 @@ try {
         'events_done'   => $eventResult['done'],
         'policy'       => TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $consentOk, $clockedIn,
-            $activeTimer ? (int)$activeTimer['visit_id'] : null
+            $activeTimer ? (int)$activeTimer['visit_id'] : null,
+            $ingest->onBreak($userId)
         ),
     ]);
 

@@ -32,6 +32,17 @@
     var autoArrivalEnabled = false; // Whether proximity auto-clock-in is active
     var lastAutoStartVisitId = null; // Prevent re-triggering same visit
 
+    // ── Breaks (2026-10-13) ──
+    // Start break / End break for people (never the truck login — the server says so in
+    // status.breaks.allowed). A break pauses location sharing; the server also ignores fixes
+    // while one is open. Server first: the tap time travels as client_time, so if offline-queue.js
+    // has to queue the POST the replay still files the break at the moment it was tapped.
+    var breakAllowed = false;
+    var breaksPaid = true;
+    var breakReminderMin = 60;
+    var onBreak = null;            // { started_at: 'Y-m-d H:i:s', local?: true } or null
+    var BREAK_NOTIF_ID = 7301;
+
     // ── Screen Wake Lock ──
     // Keeps the screen on while GPS tracking is active so mobile browsers
     // don't suspend JS and drop location pings.
@@ -82,6 +93,7 @@
             deviceType = data.device_type || 'personal';
             isDriver = !!data.is_driver;
             hasActiveJobTimer = !!(data.active_job);
+            readBreakStatus(data);
 
             // Store configurable GPS intervals from server
             if (data.gps_interval_standard_ms) {
@@ -109,6 +121,10 @@
             // phone fixes as "duplicates", and would draw the client-facing route back to a desk.
             if (trackingEnabled && !isFieldDevice()) {
                 updateTrackingDot('unknown', 'Location is tracked from your phone, not this computer');
+            } else if (trackingEnabled && data.clocked_in && onBreak) {
+                // On a break: location sharing stays paused until End break.
+                stopTracking();
+                updateTrackingDot('unknown', 'Paused — on break');
             } else if (trackingEnabled) {
                 if (deviceType === 'truck' || isDriver || data.clocked_in) {
                     // Truck: always track when app is open
@@ -297,10 +313,13 @@
     var SVG_PLAY = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>';
     var SVG_STOP = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
     var SVG_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+    var SVG_COFFEE = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>';
     var SVG_NAV = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>';
 
     function renderClockedOut() {
         stopTimer();
+        // Break state is NOT cleared here: this also renders when a status read fails (no signal),
+        // and a break tapped offline must survive that. readBreakStatus() / doClockOut() clear it.
         // Truck devices keep tracking even when not clocked in
         if (deviceType !== 'truck') {
             stopTracking();
@@ -311,9 +330,12 @@
                 '<span class="mw-clock-label">Clock In</span>' +
             '</button>';
         document.getElementById('btnClockIn').addEventListener('click', doClockIn);
+        renderBreakPanel(false);
     }
 
+    var lastActiveJob = null;
     function renderClockedIn(elapsedSeconds, activeJob) {
+        lastActiveJob = activeJob || null;
         var html =
             '<div class="mw-clock-active">' +
                 '<span class="mw-clock-icon-pulse">' + SVG_CLOCK + '</span>' +
@@ -332,6 +354,15 @@
                     '</span>';
         }
 
+        if (breakAllowed) {
+            html += onBreak
+                ? '<button class="mw-clock-btn mw-clock-break-btn mw-clock-break-btn--on" id="btnBreak" title="On break since ' +
+                      escapeHtml(breakSinceLabel()) + ' — tap to end your break">' + SVG_COFFEE +
+                      '<span class="mw-clock-label">End break</span></button>'
+                : '<button class="mw-clock-btn mw-clock-break-btn" id="btnBreak" title="Start break">' + SVG_COFFEE +
+                      '<span class="mw-clock-label">Break</span></button>';
+        }
+
         html +=     '<button class="mw-clock-btn mw-clock-out" id="btnClockOut" title="Clock Out">' +
                         SVG_STOP +
                         '<span class="mw-clock-label">Out</span>' +
@@ -340,7 +371,10 @@
 
         widget.innerHTML = html;
         document.getElementById('btnClockOut').addEventListener('click', doClockOut);
+        var bb = document.getElementById('btnBreak');
+        if (bb) bb.addEventListener('click', function() { if (onBreak) endBreak(); else startBreak(); });
         startTimer(elapsedSeconds);
+        renderBreakPanel(true);
     }
 
     function renderDisabled() {
@@ -738,6 +772,272 @@
         stopTracking();
         fetchStatus();
     });
+
+    // ══ Breaks ══════════════════════════════════════════════════════════════
+    function breakKey(kind) { return 'mw_break_' + kind + '_' + (window.MW_USER_ID || 'me'); }
+    function readLocalBreak() {
+        try { return JSON.parse(localStorage.getItem(breakKey('local')) || 'null'); } catch (e) { return null; }
+    }
+    function writeLocalBreak(v) { try { localStorage.setItem(breakKey('local'), JSON.stringify(v)); } catch (e) {} }
+    function clearLocalBreak() { try { localStorage.removeItem(breakKey('local')); } catch (e) {} }
+
+    // ISO 8601 with the phone's offset — what OfflineTime::accept() reads as the tap time.
+    function isoLocal(d) {
+        var off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-', a = Math.abs(off);
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' +
+               pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +
+               sign + pad(Math.floor(a / 60)) + ':' + pad(a % 60);
+    }
+    function sqlLocal(d) {
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+               pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    function parseSql(s) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ''));
+        return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null;
+    }
+    function breakSinceLabel() {
+        var d = onBreak ? parseSql(onBreak.started_at) : null;
+        return d ? formatTime(d) : '';
+    }
+
+    /** status → break state. A tap still waiting in the offline queue wins over the server. */
+    function readBreakStatus(data) {
+        var b = data.breaks || {};
+        breakAllowed = !!b.allowed && deviceType !== 'truck' && !!data.clocked_in;
+        breaksPaid = b.paid !== false;
+        breakReminderMin = Math.max(5, parseInt(b.reminder_minutes, 10) || 60);
+        onBreak = data.on_break || null;
+        var local = readLocalBreak();
+        if (!local) { if (onBreak) scheduleBreakReminder(); else cancelBreakReminder(); return; }
+        var serverAgrees = (local.pending === 'start') === !!onBreak;
+        if (serverAgrees || !data.clocked_in) { clearLocalBreak(); if (onBreak) scheduleBreakReminder(); else cancelBreakReminder(); return; }
+        // The server hasn't seen the queued tap yet: keep showing what was tapped while it waits.
+        if (local.pending === 'start') onBreak = { started_at: local.since, local: true };
+        else onBreak = null;
+        var check = window.OfflineActions && window.OfflineActions.getPendingCount
+            ? window.OfflineActions.getPendingCount() : Promise.resolve(0);
+        check.then(function(n) {
+            if (n > 0) return;            // still queued — keep the local state
+            clearLocalBreak();            // nothing queued any more: the server is right
+            fetchStatus();
+        });
+    }
+
+    /** Post break_start / break_end with the tap time; same CSRF refresh-and-retry as clock actions. */
+    function postBreak(action, tappedAt, callback, _isRetry) {
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: action, client_time: isoLocal(tappedAt) })
+        })
+        .then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+        .then(function(res) {
+            var d = res.data;
+            if (!_isRetry && d && !d.success && d.error && d.error.indexOf('CSRF') !== -1) {
+                fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(t) { if (t && t.token) window.MW_CSRF_TOKEN = t.token; postBreak(action, tappedAt, callback, true); })
+                    .catch(function() { callback(res.status, d); });
+                return;
+            }
+            callback(res.status, d);
+        })
+        .catch(function() { callback(0, null); });
+    }
+
+    var breakBusy = false;
+    function startBreak() {
+        if (breakBusy || onBreak || !breakAllowed) return;
+        breakBusy = true;
+        var tappedAt = new Date();
+        postBreak('break_start', tappedAt, function(status, data) {
+            breakBusy = false;
+            if (!data) { showToast('No connection — try Start break again', 'error'); return; }
+            if (!data.success) { showToast(data.error || 'Could not start your break', 'error'); return; }
+            if (data.queued || data.offline) {
+                writeLocalBreak({ pending: 'start', since: sqlLocal(tappedAt) });
+                onBreak = { started_at: sqlLocal(tappedAt), local: true };
+                showToast('Break saved on this phone — it will file itself when signal returns', 'info');
+            } else if (data.recorded === false) {
+                showToast(data.message || 'Break not recorded', 'error');
+                return;
+            } else if (!data.on_break) {
+                // Filed already (a replay) and not running now — the server is right.
+                clearLocalBreak();
+                fetchStatus();
+                return;
+            } else {
+                clearLocalBreak();
+                onBreak = data.on_break;
+                showToast('On break since ' + breakSinceLabel() + ' — location sharing paused', 'success');
+            }
+            stopTracking();
+            updateTrackingDot('unknown', 'Paused — on break');
+            scheduleBreakReminder();
+            applyBreakState();
+        });
+    }
+
+    function endBreak() {
+        if (breakBusy || !onBreak) return;
+        breakBusy = true;
+        var tappedAt = new Date();
+        postBreak('break_end', tappedAt, function(status, data) {
+            breakBusy = false;
+            if (!data) { showToast('No connection — try End break again', 'error'); return; }
+            if (!data.success) { showToast(data.error || 'Could not end your break', 'error'); return; }
+            if (data.queued || data.offline) {
+                var local = readLocalBreak();
+                if (local && local.pending === 'start') clearLocalBreak();       // both still queued, in order
+                else writeLocalBreak({ pending: 'end', since: onBreak.started_at });
+                showToast('Break end saved on this phone — it will file itself when signal returns', 'info');
+            } else {
+                clearLocalBreak();
+                showToast('Break ended' + (data.minutes ? ' — ' + data.minutes + ' min' : '') + '. Location sharing is back on.', 'success');
+            }
+            onBreak = null;
+            cancelBreakReminder();
+            if (trackingEnabled && isFieldDevice()) startTracking();
+            applyBreakState();
+        });
+    }
+
+    function applyBreakState() {
+        if (clockInTime === null) { renderBreakPanel(false); return; }
+        var t = document.getElementById('clockTimer');
+        var secs = t ? toSeconds(t.textContent) : 0;
+        renderClockedIn(secs, lastActiveJob);
+        fetchStatusSoon();
+    }
+    var _soon = null;
+    function fetchStatusSoon() { if (_soon) clearTimeout(_soon); _soon = setTimeout(fetchStatus, 1500); }
+    function toSeconds(txt) {
+        var p = String(txt || '').split(':');
+        return p.length === 3 ? (+p[0] * 3600 + +p[1] * 60 + +p[2]) || 0 : 0;
+    }
+
+    /** The big card on the Clock tab (My Timesheet): #mwBreakPanel, when the page has one. */
+    function renderBreakPanel(clockedIn) {
+        var panel = document.getElementById('mwBreakPanel');
+        if (!panel) return;
+        if (!clockedIn || !breakAllowed) { panel.hidden = true; panel.innerHTML = ''; return; }
+        panel.hidden = false;
+        var payNote = breaksPaid ? 'Breaks are paid.' : 'Breaks are unpaid — this time comes off your paid hours.';
+        panel.innerHTML = onBreak
+            ? '<div class="mw-break-panel-status mw-break-panel-status--on">' + SVG_COFFEE +
+                  '<span>On break since <strong>' + escapeHtml(breakSinceLabel()) + '</strong></span></div>' +
+              '<div class="mw-break-panel-sub">Location sharing is paused.' + (onBreak.local ? ' Saved on this phone — it will file when signal returns.' : '') + '</div>' +
+              '<button type="button" class="mw-break-panel-btn mw-break-panel-btn--end" id="mwBreakPanelBtn">End break</button>' +
+              '<div class="mw-break-panel-note">' + escapeHtml(payNote) + '</div>'
+            : '<button type="button" class="mw-break-panel-btn" id="mwBreakPanelBtn">' + SVG_COFFEE + '<span>Start break</span></button>' +
+              '<div class="mw-break-panel-note">Location sharing pauses during your break. ' + escapeHtml(payNote) + '</div>';
+        var btn = document.getElementById('mwBreakPanelBtn');
+        if (btn) btn.addEventListener('click', function() { if (onBreak) endBreak(); else startBreak(); });
+    }
+
+    // ── "Still on break?" ──
+    // Crew app: a native local notification with End break / Still on break, which fires even with
+    // the app closed. Browser: an in-page prompt while the page is open.
+    function localNotifications() {
+        return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) || null;
+    }
+    var _breakActionsReady = false;
+    function ensureBreakActions() {
+        var LN = localNotifications();
+        if (!LN || _breakActionsReady) return;
+        _breakActionsReady = true;
+        try {
+            if (LN.registerActionTypes) {
+                LN.registerActionTypes({ types: [{ id: 'MW_BREAK', actions: [
+                    { id: 'end_break', title: 'End break', foreground: true },
+                    { id: 'still_on_break', title: 'Still on break' }
+                ] }] }).catch(function() {});
+            }
+            if (LN.addListener) {
+                LN.addListener('localNotificationActionPerformed', function(ev) {
+                    var n = (ev && ev.notification) || {};
+                    if (!n.extra || n.extra.mw !== 'break') return;
+                    if (ev.actionId === 'end_break') {
+                        // The listener can fire before status has loaded — wait for it.
+                        if (onBreak) endBreak(); else pendingEndFromNotification = true;
+                    } else if (ev.actionId === 'still_on_break') {
+                        scheduleBreakReminder(Date.now() + breakReminderMin * 60000);
+                    }
+                });
+            }
+        } catch (e) { /* plugin missing on an old APK — the in-page prompt still works */ }
+    }
+    var pendingEndFromNotification = false;
+
+    function nextReminderAt() {
+        try {
+            var v = JSON.parse(localStorage.getItem(breakKey('next')) || 'null');
+            if (v && onBreak && v.since === onBreak.started_at) return v.at;
+        } catch (e) {}
+        var d = onBreak ? parseSql(onBreak.started_at) : null;
+        return d ? d.getTime() + breakReminderMin * 60000 : null;
+    }
+
+    function scheduleBreakReminder(at) {
+        if (!onBreak) return;
+        if (pendingEndFromNotification) { pendingEndFromNotification = false; setTimeout(endBreak, 0); return; }
+        var when = at || nextReminderAt();
+        if (!when) return;
+        if (when < Date.now()) when = Date.now() + 1000;
+        try { localStorage.setItem(breakKey('next'), JSON.stringify({ since: onBreak.started_at, at: when })); } catch (e) {}
+        var LN = localNotifications();
+        if (LN && LN.schedule) {
+            ensureBreakActions();
+            try {
+                LN.cancel({ notifications: [{ id: BREAK_NOTIF_ID }] }).catch(function() {}).then(function() {
+                    return LN.schedule({ notifications: [{
+                        id: BREAK_NOTIF_ID,
+                        title: 'Still on break?',
+                        body: 'Your break started at ' + breakSinceLabel() + '. Tap End break when you are back at work.',
+                        schedule: { at: new Date(when), allowWhileIdle: true },
+                        actionTypeId: 'MW_BREAK',
+                        extra: { mw: 'break' },
+                        smallIcon: 'ic_stat_mowology'
+                    }] });
+                }).catch(function(err) { console.warn('[MwBreak] reminder not scheduled', err); });
+            } catch (e) {}
+        }
+    }
+
+    function cancelBreakReminder() {
+        try { localStorage.removeItem(breakKey('next')); } catch (e) {}
+        hideBreakPrompt();
+        var LN = localNotifications();
+        if (LN && LN.cancel) { try { LN.cancel({ notifications: [{ id: BREAK_NOTIF_ID }] }).catch(function() {}); } catch (e) {} }
+    }
+
+    // In-page prompt (browser, or the app with the page open).
+    function showBreakPrompt() {
+        if (document.getElementById('mwBreakPrompt')) return;
+        var bar = document.createElement('div');
+        bar.id = 'mwBreakPrompt';
+        bar.className = 'mw-break-prompt';
+        bar.innerHTML = '<span>Still on break? (since ' + escapeHtml(breakSinceLabel()) + ')</span>' +
+            '<button type="button" class="mw-break-prompt-end">End break</button>' +
+            '<button type="button" class="mw-break-prompt-still">Still on break</button>';
+        document.body.appendChild(bar);
+        bar.querySelector('.mw-break-prompt-end').addEventListener('click', function() { hideBreakPrompt(); endBreak(); });
+        bar.querySelector('.mw-break-prompt-still').addEventListener('click', function() {
+            hideBreakPrompt();
+            scheduleBreakReminder(Date.now() + breakReminderMin * 60000);
+        });
+    }
+    function hideBreakPrompt() {
+        var bar = document.getElementById('mwBreakPrompt');
+        if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    }
+    setInterval(function() {
+        if (!onBreak) return;
+        var at = nextReminderAt();
+        if (at && Date.now() >= at) showBreakPrompt();
+    }, 20000);
     document.addEventListener('mw-auto-started', function(ev) {
         if (ev && ev.detail && ev.detail.visit_id) handleServerAutoStart(ev.detail);
     });
@@ -886,6 +1186,10 @@
                 }
 
                 if (data.success) {
+                    // Clocking out during a break ends it (the server closes it at the clock-out).
+                    onBreak = null;
+                    cancelBreakReminder();
+                    clearLocalBreak();
                     renderClockedOut();
                     showToast('Clocked out — Total: ' + data.total_formatted, 'success');
                 } else {
@@ -1131,7 +1435,7 @@
     // Wake lock is re-acquired by the visibilitychange handler above (near its declaration).
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (document.visibilityState !== 'visible' || !trackingEnabled) return;
+        if (document.visibilityState !== 'visible' || !trackingEnabled || onBreak) return;
         // Truck/is_driver: always restart. Personal: restart whenever clocked in.
         if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
@@ -1141,7 +1445,7 @@
 
     window.addEventListener('pageshow', function(event) {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (!event.persisted || !trackingEnabled) return;
+        if (!event.persisted || !trackingEnabled || onBreak) return;
         if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
             startTracking();
@@ -1171,8 +1475,12 @@
                    (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
         },
         getDeviceType: function() { return deviceType; },
+        // Breaks (2026-10-13): Start break / End break, and whether this person is on one.
+        startBreak: function() { startBreak(); },
+        endBreak: function() { endBreak(); },
+        isOnBreak: function() { return !!onBreak; },
         restartTracking: function() {
-            if (trackingEnabled) {
+            if (trackingEnabled && !onBreak) {
                 stopTracking();
                 startTracking();
             }
@@ -1186,7 +1494,7 @@
          */
         notifyJobTimerStarted: function() {
             hasActiveJobTimer = true;
-            if (trackingEnabled) {
+            if (trackingEnabled && !onBreak) {
                 startTracking();
             }
         },

@@ -89,9 +89,11 @@ reference that matches the task:
 3. **GPS: the server owns the work-hours boundary.** Fixes are judged by
    `TrackingIngestService::ingest()`; clients obey the returned policy. Silence is the failure
    mode — a poller or sweep that always finds nothing is broken until proven quiet.
-4. **Breaks are paid at Mowology** (`breaks_paid` = 1); break records never change pay. BC: a
-   30-minute meal break before 5 hours. GPS break flags stay OFF on Otto's card
-   (`break_flags_enabled` = 0) until the crew app has a break button.
+4. **Breaks are paid at Mowology** (`breaks_paid` = 1); break records never change pay there. With
+   unpaid breaks (another business) only TAPPED break minutes come off pay, before the overtime
+   split — a GPS guess never costs anyone pay. BC: a 30-minute meal break before 5 hours. Since the
+   break button (2026-10-13, migration 1358) the flag is ON (`break_flags_enabled` = 1). People only:
+   the truck login gets no button and no flag.
 5. **Supplier forms: Otto fills from the company profile, sends only on Tim's yes, and never fills
    bank details, credit references, guarantees, signatures, SIN or personal ID.** Print-and-sign
    forms go to Tim as "needs you". Supplier and subscription mail uses office@mowology.ca.
@@ -120,7 +122,9 @@ reference that matches the task:
 | Truck day → stops, drives, labels | `TripSegmentService::detectStops()` / `TripSegmentService::label()` | breaks, trip cost, evidence |
 | Dump / supply run cost | `TripCostService::process()` (cron `app/Modules/Operations/Cron/trip_runs_daily.php`) | `app/Modules/Operations/Api/trips.php`, Penny |
 | Places learned from receipts on the trail | `StopEvidenceService::learnPlaces()` | nightly cron, trips API |
-| GPS breaks + BC flag | `BreakService::run()` / `BreakService::complianceGap()` | trip cron, brief (flag off) |
+| Break button (start / end / clock-out ends it / tap time) | `BreakService::start()` / `BreakService::end()` / `BreakService::afterClockOut()` | web/Android `app/Modules/Team/Api/time-clock.php`, iPhone `app/Modules/Schedule/Api/clock.php` |
+| Breaks as they count (tap wins over GPS, unpaid minutes) | `BreakService::merge()` / `BreakService::unpaidMinutes()` / `BreakService::periodForUser()` | payroll summary + CSV, timesheet detail, `recalculateTimesheetTotals()`, My Timesheet (web + `TimesheetService::buildWeek()`) |
+| GPS breaks (backup) + BC flag | `BreakService::run()` / `BreakService::refreshFlag()` / `BreakService::complianceGap()` | trip cron, clock-out, Otto's brief (`BreakService::briefItems()`) |
 | Bulk material delivery vs trailer | `MaterialDeliveryService::forLines()` / `MaterialDeliveryService::briefItems()` | brief |
 | Supplier directory (geocode, map, vendors) | `SupplierDirectoryService::placeAll()` | Otto's map, Penny's vendors |
 | Supplier mail reading (read-only IMAP) | `SupplierInboxService::poll()` inside `app/Modules/Sales/Cron/sales_inbox_poll.php` | forms, licence, chase |

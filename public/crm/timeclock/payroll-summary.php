@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 require_once APP_ROOT . '/Modules/Team/Services/OvertimeCalculator.php';
 require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
+require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -52,6 +53,14 @@ $empStmt = $db->prepare("
 $empStmt->execute();
 $employees = $empStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Breaks (BreakService, 2026-10-13): shown per person; when breaks are UNPAID (ops_settings
+// breaks_paid = 0) tapped break minutes come off each day BEFORE the daily/weekly overtime split.
+// Mowology pays breaks, so its hours and pay are unchanged.
+$breakSvc   = new BreakService($db);
+$breaksPaid = $breakSvc->breaksPaid();
+$grandTotalBreak  = 0;
+$grandTotalUnpaid = 0;
+
 // ── For each employee, fetch daily minutes and compute pay ────────────────────
 $rows = [];
 $grandTotalReg  = 0;
@@ -79,8 +88,16 @@ foreach ($employees as $emp) {
         $dailyMinutes[$d['day']] = max(0, (int)$d['day_min']);
     }
 
-    $totalShiftMin = array_sum($dailyMinutes);
-    if ($totalShiftMin <= 0) continue; // no hours this period
+    $clockedMin = array_sum($dailyMinutes);
+    if ($clockedMin <= 0) continue; // no hours this period
+
+    $brk = $breakSvc->periodForUser((int)$emp['id'], $rangeStart, $rangeEnd);
+    foreach ($brk['days'] as $bd => $bm) {
+        if (isset($dailyMinutes[$bd])) {
+            $dailyMinutes[$bd] = BreakService::paidMinutes($dailyMinutes[$bd], (int)$bm['unpaid_minutes']);
+        }
+    }
+    $totalShiftMin = array_sum($dailyMinutes);   // paid hours (= clocked when breaks are paid)
 
     $rate = (float)($emp['hourly_rate'] ?? 0);
     $pay  = OvertimeCalculator::calculatePeriod($dailyMinutes, $rate);
@@ -110,6 +127,10 @@ foreach ($employees as $emp) {
         'emp'          => $emp,
         'pay'          => $pay,
         'total_shift'  => $totalShiftMin,
+        'clocked'      => $clockedMin,
+        'break_min'    => (int)$brk['break_minutes'],
+        'unpaid_min'   => (int)$brk['unpaid_minutes'],
+        'break_count'  => (int)$brk['count'],
         'status'       => $overallStatus,
         'timesheet_ids'=> array_column($weeklySheets, 'id'),
         'rate'         => $rate,
@@ -119,6 +140,8 @@ foreach ($employees as $emp) {
     $grandTotalOt15 += $pay['ot_1_5_minutes'];
     $grandTotalOt20 += $pay['ot_2_0_minutes'];
     $grandTotalPay  += $pay['gross_pay'];
+    $grandTotalBreak  += (int)$brk['break_minutes'];
+    $grandTotalUnpaid += (int)$brk['unpaid_minutes'];
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────────
@@ -132,6 +155,7 @@ if ($doExport) {
         'Total Hours', 'Regular Hours', 'OT 1.5x Hours', 'OT 2x Hours',
         'Regular Pay', 'OT 1.5x Pay', 'OT 2x Pay', 'Gross Pay', 'Status',
         'Period Start', 'Period End',
+        'Clocked Hours', 'Break Hours', 'Unpaid Break Hours (deducted)', 'Breaks Paid',
     ]);
 
     foreach ($rows as $r) {
@@ -151,6 +175,10 @@ if ($doExport) {
             $r['status'],
             $rangeStart,
             $rangeEnd,
+            OvertimeCalculator::minutesToHours($r['clocked']),
+            OvertimeCalculator::minutesToHours($r['break_min']),
+            OvertimeCalculator::minutesToHours($r['unpaid_min']),
+            $breaksPaid ? 'yes' : 'no',
         ]);
     }
 
@@ -164,6 +192,10 @@ if ($doExport) {
         '', '', '',
         number_format($grandTotalPay, 2),
         '', '', '',
+        '',
+        OvertimeCalculator::minutesToHours($grandTotalBreak),
+        OvertimeCalculator::minutesToHours($grandTotalUnpaid),
+        $breaksPaid ? 'yes' : 'no',
     ]);
 
     fclose($out);
@@ -211,6 +243,14 @@ $activePage = 'payroll';
     <div>
         <h1 class="h3 mb-1">Payroll Summary</h1>
         <p class="text-muted mb-0">BC overtime rules applied &bull; OT: &gt;8h/day = 1.5&times;, &gt;12h/day = 2&times;, &gt;40h/wk = 1.5&times;</p>
+        <p class="text-muted small mb-0">
+            <?php if ($breaksPaid): ?>
+                Breaks are <strong>paid</strong> &mdash; break time stays in paid hours.
+            <?php else: ?>
+                Breaks are <strong>unpaid</strong> &mdash; tapped break time is taken off each day before overtime is worked out.
+            <?php endif; ?>
+            <a href="/crm/timeclock/settings.php#breaks">Change</a>
+        </p>
     </div>
     <div class="d-flex" style="gap:8px;">
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
@@ -324,6 +364,7 @@ foreach ($rows as $r) {
             <th>Employee</th>
             <th>Rate</th>
             <th>Total Hours</th>
+            <th>Breaks</th>
             <th>Regular</th>
             <th>OT 1.5&times;</th>
             <th>OT 2&times;</th>
@@ -348,7 +389,22 @@ foreach ($rows as $r) {
         <td>
             <?php echo $rate > 0 ? OvertimeCalculator::formatPay($rate) . '/h' : '<span class="text-muted">—</span>'; ?>
         </td>
-        <td><?php echo OvertimeCalculator::minutesToHours($r['total_shift']); ?></td>
+        <td><?php echo OvertimeCalculator::minutesToHours($r['total_shift']); ?>
+            <?php if ($r['unpaid_min'] > 0): ?>
+                <div class="mw-payroll-emp-rate">of <?php echo OvertimeCalculator::minutesToHours($r['clocked']); ?> clocked</div>
+            <?php endif; ?>
+        </td>
+        <td>
+            <?php if ($r['break_min'] > 0): ?>
+                <?php echo OvertimeCalculator::minutesToHours($r['break_min']); ?>
+                <div class="mw-payroll-emp-rate">
+                    <?php echo $r['break_count']; ?> break<?php echo $r['break_count'] === 1 ? '' : 's'; ?>
+                    &bull; <?php echo $r['unpaid_min'] > 0 ? OvertimeCalculator::minutesToHours($r['unpaid_min']) . ' unpaid' : 'paid'; ?>
+                </div>
+            <?php else: ?>
+                <span class="text-muted">—</span>
+            <?php endif; ?>
+        </td>
         <td><?php echo OvertimeCalculator::minutesToHours($pay['regular_minutes']); ?></td>
         <td>
             <?php if ($pay['ot_1_5_minutes'] > 0): ?>
@@ -395,6 +451,7 @@ foreach ($rows as $r) {
     <tfoot>
         <tr>
             <td colspan="3"><strong>Totals</strong></td>
+            <td><strong><?php echo $grandTotalBreak > 0 ? OvertimeCalculator::minutesToHours($grandTotalBreak) : '—'; ?></strong></td>
             <td><strong><?php echo OvertimeCalculator::minutesToHours($grandTotalReg); ?></strong></td>
             <td><strong style="color:#e67e22;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt15); ?></strong></td>
             <td><strong style="color:#c0392b;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt20); ?></strong></td>

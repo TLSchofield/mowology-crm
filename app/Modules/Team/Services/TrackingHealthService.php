@@ -122,6 +122,28 @@ class TrackingHealthService
 
     private function clockedInTrackedRows(): array
     {
+        // A person on a tapped break has stopped sharing on purpose (BreakService, 2026-10-13): not
+        // quiet. After the break, silence counts from its end — clock_in_ts is "when sharing last
+        // (re)started", or the phone would read as silent for the whole break the moment it ended.
+        $breakSql = "
+            SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,
+                   IFNULL(u.device_type, 'personal') AS device_type,
+                   UNIX_TIMESTAMP(GREATEST(tce.clock_in, COALESCE((SELECT MAX(b.break_end) FROM time_clock_breaks b
+                     WHERE b.entry_id = tce.id AND b.source = 'manual'), tce.clock_in))) AS clock_in_ts,
+                   (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh
+                     WHERE clh.crew_id = u.id AND clh.timestamp >= tce.clock_in) AS last_fix_ts
+            FROM time_clock_entries tce
+            JOIN users u ON u.id = tce.user_id
+            WHERE tce.clock_out IS NULL AND tce.status = 'active'
+              AND u.is_active = 1 AND u.location_tracking_enabled = 1
+              AND NOT EXISTS (SELECT 1 FROM time_clock_breaks ob WHERE ob.entry_id = tce.id
+                              AND ob.source = 'manual' AND ob.break_end IS NULL)
+        ";
+        try {
+            return $this->db->query($breakSql)->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // Break table missing (migration 1318/1358) — never let that silence the sweep itself.
+        }
         $stmt = $this->db->query("
             SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,
                    IFNULL(u.device_type, 'personal') AS device_type,

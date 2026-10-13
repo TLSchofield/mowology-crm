@@ -52,7 +52,8 @@ try {
         $timer = getLiveJobTimer($userId);
         return TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $ingest->consentOk($userId),
-            (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null
+            (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null,
+            $ingest->onBreak($userId)
         );
     };
 

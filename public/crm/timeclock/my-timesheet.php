@@ -54,6 +54,13 @@ $stmt = $db->prepare("
 $stmt->execute([$user['id'], $weekStart, $weekEnd]);
 $allJobEntries = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Breaks per shift (tapped + GPS-found, counted once — BreakService) ─────────
+require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+$breakSvc      = new BreakService($db);
+$breaksPaid    = $breakSvc->breaksPaid();
+$breaksByEntry = [];
+try { $breaksByEntry = $breakSvc->forEntries($allClockEntries); } catch (Throwable $e) { error_log('[my-timesheet] breaks: ' . $e->getMessage()); }
+
 // ── Group data by date ────────────────────────────────────────────────────────
 $byDate           = [];  // date => ['clock' => [], 'orphan_jobs' => [], 'total_sec' => 0]
 $jobsByClock      = [];  // clock_entry_id => [job entries]
@@ -193,6 +200,11 @@ $extraHead  = '<link href="/crm/css/mw-timesheet.css?v=20261008a" rel="styleshee
         <?php endif; ?>
     </div>
 
+    <?php if ($isSelToday && $activeClockEntry): ?>
+    <!-- Start break / End break — filled in by time-clock-widget.js (MwTimeClock), people only -->
+    <div class="mw-break-panel" id="mwBreakPanel" hidden></div>
+    <?php endif; ?>
+
     <!-- Scheduled shift row -->
     <?php if ($todayShift): ?>
     <?php
@@ -242,6 +254,24 @@ $extraHead  = '<link href="/crm/css/mw-timesheet.css?v=20261008a" rel="styleshee
                     <?php echo ts2Dur($ceDurSec); ?>
                 </span>
             </div>
+
+            <?php $ceBreaks = $breaksByEntry[(int)$ce['id']]['breaks'] ?? []; ?>
+            <?php if (!empty($ceBreaks)): ?>
+            <div class="mw-break-list">
+                <?php foreach ($ceBreaks as $bk): ?>
+                <div class="mw-break-row">
+                    <span class="mw-break-row-label">Break<?php echo $bk['source'] === 'manual' ? '' : ' (found by GPS)'; ?></span>
+                    <span class="mw-break-row-times">
+                        <?php echo date('g:i a', $bk['start']); ?> → <?php echo $bk['open'] ? 'now' : date('g:i a', $bk['end']); ?>
+                    </span>
+                    <span class="mw-break-row-dur"><?php echo $bk['open'] ? '…' : ts2Dur((int)$bk['minutes'] * 60); ?></span>
+                </div>
+                <?php endforeach; ?>
+                <div class="mw-break-row mw-break-row--note">
+                    <?php echo $breaksPaid ? 'Breaks are paid.' : 'Breaks are unpaid — tapped break time comes off your paid hours.'; ?>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- Job entries under this clock entry -->
             <?php if (!empty($ceJobs)): ?>

@@ -23,7 +23,7 @@
 4. **Anything loaded on every crew page or shown at app root can stop the field workflow**
    (2026-10-08). New crew-page features ship behind an `ops_settings` flag, off by default.
 
-## Parity table (checked 2026-10-13)
+## Parity table (checked 2026-10-13, break button added)
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@
 | Charlie's brief lines from Otto | Team tab brief | dept-heads deck | `OpsDeskService::brief()` | — |
 | Clock in/out | native, offline `ClockQueue.swift` | `time-clock-widget.js` → `time-clock.php` | `TimeclockFunctions.php` | — |
 | GPS tracking | `GPSTrackingService.swift` (native) | native engine via `capacitor-bridge.js` | `TrackingIngestService` | consent screen not on both apps → consent switch OFF |
-| Break button | none | none | `BreakService` (GPS only) | both — needed before break flags go on |
+| Break button (Start break / End break, "Still on break?") | `BreakController` in `TimeClockViewModel.swift` + break card in `TimeClockView.swift`; queued in `ClockQueue`; local notification with End break / Still on break actions (`NotificationRouter`) | `time-clock-widget.js` (topbar Break button + `#mwBreakPanel` on My Timesheet); queued by `offline-queue.js` with `client_time`; Capacitor LocalNotifications actions (in-page prompt in a browser) | `BreakService::start()` / `BreakService::end()` via `time-clock.php` and `clock.php`; GPS paused by `TrackingIngestService::policy()` (`on_break`) | Home Base (`homebase.php`, standalone, prod ahead of repo) has no break button; the Android notification action only lands on a page that loads the widget |
 | Driver pre/post-trip | `DriverTripViews.swift` | web form | `trip-report.php` / web | — |
 | Snow route service choice | `VisitCompletionSheet.swift` | invoice sheet asks "What was done here?" | `SnowContractService` | — |
 | Special requests on arrival | `SpecialRequestStore.swift` | panel + gate | `SpecialRequestService`, `SpecialRequestGate` | flags OFF |

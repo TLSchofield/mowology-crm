@@ -11,6 +11,7 @@ declare(strict_types=1);
  * GET  ?mode=week&start=YYYY-MM-DD   — caller's own timesheet for that week
  * POST {action: 'clock_in',  lat?, lng?}
  * POST {action: 'clock_out', lat?, lng?, notes?}
+ * POST {action: 'break_start' | 'break_end', client_time?, queued?}  — the caller's break (BreakService)
  */
 
 if (!defined('APP_ROOT')) {
@@ -54,7 +55,7 @@ try {
     // A queued punch resent twice (two resends racing, a retry after a lost response) must
     // record once: the phone sends the same Idempotency-Key every time (ClockQueue item id).
     $idempKey = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
-    if ($idempKey !== '' && in_array($action, ['clock_in', 'clock_out'], true)) {
+    if ($idempKey !== '' && in_array($action, ['clock_in', 'clock_out', 'break_start', 'break_end'], true)) {
         $cached = idempotencyCheck($db, $idempKey, $userId);
         if ($cached !== null) { echo $cached; exit; }
     }
@@ -85,8 +86,17 @@ try {
             $entry     = getActiveClockEntry($userId);
             $activeJob = getActiveVisitTimer($userId);
 
+            // The break button (BreakService): allowed for people, paid or not, the running break.
+            $breakInfo = ['breaks' => null, 'on_break' => null];
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                $breakInfo = (new BreakService($db))->clientConfig($userId);
+            } catch (Throwable $e) {
+                error_log('[clock] break status: ' . $e->getMessage());
+            }
+
             if ($entry) {
-                echo json_encode([
+                echo json_encode($breakInfo + [
                     'success'         => true,
                     'clocked_in'      => true,
                     'entry_id'        => (int)$entry['id'],
@@ -102,12 +112,43 @@ try {
                     ] : null,
                 ]);
             } else {
-                echo json_encode([
+                echo json_encode($breakInfo + [
                     'success'    => true,
                     'clocked_in' => false,
                     'active_job' => null,
                 ]);
             }
+            break;
+
+        case 'break_start':
+        case 'break_end':
+            // Server first; a tap queued offline carries client_time (the tap) and `queued`.
+            require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+            $breaks = new BreakService($db);
+            if ($action === 'break_start' && !$breaks->buttonEnabled()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Breaks are not turned on.']);
+                break;
+            }
+            $ct = isset($input['client_time']) && is_string($input['client_time']) ? $input['client_time'] : null;
+            $r = $action === 'break_start' ? $breaks->start($userId, $ct) : $breaks->end($userId, $ct);
+            if (!$r['ok']) {
+                // A refusal (truck login, not clocked in) is a 4xx: the phone shows it, it never queues it.
+                http_response_code($r['status'] ?: 409);
+                echo json_encode(['success' => false, 'message' => $r['error']]);
+                break;
+            }
+            if (!$r['recorded'] && function_exists('logActivity')) logActivity($userId, null, $action . '_not_recorded', (string)$r['note']);
+            $open = $breaks->openBreak($userId);
+            $clockReply([
+                'success'    => true,
+                'clocked_in' => (bool)getActiveClockEntry($userId),
+                'recorded'   => $r['recorded'],
+                'on_break'   => $open ? BreakService::publicBreak($open) : null,
+                'minutes'    => $r['minutes'] ?? null,
+                'time_flag'  => $r['time_flag'],
+                'message'    => $r['recorded'] ? ($action === 'break_start' ? 'On break' : 'Break ended') : $r['note'],
+            ]);
             break;
 
         case 'clock_in':

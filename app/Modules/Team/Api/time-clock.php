@@ -3,6 +3,8 @@
  * Time Clock API — Clock In / Clock Out / Status
  * POST: {action: 'clock_in', lat?, lng?, user_id?}
  * POST: {action: 'clock_out', lat?, lng?, notes?, user_id?}
+ * POST: {action: 'break_start' | 'break_end', client_time?}  — the person's own break (BreakService);
+ *       client_time = when it was tapped (ISO 8601), so an offline-queued tap files at the right time
  * GET:  ?action=status
  *
  * Admin/Manager can pass user_id to clock in/out another user.
@@ -117,7 +119,7 @@ try {
     // succeeded under this key answers with the same response instead of running again — a replay
     // after a lost response must not clock out twice (Fable review 2026-10-12; same helper as job-timer).
     $idempKey = '';
-    if ($_SERVER['REQUEST_METHOD'] !== 'GET' && in_array($action, ['clock_in', 'clock_out'], true)) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET' && in_array($action, ['clock_in', 'clock_out', 'break_start', 'break_end'], true)) {
         $idempKey = trim((string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
         if ($idempKey !== '') {
             require_once APP_ROOT . '/Core/IdempotencyHelper.php';
@@ -159,6 +161,15 @@ try {
                 'gps_interval_heightened_ms' => $gpsIntervalHeightened,
                 'auto_arrival_enabled' => getTimeClockSetting('auto_arrival_enabled', '1') === '1',
             ];
+
+            // The break button: allowed for people (not the truck login), paid or not, and the
+            // running break if there is one (BreakService). Additive — never fails the status read.
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                $statusBase += (new BreakService($db))->clientConfig((int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('[time-clock] break status: ' . $e->getMessage());
+            }
 
             if ($entry) {
                 echo json_encode(array_merge($statusBase, [
@@ -352,6 +363,44 @@ try {
             ]);
             break;
 
+        case 'break_start':
+        case 'break_end':
+            // Always the caller's own break. The tap time travels as client_time (the widget sets it
+            // at the tap, so an offline-queued replay keeps it); OfflineTime decides whether to trust it.
+            require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+            $breaks = new BreakService($db);
+            $clientTime = isset($input['client_time']) && is_string($input['client_time']) ? $input['client_time'] : null;
+            if ($clientTime === null && !empty($_SERVER['HTTP_X_QUEUED_AT']) && ctype_digit((string)$_SERVER['HTTP_X_QUEUED_AT'])) {
+                $clientTime = date('c', intdiv((int)$_SERVER['HTTP_X_QUEUED_AT'], 1000));
+            }
+            if ($action === 'break_start' && !$breaks->buttonEnabled()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Breaks are not turned on.']);
+                break;
+            }
+            $r = $action === 'break_start'
+                ? $breaks->start((int)$user['id'], $clientTime)
+                : $breaks->end((int)$user['id'], $clientTime);
+            if (!$r['ok']) {
+                http_response_code($r['status'] ?: 409);
+                echo json_encode(['success' => false, 'error' => $r['error']]);
+                break;
+            }
+            if (!$r['recorded'] && function_exists('logActivity')) {
+                logActivity((int)$user['id'], null, $action . '_not_recorded', (string)$r['note']);
+            }
+            $open = $breaks->openBreak((int)$user['id']);
+            echo json_encode([
+                'success'   => true,
+                'recorded'  => $r['recorded'],
+                'already'   => $r['already'],
+                'on_break'  => $open ? BreakService::publicBreak($open) : null,
+                'minutes'   => $r['minutes'] ?? null,
+                'time_flag' => $r['time_flag'],
+                'message'   => $r['recorded'] ? ($action === 'break_start' ? 'On break' : 'Break ended') : $r['note'],
+            ]);
+            break;
+
         case 'admin_void':
             // Admin/manager only: force-complete an active clock entry for any user.
             if (!in_array($user['role'], ['admin', 'manager'])) {
@@ -389,6 +438,10 @@ try {
                 WHERE id = ?
             ")->execute([$user['id'], $voidReason, $voidEntry['id']]);
             TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$voidEntry['id']);
+            try {   // a break still running ends at the forced clock-out
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                (new BreakService($db))->afterClockOut($voidUserId, (int)$voidEntry['id']);
+            } catch (Throwable $e) { /* additive (migration 1358) */ }
             ensureTimesheetExists($voidUserId, date('Y-m-d', strtotime($voidEntry['clock_in'])));
             logActivity($user['id'], null, 'Admin void clock entry #' . $voidEntry['id'] . ' for user #' . $voidUserId, $voidReason);
             echo json_encode(['success' => true, 'message' => 'Clock entry voided']);
@@ -479,7 +532,7 @@ try {
 
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void, admin_add_entry']);
+            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, break_start, break_end, admin_void, admin_add_entry']);
     }
 
     if ($idempKey !== '') {

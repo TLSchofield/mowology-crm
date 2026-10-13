@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 require_once APP_ROOT . '/Modules/Team/Services/OvertimeCalculator.php';
+require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -70,6 +71,19 @@ if ($canEdit) {
 // Get job time entries for this week
 $jobEntries = getJobTimeEntriesForRange($ts['user_id'], $ts['week_start'], $ts['week_end']);
 
+// Breaks per shift (tapped + GPS-found, counted once). Unpaid breaks come off the day before the
+// overtime split; Mowology pays breaks (BreakService, 2026-10-13).
+$breakSvc     = new BreakService($db);
+$breaksPaid   = $breakSvc->breaksPaid();
+$breaksByEntry = [];
+try {
+    $breaksByEntry = $breakSvc->forEntries(array_values(array_filter($clockEntries, fn($ce) => ($ce['status'] ?? '') !== 'void')));
+} catch (Throwable $e) {
+    error_log('[timesheet-detail] breaks: ' . $e->getMessage());
+}
+$weekBreakMin  = 0;
+$weekUnpaidMin = 0;
+
 // Build 7-day skeleton (Mon–Sun)
 $days = [];
 $currentDate = new DateTime($ts['week_start']);
@@ -93,7 +107,11 @@ foreach ($clockEntries as $ce) {
         $days[$day]['clock_entries'][] = $ce;
         // Only count completed/edited entries in the OT calculation (matches recalculateTimesheetTotals)
         if (in_array($ce['status'] ?? '', ['completed', 'edited'])) {
-            $days[$day]['total_shift_min'] += (int)($ce['total_minutes'] ?? 0);
+            $unpaid = (int)($breaksByEntry[(int)$ce['id']]['unpaid_minutes'] ?? 0);
+            $days[$day]['total_shift_min'] += BreakService::paidMinutes((int)($ce['total_minutes'] ?? 0), $unpaid);
+            $days[$day]['break_min']   = ($days[$day]['break_min'] ?? 0) + (int)($breaksByEntry[(int)$ce['id']]['break_minutes'] ?? 0);
+            $weekBreakMin  += (int)($breaksByEntry[(int)$ce['id']]['break_minutes'] ?? 0);
+            $weekUnpaidMin += $unpaid;
         }
     }
 }
@@ -172,6 +190,12 @@ $activePage = 'timesheets';
         <div class="mw-schedule-stat" style="width:100%;">
             <div class="mw-schedule-stat-value"><?php echo formatMinutesAsHours((int)$ts['total_travel_minutes']); ?></div>
             <div class="mw-schedule-stat-label">Travel/Other</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+        <div class="mw-schedule-stat" style="width:100%;">
+            <div class="mw-schedule-stat-value"><?php echo $weekBreakMin > 0 ? formatMinutesAsHours($weekBreakMin) : '&mdash;'; ?></div>
+            <div class="mw-schedule-stat-label">Breaks &middot; <?php echo $breaksPaid ? 'paid' : ($weekUnpaidMin > 0 ? formatMinutesAsHours($weekUnpaidMin) . ' unpaid' : 'unpaid'); ?></div>
         </div>
     </div>
     <div class="col-6 col-md-3 mb-2">
@@ -297,6 +321,24 @@ $activePage = 'timesheets';
             </span>
             <?php endif; ?>
         </div>
+        <?php foreach (($isVoided ? [] : ($breaksByEntry[(int)$ce['id']]['breaks'] ?? [])) as $bk): ?>
+        <div class="mw-ts-entry mw-ts-entry--break">
+            <span class="mw-ts-entry-time">
+                <i data-feather="coffee" style="width:12px;height:12px;"></i>
+                <?php echo date('g:i A', $bk['start']); ?> &rarr; <?php echo $bk['open'] ? '<em>on break</em>' : date('g:i A', $bk['end']); ?>
+            </span>
+            <span class="mw-ts-entry-job">
+                Break &middot; <?php echo $bk['source'] === 'manual' ? 'tapped' : 'found by GPS' . (!empty($bk['place']) ? ' (' . htmlspecialchars((string)$bk['place']) . ')' : ''); ?>
+                <?php if (!$breaksPaid && $bk['source'] === 'manual'): ?><span class="text-muted small">(unpaid)</span><?php endif; ?>
+            </span>
+            <span class="mw-ts-entry-duration"><?php echo formatMinutesAsHours((int)$bk['minutes']); ?></span>
+        </div>
+        <?php endforeach; ?>
+        <?php if (!$isVoided && !empty($ce['break_note'])): ?>
+        <div class="mw-ts-entry mw-ts-entry--break-flag">
+            <span><i data-feather="alert-circle" style="width:12px;height:12px;"></i> BC meal break: <?php echo htmlspecialchars((string)$ce['break_note']); ?></span>
+        </div>
+        <?php endif; ?>
         <?php endforeach; ?>
     <?php endif; ?>
 

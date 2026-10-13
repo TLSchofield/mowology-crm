@@ -6,12 +6,14 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
 
 requireLogin();
 $user = getCurrentUser();
 requirePermission('settings.edit');
 
 $db = getDB();
+$breakSvcForm = new BreakService($db);
 
 // Handle form submission
 $saved = false;
@@ -59,6 +61,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$key, (string)$value, $user['id']]);
         }
 
+        // Breaks live in ops_settings (BreakService reads them there; migration 1318/1358).
+        $newPaid = !empty($_POST['breaks_paid']) ? '1' : '0';
+        $oldPaid = $breakSvcForm->breaksPaid() ? '1' : '0';
+        $opsStmt = $db->prepare("
+            INSERT INTO ops_settings (setting_key, setting_value, updated_by) VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)
+        ");
+        $opsStmt->execute(['breaks_paid', $newPaid, $user['id']]);
+        $opsStmt->execute(['break_reminder_minutes',
+            (string)BreakService::reminderMinutesFrom((string)($_POST['break_reminder_minutes'] ?? '60')), $user['id']]);
+        if ($newPaid !== $oldPaid && function_exists('logActivity')) {
+            // Changes pay for every shift not yet approved — leave a trail.
+            logActivity((int)$user['id'], null, 'Breaks setting changed', $newPaid === '1'
+                ? 'Breaks are now PAID (break time stays in paid hours)'
+                : 'Breaks are now UNPAID (tapped break time comes off paid hours)');
+        }
+
         $saved = true;
     }
 }
@@ -75,6 +94,10 @@ $requireGpsJob = getTimeClockSetting('require_gps_for_job_start', '1');
 $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
 $autoArrivalServiceTypesStr = getTimeClockSetting('auto_arrival_service_types', '');
 $autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArrivalServiceTypesStr)));
+
+// Breaks (ops_settings)
+$breaksPaid      = $breakSvcForm->breaksPaid();
+$breakReminder   = $breakSvcForm->reminderMinutes();
 
 // GPS interval settings
 $gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
@@ -243,6 +266,43 @@ $activePage = 'timeclock-settings';
                        value="<?php echo $autoClockOut; ?>">
                 <small class="text-muted">hours (1–24)</small>
             </div>
+        </div>
+    </div>
+
+    <!-- Breaks -->
+    <div class="mw-tcs-section" id="breaks">
+        <h3><i data-feather="coffee" style="width:16px;height:16px;"></i> Breaks</h3>
+        <p class="text-muted small">Crew tap <strong>Start break</strong> and <strong>End break</strong> on the Time Clock screen. Location sharing pauses during a break. Truck logins have no break button.</p>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Breaks are paid
+                <small>On: break time stays in paid hours. Off: tapped break minutes come off paid hours in payroll, timesheets and exports (before overtime is worked out).</small>
+            </div>
+            <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="breaksPaid" name="breaks_paid" value="1"
+                    <?php echo $breaksPaid ? 'checked' : ''; ?>>
+                <label class="custom-control-label" for="breaksPaid"></label>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                "Still on break?" reminder after
+                <small>The phone asks with End break / Still on break buttons</small>
+            </div>
+            <div>
+                <input type="number" name="break_reminder_minutes" class="form-control form-control-sm"
+                       style="width: 80px;" min="5" max="240" step="5"
+                       value="<?php echo (int)$breakReminder; ?>">
+                <small class="text-muted">minutes (5–240)</small>
+            </div>
+        </div>
+
+        <div class="alert alert-info small mt-2 mb-0" style="background: var(--mw-light); border-color: var(--mw-green);">
+            <strong>BC rule:</strong> nobody works more than 5 hours without a 30-minute meal break, and a meal break
+            must be <strong>paid</strong> if the worker has to stay available for work during it. Otto flags shifts over
+            5 hours with no 30-minute break.
         </div>
     </div>
 

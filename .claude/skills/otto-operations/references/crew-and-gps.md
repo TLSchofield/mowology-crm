@@ -40,18 +40,29 @@
 - Timer endpoints must load the plan functions or `updateVisitStatus()` is skipped silently —
   verify visit completion in the DB, not by the 200.
 
-## Breaks (`BreakService`, migration 1318; owner 2026-10-10)
+## Breaks (`BreakService`, migrations 1318 + 1358; owner 2026-10-10, button 2026-10-13)
+- **The button** (Tim, 2026-10-13): Start break / End break on the Time Clock screen (iPhone
+  `TimeClockView` break card; web/Android topbar widget + My Timesheet panel). A tapped break is a
+  `time_clock_breaks` row, source `manual`, `break_end` NULL while it runs. Location sharing pauses
+  (iPhone `GPSTrackingService.pauseForBreak()`, Android: the widget stops tracking → native
+  `stopSession`), and the server refuses fixes inside a tapped break (`classify()` → `on_break`,
+  policy reason `on_break`) and leaves the person out of the quiet-phone sweep. Clock-out during a
+  break ends it at the clock-out. "Still on break?" after `break_reminder_minutes` (60).
+  Kill switch: `ops_settings.break_button_enabled`.
+- Offline: server first; the tap is queued with its tap time (`client_time`, `OfflineTime::accept()`),
+  in the same queue as clock punches so the order holds.
+- A GPS break that overlaps a tapped one is dropped (the tap wins; nothing counted twice).
 - A break = a stop of 20+ min during a shift, more than 15 min from clock in/out, not at a client
   property and not at a work place (dump, supplier, yard, shop, fuel). Recorded automatically in
   `time_clock_breaks` (source `gps`) by `BreakService::run()` from the trip cron; re-running a
   day replaces its GPS rows.
-- Mowology pays breaks (`breaks_paid` = 1): records never change pay. Another tenant with unpaid
-  breaks would deduct them (onboarding question).
+- Mowology pays breaks (`breaks_paid` = 1): records never change pay. Unpaid (setting on the
+  Time Clock Settings page): tapped minutes come off each day before the BC overtime split, in
+  payroll, its CSV, timesheets and `timesheets.total_shift_minutes`. GPS breaks never cost pay.
 - BC rule: no more than 5 h without a 30-min meal break → `BreakService::complianceGap()` writes
   `time_clock_entries.break_note`. Shifts ≤ 5 h or ≥ 11.5 h are never flagged; truck login excluded.
-- Flags stay OFF on Otto's brief (`break_flags_enabled` = 0, default): GPS cannot see a lunch
-  eaten on the job site. First run flagged 19 of 24 shifts. Turn on only with a crew break button.
-  There is no break button in either app yet.
+- Flags are ON since the button (`break_flags_enabled` = 1, migration 1358): worked out at
+  clock-out (`BreakService::afterClockOut()`) and nightly from taps + GPS together.
 
 ## Trips (Decision-Log 2026-10-07)
 - `TripSegmentService` splits truck pings into stops (under 3 kph for 4+ min) and drives,

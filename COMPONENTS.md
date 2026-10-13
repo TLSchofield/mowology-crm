@@ -297,6 +297,14 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - Server rules live in `app/Modules/Driver/Services/TripReportService.php` (shared with the iOS app): `shiftState()` = `driving | not_driving | unasked`, bounded `performed_at`, idempotent replays.
 - Differs on purpose from `OfflineActions`, which is queue-and-forget for clock/timer POSTs.
 
+### Break button (MwTimeClock.startBreak / endBreak, #mwBreakPanel)
+**File:** `public/crm/js/time-clock-widget.js` (loaded on every AppStack page as `time-clock-widget.min.js` — regenerate the .min and bump its `?v=` in `appstack_footer.php`). Server: `BreakService` via `time-clock.php` `break_start` / `break_end`.
+- The topbar clock widget shows **Break** / **End break** for people (status `breaks.allowed`; never the truck login).
+- Put `<div class="mw-break-panel" id="mwBreakPanel" hidden></div>` on a crew page to get the big Start break / On break since 12:30 / End break card (My Timesheet has one).
+- `MwTimeClock.startBreak()`, `MwTimeClock.endBreak()`, `MwTimeClock.isOnBreak()`.
+- Pauses location sharing while on break; "Still on break?" via Capacitor LocalNotifications actions in the app, an in-page prompt in a browser. Taps carry `client_time`, so `OfflineActions` replays file at the tap time.
+- iPhone equivalent: `BreakController` (`ios/.../Features/TimeClock/TimeClockViewModel.swift`).
+
 ### triggerLabelCamera (product / machine label photo)
 - **File:** `public/crm/js/label-capture.js` — loaded by `expenses_appstack.php` (the **Label** chip in the mobile capture row).
 - **Purpose:** photo of a product bag or a machine nameplate → `/crm/api/label-products.php` (`mode=capture`). Same upload + OCR as a receipt, **never an expense**; Penny (product) or Otto (machine) proposes it on the dashboard. Shrinks to 2000 px, attaches location, answers with `mwToast`.

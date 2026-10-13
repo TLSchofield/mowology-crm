@@ -86,9 +86,11 @@ class TrackingIngestService
 
     /**
      * @param array<int, array{0:int, 1:?int}> $shifts [clockInTs, clockOutTs|null] — null = still open
-     * @return string 'ok' | 'bad_coords' | 'future' | 'too_old' | 'outside_shift'
+     * @param array<int, array{0:int, 1:?int}> $pauses tapped breaks [startTs, endTs|null] — location is
+     *        not collected on a break (2026-10-13), so a fix inside one is refused, not stored
+     * @return string 'ok' | 'bad_coords' | 'future' | 'too_old' | 'outside_shift' | 'on_break'
      */
-    public static function classify(array $point, int $nowTs, array $shifts): string
+    public static function classify(array $point, int $nowTs, array $shifts, array $pauses = []): string
     {
         if ($point['lat'] < -90 || $point['lat'] > 90 || $point['lng'] < -180 || $point['lng'] > 180
             || ($point['lat'] == 0.0 && $point['lng'] == 0.0)) {
@@ -103,6 +105,9 @@ class TrackingIngestService
         foreach ($shifts as [$in, $out]) {
             $end = $out ?? ($nowTs + self::MAX_FUTURE_SECONDS);
             if ($point['ts'] >= $in - self::SHIFT_GRACE_SECONDS && $point['ts'] <= $end + self::SHIFT_GRACE_SECONDS) {
+                foreach ($pauses as [$ps, $pe]) {
+                    if ($point['ts'] > $ps && ($pe === null || $point['ts'] < $pe)) return 'on_break';
+                }
                 return 'ok';
             }
         }
@@ -130,19 +135,21 @@ class TrackingIngestService
      * client told tracking_allowed=false must stop capturing, which is how an
      * auto clock-out or an admin edit finally reaches a phone in someone's pocket.
      */
-    public static function policy(bool $userActive, bool $trackingEnabled, bool $consentOk, bool $clockedIn, ?int $activeVisitId): array
+    public static function policy(bool $userActive, bool $trackingEnabled, bool $consentOk, bool $clockedIn, ?int $activeVisitId, bool $onBreak = false): array
     {
         $reason = null;
         if (!$userActive)          { $reason = 'account_inactive'; }
         elseif (!$trackingEnabled) { $reason = 'tracking_disabled'; }
         elseif (!$consentOk)       { $reason = 'consent_required'; }
         elseif (!$clockedIn)       { $reason = 'not_clocked_in'; }
+        elseif ($onBreak)          { $reason = 'on_break'; }   // the break button pauses sharing (2026-10-13)
 
         $allowed = $reason === null;
         return [
             'tracking_allowed' => $allowed,
             'reason'           => $reason,
             'clocked_in'       => $clockedIn,
+            'on_break'         => $clockedIn && $onBreak,
             // Enhanced = on a job. Dense, high-accuracy fixes are the proof-of-presence
             // record (salting / snow liability), so this must never back off when stationary.
             'tier'             => !$allowed ? 'off' : ($activeVisitId ? 'enhanced' : 'baseline'),
@@ -182,6 +189,46 @@ class TrackingIngestService
     }
 
     /**
+     * Tapped breaks overlapping the replay horizon, as [startTs, endTs|null]. GPS-found breaks are
+     * not pauses — they are read FROM the fixes. Missing table (migration 1318) → none.
+     */
+    public function pauses(int $userId, int $nowTs): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT UNIX_TIMESTAMP(break_start) AS t_s, UNIX_TIMESTAMP(break_end) AS t_e
+                FROM time_clock_breaks
+                WHERE user_id = ? AND source = 'manual'
+                  AND (break_end IS NULL OR break_end >= FROM_UNIXTIME(?))
+            ");
+            $stmt->execute([$userId, $nowTs - self::MAX_AGE_SECONDS - 86400]);
+            $out = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[] = [(int)$r['t_s'], $r['t_e'] !== null ? (int)$r['t_e'] : null];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** On a tapped break right now (on an open shift) — the policy tells the phone to stop sharing. */
+    public function onBreak(int $userId): bool
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 1 FROM time_clock_breaks b
+                JOIN time_clock_entries e ON e.id = b.entry_id AND e.clock_out IS NULL AND e.status = 'active'
+                WHERE b.user_id = ? AND b.source = 'manual' AND b.break_end IS NULL LIMIT 1
+            ");
+            $stmt->execute([$userId]);
+            return (bool)$stmt->fetchColumn();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Consent is only enforced once an admin turns it on (time_clock_settings
      * tracking_consent_required = 1) — flipping it before the apps ship their
      * consent screen would silently stop all tracking.
@@ -208,12 +255,13 @@ class TrackingIngestService
     public function ingest(int $userId, array $points, int $nowTs, callable $mayStampVisit, callable $isOffice): array
     {
         $shifts   = $this->shifts($userId, $nowTs);
+        $pauses   = $this->pauses($userId, $nowTs);
         $accepted = [];
         $rejected = [];
         $ok       = [];
 
         foreach ($points as $p) {
-            $verdict = self::classify($p, $nowTs, $shifts);
+            $verdict = self::classify($p, $nowTs, $shifts, $pauses);
             if ($verdict === 'ok') {
                 $ok[] = $p;
                 continue;
@@ -426,7 +474,7 @@ class TrackingIngestService
      *
      * @param array<int, array{0:int, 1:?int}> $shifts as shifts()
      */
-    public static function withoutLocationUnlessAllowed(array $events, bool $mayCollect, array $shifts, int $nowTs): array
+    public static function withoutLocationUnlessAllowed(array $events, bool $mayCollect, array $shifts, int $nowTs, array $pauses = []): array
     {
         foreach ($events as &$e) {
             $onShift = false;
@@ -437,6 +485,10 @@ class TrackingIngestService
                         $onShift = true;
                         break;
                     }
+                }
+                // No location on a tapped break, the same rule as fixes (classify).
+                foreach ($pauses as [$ps, $pe]) {
+                    if ($e['ts'] > $ps && ($pe === null || $e['ts'] < $pe)) { $onShift = false; break; }
                 }
             }
             if (!$onShift) {
@@ -464,7 +516,8 @@ class TrackingIngestService
             return ['stored' => 0, 'done' => array_column($events, 'id')];
         }
         $nowTs  = time();
-        $events = self::withoutLocationUnlessAllowed($events, $mayCollect, $mayCollect ? $this->shifts($userId, $nowTs) : [], $nowTs);
+        $events = self::withoutLocationUnlessAllowed($events, $mayCollect, $mayCollect ? $this->shifts($userId, $nowTs) : [], $nowTs,
+            $mayCollect ? $this->pauses($userId, $nowTs) : []);
         try {
             $dup = $this->db->prepare("
                 SELECT 1 FROM compliance_events

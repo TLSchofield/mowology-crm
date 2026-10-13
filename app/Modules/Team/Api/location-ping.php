@@ -119,7 +119,8 @@ try {
         'rejected' => $result['rejected'],
         'policy'   => TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $consentOk,
-            (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null
+            (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null,
+            $ingest->onBreak($userId)
         ),
     ]);
 

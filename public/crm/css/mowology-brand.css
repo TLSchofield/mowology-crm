@@ -39992,6 +39992,62 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
   .mw-ledger-actions .btn, .mw-ledger-form .btn { min-height: 44px; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   Crew breaks — Start break / End break (time-clock-widget.js, 2026-10-13)
+   ══════════════════════════════════════════════════════════════════════ */
+.mw-clock-break-btn { background: var(--mw-ink-0); color: var(--mw-dark); border: 1px solid var(--mw-green); padding: 4px 10px; }
+.mw-clock-break-btn:hover { background: var(--mw-light); }
+.mw-clock-break-btn--on { background: var(--mw-orange); border-color: var(--mw-orange); color: var(--mw-ink-0); }
+.mw-clock-break-btn--on:hover { background: var(--mw-orange); filter: brightness(0.95); }
+@media (max-width: 420px) {
+  .mw-clock-break-btn:not(.mw-clock-break-btn--on) .mw-clock-label { display: none; }
+}
+
+.mw-break-panel {
+  margin: 0 0 var(--mw-space-3);
+  padding: var(--mw-space-3);
+  border: 1px solid var(--mw-ink-200);
+  border-radius: var(--mw-radius-lg);
+  background: var(--mw-ink-0);
+  text-align: center;
+}
+.mw-break-panel[hidden] { display: none; }
+.mw-break-panel-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 48px; padding: 10px 16px;
+  border: none; border-radius: var(--mw-radius-md);
+  background: var(--mw-green); color: var(--mw-ink-0);
+  font-size: 1rem; font-weight: var(--mw-weight-semibold); cursor: pointer;
+}
+.mw-break-panel-btn svg { width: 18px; height: 18px; }
+.mw-break-panel-btn--end { background: var(--mw-orange); }
+.mw-break-panel-status { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 1.05rem; margin-bottom: 4px; }
+.mw-break-panel-status--on { color: var(--mw-orange); }
+.mw-break-panel-status svg { width: 20px; height: 20px; }
+.mw-break-panel-sub { font-size: 0.85rem; color: var(--mw-ink-500); margin-bottom: 10px; }
+.mw-break-panel-note { font-size: 0.78rem; color: var(--mw-ink-500); margin-top: 8px; }
+
+.mw-break-list { margin: 4px 0 6px; padding: 6px 10px; border-left: 3px solid var(--mw-orange); background: var(--mw-ink-50); border-radius: 6px; }
+.mw-break-row { display: flex; align-items: baseline; gap: 8px; font-size: 0.85rem; padding: 2px 0; }
+.mw-break-row-label { font-weight: var(--mw-weight-semibold); color: var(--mw-ink-900); }
+.mw-break-row-times { color: var(--mw-ink-500); flex: 1; }
+.mw-break-row-dur { font-variant-numeric: tabular-nums; }
+.mw-break-row--note { font-size: 0.75rem; color: var(--mw-ink-500); }
+
+.mw-break-prompt {
+  position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); z-index: 9000;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 12px 14px; border-radius: var(--mw-radius-lg);
+  background: var(--mw-forest); color: var(--mw-ink-0); box-shadow: var(--mw-shadow-lg);
+}
+.mw-break-prompt span { flex: 1 1 100%; font-weight: var(--mw-weight-semibold); }
+.mw-break-prompt button { flex: 1; min-height: 44px; border: none; border-radius: 10px; font-weight: var(--mw-weight-semibold); cursor: pointer; }
+.mw-break-prompt-end { background: var(--mw-orange); color: var(--mw-ink-0); }
+.mw-break-prompt-still { background: var(--mw-light); color: var(--mw-forest); }
+
+.mw-ts-entry--break { color: var(--mw-ink-500); font-size: 0.85rem; padding-left: 28px; }
+.mw-ts-entry--break-flag { color: var(--mw-orange); font-size: 0.82rem; padding-left: 28px; }
+
 /* Ledger step 2 (2026-10-13): comparative trial balance, general ledger, exports. Same direction as above —
    a working ledger: dense rows, sticky headings, tabular right-aligned numbers, the adjusted column the
    one quiet emphasis (it is the figure that ties to everything else). */

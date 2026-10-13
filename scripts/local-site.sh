@@ -24,7 +24,7 @@ DB_PORT="${LOCAL_DB_PORT:-3307}"
 DB_NAME="mowology_local"
 DB_USER="mowology_local"
 BACKUP_DIR="${MOWOLOGY_BACKUP_DIR:-$HOME/Backups/mowology}"
-LOCAL_MIGRATIONS=(1331 1350 1355)   # repo migrations newer than the production schema snapshot
+LOCAL_MIGRATIONS=(1331 1350 1355 1358)   # repo migrations newer than the production schema snapshot
 
 DATADIR="$STATE/mysql-data"
 SOCK="$STATE/mysql.sock"

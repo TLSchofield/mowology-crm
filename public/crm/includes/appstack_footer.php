@@ -122,7 +122,7 @@
        Styles in mowology-brand.css (.mw-datepicker-*). -->
   <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
   <?php if (empty($mwLedgerOnly)): /* the accountant's login never loads the clock / trip log / GPS bridge */ ?>
-  <script src="/crm/js/time-clock-widget.min.js?v=20261012csrf"></script>
+  <script src="/crm/js/time-clock-widget.min.js?v=20261013break"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20261007p"></script>
   <?php endif; ?>

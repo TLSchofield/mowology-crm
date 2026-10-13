@@ -2,6 +2,15 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-10-13 — The break button: a paused phone is not a quiet phone
+A break stops the phone sending fixes on purpose. Without care that reads as a dead phone (the
+quiet-phone sweep, Otto's "silent" card, iPhone's 8-minute "GPS paused" nudge) and, right after
+End break, as "silent for the whole break". **Rules:** `TrackingHealthService` leaves out anyone on
+an open tapped break and counts silence from the last break end; the iPhone clears
+`kShiftActive` while paused (no nudge) and `kOnBreak` survives relaunch so nothing restarts
+capture mid-break. Pay: a GPS-found break never comes off pay — only a tapped one, and only when
+`breaks_paid` = 0. `homebase.php` has no break button (standalone, prod ahead of repo).
+
 ## 2026-10-13 — The rollover cron skipped contract visits silently, and runs at 8 pm, not 11
 `auto_rollover.php` skipped any past-due recurring visit once `rollover_count` ≥ `max_rollover_days`
 (3), when the next day already had a visit, or when the plan had ended — with no contract check.

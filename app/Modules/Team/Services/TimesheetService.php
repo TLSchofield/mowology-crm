@@ -34,16 +34,22 @@ class TimesheetService
      * @param array  $clockEntries rows of time_clock_entries (clock_in, clock_out, status, notes)
      * @param array  $jobEntries   rows from getJobTimeEntriesForRange()
      * @param string $weekStart    Monday, Y-m-d
+     * @param array  $breaksByEntry entry id → BreakService::forEntries() summary (breaks counted once)
+     * @param bool   $breaksPaid    false → tapped break time comes off paid_seconds
      */
-    public static function buildWeek(array $clockEntries, array $jobEntries, string $weekStart, int $now): array
+    public static function buildWeek(array $clockEntries, array $jobEntries, string $weekStart, int $now,
+                                     array $breaksByEntry = [], bool $breaksPaid = true): array
     {
         $days = [];
         for ($i = 0; $i < 7; $i++) {
             $d = date('Y-m-d', strtotime("{$weekStart} +{$i} days"));
-            $days[$d] = ['date' => $d, 'total_seconds' => 0, 'job_seconds' => 0, 'entries' => [], 'jobs' => []];
+            $days[$d] = ['date' => $d, 'total_seconds' => 0, 'job_seconds' => 0, 'break_seconds' => 0, 'paid_seconds' => 0,
+                         'entries' => [], 'jobs' => []];
         }
 
         $weekTotal = 0;
+        $weekBreak = 0;
+        $weekPaid  = 0;
         foreach ($clockEntries as $e) {
             $d = date('Y-m-d', strtotime($e['clock_in']));
             if (!isset($days[$d])) {
@@ -51,6 +57,9 @@ class TimesheetService
             }
             $end     = !empty($e['clock_out']) ? strtotime($e['clock_out']) : $now;
             $seconds = max(0, $end - strtotime($e['clock_in']));
+            $sum     = $breaksByEntry[(int)$e['id']] ?? ['breaks' => [], 'break_minutes' => 0, 'unpaid_minutes' => 0];
+            $breakSeconds = (int)$sum['break_minutes'] * 60;
+            $paidSeconds  = max(0, $seconds - ($breaksPaid ? 0 : (int)$sum['unpaid_minutes'] * 60));
 
             $days[$d]['entries'][] = [
                 'id'               => (int)$e['id'],
@@ -60,9 +69,21 @@ class TimesheetService
                 'is_open'          => empty($e['clock_out']),
                 'edited'           => ($e['status'] ?? '') === 'edited',
                 'notes'            => ($e['notes'] ?? '') !== '' ? $e['notes'] : null,
+                'break_seconds'    => $breakSeconds,
+                'paid_seconds'     => $paidSeconds,
+                'breaks'           => array_map(static fn (array $b): array => [
+                    'start'   => date('Y-m-d H:i:s', (int)$b['start']),
+                    'end'     => $b['open'] ? null : date('Y-m-d H:i:s', (int)$b['end']),
+                    'minutes' => (int)$b['minutes'],
+                    'source'  => (string)$b['source'],
+                ], $sum['breaks']),
             ];
             $days[$d]['total_seconds'] += $seconds;
+            $days[$d]['break_seconds'] += $breakSeconds;
+            $days[$d]['paid_seconds']  += $paidSeconds;
             $weekTotal                 += $seconds;
+            $weekBreak                 += $breakSeconds;
+            $weekPaid                  += $paidSeconds;
         }
 
         $jobTotal = 0;
@@ -93,6 +114,9 @@ class TimesheetService
             'week_end'          => date('Y-m-d', strtotime("{$weekStart} +6 days")),
             'total_seconds'     => $weekTotal,
             'job_total_seconds' => $jobTotal,
+            'break_seconds'     => $weekBreak,
+            'paid_seconds'      => $weekPaid,
+            'breaks_paid'       => $breaksPaid,
             'days'              => array_values($days),
         ];
     }
@@ -104,12 +128,26 @@ class TimesheetService
     {
         $weekStart = self::weekStartFor($date);
         $weekEnd   = date('Y-m-d', strtotime("{$weekStart} +6 days"));
+        $clock     = getClockEntriesForRange($userId, $weekStart, $weekEnd);
+
+        $breaks = [];
+        $paid   = true;
+        try {
+            require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+            $svc    = new BreakService(getDB());
+            $paid   = $svc->breaksPaid();
+            $breaks = $svc->forEntries($clock);
+        } catch (Throwable $e) {
+            error_log('[TimesheetService] breaks: ' . $e->getMessage());
+        }
 
         return self::buildWeek(
-            getClockEntriesForRange($userId, $weekStart, $weekEnd),
+            $clock,
             getJobTimeEntriesForRange($userId, $weekStart, $weekEnd),
             $weekStart,
-            time()
+            time(),
+            $breaks,
+            $paid
         );
     }
 }

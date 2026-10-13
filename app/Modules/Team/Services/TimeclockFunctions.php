@@ -141,6 +141,12 @@ function resolveStaleClockEntry(int $userId): bool {
         WHERE id = ?
     ")->execute([$autoHours, $autoHours, $entry['id']]);
 
+    // A break still running on the shift ends at its (auto) clock-out.
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        (new BreakService($db))->closeOrphans($userId);
+    } catch (Throwable $e) { /* additive (migration 1358) */ }
+
     ensureTimesheetExists($userId, $clockInDate);
 
     // Close any open trip reports for that date so the driver is not gated
@@ -202,6 +208,15 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) 
     // TIMESTAMPDIFF counts wall-clock minutes; a shift across a DST change is corrected here.
     require_once __DIR__ . '/TimeEntryGuard.php';
     TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$entry['id']);
+
+    // Clocking out during a break ends the break first (at the clock-out), then the shift's BC
+    // meal-break flag is worked out (BreakService, 2026-10-13). Never blocks the clock-out.
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        (new BreakService($db))->afterClockOut((int)$userId, (int)$entry['id']);
+    } catch (Throwable $e) {
+        error_log('[clockOut] breaks: ' . $e->getMessage());
+    }
 
     // Get the calculated total
     $result = $db->prepare("SELECT total_minutes FROM time_clock_entries WHERE id = ?");
@@ -621,6 +636,18 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     ");
     $stmt->execute([$userId, $weekStart, $weekEnd]);
     $shiftMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+    // Unpaid breaks (setting breaks_paid = 0) come off the week's paid shift time. Mowology pays
+    // breaks, so nothing changes there (BreakService::unpaidMinutes()).
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        $brk = new BreakService($db);
+        if (!$brk->breaksPaid()) {
+            $shiftMinutes = BreakService::paidMinutes($shiftMinutes, $brk->periodForUser((int)$userId, $weekStart, $weekEnd)['unpaid_minutes']);
+        }
+    } catch (Throwable $e) {
+        error_log('[timesheets] break deduction skipped: ' . $e->getMessage());
+    }
 
     // Total job minutes from job time entries
     $stmt = $db->prepare("
