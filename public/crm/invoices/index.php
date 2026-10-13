@@ -342,7 +342,7 @@ $activePage = 'invoices';
                                 <div class="mw-et-card-title"><i data-feather="mail"></i> Interac email <i data-feather="check" class="mw-et-tick"></i></div>
                                 <div class="mw-et-card-main"><?php echo htmlspecialchars($etD($et['email_date'] ?? null, 'M j, g:i a')); ?></div>
                                 <div class="mw-et-card-sub"><?php echo !empty($et['memo']) ? '“' . htmlspecialchars($et['memo']) . '”' : 'No memo'; ?></div>
-                                <div class="mw-et-card-sub">To <?php echo htmlspecialchars((string)($et['mailbox'] ?? '')); ?><?php
+                                <div class="mw-et-card-sub">To <?php $mb = (string)($et['mailbox'] ?? ''); echo htmlspecialchars($mb === 'icloud' ? 'your iCloud inbox' : $mb); ?><?php
                                     echo $type === 'autodeposit' ? ' · auto-deposited' : ($type === 'claim' ? ' · had to be claimed' : ''); ?></div>
                                 <?php if ($type === 'claim'): ?>
                                     <?php if (!empty($et['nudged_at'])): ?>
