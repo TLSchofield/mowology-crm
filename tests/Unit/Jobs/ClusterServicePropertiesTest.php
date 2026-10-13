@@ -14,10 +14,10 @@ final class ClusterServicePropertiesTest extends TestCase
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->sqliteCreateFunction('CONCAT', static fn (...$a) => implode('', array_map('strval', $a)), -1);
-        $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, site_contact_id INTEGER, is_active INTEGER)');
+        $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, site_contact_id INTEGER, status TEXT)');
         $db->exec('CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)');
         $db->exec("INSERT INTO contacts VALUES (1, 'Ann', 'Lee')");
-        $db->exec("INSERT INTO properties VALUES (10, '12 Oak St', 'Vancouver', 1, 1), (11, '9 Elm Rd', 'Burnaby', NULL, 1), (12, '1 Gone Ave', 'Vancouver', 1, 0)");
+        $db->exec("INSERT INTO properties VALUES (10, '12 Oak St', 'Vancouver', 1, 'active'), (11, '9 Elm Rd', 'Burnaby', NULL, 'active'), (12, '1 Gone Ave', 'Vancouver', 1, 'archived')");
 
         $rows = (new ClusterService($db))->listActiveProperties();
 

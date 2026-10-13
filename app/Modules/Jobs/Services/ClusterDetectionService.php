@@ -71,7 +71,7 @@ class ClusterDetectionService
     {
         $stmt = $this->db->prepare(
             'SELECT id, latitude, longitude FROM properties
-             WHERE is_active = 1 AND latitude IS NOT NULL AND longitude IS NOT NULL
+             WHERE status = \'active\' AND latitude IS NOT NULL AND longitude IS NOT NULL
                AND id != ?'
         );
         $stmt->execute([$propertyId]);
@@ -115,7 +115,7 @@ class ClusterDetectionService
              FROM properties p
              LEFT JOIN contacts c ON c.id = p.site_contact_id
              LEFT JOIN geocoding_cache gc ON gc.address = CONCAT(p.address, \', \', p.city)
-             WHERE p.is_active = 1
+             WHERE p.status = \'active\'
                AND (p.latitude IS NOT NULL OR gc.latitude IS NOT NULL)'
         );
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);

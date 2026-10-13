@@ -25,7 +25,8 @@ class ClusterService
     }
 
     /**
-     * Active properties for the cluster picker: id, address, city, contact_name — sorted by city then
+     * Active properties (properties.status = 'active' — there is no is_active column on production)
+     * for the cluster picker: id, address, city, contact_name — sorted by city then
      * address. The Route Clusters page fetched a /api/properties.php that never existed (2026-10-12).
      */
     public function listActiveProperties(): array
@@ -35,7 +36,7 @@ class ClusterService
                     TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))) AS contact_name
              FROM properties p
              LEFT JOIN contacts c ON c.id = p.site_contact_id
-             WHERE p.is_active = 1
+             WHERE p.status = 'active'
              ORDER BY p.city, p.address"
         )->fetchAll(\PDO::FETCH_ASSOC);
         return array_map(static function (array $r): array {
