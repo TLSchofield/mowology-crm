@@ -63,6 +63,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Making, removing and ordering website pairs is a manager's call too (Fable review 2026-10-12).
+    if (in_array($action, ['save_pair', 'delete_pair', 'reorder'], true) && !userHasPermission('portfolio.edit')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Only a manager can change website photos']);
+        exit;
+    }
+
     switch ($action) {
         case 'save_pair':
             $before_id = (int)($_POST['before_id'] ?? 0);
@@ -74,6 +81,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$before_id || !$after_id) {
                 echo json_encode(['success' => false, 'error' => 'Both images required']);
+                exit;
+            }
+            require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+            $baCheck = new BeforeAfterService($db);
+            if (!$baCheck->isImageMedia($before_id) || !$baCheck->isImageMedia($after_id)) {
+                echo json_encode(['success' => false, 'error' => 'Both before and after must be photos']);
                 exit;
             }
 

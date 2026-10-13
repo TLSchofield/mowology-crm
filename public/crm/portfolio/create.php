@@ -363,6 +363,7 @@ function uploadImage(input, fieldName) {
 
     const formData = new FormData();
     formData.append('image', input.files[0]);
+    formData.append('csrf_token', window.MW_CSRF_TOKEN || '');
 
     const preview = document.getElementById(fieldName + 'Preview');
     preview.innerHTML += '<small style="display:block; margin-top:5px; color:#666;">Uploading...</small>';
@@ -410,6 +411,7 @@ function deleteImage(imageField, projectId, button) {
     const formData = new FormData();
     formData.append('project_id', projectId);
     formData.append('image_field', imageField);
+    formData.append('csrf_token', window.MW_CSRF_TOKEN || '');
 
     button.disabled = true;
     button.innerHTML = '<i data-feather="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> Deleting...';
@@ -469,6 +471,7 @@ function previewGalleryImages(input) {
 function uploadGalleryImage(file, previewElement) {
     const formData = new FormData();
     formData.append('image', file);
+    formData.append('csrf_token', window.MW_CSRF_TOKEN || '');
 
     fetch('upload-gallery-image.php', {
         method: 'POST',

@@ -184,7 +184,16 @@ $activePage = 'portfolio';
 <script>
 function deleteProject(projectId) {
     if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-        window.location.href = 'delete.php?id=' + projectId;
+        var f = document.createElement('form');
+        f.method = 'POST';
+        f.action = 'delete.php';
+        [['id', projectId], ['csrf_token', window.MW_CSRF_TOKEN || '']].forEach(function (kv) {
+            var i = document.createElement('input');
+            i.type = 'hidden'; i.name = kv[0]; i.value = kv[1];
+            f.appendChild(i);
+        });
+        document.body.appendChild(f);
+        f.submit();
     }
 }
 </script>

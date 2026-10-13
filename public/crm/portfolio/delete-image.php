@@ -22,6 +22,20 @@ function json_response($success, $message = '', $data = []) {
     exit;
 }
 
+// Changing the portfolio is a manager's call: portfolio.edit + POST + CSRF (Fable review 2026-10-12).
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    json_response(false, 'Method not allowed');
+}
+if (!userHasPermission('portfolio.edit')) {
+    http_response_code(403);
+    json_response(false, 'You do not have permission to change the portfolio');
+}
+if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')))) {
+    http_response_code(403);
+    json_response(false, 'Invalid CSRF token');
+}
+
 // Verify required fields
 $projectId = intval($_POST['project_id'] ?? 0);
 $imageField = $_POST['image_field'] ?? '';

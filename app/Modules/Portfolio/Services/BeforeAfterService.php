@@ -454,6 +454,24 @@ class BeforeAfterService
         $this->reject($pairId, $userId, $reason);
     }
 
+    /**
+     * Is this media asset a photo? A hand-made pair goes on the public website, so it may
+     * only point at images — never a PDF or other document in the media library
+     * (Fable review 2026-10-12). Two early mobile uploads have no mime type but are images.
+     */
+    public function isImageMedia(int $mediaId): bool
+    {
+        if ($mediaId <= 0) return false;
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) FROM media_assets
+             WHERE id = ?
+               AND file_type = 'image'
+               AND (mime_type IS NULL OR mime_type LIKE 'image/%')
+        ");
+        $stmt->execute([$mediaId]);
+        return (int)$stmt->fetchColumn() > 0;
+    }
+
     // ── Public ────────────────────────────────────────────────────────────────
 
     /** Approved pairs, public fields only, newest approvals first within manual order. */
