@@ -43,8 +43,9 @@ if ($expiry < time()) {
     exit('Link expired');
 }
 
-$expected = hash_hmac('sha256', $mediaId . '.' . $expiry, jwtSecret());
-if (!hash_equals($expected, $sig)) {
+require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptImageLinks.php';
+// Derived sub-key + 15-minute ceiling (Fable audit 2026-10-12).
+if (!ReceiptImageLinks::verify($mediaId, $expiry, $sig, ReceiptImageLinks::key(jwtSecret()), time())) {
     http_response_code(403);
     exit('Invalid signature');
 }

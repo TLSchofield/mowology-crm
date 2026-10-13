@@ -106,6 +106,14 @@ try {
                 throw new Exception('visit_id is required');
             }
 
+            // Crew on the visit or office (#15, Fable audit 2026-10-12) — checked here, before the gates,
+            // idempotency replay and auto clock-in, not only deep inside startJobTimer().
+            if (!userMayActOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
+                exit;
+            }
+
             // Return cached response if this key was already processed.
             if ($idempKey) {
                 $db = getDB();

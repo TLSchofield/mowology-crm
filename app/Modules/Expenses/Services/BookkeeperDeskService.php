@@ -379,7 +379,7 @@ class BookkeeperDeskService
         if (!function_exists('signReceiptUrl')) {
             require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
         }
-        return signReceiptUrl($mediaId, 3600);
+        return signReceiptUrl($mediaId, 900);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

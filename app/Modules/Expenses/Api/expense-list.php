@@ -110,10 +110,11 @@ try {
     // hand the app a short-lived HMAC-signed URL to the public receipt-image endpoint,
     // which validates the signature and streams the bytes (archival-aware). Signed with
     // BLUEMOON_JWT_SECRET via jwtSecret(); the receipt-image endpoint re-derives it.
-    $urlExpiry = time() + 21600; // 6 hours — comfortably longer than a viewing session
+    $urlExpiry = time() + ReceiptImageLinks::TTL; // 15 min; the app re-fetches the list (Fable audit 2026-10-12)
+    $urlKey    = ReceiptImageLinks::key(jwtSecret());
     foreach ($rows as &$row) {
         if (!empty($row['receipt_media_id'])) {
-            $row['receipt_url'] = ReceiptImageLinks::appUrl((int)$row['receipt_media_id'], $urlExpiry, jwtSecret());
+            $row['receipt_url'] = ReceiptImageLinks::appUrl((int)$row['receipt_media_id'], $urlExpiry, $urlKey);
         } else {
             $row['receipt_url'] = null;
         }

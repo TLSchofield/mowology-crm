@@ -452,10 +452,18 @@ class QuoteService
 
     public static function formSecret(): string
     {
-        foreach (['QUOTE_FORM_SECRET', 'UNSUBSCRIBE_SECRET', 'BLUEMOON_JWT_SECRET'] as $c) {
-            if (defined($c) && strlen((string)constant($c)) >= 32) return (string)constant($c);
+        if (defined('QUOTE_FORM_SECRET') && strlen((string)QUOTE_FORM_SECRET) >= 32) return (string)QUOTE_FORM_SECRET;
+        // A fallback secret is never used raw: derive a quote-accept sub-key so this nonce shares no key
+        // with unsubscribe links or JWTs (Fable audit 2026-10-12).
+        foreach (['UNSUBSCRIBE_SECRET', 'BLUEMOON_JWT_SECRET'] as $c) {
+            if (defined($c) && strlen((string)constant($c)) >= 32) return self::derivedFormSecret((string)constant($c));
         }
         return '';
+    }
+
+    public static function derivedFormSecret(string $master): string
+    {
+        return hash_hmac('sha256', 'quote-accept-nonce', $master);
     }
 
     /** The quote-ready text: no link, check your email, the office phone (CLAUDE.md rule 11). */

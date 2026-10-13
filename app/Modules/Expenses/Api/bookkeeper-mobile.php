@@ -95,7 +95,9 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     $jwtUser = requireJwt();
-    if (!jwtIsAdmin($jwtUser['role']) && !jwtUserHasPermission($jwtUser, 'expenses.approve')) {
+    // expenses.approve, as on the web bookkeeper — a manager role string alone no longer passes
+    // (#17, Fable audit 2026-10-12). Managers hold expenses.approve through their RBAC role.
+    if (!jwtUserHasPermission($jwtUser, 'expenses.approve')) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'Permission denied: expenses.approve required']);
         exit;
@@ -148,7 +150,7 @@ try {
             $pairs  = $dupSvc->pairsInLine(60);
             $queue  = $desk->queue((int)($_GET['limit'] ?? 15), DuplicateReceiptService::heldIds($pairs));
             [$queue, $dupes] = ReceiptImageLinks::resignDesk(
-                $queue, DuplicateReceiptService::groups($pairs), time() + 21600, jwtSecret()
+                $queue, DuplicateReceiptService::groups($pairs), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
             );
             $tagLabels = ['truck' => 'Truck', 'equipment' => 'Equipment', 'stock' => 'Shop stock'];
             $tags = [['value' => 'none', 'label' => 'None']];

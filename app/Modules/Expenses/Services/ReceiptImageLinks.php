@@ -16,6 +16,26 @@ class ReceiptImageLinks
 {
     public const APP_IMAGE_URL = 'https://mowology.ca/api/expenses/receipt-image';
 
+    /** Links are bearer URLs: 15 minutes, not 6 hours (Fable audit 2026-10-12). */
+    public const TTL = 900;
+
+    /**
+     * The signing key for receipt links, derived from the master secret so a receipt link can never be
+     * replayed as — or reveal anything about — a JWT or another signature (Fable audit 2026-10-12).
+     */
+    public static function key(string $masterSecret): string
+    {
+        return hash_hmac('sha256', 'receipt-image', $masterSecret);
+    }
+
+    /** Is a receipt-image link (m, e, s) valid now? $key is key(jwtSecret()). */
+    public static function verify(int $mediaId, int $expiry, string $sig, string $key, int $now): bool
+    {
+        if ($mediaId <= 0 || $expiry < $now || $sig === '' || $key === '') return false;
+        if ($expiry > $now + self::TTL + 60) return false;   // never honour a longer-lived link
+        return hash_equals(hash_hmac('sha256', $mediaId . '.' . $expiry, $key), $sig);
+    }
+
     /** The app's signed photo URL — the same format expense-list.php has always produced. */
     public static function appUrl(int $mediaId, int $expiry, string $secret): string
     {

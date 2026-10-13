@@ -29,10 +29,16 @@ require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
  * @param string $baseUrl    Optional absolute URL prefix (e.g. https://mowology.ca)
  * @return string Absolute or root-relative URL
  */
-function signReceiptUrl(int $mediaId, int $ttlSeconds = 3600, string $baseUrl = ''): string
+function receiptUrlKey(): string
 {
-    $exp = time() + max(60, $ttlSeconds);
-    $sig = hash_hmac('sha256', $mediaId . '|' . $exp, jwtSecret());
+    // Derived sub-key: these links never share a key with JWTs (Fable audit 2026-10-12).
+    return hash_hmac('sha256', 'receipt-image', jwtSecret());
+}
+
+function signReceiptUrl(int $mediaId, int $ttlSeconds = 900, string $baseUrl = ''): string
+{
+    $exp = time() + max(60, min(900, $ttlSeconds));   // 15 minutes at most
+    $sig = hash_hmac('sha256', $mediaId . '|' . $exp, receiptUrlKey());
     $path = '/crm/api/serve-receipt.php?id=' . $mediaId . '&exp=' . $exp . '&sig=' . $sig;
     return $baseUrl !== '' ? rtrim($baseUrl, '/') . $path : $path;
 }
@@ -47,6 +53,9 @@ function verifyReceiptUrlSignature(int $mediaId, int $exp, string $sig): bool
     if ($exp <= 0 || $exp < time()) {
         return false;
     }
-    $expected = hash_hmac('sha256', $mediaId . '|' . $exp, jwtSecret());
+    if ($exp > time() + 960) {
+        return false;
+    }
+    $expected = hash_hmac('sha256', $mediaId . '|' . $exp, receiptUrlKey());
     return hash_equals($expected, $sig);
 }

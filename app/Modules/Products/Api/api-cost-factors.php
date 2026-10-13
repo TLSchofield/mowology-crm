@@ -37,11 +37,18 @@ $bodyData = json_decode($rawBody ?: '', true) ?? [];
 // CSRF guard on all state-mutating actions.
 $writingActions = ['save', 'delete', 'toggle-active', 'save-overhead', 'seed-defaults',
                    'save-overhead-item', 'delete-overhead-item', 'toggle-overhead-item',
-                   'seed-overhead-items'];
+                   'seed-overhead-items', 'link-expense-to-overhead'];
 if (in_array($action, $writingActions, true)) {
     if (!verifyCSRFToken($bodyData['csrf_token'] ?? '')) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+    // Cost factors feed quote prices: writes need products.edit (admins and managers), not any login
+    // (#16, Fable audit 2026-10-12).
+    if (!userHasPermission('products.edit')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Permission denied']);
         exit;
     }
 }
