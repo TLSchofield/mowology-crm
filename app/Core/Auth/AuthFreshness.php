@@ -65,6 +65,21 @@ final class AuthFreshness
     }
 
     /**
+     * Does a web session still match the user's password (#12, Fable audit 2026-10-12)? loginUser()
+     * stores passwordVersion() in $_SESSION['pwd_v']; _recheckSessionUser() compares it with the row.
+     *   'ok'     — same password
+     *   'adopt'  — the session predates this rule (no pwd_v): stamp the current version, keep it
+     *   'logout' — the password changed since sign-in (a reset ends every other session)
+     */
+    public static function sessionPasswordVerdict(?string $sessionPwdV, ?string $currentHash): string
+    {
+        $now = self::passwordVersion($currentHash);
+        if ($sessionPwdV === null || $sessionPwdV === '') return $now === '' ? 'ok' : 'adopt';
+        if ($now === '') return 'logout';
+        return hash_equals($now, $sessionPwdV) ? 'ok' : 'logout';
+    }
+
+    /**
      * Does a JWT payload still match the user's password? A token without pwd_v (issued before
      * 2026-10-12) is accepted; one with pwd_v must equal the current hash's version.
      */

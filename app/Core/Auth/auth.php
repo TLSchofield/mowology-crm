@@ -78,6 +78,7 @@ if (!function_exists('sanitizeInput')) {
 // -------------------- Auth helpers --------------------
 
 require_once __DIR__ . '/AuthFreshness.php';
+require_once __DIR__ . '/RoleRules.php';
 
 function isLoggedIn(): bool {
     if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) return false;
@@ -95,7 +96,7 @@ function _recheckSessionUser(): void {
     $now = time();
     if (!AuthFreshness::recheckDue((int)($_SESSION['user_checked_at'] ?? 0), $now)) return;
     try {
-        $st = getDB()->prepare("SELECT role, is_active, is_driver FROM users WHERE id = ? LIMIT 1");
+        $st = getDB()->prepare("SELECT role, is_active, is_driver, password_hash FROM users WHERE id = ? LIMIT 1");
         $st->execute([(int)$_SESSION['user_id']]);
         $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) {
@@ -107,6 +108,19 @@ function _recheckSessionUser(): void {
         error_log('_recheckSessionUser: user ' . (int)$_SESSION['user_id'] . ' is inactive or gone — session ended');
         $_SESSION = [];
         return;
+    }
+    // A password change (reset, admin set) ends every other web session (#12, Fable audit 2026-10-12).
+    $pwVerdict = AuthFreshness::sessionPasswordVerdict(
+        isset($_SESSION['pwd_v']) ? (string)$_SESSION['pwd_v'] : null,
+        isset($row['password_hash']) ? (string)$row['password_hash'] : null
+    );
+    if ($pwVerdict === 'logout') {
+        error_log('_recheckSessionUser: user ' . (int)$_SESSION['user_id'] . ' changed password — session ended');
+        $_SESSION = [];
+        return;
+    }
+    if ($pwVerdict === 'adopt') {
+        $_SESSION['pwd_v'] = AuthFreshness::passwordVersion((string)$row['password_hash']);
     }
     if ($verdict === 'refresh') {
         $_SESSION['user_role']      = (string)(($row['role'] ?? '') ?: 'user');
@@ -177,7 +191,9 @@ function isLoginRateLimited(string $email, ?string $ip = null): bool {
         // Three ceilings (Fable review 2026-10-12): the (email, IP) pair as before, plus one IP
         // trying many emails (spraying) and one email tried from many IPs (a distributed guess).
         $stmt = $db->prepare("
-            SELECT SUM(email = ? AND ip_address = ?) AS pair, SUM(ip_address = ?) AS ip, SUM(email = ?) AS em
+            SELECT SUM(email = ? AND ip_address = ?) AS pair,
+                   SUM(ip_address = ? AND email NOT LIKE 'reset:%' AND email NOT LIKE 'pin:%') AS ip,
+                   SUM(email = ?) AS em
             FROM login_attempts
             WHERE (email = ? OR ip_address = ?)
               AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
@@ -334,6 +350,7 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
             $_SESSION['login_time']      = time();
             $_SESSION['last_activity']   = time();
             $_SESSION['user_checked_at'] = time();
+            $_SESSION['pwd_v']           = AuthFreshness::passwordVersion((string)$user['password_hash']);
 
             // Capture driver flag NOW before session_write_close() clears $_SESSION.
             $isDriver = !empty($user['is_driver']);
