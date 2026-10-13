@@ -67,6 +67,22 @@ e.g. `media_assets` archival columns referenced by code but never migrated (2026
 iOS Receipts list went silently empty. **Check:** deploys — migration files on the server with
 no `migrations_log` row.
 
+## 2026-10-12 — Runtime DDL that a least-privilege DB user would silently break (verified)
+`recordCronRun()` ran `CREATE TABLE IF NOT EXISTS cron_runs` before every insert, inside a
+try/catch that only error_logs. MySQL checks the CREATE privilege before it checks existence
+(checked on the local MySQL 8 with a data-only user), so moving the app to a data-only user
+would have stopped every cron run being recorded — and every scheduled job would have turned
+"never ran" on Ada's page while working. Same shape: per-request CREATE TABLE in RecaptchaVerify,
+ALTERs on every quote save, TRUNCATE (needs DROP) in three places. Fixed (fda861f2);
+`RuntimeDdlTest` keeps new ones out. **Rule for Ada:** after a DB-privilege change, a sudden
+"never ran" on many jobs at once is the privilege, not the jobs.
+
+## 2026-10-12 — An audit delete that could never have worked (verified)
+`ContactService::bulkDeleteCompanies()` deleted `activity_log WHERE entity_id = ? AND
+entity_type = 'company'` — columns activity_log does not have (SHOW CREATE TABLE on production),
+so that path threw. The other three company/quote deletes really did erase history. All four now
+keep the rows (company_id / quote_id cleared) and write a '… deleted' row naming the old id.
+
 ## Pattern behind all of them
 Every one ran "successfully" or showed a reassuring badge. The fix was always a **second
 source**: the mailbox vs the poller, the crontab vs the dashboard, the decrypt vs the badge.

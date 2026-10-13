@@ -7,6 +7,7 @@ covers:
   - public/crm/includes/ada-card.php
   - app/Services/CrmFunctions.php
   - app/Core/CronLock.php
+  - app/Core/MigrationRunnerGuard.php
   - app/Modules/Database/*
   - app/Services/Mail/MailboxConfig.php
   - app/Services/Push/*
@@ -117,6 +118,8 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | OPcache reset | `public/crm/api/opcache-reset.php` (admin only; host runs validate_timestamps off) | |
 | Production vs repo | `scripts/prod-drift.sh` (directory), `scripts/prod-file.sh` (files), `scripts/deploy-checked.sh`, `scripts/deploy-merged.py` | Mac-side, FTP |
 | Queries on production | `scripts/prod-run.sh` (rolled back unless `--commit`) | Mac-side |
+| Audit trail (who changed what) | `activity_log` via `logActivityExtended()` / `logActivity()`; never deleted from (`AuditTrail` cuts links instead; `AuditTrailTest` scans for DELETE/TRUNCATE); before → after lines via `AuditDiff` | append-only copy: `AuditExportService`, cron `audit_export` |
+| Schema changes vs everyday DB user | `Database::ddl()` / `Database::useDdlForRequest()` in `app/Core/config.php` (optional `DB_DDL_*` in secrets.php); `migrationRunnerGuard()` switches runners to it | `RuntimeDdlTest` fails on new runtime DDL |
 | Charlie's brief (where Ada's line goes) | `CharlieBriefService::collect()` in `app/Modules/ChiefOfStaff/Services/CharlieBriefService.php`; ready copy `HeadBriefReadyService::rebuildCharlie()` | heads contract: `brief(string)` |
 
 **Not yet central (known):** there is no single "connection status" table — each integration
