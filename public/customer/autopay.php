@@ -186,12 +186,12 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
         <?php else: ?>
             <p style="font-size:.9rem;color:#777;margin-bottom:16px;">Enter a card to save securely. You won&rsquo;t be charged today.</p>
         <?php endif; ?>
-
-        <div class="consent-block">
         <!-- Autopay is always confirmed by the cardholder entering the card (SetupIntent) — security review #13 -->
         <div id="stripe-element-wrapper">
             <div id="stripe-payment-element"></div>
         </div>
+
+        <div class="consent-block">
             <label>
                 <input type="checkbox" id="consent-check">
                 <span>I authorise Mowology Landscaping to charge my card on file for future invoices on my approved service plan(s). I understand I can cancel this at any time by contacting Mowology.</span>
