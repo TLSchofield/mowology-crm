@@ -10,7 +10,8 @@ declare(strict_types=1);
  *   tomorrow — tomorrow is a working day for the crew, the plan has nothing then, the city allows
  *              the work, it isn't forecast wet, and it fits the crew's route (stops nearby) — or,
  *              with no route data that day, it is simply the crew's next working day.
- *   date     — the first later day that fits (route first, then dry), before the plan's next visit.
+ *   date     — the first later day that fits (on the route and dry, else the first dry day), before
+ *              the plan's next visit.
  *   skip     — the plan's next visit is close (≤ skipWithinDays(): 3 days, or half the plan's
  *              frequency when that is longer), so doing this one too would double the work.
  *              NEVER for a contract visit, a prepaid visit, or a one-off job (skipBlock()).
@@ -19,7 +20,7 @@ declare(strict_types=1);
 final class MissedVisitRules
 {
     public const SKIP_WITHIN_DAYS = 3;    // "the next one is within 3 days" → skip
-    public const WET_MM = 2.0;            // a day forecast at ≥ 2 mm is wet
+    public const WET_MM = 5.0;            // a day forecast at ≥ 5 mm is wet (a 3 mm Vancouver drizzle is a working day)
     public const LOOKAHEAD_DAYS = 10;     // how far "another day" looks when the plan has no next visit
     public const ROUTE_KM = 3.0;          // a stop within 3 km on that day = it fits the route
 
@@ -160,7 +161,8 @@ final class MissedVisitRules
             }
         }
 
-        // 4. Another day: on the route and dry; then dry; then any day that fits.
+        // 4. Another day: on the route and dry; then the first dry day (a day too far ahead to have
+        //    stops yet is not "on the route" — it never beats a nearer dry day); then any day that fits.
         $why = '';
         if (isset($usable[$tomorrow])) {
             $t = $usable[$tomorrow];
@@ -172,7 +174,6 @@ final class MissedVisitRules
         }
         $passes = [
             fn($d) => ($d['route'] ?? null) === true && ($d['wet'] ?? null) !== true,
-            fn($d) => ($d['wet'] ?? null) !== true && ($d['route'] ?? null) !== false,
             fn($d) => ($d['wet'] ?? null) !== true,
             fn($d) => true,
         ];

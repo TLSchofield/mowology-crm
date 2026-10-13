@@ -56,6 +56,18 @@ final class MissedVisitRulesTest extends TestCase
         $this->assertStringContainsString('Tomorrow looks wet (6.4 mm)', $p['reason']);
     }
 
+    public function testAFarDayWithNoStopsYetNeverBeatsANearerDryDay(): void
+    {
+        // Thu: crew working elsewhere, dry. Mon: nothing scheduled yet (route unknown). → Thu.
+        $p = MissedVisitRules::pick($this->weekly(['next_visit' => '2026-10-21']), self::TODAY, $this->days([
+            '2026-10-14' => ['wet' => true, 'wet_mm' => 8],
+            '2026-10-15' => ['wet' => false, 'route' => false],
+            '2026-10-16' => ['wet' => false, 'route' => false],
+            '2026-10-19' => ['wet' => null, 'route' => null],
+        ]));
+        $this->assertSame('2026-10-15', $p['date']);
+    }
+
     public function testNeverOnARestDayOrACrewDayOff(): void
     {
         // Missed on Fri 16, next visit Fri 23: Sat is the crew's day off, Sun is a rest day → Mon.
