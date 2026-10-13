@@ -2340,7 +2340,7 @@ class BankImportService
     /**
      * Fallback text extraction cascade for PDFs with garbled smalot output:
      *   1. pdftotext (poppler) — works if binary is on PATH
-     *   2. Imagick page rendering + OCR.space API — works if Imagick+curl present
+     *   2. Imagick page rendering + Google Vision or local Tesseract (never a public OCR service)
      *
      * Throws RuntimeException with a clear user-facing message if all fail.
      */
@@ -2353,7 +2353,7 @@ class BankImportService
             // Not available — continue to next option
         }
 
-        // 2 — Imagick (PDF rendering) + OCR.space
+        // 2 — Imagick (PDF rendering) + Vision / Tesseract
         if (class_exists('Imagick') && function_exists('curl_init')) {
             return $this->extractTextViaImagickOcr($filePath);
         }
@@ -2367,8 +2367,8 @@ class BankImportService
     /**
      * Render each PDF page to a JPEG via Imagick (needs Ghostscript in the
      * Imagick build) then run each image through the best available OCR engine:
-     * Google Cloud Vision (DOCUMENT_TEXT_DETECTION) if configured, otherwise
-     * OCR.space as fallback.  Images are processed one page at a time to keep
+     * Google Cloud Vision (DOCUMENT_TEXT_DETECTION) if configured, otherwise a
+     * local Tesseract (never a public OCR service).  Images are processed one page at a time to keep
      * memory manageable.
      */
     private function extractTextViaImagickOcr(string $filePath): string
@@ -2399,8 +2399,7 @@ class BankImportService
             $flat->destroy();
             $page->destroy();
 
-            // For OCR.space: fall back to 100 DPI if still over ~700 KB.
-            // Google Vision handles larger images fine; skip the downgrade for Vision.
+            // Without Vision (Tesseract): fall back to 100 DPI if still over ~700 KB.
             if (!$useVision && strlen($jpegData) > 700000) {
                 $im2 = new \Imagick();
                 $im2->setResolution(100, 100);
@@ -2414,15 +2413,8 @@ class BankImportService
                 $f2->destroy(); $p2->destroy(); $im2->destroy();
             }
 
-            if ($useVision) {
-                $pageText = $this->ocrPageViaGoogleVision($jpegData);
-                if ($pageText === null) {
-                    // Vision call failed — fall back to OCR.space for this page
-                    $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
-                }
-            } else {
-                $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
-            }
+            // Vision, else local Tesseract, else a clear refusal (ocrImageBytes — audit #19).
+            $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
 
             $this->rawPageTexts[$i + 1] = $pageText; // 1-indexed page numbers
             $allText .= $pageText . "\n";
@@ -2445,7 +2437,7 @@ class BankImportService
     /**
      * OCR a JPEG image using Google Cloud Vision DOCUMENT_TEXT_DETECTION.
      * Writes bytes to a temp file, calls the shared ReceiptOCR service, cleans up.
-     * Returns null if the call fails (caller should fall back to OCR.space).
+     * Returns null if the call fails (caller falls back to local Tesseract, else refuses).
      *
      * Uses bounding-box reconstruction instead of Vision's fullTextAnnotation.text.
      * Vision reads multi-column tables column-first (all dates, then all descriptions,
@@ -2586,78 +2578,60 @@ class BankImportService
     }
 
     /**
-     * Send raw image bytes to OCR.space and return the extracted plain text.
-     * Uses OCR_SPACE_API_KEY from config if defined, otherwise the demo key.
-     *
-     * Docs: https://ocr.space/ocrapi
+     * OCR one page image (security review #19, 2026-10-12). Bank statements are the business's most
+     * private papers: they go to Google Cloud Vision (already contracted, ReceiptOCR) or a local
+     * Tesseract on the server — never to a public OCR service. (This used to post every page to
+     * OCR.space, on its shared public demo key whenever OCR_SPACE_API_KEY was not set.)
+     * Neither available, or both fail: refuse with a clear message — nothing is guessed.
      */
     private function ocrImageBytes(string $imageData, string $subtype = 'jpeg'): string
     {
-        if (!function_exists('curl_init')) {
-            throw new RuntimeException('cURL is not available — cannot call OCR API.');
+        $engine = self::ocrEngine($this->isGoogleVisionAvailable(), self::tesseractPath());
+        if ($engine === 'vision') {
+            $text = $this->ocrPageViaGoogleVision($imageData);
+            if ($text !== null && trim($text) !== '') return $text;
+            $engine = self::tesseractPath() !== null ? 'tesseract' : 'none';
         }
-
-        $apiKey = defined('OCR_SPACE_API_KEY') ? OCR_SPACE_API_KEY : 'helloworld';
-        $b64    = 'data:image/' . $subtype . ';base64,' . base64_encode($imageData);
-
-        $ch = curl_init('https://api.ocr.space/parse/image');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_POSTFIELDS     => [
-                'apikey'              => $apiKey,
-                'base64Image'         => $b64,
-                'language'            => 'eng',
-                'isTable'             => 'true',
-                'scale'               => 'true',
-                'isOverlayRequired'   => 'false',
-                'detectOrientation'   => 'true',
-                'OCREngine'           => '2',
-            ],
-        ]);
-
-        $raw      = curl_exec($ch);
-        $curlErr  = curl_error($ch);
-        curl_close($ch);
-
-        if ($raw === false || $raw === '') {
-            throw new RuntimeException('OCR API request failed: ' . $curlErr);
+        if ($engine === 'tesseract') {
+            $text = $this->ocrViaTesseract($imageData, $subtype);
+            if (trim($text) !== '') return $text;
+            throw new RuntimeException('Could not read this scanned statement (Tesseract found no text). Upload the CSV or the bank\'s own PDF instead.');
         }
+        throw new RuntimeException('Scanned statements need Google Vision (GOOGLE_VISION_CREDENTIALS) or Tesseract on the server, and neither is working. '
+            . 'Upload the CSV or the bank\'s own (text) PDF instead.');
+    }
 
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
-            throw new RuntimeException('OCR API returned an unexpected response.');
-        }
-        if (!empty($data['IsErroredOnProcessing'])) {
-            $msg = isset($data['ErrorMessage']) ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage']) : 'Unknown OCR error';
-            throw new RuntimeException('OCR processing failed: ' . $msg);
-        }
+    /** Which OCR engine to use: 'vision' | 'tesseract' | 'none'. Never a public web service. PURE. */
+    public static function ocrEngine(bool $visionAvailable, ?string $tesseractPath): string
+    {
+        if ($visionAvailable) return 'vision';
+        return $tesseractPath !== null ? 'tesseract' : 'none';
+    }
 
-        // Check OCR exit code for specific failure modes
-        $exitCode = (int)($data['OCRExitCode'] ?? 0);
-        if ($exitCode === 6) {
-            throw new RuntimeException('OCR API rate limit reached. Please sign up for a free OCR.space key at ocr.space/ocrapi and add it to your config.');
-        }
-        if ($exitCode >= 3 && empty($data['ParsedResults'])) {
-            $msg = isset($data['ErrorMessage'])
-                ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage'])
-                : ('OCR exit code ' . $exitCode);
-            throw new RuntimeException('OCR processing failed: ' . $msg);
-        }
+    /** The local tesseract binary (TESSERACT_PATH, else the usual places), or null. */
+    private static function tesseractPath(): ?string
+    {
+        if (!function_exists('exec')) return null;
+        $candidates = defined('TESSERACT_PATH') ? [(string)TESSERACT_PATH] : ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract'];
+        foreach ($candidates as $p) if ($p !== '' && @is_executable($p)) return $p;
+        return null;
+    }
 
-        $text = '';
-        foreach ($data['ParsedResults'] ?? [] as $result) {
-            $text .= ($result['ParsedText'] ?? '') . "\n";
+    private function ocrViaTesseract(string $imageData, string $subtype): string
+    {
+        $bin = self::tesseractPath();
+        if ($bin === null) return '';
+        $ext = preg_replace('/[^a-z]/', '', strtolower($subtype)) ?: 'jpg';
+        $tmp = tempnam(sys_get_temp_dir(), 'mw_bi_') . '.' . $ext;
+        if (file_put_contents($tmp, $imageData) === false) return '';
+        try {
+            $out = [];
+            $code = 0;
+            @exec(escapeshellarg($bin) . ' ' . escapeshellarg($tmp) . ' stdout -l eng --psm 6 2>/dev/null', $out, $code);
+            return $code === 0 ? implode("\n", $out) : '';
+        } finally {
+            @unlink($tmp);
         }
-
-        if (trim($text) === '') {
-            // Include a fragment of the raw response to help diagnose unexpected failures
-            $hint = substr(json_encode($data), 0, 200);
-            throw new RuntimeException('OCR returned no text. API response: ' . $hint);
-        }
-
-        return $text;
     }
 
     /**
