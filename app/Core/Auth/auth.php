@@ -492,7 +492,11 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
             $_SERVER['REMOTE_ADDR'] ?? null
         ]);
     } catch (Throwable $e) {
-        _loginDebugLog("logActivity() error: " . $e->getMessage());
+        // Not swallowed (Fable audit #25e): name the lost row in the PHP error log.
+        error_log('AUDIT WRITE FAILED (activity_log, logActivity): ' . $e->getMessage() . ' — lost row: '
+            . json_encode(['user_id' => $user_id, 'contact_id' => $client_id, 'action' => $action,
+                           'details' => $details !== null ? mb_substr($details, 0, 500) : null],
+                          JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
 }
 

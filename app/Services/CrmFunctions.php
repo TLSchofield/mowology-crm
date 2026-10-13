@@ -630,8 +630,13 @@ function logActivityExtended($userId, $action, $details = null, $companyId = nul
             $details,
             $_SERVER['REMOTE_ADDR'] ?? null
         ]);
-    } catch(PDOException $e) {
-        error_log("Activity log error: " . $e->getMessage());
+    } catch (Throwable $e) {
+        // An audit row that could not be written is itself an event: say exactly what was lost
+        // (Fable audit #25e, 2026-10-12). Never break the caller over it.
+        error_log('AUDIT WRITE FAILED (activity_log): ' . $e->getMessage() . ' — lost row: ' . json_encode([
+            'user_id' => $userId, 'action' => $action, 'details' => is_string($details) ? mb_substr($details, 0, 500) : $details,
+            'company_id' => $companyId, 'quote_id' => $quoteId, 'invoice_id' => $invoiceId, 'plan_id' => $planId, 'visit_id' => $visitId,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
 }
 
