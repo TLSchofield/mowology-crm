@@ -27,6 +27,7 @@ if (!$token || !$visitId) {
 
 if (!$error) {
     // Verify portal_token belongs to a contact who owns this visit's property
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
     $stmt = $db->prepare("
         SELECT c.id AS contact_id, srr.pdf_path, srr.report_number,
                jv.scheduled_date,
@@ -36,7 +37,7 @@ if (!$error) {
         JOIN job_plans jp ON jp.property_id = pr.id
         JOIN job_visits jv ON jv.plan_id = jp.id
         JOIN salt_run_reports srr ON srr.visit_id = jv.id
-        WHERE c.portal_token = ?
+        WHERE c.portal_token = ?" . PortalTokenService::liveSql($db, 'c') . "
           AND jv.id = ?
           AND srr.portal_available_at IS NOT NULL
           AND srr.pdf_path IS NOT NULL

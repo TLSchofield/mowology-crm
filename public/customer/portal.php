@@ -61,7 +61,7 @@ if (isset($_GET['contact_id'])) {
 // ── Mode 2: Client access via portal token ───────────────────────────────────
 } elseif (isset($_GET['token']) && $_GET['token'] !== '') {
     $token = trim($_GET['token']);
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';
@@ -72,10 +72,7 @@ if (isset($_GET['contact_id'])) {
 
 // ── Generate portal token if admin and contact has none ──────────────────────
 if ($adminMode && $contact && empty($contact['portal_token'])) {
-    $newToken = bin2hex(random_bytes(24)); // 48-char hex token
-    $stmt = $db->prepare("UPDATE contacts SET portal_token = ? WHERE id = ?");
-    $stmt->execute([$newToken, $contact['id']]);
-    $contact['portal_token'] = $newToken;
+    $contact['portal_token'] = PortalTokenService::issue($db, (int)$contact['id']); // stamped: 365 days (audit #14)
 }
 
 // ── Load documents ────────────────────────────────────────────────────────────

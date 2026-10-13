@@ -38,7 +38,8 @@ $token = trim($_GET['token'] ?? '');
 if ($token === '') sendError('No token provided.');
 
 $db = getDB();
-$stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE portal_token = ? LIMIT 1");
+require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
+$stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
 $stmt->execute([$token]);
 $contact = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$contact) sendError('This download link is invalid.', 404);

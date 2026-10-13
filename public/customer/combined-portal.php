@@ -40,7 +40,7 @@ if (isset($_GET['contact_id'])) {
 } elseif (!empty($_GET['token'])) {
     $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token,
                                  stripe_card_brand, stripe_card_last4, stripe_card_exp, autopay_enabled
-                          FROM contacts WHERE portal_token = ? LIMIT 1");
+                          FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([trim($_GET['token'])]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';

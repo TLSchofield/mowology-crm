@@ -28,7 +28,7 @@ if ($token === '') {
                preferred_contact_method, receive_marketing, receive_sms,
                portal_token
         FROM contacts
-        WHERE portal_token = ? LIMIT 1
+        WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1
     ");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -152,7 +152,10 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     fetch('/customer/api/profile-update.php', { method: 'POST', body: formData })
       .then(r => r.json()).then(d => {
         btn.disabled = false; btn.textContent = 'Save Changes';
-        if (d.success) {
+        if (d.success && d.email_pending) {
+          // A new email waits for its confirmation link (security review #14); the field shows the current one.
+          status.innerHTML = '<span style="color:#2D8659;font-weight:600;">&#10003; Saved. Check your new inbox — your email changes once you click the link we sent.</span>';
+        } else if (d.success) {
           status.innerHTML = '<span style="color:#2D8659;font-weight:600;">&#10003; Saved — thank you.</span>';
           setTimeout(function() { status.textContent = ''; }, 5000);
         } else {

@@ -47,7 +47,8 @@ if (!$error && isset($_GET['contact_id'])) {
 // ── Mode 2: Client access via portal token ─────────────────────────────────
 } elseif (!$error && isset($_GET['token']) && $_GET['token'] !== '') {
     $token = trim($_GET['token']);
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ? LIMIT 1");
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';

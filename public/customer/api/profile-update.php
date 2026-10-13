@@ -37,10 +37,12 @@ try {
     if ($token === '') throw new Exception('Missing token');
 
     $db = getDB();
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php';
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalEmailChangeService.php';
 
     $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, mobile, preferred_contact_method,
                                  receive_marketing, receive_sms
-                          FROM contacts WHERE portal_token = ? LIMIT 1");
+                          FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) throw new Exception('Client not found');
@@ -69,6 +71,22 @@ try {
     if ($mobile !== '' && strlen($mobileDigits) < 7) {
         throw new Exception('Mobile number looks too short.');
     }
+
+    // An email change is never applied from the portal link alone (security review #14): it waits
+    // for the NEW address to confirm, and the OLD address is told. Blanking the email is ignored.
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    $emailPending = false;
+    $oldEmail = (string)($contact['email'] ?? '');
+    if (PortalEmailChangeService::needsConfirmation($oldEmail, $email)) {
+        $changes = new PortalEmailChangeService($db);
+        if (!$changes->ready()) {
+            throw new Exception('To change your email address, please call us at (778) 846-9273.');
+        }
+        $base = defined('SITE_URL') ? (string)SITE_URL : 'https://mowology.ca';
+        $changes->request((int)$contact['id'], $oldEmail !== '' ? $oldEmail : null, $email, (string)($contact['first_name'] ?? ''), $ip, $base);
+        $emailPending = true;
+    }
+    $email = $oldEmail;   // the stored email only changes through PortalEmailChangeService::confirm()
 
     $receiveMarketing = !empty($_POST['receive_marketing']) ? 1 : 0;
     $receiveSms       = !empty($_POST['receive_sms']) ? 1 : 0;
@@ -112,9 +130,10 @@ try {
         'first_name' => $firstName, 'last_name' => $lastName, 'email' => $email, 'phone' => $phone,
         'mobile' => $mobile, 'preferred_contact_method' => $preferred,
         'receive_marketing' => $receiveMarketing, 'receive_sms' => $receiveSms,
-    ]), (string)($_SERVER['REMOTE_ADDR'] ?? ''), (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    ]), $ip, (string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
 
-    echo json_encode(['success' => true]);
+    echo json_encode(['success' => true, 'email_pending' => $emailPending,
+                      'message' => $emailPending ? 'Saved. We sent a link to your new email address — your email changes once you click it.' : null]);
 
 } catch (Throwable $e) {
     http_response_code(400);

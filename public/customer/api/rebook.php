@@ -42,6 +42,7 @@ try {
     }
 
     $db = getDB();
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
 
     // Resolve the visit → plan → property → contact, and verify ownership
     $stmt = $db->prepare("
@@ -55,7 +56,7 @@ try {
         JOIN properties pr ON pr.id = jp.property_id
         JOIN contacts c ON c.id = pr.site_contact_id
         WHERE jv.id = ?
-          AND c.portal_token = ?
+          AND c.portal_token = ?" . PortalTokenService::liveSql($db, 'c') . "
         LIMIT 1
     ");
     $stmt->execute([$visitId, $token]);

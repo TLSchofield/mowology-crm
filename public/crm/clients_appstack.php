@@ -34,6 +34,10 @@ if (isset($_GET['updated'])) {
     }
     $messageType = 'success';
 }
+if (isset($_GET['portal_link'])) {
+    $message = 'New client portal link issued — the old link no longer works. Open Client Portal to copy the new one.';
+    $messageType = 'success';
+}
 
 // Handle JSON requests (AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'application/json') {
@@ -2646,6 +2650,17 @@ $unconvertedRequests = $db->query("
                       <a href="/customer/portal.php?contact_id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-outline-primary" target="_blank" title="Open client portal">
                         <i data-feather="external-link" style="width:14px;height:14px;"></i> Client Portal
                       </a>
+                      <?php if (userHasPermission('clients.edit')): ?>
+                      <!-- Replace a leaked / forwarded portal link (security review #14) -->
+                      <form method="post" action="/crm/api/portal-link-regenerate.php" class="d-inline"
+                            onsubmit="return confirm('Issue a new portal link? The old link stops working straight away.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo h(generateCSRFToken()); ?>">
+                        <input type="hidden" name="contact_id" value="<?php echo (int)$viewContact['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Regenerate portal link">
+                          <i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Regenerate portal link
+                        </button>
+                      </form>
+                      <?php endif; ?>
                       <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-success" title="Edit contact">
                         <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit
                       </a>
