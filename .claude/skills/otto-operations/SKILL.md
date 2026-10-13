@@ -15,12 +15,16 @@ covers:
   - app/Modules/Jobs/Services/Plan/*
   - app/Modules/Schedule/Api/*
   - app/Modules/Contracts/Services/SnowContractService.php
+  - app/Modules/Jobs/Cron/auto_rollover.php
+  - app/Modules/Schedule/Api/missed-review.php
+  - public/crm/js/otto-missed.js
   - public/crm/includes/otto-card.php
   - public/crm/js/otto-card.js
   - public/crm/ops/*
   - public/crm/timeclock/*
   - public/crm/jobs/schedule.php
   - ios/MowologyCRM/MowologyCRM/Features/Team/OttoSuggestionViews.swift
+  - ios/MowologyCRM/MowologyCRM/Features/Team/OttoMissedReviewViews.swift
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
@@ -127,6 +131,8 @@ reference that matches the task:
 | Any change to recorded time (approved week, overlap, weeks to recalc, DST minutes) | `TimeEntryGuard::refusal()` / `TimeEntryGuard::overlapping()` / `TimeEntryGuard::recalcWeeks()` + pure `TimeclockRules` | time-entry-edit, admin_add_entry, job-time-entry-edit, Otto clock_out/timer |
 | Pay over a period (BC daily 8/12 h + weekly 40 h, per week) | `OvertimeCalculator::calculatePeriod()` | `public/crm/timeclock/payroll-summary.php` |
 | Visit status changes (guarded) | `VisitLifecycleService::updateVisitStatus()` / `VisitLifecycleService::canTransition()` | every completion/skip path |
+| End-of-day missed-visit review (open at last clock-out or 18:00, Otto's pick per visit, apply, lesson) | `MissedVisitReviewService::tick()` (rides Charlie's 15-min cron) / `MissedVisitReviewService::decide()`; pure pick `MissedVisitRules::pick()` | dashboard card section `public/crm/includes/otto-missed-panel.php`, desk `public/crm/ops/missed-visits.php`, iPhone `OttoMissedReviewSheet` via `/api/schedule/missed-review` |
+| What the nightly rollover does to a past-due visit (roll / skip / hold a contract visit open) | `MissedVisitRules::rolloverAction()` in `app/Modules/Jobs/Cron/auto_rollover.php` | rollover cron |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself

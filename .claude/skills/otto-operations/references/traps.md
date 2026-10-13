@@ -2,6 +2,17 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-10-13 — The rollover cron skipped contract visits silently, and runs at 8 pm, not 11
+`auto_rollover.php` skipped any past-due recurring visit once `rollover_count` ≥ `max_rollover_days`
+(3), when the next day already had a visit, or when the plan had ended — with no contract check.
+Oct 5–11 it auto-skipped monthly-contract visits (CTR-0002/0004/0005/0007, PLN-0063/0069/0072/0076/0103…)
+and nobody decided; the schedule just read "Skipped — last done N days ago". Its cPanel line says
+23:00 but the server clock is Eastern: `cron_runs` shows it at 20:00 Pacific. **Rule:** a binding
+contract or prepaid visit is never skipped by a cron — `MissedVisitRules::rolloverAction()` holds it
+open and Otto's missed-visit review shows it next day; a visit decided in the review
+(`otto_missed_review_items`, migration 1349) is left alone. Times in a cron's comment are the
+server's; check `cron_runs` before promising a time.
+
 ## 2026-10-12 — Fable review: time, pay, visits, GPS, suppliers
 Independent reviews found 33 defects; fixed the same day. **Rules now enforced:**
 - **Pay** is BC overtime per DAY (8 h → 1.5×, 12 h → 2×) and per Monday–Sunday WEEK (40 h), summed

@@ -23,7 +23,7 @@
 4. **Anything loaded on every crew page or shown at app root can stop the field workflow**
    (2026-10-08). New crew-page features ship behind an `ops_settings` flag, off by default.
 
-## Parity table (checked 2026-10-11)
+## Parity table (checked 2026-10-13)
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
@@ -37,6 +37,7 @@
 | Snow route service choice | `VisitCompletionSheet.swift` | invoice sheet asks "What was done here?" | `SnowContractService` | — |
 | Special requests on arrival | `SpecialRequestStore.swift` | panel + gate | `SpecialRequestService`, `SpecialRequestGate` | flags OFF |
 | Trips / dump runs, equipment, bylaws, supplier directory | none | web only | `TripCostService`, `EquipmentService`, `MunicipalRuleService`, `SupplierDirectoryService` | office screens; iPhone not planned |
+| End-of-day missed-visit review | `OttoMissedReviewViews.swift` (Otto's card entry + sheet; opens from the push `open: otto_review`) | `otto-missed.js` in Otto's dashboard card + `/crm/ops/missed-visits.php` (Android opens the push's `data.url`) | `MissedVisitReviewService`, `MissedVisitRules` | iPhone date = SwiftUI graphical picker, web = MwDatePicker |
 | Supplier form send | server-sent buttons | server-sent buttons | `SupplierFormService` | — |
 
 When you change a row, change the date in this file's heading.

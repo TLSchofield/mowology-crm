@@ -24,6 +24,19 @@ protocol TeamHeadAPI {
     func send(_ body: [String: Any]) async throws -> HeadActionResponse
     /// Otto's suggestion buttons / auto-log Undo (team-mobile otto_decide | otto_undo_auto).
     func ottoSend(_ body: [String: Any]) async throws -> OttoDecideResponse
+    /// Otto's end-of-day missed-visit review (GET/POST /api/schedule/missed-review).
+    func ottoMissedLoad() async throws -> OttoMissedResponse
+    func ottoMissedSend(_ body: [String: Any]) async throws -> OttoMissedActionResponse
+}
+
+extension TeamHeadAPI {
+    /// Stubs (previews/renders) have no missed-visit review.
+    func ottoMissedLoad() async throws -> OttoMissedResponse {
+        OttoMissedResponse(ok: true, error: nil, review: nil, waiting: 0, withPick: 0, items: [], reasons: [], tomorrow: nil, today: nil)
+    }
+    func ottoMissedSend(_ body: [String: Any]) async throws -> OttoMissedActionResponse {
+        OttoMissedActionResponse(ok: false, message: nil, error: "Not available here.")
+    }
 }
 
 @MainActor
@@ -40,6 +53,14 @@ struct LiveTeamHeadAPI: TeamHeadAPI {
 
     func ottoSend(_ body: [String: Any]) async throws -> OttoDecideResponse {
         try await client.request(.teamHeadAction, body: body)
+    }
+
+    func ottoMissedLoad() async throws -> OttoMissedResponse {
+        try await client.request(.ottoMissedReview)
+    }
+
+    func ottoMissedSend(_ body: [String: Any]) async throws -> OttoMissedActionResponse {
+        try await client.request(.ottoMissedReviewAction, body: body)
     }
 }
 
@@ -106,10 +127,14 @@ final class HeadCardViewModel: ObservableObject {
     private let api: TeamHeadAPI
     private let geocoder: AddressGeocoder
 
+    /// Otto's end-of-day missed-visit review (Otto's card only).
+    let missedReview: OttoMissedReviewModel
+
     init(head: String, api: TeamHeadAPI, geocoder: AddressGeocoder = AppleAddressGeocoder()) {
         self.head = head
         self.api = api
         self.geocoder = geocoder
+        self.missedReview = OttoMissedReviewModel(api: api)
     }
 
     // MARK: - Load

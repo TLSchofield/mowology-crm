@@ -39793,3 +39793,38 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
   .mw-penny-read-items { grid-template-columns: 1fr; }
   .mw-penny-read-actions .btn { flex: 1 1 100%; }
 }
+
+/* ===================================================================
+   OTTO — END-OF-DAY MISSED-VISIT REVIEW (includes/otto-missed-panel.php,
+   ops/missed-visits.php, js/otto-missed.js)
+   =================================================================== */
+.mw-omr { display: flex; flex-direction: column; gap: 8px; }
+.mw-omr.is-card { border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-orange); border-radius: 10px; padding: 10px 12px; background: var(--mw-ink-0); }
+.mw-omr-hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: .85rem; color: var(--mw-forest); }
+.mw-omr-hd small { font-size: .72rem; color: var(--mw-ink-500); }
+.mw-omr-hd .mw-omr-sub { display: block; margin-top: 2px; }
+.mw-omr-list { display: flex; flex-direction: column; gap: 8px; }
+.mw-omr-item { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 9px 12px; background: var(--mw-ink-0); display: flex; flex-direction: column; gap: 4px; }
+.mw-omr-item.is-done { background: var(--mw-ink-50); opacity: .85; }
+.mw-omr-item.is-err { border-color: var(--mw-orange); }
+.mw-omr-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: .84rem; color: var(--mw-ink-900); }
+.mw-omr-when { font-size: .74rem; color: var(--mw-ink-500); }
+.mw-omr-plan, .mw-omr-why { font-size: .74rem; color: var(--mw-ink-700); overflow-wrap: anywhere; }
+.mw-omr-pick { font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-light); border-radius: 8px; padding: 6px 8px; line-height: 1.4; }
+.mw-omr-pick small { display: block; color: var(--mw-ink-500); font-size: .7rem; margin-top: 2px; }
+.mw-omr-otto { font-weight: 700; color: var(--mw-forest); }
+.mw-omr-done { font-size: .78rem; font-weight: 600; color: var(--mw-dark); }
+.mw-omr .mw-omr-dp { display: inline-flex; align-items: center; gap: 4px; }
+.mw-omr-ask { border-top: 1px dashed var(--mw-ink-200); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.mw-omr-asktitle { font-size: .78rem; font-weight: 600; color: var(--mw-forest); }
+.mw-omr-reasons { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.mw-omr-reason { font-size: .76rem; color: var(--mw-ink-900); margin: 0; display: inline-flex; align-items: center; gap: 4px; }
+.mw-omr-note { flex: 1; min-width: 160px; }
+.mw-omr-err { color: var(--mw-orange); }
+.mw-omr-more { font-size: .76rem; font-weight: 600; color: var(--mw-green); align-self: flex-end; }
+.mw-omr-page-hd { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.mw-omr-page-hd .mw-otto-face { width: 56px; height: 56px; }
+@media (max-width: 575px) {
+  .mw-omr .mw-otto-btns button { flex: 1 1 auto; min-height: 38px; }
+  .mw-omr-hd .btn { width: 100%; }
+}

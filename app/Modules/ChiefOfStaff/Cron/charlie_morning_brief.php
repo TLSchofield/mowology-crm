@@ -65,6 +65,18 @@ $__finish = static function (string $status, string $summary, ?string $error = n
 
 try {
     $db = getDB();
+    // Otto's end-of-day missed-visit review (migration 1349): opens once a day, at the last crew
+    // clock-out or 18:00, and pushes everyone with schedule.edit. Never stops Charlie's run.
+    $__missedNote = null;
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/MissedVisitReviewService.php';
+        $__mr = (new MissedVisitReviewService($db))->tick();
+        if (!empty($__mr['opened'])) {
+            $__missedNote = "Otto's missed-visit review opened (" . $__mr['trigger'] . ', ' . $__mr['items'] . ' visits)';
+        }
+    } catch (Throwable $e) {
+        error_log('charlie_morning_brief: missed-visit review failed: ' . $e->getMessage());
+    }
     $f = new CharlieForemanService($db);
     $desk = $f->desk;
     if (!$desk->ready()) {
@@ -95,7 +107,7 @@ try {
     }
 
     // Urgent — every run.
-    $parts = [];
+    $parts = $__missedNote ? [$__missedNote] : [];
     $u = $f->sendUrgent($owner, $base, $company);
     if ($u['sent'] > 0) $parts[] = $u['sent'] . ' urgent alert' . ($u['sent'] === 1 ? '' : 's') . ' emailed';
     if ($u['error']) $parts[] = 'urgent alert failed: ' . $u['error'];

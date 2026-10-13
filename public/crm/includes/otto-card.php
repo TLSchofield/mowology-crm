@@ -150,6 +150,7 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
     <div class="mw-otto-outlook">❄ <?= h($__os['outlook']) ?></div>
   <?php endif; ?>
 
+  <?php if (is_file(__DIR__ . '/otto-missed-panel.php')) include __DIR__ . '/otto-missed-panel.php'; // end-of-day missed-visit review (migration 1349) ?>
   <?php include __DIR__ . '/otto-trips.php'; ?>
   <?php if (is_file(__DIR__ . '/otto-care.php')) include __DIR__ . '/otto-care.php'; ?>
   <?php $__srHead = 'otto'; if (is_file(__DIR__ . '/special-requests-panel.php')) include __DIR__ . '/special-requests-panel.php'; ?>

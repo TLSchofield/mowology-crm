@@ -90,6 +90,10 @@ struct TeamView: View {
                                 if head.isLoading && head.hasLoaded { ProgressView() }
                             }
                             HeadCardView(vm: head, onBrainTap: { flip(selected) })
+                            if selected == "otto" && showsAccount {
+                                // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
+                                OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
+                            }
                         } else if selected == "sam" {
                             HStack(spacing: 8) {
                                 Text("Sam's sales desk").font(.title3.bold())

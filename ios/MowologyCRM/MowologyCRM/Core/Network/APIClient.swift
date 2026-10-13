@@ -242,6 +242,47 @@ final class APIClient: ObservableObject {
         catch { throw APIError.decodingError(error) }
     }
 
+    // MARK: - Equipment plate (Otto → Add equipment)
+
+    /// Uploads a photo of a machine's model/serial plate (+ optionally the machine) to
+    /// /api/team/equipment-mobile mode=plate. Nothing is added yet: the server reads the plate and
+    /// returns a prefilled form; the app saves it with `.equipmentAction` mode=save.
+    func uploadPlate(plateData: Data, photoData: Data?) async throws -> PlateReadResponse {
+        guard let url = APIEndpoint.equipmentAction.url else { throw APIError.invalidURL }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "mode", value: "plate", boundary: boundary)
+        body.appendField(name: "plate_photo", filename: "plate.jpg", mimeType: "image/jpeg", data: plateData, boundary: boundary)
+        if let photoData {
+            body.appendField(name: "machine_photo", filename: "machine.jpg", mimeType: "image/jpeg", data: photoData, boundary: boundary)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { throw APIError.networkError(error) }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                throw APIError.serverError(extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))")
+            }
+        }
+        do { return try decoder.decode(PlateReadResponse.self, from: data) }
+        catch { throw APIError.decodingError(error) }
+    }
+
     // MARK: - Job Photo Upload
 
     /// Uploads a single before/after job photo for a visit.

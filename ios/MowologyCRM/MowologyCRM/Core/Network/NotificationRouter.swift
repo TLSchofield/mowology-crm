@@ -12,6 +12,9 @@
 //  Department-head pushes (QuoteViewNotifier — "Sam: Linda just opened QUO-…"):
 //  { aps: {...}, data: { open: "team", head: "sam", quote_id? } } → the Team tab, that head's card.
 //  Penny's unclaimed e-Transfer push adds data.url (etransfer.interac.ca only) → opened in Safari.
+//  Otto's end-of-day missed-visit review (MissedVisitReviewService):
+//  { aps: {...}, data: { open: "otto_review", head: "otto", review_id } } → the Team tab, Otto's card,
+//  and his review screen (OttoMissedReviewSheet) opens.
 //
 
 import Foundation
@@ -54,6 +57,9 @@ final class NotificationRouter: NSObject, ObservableObject {
     /// Set on tapping a department-head push; TeamView consumes it and resets it to nil.
     @Published var pendingHead: HeadRoute?
 
+    /// Set on tapping Otto's missed-visit review push; Otto's card opens the review and resets it.
+    @Published var pendingOttoReview = false
+
     private override init() { super.init() }
 
     /// Must run before launch finishes so a cold-start tap is delivered.
@@ -82,6 +88,12 @@ final class NotificationRouter: NSObject, ObservableObject {
               let head = data["head"] as? String,
               TeamHead.all.contains(where: { $0.slug == head }) else { return nil }
         return HeadRoute(head: head, quoteId: intValue(data["quote_id"]))
+    }
+
+    /// Otto's end-of-day missed-visit review push.
+    nonisolated static func isOttoReview(_ userInfo: [AnyHashable: Any]) -> Bool {
+        let data = (userInfo["data"] as? [AnyHashable: Any]) ?? userInfo
+        return (data["open"] as? String) == "otto_review"
     }
 
     /// Penny's "deposit this e-Transfer" push carries the Interac deposit link. Only an
@@ -118,6 +130,10 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 NotificationCenter.default.post(name: .mwSchedulePushReceived, object: nil)
             }
+        } else if Self.isOttoReview(userInfo) {
+            await MainActor.run {
+                NotificationCenter.default.post(name: .mwHeadPushReceived, object: "otto")
+            }
         } else if let head = Self.headRoute(from: userInfo) {
             await MainActor.run {
                 NotificationCenter.default.post(name: .mwHeadPushReceived, object: head.head)
@@ -134,6 +150,13 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
         if let url = Self.depositURL(from: userInfo) {
             // Open the Interac deposit page in Safari; Tim chooses his bank there.
             await MainActor.run { UIApplication.shared.open(url) }
+            return
+        }
+        if Self.isOttoReview(userInfo) {
+            await MainActor.run {
+                self.pendingOttoReview = true
+                self.pendingHead = HeadRoute(head: "otto", quoteId: nil)
+            }
             return
         }
         let route = Self.route(from: userInfo)

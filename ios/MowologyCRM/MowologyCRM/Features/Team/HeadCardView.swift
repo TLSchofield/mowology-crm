@@ -33,6 +33,7 @@ struct HeadCardView: View {
                 note
                 itemsSection(card)
                 if vm.head == "otto" {
+                    OttoMissedEntry(model: vm.missedReview)
                     OttoDeskSection(vm: vm)
                     unpinnedSection
                 }

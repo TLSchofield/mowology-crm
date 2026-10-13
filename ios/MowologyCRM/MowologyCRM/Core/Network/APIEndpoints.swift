@@ -119,6 +119,13 @@ enum APIEndpoint {
     /// Same OCR as a receipt but never an expense: Penny or Otto proposes it on the web.
     case labelUpload
 
+    /// GET /api/team/equipment-mobile?mode=options — Otto's Add equipment choices (JWT).
+    case equipmentOptions
+
+    /// POST /api/team/equipment-mobile — read a plate (multipart, APIClient.uploadPlate),
+    /// receipts / save (JSON). EquipmentService on the server, same as the web page (JWT).
+    case equipmentAction
+
     /// POST /api/expenses/expense-save — save a reviewed expense record (JWT).
     case expenseSave
 
@@ -173,6 +180,13 @@ enum APIEndpoint {
     /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
     /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
     case teamHeadAction
+
+    /// GET /api/schedule/missed-review?mode=list — Otto's end-of-day missed-visit review (JWT,
+    /// schedule.edit): each visit not done, Otto's pick + reason (MissedVisitReviewService).
+    case ottoMissedReview
+    /// POST /api/schedule/missed-review — { mode: "decide", item_id, choice: accept|tomorrow|date|skip|cancel,
+    /// date?, reason?, note? } or { mode: "accept_all" } (JWT, schedule.edit).
+    case ottoMissedReviewAction
 
     /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
     /// review-form lookups shared with the Android review card (JWT). Uses `type=`
@@ -375,6 +389,12 @@ enum APIEndpoint {
         case .labelUpload:
             return URL(string: "\(baseURLString)/expenses/label-upload")
 
+        case .equipmentOptions:
+            return URL(string: "\(baseURLString)/team/equipment-mobile?mode=options")
+
+        case .equipmentAction:
+            return URL(string: "\(baseURLString)/team/equipment-mobile")
+
         case .expenseSave:
             return URL(string: "\(baseURLString)/expenses/expense-save")
 
@@ -432,6 +452,13 @@ enum APIEndpoint {
 
         case .teamHeadAction:
             return URL(string: "\(baseURLString)/team/team-mobile")
+
+        case .ottoMissedReview:
+            var components = URLComponents(string: "\(baseURLString)/schedule/missed-review")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "list")]
+            return components?.url
+        case .ottoMissedReviewAction:
+            return URL(string: "\(baseURLString)/schedule/missed-review")
 
         case .teamBrains:
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
@@ -603,6 +630,8 @@ enum APIEndpoint {
              .scheduleQuotes,
              .receiptUpload,
              .labelUpload,
+             .equipmentOptions,
+             .equipmentAction,
              .expenseSave,
              .expenseList,
              .expenseUpdate,
@@ -618,6 +647,8 @@ enum APIEndpoint {
              .teamHeadBriefReady,
              .teamBrains,
              .teamHeadAction,
+             .ottoMissedReview,
+             .ottoMissedReviewAction,
              .expenseLookup,
              .expenseDelete,
              .expenseLineItems,
@@ -658,6 +689,7 @@ enum APIEndpoint {
              .trackingGeofences,
              .scheduleSpecialRequests,
              .snowRouteChoice,
+             .equipmentOptions,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
@@ -675,12 +707,14 @@ enum APIEndpoint {
              .powGpsSync,
              .receiptUpload,
              .labelUpload,
+             .equipmentAction,
              .expenseSave,
              .expenseUpdate,
              .receiptAction,
              .bookkeeperAction,
              .salesAction,
              .teamHeadAction,
+             .ottoMissedReviewAction,
              .expenseDelete,
              .expenseLineItemAction,
              .deviceTokenRegister: return "POST"
@@ -694,6 +728,7 @@ enum APIEndpoint {
              .teamHeadBrief,
              .teamHeadBriefReady,
              .teamBrains,
+             .ottoMissedReview,
              .expenseLookup,
              .expenseLineItems,
              .scheduleJobs,

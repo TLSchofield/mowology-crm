@@ -127,6 +127,9 @@
 		10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */; };
 		4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */; };
 		0CA7044D2F494D31FEF380B9 /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */; };
+		DD53BEE16E22C65882476C72 /* OttoMissedReviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */; };
+		7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */; };
+		6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -252,6 +255,9 @@
 		4B2ADD60B022AB02E56DC3DB /* CharlieBrainSplash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieBrainSplash.swift; sourceTree = "<group>"; };
 		12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharlieMorningBrief.swift; sourceTree = "<group>"; };
 		ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
+		8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoMissedReviewViews.swift; sourceTree = "<group>"; };
+		1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentModels.swift; sourceTree = "<group>"; };
+		6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentAddView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -472,6 +478,7 @@
 				6BC53691E52D3DF51426382D /* TeamHeadModels.swift */,
 				03342870F9E7D7D62276A2FF /* LabelCaptureResponse.swift */,
 				5176DEFAC3397210A09818BD /* UnbilledWorkModels.swift */,
+				1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -526,6 +533,8 @@
 				9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */,
 				151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */,
 				877447E5D708DFC06B44A06C /* OttoSuggestionViews.swift */,
+				8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */,
+				6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -736,6 +745,9 @@
 				10022B55CEC3543F2A66E68A /* CharlieBrainSplash.swift in Sources */,
 				4701BA8190A295A4C8177FDD /* CharlieMorningBrief.swift in Sources */,
 				0CA7044D2F494D31FEF380B9 /* ConnectivityMonitor.swift in Sources */,
+				DD53BEE16E22C65882476C72 /* OttoMissedReviewViews.swift in Sources */,
+				7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */,
+				6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

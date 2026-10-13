@@ -5,10 +5,14 @@
  *
  * Runs nightly (recommended: 11 PM) to roll incomplete recurring visits forward one day.
  *
- * For each past-due recurring visit:
- *   - If max rollover days exceeded → skip
- *   - If next day already has a visit for the same plan → skip (collision)
+ * For each past-due recurring visit (MissedVisitRules::rolloverAction()):
+ *   - If the plan ended, max rollover days exceeded, or the next day already has a visit for
+ *     the same plan → skip — EXCEPT a contract or prepaid visit, which is held: left open, not
+ *     moved, and shown in the next Otto missed-visit review (2026-10-13; contract visits used
+ *     to be skipped silently)
  *   - Otherwise → move scheduled_date forward by 1 day
+ * Visits a person already decided in Otto's missed-visit review (migration 1349) are left alone.
+ * NOTE: the cPanel line says 23:00 but the server clock is Eastern — it runs at 20:00 Pacific.
  *
  * Supports both CLI and web POST execution.
  * Web: POST /crm/cron/auto_rollover.php (admin-only)
@@ -99,8 +103,11 @@ try {
         error_log("auto_rollover: Could not read ops_settings: " . $e->getMessage());
     }
 
+    require_once APP_ROOT . '/Modules/Operations/Services/MissedVisitRules.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitTimerStop.php';
+
     // Find all past-due incomplete recurring visits with rollover enabled
-    $stmt = $db->prepare("
+    $rolloverSql = "
         SELECT jv.id AS visit_id, jv.visit_number, jv.plan_id, jv.stop_id,
                jv.scheduled_date, jv.scheduled_time_start, jv.scheduled_time_end,
                jv.assigned_crew_id, jv.status, jv.rollover_count,
@@ -108,19 +115,32 @@ try {
                jp.is_recurring, jp.plan_end_date, jp.status AS plan_status,
                jp.property_id, jp.default_crew_id, jp.plan_number,
                jp.default_time_start, jp.default_time_end, jp.service_package_id,
-               jp.company_id,
+               jp.company_id, jp.contract_id, jp.is_prepaid_bundle, ctr.status AS contract_status,
                sp.auto_rollover, sp.max_rollover_days AS service_max_rollover
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
         LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
+        LEFT JOIN contracts ctr ON ctr.id = jp.contract_id
         WHERE jv.status IN ('scheduled', 'in_progress')
           AND jv.scheduled_date < ?
           AND jp.is_recurring = 1
           AND jp.status = 'active'
           AND COALESCE(sp.auto_rollover, 1) = 1
+          %s
         ORDER BY jv.scheduled_date ASC
-    ");
-    $stmt->execute([$today]);
+    ";
+    // A visit a person decided in Otto's missed-visit review is theirs, not the cron's.
+    $decidedGuard = "AND NOT EXISTS (SELECT 1 FROM otto_missed_review_items omr
+                                      WHERE omr.visit_id = jv.id AND omr.decided_at IS NOT NULL
+                                        AND omr.missed_date = jv.scheduled_date)";
+    try {
+        $stmt = $db->prepare(sprintf($rolloverSql, $decidedGuard));
+        $stmt->execute([$today]);
+    } catch (PDOException $e) {
+        // migration 1349 not run yet
+        $stmt = $db->prepare(sprintf($rolloverSql, ''));
+        $stmt->execute([$today]);
+    }
     $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $results = [
@@ -143,27 +163,8 @@ try {
                 ? (int)$visit['service_max_rollover']
                 : $globalMaxRollover;
 
-            // Check: plan ended?
-            if ($visit['plan_end_date'] && $nextDay > $visit['plan_end_date']) {
-                skipVisit($db, $visitId, $systemUserId,
-                    "Auto-skipped: plan ended on {$visit['plan_end_date']} (originally scheduled {$originalDate})",
-                    $visit, $originalDate);
-                $results['visits_skipped']++;
-                $results['details'][] = "{$visit['visit_number']}: skipped (plan ended)";
-                continue;
-            }
-
-            // Check: max rollover exceeded?
-            if ($rolloverCount >= $effectiveMax) {
-                skipVisit($db, $visitId, $systemUserId,
-                    "Auto-skipped: exceeded max rollover of {$effectiveMax} days (originally scheduled {$originalDate})",
-                    $visit, $originalDate);
-                $results['visits_skipped']++;
-                $results['details'][] = "{$visit['visit_number']}: skipped (max {$effectiveMax} days exceeded, rollover #{$rolloverCount})";
-                continue;
-            }
-
-            // Check: collision with existing visit on next day?
+            // Plan ended / max rollover / next day taken → skip; a contract or prepaid visit is held
+            // open for Otto's review instead (MissedVisitRules::rolloverAction()).
             $collisionStmt = $db->prepare("
                 SELECT id FROM job_visits
                 WHERE plan_id = ? AND scheduled_date = ? AND id != ?
@@ -171,12 +172,24 @@ try {
                 LIMIT 1
             ");
             $collisionStmt->execute([$planId, $nextDay, $visitId]);
-            if ($collisionStmt->fetchColumn()) {
+            $act = MissedVisitRules::rolloverAction([
+                'plan_end_date'     => $visit['plan_end_date'],
+                'rollover_count'    => $rolloverCount,
+                'contract_binds'    => !empty($visit['contract_id']) && !in_array((string)($visit['contract_status'] ?? ''), ['cancelled', 'expired'], true),
+                'is_prepaid_bundle' => !empty($visit['is_prepaid_bundle']),
+            ], $nextDay, $effectiveMax, (bool)$collisionStmt->fetchColumn());
+
+            if ($act['action'] === 'hold') {
+                $results['visits_held'] = ($results['visits_held'] ?? 0) + 1;
+                $results['details'][] = "{$visit['visit_number']}: held open ({$act['why']})";
+                continue;
+            }
+            if ($act['action'] === 'skip') {
                 skipVisit($db, $visitId, $systemUserId,
-                    "Auto-skipped: next occurrence already scheduled for {$nextDay} (originally scheduled {$originalDate})",
+                    "Auto-skipped: {$act['why']} (originally scheduled {$originalDate})",
                     $visit, $originalDate);
                 $results['visits_skipped']++;
-                $results['details'][] = "{$visit['visit_number']}: skipped (collision on {$nextDay})";
+                $results['details'][] = "{$visit['visit_number']}: skipped ({$act['why']}, rollover #{$rolloverCount})";
                 continue;
             }
 
@@ -262,14 +275,14 @@ try {
     recordCronRun(
         'auto_rollover',
         $hasErrors ? 'warning' : 'success',
-        "{$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped",
+        "{$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped, " . ($results['visits_held'] ?? 0) . " held for review",
         null,
         $hasErrors ? implode('; ', array_slice($results['errors'], 0, 3)) : null,
         !$isCli
     );
 
     if ($isCli) {
-        echo "Auto-rollover complete: {$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped\n";
+        echo "Auto-rollover complete: {$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped, " . ($results['visits_held'] ?? 0) . " held for review\n";
         foreach ($results['details'] as $detail) {
             echo "  - {$detail}\n";
         }
@@ -335,45 +348,10 @@ function skipVisit(PDO $db, int $visitId, int $userId, string $reason, array $vi
 
 /**
  * Stop all active job time entries for a visit (rolling over an in_progress visit — nobody tapped
- * stop). Same rules as the orphan-timer cron (2026-10-12 review: this used to close at NOW(),
- * uncapped and unflagged, so a timer left running overnight paid the whole night):
- *   minutes capped at the owner's shift (else 12 h) — TimeclockRules::cappedTimerMinutes();
- *   end_time = start + those minutes; auto_stopped + flagged_anomaly set for the office to review;
- *   each owner's week recalculated (approved weeks are left alone by recalculateTimesheetTotals()).
+ * stop). Capped, flagged and recalculated — VisitTimerStop::stopForVisit() (shared with Otto's
+ * missed-visit review).
  */
 function stopActiveTimersForVisit(PDO $db, int $visitId): void {
-    require_once APP_ROOT . '/Modules/Team/Services/TimeclockFunctions.php';
-    require_once APP_ROOT . '/Modules/Team/Services/TimeclockRules.php';
-    require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
-
-    $stmt = $db->prepare("
-        SELECT jte.id, jte.user_id, jte.start_time,
-               COALESCE(tce.total_minutes,
-                   CASE WHEN tce.status = 'active' THEN TIMESTAMPDIFF(MINUTE, tce.clock_in, NOW()) ELSE NULL END
-               ) AS shift_max_minutes,
-               TIMESTAMPDIFF(MINUTE, jte.start_time, NOW()) AS raw_minutes
-        FROM job_time_entries jte
-        LEFT JOIN time_clock_entries tce ON tce.id = jte.clock_entry_id
-        WHERE jte.visit_id = ? AND jte.status = 'active' AND jte.end_time IS NULL
-    ");
-    $stmt->execute([$visitId]);
-    $upd = $db->prepare("
-        UPDATE job_time_entries
-        SET end_time         = DATE_ADD(start_time, INTERVAL ? MINUTE),
-            duration_minutes = ?,
-            status           = 'completed',
-            auto_stopped     = 1,
-            flagged_anomaly  = 1,
-            notes            = CONCAT(COALESCE(notes, ''), ?)
-        WHERE id = ? AND status = 'active' AND end_time IS NULL
-    ");
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
-        $raw    = (int)$t['raw_minutes'];
-        $shift  = $t['shift_max_minutes'] !== null ? (int)$t['shift_max_minutes'] : null;
-        $capped = TimeclockRules::cappedTimerMinutes($raw, $shift, 12);
-        $note   = ' [Auto-stopped by rollover cron — nobody stopped it; check the time]'
-                . ($capped < $raw ? ' [auto-capped: ' . $raw . ' min → ' . $capped . ' min]' : '');
-        $upd->execute([$capped, $capped, $note, (int)$t['id']]);
-        TimeEntryGuard::recalcWeeks((int)$t['user_id'], [(string)$t['start_time']]);
-    }
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitTimerStop.php';
+    VisitTimerStop::stopForVisit($db, $visitId, 'rollover cron');
 }
