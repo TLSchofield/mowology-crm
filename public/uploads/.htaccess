@@ -15,3 +15,13 @@ Options -Indexes
 # Belt and braces: nothing in here is ever run as a script.
 RemoveHandler .php .php3 .php4 .php5 .php7 .php8 .phtml .phar
 RemoveType .php .php3 .php4 .php5 .php7 .php8 .phtml .phar
+
+# SVGs are never rendered as documents from here (Fable review 2026-10-12): an SVG opened
+# directly runs its script in the mowology.ca origin. Sandbox it and force a download.
+<FilesMatch "(?i)\.svgz?$">
+    <IfModule mod_headers.c>
+        Header always set Content-Security-Policy "sandbox"
+        Header always set Content-Disposition "attachment"
+        Header always set X-Content-Type-Options "nosniff"
+    </IfModule>
+</FilesMatch>

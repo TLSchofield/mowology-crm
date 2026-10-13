@@ -319,9 +319,9 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                         <div class="mw-logo-upload-zone" id="logoUploadZone" onclick="document.getElementById('logoFileInput').click();">
                             <i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>
                             <p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>
-                            <small class="text-muted">PNG, JPG, SVG — max 2 MB</small>
+                            <small class="text-muted">PNG or JPG — max 2 MB</small>
                         </div>
-                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;" onchange="handleLogoUpload(this)">
+                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg" style="display:none;" onchange="handleLogoUpload(this)">
                         <input type="hidden" id="logo_path">
                     </div>
                     <div class="mb-3">
@@ -2043,9 +2043,9 @@ function handleLogoUpload(input) {
     if (!file) return;
 
     // Validate
-    var validTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+    var validTypes = ['image/png', 'image/jpeg']; // SVG refused server-side (can carry script)
     if (validTypes.indexOf(file.type) === -1) {
-        alert('Please select a PNG, JPG, or SVG file.');
+        alert('Please select a PNG or JPG file. (SVG logos: export a PNG first.)');
         input.value = '';
         return;
     }
@@ -2094,7 +2094,7 @@ function resetLogoZone() {
     var zone = document.getElementById('logoUploadZone');
     zone.innerHTML = '<i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>' +
         '<p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>' +
-        '<small class="text-muted">PNG, JPG, SVG — max 2 MB</small>';
+        '<small class="text-muted">PNG or JPG — max 2 MB</small>';
     if (typeof feather !== 'undefined') feather.replace();
 }
 
