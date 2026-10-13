@@ -72,6 +72,20 @@ Finds any `job_time_entries` with `status='active'` and `start_time < NOW() - IN
 
 `timesheet-detail.php` flags any day where `total_job_min > total_shift_min` as an anomaly. Shows an orange warning bar above the day's entries. Admin can void or correct individual entries inline without leaving the page.
 
+### Breaks (2026-10-13, migration 1358)
+- **Start break / End break** on the Time Clock screen (iPhone break card; web/Android topbar widget
+  and the My Timesheet panel). People only — the truck login gets no button. `BreakService::start()` /
+  `BreakService::end()` via `time-clock.php` (session) and `clock.php` (JWT), actions `break_start` /
+  `break_end` with `client_time` (the tap) so an offline-queued tap files at the right time.
+- A tapped break is a `time_clock_breaks` row (`source = 'manual'`, `break_end` NULL while running).
+  Location sharing pauses and the server refuses fixes inside it. Clock-out ends a running break.
+- GPS-found breaks (`source = 'gps'`, nightly) are the backup; one that overlaps a tap is dropped.
+- **Pay:** `ops_settings.breaks_paid` (Time Clock Settings → Breaks). Paid (Mowology) = no change.
+  Unpaid = tapped break minutes come off each day **before** the BC daily/weekly overtime split —
+  payroll summary + CSV, timesheet detail, `recalculateTimesheetTotals()`, My Timesheet.
+- **BC flag:** a shift over 5 h with no 30-min break → `time_clock_entries.break_note` at clock-out
+  and nightly; shown on Otto's card (`break_flags_enabled` = 1).
+
 ## Schema
 
 ```sql
