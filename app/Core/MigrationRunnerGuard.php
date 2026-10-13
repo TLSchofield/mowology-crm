@@ -26,6 +26,19 @@ if (!function_exists('migrationRunnerGuard')) {
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $token = (string)($_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
         if ($method === 'POST' && $token !== '' && function_exists('verifyCSRFToken') && verifyCSRFToken($token)) {
+            // Schema changes run as the schema-owning MySQL user when secrets.php names one
+            // (DB_DDL_*); the app's everyday user is data-only (Fable audit #27, 2026-10-12).
+            if (class_exists('Database') && method_exists('Database', 'useDdlForRequest')) {
+                Database::useDdlForRequest();
+            }
+            // Ada watches migration runs (Fable audit #25d).
+            if (function_exists('logActivityExtended')) {
+                logActivityExtended(isset($u['id']) ? (int)$u['id'] : null, 'Migration run',
+                    'Runner ' . basename((string)($_SERVER['SCRIPT_NAME'] ?? 'migration')) . ' confirmed and started');
+            } elseif (function_exists('logActivity') && isset($u['id'])) {
+                logActivity((int)$u['id'], null, 'Migration run',
+                    'Runner ' . basename((string)($_SERVER['SCRIPT_NAME'] ?? 'migration')) . ' confirmed and started');
+            }
             return;
         }
         http_response_code($method === 'POST' ? 403 : 200);

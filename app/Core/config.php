@@ -103,23 +103,77 @@ if (!function_exists('csrf_verify')) {
 
 /**
  * PDO Database singleton
+ *
+ * Two MySQL users (Fable security audit #27, 2026-10-12):
+ *   DB_USER / DB_PASS              — the app's everyday user. On production this should be a
+ *                                    DATA-ONLY user (SELECT, INSERT, UPDATE, DELETE, EXECUTE,
+ *                                    LOCK TABLES, CREATE TEMPORARY TABLES) so an SQL injection or
+ *                                    a stolen session cannot DROP or ALTER anything.
+ *   DB_DDL_HOST / DB_DDL_USER / DB_DDL_PASS (optional, secrets.php)
+ *                                  — the schema-owning user, used ONLY by the migration runners
+ *                                    (migrationRunnerGuard → Database::useDdlForRequest(), and
+ *                                    migrations-manager.php) and the few admin repair tools that
+ *                                    must change the schema (Database::ddl()).
+ * With no DB_DDL_* defined, ddl() is simply the normal connection — nothing changes.
  */
 if (!class_exists('Database')) {
     class Database
     {
         private static ?PDO $pdo = null;
+        private static ?PDO $ddl = null;
 
         public static function pdo(): PDO
         {
             if (self::$pdo instanceof PDO) {
                 return self::$pdo;
             }
+            return self::$pdo = self::connect(DB_HOST, DB_USER, DB_PASS);
+        }
 
+        /** True when secrets.php names a separate schema-owning user. */
+        public static function hasDdlUser(): bool
+        {
+            return defined('DB_DDL_USER') && (string)DB_DDL_USER !== '' && defined('DB_DDL_PASS');
+        }
+
+        /** The connection allowed to CREATE / ALTER / DROP — the normal one when no DDL user is set. */
+        public static function ddl(): PDO
+        {
+            if (!self::hasDdlUser()) {
+                return self::pdo();
+            }
+            if (self::$ddl instanceof PDO) {
+                return self::$ddl;
+            }
+            $host = defined('DB_DDL_HOST') && (string)DB_DDL_HOST !== '' ? DB_DDL_HOST : DB_HOST;
+            return self::$ddl = self::connect($host, DB_DDL_USER, DB_DDL_PASS);
+        }
+
+        /**
+         * For the rest of THIS request, getDB() / Database::pdo() return the DDL connection.
+         * Called by migrationRunnerGuard() once an admin has confirmed a migration run, so the
+         * 150-odd run-migration-*.php scripts need no edit.
+         */
+        public static function useDdlForRequest(): void
+        {
+            if (self::hasDdlUser()) {
+                self::$pdo = self::ddl();
+            }
+        }
+
+        private static function connect(
+            string $host,
+            string $user,
+            // Kept out of stack traces (PHP 8.2+; a comment to older PHP — keep it on its own line).
+            #[\SensitiveParameter]
+            string $pass
+        ): PDO
+        {
             $charset = defined('DB_CHARSET') ? DB_CHARSET : 'utf8mb4';
 
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
-                DB_HOST,
+                $host,
                 DB_NAME,
                 $charset
             );
@@ -130,15 +184,15 @@ if (!class_exists('Database')) {
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ];
 
-            self::$pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+            $pdo = new PDO($dsn, $user, $pass, $options);
 
             // Align MySQL session timezone with PHP (America/Vancouver / Pacific).
             // Use UTC offset instead of named timezone — shared hosting MySQL often
             // lacks the timezone name tables loaded, causing "Unknown time zone" errors.
             $utcOffset = date('P'); // e.g. "-08:00" or "-07:00" (DST-aware from PHP)
-            self::$pdo->exec("SET time_zone = '" . $utcOffset . "'");
+            $pdo->exec("SET time_zone = '" . $utcOffset . "'");
 
-            return self::$pdo;
+            return $pdo;
         }
     }
 }

@@ -1341,7 +1341,7 @@ function cms_invalidateAllPageHtmlCache(): void
 {
     try {
         $db = getDB();
-        $db->exec("TRUNCATE TABLE cms_page_cache");
+        $db->exec("DELETE FROM cms_page_cache");   // not TRUNCATE: needs DROP, which the data-only user lacks (#27)
     } catch (\Throwable $e) {
         // Silently skip
     }

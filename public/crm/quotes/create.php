@@ -144,14 +144,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please add at least one line item.';
         } else {
             try {
-                // Ensure required columns exist (migrations 930, contract)
-                $schemaPatch = [
-                    "ALTER TABLE `quote_line_items` ADD COLUMN `section_name` VARCHAR(100) NULL DEFAULT NULL AFTER `sort_order`",
-                    "ALTER TABLE `quotes` ADD COLUMN `is_contract` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`",
-                ];
-                foreach ($schemaPatch as $ddl) {
-                    try { $db->exec($ddl); } catch (\Throwable $ignore) {}
-                }
+                // section_name / is_contract exist on production (checked 2026-10-12); the old
+                // ALTER-on-every-save is gone — the app's MySQL user is data-only (Fable audit #27).
 
                 $db->beginTransaction();
 

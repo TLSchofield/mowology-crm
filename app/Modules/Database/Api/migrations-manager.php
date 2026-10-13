@@ -177,7 +177,9 @@ function handleListMigrations() {
  * Execute a single migration
  */
 function handleExecuteMigration($input, $user) {
-    $db = getDB();
+    // Schema changes run as the schema-owning MySQL user when secrets.php defines DB_DDL_*;
+    // otherwise this is the normal connection (Fable audit #27, 2026-10-12).
+    $db = Database::ddl();
     $filename = $input['filename'] ?? null;
 
     if (!$filename) {
@@ -245,6 +247,9 @@ function handleExecuteMigration($input, $user) {
             VALUES (?, ?, 'success', ?, 'sql')
         ");
         $logStmt->execute([$filename, $user['id'], $checksum]);
+        if (function_exists('logActivityExtended')) {   // Ada watches migration runs (#25d)
+            logActivityExtended((int)$user['id'], 'Migration run', 'Applied ' . $filename . ' (' . $executed . ' statements)');
+        }
 
         echo json_encode([
             'success' => true,
@@ -259,6 +264,9 @@ function handleExecuteMigration($input, $user) {
             VALUES (?, ?, 'failed', ?, 'sql')
         ");
         $logStmt->execute([$filename, $user['id'], $e->getMessage()]);
+        if (function_exists('logActivityExtended')) {
+            logActivityExtended((int)$user['id'], 'Migration run', 'FAILED ' . $filename . ': ' . mb_substr($e->getMessage(), 0, 300));
+        }
 
         http_response_code(500);
         echo json_encode([

@@ -101,16 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $rlWindow    = 900;   // 15 minutes
                     $rlMax       = 10;    // submissions, not verification calls
                     $rlWindowTs  = date('Y-m-d H:i:s', time() - $rlWindow);
-                    // Ensure table exists (RecaptchaVerify may not have run yet if token absent)
-                    $rlDb->exec("
-                        CREATE TABLE IF NOT EXISTS recaptcha_rate_limit (
-                            id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                            ip            VARCHAR(45)  NOT NULL,
-                            window_start  DATETIME     NOT NULL,
-                            attempt_count INT UNSIGNED NOT NULL DEFAULT 1,
-                            INDEX idx_ip_window (ip, window_start)
-                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                    ");
+                    // recaptcha_rate_limit comes from migration 1346 (no runtime DDL — Fable audit #27)
                     $rlDb->prepare("DELETE FROM recaptcha_rate_limit WHERE window_start < ?")
                          ->execute([$rlWindowTs]);
                     $rlStmt = $rlDb->prepare(

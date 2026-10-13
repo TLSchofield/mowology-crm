@@ -3001,19 +3001,8 @@ function recordCronRun(
     try {
         $db = getDB();
 
-        // Idempotent DDL — creates table only if it doesn't exist yet
-        $db->exec("CREATE TABLE IF NOT EXISTS cron_runs (
-            id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-            cron_key      VARCHAR(64)  NOT NULL,
-            triggered_by  ENUM('cron','web') NOT NULL DEFAULT 'cron',
-            status        ENUM('success','warning','error') NOT NULL DEFAULT 'success',
-            duration_ms   INT UNSIGNED NULL,
-            summary       VARCHAR(512) NULL,
-            error_message TEXT         NULL,
-            ran_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            INDEX idx_cron_key_ran_at (cron_key, ran_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+        // cron_runs comes from migration 900. No CREATE TABLE here: the app's MySQL user is
+        // data-only (Fable audit #27), and a refused CREATE would have dropped every run record.
 
         $stmt = $db->prepare("
             INSERT INTO cron_runs (cron_key, triggered_by, status, duration_ms, summary, error_message, ran_at)

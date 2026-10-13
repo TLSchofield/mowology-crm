@@ -169,7 +169,8 @@ try {
     }
 
     // ── Step 2: Truncate and re-insert ─────────────────────────────────
-    $db->exec("TRUNCATE TABLE contact_product_history");
+    // DELETE, not TRUNCATE: TRUNCATE needs the DROP privilege the data-only DB user lacks (#27).
+    $db->exec("DELETE FROM contact_product_history");
 
     $insertStmt = $db->prepare("
         INSERT INTO contact_product_history

@@ -33,7 +33,8 @@ require_once APP_ROOT . '/Core/AdminActionGuard.php';
 adminActionGuard('clear the system log');
 
 $db = getDB();
-$db->exec("TRUNCATE TABLE system_log");
+// DELETE, not TRUNCATE: TRUNCATE needs the DROP privilege the data-only user lacks (#27).
+$db->exec("DELETE FROM system_log");
 // Who cleared it — kept outside system_log (which was just emptied).
 $uid = (int)($user['id'] ?? 0);
 logActivity($uid, null, 'system_log_cleared', 'System log cleared by ' . ($user['full_name'] ?? $user['email'] ?? ('user ' . $uid)));

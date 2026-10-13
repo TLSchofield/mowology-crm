@@ -235,7 +235,9 @@ function ensureMeasurementTypeExists(PDO $db, string $type): void {
                 // Add the new value to the ENUM
                 $existing[] = $type;
                 $enumStr = "'" . implode("','", $existing) . "'";
-                $db->exec("ALTER TABLE property_measurements MODIFY COLUMN measurement_type ENUM({$enumStr}) NOT NULL DEFAULT 'other'");
+                // Until migration 1345 (ENUM → VARCHAR) has run: the ALTER needs the schema-owning
+                // MySQL user — the app's everyday user is data-only (Fable audit #27).
+                Database::ddl()->exec("ALTER TABLE property_measurements MODIFY COLUMN measurement_type ENUM({$enumStr}) NOT NULL DEFAULT 'other'");
             }
         }
     } catch (Exception $e) {

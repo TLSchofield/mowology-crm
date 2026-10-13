@@ -316,7 +316,7 @@ final class RecaptchaVerify
 
         try {
             $db = getDB();
-            self::ensureRateLimitTable($db);
+            // Table from migration 1346 — no runtime DDL (data-only MySQL user, Fable audit #27).
 
             $windowStart = date('Y-m-d H:i:s', time() - RECAPTCHA_RATE_LIMIT_WINDOW);
 
@@ -366,25 +366,6 @@ final class RecaptchaVerify
             return true;
         }
     }
-
-    /**
-     * Create the rate limit table if it doesn't exist.
-     * Called once per request (cheap — CREATE TABLE IF NOT EXISTS hits cache).
-     */
-    private static function ensureRateLimitTable(\PDO $db): void
-    {
-        // Run outside any active transaction — DDL auto-commits in MySQL
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS recaptcha_rate_limit (
-                id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                ip            VARCHAR(45)  NOT NULL,
-                window_start  DATETIME     NOT NULL,
-                attempt_count INT UNSIGNED NOT NULL DEFAULT 1,
-                INDEX idx_ip_window (ip, window_start)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-    }
-
 
     // ── Audit logging ──────────────────────────────────────────────────────
 
