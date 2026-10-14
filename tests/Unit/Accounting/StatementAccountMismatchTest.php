@@ -14,7 +14,16 @@ class StatementAccountMismatchTest extends TestCase
         $db->exec("CREATE TABLE bank_statement_accounts (account_id INTEGER, bank_name_match TEXT, kind TEXT)");
         $db->exec("INSERT INTO chart_of_accounts VALUES (2, '1010', 'Chequing Account', 'bank', NULL), (86, '1025', 'GST Reserves', 'bank', NULL)");
         $db->exec("INSERT INTO bank_statement_accounts VALUES (2, 'Vancity ••4290', 'bank'), (86, 'Vancity ••6827', 'bank')");
+        $db->exec("CREATE TABLE bank_statement_sections (session_id INTEGER, account_suffix TEXT, bank_account_id INTEGER)");
+        $db->exec("INSERT INTO bank_statement_sections VALUES (64, '6801', 2), (78, '6801', 2), (70, '1111', 2), (71, '1111', 86)");
         return new BankImportService($db);
+    }
+
+    public function test_digits_learned_from_past_statements_when_they_agree(): void
+    {
+        $s = $this->svc();
+        $this->assertStringStartsWith('This statement is for 1010 Chequing Account (••6801)', (string)$s->statementAccountMismatch([['suffix' => '6801', 'kind' => 'primary']], 86));
+        $this->assertNull($s->statementAccountMismatch([['suffix' => '1111', 'kind' => 'primary']], 86), 'past imports disagree: no verdict');
     }
 
     public function test_wrong_account_is_refused_by_name(): void

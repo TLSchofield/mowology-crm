@@ -2195,7 +2195,8 @@ class BankImportService
     /** Chart ids of every bank account (sub_type bank) — where a statement line may be routed. */
     /**
      * The statement says whose it is (2026-10-14): when its primary section's last four digits name
-     * exactly one bank account and the account picked for the upload is a different one, the import
+     * exactly one bank account (the statements list, the chart, or — when every earlier import agrees —
+     * the account past statements with those digits were filed under) and the account picked for the upload is a different one, the import
      * is refused. A session filed under the wrong account put GST Reserves lines on chequing.
      * Returns the refusal message, or null when the statement doesn't say or agrees.
      */
@@ -2208,7 +2209,7 @@ class BankImportService
             if (!is_array($x) || ($x['kind'] ?? '') !== 'primary') continue;
             $sfx = (string)($x['suffix'] ?? '');
             if (!preg_match('/^\d{4}$/', $sfx)) continue;
-            $id = $this->accountForSuffix($sfx, $bankIds);
+            $id = $this->accountForSuffix($sfx, $bankIds) ?? $this->accountFromPastSections($sfx, $bankIds);
             if ($id !== null) $found[$id] = $sfx;
         }
         if (count($found) !== 1) return null;
@@ -2221,6 +2222,19 @@ class BankImportService
         };
         return sprintf('This statement is for %s (••%s), but the import was set to %s. Pick %s and import again.',
             $name($stmtId), $found[$stmtId], $name($chosenAccountId), $name($stmtId));
+    }
+
+    /** The one bank account every earlier import recorded these four digits under, or null (none, or they disagree). */
+    private function accountFromPastSections(string $sfx, array $bankIds): ?int
+    {
+        try {
+            $s = $this->db->prepare("SELECT DISTINCT bank_account_id FROM bank_statement_sections WHERE account_suffix = ? AND bank_account_id IS NOT NULL");
+            $s->execute([$sfx]);
+            $ids = array_values(array_filter(array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN)), static fn($i) => in_array($i, $bankIds, true)));
+            return count($ids) === 1 ? $ids[0] : null;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function bankAccountIds(): array
