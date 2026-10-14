@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v76';
+var CACHE_VERSION = 'mw-v77';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -706,6 +706,9 @@ function networkFirst(request, cacheName) {
     // is not 'follow'"). If a redirect occurred, fall through to cache fallback
     // so the browser's own redirect-following takes over for the next request.
     if (response.redirected) {
+      // Sent to the login page: the login ran out — say so (401), not "offline" (2026-10-14: an expired
+      // crew login read as no signal, and the page's scripts acted on the wrong problem).
+      if (new URL(response.url).pathname.indexOf('/loginAuth/') === 0) return loginExpired();
       return caches.match(request).then(function(cached) {
         return cached || offlinePage();
       });
@@ -838,6 +841,12 @@ function trimTileCache(cache) {
   }).catch(function() {
     _trimRunning = false;
   });
+}
+
+function loginExpired() {
+  return new Response(JSON.stringify({ success: false, ok: false, login_required: true,
+                                       error: 'Your login has expired \u2014 sign in again.' }),
+                      { status: 401, headers: { 'Content-Type': 'application/json' } });
 }
 
 function offlinePage() {

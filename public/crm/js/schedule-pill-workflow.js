@@ -1304,6 +1304,13 @@
                 });
             }
 
+            // Login expired (the service worker answers 401 for a redirect to the login page): keep the
+            // photo; it goes up once they sign in again.
+            if (status === 401) {
+                showToast('Your login has expired \u2014 sign in again. Your photo is saved.');
+                return queueAfterFailure(visitId, file, category, takenAt, function(ok, url) { callback(ok, url); });
+            }
+
             // Server errors (5xx): keep the photo and retry later — a photo is never lost to a bad moment
             // on the server (2026-10-14; it used to be dropped with a toast).
             if (status >= 500) {
