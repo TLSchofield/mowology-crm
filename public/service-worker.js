@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v75';
+var CACHE_VERSION = 'mw-v76';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -41,6 +41,10 @@ var APP_SHELL = [
   '/crm/css/mowology-a11y.min.css',
   '/crm/css/mobile-cards.min.css?v=20260419a',
   '/crm/css/mobile-nav.min.css?v=20260318a',
+  '/crm/css/mw-timesheet.css?v=20261008a',
+  '/crm/css/crew-base.css',
+  '/crm/css/crew-brand.css',
+  '/crm/js/mw-ui-shim.js',
   '/crm/css/mw-sync-status.min.css',
   '/crm/css/mw-skeleton.min.css',
   '/crm/js/app.min.js',
