@@ -27,7 +27,7 @@ class ReceiptThumbTest extends TestCase
 
         $t = ReceiptThumb::ensure($root, 7, $src, 'image/jpeg');
         $this->assertNotNull($t);
-        $this->assertStringStartsWith($root . '/_media/thumbs/receipt-7-', $t);
+        $this->assertStringStartsWith($root . '/uploads/receipts/thumbs/receipt-7-', $t);
         $this->assertSame([213, 320], array_slice(getimagesize($t), 0, 2));
         $this->assertLessThan(filesize($src), filesize($t));
         $m = filemtime($t);

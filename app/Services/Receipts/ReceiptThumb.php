@@ -5,7 +5,7 @@
  * Tim: "receipt images take a long time to appear and are sometimes missing". The receipts list
  * showed every row's FULL phone photo (median 1.6 MB, up to 2.7 MB, 366 receipts, no thumbnails
  * existed) through serve-receipt.php for a 40 px box — about 40 MB per page. serve-receipt.php
- * ?thumb=1 now serves a 320 px JPEG made once with GD and cached under /_media/thumbs/; the list
+ * ?thumb=1 now serves a 320 px JPEG made once with GD and cached under /uploads/receipts/thumbs/ (no direct web access); the list
  * asks only for that, lazily. The full photo is still what the lightbox opens.
  *
  * The cache file is named by media id and the source's mtime + size, so a re-saved receipt gets
@@ -15,7 +15,7 @@ class ReceiptThumb
 {
     public const WIDTH = 320;
     public const QUALITY = 72;
-    public const DIR = '/_media/thumbs';
+    public const DIR = '/uploads/receipts/thumbs';   // denied to direct HTTP like the originals (uploads/receipts/.htaccess)
 
     /** Pure: can this mime type be thumbnailed with GD? */
     public static function supports(string $mime): bool
