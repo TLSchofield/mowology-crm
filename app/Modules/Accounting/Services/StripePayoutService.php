@@ -20,7 +20,7 @@
  * the reason. Booking a payout:
  *   - the bank line becomes a reconciled transfer (out of revenue), linked to the payout;
  *   - each invoice's own income row is marked reconciled;
- *   - one fee line is added on 6850 Payment Processing Fees and posted to the journal;
+ *   - one fee line is added on 6800 Bank Charges & Fees and posted to the journal;
  *   - the review is recorded so it leaves Penny's list. Append-only: nothing is deleted.
  * Locked months are refused.
  *
@@ -217,9 +217,11 @@ class StripePayoutService
 
     private function feeAccountId(): int
     {
-        $id = $this->db->query("SELECT id FROM chart_of_accounts WHERE code = '6850' AND is_active = 1 LIMIT 1")->fetchColumn()
-           ?: $this->db->query("SELECT id FROM chart_of_accounts WHERE type = 'expense' AND is_active = 1 AND (name LIKE '%processing fee%' OR name LIKE '%bank charge%') LIMIT 1")->fetchColumn();
-        if (!$id) throw new RuntimeException('No 6850 Payment Processing Fees account');
+        // 6800 Bank Charges & Fees (merchant fees). Never 6850 — on production that is Meals &
+        // Entertainment (migration 1019); 82 Stripe fees landed there before 2026-10-13.
+        $id = $this->db->query("SELECT id FROM chart_of_accounts WHERE code = '6800' AND is_active = 1 LIMIT 1")->fetchColumn()
+           ?: $this->db->query("SELECT id FROM chart_of_accounts WHERE type = 'expense' AND is_active = 1 AND (name LIKE '%processing fee%' OR name LIKE '%bank charge%') AND name NOT LIKE '%meal%' LIMIT 1")->fetchColumn();
+        if (!$id) throw new RuntimeException('No 6800 Bank Charges & Fees account');
         return (int)$id;
     }
 

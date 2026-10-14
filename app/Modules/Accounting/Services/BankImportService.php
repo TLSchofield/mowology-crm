@@ -3790,12 +3790,13 @@ class BankImportService
     {
         $stmt = $this->db->query("
             SELECT id FROM chart_of_accounts
-            WHERE (code = '6850'
+            WHERE (code = '6800'
                    OR name LIKE '%processing fee%'
                    OR name LIKE '%payment processing%'
                    OR name LIKE '%bank charge%')
+              AND name NOT LIKE '%meal%'          -- 6850 is Meals & Entertainment on production (2026-10-13)
               AND type = 'expense' AND is_active = 1
-            ORDER BY CASE WHEN code = '6850' THEN 0 ELSE 1 END
+            ORDER BY CASE WHEN code = '6800' THEN 0 ELSE 1 END
             LIMIT 1
         ");
         $id = $stmt->fetchColumn();
@@ -3804,7 +3805,7 @@ class BankImportService
         $this->db->prepare("
             INSERT INTO chart_of_accounts
                 (code, name, type, sub_type, normal_balance, is_active, display_order)
-            VALUES ('6850', 'Payment Processing Fees', 'expense', 'operating', 'debit', 1, 685)
+            VALUES ('6800', 'Bank Charges & Fees', 'expense', 'banking', 'debit', 1, 510)
         ")->execute();
         return (int)$this->db->lastInsertId();
     }
