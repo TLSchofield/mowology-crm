@@ -124,6 +124,23 @@ After the work, use `/obsidian` (bare, no arguments) to log what changed back in
 
 ---
 
+## 1c-bis. Independent Codex review before risky releases (Tim, 2026-10-14)
+
+**Codex reviews, Claude edits.** Before deploying a change that touches money (invoices, payments, receipts, the ledger, payroll), the crew apps (schedule page, photos, GPS, the Android/iOS apps), client-facing pages (portal, public forms), or auth and permissions, run:
+
+```bash
+scripts/codex-review.sh <name> <prompt-file> <changed files or dirs>
+```
+
+The script copies **code only** to a temp folder, replaces every client, company and property name from the live CRM with `[client]`, stops if anything looks like a secret, and runs `codex exec` read-only. Never point Codex at the repo itself: docs, tests and plans hold client data.
+
+- **Check every finding against the real code** before acting on it. Say which findings were real and which weren't.
+- **Fix the real ones** through the normal path: test, local site, deploy, verify.
+- **Small or easily reversed changes don't need it.**
+- **Cost:** it runs on Tim's ChatGPT plan, not Claude usage.
+
+The first trial (Android camera, 2026-10-14) found 5 real defects that Claude had missed.
+
 ## 1d. Evidence-Gated Debugging — Three Rules
 
 Before touching a bug or building a fix, apply these three rules in order:
