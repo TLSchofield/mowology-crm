@@ -214,6 +214,9 @@
 
         // Listen for hero promotion (GPS arrival) — auto-clock-in single-visit cards
         document.addEventListener('mw-hero-promoted', function(e) {
+            // GPS moved this card to the top and opened it: draw its Before / After / More strip now.
+            // Only a tap used to draw it, so a GPS-opened card showed no photo spot (Tim, 2026-10-14).
+            if (e.detail && e.detail.card) renderStripsForCard(e.detail.card);
             autoClockInSingleVisit(e.detail.card);
         });
 
@@ -253,6 +256,7 @@
                     scrollArea.insertBefore(card, scrollArea.firstElementChild);
                     scrollArea.scrollTop = 0;
                 }
+                renderStripsForCard(card);   // its photo strip, like a tapped card (2026-10-14)
             }
 
             // Sync shared footer and per-visit section footer to timer state

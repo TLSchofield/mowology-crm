@@ -699,8 +699,10 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                     <!-- Photo strip for this specific visit -->
                     <div class="mw-mc-photo-strips" data-visit-strip="<?php echo $evId; ?>"></div>
 
-                    <?php if (!$evDone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                    <!-- Per-visit action footer — only visible when card is expanded -->
+                    <?php if ($multiVisit && !$evDone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                    <!-- Per-visit action footer — only visible when card is expanded. Only for stops with
+                         several visits: a one-visit stop has the card footer (Start / Complete / Skip / Move),
+                         and both showed as two Start / Complete rows (Tim, 2026-10-14). -->
                     <div class="mw-mc-pv-footer" data-pv-footer="<?php echo $evId; ?>">
                         <div class="mw-mc-footer-timer" data-pv-timer="<?php echo $evId; ?>" style="display:none;">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>

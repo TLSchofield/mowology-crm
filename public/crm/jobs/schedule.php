@@ -3841,7 +3841,7 @@ if ($__srOn): ?>
 <script>window.MW_SR = { canAdd: <?= userHasPermission('jobs.edit') ? 'true' : 'false' ?> };</script>
 <script src="<?= _av('/crm/js/mw-special-request.js') ?>" defer></script>
 <?php endif; ?>
-<script src="../js/schedule-pill-workflow.js?v=20261012csrf" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20261014photos" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
