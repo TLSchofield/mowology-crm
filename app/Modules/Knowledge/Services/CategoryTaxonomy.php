@@ -31,7 +31,11 @@ final class CategoryTaxonomy
         'insurance'        => 'Insurance',
         'utilities'        => 'Utilities & phone',
         'other'            => 'Other',
+        'personal'         => 'Personal (not business)',   // never shared — see PRIVATE_CODES
     ];
+
+    /** Codes that describe this tenant's owner, not the vendor: never sent to the commons (2026-10-13). */
+    public const PRIVATE_CODES = ['personal'];
 
     /** Default bridge for an install that uses Mowology's original 14 categories. */
     public const DEFAULT_MAP = [
@@ -51,6 +55,7 @@ final class CategoryTaxonomy
         'insurance'        => 'Overhead',
         'utilities'        => 'Overhead',
         'other'            => 'Other',
+        'personal'         => 'Personal',
     ];
 
     private ?PDO $db;

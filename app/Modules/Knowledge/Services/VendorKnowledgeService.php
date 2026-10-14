@@ -173,7 +173,8 @@ final class VendorKnowledgeService
             }
             // Category as a neutral code (this tenant's name never travels).
             $code = $this->taxonomy->fromLocal($e['accounting_category'] ?: $e['default_accounting_category']);
-            if ($code) $facts[] = ['fact' => 'category_default', 'value' => ['code' => $code]];
+            // "Personal" is about the owner (Tim's Netflix on the business card), not the vendor: never shared.
+            if ($code && !in_array($code, CategoryTaxonomy::PRIVATE_CODES, true)) $facts[] = ['fact' => 'category_default', 'value' => ['code' => $code]];
             // Tax treatment.
             $gstExempt = !empty($e['gst_exempt']) || ((float)$e['amount'] > 0 && (float)$e['gst_amount'] == 0.0 && !empty($e['gst_exempt']));
             $facts[] = ['fact' => 'tax_treatment', 'value' => ['gst_exempt' => (bool)$gstExempt]];

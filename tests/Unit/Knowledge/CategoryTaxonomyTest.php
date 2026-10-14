@@ -47,4 +47,11 @@ final class CategoryTaxonomyTest extends TestCase
             }
         }
     }
+
+    public function testPersonalHasACodeButIsNeverShared(): void
+    {
+        $t = new CategoryTaxonomy(null);
+        $this->assertSame('personal', $t->fromLocal('Personal'));
+        $this->assertContains('personal', CategoryTaxonomy::PRIVATE_CODES);
+    }
 }
