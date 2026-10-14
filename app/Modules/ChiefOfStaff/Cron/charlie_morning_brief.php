@@ -112,6 +112,30 @@ try {
     if ($u['sent'] > 0) $parts[] = $u['sent'] . ' urgent alert' . ($u['sent'] === 1 ? '' : 's') . ' emailed';
     if ($u['error']) $parts[] = 'urgent alert failed: ' . $u['error'];
 
+    // Penny's month-close list — once a month, the first 7 am run after the grace (MonthCloseListService).
+    if ((int)date('G') === 7) {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/MonthCloseListService.php';
+            $mcl = new MonthCloseListService($db);
+            if ($due = $mcl->due()) {
+                $to = trim((string)($owner['email'] ?? ''));
+                if ($to !== '' && filter_var($to, FILTER_VALIDATE_EMAIL) && function_exists('sendEmail')) {
+                    $mail = MonthCloseListService::email($mcl->items($due), $name, $base);
+                    $html = EmailWrapper::wrap($mail['body'], "Open Penny's card", rtrim($base, '/') . '/crm/dashboard_appstack.php#mw-penny', $company);
+                    $res = sendEmail($to, $mail['subject'], $html, null, 'Penny at ' . ($company['company_name'] ?? 'Mowology'));
+                    if (!empty($res['success'])) {
+                        $mcl->markSent($due['month']);
+                        $parts[] = 'month-close list for ' . $due['month'] . ' emailed';
+                    } else {
+                        $parts[] = 'month-close list failed: ' . ($res['error'] ?? 'send failed');
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $parts[] = 'month-close list failed: ' . $e->getMessage();
+        }
+    }
+
     // Every run: ask every head and keep the brief ready for the iPhone's opening screen
     // (HeadBriefReadyService — building it live takes ~7 s, too long to wait for at launch).
     $view = $f->card($name)['view'];

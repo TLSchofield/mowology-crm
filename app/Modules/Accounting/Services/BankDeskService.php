@@ -108,17 +108,23 @@ class BankDeskService
                                   AND p.year = YEAR(t.transaction_date) AND p.month = MONTH(t.transaction_date))";
     }
 
-    /** The next lines for the card, newest first, each with her suggestion. */
-    public function queue(int $limit = 10): array
+    /**
+     * The next lines for the card, newest first, each with her suggestion. With $month ('YYYY-MM'):
+     * only that month's lines, oldest first (the month-close list, MonthCloseListService).
+     */
+    public function queue(int $limit = 10, ?string $month = null): array
     {
         if (!$this->ready()) return [];
         $limit = max(1, min(30, $limit));
+        $inMonth = $month !== null && preg_match('/^\d{4}-\d{2}$/', $month)
+            ? " AND t.transaction_date >= '{$month}-01' AND t.transaction_date < '" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'"
+            : '';
         $rows = $this->db->query("
             SELECT t.id, t.transaction_date, t.type, t.amount, t.description, t.account_id, t.matched_expense_id,
                    " . ($this->hasInvoiceMatch() ? 't.matched_invoice_id' : 'NULL AS matched_invoice_id') . ",
                    t.bank_account, a.code AS account_code, a.name AS account_name
-            " . $this->waitingSql() . "
-            ORDER BY t.transaction_date DESC, t.id DESC
+            " . $this->waitingSql() . $inMonth . "
+            ORDER BY t.transaction_date " . ($inMonth ? 'ASC' : 'DESC') . ", t.id " . ($inMonth ? 'ASC' : 'DESC') . "
             LIMIT {$limit}
         ")->fetchAll(PDO::FETCH_ASSOC);
         if (!$rows) return [];
