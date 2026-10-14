@@ -388,3 +388,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService
 require_once __DIR__ . '/../app/Modules/Ledger/Services/ComparativeTrialBalanceService.php';
 require_once __DIR__ . '/../app/Modules/Ledger/Services/GeneralLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Ledger/Services/QboJournalExport.php';
+// Pulled from production 2026-10-13 (vendor knowledge commons + SMS templates were live-only)
+require_once __DIR__ . '/../app/Modules/Knowledge/Services/VendorIdentity.php';
+require_once __DIR__ . '/../app/Modules/Knowledge/Services/CategoryTaxonomy.php';
+require_once __DIR__ . '/../app/Modules/Knowledge/Services/LocalVendorKnowledgeStore.php';
+require_once __DIR__ . '/../app/Modules/Knowledge/Services/CodeSuggestionGate.php';
+require_once __DIR__ . '/../app/Services/Messaging/SmsTemplates.php';

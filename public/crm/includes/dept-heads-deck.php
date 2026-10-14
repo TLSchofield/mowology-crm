@@ -55,6 +55,18 @@ try {
         $__scs = new StatementCoverageService(getDB());
         if ($__scs->ready()) $__scStrip = StatementCoverageService::strip($__scs->latest());   // computed once a day
     } catch (Throwable $__e) { /* statements check is a bonus (migration 1231) */ }
+    $__lookback = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+        $__lookback = (new LookbackService(getDB()))->cardLine();   // open look-back proposals (migration 1250)
+    } catch (Throwable $__e) { /* the look-back is a bonus */ }
+    $__pm = null;
+    try {
+        if (function_exists('isAdmin') && isAdmin()) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $__pm = (new PaymentMatchService(getDB()))->cardLine();   // cached; re-matched at most every 4 h
+        }
+    } catch (Throwable $__e) { /* payments ↔ invoices is a bonus (migration 1260) */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -130,7 +142,20 @@ $__team = [
           <div class="mw-k">Handled by code alone</div>
           <div class="mw-v"><?= (int)$ps['code_alone_pct'] ?>% <small>/ goal 80%</small></div>
           <div class="mw-head-bar"><span style="width: <?= min(100, (int)$ps['code_alone_pct']) ?>%"></span></div>
-          <div class="mw-n">Rises as I learn your vendors — no AI cost for those</div>
+          <div class="mw-n">Rises as I learn your vendors — no AI cost for those<?php
+            try {
+                $__kbF = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+                if (is_file($__kbF)) {
+                    require_once $__kbF;
+                    $__kb = (new VendorKnowledgeService(getDB()))->cardStats();
+                    if ($__kb['commons_vendors'] > 0) {
+                        echo ' · <b>' . (int)$__kb['commons_vendors'] . '</b> vendors in the commons';
+                        if ($__kb['shadow_n'] > 0) echo ' · code agrees with the model on <b>' . (int)$__kb['shadow_agree_pct'] . '%</b> of ' . (int)$__kb['shadow_n'] . ' shadow runs';
+                        if ($__kb['code_mode'] !== 'on') echo ' (' . h($__kb['code_mode']) . ')';
+                    }
+                }
+            } catch (Throwable $__e) { /* the commons is a bonus */ }
+          ?></div>
         </div>
         <div class="mw-head-stat">
           <div class="mw-k">Right first time</div>
@@ -193,6 +218,18 @@ $__team = [
       <?php endif; ?>
 
       <?php include __DIR__ . '/penny-statements-strip.php'; ?>
+
+      <?php include __DIR__ . '/penny-missing-strip.php'; ?>
+      <?php if ($__lookback): ?>
+      <div class="mw-penny-trips" title="Everything booked in 2026, re-checked with what I know now. Nothing changes until you approve it.">
+        <div>🔎 <a href="/crm/accounting/lookback.php"><?= h($__lookback['text']) ?></a></div>
+      </div>
+      <?php endif; ?>
+      <?php if (!empty($__pm)): ?>
+      <a class="mw-penny-pm" href="<?= h($__pm['url']) ?>" title="Bank deposits I matched to the CRM and Jobber invoices they paid. Nothing is booked until you approve it.">
+        💳 <b><?= (int)$__pm['waiting'] ?> deposit<?= $__pm['waiting'] === 1 ? '' : 's' ?></b> matched to invoices waiting for you (<b><?= h($__money($__pm['waiting_total'])) ?></b>)<?php if ($__pm['high'] > 0): ?> · <?= (int)$__pm['high'] ?> high-confidence<?php endif; ?> →
+      </a>
+      <?php endif; ?>
 
       <div class="mw-pq" id="mw-pq" hidden></div>
 

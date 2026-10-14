@@ -453,3 +453,9 @@ Step-by-step checklists for adding new CRM features, public site pages, service 
 
 Full FTP credentials, lftp commands, and deploy workflow are in **`DEPLOYMENT.md`**.
 Use the `/deploy` slash command: `/deploy public/crm/file.php`
+
+---
+
+## 10. Multi-discipline tenants (standing rule, 2026-10-10)
+
+Everything built from now on assumes the product will have tenants from different trades, not only landscaping. Mowology is tenant #1, not the template. No trade-specific words in new schema, services or copy; learned knowledge splits into a shared/universal layer (the vendor knowledge commons, `app/Modules/Knowledge/`, `docs/architecture/vendor-knowledge-commons.md`) and a tenant-private layer. Vendor identity is canonical and cross-tenant; categories go through the neutral taxonomy. If a shortcut would bake Mowology in, say so and build the tenant-neutral version.

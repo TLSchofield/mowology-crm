@@ -80,6 +80,11 @@ class ReceiptBookkeeperService
         if (isset($ctx['error'])) {
             return $ctx;
         }
+        // A learned vendor can be booked by code — free, instant, from what the owner taught.
+        $byCode = $this->codeSuggestionFirst($expenseId, $ctx, $source);
+        if ($byCode !== null) {
+            return $byCode;
+        }
 
         $image = $withImage ? $this->loadImage($ctx['media_path'] ?? null) : null;
         $body  = self::buildRequest($ctx['prompt'], $image, self::model(), self::EFFORT);
@@ -108,11 +113,12 @@ class ReceiptBookkeeperService
 
         $checked = is_array($parsed) ? self::check($parsed, $ctx) : ['suggestion' => [], 'checks' => []];
         $pv = $this->hasPromptVersion();
+        $mb = $this->hasColumn('expense_suggestions', 'made_by');
         $this->db->prepare("
             INSERT INTO expense_suggestions
                 (expense_id, source, model, " . ($pv ? 'prompt_version, ' : '') . "used_image, current_json, suggestion_json, checks_json,
-                 status, input_tokens, output_tokens, error)
-            VALUES (?, ?, ?, " . ($pv ? '?, ' : '') . "?, ?, ?, ?, ?, ?, ?, ?)
+                 status, input_tokens, output_tokens, error" . ($mb ? ', made_by' : '') . ")
+            VALUES (?, ?, ?, " . ($pv ? '?, ' : '') . "?, ?, ?, ?, ?, ?, ?, ?" . ($mb ? ", 'model'" : '') . ")
         ")->execute(array_merge([$expenseId, $source, self::model()], $pv ? [self::promptVersion()] : [], [
             $image ? 1 : 0,
             json_encode($ctx['current']), json_encode($checked['suggestion']), json_encode($checked['checks']),
@@ -356,6 +362,11 @@ TXT;
             'categories'          => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
             'bank_charge'         => $hideFinal ? null : $this->bankCharge($expenseId),
         ];
+        // What every tenant has taught the commons about this vendor (soft — owner rules win).
+        $shared = $vendorId ? $this->sharedHints($vendorId) : null;
+        if ($shared) {
+            $prompt['shared_hints'] = $shared;
+        }
         if (!$hideFinal && ($e['notes'] ?? '') !== '') {
             $prompt['crew_notes'] = mb_substr((string)$e['notes'], 0, 500);
         }
@@ -365,6 +376,83 @@ TXT;
             'current'    => $current,
             'prompt'     => $prompt,
             'media_path' => !empty($e['media_file_path']) ? PUBLIC_ROOT . $e['media_file_path'] : null,
+        ];
+    }
+
+    /** The knowledge service, when the commons tables exist (migration 1330); else null. */
+    private function knowledge(): ?VendorKnowledgeService
+    {
+        static $kb = false;
+        if ($kb !== false) return $kb;
+        $kb = null;
+        try {
+            $f = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+            if (is_file($f)) {
+                require_once $f;
+                $svc = new VendorKnowledgeService($this->db);
+                $kb = $svc->ready() ? $svc : null;
+            }
+        } catch (Throwable $e) { $kb = null; }
+        return $kb;
+    }
+
+    /** Commons hints for the prompt: neutral category bridged to ours, tax treatment, kind. */
+    private function sharedHints(int $vendorId): ?array
+    {
+        $kb = $this->knowledge();
+        if (!$kb) return null;
+        try {
+            $s = $this->db->prepare("SELECT * FROM vendors WHERE id = ?");
+            $s->execute([$vendorId]);
+            $v = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$v) return null;
+            $h = $kb->hintsFor($v);
+            if (($h['source'] ?? null) !== 'commons') return null;
+            return array_filter([
+                'usual_category' => $h['category_local'],
+                'gst_exempt'     => $h['gst_exempt'],
+                'vendor_kind'    => $h['kind'],
+                'note'           => 'Learned across businesses that buy from this vendor; the owner\'s own history and rules take precedence.',
+            ], fn($x) => $x !== null);
+        } catch (Throwable $e) { return null; }
+    }
+
+    /**
+     * Code-made suggestion for a LEARNED vendor (no API call). Mode from ops_settings
+     * penny_code_suggestions: off | shadow (store next to the model's, never shown) | on.
+     * @return array|null the stored row when it replaced the model (mode on), else null
+     */
+    private function codeSuggestionFirst(int $expenseId, array $ctx, string $source): ?array
+    {
+        if ($source !== 'live') return null;
+        $kb = $this->knowledge();
+        if (!$kb || !$this->hasColumn('expense_suggestions', 'made_by')) return null;
+        $mode = $kb->codeMode();
+        if ($mode === 'off') return null;
+        $c = $kb->codeSuggestion($ctx);
+        if (!$c['ok'] || !$c['suggestion']) return null;
+        $checked = self::check($c['suggestion'], $ctx);
+        foreach ($checked['checks'] as $chk) {
+            if (!$chk['ok']) return null;           // code must pass every check or it stays quiet
+        }
+        $pv = $this->hasPromptVersion();
+        $this->db->prepare("
+            INSERT INTO expense_suggestions
+                (expense_id, source, model, " . ($pv ? 'prompt_version, ' : '') . "used_image, current_json, suggestion_json, checks_json,
+                 status, input_tokens, output_tokens, error, made_by)
+            VALUES (?, ?, 'code', " . ($pv ? '?, ' : '') . "0, ?, ?, ?, ?, 0, 0, NULL, 'code')
+        ")->execute(array_merge([$expenseId, $mode === 'on' ? 'live' : 'shadow'], $pv ? ['code-' . CodeSuggestionGate::STREAK] : [], [
+            json_encode($ctx['current']), json_encode($checked['suggestion']), json_encode($checked['checks']),
+            $mode === 'on' ? 'pending' : 'shadow',
+        ]));
+        if ($mode !== 'on') return null;            // shadow: the model still answers below
+        return [
+            'id'         => (int)$this->db->lastInsertId(),
+            'expense_id' => $expenseId,
+            'suggestion' => $checked['suggestion'],
+            'checks'     => $checked['checks'],
+            'error'      => null,
+            'made_by'    => 'code',
         ];
     }
 

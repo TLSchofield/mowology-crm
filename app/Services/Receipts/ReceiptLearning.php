@@ -489,6 +489,20 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
             require_once __DIR__ . '/ReceiptSmartMatch.php';
             learnStoreLocation($db, $vendorId, (float)$row['receipt_lat'], (float)$row['receipt_lng']);
         }
+        // What is universal about this vendor goes to the commons (shared across tenants):
+        // identity, receipt layout, SKU names, neutral category code, tax treatment. Never
+        // amounts, jobs or cards. Fails soft — a slow or missing commons never blocks learning.
+        if ($vendorId) {
+            try {
+                $kbFile = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+                if (defined('APP_ROOT') && is_file($kbFile)) {
+                    require_once $kbFile;
+                    (new VendorKnowledgeService($db))->publishLesson($expenseId);
+                }
+            } catch (Throwable $kbE) {
+                error_log('kb publish (confirm #' . $expenseId . '): ' . $kbE->getMessage());
+            }
+        }
         return true;
     } catch (Throwable $e) {
         error_log('Receipt learning error (confirm #' . $expenseId . '): ' . $e->getMessage());

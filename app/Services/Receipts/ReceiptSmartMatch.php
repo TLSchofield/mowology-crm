@@ -283,6 +283,14 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
     }
     $ocrPhones = extractPhoneNumbers($ocrLower);
 
+    // ── The commons first: what the receipt itself prints (GST number, phone, domain) resolves
+    //    to a canonical vendor shared across tenants; if this install has that vendor linked,
+    //    that is the strongest evidence there is (95). Fails soft to the local matching below.
+    $kbHit = kbResolveVendorFromOcr($ocrLower, $ocrPhones, $db);
+    if ($kbHit !== null) {
+        return $kbHit;
+    }
+
     foreach ($vendors as $vendor) {
         $score = 0;
         $reason = '';
@@ -327,6 +335,42 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
     }
 
     return $bestMatch;
+}
+
+/**
+ * Resolve the receipt through the vendor knowledge commons (app/Modules/Knowledge).
+ * Returns a matchVendorFromOcr()-shaped row for a LINKED local vendor, or null.
+ * A commons vendor with no local row is left to the caller (gateVendorAutoCreation
+ * will create it with the commons' identity and the bridged default category).
+ */
+function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?array
+{
+    try {
+        $kbFile = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+        if (!defined('APP_ROOT') || !is_file($kbFile)) return null;
+        require_once $kbFile;
+        $kb = new VendorKnowledgeService($db);
+        if (!$kb->ready()) return null;
+        $identity = [
+            'gst_number'   => VendorIdentity::gstNumber($ocrLower),
+            'phone_digits' => $ocrPhones[0] ?? null,
+            'domain'       => preg_match('/\b(?:www\.)?([a-z0-9-]+\.(?:ca|com|net|org|co|io|shop))\b/', $ocrLower, $m) ? VendorIdentity::domainOf($m[1]) : null,
+        ];
+        if (!array_filter($identity)) return null;
+        $kbv = $kb->resolve($identity);
+        if (!$kbv) return null;
+        $localId = $kb->localVendorFor((int)$kbv['id']);
+        if (!$localId) return null;
+        $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt FROM vendors WHERE id = ? AND is_active = 1");
+        $s->execute([$localId]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v) return null;
+        $by = $identity['gst_number'] ? 'GST number' : ($identity['phone_digits'] ? 'phone' : 'web domain');
+        return array_merge($v, ['confidence' => 95, 'reason' => 'Commons match by ' . $by . ': ' . $v['name'], 'kb_vendor_id' => (int)$kbv['id']]);
+    } catch (Throwable $e) {
+        error_log('kbResolveVendorFromOcr: ' . $e->getMessage());
+        return null;
+    }
 }
 
 /**
