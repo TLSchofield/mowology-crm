@@ -22,6 +22,7 @@ const EXPENSE_ACCOUNTING_CATEGORIES = [
     'Vehicle',
     'Safety',
     'Other',
+    'Personal',   // owner's own purchase → 1300 Due from Shareholder, no ITC (migration 1250)
 ];
 
 const EXPENSE_PAYMENT_METHODS = [
