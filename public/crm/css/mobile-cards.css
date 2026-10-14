@@ -91,7 +91,7 @@
         font-size: 0.88rem;
         font-weight: 700;
         color: #1a1a1a;
-        font-family: 'Montserrat', sans-serif;
+        font-family: var(--mw-font-sans, 'Inter', sans-serif);
         letter-spacing: 0.01em;
     }
 
@@ -6536,4 +6536,193 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--mw-green, #2D8659);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CREW SHELL HARMONISATION (2026-10-08)
+   The schedule's own top/bottom bars take the same look as the global crew
+   shell in mobile-nav.css (Home Base style): forest header band, white five-tab
+   bar with 48 px targets, Inter, one green. Appended last so it wins by order.
+   Markup lives in jobs/schedule.php and partials/job-card.php; this block is
+   CSS-only so it ships independently of those files.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 991px) {
+
+    /* ── Top band: month row goes forest, week strip stays white ── */
+    .mw-mc-topbar {
+        background: var(--mc-card-bg);
+        box-shadow: 0 1px 0 #eae7e1, 0 4px 14px rgba(0, 0, 0, 0.06);
+    }
+    .mw-mc-strip-header {
+        background: var(--mw-forest, #0D3B2E);
+        color: #fff;
+        padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+        padding-bottom: 10px;
+        min-height: calc(env(safe-area-inset-top, 0px) + 60px);
+    }
+    .mw-mc-strip-month {
+        color: #fff;
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+        font-family: var(--mw-font-sans, 'Inter', sans-serif);
+    }
+    .mw-mc-strip-progress-pill {
+        background: rgba(127, 216, 88, 0.12);
+        border: 1px solid rgba(127, 216, 88, 0.25);
+        color: var(--mw-lime, #7FD858);
+    }
+    .mw-mc-topbar-locate {
+        width: 44px;
+        height: 44px;
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.85);
+        border: none;
+    }
+    .mw-mc-topbar-locate.mw-mc-locate-on   { background: var(--mw-lime, #7FD858); color: var(--mw-forest, #0D3B2E); }
+    .mw-mc-topbar-locate.mw-mc-locate-off  { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.55); }
+    .mw-mc-topbar-locate.mw-mc-topbar-route { background: var(--mw-lime, #7FD858); color: var(--mw-forest, #0D3B2E); }
+    .mw-mc-topbar-weather {
+        color: #fff;
+        font-weight: 600;
+    }
+
+    /* ── Day summary + weather: Home Base owns these; the strip header already
+          shows progress and today's temperature. ── */
+    .mw-ds-card,
+    .mw-ds-weather-row {
+        display: none !important;
+    }
+
+    /* ── Bottom bar: identical metrics to .mw-mobile-bottombar ── */
+    .mw-mc-bottombar {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        align-items: stretch;
+        height: calc(64px + env(safe-area-inset-bottom, 0px));
+        padding: 4px 4px env(safe-area-inset-bottom, 0px);
+        background: #fff;
+        border-top: 1px solid var(--mw-ink-200, #E5E7EB);
+        box-shadow: none;
+    }
+    .mw-mc-bottombar-btn {
+        gap: 4px;
+        min-height: 48px;
+        padding: 6px 2px;
+        color: var(--mw-ink-500, #6B7280);
+        font-size: 11px;
+        font-weight: 600;
+        font-family: var(--mw-font-sans, 'Inter', sans-serif);
+        letter-spacing: 0.1px;
+        position: relative;
+    }
+    .mw-mc-bottombar-btn svg { width: 22px; height: 22px; position: relative; z-index: 1; }
+    .mw-mc-bottombar-btn span { position: relative; z-index: 1; white-space: nowrap; }
+    .mw-mc-bottombar-btn:active { opacity: 1; transform: scale(0.94); color: var(--mw-green, #2D8659); }
+    .mw-mc-bottombar-btn-active { color: var(--mw-green, #2D8659); }
+    .mw-mc-bottombar-btn-active::before {
+        content: '';
+        position: absolute;
+        top: 4px; bottom: 4px; left: 6px; right: 6px;
+        background: var(--mw-light, #E8F3F0);
+        border-radius: 12px;
+        z-index: 0;
+    }
+    /* Receipts is a tab like the others — no orange */
+    .mw-mc-bottombar-btn-receipt { color: var(--mw-ink-500, #6B7280) !important; }
+    .mw-mc-bottombar-btn-receipt svg { stroke: currentColor; }
+
+    /* Clock tab: readable label at the same size as its neighbours */
+    .mw-clock-on  { color: var(--mw-color-success, #16A34A); }
+    .mw-clock-off { color: var(--mw-color-danger, #DC2626); }
+    .mw-clock-on .mw-clock-nav-label,
+    .mw-clock-off .mw-clock-nav-label { font-size: 11px; }
+
+    /* ── Job card action row: Start is the one primary; Complete secondary;
+          Skip and Move are compact icon buttons so nothing overflows. ── */
+    .mw-mc-card-footer {
+        gap: 8px;
+        padding: 10px 12px 12px;
+    }
+    .mw-mc-footer-btn {
+        font-size: 0.8rem;
+        min-height: 48px;
+        padding: 10px 12px;
+    }
+    .mw-mc-footer-btn-clockin  { flex: 1.3 1 0; }
+    .mw-mc-footer-btn-complete { flex: 1.6 1 0; }
+    .mw-mc-footer-btn-complete,
+    .mw-mc-footer-btn-clockin { overflow: hidden; text-overflow: ellipsis; }
+    .mw-mc-footer-btn-skip,
+    .mw-mc-footer-btn-move {
+        flex: 0 0 48px;
+        width: 48px;
+        padding: 0;
+        margin-left: 0;
+        font-size: 0;            /* icon only — the word stays for screen readers */
+        color: var(--mw-ink-500, #6B7280);
+        border: 1.5px solid var(--mw-ink-200, #E5E7EB);
+        background: #fff;
+    }
+    .mw-mc-footer-btn-skip svg,
+    .mw-mc-footer-btn-move svg { width: 18px; height: 18px; }
+    .mw-mc-footer-btn-move { color: var(--mw-green, #2D8659); }
+    /* With a timer running, Complete becomes the primary finish action */
+    .mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete {
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+        border-color: var(--mw-green, #2D8659);
+    }
+    /* ── Schedule search field (mw-schedule-search.js) — base styles.
+          Only the "has-route" variant was ever styled, so the field rendered
+          as a bare browser input. ── */
+    .mw-mc-search-wrap {
+        padding: 8px 12px 4px;
+    }
+    .mw-mc-search-field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+        padding: 0 12px;
+        background: #fff;
+        border: 1px solid var(--mw-ink-200, #E5E7EB);
+        border-radius: 12px;
+        color: var(--mw-ink-500, #6B7280);
+    }
+    .mw-mc-search-field:focus-within {
+        border-color: var(--mw-green, #2D8659);
+        box-shadow: var(--mw-shadow-ring, 0 0 0 3px rgba(45, 134, 89, 0.25));
+    }
+    .mw-mc-search-field svg { flex-shrink: 0; width: 18px; height: 18px; }
+    .mw-mc-search-input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        font-size: 16px;                 /* ≥16px stops Android zooming the field */
+        font-family: var(--mw-font-sans, 'Inter', sans-serif);
+        color: var(--mw-ink-900, #111827);
+    }
+    .mw-mc-search-input::placeholder { color: var(--mw-ink-500, #6B7280); }
+    .mw-mc-search-clear {
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 50%;
+        background: var(--mw-ink-100, #F3F4F6);
+        color: var(--mw-ink-700, #1F2937);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+    }
+    .mw-mc-search-count {
+        padding: 4px 4px 0;
+        font-size: 12px;
+        color: var(--mw-ink-500, #6B7280);
+    }
+    .mw-mc-search-count:empty { display: none; }
 }
