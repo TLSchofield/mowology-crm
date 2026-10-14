@@ -57,8 +57,8 @@ set_exception_handler(function (Throwable $e) use ($__mwShowErrors) {
 if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
 $extraHead  = $extraHead  ?? '';
 $bodyClass  = $bodyClass  ?? '';
-// Accounts pages share the ledger look (.mw-acct in mowology-brand.css).
-if (($activePage ?? '') === 'accounting') $bodyClass = trim($bodyClass . ' mw-acct');
+// Accounts pages share the ledger look (body.mw-books in mowology-brand.css; not .mw-acct — the crew Account tab owns that).
+if (($activePage ?? '') === 'accounting') $bodyClass = trim($bodyClass . ' mw-books');
 // Crew-lite: the Android app (ca.mowology.crew) sets the mw_native cookie on launch
 // (app-launch.php / my-schedule.php). Inside the app there is no sidebar, no desktop
 // chrome and no iOS splash — skip the markup, fonts and scripts that only the office

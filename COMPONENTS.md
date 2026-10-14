@@ -94,7 +94,7 @@ One scale for every state in the CRM, all text pairs WCAG AAA (≥7:1). Tokens i
   and rust, so `btn-outline-secondary`, `badge bg-warning` etc. are safe to keep using. Never add a new
   purple or yellow hex; use the tokens.
 - Bootstrap 5 `gap-*` and `bg-opacity-10/25` are defined in brand CSS (AppStack is Bootstrap 4).
-- Accounts pages get `body.mw-acct` (the ledger look) automatically from `appstack_head.php` when
+- Accounts pages get `body.mw-books` (the ledger look) automatically from `appstack_head.php` when
   `$activePage = 'accounting'`. Statements check month cells use `.mw-sc-m.is-in|is-quiet|is-gap|is-empty|is-none`.
 
 ## Form / Input Components

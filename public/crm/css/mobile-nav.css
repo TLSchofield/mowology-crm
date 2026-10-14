@@ -1,14 +1,14 @@
 /**
- * Mowology CRM — Global Mobile Navigation Bars
- * ─────────────────────────────────────────────
- * Provides a consistent top bar + bottom bar on every CRM page
- * at ≤ 991px (mobile / PWA / Capacitor app).
+ * Mowology CRM — Crew Shell (mobile top bar + bottom bar + account sheet)
+ * ─────────────────────────────────────────────────────────────────────────
+ * One shell on every crew screen at ≤ 991px (phone, tablet, Capacitor app).
+ * Look = Home Base: forest header band with title + date, white five-tab bar,
+ * Inter everywhere, 48 px targets, safe-area aware. schedule.php's own
+ * .mw-mc-topbar / .mw-mc-bottombar (mobile-cards.css) match these values.
  *
  * Desktop (≥ 992px): hidden — AppStack sidebar + topbar take over.
- * Mobile (≤ 991px): AppStack navbar hidden, these bars shown instead.
  *
- * Top bar:  Page title  |  Clock widget  |  Hamburger → slide-up menu
- * Bottom:   Schedule    |  Route         |  Receipt   |  Menu
+ * Tokens come from /crm/css/tokens.css (loaded before this file).
  */
 
 /* ════════════════════════════════════════════════════════
@@ -27,86 +27,94 @@
 
 @media (max-width: 991px) {
 
+    :root {
+        --mw-shell-top-h: 60px;
+        --mw-shell-bot-h: 64px;
+    }
+
     /* ── Hide AppStack chrome on mobile ── */
     .sidebar,
-    .navbar.navbar-expand {
+    .navbar.navbar-expand,
+    footer.footer {
         display: none !important;
     }
 
-    /* Pull the main content area to fill the full width without sidebar */
     .main {
         margin-left: 0 !important;
         width: 100% !important;
     }
 
-    /* Push page content down below our topbar and up above our bottombar */
+    /* Page content sits between our two bars */
     .content {
-        padding-top: calc(env(safe-area-inset-top, 0px) + 60px) !important;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 70px) !important;
+        padding-top: calc(var(--mw-safe-top) + var(--mw-shell-top-h) + 4px) !important;
+        padding-bottom: calc(var(--mw-safe-bottom) + var(--mw-shell-bot-h) + 8px) !important;
+        background: #F6F4EF;
     }
 
     /* ════════════════════════════════════════════════════
-       TOP BAR
+       TOP BAR — forest band
        ════════════════════════════════════════════════════ */
 
     .mw-mobile-topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: var(--mw-space-2);
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         z-index: 1060;
-        height: calc(env(safe-area-inset-top, 0px) + 56px);
-        padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
-        background: linear-gradient(180deg, #ffffff 0%, #faf9f7 100%);
-        border-bottom: none;
-        box-shadow: 0 1px 0 #eae7e1, 0 4px 14px rgba(0,0,0,0.07);
+        height: calc(var(--mw-safe-top) + var(--mw-shell-top-h));
+        padding: var(--mw-safe-top) var(--mw-space-2) 0 var(--mw-space-4);
+        background: var(--mw-forest);
+        color: var(--mw-ink-0);
+        font-family: var(--mw-font-sans);
     }
 
     .mw-mobile-topbar-left {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         min-width: 0;
         flex: 1;
     }
 
-    /* Mowology "M" logo mark — kept for fallback */
     .mw-mobile-topbar-logo {
-        width: 28px;
-        height: 28px;
+        width: 34px;
+        height: 34px;
         flex-shrink: 0;
-        border-radius: 7px;
-        background: linear-gradient(135deg, #2D8659 0%, #1A5F4A 100%);
+        border-radius: 10px;
+        background: var(--mw-lime);
+        color: var(--mw-forest);
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #fff;
-        font-weight: 800;
-        font-size: 0.9rem;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-weight: var(--mw-weight-black);
+        font-size: 16px;
         letter-spacing: -0.5px;
-        flex-shrink: 0;
     }
 
-    /* Real app icon replaces the gradient "M" box */
-    .mw-mobile-topbar-logo-img {
-        width: 28px;
-        height: 28px;
-        border-radius: 7px;
-        flex-shrink: 0;
-        object-fit: cover;
-        display: block;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    .mw-mobile-topbar-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        line-height: 1.15;
     }
 
     .mw-mobile-topbar-title {
-        font-size: 0.92rem;
-        font-weight: 700;
-        color: #1a1a1a;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 17px;
+        font-weight: var(--mw-weight-bold);
+        color: var(--mw-ink-0);
+        letter-spacing: -0.3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .mw-mobile-topbar-sub {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.55);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -115,27 +123,59 @@
     .mw-mobile-topbar-right {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 2px;
         flex-shrink: 0;
     }
 
-    /* Clock widget — reuse the existing CRM clock widget, just reposition */
+    /* Clock widget → lime chip, same as Home Base's header chip.
+       time-clock-widget.js owns the inner markup; we only restyle it here. */
     .mw-mobile-topbar .mw-clock-widget {
         display: flex;
         align-items: center;
     }
+    .mw-mobile-topbar .mw-clock-widget .mw-clock-active,
+    .mw-mobile-topbar .mw-clock-widget .mw-clock-inactive {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 36px;
+        padding: 0 11px;
+        border-radius: var(--mw-radius-pill);
+        background: rgba(127, 216, 88, 0.12);
+        border: 1px solid rgba(127, 216, 88, 0.25);
+        color: var(--mw-lime);
+        font-size: 12px;
+        font-weight: var(--mw-weight-semibold);
+        font-variant-numeric: tabular-nums;
+    }
+    .mw-mobile-topbar .mw-clock-widget .mw-clock-inactive {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.18);
+        color: rgba(255, 255, 255, 0.8);
+    }
+    .mw-mobile-topbar .mw-clock-widget .btn,
+    .mw-mobile-topbar .mw-clock-widget button {
+        min-height: 36px;
+        padding: 0 12px;
+        border-radius: var(--mw-radius-pill);
+        border: none;
+        background: var(--mw-lime);
+        color: var(--mw-forest);
+        font-size: 12px;
+        font-weight: var(--mw-weight-bold);
+    }
+    .mw-mobile-topbar .mw-clock-widget svg { color: inherit; }
 
-    /* Search button in topbar — 48x48 touch target per WCAG AAA */
     .mw-mobile-search-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 48px;
-        height: 48px;
+        width: var(--mw-space-12);
+        height: var(--mw-space-12);
         border: none;
-        border-radius: 10px;
+        border-radius: var(--mw-radius-md);
         background: transparent;
-        color: #666;
+        color: rgba(255, 255, 255, 0.85);
         cursor: pointer;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
@@ -143,61 +183,59 @@
     }
 
     .mw-mobile-search-btn:active {
-        background: #f4f4f4;
-        color: #333;
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--mw-ink-0);
     }
 
     /* ════════════════════════════════════════════════════
-       BOTTOM BAR
+       BOTTOM BAR — five tabs
        ════════════════════════════════════════════════════ */
 
     .mw-mobile-bottombar {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
         align-items: stretch;
-        justify-content: space-around;
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
         z-index: 1060;
-        padding: 8px 4px;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
-        background: #fff;
-        border-top: 1px solid #ebe8e2;
-        box-shadow: 0 -2px 8px rgba(0,0,0,0.05);
+        height: calc(var(--mw-shell-bot-h) + var(--mw-safe-bottom));
+        padding: 4px 4px var(--mw-safe-bottom);
+        background: var(--mw-ink-0);
+        border-top: 1px solid var(--mw-ink-200);
+        font-family: var(--mw-font-sans);
     }
 
     .mw-mobile-nav-btn {
-        flex: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 3px;
-        padding: 8px 4px;
-        min-height: 48px;
+        gap: 4px;
+        min-height: var(--mw-space-12);
+        padding: 6px 2px;
         border: none;
         background: transparent;
-        color: #9e9e9e;
-        font-size: 0.68rem;
-        font-weight: 600;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: var(--mw-ink-500);
+        font-size: 11px;
+        font-weight: var(--mw-weight-semibold);
         text-decoration: none;
         cursor: pointer;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
         line-height: 1;
-        transition: color 0.15s ease;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.1px;
         position: relative;
+        transition: color var(--mw-dur-fast) var(--mw-ease-out);
     }
 
-    .mw-mobile-nav-btn:hover { color: #555; text-decoration: none; }
+    .mw-mobile-nav-btn:hover { color: var(--mw-ink-700); text-decoration: none; }
 
     .mw-mobile-nav-btn:active {
-        color: #2D8659;
+        color: var(--mw-green);
         text-decoration: none;
-        transform: scale(0.92);
+        transform: scale(0.94);
     }
 
     .mw-mobile-nav-btn svg {
@@ -210,24 +248,25 @@
     .mw-mobile-nav-btn span {
         position: relative;
         z-index: 1;
+        white-space: nowrap;
     }
 
-    /* Active tab — pill background slides in behind icon + label */
+    /* Active tab — pill slides in behind icon + label */
     .mw-mobile-nav-btn.mw-mobile-nav-active {
-        color: #2D8659;
+        color: var(--mw-green);
     }
 
     .mw-mobile-nav-btn.mw-mobile-nav-active::before {
         content: '';
         position: absolute;
-        top: 5px;
-        bottom: 5px;
+        top: 4px;
+        bottom: 4px;
         left: 6px;
         right: 6px;
-        background: #E8F3F0;
-        border-radius: 12px;
+        background: var(--mw-light);
+        border-radius: var(--mw-radius-md);
         z-index: 0;
-        animation: mw-nav-pill-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+        animation: mw-nav-pill-in var(--mw-dur-base) var(--mw-ease-spring) both;
     }
 
     @keyframes mw-nav-pill-in {
@@ -236,11 +275,11 @@
     }
 
     .mw-mobile-nav-btn.mw-mobile-nav-active svg {
-        color: #2D8659;
+        color: var(--mw-green);
     }
 
     /* ════════════════════════════════════════════════════
-       SLIDE-UP MENU OVERLAY
+       ACCOUNT SHEET (slide-up)
        ════════════════════════════════════════════════════ */
 
     .mw-mobile-menu-overlay {
@@ -250,56 +289,53 @@
         z-index: 1070;
         visibility: hidden;
         pointer-events: none;
-        /* Delay hiding until the sheet's close animation finishes (0.32s) */
-        transition: visibility 0s linear 0.32s;
+        /* Delay hiding until the sheet's close animation finishes */
+        transition: visibility 0s linear var(--mw-dur-slow);
     }
 
     .mw-mobile-menu-overlay.mw-menu-open {
         visibility: visible;
         pointer-events: auto;
-        transition: visibility 0s; /* show immediately */
+        transition: visibility 0s;
     }
 
-    /* Dark scrim behind the sheet */
     .mw-mobile-menu-scrim {
         position: absolute;
         inset: 0;
-        background: rgba(0,0,0,0);
-        transition: background 0.28s ease;
+        background: rgba(0, 0, 0, 0);
+        transition: background var(--mw-dur-slow) var(--mw-ease-out);
     }
 
     .mw-mobile-menu-overlay.mw-menu-open .mw-mobile-menu-scrim {
-        background: rgba(0,0,0,0.45);
+        background: rgba(13, 59, 46, 0.5);
     }
 
-    /* The slide-up sheet */
     .mw-mobile-menu-sheet {
         position: absolute;
         bottom: 0;
         left: 0;
         right: 0;
-        background: #fff;
-        border-radius: 20px 20px 0 0;
-        padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 12px);
+        background: var(--mw-ink-0);
+        border-radius: var(--mw-radius-xl) var(--mw-radius-xl) 0 0;
+        padding: 0 0 calc(var(--mw-safe-bottom) + 12px);
         transform: translateY(100%);
-        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
-        max-height: 85vh;
+        transition: transform var(--mw-dur-slow) var(--mw-ease-spring);
+        max-height: 86dvh;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         overscroll-behavior-y: contain;
         will-change: transform;
+        font-family: var(--mw-font-sans);
     }
 
     .mw-mobile-menu-overlay.mw-menu-open .mw-mobile-menu-sheet {
         transform: translateY(0);
     }
 
-    /* Suppress transition while finger is actively dragging */
     .mw-mobile-menu-sheet.mw-sheet-dragging {
         transition: none !important;
     }
 
-    /* Drag handle */
     .mw-mobile-menu-handle {
         display: flex;
         justify-content: center;
@@ -312,47 +348,43 @@
         width: 36px;
         height: 4px;
         border-radius: 2px;
-        background: #ddd;
+        background: var(--mw-ink-200);
     }
 
-    /* User info header in sheet */
     .mw-mobile-menu-user {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 12px 20px 16px;
-        border-bottom: 1px solid #f0ede8;
+        padding: 8px 20px 16px;
+        border-bottom: 1px solid var(--mw-ink-100);
     }
 
     .mw-mobile-menu-avatar {
-        width: 42px;
-        height: 42px;
+        width: 44px;
+        height: 44px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #2D8659 0%, #1A5F4A 100%);
-        color: #fff;
+        background: var(--mw-forest);
+        color: var(--mw-lime);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 700;
-        font-size: 1rem;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-weight: var(--mw-weight-bold);
+        font-size: 15px;
         flex-shrink: 0;
     }
 
     .mw-mobile-menu-username {
-        font-weight: 700;
-        font-size: 0.9rem;
-        color: #1a1a1a;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-weight: var(--mw-weight-bold);
+        font-size: 15px;
+        color: var(--mw-ink-900);
     }
 
     .mw-mobile-menu-role {
-        font-size: 0.75rem;
-        color: #9e9e9e;
+        font-size: 12px;
+        color: var(--mw-ink-500);
         margin-top: 2px;
     }
 
-    /* Nav items grid */
     .mw-mobile-menu-grid {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -366,52 +398,52 @@
         align-items: center;
         justify-content: center;
         gap: 6px;
-        padding: 16px 8px;
-        border-radius: 14px;
+        min-height: 84px;
+        padding: 12px 8px;
+        border-radius: var(--mw-radius-lg);
         text-decoration: none;
-        color: #444;
-        font-size: 0.72rem;
-        font-weight: 600;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        transition: background 0.15s ease, color 0.15s ease;
+        color: var(--mw-ink-700);
+        font-size: var(--mw-text-xs);
+        font-weight: var(--mw-weight-semibold);
+        transition: background var(--mw-dur-fast) var(--mw-ease-out);
         -webkit-tap-highlight-color: transparent;
         text-align: center;
         line-height: 1.2;
     }
 
     .mw-mobile-menu-item:active {
-        background: #ebebeb;
+        background: var(--mw-ink-100);
         text-decoration: none;
-        color: #1a1a1a;
+        color: var(--mw-ink-900);
         transform: scale(0.96);
     }
 
     .mw-mobile-menu-item:hover {
-        background: #f4f4f4;
+        background: var(--mw-ink-50);
         text-decoration: none;
-        color: #1a1a1a;
+        color: var(--mw-ink-900);
     }
 
     .mw-mobile-menu-item.mw-menu-item-active {
-        background: #e8f3f0;
-        color: #2D8659;
+        background: var(--mw-light);
+        color: var(--mw-green);
     }
 
     .mw-mobile-menu-item-icon {
         width: 44px;
         height: 44px;
-        border-radius: 12px;
-        background: #f4f4f4;
+        border-radius: var(--mw-radius-md);
+        background: var(--mw-ink-100);
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #555;
+        color: var(--mw-ink-700);
         flex-shrink: 0;
     }
 
     .mw-mobile-menu-item.mw-menu-item-active .mw-mobile-menu-item-icon {
-        background: #2D8659;
-        color: #fff;
+        background: var(--mw-green);
+        color: var(--mw-ink-0);
     }
 
     /* Plant import quick-action bar (admin only) */
@@ -421,41 +453,40 @@
         gap: 10px;
         padding: 10px 16px;
         margin: 4px 12px 8px;
-        background: linear-gradient(135deg, #e8f3f0 0%, #f0f8f4 100%);
-        border: 1px solid #c8e6d8;
-        border-radius: 14px;
+        background: var(--mw-light);
+        border: 1px solid rgba(45, 134, 89, 0.2);
+        border-radius: var(--mw-radius-lg);
     }
 
     .mw-mobile-plant-import-btn {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 9px 16px;
-        background: #2D8659;
-        color: #fff;
-        border-radius: 10px;
-        font-size: 0.8rem;
-        font-weight: 700;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        min-height: 44px;
+        padding: 0 16px;
+        background: var(--mw-green);
+        color: var(--mw-ink-0);
+        border-radius: var(--mw-radius-sm);
+        font-size: var(--mw-text-sm);
+        font-weight: var(--mw-weight-bold);
         cursor: pointer;
         white-space: nowrap;
         -webkit-tap-highlight-color: transparent;
         flex-shrink: 0;
+        margin: 0;
     }
 
     .mw-mobile-plant-import-hint {
-        font-size: 0.72rem;
-        color: #5a7a6a;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: var(--mw-text-xs);
+        color: var(--mw-ink-500);
         line-height: 1.3;
     }
 
-    /* Bottom actions in sheet (profile, settings, logout) */
     .mw-mobile-menu-actions {
         display: flex;
         flex-direction: column;
         padding: 8px 12px 4px;
-        border-top: 1px solid #f0ede8;
+        border-top: 1px solid var(--mw-ink-100);
         margin-top: 4px;
     }
 
@@ -463,30 +494,30 @@
         display: flex;
         align-items: center;
         gap: 14px;
-        padding: 14px 12px;
-        border-radius: 12px;
+        min-height: var(--mw-space-12);
+        padding: 0 12px;
+        border-radius: var(--mw-radius-md);
         text-decoration: none;
-        color: #444;
-        font-size: 0.85rem;
-        font-weight: 600;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        transition: background 0.15s ease;
+        color: var(--mw-ink-700);
+        font-size: var(--mw-text-base);
+        font-weight: var(--mw-weight-semibold);
+        transition: background var(--mw-dur-fast) var(--mw-ease-out);
         -webkit-tap-highlight-color: transparent;
     }
 
     .mw-mobile-menu-action:hover,
     .mw-mobile-menu-action:active {
-        background: #f4f4f4;
+        background: var(--mw-ink-50);
         text-decoration: none;
-        color: #1a1a1a;
+        color: var(--mw-ink-900);
     }
 
     .mw-mobile-menu-action.mw-menu-action-danger {
-        color: #dc3545;
+        color: var(--mw-color-danger);
     }
 
     .mw-mobile-menu-action.mw-menu-action-danger:hover {
-        background: #fff5f5;
+        background: var(--mw-color-danger-bg);
     }
 
     .mw-mobile-menu-action svg {
@@ -498,7 +529,7 @@
         opacity: 1;
     }
 
-    /* ── Clock In / Out Banner ─────────────────────────────── */
+    /* ── Clock In / Out banner (sheet + Account page) ── */
 
     .mw-mobile-clock-banner {
         display: flex;
@@ -507,8 +538,8 @@
         gap: 12px;
         margin: 0 0 16px;
         padding: 14px 16px;
-        background: var(--mw-forest, #0D3B2E);
-        border-radius: 14px;
+        background: var(--mw-forest);
+        border-radius: var(--mw-radius-lg);
     }
 
     .mw-mobile-clock-status {
@@ -523,26 +554,26 @@
         width: 10px;
         height: 10px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.25);
-        transition: background 0.3s;
+        background: rgba(255, 255, 255, 0.25);
+        transition: background var(--mw-dur-slow);
     }
 
     .mw-mobile-clock-dot.mw-clock-dot-active {
-        background: var(--mw-lime, #7FD858);
+        background: var(--mw-lime);
         box-shadow: 0 0 0 3px rgba(127, 216, 88, 0.25);
     }
 
     .mw-mobile-clock-label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: rgba(255,255,255,0.75);
+        font-size: var(--mw-text-sm);
+        font-weight: var(--mw-weight-semibold);
+        color: rgba(255, 255, 255, 0.75);
         white-space: nowrap;
     }
 
     .mw-mobile-clock-timer {
-        font-size: 0.8rem;
-        font-weight: 700;
-        color: var(--mw-lime, #7FD858);
+        font-size: var(--mw-text-sm);
+        font-weight: var(--mw-weight-bold);
+        color: var(--mw-lime);
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.5px;
     }
@@ -552,17 +583,17 @@
         display: inline-flex;
         align-items: center;
         gap: 7px;
-        padding: 10px 18px;
-        min-height: 48px;   /* glove-safe tap target */
+        padding: 0 18px;
+        min-height: var(--mw-space-12);
         border: none;
-        border-radius: 10px;
-        font-size: 0.85rem;
-        font-weight: 700;
+        border-radius: var(--mw-radius-sm);
+        font-size: var(--mw-text-base);
+        font-weight: var(--mw-weight-bold);
         cursor: pointer;
-        transition: background 0.2s, transform 0.1s;
+        transition: background var(--mw-dur-base), transform var(--mw-dur-fast);
         white-space: nowrap;
-        background: var(--mw-green, #2D8659);
-        color: #fff;
+        background: var(--mw-lime);
+        color: var(--mw-forest);
     }
 
     .mw-mobile-clock-btn:disabled {
@@ -575,43 +606,203 @@
     }
 
     .mw-mobile-clock-btn-in {
-        background: var(--mw-green, #2D8659);
-        color: #fff;
+        background: var(--mw-lime);
+        color: var(--mw-forest);
     }
 
     .mw-mobile-clock-btn-out {
-        background: #dc3545;
-        color: #fff;
+        background: var(--mw-color-danger);
+        color: var(--mw-ink-0);
     }
 
     .mw-mobile-clock-btn svg {
         flex-shrink: 0;
     }
 
+    /* ════════════════════════════════════════════════════
+       PAGE-LEVEL TWEAKS
+       ════════════════════════════════════════════════════ */
+
+    /* Search: the field search owns the screen — no AppStack heading or footer gap */
+    body.mw-page-search .content {
+        padding-top: calc(var(--mw-safe-top) + var(--mw-shell-top-h)) !important;
+    }
+
 } /* end @media (max-width: 991px) */
 
 /* ════════════════════════════════════════════════════════
+   ACCOUNT PAGE  (/crm/profile.php) — all widths
+   ════════════════════════════════════════════════════════ */
+
+.mw-acct {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--mw-space-3) var(--mw-space-4) var(--mw-space-8);
+    font-family: var(--mw-font-sans);
+    color: var(--mw-ink-900);
+}
+
+.mw-acct-hero {
+    display: flex;
+    align-items: center;
+    gap: var(--mw-space-4);
+    padding: var(--mw-space-4);
+    margin-bottom: var(--mw-space-3);
+    background: var(--mw-ink-0);
+    border: 1px solid var(--mw-ink-200);
+    border-radius: var(--mw-radius-lg);
+    box-shadow: var(--mw-shadow-sm);
+}
+
+.mw-acct-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--mw-forest);
+    color: var(--mw-lime);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--mw-text-lg);
+    font-weight: var(--mw-weight-black);
+    flex-shrink: 0;
+}
+
+.mw-acct-name {
+    font-size: var(--mw-text-lg);
+    font-weight: var(--mw-weight-black);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+.mw-acct-role {
+    font-size: var(--mw-text-sm);
+    color: var(--mw-ink-500);
+    margin-top: 2px;
+    text-transform: capitalize;
+}
+
+.mw-acct .mw-mobile-clock-banner {
+    display: flex;
+    margin-bottom: var(--mw-space-3);
+}
+.mw-acct .mw-mobile-clock-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mw-acct .mw-mobile-clock-dot {
+    flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+}
+.mw-acct .mw-mobile-clock-dot.mw-clock-dot-active { background: var(--mw-lime); box-shadow: 0 0 0 3px rgba(127, 216, 88, 0.25); }
+.mw-acct .mw-mobile-clock-label { font-size: var(--mw-text-sm); font-weight: var(--mw-weight-semibold); color: rgba(255,255,255,0.75); white-space: nowrap; }
+.mw-acct .mw-mobile-clock-timer { font-size: var(--mw-text-sm); font-weight: var(--mw-weight-bold); color: var(--mw-lime); font-variant-numeric: tabular-nums; }
+.mw-acct .mw-mobile-clock-btn {
+    flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px;
+    padding: 0 18px; min-height: var(--mw-space-12); border: none;
+    border-radius: var(--mw-radius-sm); font-size: var(--mw-text-base);
+    font-weight: var(--mw-weight-bold); cursor: pointer; white-space: nowrap;
+    background: var(--mw-lime); color: var(--mw-forest);
+}
+.mw-acct .mw-mobile-clock-btn:disabled { opacity: 0.45; cursor: default; }
+.mw-acct .mw-mobile-clock-btn-out { background: var(--mw-color-danger); color: var(--mw-ink-0); }
+
+.mw-acct-section {
+    margin: var(--mw-space-4) 0 var(--mw-space-2);
+    font-size: 10px;
+    font-weight: var(--mw-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--mw-ink-500);
+}
+
+.mw-acct-list {
+    background: var(--mw-ink-0);
+    border: 1px solid var(--mw-ink-200);
+    border-radius: var(--mw-radius-lg);
+    box-shadow: var(--mw-shadow-sm);
+    overflow: hidden;
+}
+
+.mw-acct-row {
+    display: flex;
+    align-items: center;
+    gap: var(--mw-space-3);
+    min-height: 56px;
+    padding: 0 var(--mw-space-4);
+    border-top: 1px solid var(--mw-ink-100);
+    text-decoration: none;
+    color: var(--mw-ink-900);
+    font-size: var(--mw-text-base);
+    font-weight: var(--mw-weight-semibold);
+    background: transparent;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.mw-acct-row:first-child { border-top: none; }
+.mw-acct-row:hover,
+.mw-acct-row:active { background: var(--mw-ink-50); color: var(--mw-ink-900); text-decoration: none; }
+.mw-acct-row svg { flex-shrink: 0; color: var(--mw-ink-500); }
+.mw-acct-row-text { flex: 1; min-width: 0; }
+.mw-acct-row-sub {
+    display: block;
+    font-size: var(--mw-text-xs);
+    font-weight: var(--mw-weight-regular);
+    color: var(--mw-ink-500);
+    margin-top: 1px;
+}
+.mw-acct-row-value {
+    font-size: var(--mw-text-sm);
+    font-weight: var(--mw-weight-semibold);
+    color: var(--mw-ink-500);
+    font-variant-numeric: tabular-nums;
+}
+.mw-acct-row-chevron { color: var(--mw-ink-300); }
+.mw-acct-row--danger { color: var(--mw-color-danger); }
+.mw-acct-row--danger svg { color: var(--mw-color-danger); }
+.mw-acct-row--danger:hover,
+.mw-acct-row--danger:active { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); }
+
+.mw-acct-status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--mw-ink-300); flex-shrink: 0;
+}
+.mw-acct-status-dot.is-ok   { background: var(--mw-color-success); }
+.mw-acct-status-dot.is-warn { background: var(--mw-color-warning); }
+.mw-acct-status-dot.is-bad  { background: var(--mw-color-danger); }
+
+/* ════════════════════════════════════════════════════════
+   HOME BASE — standalone page with its own forest header; it
+   renders the shared bar markup itself and keeps its own sheet.
+   ════════════════════════════════════════════════════════ */
+body.mw-page-homebase .mw-mobile-topbar { display: none !important; }
+@media (max-width: 991px) {
+    body.mw-page-homebase .mw-mobile-bottombar { z-index: 100; }
+}
+
+/* ════════════════════════════════════════════════════════
    SCHEDULE PAGE OVERRIDE
-   ════════════════════════════════════════════════════════
    The schedule mobile view has its own full-screen top bar
    and bottom bar (.mw-mc-topbar / .mw-mc-bottombar) inside
    .mw-mc-container (z-index: 1050). Hide the global bars on
    that page so they don't stack on top.
    body.mw-page-schedule is set by schedule.php via $bodyClass.
-*/
+   ════════════════════════════════════════════════════════ */
 
 body.mw-page-schedule .mw-mobile-topbar,
 body.mw-page-schedule .mw-mobile-bottombar {
     display: none !important;
 }
-/* Keep the slide-up menu overlay available for the schedule's Menu button */
+/* Keep the slide-up menu overlay available for the schedule's Account button */
 
 /* ════════════════════════════════════════════════════════
    DRIVER PORTAL OVERRIDE
    The driver portal has its own full-screen UI (splash, quiz,
    homebase, overlays). Suppress global nav bars entirely.
    body.mw-page-driver is set by driver-portal.php via $bodyClass.
-*/
+   ════════════════════════════════════════════════════════ */
 body.mw-page-driver .mw-mobile-topbar,
 body.mw-page-driver .mw-mobile-bottombar {
     display: none !important;
