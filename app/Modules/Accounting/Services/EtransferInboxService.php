@@ -568,11 +568,9 @@ class EtransferInboxService
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $payer) {
                 $payer = trim((string)$payer);
                 if ($payer === '' || self::namesMatch((string)$sender, $payer)) continue;
-                $this->db->prepare("
-                    INSERT INTO etransfer_sender_payers (sender_key, payer_key, sender_name, payer_name, times, last_seen)
-                    VALUES (?, ?, ?, ?, 1, NOW())
-                    ON DUPLICATE KEY UPDATE times = times + 1, last_seen = NOW()
-                ")->execute([$sKey, self::normalizeName($payer), mb_substr((string)$sender, 0, 255), mb_substr($payer, 0, 255)]);
+                // payer_aliases (1362) and, while it lives, etransfer_sender_payers — one writer for both.
+                require_once __DIR__ . '/PayerIdentityService.php';
+                (new PayerIdentityService($this->db))->learn('etransfer_sender', (string)$sender, $payer, 'learned', [], 'Recorded e-Transfer');
             }
             $this->learnedPayers = null;
         } catch (Throwable $e) {

@@ -334,14 +334,17 @@ class DepositBackfillService
         }
         $taught = [];
         $several = [];
-        $ins = $this->db->prepare("INSERT IGNORE INTO bank_memo_payers (pattern, payer_name, company_id, note, created_at) VALUES (?, ?, ?, ?, NOW())");
+        require_once __DIR__ . '/PayerIdentityService.php';
+        $ids = new PayerIdentityService($this->db);   // payer_aliases (1362) + bank_memo_payers while it lives
         foreach ($by as $pattern => $payers) {
             if (count($payers) !== 1) { $several[$pattern] = array_values(array_map(fn($x) => $x[0], $payers)); continue; }
             [$name, $companyId, $times] = array_values($payers)[0];
             if ($times < self::TEACH_MIN) { $several[$pattern] = ['only ' . $times . ' confirmed link — not taught yet']; continue; }
             try {
-                $ins->execute([$pattern, mb_substr($name, 0, 255), $companyId, 'Learned from confirmed deposits (backfill ' . date('Y-m-d') . ', user #' . $userId . ')']);
-                if ($ins->rowCount() > 0) $taught[$pattern] = $name;
+                if ($ids->timesFor('bank_memo', $pattern) > 0) continue;   // an existing wording is never overwritten
+                $ok = $ids->learn('bank_memo', $pattern, $name, 'learned', ['company_id' => $companyId],
+                                  'Learned from confirmed deposits (backfill ' . date('Y-m-d') . ', user #' . $userId . ')', $userId);
+                if ($ok !== null || !$ids->ready()) $taught[$pattern] = $name;
             } catch (Throwable $e) {
                 error_log('[deposit backfill] teach ' . $pattern . ': ' . $e->getMessage());
             }

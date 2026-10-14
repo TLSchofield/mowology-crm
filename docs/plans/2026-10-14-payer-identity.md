@@ -1,6 +1,6 @@
 # Plan: one payer identity record ("who is this money / message from?")
 
-Status: **Tim said yes to the plan on 2026-10-14. Nothing is built until he approves this file.** Owners: Penny (money), Yui (messages), Sam (recipients). Ada keeps the shared code.
+Status: **Approved and building (Tim, 2026-10-14: "do all in order").** Owners: Penny (money), Yui (messages), Sam (recipients). Ada keeps the shared code.
 
 ## Why
 Every day this week the same question was answered by hand, in a different place each time:
@@ -33,7 +33,9 @@ One table and one service. The vendor side already has this shape (`VendorIdenti
 - Unique on (`kind`, `alias_key`, `client_id`).
 
 **`PayerIdentityService`:**
-- `normalise(kind, raw)` is the one normaliser, replacing the nine.
+- `key(kind, raw)` is the one normaliser for alias keys.
+
+**Correction after reading the nine matchers (2026-10-14).** They are *not* one rule written nine ways. Each has its own strictness on purpose: payroll accepts a lone first name only when no other employee shares it; `namesAgree` refuses "Strata Plan BCS 4079" for "BCS 2106"; `isFromShareholder` needs both names. Replacing them with one normaliser would loosen some of them. So they stay, and the alias lookup runs **in front of** them: an alias turns the bank's or Interac's wording into the payer's name on file, and the existing matchers do the rest. Payroll and shareholder matching are out of scope (employees, not payers). Also found: `bank_memo_payers` exists on production with no migration in the repo (drift); 1362 records it.
 - `resolve(kind, raw)` returns ranked candidates, each with its reason ("Tim confirmed", "learned 4 times", "name match only").
 - `learn(kind, raw, clientId, source)` is the only writer. A `tim` row beats any number of `learned` rows.
 - `aliasesFor(clientId)` drives a new "Also pays as" list on the client page, where Tim can add or remove an alias.

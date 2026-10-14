@@ -251,6 +251,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanne
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BooksWatchService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PayerIdentityService.php';
 // Wave payroll import + shareholder account (migration 1255)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/WavePayrollImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ShareholderAccountService.php';

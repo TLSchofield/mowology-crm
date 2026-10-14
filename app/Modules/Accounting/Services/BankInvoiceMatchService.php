@@ -30,6 +30,7 @@ require_once __DIR__ . '/InvoiceReconciliationService.php';
 require_once __DIR__ . '/EtransferInboxService.php';
 require_once __DIR__ . '/EtransferDeskService.php';
 require_once __DIR__ . '/PaymentClueService.php';
+require_once __DIR__ . '/PayerIdentityService.php';
 
 class BankInvoiceMatchService
 {
@@ -71,9 +72,13 @@ class BankInvoiceMatchService
         if ($text && $text['name'] !== '') $payerNames['Text from'] = $text['name'];
         // Interac's own alert texts in the month before ("JOSEPH GALLENTINE sent you money"): name hints only.
         $alerts = $email ? [] : (new PaymentClueService($this->db))->alertSendersFor($date);
-        foreach ($alerts as $a) $payerNames['Interac alert text: ' . $a['name']] = $a['name'];
-        // A bank memo that names its payer ("VML EFT …" → Vancouver Management Ltd, migration 1284).
-        foreach (self::memoPayers((string)$line['description'], $this->memoPayerRows()) as $p) {
+        foreach ($alerts as $a) {
+            $payerNames['Interac alert text: ' . $a['name']] = $a['name'];
+            // The alert's short name, as you've told Penny ("Jo Gal" is Joseph Gallentine; payer_aliases 1362).
+            foreach ($this->identity()->payersFor('sms_name', $a['name'], 2) as $p) $payerNames['Interac alert text: ' . $a['name'] . ' is'] = $p;
+        }
+        // A bank memo that names its payer ("VML EFT …" → Vancouver Management Ltd; payer_aliases, was 1284).
+        foreach ($this->identity()->payersFor('bank_memo', (string)$line['description'], 3) as $p) {
             $payerNames['The bank memo is from'] = $payerNames['The bank memo is from'] ?? $p;
         }
 
@@ -358,14 +363,12 @@ class BankInvoiceMatchService
         return array_map(fn($r) => $r + ['how' => 'paid directly on the invoice ' . $r['paid_on']], $s->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    /** bank_memo_payers rows (migration 1284) — [] before it runs. */
-    private function memoPayerRows(): array
+    private ?PayerIdentityService $identity = null;
+
+    /** Who pays as whom: every wording → payer lookup goes through here (payer_aliases, migration 1362). */
+    private function identity(): PayerIdentityService
     {
-        try {
-            return $this->db->query('SELECT pattern, payer_name FROM bank_memo_payers')->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) {
-            return [];
-        }
+        return $this->identity ??= new PayerIdentityService($this->db);
     }
 
     /**
@@ -388,27 +391,15 @@ class BankInvoiceMatchService
         return $out;
     }
 
-    /** Payers this sender has been recorded paying for. */
+    /** Payers this sender has been recorded paying for (or that you've said they pay for). */
     private function learnedPayers(string $sender): array
     {
-        try {
-            $s = $this->db->prepare("SELECT payer_name FROM etransfer_sender_payers WHERE sender_key = ? ORDER BY times DESC LIMIT 3");
-            $s->execute([strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $sender))]);
-            return $s->fetchAll(PDO::FETCH_COLUMN);
-        } catch (Throwable $e) {
-            return [];
-        }
+        return $this->identity()->payersFor('etransfer_sender', $sender, 3);
     }
 
     private function timesFor(string $sender): int
     {
-        try {
-            $s = $this->db->prepare("SELECT COALESCE(SUM(times), 0) FROM etransfer_sender_payers WHERE sender_key = ?");
-            $s->execute([strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $sender))]);
-            return (int)$s->fetchColumn();
-        } catch (Throwable $e) {
-            return 0;
-        }
+        return $this->identity()->timesFor('etransfer_sender', $sender);
     }
 
     private function countLearned(): int
