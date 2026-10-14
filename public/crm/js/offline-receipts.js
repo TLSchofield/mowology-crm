@@ -220,35 +220,62 @@
      * @returns {Promise<boolean>} — true if upload succeeded
      */
     function uploadOne(receipt) {
-        // Bug #2 fix: prefer the page's live CSRF token over the stored one —
-        // the PHP session may have rotated while the receipt was in the offline queue.
-        var csrf = (typeof window.CSRF === 'string' && window.CSRF)
-            ? window.CSRF
-            : (receipt.csrf || '');
+        // A receipt leaves the queue only when its expense exists (Codex review 2026-10-14: it was
+        // deleted after the photo upload even when the expense save failed — the receipt was lost).
+        // The photo upload's answer is kept on the record, so a retry only re-tries the expense; the
+        // server answers "already saved" for a photo that already has one.
+        return freshCsrf(receipt).then(function(csrf) {
+            var intakeStep = receipt.intake
+                ? Promise.resolve(receipt.intake)
+                : postIntake(receipt, csrf).then(function(intake) {
+                      if (intake && intake.success && intake.media_id) {
+                          return updateRecord(receipt.id, { intake: intake }).then(function() { return intake; });
+                      }
+                      return null;
+                  });
+            return intakeStep.then(function(intake) {
+                if (!intake) return false;
+                return createDraftFromIntake(intake, receipt, csrf);
+            });
+        }).catch(function() { return false; });
+    }
 
+    /** The page's live token, else a fresh one from the server — a stored token goes stale. */
+    function freshCsrf(receipt) {
+        if (typeof window.CSRF === 'string' && window.CSRF) return Promise.resolve(window.CSRF);
+        return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d && d.token) || receipt.csrf || ''; })
+            .catch(function() { return receipt.csrf || ''; });
+    }
+
+    function postIntake(receipt, csrf) {
         var formData = new FormData();
         formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
         formData.append('csrf_token', csrf);
         if (receipt.lat) formData.append('lat', receipt.lat);
         if (receipt.lng) formData.append('lng', receipt.lng);
         if (receipt.jobId) formData.append('job_id', receipt.jobId);
+        return fetch('/crm/api/receipt-intake.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .catch(function() { return null; });
+    }
 
-        return fetch('/crm/api/receipt-intake.php', {
-            method: 'POST',
-            body: formData
-        }).then(function(r) {
-            if (!r.ok) return false;
-            // Intake only stores the image + OCR. Without the step below a replayed
-            // receipt became an orphaned media row — no expense, nothing in the list,
-            // and the crew member never knew. Auto-save a draft from whatever OCR found
-            // so it shows up flagged for review. A failed draft save does NOT re-queue
-            // the image (that would upload a second media row on every retry).
-            return r.json().then(function(intake) {
-                return createDraftFromIntake(intake, receipt, csrf).then(function() { return true; });
-            }).catch(function() { return true; });
-        }).catch(function() {
-            return false;
-        });
+    /** Merge fields into a queued record. */
+    function updateRecord(id, fields) {
+        return openDB().then(function(database) {
+            return new Promise(function(resolve) {
+                var tx = database.transaction(STORE_NAME, 'readwrite');
+                var store = tx.objectStore(STORE_NAME);
+                var get = store.get(id);
+                get.onsuccess = function() {
+                    var rec = get.result;
+                    if (rec) { Object.keys(fields).forEach(function(k) { rec[k] = fields[k]; }); store.put(rec); }
+                };
+                tx.oncomplete = function() { resolve(); };
+                tx.onerror = function() { resolve(); };
+            });
+        }).catch(function() {});
     }
 
     /**
@@ -257,10 +284,10 @@
      * @param {object} intake — receipt-intake.php JSON
      * @param {object} receipt — queued record (lat/lng/jobId)
      * @param {string} csrf
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>} true once the expense exists
      */
     function createDraftFromIntake(intake, receipt, csrf) {
-        if (!intake || !intake.success || !intake.media_id) return Promise.resolve();
+        if (!intake || !intake.success || !intake.media_id) return Promise.resolve(false);
         var p = intake.parsed || {};
         var s = intake.suggestions || {};
         var total = parseFloat(p.total) || 0;
@@ -309,10 +336,13 @@
             body: JSON.stringify(payload)
         }).then(function(r) { return r.json(); }).then(function(d) {
             if (!d || !d.success) {
-                console.warn('[offline-receipts] replayed receipt uploaded but draft save failed:', d && d.error);
+                console.warn('[offline-receipts] receipt uploaded but the expense did not save — kept, will retry:', d && d.error);
+                return false;
             }
+            return true;   // created, or "already saved" for this photo
         }).catch(function(e) {
-            console.warn('[offline-receipts] draft save error', e);
+            console.warn('[offline-receipts] expense save error — kept, will retry', e);
+            return false;
         });
     }
 

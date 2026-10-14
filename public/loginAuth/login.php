@@ -480,6 +480,18 @@ $csrf_token = generateLoginCSRFToken();
         </div>
     </div>
 <script>
+// Signed out (logout, or the login ran out): wipe the cached personal pages and API answers the app
+// keeps for offline use, so the next person on a shared device (the truck's Samsung tablet) is never
+// shown the last person's schedule, timesheet or client details (Codex review, 2026-10-14). Map tiles,
+// app files and queued photos/receipts are kept: they are not personal pages, and photos must never be lost.
+(function () {
+    try {
+        if (!window.caches || !caches.keys) return;
+        caches.keys().then(function (keys) {
+            keys.forEach(function (k) { if (k.indexOf('mw-pages-') === 0) caches.delete(k); });
+        });
+    } catch (e) { /* no cache API: nothing kept */ }
+})();
 (function() {
     'use strict';
     var ua = navigator.userAgent || '';

@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v77';
+var CACHE_VERSION = 'mw-v78';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -386,71 +386,89 @@ function syncPendingReceipts() {
         var receipts = getAll.result || [];
         if (!receipts.length) { resolve(); return; }
 
+        // A receipt leaves the queue only when its expense exists (Codex review 2026-10-14: it was deleted
+        // after the photo upload even when the expense save failed — the receipt was lost). The upload's
+        // answer is kept on the record, so a retry only re-tries the expense ("already saved" if it exists).
+        // A fresh CSRF token per pass: a token stored when the receipt was queued has usually expired.
         var uploads = receipts.map(function(receipt) {
-          var formData = new FormData();
-          formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
-          formData.append('csrf_token', receipt.csrf || '');
-          if (receipt.lat) formData.append('lat', receipt.lat);
-          if (receipt.lng) formData.append('lng', receipt.lng);
-
-          return fetch('/crm/api/receipt-intake.php', {
-            method: 'POST',
-            body: formData,
-          }).then(function(r) {
-            if (!r.ok) return;
-            var delTx = db.transaction('pending-receipts', 'readwrite');
-            delTx.objectStore('pending-receipts').delete(receipt.id);
-            // Intake only stores the image + OCR — create the draft expense too, or
-            // the replayed receipt is an orphaned media row nobody ever sees. Same
-            // payload offline-receipts.js's createDraftFromIntake() builds.
-            return r.json().then(function(intake) {
-              if (!intake || !intake.success || !intake.media_id) return;
-              var p = intake.parsed || {};
-              var s = intake.suggestions || {};
-              var total = parseFloat(p.total) || 0;
-              var gst   = parseFloat(p.gst) || 0;
-              var pst   = parseFloat(p.pst) || 0;
-              var sub   = parseFloat(p.subtotal) || (total > 0 ? Math.max(0, total - gst - pst) : 0);
-              var date  = /^\d{4}-\d{2}-\d{2}$/.test(p.date || '') ? p.date : new Date().toISOString().slice(0, 10);
-              return fetch('/crm/api/expenses.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'create',
-                  csrf_token: receipt.csrf || '',
-                  expense_date: date,
-                  vendor_id: s.vendor_id || null,
-                  vendor_name_raw: s.vendor_name || p.vendor_hint || '',
-                  payment_method: p.payment_method || '',
-                  amount: sub.toFixed(2),
-                  gst_amount: gst.toFixed(2),
-                  pst_amount: pst.toFixed(2),
-                  total: total.toFixed(2),
-                  accounting_category: s.accounting_category || '',
-                  job_id: receipt.jobId || null,
-                  description: 'Auto-saved from offline queue — please review',
-                  receipt_media_id: intake.media_id,
-                  receipt_lat: receipt.lat || null,
-                  receipt_lng: receipt.lng || null,
-                  raw_ocr_json: intake.ocr_text || null,
-                  ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
-                  status: 'pending_approval',
-                  line_items_source: p.line_items_source || null,
-                  line_items: (p.line_items || []).map(function(item) {
-                    return {
-                      name: item.name || 'Unknown Item',
-                      ocr_name: item.ocr_name || item.name || '',
-                      quantity: item.quantity || 1,
-                      unit_price: item.unit_price || null,
-                      line_total: item.line_total || item.amount || 0,
-                      sku_raw: item.sku_raw || null,
-                      product_id: item.product_id || null
-                    };
+          var keep = function(fields) {
+            var t = db.transaction('pending-receipts', 'readwrite');
+            var st = t.objectStore('pending-receipts');
+            var g = st.get(receipt.id);
+            g.onsuccess = function() { var rec = g.result; if (rec) { Object.keys(fields).forEach(function(k) { rec[k] = fields[k]; }); st.put(rec); } };
+          };
+          var drop = function() {
+            db.transaction('pending-receipts', 'readwrite').objectStore('pending-receipts').delete(receipt.id);
+          };
+          return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : {}; })
+            .catch(function() { return {}; })
+            .then(function(d) {
+              var csrf = (d && d.token) || receipt.csrf || '';
+              var intakeStep = receipt.intake ? Promise.resolve(receipt.intake) : (function() {
+                var formData = new FormData();
+                formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
+                formData.append('csrf_token', csrf);
+                if (receipt.lat) formData.append('lat', receipt.lat);
+                if (receipt.lng) formData.append('lng', receipt.lng);
+                if (receipt.jobId) formData.append('job_id', receipt.jobId);
+                return fetch('/crm/api/receipt-intake.php', { method: 'POST', body: formData })
+                  .then(function(r) { return r.ok ? r.json() : null; })
+                  .then(function(intake) {
+                    if (intake && intake.success && intake.media_id) { keep({ intake: intake }); return intake; }
+                    return null;
+                  });
+              })();
+              return intakeStep.then(function(intake) {
+                if (!intake) return;   // kept; retried next sync
+                var p = intake.parsed || {};
+                var s = intake.suggestions || {};
+                var total = parseFloat(p.total) || 0;
+                var gst   = parseFloat(p.gst) || 0;
+                var pst   = parseFloat(p.pst) || 0;
+                var sub   = parseFloat(p.subtotal) || (total > 0 ? Math.max(0, total - gst - pst) : 0);
+                var date  = /^\d{4}-\d{2}-\d{2}$/.test(p.date || '') ? p.date : new Date().toISOString().slice(0, 10);
+                return fetch('/crm/api/expenses.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'create',
+                    csrf_token: csrf,
+                    expense_date: date,
+                    vendor_id: s.vendor_id || null,
+                    vendor_name_raw: s.vendor_name || p.vendor_hint || '',
+                    payment_method: p.payment_method || '',
+                    amount: sub.toFixed(2),
+                    gst_amount: gst.toFixed(2),
+                    pst_amount: pst.toFixed(2),
+                    total: total.toFixed(2),
+                    accounting_category: s.accounting_category || '',
+                    job_id: receipt.jobId || null,
+                    description: 'Auto-saved from offline queue — please review',
+                    receipt_media_id: intake.media_id,
+                    receipt_lat: receipt.lat || null,
+                    receipt_lng: receipt.lng || null,
+                    raw_ocr_json: intake.ocr_text || null,
+                    ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
+                    status: 'pending_approval',
+                    line_items_source: p.line_items_source || null,
+                    line_items: (p.line_items || []).map(function(item) {
+                      return {
+                        name: item.name || 'Unknown Item',
+                        ocr_name: item.ocr_name || item.name || '',
+                        quantity: item.quantity || 1,
+                        unit_price: item.unit_price || null,
+                        line_total: item.line_total || item.amount || 0,
+                        sku_raw: item.sku_raw || null,
+                        product_id: item.product_id || null
+                      };
+                    })
                   })
-                })
-              }).catch(function() { /* draft save failed — media row remains; surfaced on next scan via SHA-256 dup guard */ });
-            }).catch(function() {});
-          }).catch(function() { /* retry on next sync */ });
+                }).then(function(r) { return r.json(); }).then(function(res) {
+                  if (res && res.success) drop();   // created, or "already saved" for this photo
+                });
+              });
+            }).catch(function() { /* kept; retried next sync */ });
         });
 
         Promise.all(uploads).then(function() {
