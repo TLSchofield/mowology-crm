@@ -1012,11 +1012,63 @@
      * navigation or a crash before "Done" is tapped.
      * Falls back to triggerCamera() if getUserMedia is unavailable.
      */
+    // ── Native camera (Android app 1.5.0+, MwCamera plugin; switch app-version.json android.native_camera) ──
+    // The phone's full camera and a background uploader that survives the app closing. Off, or an older
+    // app, and the web camera below is used as before.
+    var nativeCam = null;          // the plugin, once it says it is enabled
+    (function () {
+        var p = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.MwCamera;
+        if (!p || typeof p.available !== 'function') return;
+        p.available().then(function (r) { if (r && r.enabled) nativeCam = p; }).catch(function () {});
+    })();
+
+    /** After photos are in: the same job steps the one-shot camera takes. */
+    function afterPhotosTaken(visitId, category) {
+        var cur = visits[visitId] ? visits[visitId].status : null;
+        if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
+            clockIn(visitId, { skipBeforePrompt: true });
+        } else if (category === 'after' && cur === 'prompt_after') {
+            visits[visitId].status = 'completed';
+            renderPhotoStrip(visitId);
+            clockOut(visitId);
+        }
+    }
+
+    function openNativeCamera(visitId, category) {
+        nativeCam.open({ visitId: visitId, category: category }).then(function (r) {
+            var shots = (r && r.shots) || [];
+            if (!shots.length) return;
+            var cats = {};
+            shots.forEach(function (s) {
+                cats[s.category] = true;
+                var t = s.thumb || '__uploaded__';
+                if (s.category === 'before') visits[visitId].beforeThumb = t;
+                else if (s.category === 'after') visits[visitId].afterThumb = t;
+                else {
+                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                    visits[visitId].additionalThumbs.push(t);
+                }
+            });
+            renderPhotoStrip(visitId);
+            showToast(shots.length + ' photo' + (shots.length !== 1 ? 's' : '') + ' saved \u2014 they upload in the background');
+            // Job steps follow what was shot (the tabs let them switch from Before to After).
+            if (cats.before) afterPhotosTaken(visitId, 'before');
+            if (cats.after) afterPhotosTaken(visitId, 'after');
+        }).catch(function () {
+            nativeCam = null;              // something's wrong with it: the web camera from now on
+            triggerBatchCamera(visitId, category);
+        });
+    }
+
     function triggerBatchCamera(visitId, category) {
         // Before / After take several shots too, as on the iPhone (2026-10-14); default: additional.
         category = category || 'additional';
         var v = visits[visitId];
         if (!v) return;
+        if (nativeCam && !(window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId))) {
+            openNativeCamera(visitId, category);
+            return;
+        }
         // Special request gate (mw-special-request.js is only on the page when the feature is on):
         // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
         if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
@@ -1060,14 +1112,7 @@
                 processPhotoQueue();
                 // The same job steps the one-shot camera takes (photo handler above): a Before photo
                 // before Start is the start; the After photo asked for at the finish completes the job.
-                var cur = visits[visitId] ? visits[visitId].status : null;
-                if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
-                    clockIn(visitId, { skipBeforePrompt: true });
-                } else if (category === 'after' && cur === 'prompt_after') {
-                    visits[visitId].status = 'completed';
-                    renderPhotoStrip(visitId);
-                    clockOut(visitId);
-                }
+                afterPhotosTaken(visitId, category);
             },
 
             onCancel: function (count, reason) {

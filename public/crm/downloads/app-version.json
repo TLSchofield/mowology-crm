@@ -7,7 +7,8 @@
         "apk_url": "/crm/downloads/mowology-crew.apk",
         "released": "2026-10-06",
         "release_notes": "The app now checks the camera is switched on when you open it, so before and after photos always open.",
-        "force_update": false
+        "force_update": false,
+        "native_camera": false
     },
     "ios": {
         "version": "1.0.0",

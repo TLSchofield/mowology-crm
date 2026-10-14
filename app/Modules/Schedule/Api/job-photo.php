@@ -10,7 +10,9 @@ declare(strict_types=1);
  * Multipart fields:
  *   photo       - image file
  *   visit_id    - int
- *   photo_type  - "before" | "after"
+ *   photo_type  - "before" | "after" | "additional" | "during" | "issue" | "other"
+ *   visibility  - optional "internal" (default) | "client_visible" (the Android native camera)
+ *   gps_lat / gps_lng / gps_accuracy, queued_at - optional
  */
 
 if (!defined('APP_ROOT')) {
@@ -127,7 +129,10 @@ try {
     $isDuplicate = $result['is_duplicate'] ?? false;
 
     // Link to visit
-    createMediaLink($mediaId, 'job_visit', $visitId, $photoType, 'internal', $userId);
+    // Visibility: the iPhone sends none (internal, as always); the Android native camera sends
+    // client_visible, as the Android web camera always has, so clients keep seeing crew photos (2026-10-14).
+    $visibility = in_array($_POST['visibility'] ?? '', ['internal', 'client_visible'], true) ? $_POST['visibility'] : 'internal';
+    createMediaLink($mediaId, 'job_visit', $visitId, $photoType, $visibility, $userId);
 
     // Use photo timestamp as implied visit start/completion when GPS clock-in didn't fire
     if (!$isDuplicate) {
