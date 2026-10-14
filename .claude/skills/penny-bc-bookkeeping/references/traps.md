@@ -263,9 +263,11 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - e-Transfer cards: a same-amount bank credit after the email date shows "probably deposited <date>", not the claim link.
 
 ## Transfers to Katrenna = her draws (2026-10-13)
+- "Funds transfer … Pay As You Go Chequing (…6912)" (Jul onward) and "FUNDS TRANSFER TO REL #4659904" (Feb–Jun,
+  her Vancity membership; once mis-booked INTO GST Reserves 1025) are both Katrenna's.
 - "Funds transfer … Pay As You Go Chequing (…6912)" is Katrenna's personal account. The business sends her
   money (no money of hers comes in): these are her **draws**, never an expense. Book to **1302 Shareholder
-  loan — Katrenna Marenych** (child of 1300; the 8 transfers Mar–Oct, $1,170, moved there 2026-10-13).
+  loan — Katrenna Marenych** (child of 1300; 15 transfers Feb–Oct, $2,170, moved there 2026-10-13).
 - Shareholder loans are kept **per person**: s.15(2) (repay or include within one year after year-end) and
   s.80.4 interest apply per shareholder. The accountant clears a debit balance by salary/dividend at year-end.
 
@@ -284,3 +286,8 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   gaps in closed years (before `StatementCoverageService::OPEN_FROM`, or a later fully locked year) are summed
   into one quiet line ("FY2025 (closed): …"), never listed as alarms.
 - **Rule:** "no lines" is not "not imported" — ask the statement what it printed.
+
+## Shareholders' e-Transfers: pay up to Wave net, the rest is loan (Tim, 2026-10-13)
+- e-Transfers to Tim or Katrenna are PAY up to that person's Wave net pay for the month; anything beyond goes
+  to their own shareholder loan (Tim 1300, Katrenna 1302). WavePayrollImportService does the match once the
+  month's Wave "Wage & Tax Report" is imported and approved.
