@@ -46,6 +46,23 @@ class StatementCloseServiceTest extends TestCase
         $this->assertSame(1, $r['unproven']);
     }
 
+    public function test_a_reimport_proven_at_import_adds_up_and_repeats_are_one_statement(): void
+    {
+        // 2026-10-13 re-imports of January: the importer checked the WHOLE statement (opening + every
+        // line = closing, $0.00 out) but stored only the 10 lines that were new; another re-import
+        // stored none. Both read "doesn't add up" and the second "opens at 2,679.92 after 9,766.72".
+        $jan64 = $this->st(64, '2026-01-02', '2026-01-31', 2679.92, 9766.72, -1240.89) + ['reconciled' => 1, 'balance_discrepancy' => 0.00, 'duplicate_count' => 73];
+        $jan78 = $this->st(78, '2026-01-01', '2026-01-31', 2679.92, 9766.72, 0.0) + ['reconciled' => 1, 'balance_discrepancy' => 0.00, 'duplicate_count' => 83];
+        $feb77 = $this->st(77, '2026-02-01', '2026-02-28', 9766.72, 21919.50, 0.0) + ['reconciled' => 1, 'balance_discrepancy' => 0.00, 'duplicate_count' => 92];
+        $r = StatementCloseService::check([$jan64, $jan78, $feb77]);
+        foreach ($r['statements'] as $st) $this->assertSame([], $st['problems'], 'session ' . $st['id']);
+        $this->assertSame(3, $r['closed']);
+
+        // A re-import the importer could NOT reconcile is still checked from its lines.
+        $bad = $this->st(90, '2026-03-01', '2026-03-31', 21919.50, 9000.00, 0.0) + ['reconciled' => 0, 'balance_discrepancy' => 12.5, 'duplicate_count' => 40];
+        $this->assertNotSame([], StatementCloseService::check([$bad])['statements'][0]['problems']);
+    }
+
     public function test_only_clean_past_months_can_be_locked(): void
     {
         $accounts = [StatementCloseService::check([

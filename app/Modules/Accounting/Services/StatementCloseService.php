@@ -44,7 +44,8 @@ class StatementCloseService
     /** @return array<int, array{account: string, statements: array, gaps: array, closed: int, open: int}> */
     public function status(): array
     {
-        $bal = $this->hasBalances() ? 's.balance_opening, s.balance_closing' : 'NULL AS balance_opening, NULL AS balance_closing';
+        $bal = $this->hasBalances() ? 's.balance_opening, s.balance_closing, s.reconciled, s.balance_discrepancy, s.duplicate_count'
+                                    : 'NULL AS balance_opening, NULL AS balance_closing, NULL AS reconciled, NULL AS balance_discrepancy, 0 AS duplicate_count';
         // A line matched at import to a receipt points at that receipt's ledger row; the
         // receipt sync re-creates the row under a new id, so the line is still in the
         // books when its receipt's row exists (2026-10-05: all 26 "missing" were this).
@@ -174,11 +175,22 @@ class StatementCloseService
     {
         $statements = [];
         $prevClosing = null;
+        $seen = [];
         foreach ($rows as $r) {
             $open = $r['balance_opening'] !== null ? (float)$r['balance_opening'] : null;
             $close = $r['balance_closing'] !== null ? (float)$r['balance_closing'] : null;
-            $addsUp = ($open !== null && $close !== null) ? abs(round($open + (float)$r['net'] - $close, 2)) < self::CENTS : null;
-            $chains = ($open !== null && $prevClosing !== null) ? abs(round($open - $prevClosing, 2)) < self::CENTS : null;
+            // The importer checks the WHOLE statement (opening + every line = closing) and saves
+            // reconciled / balance_discrepancy — but a re-import stores only the lines that were new,
+            // so re-adding the stored lines can't prove it. Proven at import = adds up (2026-10-14).
+            $provenAtImport = !empty($r['reconciled']) && isset($r['balance_discrepancy'])
+                && abs((float)$r['balance_discrepancy']) < self::CENTS;
+            $addsUp = ($open !== null && $close !== null)
+                ? ($provenAtImport || abs(round($open + (float)$r['net'] - $close, 2)) < self::CENTS) : null;
+            // The same statement imported again (same opening and closing) is one statement, not a chain break.
+            $key = ($open !== null && $close !== null) ? sprintf('%.2f|%.2f', $open, $close) : null;
+            $repeat = $key !== null && isset($seen[$key]);
+            if ($key !== null) $seen[$key] = true;
+            $chains = ($open !== null && $prevClosing !== null && !$repeat) ? abs(round($open - $prevClosing, 2)) < self::CENTS : null;
             $problems = [];
             if ($addsUp === false) $problems[] = sprintf('lines add up to %s, not the closing %s', number_format($open + (float)$r['net'], 2), number_format($close, 2));
             $unproven = $addsUp === null;
