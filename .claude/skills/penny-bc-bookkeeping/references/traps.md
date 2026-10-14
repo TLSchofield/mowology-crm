@@ -262,11 +262,9 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - Before marking a deposit "already recorded", check the invoice it names doesn't already have its own deposit.
 - e-Transfer cards: a same-amount bank credit after the email date shows "probably deposited <date>", not the claim link.
 
-## Katrenna's pass-through money (2026-10-13)
-- "Funds transfer … Pay As You Go Chequing (…6912)" is Katrenna's personal account. Her own money lands
-  in the business chequing and Tim passes it on. Never an expense: book to **1302 Shareholder loan —
-  Katrenna Marenych** (child of 1300, created 2026-10-13; the 8 transfers Mar–Oct, $1,170, moved there).
-- Shareholder loans are kept **per person** (s.15(2) one-year rule and s.80.4 interest apply per
-  shareholder), so each shareholder has a sub-account under 1300.
-- Open: which incoming deposits are her money. Until those are credited to 1302, her account shows
-  $1,170 owed to the company, and that money may be sitting in business income.
+## Transfers to Katrenna = her draws (2026-10-13)
+- "Funds transfer … Pay As You Go Chequing (…6912)" is Katrenna's personal account. The business sends her
+  money (no money of hers comes in): these are her **draws**, never an expense. Book to **1302 Shareholder
+  loan — Katrenna Marenych** (child of 1300; the 8 transfers Mar–Oct, $1,170, moved there 2026-10-13).
+- Shareholder loans are kept **per person**: s.15(2) (repay or include within one year after year-end) and
+  s.80.4 interest apply per shareholder. The accountant clears a debit balance by salary/dividend at year-end.
