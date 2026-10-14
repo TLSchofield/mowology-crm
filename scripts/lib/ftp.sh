@@ -17,7 +17,9 @@
 
 MW_FTP_HOST="${MW_FTP_HOST:-cwhtor13.canadianwebhosting.com}"
 MW_FTP_CA_FILE="${MW_FTP_CA_FILE:-/etc/ssl/cert.pem}"
-MW_LFTP_TLS="set ssl:verify-certificate yes; set ssl:check-hostname yes; set ssl:ca-file $MW_FTP_CA_FILE; set ftp:ssl-force true; set ftp:ssl-protect-data true;"
+MW_LFTP_TLS="set ssl:verify-certificate yes; set ssl:check-hostname yes; set ssl:ca-file $MW_FTP_CA_FILE; set ftp:ssl-force true; set ftp:ssl-protect-data true; set net:timeout 30; set net:max-retries 3; set net:reconnect-interval-base 5;"
+# net:* (2026-10-14): a 12 MB APK upload failed three times with "Not connected" on lftp's defaults
+# and went straight through with a 30 s timeout and a few retries.
 
 mw_ftp_user() {
   git config git-ftp.user 2>/dev/null || echo "claude@mowology.ca"
