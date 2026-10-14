@@ -29,6 +29,7 @@
 require_once __DIR__ . '/InvoiceReconciliationService.php';
 require_once __DIR__ . '/EtransferInboxService.php';
 require_once __DIR__ . '/EtransferDeskService.php';
+require_once __DIR__ . '/PaymentClueService.php';
 
 class BankInvoiceMatchService
 {
@@ -64,6 +65,10 @@ class BankInvoiceMatchService
             $payerNames['Interac email from'] = $sender;
             foreach ($this->learnedPayers($sender) as $p) $payerNames['You\'ve recorded ' . $sender . ' paying for'] = $p;
         }
+        // No Interac email: a client's text about paying (Yui's text bridge → Penny, 2026-10-14). Joseph
+        // Gallentine's $65 reached no mailbox; his text or his bank's name is the only record of who sent it.
+        $text = $email ? null : (new PaymentClueService($this->db))->clueFor($date, $amount);
+        if ($text && $text['name'] !== '') $payerNames['Text from'] = $text['name'];
         // A bank memo that names its payer ("VML EFT …" → Vancouver Management Ltd, migration 1284).
         foreach (self::memoPayers((string)$line['description'], $this->memoPayerRows()) as $p) {
             $payerNames['The bank memo is from'] = $payerNames['The bank memo is from'] ?? $p;
@@ -105,6 +110,8 @@ class BankInvoiceMatchService
             'line'     => ['id' => (int)$line['id'], 'date' => $date, 'amount' => $amount, 'description' => $line['description']],
             'email'    => $email ? ['id' => (int)$email['id'], 'sender' => $sender, 'memo' => $email['memo'], 'date' => $email['email_date'],
                                     'status' => $email['status'], 'say' => $email['say'] ?? null] : null,
+            'text'     => $text ? ['name' => $text['name'], 'date' => substr($text['sent_at'], 0, 10), 'snippet' => mb_substr($text['snippet'], 0, 160),
+                                   'exact' => $text['exact']] : null,
             'recorded' => $recorded,
             'legacy'   => $legacy,
             'invoices' => $invoices,
