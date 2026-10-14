@@ -51,7 +51,7 @@ accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 op
 - The bank deposit that paid it must become `type='transfer'` once linked (allocation rows in
   `invoice_payment_allocations` with `transaction_id` = the deposit). Unlinked, it stays income and
   **double-counts** — measured 2026-10-06 at ~$210K for 2026.
-- Fixes so far: Stripe payouts (`StripePayoutService` — payout → invoices + fee line on 6850,
+- Fixes so far: Stripe payouts (`StripePayoutService` — payout → invoices + fee line on 6800 (6850 until 2026-10-13: that is Meals),
   Stripe read-only, books only when it adds up to the cent; 79 payouts linked by 2026-10-11);
   Penny's bank card (`BankInvoiceMatchService`); `IncomeCleanupService`; the deposit backfill
   (`DepositBackfillService`, 2026-10-11: 32 deposits linked, 2026 income $387,762.92 → $307,000.59).
@@ -138,5 +138,19 @@ person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests i
 
 1010 Chequing · 1020 Reserve savings · 1025 GST reserve · 1100 AR · 2160 Customer deposits ·
 2200 GST · 2400 Credit card payable · 3200 Retained earnings · 4050 Contract income ·
-4900 Other services (default revenue) · 6800 Bank charges · 6850 Stripe fees ·
+4900 Other services (default revenue) · 6800 Bank charges & Stripe/card fees · 6850 Meals & Entertainment (50%) ·
 6900 Miscellaneous (default expense). Default accounts (4900, 6900) never teach bank rules.
+
+## Stripe in transit hides chequing errors (2026-10-13)
+- A card payment posts **Dr 1010** on the day the client pays (`stripe_payment` entries); the bank gets one
+  net payout 2–5 days later. So the books run **above** the bank by whatever Stripe still holds: at Oct 13,
+  $1,291.09 (payouts $165.14 + $999.88 + $88.20 pending). The raw drift (+$162.88) looked small while the books
+  were really ~$1,158 **below** the bank.
+- **Before reading 1010 drift:** subtract Stripe's pending balance + payouts not yet on the statement
+  (read-only: Stripe `balance` + `payouts` with `arrival_date`). Proposed fix: 1015 Stripe clearing
+  (`docs/plans/2026-10-13-stripe-clearing-account.md`).
+- Named in the remainder (Fable, 2026-10-13): 5 income deposits with no cash entry ($3,130.56; tx 53285, 6992,
+  7016, 28014, 51339) and 16 chequing debits on draft receipts ($1,290.12) — Part B of
+  `docs/plans/2026-10-13-ledger-silent-failures.md`.
+- `BankBalanceCheckService` reads a GST Reserves ••6827 interest line as chequing's Mar–May month-end ($8.59)
+  and can't read card (2400) balances — don't trust those months' "statement" figure.

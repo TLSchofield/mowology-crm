@@ -91,13 +91,16 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Re-reading a saved receipt photo | `ExpenseRescanService::rescan()` | web + iPhone |
 | Recording a customer payment | `InvoiceReconciliationService::applyAllocation()` | bank, e-Transfer, Yardi, invoice screens |
 | Tying a deposit to payments already recorded | `InvoiceReconciliationService::linkAllocationsToDeposit()` | Penny's bank card, backfill |
-| Stripe payout → invoices + fee | `StripePayoutService` (Stripe is read-only) | import, income clean-up |
+| Stripe payout → invoices + fee (fee on 6800, never 6850 Meals) | `StripePayoutService` (Stripe is read-only) | import, income clean-up |
 | GST return (GST34) | `GstReportService` | tax report, reports, accounting |
 | Bank-line category rules | `BankRuleLearning` | transactions, Penny's bank desk |
 | Month-end proof per statement | `StatementCloseService` (+ `StatementCoverageService` for gaps) | Penny |
 | Cash-flow forecast | `CashFlowForecastService` | cash-flow page, Penny's brief |
 | Orphan deposits → what they paid | `DepositBackfillService` | one-off backfill, re-runnable |
 | Journal posting | `LedgerSyncService`, `LedgerAccountMap`, `JobberLedgerService` | nightly sync |
+| Nightly sync failures named, not skipped (cron warns) | `LedgerSyncService::noteFailure()` / `isExpectedSkip()`; `AccountingService::journalProblem()` | sync-ledger cron |
+| Moving a bank line to another account (row + journal together, or nothing) | `BankLineMoveService::move()` | transactions, Penny's bank desk, payroll + shareholder moves, bulk |
+| Penny's bank-line rules given to Claude word for word (Tim's rulings) | `BankGuidanceService::RULES` | Penny's bank desk guidance |
 | Invoice PDF before any invoice email (no PDF → held, not sent) | `InvoicePdfGate` (`ensurePdf()`); monthly contract invoices through `ContractInvoiceSender::send()` | desktop send, visit invoices, contract billing, bulk resend |
 | Who an invoice goes to (company/manager routing) | `companyRoutingRecipients()`, `resolveCompanyBillingRecipient()`, `resolveManagementBillingRecipient()`, `preferRecipients()` in `app/Modules/Invoices/Services/InvoiceRouting.php` | invoice screen, contract billing, visit invoices |
 | The "Bill to" company on every invoice header | `BillToResolver::INVOICE_COMPANY_NAME` + `INVOICE_COMPANY_JOINS` | PDF, CRM view, customer portal |

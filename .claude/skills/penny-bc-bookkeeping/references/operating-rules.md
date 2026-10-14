@@ -47,3 +47,9 @@
 - Payments and deposit links go through `InvoiceReconciliationService` (allocations; undo with
   the path that matches how it was made — see traps).
 - Production checks and pilots run through `scripts/prod-run.sh` (rolled back unless `--commit`).
+- **A books write lands in both places or neither** (2026-10-13). The record (`accounting_transactions`,
+  `expenses`) and its journal entry change in one transaction; if the journal can't follow, nothing changes
+  and Tim is told why. Never wrap a post, reversal or allocation in `catch (Throwable) { log; carry on }` —
+  that hid Stripe fees from the journal for weeks. Expected skips (a closed year) are the only quiet ones.
+- **Before saying production "reverted" or "differs", fingerprint it on the server** (`prod-run` +
+  `sha1_file`), not from a downloaded copy — a failed download once left a stale file that faked a revert.

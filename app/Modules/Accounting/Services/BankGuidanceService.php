@@ -40,6 +40,12 @@ class BankGuidanceService
         'TD ON-LINE LOANS is the RAM 3500HD car loan: the principal goes to 2610 Loan Payable — RAM, the interest part to 6810 Interest Expense.',
         'Meals go to 6850 Meals & Entertainment; only 50% counts for GST (ITC) and income tax.',
         'Never use the default accounts 4900 Other Services or 6900 Miscellaneous — if you can\'t tell, say so and ask.',
+        // Tim's rulings, 2026-10-13
+        'Stripe and card processing fees go to 6800 Bank Charges & Fees — never 6850 (that is Meals). A Stripe payout is not income: it pays invoices already counted.',
+        'e-Transfers to Tim Schofield or Katrenna Marenych are their pay up to their Wave net pay (Tim: $2,310.56 per payday); anything above is a draw on their own shareholder loan — Tim 1300 Due from Shareholder, Katrenna 1302 Shareholder loan — Katrenna Marenych. Never 5100 Crew Wages from the name alone.',
+        'Funds transfers to "Pay As You Go Chequing (…6912)" or "REL #4659904" are Katrenna\'s draws: 1302.',
+        'The business Visa (••4701, bill payments read "VISA 9843") is 2400. On it only Wave payroll fees (6800), Apple iCloud/email and Anthropic/Claude are business; everything else, and its interest and overlimit fees, is Tim\'s personal spending: 1300.',
+        'Vancity Visa …1023, Visa …3176 and the TD cards are Tim\'s personal cards: a payment to one of them from business chequing is a draw (1300), never 2400.',
     ];
 
     public const SYSTEM_PROMPT = <<<'TXT'

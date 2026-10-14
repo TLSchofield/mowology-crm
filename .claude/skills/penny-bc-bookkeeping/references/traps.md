@@ -234,11 +234,15 @@ on production while the trial balance and income statement agreed with journal_l
 signed by their section (assets debit-positive, liabilities/equity credit-positive). **Rule:** contra accounts are
 signed by the statement section they sit in, never by their own normal balance.
 
-## 2026-10-13 — 6850 is two things (not fixed — needs Tim / the accountant)
+## 2026-10-13 — 6850 is two things (FIXED in code 2026-10-13; 82 old lines await Tim's yes)
 On production 6850 is named "Meals & Entertainment" (BankDeskService, BankGuidanceService and the bank desk file meals
 there), but `StripePayoutService` books Stripe processing fees to 6850 as "Payment Processing Fees". Meals are 50% for
 ITCs and income tax (GIFI 8523); card fees are 100% (8716). Until they are split, the GIFI mapping of 6850 is wrong for
 one of them. **Rule:** one account number, one meaning — check the chart's name before posting to a code.
+- Fixed: `StripePayoutService::feeAccountId()` and `BankImportService::getProcessingFeesAccountId()` use **6800 Bank
+  Charges & Fees** and never an account named Meals (`ProcessingFeeAccountTest`). 82 fee lines ($1,028.30, all 2026)
+  were on 6850; the move to 6800 is previewed (all 82 re-post cleanly, Meals keeps $370.41 of real meals) and waits
+  for Tim's yes.
 
 ## 2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)
 Stored at capture with GST 5.00 (the old "GST 5.0000 % 0.12" misread), subtotal −2.39. Rescan re-ran the (fixed)
@@ -316,3 +320,32 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - A card statement's own "PAYMENT RECEIVED"/"AUTOMATIC PAYMENT" line is the payoff — never a charge.
 - Other cards: Visa …3176 (seen on a Shell receipt), TD 0937/5276/2735 — Tim's personal; only business charges book,
   as owner_paid.
+
+## Silent catch around a journal post (2026-10-13)
+- `StripePayoutService::apply` built `LedgerSyncService` with one argument; the TypeError was caught and logged, so
+  every fee booked at payout time reached `accounting_transactions` but not the journal. Fixed same day.
+- Fable's review found the family; all fixed and deployed 2026-10-13 (Part A of
+  `docs/plans/2026-10-13-ledger-silent-failures.md`):
+  - nightly sync counted real failures as "skipped" → now `LedgerSyncService::noteFailure()` names each
+    (source, id, reason) and `AccountingService::journalProblem()` makes the cron a warning; a closed year
+    (`LedgerSyncService::isExpectedSkip()`) is the only quiet skip. A replay on production found 0 failures today.
+  - `BankLineMoveService::move()` is all-or-nothing; inside a caller's transaction a failure throws.
+  - Deleting a posted receipt is refused if its entry can't be reversed (`ExpenseGateHooks::unpost(..., strict)`).
+  - Receipt edits inside a caller's transaction (Penny's card) re-post at once — the "nightly repost" never existed.
+  - Undoing an import / removing a duplicate line reverses its entries (`BankImportService::reverseJournalForLines()`).
+  - On a card statement a line the parser called a charge ("GOOGLE *PAYMENT") is never a payoff.
+- **Rule:** see operating-rules "A books write lands in both places or neither".
+
+## Owner pay is fixed: $2,310.56 per Wave payday (2026-10-13)
+- Wave Jan–Sep 2026: Tim $56,392 gross / 19 paydays → net exactly $2,310.56 (fed $344.80, BC $144.05, CPP $168.59
+  per payday). Through Oct 8 he took $53,708.01 by e-Transfer against $46,211.20 for 20 paydays: **$7,496.81 is a
+  draw → 1300**. Every one of those transfers is still on 5100 until the Wave months are imported.
+- Two $2,310.56 transfers on consecutive days (Oct 7, Oct 8) were catch-up, not a mistake — count paydays vs
+  transfers for the period before calling one a duplicate.
+
+## A same-amount payer's deposit marked against the wrong month (Alex Shi Ke Wang, 2026-10-13)
+- Pays $378.16 monthly. The Sep 2 deposit was marked "already recorded = INV-0303" (paid by the Aug 1 deposit);
+  then the Oct 7 Interac notice was recorded against INV-0361 AND the Oct 7 bank line against INV-0420. Cash total
+  right, dates a month off. Fixed: Sep 2 → INV-0361 (re-dated), notice → INV-0420.
+- **Rule:** for a same-amount monthly payer, "already recorded" only against the invoice dated for that deposit's
+  month, after checking no other deposit pays it (same family as Strata BCS4079 above).
