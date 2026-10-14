@@ -23,6 +23,8 @@ class MonthCloseService
 {
     public const CENT = 0.005;
     public const FIRST = '2026-01';
+    /** Days after a month ends before it can be ready: statements, card closings and late crew receipts (Tim, 2026-10-14). */
+    public const GRACE_DAYS = 15;
 
     private PDO $db;
 
@@ -70,7 +72,8 @@ class MonthCloseService
                 'drift' => $drift[$m] ?? [], 'receipts' => $receipts[$m][0] ?? 0, 'receipts_amount' => $receipts[$m][1] ?? 0.0,
                 'bank_lines' => $lines[$m] ?? 0,
             ];
-            $row['blockers'] = $row['locked'] ? [] : self::blockers($row);
+            $row['grace_until'] = self::graceUntil($m);
+            $row['blockers'] = $row['locked'] ? [] : self::blockers($row, $today);
             $row['ready'] = !$row['locked'] && !$row['blockers'];
             $out[] = $row;
         }
@@ -84,9 +87,11 @@ class MonthCloseService
     }
 
     /** Pure (tested): what still stands between a month and being exact, in Tim's words. */
-    public static function blockers(array $m): array
+    public static function blockers(array $m, ?string $today = null): array
     {
         $b = [];
+        $until = $m['grace_until'] ?? (isset($m['month']) ? self::graceUntil((string)$m['month']) : null);
+        if ($until !== null && ($today ?? date('Y-m-d')) < $until) $b[] = 'waiting until ' . $until . ' for late statements and receipts';
         if (empty($m['statements_ok'])) $b[] = 'a statement is missing or doesn\'t check out';
         foreach ((array)($m['drift'] ?? []) as $acct => $d) {
             if (abs((float)$d) >= self::CENT) {
@@ -96,6 +101,12 @@ class MonthCloseService
         if (($m['receipts'] ?? 0) > 0) $b[] = $m['receipts'] . ' open receipt' . ($m['receipts'] === 1 ? '' : 's') . ' ($' . number_format((float)($m['receipts_amount'] ?? 0), 2) . ')';
         if (($m['bank_lines'] ?? 0) > 0) $b[] = $m['bank_lines'] . ' bank line' . ($m['bank_lines'] === 1 ? '' : 's') . ' still to sort';
         return $b;
+    }
+
+    /** Pure: the first day a month may be ready (GRACE_DAYS after its last day). */
+    public static function graceUntil(string $ym): string
+    {
+        return date('Y-m-d', strtotime(date('Y-m-t', strtotime($ym . '-01')) . ' +' . self::GRACE_DAYS . ' days'));
     }
 
     /** Bank lines on Penny's desk (same rule as BankDeskService::waiting), by month. */
@@ -110,7 +121,7 @@ class MonthCloseService
                   AND ((t.type IN ('expense', 'income') AND (t.account_id IS NULL OR a.code IN ('4900', '6900'))
                         AND NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'bank_deposit' AND je.source_id = t.id AND je.reversed_by_entry_id IS NULL))
                        OR (t.type = 'transfer' AND a.code = '2400' AND t.matched_expense_id IS NULL
-                           AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU'))
+                           AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU|AUTOMATIC PAYMENT|PAYMENT RECEIVED'))
                   AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
                 GROUP BY ym")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $out[$r['ym']] = (int)$r['n'];

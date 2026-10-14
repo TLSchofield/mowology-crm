@@ -102,7 +102,7 @@ class BankDeskService
                   AND ((t.type IN ('expense', 'income') AND (t.account_id IS NULL OR a.code IN ({$codes})))
                        -- bills the import wrongly booked as card payoffs (fixed 2026-10-05)
                        OR (t.type = 'transfer' AND a.code = '2400' AND t.matched_expense_id IS NULL
-                           AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU'))
+                           AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU|AUTOMATIC PAYMENT|PAYMENT RECEIVED'))
                   AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
                   AND NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.status = 'locked'
                                   AND p.year = YEAR(t.transaction_date) AND p.month = MONTH(t.transaction_date))";

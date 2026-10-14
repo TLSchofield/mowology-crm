@@ -14,4 +14,12 @@ final class MonthCloseServiceTest extends TestCase
         $this->assertSame(['1010 Chequing: books are $48.88 below the bank', '1 open receipt ($30.00)', '13 bank lines still to sort'], $b);
         $this->assertContains('a statement is missing or doesn\'t check out', MonthCloseService::blockers(['statements_ok' => false] + $clean));
     }
+
+    public function testAMonthWaitsFifteenDaysAfterItEnds(): void
+    {
+        $this->assertSame('2026-10-15', MonthCloseService::graceUntil('2026-09'));
+        $sep = ['month' => '2026-09', 'statements_ok' => true, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0];
+        $this->assertSame(['waiting until 2026-10-15 for late statements and receipts'], MonthCloseService::blockers($sep, '2026-10-14'));
+        $this->assertSame([], MonthCloseService::blockers($sep, '2026-10-15'));
+    }
 }
