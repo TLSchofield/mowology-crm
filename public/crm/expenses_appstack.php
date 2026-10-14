@@ -1217,6 +1217,8 @@ async function submitReceiptExport() {
                     <div class="col-lg-7" id="expFormCol">
                         <!-- Penny's read: her pending suggestion where it differs (/crm/js/penny-read.js, PennyReadService) -->
                         <div id="expPennyRead" hidden></div>
+                        <!-- Otto: the supplier stop this receipt came from + his job pick (/crm/js/supplier-stop.js, SupplierJobSuggestService) -->
+                        <div id="expSupplierStop" hidden></div>
                         <!-- Section: Purchase Details -->
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
@@ -3949,6 +3951,8 @@ async function submitReceiptExport() {
             // Penny's read — her pending suggestion where it differs, with Use hers / Keep mine
             // (/crm/js/penny-read.js, loaded on first use; PennyReadService).
             loadPennyRead(e.id);
+            // Otto — the supplier stop on the crew's GPS and his job pick (office only; supplier-stop.js).
+            loadSupplierStop(e.id);
 
             renderExpenseMatchArea(e);
 
@@ -4144,6 +4148,26 @@ async function submitReceiptExport() {
         if (window.MwPennyRead) return go();
         var sc = document.createElement('script');
         sc.src = '/crm/js/penny-read.js?v=20261013b';
+        sc.onload = go;
+        document.head.appendChild(sc);
+    }
+
+    /** Otto's supplier stop + job pick in the edit modal (SupplierJobSuggestService; shadow mode, one tap). */
+    function loadSupplierStop(expenseId) {
+        var el = document.getElementById('expSupplierStop');
+        if (!el) return;
+        var go = function () {
+            window.MwSupplierStop.load(el, expenseId, {
+                csrf: CSRF,
+                onDone: function () {
+                    if (typeof loadExpenses === 'function') loadExpenses(typeof currentPage !== 'undefined' ? currentPage : 1);
+                    window.editExpense(expenseId);
+                }
+            });
+        };
+        if (window.MwSupplierStop) return go();
+        var sc = document.createElement('script');
+        sc.src = '/crm/js/supplier-stop.js?v=20261013a';
         sc.onload = go;
         document.head.appendChild(sc);
     }

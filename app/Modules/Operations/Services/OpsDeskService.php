@@ -24,7 +24,7 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'visit_date', 'duration', 'no_pin', 'pin_off', 'default_border', 'border_overlap', 'supplier_form', 'supplier_chase'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'visit_date', 'duration', 'no_pin', 'pin_off', 'default_border', 'border_overlap', 'supplier_form', 'supplier_chase', 'supplier_receipt'];
     /** Pins and borders (migration 1285, PropertyBorderService). */
     public const BORDER_KINDS = ['no_pin', 'pin_off', 'default_border', 'border_overlap'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
@@ -492,14 +492,23 @@ class OpsDeskService
     /** Supplier account forms ready to send + applications nobody answered (SupplierFormService, 1320). */
     private function supplierItems(): array
     {
+        $out = [];
         try {
-            if (!is_file(__DIR__ . '/SupplierFormService.php')) return [];
-            require_once __DIR__ . '/SupplierFormService.php';
-            return (new SupplierFormService($this->db))->ottoItems($this->today);
+            if (is_file(__DIR__ . '/SupplierFormService.php')) {
+                require_once __DIR__ . '/SupplierFormService.php';
+                $out = (new SupplierFormService($this->db))->ottoItems($this->today);
+            }
         } catch (Throwable $e) {
             error_log('Otto suppliers: ' . $e->getMessage());
-            return [];
         }
+        // A supplier / fuel stop on the crew's GPS with no receipt by the next evening (migration 1359).
+        try {
+            require_once __DIR__ . '/SupplierStopService.php';
+            $out = array_merge($out, (new SupplierStopService($this->db))->ottoItems($this->today));
+        } catch (Throwable $e) {
+            error_log('Otto supplier stops: ' . $e->getMessage());
+        }
+        return $out;
     }
 
     private function dispatchItems(): array

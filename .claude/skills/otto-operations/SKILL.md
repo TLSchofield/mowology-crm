@@ -9,6 +9,7 @@ covers:
   - app/Modules/Comms/Services/SupplierInboxService.php
   - app/Services/Spreadsheet/*
   - public/crm/suppliers/*
+  - public/crm/js/supplier-stop.js
   - app/Modules/Team/Services/TimeclockFunctions.php
   - app/Modules/Team/Services/TrackingIngestService.php
   - app/Modules/Team/Services/TrackingHealthService.php
@@ -127,6 +128,10 @@ reference that matches the task:
 | GPS breaks (backup) + BC flag | `BreakService::run()` / `BreakService::refreshFlag()` / `BreakService::complianceGap()` | trip cron, clock-out, Otto's brief (`BreakService::briefItems()`) |
 | Bulk material delivery vs trailer | `MaterialDeliveryService::forLines()` / `MaterialDeliveryService::briefItems()` | brief |
 | Supplier directory (geocode, map, vendors) | `SupplierDirectoryService::placeAll()` | Otto's map, Penny's vendors |
+| Supplier / fuel stops on the crew's GPS (≥ 3 min within 80 m; phones + truck; parking dropped) and the receipt each belongs to (migration 1359) | `SupplierStopService::findStops()` / `SupplierStopService::merge()` / `SupplierStopService::assignReceipts()`; stored per day by `SupplierStopService::run()` (trip cron) | receipt editor, Otto's card |
+| Geocoding supplier store addresses (once, by the trip cron; buildings only; never at page load) | `SupplierStopService::geocodePending()` (Google needs `GOOGLE_GEOCODING_KEY`; Nominatim answers today) | supplier stops, Penny's vendor spots |
+| "No receipt yet" for a supplier stop (6 pm next day; "Nothing was bought" closes it) | `SupplierStopService::ottoItems()` (kind `supplier_receipt`, server-sent buttons) / `SupplierStopService::markNone()` | Otto's card (web + iPhone) |
+| Otto's job pick for a material receipt from a stop — SHADOW, one tap confirms, nothing auto-assigns | `SupplierJobSuggestService::suggest()` / `SupplierJobSuggestService::confirm()` / `SupplierJobSuggestService::reject()`; score `SupplierJobSuggestService::shadowScore()` | receipt editor `public/crm/js/supplier-stop.js` via `app/Modules/Operations/Api/supplier-stops.php` |
 | Supplier mail reading (read-only IMAP) | `SupplierInboxService::poll()` inside `app/Modules/Sales/Cron/sales_inbox_poll.php` | forms, licence, chase |
 | Filling + sending a supplier form | `SupplierFormService::capture()` / `SupplierFormService::send()` with `PdfFormFiller::fill()` | Otto card, iPhone |
 | Company answers for forms (and owner-only blocklist) | `CompanyProfileService::answer()` | forms |

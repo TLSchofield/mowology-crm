@@ -89,6 +89,13 @@ class OttoActionService
                 if ($choice !== 'ack') return ['ok' => false, 'message' => 'Chase them, or is the account open?'];
                 return $this->close($sug, 'accepted', ['choice' => 'ack'], $actorId, 'Noted — chase them when you can.');
             }
+            case 'supplier_receipt': {
+                // A supplier stop with no receipt: "Nothing was bought" closes it for good (migration 1359).
+                if ($choice !== 'none') return ['ok' => false, 'message' => 'Nothing bought, or find the receipt?'];
+                require_once __DIR__ . '/SupplierStopService.php';
+                (new SupplierStopService($this->db))->markNone((int)$sug['subject_id'], $actorId ?: null);
+                return $this->close($sug, 'accepted', ['choice' => 'none'], $actorId, 'Noted — nothing bought at that stop.');
+            }
             case 'training_gap':
             case 'training_quality':
             case 'training_topic':

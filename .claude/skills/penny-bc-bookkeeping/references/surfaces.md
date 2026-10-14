@@ -31,5 +31,6 @@
 | Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Charlie's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
 | Penny's read on a receipt (her fields that differ + reasons, her items, notes; Use hers / Keep mine) | "Penny's read" section in `ReceiptDetailView` (1.3.31), pull to refresh | `#expPennyRead` in the expense modal (`penny-read.js`) | `PennyReadService` via `bookkeeper-mobile.php` `mode=suggestion` / `penny_apply` / `penny_keep` and `expenses.php` `penny_read` / `penny_apply` / `penny_keep` | "Ask Penny" (no read of hers yet) is web/Android only — iPhone gap (server: `PennyReadService::ask()`); crew see / apply (as a draft) only their own open receipts |
 | Supplier forms, Otto buttons | server-sent buttons (1.3.20) | server-sent buttons (`otto-card.js`) | `SupplierFormService` | — |
+| Supplier stop + Otto's job pick on a receipt (office only) | not built | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService` via `supplier-stops.php` | iPhone |
 
 When you change a row, change the date in this file's heading.

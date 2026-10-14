@@ -2,6 +2,25 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-10-13 — Supplier stops: what "known truth" turned out to be
+Building supplier stops (migration 1359) on the days Tim had settled by hand:
+- **Oct 7 was three Lawnboy stops, not one plus drive-bys.** Nigel's phone (and the truck) sat at
+  Lawnboy 10:13–10:24, 11:27–11:34 and 12:25–12:44 — one stop per slip (#412 photographed 11:22 at
+  the job after the first, #413 at the counter, #417 No 006 the next morning). The "passes" at 10:24
+  and 12:24 were the ends / starts of real stops.
+- **Sep 25 08:23 was the transfer station first.** The truck idled 238 m east (Vancouver Transfer
+  Station, 08:29–08:46), then stopped at Lawnboy 08:51–08:57; #390 was photographed 09:07.
+- **A parked truck looks like a fuel stop.** On Sep 12 the truck sat by the Chevron for 9 h and its
+  GPS drifted in and out of the 80 m circle all night (35 "stops"). **Rule:** a stop longer than
+  `SupplierStopService::MAX_MINUTES` for its kind is parking, and a truck-only stop with nobody on
+  the clock counts only 6 am–8 pm (`SupplierStopService::plausible()`).
+- **Phone receipt coordinates are not where the receipt was bought.** #412's photo GPS is at the
+  job; #390's is 430 m from Lawnboy at a time the truck was 2.7 km away; Penny's "learned" Lawnboy
+  spot (vendor_locations 21, one receipt) is the Tisdall job. Locations learned from one receipt are
+  never used for stops; receipts match stops by vendor + time, not by photo position.
+- **Two vendors at one street address** ("Home Depot" at Dunbar Lumber's 5190 Ladner Trunk Rd) —
+  a misread receipt. Geocoding skips it with a note (`SupplierStopService::streetKey()`).
+
 ## 2026-10-13 — The break button: a paused phone is not a quiet phone
 A break stops the phone sending fixes on purpose. Without care that reads as a dead phone (the
 quiet-phone sweep, Otto's "silent" card, iPhone's 8-minute "GPS paused" nudge) and, right after

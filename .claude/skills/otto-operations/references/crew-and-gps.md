@@ -74,6 +74,17 @@
 - UI: `public/crm/includes/otto-trips.php` + `public/crm/js/otto-trips.js`; API
   `app/Modules/Operations/Api/trips.php` (`?mode=`, never `?action=`).
 
+## Supplier stops (plan docs/plans/2026-10-13-otto-supplier-stops.md, migration 1359)
+- Locations: `vendor_locations` with a building-level point (hand, geocoded, or learned from 2+
+  receipts) + `ops_places` kind supplier / fuel. Dumps and the yard are the trip cron's.
+- Stop = one phone or the truck ≥ 3 min within 80 m (a < 2 min walk out of the circle doesn't split
+  it; fixes coarser than 60 m and mock fixes ignored); phones + truck at the same place = one stop
+  (`seen_by` phone / truck / both). Parking is dropped (see traps 2026-10-13).
+- Receipt → stop: printed time (±15 min), else the latest stop begun before the photo, else (photo
+  taken another day) the earliest stop that day still without one. Matched live every read.
+- Built nightly by `trip_runs_daily` for yesterday and re-matched for the two days before; ids kept.
+- Office only: the receipt editor block and the API answer nothing to crew.
+
 ## Schedule
 - Stops: `getCalendarStops()`. Two JSON shapes hand-pick fields — add a stop field to BOTH
   `app/Modules/Jobs/Api/calendar-stops.php` and `app/Modules/Schedule/Api/day.php`.

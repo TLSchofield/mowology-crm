@@ -1,6 +1,6 @@
 # Plan — Otto knows when the crew went to the yard
 
-Status: **approved by Tim 2026-10-13 ("yes"), not built.** Owner: Otto (Operations), with Penny.
+Status: **approved by Tim 2026-10-13 ("yes"); built 2026-10-13 (migration 1359, `SupplierStopService`, `SupplierJobSuggestService`).** Owner: Otto (Operations), with Penny.
 
 ## Why
 On 2026-10-13 Penny couldn't place three Lawnboy slips (Oct 7, $386.40). Penny only saw two lawn cuts

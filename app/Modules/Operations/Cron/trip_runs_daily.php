@@ -137,6 +137,33 @@ try {
         error_log('[trip_runs_daily] contract visits: ' . $e->getMessage());
         $__facts .= '; contract visits failed: ' . $e->getMessage();
     }
+    // Supplier stops (migration 1359): geocode new supplier addresses once, find the crew's supplier /
+    // fuel stops (phones + truck), match their receipts and leave Otto's job pick on material receipts
+    // with no job (shadow — shown on the receipt editor only). The two days before are re-matched:
+    // receipts get photographed late. Additive: a failure never loses the runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/SupplierJobSuggestService.php';
+        $ss = new SupplierStopService(getDB());
+        if ($ss->ready()) {
+            $geo = $ss->geocodePending();
+            $js = new SupplierJobSuggestService(getDB(), $ss);
+            $st = ['stops' => 0, 'with_receipt' => 0, 'suggested' => 0];
+            for ($t = strtotime($__from . ' -2 days'); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
+                $r = $ss->run(date('Y-m-d', $t));
+                $st['stops'] += $r['stops'];
+                $st['with_receipt'] += $r['with_receipt'];
+                $st['suggested'] += $js->refreshDay(date('Y-m-d', $t))['suggested'];
+            }
+            $saved = count(array_filter($geo, fn($g) => $g['result'] === 'saved'));
+            $__facts .= "; supplier stops: {$st['stops']} ({$st['with_receipt']} with a receipt), {$st['suggested']} job pick(s) for Tim"
+                . ($geo ? ", {$saved} of " . count($geo) . ' supplier address(es) geocoded' : '');
+        } else {
+            $__facts .= '; supplier stops need migration 1359';
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] supplier stops: ' . $e->getMessage());
+        $__facts .= '; supplier stops failed: ' . $e->getMessage();
+    }
     $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
     $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
         . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')

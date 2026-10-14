@@ -23,12 +23,12 @@
 4. **Anything loaded on every crew page or shown at app root can stop the field workflow**
    (2026-10-08). New crew-page features ship behind an `ops_settings` flag, off by default.
 
-## Parity table (checked 2026-10-13, break button added)
+## Parity table (checked 2026-10-13, supplier stops added)
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
 | Otto's suggestions + buttons | Team tab `OttoSuggestionViews.swift` (per-kind for older kinds; `serverButtons` for new) | `otto-card.js` (per-kind controls) + `propose.buttons` | `OpsDeskService`, `OttoActionService` | older kinds' buttons written twice; iPhone sends weather slot / bylaw start time to the web |
-| Kinds iPhone handles that this branch does not emit (`unscheduled`, `extra_work`, `visit_date`, `duration`, `pin_off`, borders, `no_pin`) | yes | unverified | not in `OpsDeskService::KINDS` here | likely on another branch / production — check live before relying on it |
+| Kinds iPhone handles that this branch does not emit (`unscheduled`, `extra_work`, `visit_date`, `duration`, `pin_off`, borders, `no_pin`) | yes | live (production) | in `OpsDeskService::KINDS` since the live copy was synced into this branch (2026-10-13, a05385a1) | the services came from feature/otto-schedule-and-borders; that branch is still unmerged |
 | Charlie's brief lines from Otto | Team tab brief | dept-heads deck | `OpsDeskService::brief()` | — |
 | Clock in/out | native, offline `ClockQueue.swift` | `time-clock-widget.js` → `time-clock.php` | `TimeclockFunctions.php` | — |
 | GPS tracking | `GPSTrackingService.swift` (native) | native engine via `capacitor-bridge.js` | `TrackingIngestService` | consent screen not on both apps → consent switch OFF |
@@ -40,5 +40,7 @@
 | Add equipment (snap the plate → confirm form) | `EquipmentAddView.swift` from Otto's card on the Team tab (camera / library, prefilled form, receipt pick) | `equipment.php` "Add equipment" card + `ops-equipment.js` (Android: same page, file input with camera) | `EquipmentService::readPlate()` / `EquipmentService::addFromPlate()` | iPhone has no list import, machine page, parts or manual reading — those are web (`equipment-item.php`) |
 | End-of-day missed-visit review | `OttoMissedReviewViews.swift` (Otto's card entry + sheet; opens from the push `open: otto_review`) | `otto-missed.js` in Otto's dashboard card + `/crm/ops/missed-visits.php` (Android opens the push's `data.url`) | `MissedVisitReviewService`, `MissedVisitRules` | iPhone date = SwiftUI graphical picker, web = MwDatePicker |
 | Supplier form send | server-sent buttons | server-sent buttons | `SupplierFormService` | — |
+| Supplier stop "no receipt yet" (Nothing was bought / I'll find it) | server-sent buttons | server-sent buttons (`otto-card.js`) | `SupplierStopService::ottoItems()` + `OttoActionService::decide()` | — |
+| Supplier stop + Otto's job pick on a receipt (office only) | not built — `ReceiptDetailView` shows nothing | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService::forEditor()` via `supplier-stops.php` (session) | iPhone (needs a JWT read of `forEditor()`) |
 
 When you change a row, change the date in this file's heading.

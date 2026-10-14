@@ -148,6 +148,9 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestMatche
 require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestGate.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TripAttributionService.php';
+// Supplier stops + Otto's job pick for material receipts (migration 1359)
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierStopService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierJobSuggestService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TripLineSuggester.php';
 
 // Sales — Sam the Closer (rate card + pricing)
