@@ -1047,27 +1047,49 @@ class WavePayrollImportService
         $clear = self::clearing($run['totals'], $prop['moves'], $shRows, array_column($moves, 'id'));
         $clear['sweeps'] = self::sweeps($prop['moves'], $shRows, array_column($moves, 'id'));
 
-        $entry = self::buildEntry($run['totals'], $clear['sweeps'], $run['last_payday'], self::memo($run));
-        $entry += ['source_type' => 'payroll_run', 'source_id' => $runId, 'created_by' => $userId, 'proposed_by' => 'penny'];
-        $entryId = $this->ledger->postManual($entry);
-
-        $codes = [];
-        $moved = 0; $failed = [];
-        $mover = new BankLineMoveService($this->db, $this->ledger);
-        foreach ($moves as $m) {
-            $acctId = $codes[$m['to']] ??= $this->ledger->accountId($m['to']);
-            $cur = $this->db->prepare("SELECT account_id, type FROM accounting_transactions WHERE id = ?");
-            $cur->execute([$m['id']]);
-            $was = $cur->fetch(PDO::FETCH_ASSOC) ?: ['account_id' => null, 'type' => null];
-            if ((int)$was['account_id'] !== $acctId) {
-                $res = $mover->move($m['id'], $acctId, $userId, 'penny');
-                if (empty($res['ok'])) { $failed[] = $m['id'] . ': ' . $res['message']; continue; }
+        // All or nothing (Codex review 2026-10-14): the entry counts every ticked line as swept, so
+        // a line that didn't move left the clearing account off. One transaction; any line that
+        // can't move books nothing and says which.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            // Two clicks at once both saw 'preview' (Codex review): lock the run and look again.
+            if (!$this->lockRunWithStatus($runId, 'preview')) {
+                if ($own) $this->db->rollBack();
+                return ['ok' => false, 'message' => 'That month is already booked.'];
             }
-            $this->logMove($runId, null, $m, $was, $acctId, $userId);
-            $moved++;
+            $entry = self::buildEntry($run['totals'], $clear['sweeps'], $run['last_payday'], self::memo($run));
+            $entry += ['source_type' => 'payroll_run', 'source_id' => $runId, 'created_by' => $userId, 'proposed_by' => 'penny'];
+            $entryId = $this->ledger->postManual($entry);
+
+            $codes = [];
+            $moved = 0; $failed = [];
+            $mover = new BankLineMoveService($this->db, $this->ledger);
+            foreach ($moves as $m) {
+                $acctId = $codes[$m['to']] ??= $this->ledger->accountId($m['to']);
+                $cur = $this->db->prepare("SELECT account_id, type FROM accounting_transactions WHERE id = ?");
+                $cur->execute([$m['id']]);
+                $was = $cur->fetch(PDO::FETCH_ASSOC) ?: ['account_id' => null, 'type' => null];
+                if ((int)$was['account_id'] !== $acctId) {
+                    $res = $mover->move($m['id'], $acctId, $userId, 'penny');
+                    if (empty($res['ok'])) { $failed[] = $m['id'] . ': ' . $res['message']; continue; }
+                }
+                $this->logMove($runId, null, $m, $was, $acctId, $userId);
+                $moved++;
+            }
+            $this->db->prepare("UPDATE payroll_runs SET status = 'booked', journal_entry_id = ?, sweep_amount = ?, booked_by = ?, booked_at = NOW() WHERE id = ?")
+               ->execute([$entryId, $clear['sweep'], $userId ?: null, $runId]);
+            if ($failed) {
+                if (!$own) throw new RuntimeException('bank lines could not move: ' . implode('; ', $failed));
+                $this->db->rollBack();
+                return ['ok' => false, 'message' => 'Nothing booked — these bank lines could not move: ' . implode('; ', $failed) . '. Untick them or fix them, then book again.', 'failed' => $failed];
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if (!$own) throw $e;   // the caller's transaction decides
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => 'Nothing booked: ' . $e->getMessage()];
         }
-        $this->db->prepare("UPDATE payroll_runs SET status = 'booked', journal_entry_id = ?, sweep_amount = ?, booked_by = ?, booked_at = NOW() WHERE id = ?")
-           ->execute([$entryId, $clear['sweep'], $userId ?: null, $runId]);
         $msg = date('F Y', strtotime($run['month'] . '-01')) . ' booked (entry #' . $entryId . '), ' . $moved . ' bank line' . ($moved === 1 ? '' : 's') . ' moved.';
         if ($failed) $msg .= ' Not moved: ' . implode('; ', $failed);
         return ['ok' => true, 'message' => $msg, 'entry_id' => $entryId, 'moved' => $moved, 'failed' => $failed, 'clearing' => $clear];
@@ -1079,12 +1101,40 @@ class WavePayrollImportService
         $run = $this->loadRun($runId);
         if (!$run || $run['status'] !== 'booked') return ['ok' => false, 'message' => 'That month isn\'t booked.'];
         if ($this->ledger->isLocked($run['last_payday'])) return ['ok' => false, 'message' => date('F Y', strtotime($run['month'] . '-01')) . ' is locked.'];
-        $rev = $run['journal_entry_id'] ? $this->ledger->reverseEntry($run['journal_entry_id'], $userId, 'payroll month undone', 'owner') : null;
-        $back = $this->undoMoves('run_id = ?', [$runId], $userId);
-        $this->db->prepare("UPDATE payroll_runs SET status = 'preview', journal_entry_id = NULL, sweep_amount = NULL, last_reversal_entry_id = ?,
-                                   undone_by = ?, undone_at = NOW() WHERE id = ?")->execute([$rev, $userId ?: null, $runId]);
+        // All or nothing, like booking (Codex review 2026-10-14).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            if (!$this->lockRunWithStatus($runId, 'booked')) {
+                if ($own) $this->db->rollBack();
+                return ['ok' => false, 'message' => 'That month isn\'t booked.'];
+            }
+            $rev = $run['journal_entry_id'] ? $this->ledger->reverseEntry($run['journal_entry_id'], $userId, 'payroll month undone', 'owner') : null;
+            $back = $this->undoMoves('run_id = ?', [$runId], $userId);
+            if ($back['failed']) {
+                if (!$own) throw new RuntimeException('bank lines could not move back: ' . implode('; ', $back['failed']));
+                $this->db->rollBack();
+                return ['ok' => false, 'message' => 'Nothing undone — these bank lines could not move back: ' . implode('; ', $back['failed'])];
+            }
+            $this->db->prepare("UPDATE payroll_runs SET status = 'preview', journal_entry_id = NULL, sweep_amount = NULL, last_reversal_entry_id = ?,
+                                       undone_by = ?, undone_at = NOW() WHERE id = ?")->execute([$rev, $userId ?: null, $runId]);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if (!$own) throw $e;
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => 'Nothing undone: ' . $e->getMessage()];
+        }
         return ['ok' => true, 'message' => 'Undone: entry reversed' . ($rev ? ' (#' . $rev . ')' : '') . ', ' . $back['moved'] . ' bank line'
                 . ($back['moved'] === 1 ? '' : 's') . ' moved back.' . ($back['failed'] ? ' Not moved back: ' . implode('; ', $back['failed']) : '')];
+    }
+
+    /** Inside a transaction: lock the run row; true if it is still in $status. */
+    private function lockRunWithStatus(int $runId, string $status): bool
+    {
+        $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $s = $this->db->prepare("SELECT status FROM payroll_runs WHERE id = ?" . $lock);
+        $s->execute([$runId]);
+        return $s->fetchColumn() === $status;
     }
 
     /** Log one move (payroll run or shareholder batch). */

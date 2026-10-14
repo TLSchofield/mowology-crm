@@ -208,14 +208,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_approve'])) {
     if (verifyCSRFToken($csrfToken)) {
         $ids = array_map('intval', (array)($_POST['timesheet_ids'] ?? []));
         if (!empty($ids)) {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $params = array_merge(['approved', $user['id']], $ids);
-            $db->prepare("
-                UPDATE timesheets
-                SET status = ?, reviewed_by = ?, reviewed_at = NOW()
-                WHERE id IN ({$placeholders})
-                  AND status = 'submitted'
-            ")->execute($params);
+            // The same checks as approving one week (Codex review 2026-10-14): not your own,
+            // no timer still running, totals recalculated first.
+            require_once APP_ROOT . '/Modules/Team/Services/TimesheetApprovalService.php';
+            $res = (new TimesheetApprovalService($db))->approveMany($ids, (int)$user['id']);
+            $_SESSION['flash_success'] = $res['approved'] . ' timesheet' . ($res['approved'] === 1 ? '' : 's') . ' approved.';
+            if ($res['refused']) {
+                $_SESSION['flash_error'] = count($res['refused']) . ' not approved: ' . implode(' ', array_unique(array_values($res['refused'])));
+            }
         }
     }
     header('Location: /crm/timeclock/payroll-summary.php?start=' . urlencode($rangeStart) . '&end=' . urlencode($rangeEnd));
@@ -237,6 +237,7 @@ $pageTitle  = 'Payroll Summary';
 $activePage = 'payroll';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+<?php include dirname(__DIR__) . '/includes/flash.php'; ?>
 
 <!-- Header -->
 <div class="mw-payroll-header">

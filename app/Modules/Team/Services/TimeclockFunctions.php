@@ -65,7 +65,33 @@ function getActiveClockEntry($userId) {
  *   anyone. Self clock-ins (mobile and desktop) should always leave this true.
  */
 /** @param ?string $at 'Y-m-d H:i:s' when it happened (OfflineTime::accept); null = now */
+/**
+ * Run $fn while holding a MySQL named lock for this user (Codex review 2026-10-14): a double tap or
+ * an offline replay landing with a live request each passed the "already clocked in / timer
+ * running" check and each inserted. Off MySQL (tests) it just runs. A lock that can't be had in
+ * 10 s refuses rather than racing.
+ */
+function withTimeclockUserLock(string $what, int $userId, callable $fn) {
+    $db = getDB();
+    if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return $fn();
+    $name = 'mw_tc_' . $what . '_' . $userId;
+    if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($name) . ", 10)")->fetchColumn() !== 1) {
+        throw new Exception('Another clock action is still being saved — try again in a moment.');
+    }
+    try {
+        return $fn();
+    } finally {
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($name) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+    }
+}
+
 function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = true, $at = null) {
+    return withTimeclockUserLock('clock', (int)$userId, function () use ($userId, $lat, $lng, $enforceGpsRequirement, $at) {
+        return clockInLocked($userId, $lat, $lng, $enforceGpsRequirement, $at);
+    });
+}
+
+function clockInLocked($userId, $lat = null, $lng = null, $enforceGpsRequirement = true, $at = null) {
     // Check for existing active entry
     $existing = getActiveClockEntry($userId);
     if ($existing) {
@@ -339,6 +365,13 @@ function userMayActOnVisit(int $visitId, int $userId): bool {
  * (the endpoint notes "No location (offline)") rather than refuse it and lose the job's time.
  */
 function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
+    // GPS auto-start racing a manual start opened two timers on one visit (Codex review 2026-10-14).
+    return withTimeclockUserLock('job', (int)$userId, function () use ($jobId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional) {
+        return startJobTimerLocked($jobId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional);
+    });
+}
+
+function startJobTimerLocked($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
     $db = getDB();
 
     // Geofence auto-starts already imply a real GPS fix (that's what triggered them) —

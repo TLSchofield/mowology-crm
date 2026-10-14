@@ -86,15 +86,19 @@ foreach ($entries as $entry) {
     try {
         $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
 
-        $db->prepare("
+        // Only a shift still open (Codex review 2026-10-14): one clocked out between the select and
+        // here keeps its real clock-out, and gets no trip close or SMS.
+        $close = $db->prepare("
             UPDATE time_clock_entries
             SET clock_out     = DATE_ADD(clock_in, INTERVAL ? HOUR),
                 total_minutes = ? * 60,
                 status        = 'completed',
                 notes         = CONCAT(COALESCE(notes, ''), ' [auto-completed by cron after ', ?, 'h]'),
                 edited_at     = NOW()
-            WHERE id = ?
-        ")->execute([$autoHours, $autoHours, $autoHours, $entry['id']]);
+            WHERE id = ? AND clock_out IS NULL AND status = 'active'
+        ");
+        $close->execute([$autoHours, $autoHours, $autoHours, $entry['id']]);
+        if ($close->rowCount() !== 1) continue;
 
         ensureTimesheetExists((int)$entry['user_id'], $clockInDate);
 

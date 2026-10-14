@@ -134,22 +134,24 @@ try {
             }
 
             // Auto clock-in globally if not already clocked in.
+            // Under the same per-user lock as clockIn() (Codex review 2026-10-14), so a clock-in
+            // tapped at the same moment can't open a second shift.
             if (!isset($db)) $db = getDB();
-            $ckChk = $db->prepare(
-                "SELECT id FROM time_clock_entries
-                 WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
-                 LIMIT 1"
-            );
-            $ckChk->execute([$userId]);
-            $autoClockIn = false;
-            if (!$ckChk->fetch()) {
+            $autoClockIn = withTimeclockUserLock('clock', (int)$userId, function () use ($db, $userId, $tapped, $lat, $lng) {
+                $ckChk = $db->prepare(
+                    "SELECT id FROM time_clock_entries
+                     WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
+                     LIMIT 1"
+                );
+                $ckChk->execute([$userId]);
+                if ($ckChk->fetch()) return false;
                 $db->prepare(
                     "INSERT INTO time_clock_entries
                      (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
                      VALUES (?, COALESCE(?, NOW()), ?, ?, 'active', NOW())"
                 )->execute([$userId, $tapped, $lat, $lng]);
-                $autoClockIn = true;
-            }
+                return true;
+            });
 
             $responseStart = json_encode([
                 'success'       => true,

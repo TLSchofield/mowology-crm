@@ -144,6 +144,7 @@ $pageTitle = 'Timesheet — ' . htmlspecialchars($ts['employee_name']);
 $activePage = 'timesheets';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+<?php include dirname(__DIR__) . '/includes/flash.php'; ?>
 
 <!-- Header -->
 <div class="d-flex justify-content-between align-items-center mb-3">

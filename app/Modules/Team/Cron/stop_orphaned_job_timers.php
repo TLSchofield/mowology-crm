@@ -112,7 +112,7 @@ foreach ($orphans as $entry) {
             $note .= ' [auto-capped: exceeded shift duration]';
         }
 
-        $db->prepare("
+        $stopStmt = $db->prepare("
             UPDATE job_time_entries
             -- end_time = start + the (capped) minutes, so every screen agrees: the crew's
             -- timesheet reads end - start (2026-10-12; NOW() made a capped 8 h timer show 20 h)
@@ -122,8 +122,10 @@ foreach ($orphans as $entry) {
                 status           = 'completed',
                 auto_stopped     = 1,
                 flagged_anomaly  = 1
-            WHERE id = ?
-        ")->execute([$cappedMinutes, $cappedMinutes, ' ' . $note, $entry['id']]);
+            WHERE id = ? AND status = 'active' AND end_time IS NULL   -- stopped meanwhile: leave it (Codex review 2026-10-14)
+        ");
+        $stopStmt->execute([$cappedMinutes, $cappedMinutes, ' ' . $note, $entry['id']]);
+        if ($stopStmt->rowCount() !== 1) continue;
 
         // Log to visit_audit_log if table exists.
         try {
