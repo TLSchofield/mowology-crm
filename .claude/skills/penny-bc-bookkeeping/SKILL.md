@@ -119,6 +119,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | A journal entry's source document (invoice, receipt photo, bank line, Jobber row…) | `JournalBrowserService::source()` in `app/Modules/Ledger/Services/JournalBrowserService.php` | Ledger journal drill-down |
 | Changes inside a locked period after its lock | `LockExceptionService::classify()` in `app/Modules/Ledger/Services/LockExceptionService.php` | Ledger → Exceptions |
 | Which supplier stop a receipt came from, and Otto's job pick for a material receipt with no job (shadow: one tap confirms through `ExpenseGate::apply()`; every answer is a Penny lesson vendor + material → job type) | `SupplierJobSuggestService::forEditor()` / `SupplierJobSuggestService::confirm()` (Otto's service, Operations module) | web/Android expense modal (`supplier-stop.js`); iPhone gap |
+| Prepaid client credit used before an invoice is sent (before the PDF and autopay) | `ClientCreditService::applyOnSend()` | visit invoices, contract billing, invoice screen send, bulk resend |
+| A client's payment text / Interac alert text → payer hints on a deposit | `PaymentClueService::clueFor()` / `alertSendersFor()` (texts via `TextBridgeService::ingest()` / `ingestInterac()`) | Penny's which-invoice card (`BankInvoiceMatchService::suggest()`) |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value

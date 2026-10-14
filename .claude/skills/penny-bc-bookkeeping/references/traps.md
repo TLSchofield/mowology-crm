@@ -372,3 +372,17 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - `BankBalanceCheckService::statementBalances()` now reads only the main account's track
   (`StatementCoverageService::walkChain()` returns `track_of` / `main`). Chequing Mar–May had read a GST Reserves
   interest balance ($8.59) as its month-end — drift showed +$18.6K; now −$585 / −$1,733 / +$779 (real, still open).
+
+## Interac money the CRM never sees (2026-10-14)
+- Autodeposit for the business stopped on 2026-06-12 (Interac text: "Your Autodeposit registration is no longer
+  active"), so transfers since then arrive as "claim your money" and wait (Kamaljeet: Sep 9 → claimed Sep 23).
+  Re-registering is Tim's (online banking).
+- Interac emails go to whatever address the client typed: Joseph Gallentine's $65 (Sep 17) reached no mailbox the
+  CRM reads. The bank line names OUR business ("e-Transfer credit … MOWOLOGY LAWNS AND LANDSCAPES LTD"), so the
+  payer is often in no record at all — except Tim's banking app and Interac's alert texts (short code 100001,
+  "NAME sent you money", no amount). Bridge 1.1 sends those names to the CRM (needs Text Message Forwarding on the
+  iMac); Penny shows them on the deposit card. Some alerts are personal money (Gary Hughes 2026-06-06) — a hint only.
+- Bank names ≠ CRM names: "Joe Gal" was JOSEPH GALLENTINE (renamed 2026-10-14). $65 for a $63 invoice was a $2 tip
+  (no GST: a voluntary tip is not consideration).
+- `invoices.payment_method` has no 'account_credit' on production (migration 1102's enum step never ran; prod is
+  non-strict, so 5 credit-paid invoices hold ''). Run its runner page.
