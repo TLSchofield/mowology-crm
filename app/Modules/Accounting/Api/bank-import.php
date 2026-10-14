@@ -107,6 +107,19 @@ try {
             // 'bank' | 'credit_card' — drives credit-card routing. Derived from the
             // selected preset; 'auto' / unknown defaults to bank.
             $kind     = $importer->getPresetKind($presetIn);
+            // The account picked decides it (2026-10-13): Visa PDFs left on "Auto-detect" were read as
+            // bank statements — duplicate-checked against chequing (26 card lines imported twice) and
+            // signed with bank rules (a Wave fee came in as income).
+            $pickedAccount = (int)($_POST['bank_account_id'] ?? 0);
+            $pickedIsCard  = false;
+            if ($pickedAccount > 0) {
+                try {
+                    $ck = $db->prepare("SELECT 1 FROM bank_statement_accounts WHERE account_id = ? AND kind = 'card' LIMIT 1");
+                    $ck->execute([$pickedAccount]);
+                    $pickedIsCard = (bool)$ck->fetchColumn();
+                } catch (Throwable $e) { /* before the statements list existed */ }
+            }
+            if ($pickedIsCard) $kind = 'credit_card';
 
             if ($ext === 'pdf') {
                 // PDF path — extract text and parse transactions automatically
@@ -137,7 +150,7 @@ try {
                 $detected  = $importer->detectStatementType($firstLine, $file['name']);
                 $preset    = $detected !== '' ? $detected : $importer->detectPreset($file['name']);
             }
-            $kind = $importer->getPresetKind($preset);
+            $kind = $pickedIsCard ? 'credit_card' : $importer->getPresetKind($preset);
             if (!$bankName) $bankName = htmlspecialchars($preset);
 
             // Build column mapping from preset or POST params

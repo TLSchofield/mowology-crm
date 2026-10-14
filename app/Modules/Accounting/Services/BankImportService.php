@@ -1786,11 +1786,13 @@ class BankImportService
             $type   = null;
             $amount = null;
 
-            // Keywords that identify a credit/income transaction
+            // Keywords that identify a credit/income transaction. "PAYROLL" means money in only as a
+            // payroll deposit — "WAVE - PAYROLL FEES" on the Visa is a charge (read as income until
+            // 2026-10-13).
             $isCredit = (bool)preg_match(
-                '/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER\s+IN|REFUND|PREAUTH\s+CREDIT/i',
+                '/\bCR\b|DEPOSIT|CREDIT|PAYROLL(?!\s*FEES?\b)|SALARY|TRANSFER\s+IN|REFUND|PREAUTH\s+CREDIT/i',
                 $desc
-            );
+            ) && !preg_match('/\bFEES?\b/i', $desc);
 
             if ($amt2Raw !== '') {
                 $a1 = $this->parseNumber($amt1Raw);
