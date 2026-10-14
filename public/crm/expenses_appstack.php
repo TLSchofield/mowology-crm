@@ -3488,9 +3488,18 @@ async function submitReceiptExport() {
             html += '</tr>';
         });
 
-        // Receipt row — show thumbnails
-        var receiptA = a.receipt_path ? '<img src="' + esc(a.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
-        var receiptB = b.receipt_path ? '<img src="' + esc(b.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
+        // Receipt row — the receipt itself, so the two can be compared: a photo, a PDF (shown inline)
+        // or an emailed receipt (sandboxed). A PDF in an <img> showed nothing (2026-10-14).
+        function mergeReceipt(x) {
+            if (!x.receipt_path) return '<span class="mw-merge-value-empty">no receipt</span>';
+            var mime = x.receipt_mime_type || '';
+            var open = '<a href="' + esc(x.receipt_path) + '" target="_blank" rel="noopener" class="d-block small mt-1">Open full size</a>';
+            if (/pdf/i.test(mime)) return '<iframe src="' + esc(x.receipt_path) + '#toolbar=0&view=FitH" class="mw-merge-receipt-frame" title="PDF receipt #' + x.id + '"></iframe>' + open;
+            if (/html/i.test(mime)) return '<iframe src="' + esc(x.receipt_path) + '" sandbox="" referrerpolicy="no-referrer" class="mw-merge-receipt-frame" title="Emailed receipt #' + x.id + '"></iframe>' + open;
+            return '<img src="' + esc(x.receipt_path) + '&thumb=1" alt="Receipt #' + x.id + '" class="mw-merge-receipt-img">' + open;
+        }
+        var receiptA = mergeReceipt(a);
+        var receiptB = mergeReceipt(b);
         var receiptDefault = 'keep';
         if (!a.receipt_path && b.receipt_path) receiptDefault = 'discard';
 

@@ -13831,6 +13831,22 @@ a.mw-clock-timer-nav:hover {
   border-color:var(--mw-green);
   box-shadow:0 0 0 2px rgb(45 134 89 / .2);
 }
+/* Review & Merge: each receipt shown so the two can be compared (2026-10-14) */
+.mw-merge-receipt-frame {
+  display:block;
+  width:100%;
+  min-width:220px;
+  height:260px;
+  border:1px solid var(--mw-rule, var(--mw-light));
+  border-radius:4px;
+  background-color:Canvas;
+}
+.mw-merge-receipt-img {
+  display:block;
+  max-height:160px;
+  max-width:100%;
+  border-radius:4px;
+}
 /* An emailed receipt in the expense modal, sandboxed (2026-10-14) */
 .mw-modal-receipt-frame {
   width:100%;
