@@ -35,6 +35,14 @@ if (empty($token)) {
 }
 
 $db   = getDB();
+// Same lock as invoice-payment-intent.php (Codex review 2026-10-14): the invoice is read after it.
+$piLock = 'mw_inv_pay_' . md5($token);
+if ((int) $db->query("SELECT GET_LOCK(" . $db->quote($piLock) . ", 15)")->fetchColumn() !== 1) {
+    http_response_code(503); echo json_encode(['error' => 'Another payment for this invoice is in progress. Please try again in a moment.']); exit;
+}
+register_shutdown_function(function () use ($db, $piLock) {
+    try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($piLock) . ")"); } catch (\Throwable $e) { /* lock went with the connection */ }
+});
 $stmt = $db->prepare("
     SELECT i.id AS invoice_id, i.stripe_payment_intent_id, i.balance_due, i.status,
            ct.stripe_customer_id, ct.stripe_payment_method_id
@@ -70,6 +78,15 @@ try {
     if (!in_array($intent->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)) {
         http_response_code(422);
         echo json_encode(['error' => 'Payment cannot be confirmed in its current state: ' . $intent->status]);
+        exit;
+    }
+
+    // Only ever the invoice's balance today (Codex review 2026-10-14): a stale intent from before a
+    // credit, a partial payment or an edit must not be charged to the saved card.
+    if (!in_array($row['status'], ['sent', 'viewed', 'partial', 'overdue'], true)
+        || (int) $intent->amount !== (int) round((float) $row['balance_due'] * 100)) {
+        http_response_code(409);
+        echo json_encode(['error' => 'This invoice has changed since the page loaded — please refresh and try again.']);
         exit;
     }
 

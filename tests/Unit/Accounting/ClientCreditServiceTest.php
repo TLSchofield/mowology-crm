@@ -54,6 +54,32 @@ class ClientCreditServiceTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /** @test */
+    public function add_deposit_saves_nothing_when_the_named_bank_line_cannot_move(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec("CREATE TABLE client_credits (id INTEGER PRIMARY KEY, client_id INT, type TEXT, amount REAL, source_note TEXT, created_by INT, bank_transaction_id INT)");
+        $db->exec("CREATE TABLE chart_of_accounts (id INTEGER PRIMARY KEY, code TEXT)");
+        $db->exec("CREATE TABLE accounting_transactions (id INTEGER PRIMARY KEY, type TEXT, reference_type TEXT, account_id INT, amount REAL)");
+        $db->exec("INSERT INTO chart_of_accounts VALUES (7, '2160')");
+        $db->exec("INSERT INTO accounting_transactions VALUES (40, 'transfer', 'bank_import', 7, 500)");   // already moved
+
+        $svc = (new ClientCreditService($db))->withoutLedger();
+        try {
+            $svc->addDeposit(55, 500.0, 'Advance cheque', 1, 40);
+            $this->fail('expected a refusal');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('nothing was recorded', $e->getMessage());
+        }
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM client_credits")->fetchColumn());
+
+        $db->exec("INSERT INTO accounting_transactions VALUES (41, 'income', 'bank_import', 99, 500)");
+        $id = $svc->addDeposit(55, 500.0, 'Advance cheque', 1, 41);
+        $this->assertSame(41, (int)$db->query("SELECT bank_transaction_id FROM client_credits WHERE id = $id")->fetchColumn());
+        $this->assertSame('transfer', $db->query("SELECT type FROM accounting_transactions WHERE id = 41")->fetchColumn());
+    }
+
+    /** @test */
     public function add_deposit_rejects_non_positive_amount(): void
     {
         $db  = $this->createMock(PDO::class);

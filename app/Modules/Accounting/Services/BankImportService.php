@@ -790,9 +790,16 @@ class BankImportService
                 // tx, and the FK sets the allocations' transaction_id back to NULL.
                 $linkedRecorded = null;
                 if ($row['type'] === 'income' && $this->isETransfer((string)$row['description'])) {
+                    // A savepoint (Codex review 2026-10-14): the link writes the allocations, then
+                    // turns the deposit into a transfer. A failure between the two left the payment
+                    // linked and the deposit still income — counted twice. Undo the half-step.
+                    $sp = $this->db->inTransaction() && $this->db->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql';
+                    if ($sp) $this->db->exec('SAVEPOINT mw_link_recorded');
                     try {
                         $linkedRecorded = $this->reconciliationService()->linkRecordedPaymentsToDeposit($txId, $userId);
+                        if ($sp) $this->db->exec('RELEASE SAVEPOINT mw_link_recorded');
                     } catch (\Throwable $e) {
+                        if ($sp) { try { $this->db->exec('ROLLBACK TO SAVEPOINT mw_link_recorded'); } catch (\Throwable $e2) { /* outer rollback covers it */ } }
                         error_log('[BankImportService] link recorded payments tx ' . $txId . ': ' . $e->getMessage());
                         $linkedRecorded = null;
                     }

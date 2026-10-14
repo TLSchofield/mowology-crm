@@ -133,15 +133,38 @@ class ClientCreditService
             throw new \InvalidArgumentException('Deposit amount must be greater than zero');
         }
 
-        $stmt = $this->db->prepare("
-            INSERT INTO client_credits (client_id, type, amount, source_note, created_by)
-            VALUES (?, 'deposit', ?, ?, ?)
-        ");
-        $stmt->execute([$clientId, $amount, $note, $userId]);
-        $id = (int) $this->db->lastInsertId();
-        $bankTransactionId = $bankTransactionId ?: $this->findDepositLine($amount);
-        if ($bankTransactionId) $this->moveBankLineToDeposits($bankTransactionId);
-        else error_log("[ClientCredit] prepayment #{$id} (\${$amount}) not tied to a bank line — Penny: find its deposit");
+        // The credit and its bank line move together (Codex review 2026-10-14): a credit whose deposit
+        // stayed income counted the money twice. A line the caller named must move or nothing is saved;
+        // a line found by amount that no longer qualifies is left for Penny, said in the log.
+        $own = !$this->db->inTransaction();
+        $sp = !$own && $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';   // joining a caller's: undo only ours
+        if ($own) $this->db->beginTransaction(); elseif ($sp) $this->db->exec('SAVEPOINT mw_add_deposit');
+        try {
+            $stmt = $this->db->prepare("
+                INSERT INTO client_credits (client_id, type, amount, source_note, created_by)
+                VALUES (?, 'deposit', ?, ?, ?)
+            ");
+            $stmt->execute([$clientId, $amount, $note, $userId]);
+            $id = (int) $this->db->lastInsertId();
+            $named = (bool) $bankTransactionId;
+            $bankTransactionId = $bankTransactionId ?: $this->findDepositLine($amount);
+            $moved = $bankTransactionId ? $this->moveBankLineToDeposits($bankTransactionId) : false;
+            if ($named && !$moved) {
+                throw new \RuntimeException('That bank line is no longer an untied deposit — nothing was recorded. Refresh and pick the line again.');
+            }
+            if ($moved) {
+                try {
+                    $this->db->prepare("UPDATE client_credits SET bank_transaction_id = ? WHERE id = ?")->execute([$bankTransactionId, $id]);
+                } catch (\PDOException $e) { /* column from migration 1363 missing: the move itself stands */ }
+            } else {
+                error_log("[ClientCredit] prepayment #{$id} (\${$amount}) not tied to a bank line — Penny: find its deposit");
+            }
+            if ($own) $this->db->commit(); elseif ($sp) $this->db->exec('RELEASE SAVEPOINT mw_add_deposit');
+        } catch (\Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            elseif ($sp) { try { $this->db->exec('ROLLBACK TO SAVEPOINT mw_add_deposit'); } catch (\Throwable $e2) { /* caller's rollback covers it */ } }
+            throw $e;
+        }
         return $id;
     }
 

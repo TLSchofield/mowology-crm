@@ -116,7 +116,35 @@ class GstReportService
             ORDER BY i.issue_date ASC
         ");
         $stmt->execute([$from, $to]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($this->jobberInvoices($from, $to) as $j) $rows[] = $j;
+        usort($rows, fn($a, $b) => strcmp((string)$a['issue_date'], (string)$b['issue_date']));
+        return $rows;
+    }
+
+    /**
+     * 2026 invoices billed in Jobber and never recreated in the CRM (Codex review 2026-10-14:
+     * 242 of them, ~$5K of GST, were missing here). Exactly the ones whose revenue is live in the
+     * journal (JobberLedgerService books them, holding back CRM look-alikes), so the return and
+     * the ledger's 2200 agree. Shaped like CRM invoice rows; `source` = 'jobber'.
+     */
+    public function jobberInvoices(string $from, string $to): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT j.id, CONCAT('Jobber #', j.jobber_number) AS invoice_number, j.issued_date AS issue_date, j.status,
+                       ROUND(j.total - j.tax, 2) AS subtotal, NULL AS tax_rate, j.tax AS tax_amount, NULL AS gst_number,
+                       j.total, ROUND(j.total - COALESCE(j.balance, 0), 2) AS amount_paid, j.balance AS balance_due, NULL AS payment_method,
+                       j.client_name, 'jobber' AS source
+                FROM jobber_invoices j
+                JOIN journal_entries e ON e.source_type = 'jobber_invoice' AND e.source_id = j.id AND e.reversed_by_entry_id IS NULL
+                WHERE j.issued_date BETWEEN ? AND ?
+            ");
+            $stmt->execute([$from, $to]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];   // no Jobber import on this install
+        }
     }
 
     /** Expenses whose GST may be claimed: approved or posted, with GST. */

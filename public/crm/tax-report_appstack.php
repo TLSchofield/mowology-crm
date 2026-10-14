@@ -254,7 +254,7 @@ $statusClass = [
                         $sc = $statusClass[$inv['status']] ?? 'secondary';
                     ?>
                     <tr>
-                        <td><a href="/crm/invoices/view.php?id=<?php echo $inv['id']; ?>"><?php echo h($inv['invoice_number']); ?></a></td>
+                        <td><?php if (($inv['source'] ?? '') === 'jobber'): ?><?php echo h($inv['invoice_number']); ?><?php else: ?><a href="/crm/invoices/view.php?id=<?php echo $inv['id']; ?>"><?php echo h($inv['invoice_number']); ?></a><?php endif; ?></td>
                         <td><?php echo h($inv['client_name']); ?></td>
                         <td><?php echo date('M j, Y', strtotime($inv['issue_date'])); ?></td>
                         <td><span class="badge badge-<?php echo $sc; ?>"><?php echo h(ucfirst($inv['status'])); ?></span></td>

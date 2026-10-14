@@ -37,8 +37,22 @@ if (empty($token)) {
     exit;
 }
 
+// ── One payment request per invoice at a time (Codex review 2026-10-14) ──────
+// Two overlapping requests (two tabs, the save-card re-POST, a saved-card confirm) each read
+// "no intent yet" and each created one. A named lock taken BEFORE the invoice is read, held until
+// the response is sent, makes every read below current. confirm-saved-card.php takes the same lock.
+$db = getDB();
+$piLock = 'mw_inv_pay_' . md5($token);
+if ((int) $db->query("SELECT GET_LOCK(" . $db->quote($piLock) . ", 15)")->fetchColumn() !== 1) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Another payment for this invoice is being set up. Please try again in a moment.']);
+    exit;
+}
+register_shutdown_function(function () use ($db, $piLock) {
+    try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($piLock) . ")"); } catch (\Throwable $e) { /* connection gone: lock went with it */ }
+});
+
 // ── Load invoice + contact ────────────────────────────────────────────────────
-$db   = getDB();
 $stmt = $db->prepare("
     SELECT i.id, i.invoice_number, i.total, i.total_amount, i.balance_due, i.status,
            i.company_id, i.contact_id, i.stripe_payment_intent_id,

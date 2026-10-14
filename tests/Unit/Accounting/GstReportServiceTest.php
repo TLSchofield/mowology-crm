@@ -112,6 +112,32 @@ class GstReportServiceTest extends TestCase
         $this->assertSame(['Meals', 'Entertainment'], $svc->settings()['meals_categories']);
     }
 
+    public function test_jobber_only_invoices_count_when_their_revenue_is_in_the_journal(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->sqliteCreateFunction('CONCAT', fn(...$a) => implode('', $a));
+        $db->exec("CREATE TABLE jobber_invoices (id INTEGER PRIMARY KEY, jobber_number TEXT, issued_date TEXT, status TEXT,
+                   total REAL, tax REAL, balance REAL, client_name TEXT)");
+        $db->exec("CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, source_type TEXT, source_id INT, reversed_by_entry_id INT)");
+        $db->exec("INSERT INTO jobber_invoices VALUES (1, '11870', '2026-03-01', 'paid', 105, 5, 0, 'A'),
+                   (2, '11871', '2026-03-02', 'paid', 210, 10, 0, 'B'),   -- held back (CRM look-alike): not booked
+                   (3, '11872', '2026-03-03', 'paid', 315, 15, 0, 'C'),   -- booked then reversed
+                   (4, '11873', '2026-07-01', 'paid', 420, 20, 0, 'D')");  // out of range
+        $db->exec("INSERT INTO journal_entries VALUES (10, 'jobber_invoice', 1, NULL), (11, 'jobber_invoice', 3, 99), (12, 'jobber_invoice', 4, NULL)");
+
+        $rows = (new GstReportService($db))->jobberInvoices('2026-01-01', '2026-03-31');
+        $this->assertCount(1, $rows);
+        $this->assertSame('Jobber #11870', $rows[0]['invoice_number']);
+        $this->assertEquals(100.0, (float)$rows[0]['subtotal']);
+        $this->assertEquals(5.0, (float)$rows[0]['tax_amount']);
+        $this->assertSame('jobber', $rows[0]['source']);
+
+        $s = GstReportService::summarize($rows, [], ['meals_rate' => 0.5, 'meals_categories' => ['Meals']]);
+        $this->assertEquals(100.0, $s['line_101']);
+        $this->assertEquals(5.0, $s['line_103']);
+    }
+
     public function test_what_changed_diff_is_new_minus_old(): void
     {
         $old = GstReportService::withNet(['line_101' => 100.0, 'line_103' => 5.0, 'line_106' => 8.0]);

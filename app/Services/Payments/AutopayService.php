@@ -75,6 +75,29 @@ class AutopayService
     }
 
     /**
+     * Never charge a card while the client has credit on account (Codex review 2026-10-14):
+     * ClientCreditService::applyOnSend swallows a failure so the invoice still goes out, and the
+     * charge would then take the full balance with the credit sitting unused. Skip, say why, and
+     * leave it for the office: apply the credit, and the next run charges only what is left.
+     * A failure to read credit skips the charge too (fails closed; Codex review): the next run retries.
+     */
+    private function unappliedCreditReason(int $invoiceId): ?string
+    {
+        try {
+            if (!class_exists('ClientCreditService')) require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            $c = (new \ClientCreditService($this->db))->getBalanceForInvoiceClient($invoiceId);
+            if ((float)$c['balance'] > 0.005) {
+                error_log(sprintf('[Autopay] invoice %d skipped — client %d has $%.2f credit not applied', $invoiceId, (int)$c['client_id'], (float)$c['balance']));
+                return sprintf('Client has $%.2f credit on account that was not applied — apply it on the invoice first; autopay charges only what is left', (float)$c['balance']);
+            }
+        } catch (\Throwable $e) {
+            error_log('[Autopay] credit check failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            return 'Could not check the client\'s credit on account — not charged; the next run tries again';
+        }
+        return null;
+    }
+
+    /**
      * Attempt an off-session charge for the given invoice.
      *
      * Returns an array with keys:
@@ -124,7 +147,8 @@ class AutopayService
         try {
             $this->db->prepare("SELECT id FROM invoices WHERE id = ? FOR UPDATE")->execute([$invoiceId]);
             $data   = $this->loadInvoiceData($invoiceId);
-            $reason = AutopayEligibility::blockReason($data, $this->hasOpenAttempt($invoiceId));
+            $reason = AutopayEligibility::blockReason($data, $this->hasOpenAttempt($invoiceId))
+                   ?? $this->unappliedCreditReason($invoiceId);
             if ($reason !== null) {
                 if ($ownTxn) {
                     $this->db->rollBack();
