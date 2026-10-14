@@ -32,6 +32,7 @@ const EXPENSE_PAYMENT_METHODS = [
     'etransfer',
     'company_card',
     'cheque',
+    'owner_paid',   // paid personally by the owner for the business → shareholder loan (2026-10-13)
 ];
 
 const EXPENSE_GBP_CATEGORIES = [

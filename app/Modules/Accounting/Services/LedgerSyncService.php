@@ -110,6 +110,11 @@ class LedgerSyncService
     public static function fundingCodeFor(?string $paymentMethod): string
     {
         $pm = trim((string)preg_replace('/[\s\-]+/', '_', strtolower(trim((string)$paymentMethod))), '_');
+        // Paid with the owner's own card or cash for the business (2026-10-13): the company owes
+        // him, so it comes off what he owes on the shareholder loan — 1300, not a business account.
+        if (in_array($pm, ['owner_paid', 'paid_personally', 'personal_card'], true)) {
+            return LedgerService::ACC_DUE_FROM_SH;
+        }
         if ($pm === '' || str_contains($pm, 'debit')) {
             return LedgerService::ACC_BANK;        // 1010 — a debit card spends from chequing
         }

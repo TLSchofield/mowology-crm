@@ -473,3 +473,8 @@ A mixed receipt (Lawnboy #412: seed for shop stock, mulch for Oakridge Gardens) 
 - **Books:** `LedgerService::postExpense` picks the split up by itself (the nightly sync and the repost runner need no change): one debit per share with its job, GST ITC for what can be claimed (a Meals share at the GST report's ITC rate, the rest is cost), PST in cost, the total to the funding account.
 - **Job costing:** a share's job cost is net + PST + GST not claimable — Oakridge carries $80.00 of mulch (its $4 GST is an ITC), stock carries $128.40 of seed. `AccountingService::getJobProfitability` swaps the whole receipt for the job's shares; `TripAttributionService` uses the shares instead of guessing from the quote and never tags a split receipt whole; the GST report counts a split by its shares.
 - **UI:** `MwExpenseSplit` (`public/crm/js/expense-split.js`, see `COMPONENTS.md`) on Penny's card and in the edit modal; `GET /crm/api/expenses.php?action=split&id=N`.
+
+## Paid personally (owner) — 2026-10-13
+Payment method `owner_paid` ("Paid personally (owner)"): a business purchase paid with the owner's own card or
+cash. The receipt's entry is funded by 1300 (shareholder loan) — it reduces what the owner owes the company — and
+keeps its GST credit. Example: Amazon business orders on Tim's personal Visa …1023 / TD cards.

@@ -242,4 +242,13 @@ class LedgerSyncServiceTest extends TestCase
         $this->assertEqualsWithDelta(5.00, $by[10]['credit'], 0.001);     // ITC given back
         $this->assertEntryBalances($e);
     }
+
+    /** Paid personally by the owner for the business → his shareholder loan (2026-10-13). */
+    public function test_owner_paid_is_funded_by_the_shareholder_loan(): void
+    {
+        $this->assertSame('1300', LedgerSyncService::fundingCodeFor('owner_paid'));
+        $this->assertSame('1300', LedgerSyncService::fundingCodeFor('Paid personally'));
+        $this->assertSame('2400', LedgerSyncService::fundingCodeFor('credit_card'));
+        $this->assertSame('1010', LedgerSyncService::fundingCodeFor('debit'));
+    }
 }

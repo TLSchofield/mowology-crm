@@ -394,6 +394,7 @@ async function submitReceiptExport() {
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
                             <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                             <option value="etransfer">E-Transfer</option>
                             <option value="cheque">Cheque</option>
                         </select>
@@ -1054,6 +1055,7 @@ async function submitReceiptExport() {
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
                             <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                             <option value="etransfer">E-Transfer</option>
                             <option value="cheque">Cheque</option>
                         </select>
@@ -1246,6 +1248,7 @@ async function submitReceiptExport() {
                                         <option value="credit_card">Credit Card</option>
                                         <option value="debit">Debit</option>
                                         <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                                         <option value="etransfer">E-Transfer</option>
                                         <option value="cheque">Cheque</option>
                                     </select>

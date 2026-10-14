@@ -60,7 +60,7 @@ class ExpenseLookupService
                 'Wholesale store', 'Other',
             ],
             'payment_methods' => [
-                'cash', 'credit_card', 'debit', 'company_card', 'etransfer', 'cheque',
+                'cash', 'credit_card', 'debit', 'company_card', 'etransfer', 'cheque', 'owner_paid',
             ],
         ];
     }
