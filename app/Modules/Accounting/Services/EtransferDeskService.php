@@ -44,6 +44,17 @@ class EtransferDeskService
         $allocated = (float)($et['allocated_amount'] ?? 0);
         $partial   = $allocated > 0.005;
         $active    = $partial ? round($amount - $allocated, 2) : $amount;
+        // Part recorded, and the invoice it matched is now paid (by this transfer): what's left isn't for it.
+        if ($partial && $matchedNo !== '') {
+            $q = $this->db->prepare("SELECT balance_due FROM invoices WHERE invoice_number = ? LIMIT 1");
+            $q->execute([$matchedNo]);
+            $b = $q->fetchColumn();
+            if ($b !== false && (float)$b <= 0.005) {
+                $matchedNo = '';
+                $conf = 'none';
+                $et['invoice_hint'] = null;
+            }
+        }
         $hasInvoice = $conf === 'high';
         $hasBank    = !empty($et['bank_transaction_id']);
 
