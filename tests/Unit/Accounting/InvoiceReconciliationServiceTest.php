@@ -377,8 +377,19 @@ class InvoiceReconciliationServiceTest extends TestCase
         $pickedStmt->method('execute')->willReturn(true);
         $pickedStmt->method('fetchAll')->willReturn(array_slice($rows, 0, 6));
 
+        // Overpayment credit on the deposit (migration 1363): none here. Payments on the deposit: some.
+        $creditStmt = $this->createMock(PDOStatement::class);
+        $creditStmt->method('execute')->willReturn(true);
+        $creditStmt->method('fetchColumn')->willReturn(0);
+        $creditStmt->method('fetchAll')->willReturn([]);
+        $countStmt = $this->createMock(PDOStatement::class);
+        $countStmt->method('execute')->willReturn(true);
+        $countStmt->method('fetchColumn')->willReturn(6);
+
         $pdo = $this->createMock(PDO::class);
-        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt, $writeStmt, $emailStmt, $pickedStmt) {
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt, $writeStmt, $emailStmt, $pickedStmt, $creditStmt, $countStmt) {
+            if (strpos($sql, 'client_credits') !== false)              return $creditStmt;
+            if (strpos($sql, 'SELECT COUNT(*) FROM invoice_payment_allocations') !== false) return $countStmt;
             if (strpos($sql, 'SUM(amount)') !== false)                 return $allocTotalStmt;
             if (strpos($sql, 'UPDATE') !== false)                      return $writeStmt;
             if (strpos($sql, 'etransfer_notifications') !== false)    return $emailStmt;

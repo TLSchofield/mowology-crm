@@ -146,6 +146,61 @@ class ClientCreditService
     }
 
     /**
+     * An overpayment kept as credit (2026-10-14, Alberta 3025 Strata paid INV-0251 twice; Tim: "leave his
+     * account in credit and it can pay the next invoice"). The money arrived like a payment, so it posts
+     * like one, on the day it arrived: DR 1010 Bank / CR 2160 Customer Deposits (a payment posts DR Bank /
+     * CR AR). The row keeps the e-Transfer it came from, so when its bank line is linked the credit counts
+     * toward the deposit (InvoiceReconciliationService::allocatedTotal) and the line is never income.
+     * The credit is used before the next invoice is sent (applyOnSend). Returns the client_credits row id.
+     */
+    public function addOverpayment(int $clientId, float $amount, string $date, string $note, ?int $notificationId = null, ?int $bankTxId = null, ?int $userId = null): int
+    {
+        $amount = round($amount, 2);
+        if ($amount <= 0.005) throw new \InvalidArgumentException('Credit amount must be greater than zero');
+        $this->db->prepare("
+            INSERT INTO client_credits (client_id, type, amount, etransfer_notification_id, bank_transaction_id, source_note, created_by)
+            VALUES (?, 'deposit', ?, ?, ?, ?, ?)
+        ")->execute([$clientId, $amount, $notificationId, $bankTxId, mb_substr($note, 0, 255), $userId]);
+        $id = (int) $this->db->lastInsertId();
+        if ($this->postToLedger) {
+            require_once __DIR__ . '/LedgerService.php';
+            $ledger = new LedgerService($this->db);
+            if ($ledger->findEntryIdBySource('client_credit', $id) === null) {
+                $ledger->postEntry([
+                    'entry_date' => $date, 'memo' => 'Overpayment kept as client credit — ' . mb_substr($note, 0, 120),
+                    'source_type' => 'client_credit', 'source_id' => $id,
+                    'created_by' => $userId, 'proposed_by' => 'owner',
+                    'lines' => [
+                        ['account_id' => $ledger->accountId(LedgerService::ACC_BANK), 'debit' => $amount, 'credit' => 0],
+                        ['account_id' => $ledger->accountId(self::DEPOSITS_CODE), 'debit' => 0, 'credit' => $amount],
+                    ],
+                ]);
+            }
+        }
+        return $id;
+    }
+
+    /**
+     * Bank lines going away or being unlinked (an import undone, a duplicate removed, payments unlinked):
+     * credit kept from them stays the client's, it just no longer points at that line. Never throws.
+     */
+    public static function unlinkDeposits(PDO $db, array $txIds): void
+    {
+        $ids = array_values(array_filter(array_map('intval', $txIds)));
+        if (!$ids) return;
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $db->prepare("UPDATE client_credits SET bank_transaction_id = NULL WHERE bank_transaction_id IN ({$in})")->execute($ids);
+        } catch (\Throwable $e) { /* before migration 1363 */ }
+    }
+
+    /** The client an invoice's credit belongs to (the same resolver applyOnSend uses), or null. */
+    public function clientForInvoice(int $invoiceId): ?int
+    {
+        return $this->getBalanceForInvoiceClient($invoiceId)['client_id'];
+    }
+
+    /**
      * The bank line an advance most likely arrived on: the ONLY bank-import income line of exactly
      * this amount in the last 60 days (not tied to an invoice). Two or more → null (a person picks).
      */

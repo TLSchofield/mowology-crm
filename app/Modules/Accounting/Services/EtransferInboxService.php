@@ -858,6 +858,13 @@ class EtransferInboxService
         }
         $id = (int) $this->db->lastInsertId();
         $this->storeClaimDetails($id, $parsed);
+        // Every invoice the memo names (PaymentOnTheWay pauses chasing for all of them; migration 1363).
+        if (!empty($parsed['invoice_hints'])) {
+            try {
+                $this->db->prepare("UPDATE etransfer_notifications SET invoice_hints = ? WHERE id = ?")
+                         ->execute([mb_substr(implode(',', $parsed['invoice_hints']), 0, 255), $id]);
+            } catch (PDOException $e) { /* before migration 1363 */ }
+        }
         $this->nudgeAddress($id, 'ingest');
 
         return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];
@@ -1171,6 +1178,65 @@ class EtransferInboxService
             'fully_allocated' => $fullyRecorded,
             'remaining'       => max(0, $remainingAfter),
         ];
+    }
+
+    /**
+     * Keep what's left on a transfer as the payer's credit (2026-10-14: Alberta 3025 Strata paid INV-0251
+     * twice; Tim: "leave his account in credit and it can pay the next invoice"). The client is the one
+     * the transfer was already recorded against, or $clientId. ClientCreditService::addOverpayment posts
+     * DR Bank / CR 2160 on the transfer's date and keeps the transfer's id, so its bank line settles as a
+     * transfer later. The notification is then fully recorded. Refunds stay a person's job.
+     */
+    private ?ClientCreditService $creditSvc = null;
+
+    /** Tests: a ClientCreditService without the journal. */
+    public function useCreditService(ClientCreditService $c): self
+    {
+        $this->creditSvc = $c;
+        return $this;
+    }
+
+    public function creditRest(int $notificationId, int $userId, ?int $clientId = null): array
+    {
+        require_once __DIR__ . '/ClientCreditService.php';
+        $credit = $this->creditSvc ?? new ClientCreditService($this->db);
+        $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        try {
+            $this->db->beginTransaction();
+            $s = $this->db->prepare("SELECT * FROM etransfer_notifications WHERE id = ?" . ($mysql ? ' FOR UPDATE' : ''));
+            $s->execute([$notificationId]);
+            $note = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$note || !in_array($note['status'], ['pending', 'partially_recorded'], true)) {
+                throw new RuntimeException('This transfer is ' . ($note['status'] ?? 'gone') . ' — nothing left to keep as credit.');
+            }
+            $rest = round((float)$note['amount'] - (float)$note['allocated_amount'], 2);
+            if ($rest <= 0.005) throw new RuntimeException('Nothing is left on this transfer.');
+            if (!$clientId) {
+                $inv = (int)($note['recorded_invoice_id'] ?? 0);
+                if (!$inv) {
+                    $a = $this->db->prepare("SELECT invoice_id FROM invoice_payment_allocations WHERE etransfer_notification_id = ? ORDER BY id LIMIT 1");
+                    $a->execute([$notificationId]);
+                    $inv = (int)$a->fetchColumn();
+                }
+                $clientId = $inv ? $credit->clientForInvoice($inv) : null;
+            }
+            if (!$clientId) throw new RuntimeException('Record it against one of the client\'s invoices first, so I know whose credit it is.');
+            $date = !empty($note['email_date']) ? date('Y-m-d', strtotime((string)$note['email_date'])) : date('Y-m-d');
+            $sender = trim((string)($note['sender_name'] ?? 'e-Transfer'));
+            $credit->addOverpayment($clientId, $rest, $date,
+                sprintf('Overpayment: %s e-Transfer %s', $sender, $note['reference_number'] ?: ('#' . $notificationId)),
+                $notificationId, null, $userId);
+            $this->db->prepare("UPDATE etransfer_notifications SET allocated_amount = amount, status = 'recorded', recorded_by = ?, processed_at = ? WHERE id = ?")
+                     ->execute([$userId, date('Y-m-d H:i:s'), $notificationId]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($e instanceof RuntimeException || $e instanceof InvalidArgumentException) return ['ok' => false, 'message' => $e->getMessage()];
+            error_log('[EtransferInboxService] creditRest: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Database error while keeping the credit'];
+        }
+        return ['ok' => true, 'credited' => $rest, 'client_id' => $clientId,
+                'message' => sprintf('$%.2f kept as credit — it comes off their next invoice before it is sent.', $rest)];
     }
 
     /**

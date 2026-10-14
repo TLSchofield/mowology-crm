@@ -26,6 +26,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once CRM_INCLUDES . '/functions.php';
 
@@ -56,11 +57,7 @@ try {
         WHERE status IN ('sent', 'viewed', 'partial')
           AND due_date < CURDATE()
           AND (paid_at IS NULL OR balance_due > 0.01)
-          AND NOT EXISTS (
-              SELECT 1 FROM etransfer_notifications en
-               WHERE en.matched_invoice_id = i.id
-                 AND en.status IN ('pending', 'partially_recorded')
-          )
+          AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
     ");
     ovLog("Marked {$rows} invoice(s) as overdue");
 

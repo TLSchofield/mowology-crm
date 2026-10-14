@@ -1202,6 +1202,9 @@ class BankImportService
     {
         $txIds = array_values(array_filter(array_map('intval', $txIds)));
         if (!$txIds) return 0;
+        // Credit kept from a payment on these lines stays the client's; it stops pointing at a line that goes.
+        require_once __DIR__ . '/ClientCreditService.php';
+        ClientCreditService::unlinkDeposits($this->db, $txIds);
         require_once __DIR__ . '/LedgerService.php';
         $ledger = new LedgerService($this->db);
         $n = 0;

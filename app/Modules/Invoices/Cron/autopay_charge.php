@@ -32,6 +32,7 @@ for ($__i = 0; $__i < 6; $__i++) {
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Services/Payments/AutopayService.php';
@@ -78,6 +79,8 @@ $newStmt = $db->query("
             SELECT invoice_id FROM autopay_attempts
             WHERE status IN ('pending', 'succeeded')
           )
+      -- an e-Transfer for it is waiting on Penny's card: never charge the card too (2026-10-14)
+      AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
 ");
 
 while ($row = $newStmt->fetch(\PDO::FETCH_ASSOC)) {
@@ -109,6 +112,7 @@ $retryStmt = $db->prepare("
             SELECT invoice_id FROM autopay_attempts
             WHERE status IN ('pending', 'succeeded')
           )
+      AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
     GROUP BY aa.invoice_id
 ");
 $retryStmt->execute();

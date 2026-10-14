@@ -443,7 +443,11 @@
             '<div class="mw-rc-actions">' +
               (t.kind === 'duplicate'
                 ? '<button type="button" class="mw-rc-ok" data-et="dismiss">Already recorded — dismiss</button><button type="button" class="mw-rc-ed" data-et="record-anyway">Record anyway</button>'
-                : '<button type="button" class="mw-rc-ok" data-et="record">✓ Record payment</button><button type="button" class="mw-rc-ed" data-et="dismiss">Dismiss</button>') +
+                : (t.credit && t.credit.with_record
+                    ? '<button type="button" class="mw-rc-ok" data-et="record-credit">✓ Record &amp; keep $' + Number(t.credit.amount).toFixed(2) + ' as credit</button><button type="button" class="mw-rc-ed" data-et="record">Record only</button>'
+                    : t.credit && !t.lines.length
+                    ? '<button type="button" class="mw-rc-ok" data-et="credit">✓ Keep $' + Number(t.credit.amount).toFixed(2) + ' as credit</button><button type="button" class="mw-rc-ed" data-et="dismiss">Dismiss</button>'
+                    : '<button type="button" class="mw-rc-ok" data-et="record">✓ Record payment</button><button type="button" class="mw-rc-ed" data-et="dismiss">Dismiss</button>')) +
               '<a class="mw-rc-sk" href="/crm/invoices/index.php#etransfers">Invoices page →</a>' +
               '<button type="button" class="mw-rc-sk" data-et="next">Skip →</button>' +
             '</div><div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
@@ -470,6 +474,8 @@
             var req;
             if (a === 'dismiss') {
                 req = etPost({ action: 'dismiss', notification_id: t.id });
+            } else if (a === 'credit') {
+                req = etPost({ action: 'credit_rest', notification_id: t.id });
             } else {
                 var invs = [], amts = [];
                 et.querySelectorAll('.mw-et-l').forEach(function (r) {
@@ -477,7 +483,9 @@
                     if (i) { invs.push(i); amts.push(m); }
                 });
                 if (!invs.length) { renderEt('Type the invoice number first.'); return; }
-                req = etPost({ action: 'record', notification_id: t.id, invoice_numbers: invs, amounts: amts });
+                var f = { action: 'record', notification_id: t.id, invoice_numbers: invs, amounts: amts };
+                if (a === 'record-credit') f.credit_rest = '1';   // the rest becomes the client's credit
+                req = etPost(f);
             }
             e.target.disabled = true;
             req.then(function (d) {

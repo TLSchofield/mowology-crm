@@ -4,7 +4,8 @@
  *
  * POST:
  *   csrf_token        string   (required)
- *   action            string   'record' | 'dismiss' | 'merge' | 'unmerge'
+ *   action            string   'record' | 'dismiss' | 'merge' | 'unmerge' | 'credit_rest'
+ *   credit_rest       '1' with 'record': what's left after the invoices becomes the client's credit
  *   notification_id   int      (required)
  *
  *   Single-invoice form (unchanged):
@@ -67,6 +68,9 @@ $service = new EtransferInboxService(getDB());
 try {
     if ($action === 'dismiss') {
         $result = $service->dismiss($noteId, (int) $user['id']);
+    } elseif ($action === 'credit_rest') {
+        // What's left on the transfer becomes the client's credit (Penny's card, 2026-10-14).
+        $result = $service->creditRest($noteId, (int) $user['id']);
     } elseif ($action === 'merge') {
         $invoiceId = (int) ($_POST['invoice_id'] ?? 0);
         if ($invoiceId <= 0) {
@@ -141,6 +145,12 @@ try {
         if (!empty($result['ok'])) {
             $note = $service->find($noteId);
             $service->learnSender($note['sender_name'] ?? null, array_column($allocations, 'invoice_id'));
+            // "Record and keep the rest as credit": one press on Penny's card (2026-10-14).
+            if (!empty($_POST['credit_rest']) && empty($result['fully_allocated'])) {
+                $c = $service->creditRest($noteId, (int) $user['id']);
+                $result['message'] .= $c['ok'] ? ' — ' . $c['message'] : ' — but the rest was not kept as credit: ' . $c['message'];
+                $result['fully_allocated'] = !empty($c['ok']);
+            }
         }
     } else {
         http_response_code(400);

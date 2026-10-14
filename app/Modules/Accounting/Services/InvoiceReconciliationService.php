@@ -501,8 +501,10 @@ class InvoiceReconciliationService
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $groups[(int)($r['n'] ?? 0)][] = $r;
         unset($groups[0]);
         $fits = [];
-        foreach ($groups as $rows) {
-            if (abs(round(array_sum(array_column($rows, 'amount')), 2) - $amount) < 0.005) {
+        foreach ($groups as $n => $rows) {
+            // An e-Transfer part recorded, the rest kept as credit, adds up to its deposit too.
+            $credit = array_sum($this->creditsFromEmails([$n]));
+            if (abs(round(array_sum(array_column($rows, 'amount')) + $credit, 2) - $amount) < 0.005) {
                 $fits[] = array_map(fn($r) => (int)$r['id'], $rows);
             }
         }
@@ -546,20 +548,27 @@ class InvoiceReconciliationService
 
         $in = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->db->prepare("
-            SELECT a.id, a.invoice_id, a.amount, i.invoice_number
+            SELECT a.id, a.invoice_id, a.amount, a.etransfer_notification_id, i.invoice_number
             FROM invoice_payment_allocations a JOIN invoices i ON i.id = a.invoice_id
             WHERE a.id IN ({$in}) AND a.transaction_id IS NULL
         ");
         $stmt->execute($ids);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if (count($rows) !== count($ids)) throw new RuntimeException('A payment is already linked to another deposit.');
-        $sum = round(array_sum(array_map(fn($r) => (float)$r['amount'], $rows)), 2);
+        // Credit kept from the same e-Transfers comes with them: it arrived in the same deposit (2026-10-14).
+        $credits = $this->creditsFromEmails(array_column($rows, 'etransfer_notification_id'));
+        $sum = round(array_sum(array_map(fn($r) => (float)$r['amount'], $rows)) + array_sum($credits), 2);
         if (abs($sum - $remaining) >= 0.005) {
             throw new RuntimeException(sprintf('Those payments total $%.2f but the deposit has $%.2f to account for.', $sum, $remaining));
         }
 
         $this->db->prepare("UPDATE invoice_payment_allocations SET transaction_id = ? WHERE id IN ({$in}) AND transaction_id IS NULL")
             ->execute(array_merge([$transactionId], $ids));
+        if ($credits) {
+            $cin = implode(',', array_fill(0, count($credits), '?'));
+            $this->db->prepare("UPDATE client_credits SET bank_transaction_id = ? WHERE id IN ({$cin}) AND bank_transaction_id IS NULL")
+                ->execute(array_merge([$transactionId], array_keys($credits)));
+        }
         $invoiceIds = array_values(array_unique(array_map(fn($r) => (int)$r['invoice_id'], $rows)));
         $this->recomputeDepositRow($transactionId, $original, $userId, count($invoiceIds) === 1 ? $invoiceIds[0] : null);
 
@@ -1199,6 +1208,13 @@ class InvoiceReconciliationService
 
     private function recomputeDepositRow(int $txId, float $original, int $userId, ?int $singleInvoiceId): void
     {
+        // No payments left on the deposit: credit kept with them lets go of it too (it stays the client's).
+        $pay = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
+        $pay->execute([$txId]);
+        if ((int)$pay->fetchColumn() === 0) {
+            require_once __DIR__ . '/ClientCreditService.php';
+            ClientCreditService::unlinkDeposits($this->db, [$txId]);
+        }
         $allocated = $this->allocatedTotal($txId);
         $remaining = round($original - $allocated, 2);
 
@@ -1379,7 +1395,40 @@ class InvoiceReconciliationService
             "SELECT COALESCE(SUM(amount),0) FROM invoice_payment_allocations WHERE transaction_id = ?"
         );
         $stmt->execute([$txId]);
-        return round((float)$stmt->fetchColumn(), 2);
+        return round((float)$stmt->fetchColumn() + $this->creditOnDeposit($txId), 2);
+    }
+
+    /**
+     * Overpayment kept as client credit that arrived on this deposit (client_credits.bank_transaction_id,
+     * migration 1363): it accounts for the deposit like a payment does, so the line settles as a transfer
+     * and the extra is never income (2026-10-14). 0 before 1363.
+     */
+    private function creditOnDeposit(int $txId): float
+    {
+        try {
+            $s = $this->db->prepare("SELECT COALESCE(SUM(amount),0) FROM client_credits WHERE type = 'deposit' AND bank_transaction_id = ?");
+            $s->execute([$txId]);
+            return round((float)$s->fetchColumn(), 2);
+        } catch (Throwable $e) {
+            return 0.0;
+        }
+    }
+
+    /** Unlinked credit rows kept from these e-Transfers: [id => amount]. [] before 1363. */
+    private function creditsFromEmails(array $notificationIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $notificationIds))));
+        if (!$ids) return [];
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $s = $this->db->prepare("SELECT id, amount FROM client_credits WHERE type = 'deposit' AND bank_transaction_id IS NULL AND etransfer_notification_id IN ({$in})");
+            $s->execute($ids);
+            $out = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['id']] = round((float)$r['amount'], 2);
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 
     /** Pure: the activity_log line for one unapplied allocation, before → after. */

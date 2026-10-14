@@ -25,6 +25,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
@@ -280,11 +281,7 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
                   AND i.status IN ('sent','overdue')
                   AND i.due_date < DATE_SUB(NOW(), INTERVAL ? DAY)
                   AND i.paid_at IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM etransfer_notifications en
-                       WHERE en.matched_invoice_id = i.id
-                         AND en.status IN ('pending', 'partially_recorded')
-                  )
+                  AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
             ");
             $stmt->execute([$days]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);

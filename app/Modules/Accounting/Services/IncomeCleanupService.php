@@ -397,6 +397,8 @@ class IncomeCleanupService
                         $this->db->prepare("UPDATE invoice_payment_allocations SET transaction_id = NULL WHERE transaction_id = ? AND id IN ({$in})")
                            ->execute(array_merge([$txId], $ids));
                     }
+                    require_once __DIR__ . '/ClientCreditService.php';
+                    ClientCreditService::unlinkDeposits($this->db, [$txId]);
                     $this->restore($txId, $before);
                     break;
                 case 'already_recorded':
