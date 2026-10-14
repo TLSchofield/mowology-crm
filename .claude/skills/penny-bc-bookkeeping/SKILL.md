@@ -92,6 +92,7 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Recording a customer payment | `InvoiceReconciliationService::applyAllocation()` | bank, e-Transfer, Yardi, invoice screens |
 | Tying a deposit to payments already recorded | `InvoiceReconciliationService::linkAllocationsToDeposit()` | Penny's bank card, backfill |
 | Stripe payout → invoices + fee (fee on 6800, never 6850 Meals) | `StripePayoutService` (Stripe is read-only) | import, income clean-up |
+| Could a card have been charged? (forget an intent / retry a charge) | `StripeErrorRules::canForgetIntent()` / `chargeOutcomeUnknown()` | customer pay page, CRM pay page, autopay |
 | GST return (GST34) | `GstReportService` | tax report, reports, accounting |
 | Bank-line category rules | `BankRuleLearning` | transactions, Penny's bank desk |
 | Month-end proof per statement | `StatementCloseService` (+ `StatementCoverageService` for gaps) | Penny |

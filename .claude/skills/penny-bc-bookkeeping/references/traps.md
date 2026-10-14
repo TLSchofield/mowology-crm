@@ -348,3 +348,27 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   right, dates a month off. Fixed: Sep 2 → INV-0361 (re-dated), notice → INV-0420.
 - **Rule:** for a same-amount monthly payer, "already recorded" only against the invoice dated for that deposit's
   month, after checking no other deposit pays it (same family as Strata BCS4079 above).
+
+## Payments can't charge twice any more (2026-10-13, from Fable's invoicing review)
+- One rule for "could the card have been charged?": `StripeErrorRules` (`canForgetIntent()`: only `resource_missing`;
+  `chargeOutcomeUnknown()`: lost connection, Stripe 5xx, unknown error, idempotency clash).
+  - Customer pay page: any other error → "try again in a minute", never a second PaymentIntent.
+  - Autopay: an unknown outcome is never auto-retried (`failure_code = 'api_unknown'`, staff email: check Stripe first).
+- Webhook re-reads `stripe_payments` FOR UPDATE inside its transaction (a redelivered part payment counted once).
+- A card payment on an invoice already paid another way → activity `stripe_overpayment` → Charlie urgent alert
+  ("probably paid twice — refund?"). Penny never refunds by herself.
+- Client credit applies inside one locked transaction with its journal entry (`ClientCreditService::applyToInvoice()`).
+  Still Tim's choice: apply credit automatically before autopay (the portal already says it does).
+
+## The cheque writer isn't the client (Kanco for Beedie Development, 2026-10-13)
+- Cheques and EFTs recorded before their deposit now auto-link like e-Transfers
+  (`InvoiceReconciliationService::LINKABLE_METHODS`), same payer + exact sum only.
+- Kanco's $683.56 cheque paid four Beedie Development / Cambridge Apartments invoices: the bank memo names the
+  cheque writer, the invoices name the client, so the payer check (rightly) refused. Linked by hand from Tim's
+  payment note. **Rule:** a property manager or parent company may write the cheque — link by the payment note and
+  exact sum, never by name similarity; a remembered payer alias (Kanco → Beedie) is future work.
+
+## Month-ends ignored another account's line (2026-10-13)
+- `BankBalanceCheckService::statementBalances()` now reads only the main account's track
+  (`StatementCoverageService::walkChain()` returns `track_of` / `main`). Chequing Mar–May had read a GST Reserves
+  interest balance ($8.59) as its month-end — drift showed +$18.6K; now −$585 / −$1,733 / +$779 (real, still open).
