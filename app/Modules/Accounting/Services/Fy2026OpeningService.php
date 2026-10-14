@@ -461,7 +461,8 @@ class Fy2026OpeningService
         if ($this->ledger->isLocked(self::OPENING_DATE)) return ['ok' => false, 'message' => 'January 2026 is locked — unlock it to book the opening.'];
         // The cash split was corrected by its own entry (2026-10-13). A rebook now reads the same Dec 31
         // statements, so with that entry live the split would be applied twice.
-        if ($split = $this->ledger->findEntryIdBySource('fy2026_opening_split', self::FISCAL_YEAR)) {
+        $sp = $this->db->query("SELECT id FROM journal_entries WHERE source_type = 'fy2026_opening_split' AND reversed_by_entry_id IS NULL ORDER BY id LIMIT 1");
+        if ($split = ($sp ? (int)$sp->fetchColumn() : 0)) {
             return ['ok' => false, 'message' => 'Reverse the cash-split entry #' . $split . ' first — this rebook applies the same Dec 31 statement balances itself.'];
         }
         $plan = self::plan($this->accounts(), $this->balances(), $this->filed(), $this->statementBalances());

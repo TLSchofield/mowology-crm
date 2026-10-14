@@ -1202,4 +1202,13 @@ class BankImportServiceTest extends TestCase
         $this->assertSame(0, $by['6827']['lines'], 'no parsed lines for it here');
         $this->assertSame([], BankImportService::statementSections([['suffix' => '', 'kind' => 'primary', 'opening' => 1.0, 'lines' => 1]], [], null), 'no period, no sections');
     }
+
+    /** Vancity glues the posting date onto the text: "JUL 13PAYMENT RECEIVED" is still a payment (2026-10-13). */
+    public function testCardStatementPaymentWithGluedDate(): void
+    {
+        $this->assertTrue(BankImportService::isCardStatementPayment('JUL 13PAYMENT RECEIVED -- THANK YOU'));
+        $this->assertTrue(BankImportService::isCardStatementPayment('PAYMENT RECEIVED - THANK YOU'));
+        $this->assertFalse(BankImportService::isCardStatementPayment('JUL 02WAVE - PAYROLL FEES TORONTO ON'));
+        $this->assertFalse(BankImportService::isCardStatementPayment('PAYMENT REVERSAL'));
+    }
 }

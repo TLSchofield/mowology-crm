@@ -3402,7 +3402,8 @@ class BankImportService
     public static function isCardStatementPayment(string $description): bool
     {
         $d = strtoupper($description);
-        return (bool)preg_match('/\b(PAYMENT|PYMT|PMT)\b/', $d)
+        // Vancity glues the posting date on: "JUL 13PAYMENT RECEIVED" — no \b between "13" and "P".
+        return (bool)preg_match('/(?<![A-Z])(PAYMENT|PYMT|PMT)\b/', $d)
             && !preg_match('/\b(REFUND|RETURN|REVERSAL|CREDIT\s+VOUCHER|ADJUSTMENT|CASH\s*BACK|REWARD)/', $d);
     }
 
@@ -3442,7 +3443,10 @@ class BankImportService
     private function applyCcSettlement(array &$row, int $ccPayableId, int $defaultExpenseId, string $kind = 'bank'): bool
     {
         $isSettlement = !empty($row['cc_payment'])
-            || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''));
+            || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''))
+            // On the card's OWN statement, "PAYMENT RECEIVED -- THANK YOU" is the payoff (the chequing
+            // line carries the cash) — read as a $250 charge on 2026-10-13.
+            || ($kind === 'credit_card' && self::isCardStatementPayment($row['description'] ?? ''));
         if (!$isSettlement) {
             return false;
         }
