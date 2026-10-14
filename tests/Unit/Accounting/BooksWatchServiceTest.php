@@ -46,6 +46,16 @@ class BooksWatchServiceTest extends TestCase
         $this->assertSame([], BooksWatchService::canaryAlerts(['bank_import' => null, 'etransfer' => null, 'text_bridge' => null], '2026-10-14 02:00:00'));
     }
 
+    public function test_a_growing_blank_enum_count_alerts_once(): void
+    {
+        $this->assertSame([], BooksWatchService::blankAlerts(null, ['invoices.payment_method' => 5]), 'baseline');
+        $a = BooksWatchService::blankAlerts(['invoices.payment_method' => 5, 'cms_pages.page_type' => 2], ['invoices.payment_method' => 6, 'cms_pages.page_type' => 2]);
+        $this->assertCount(1, $a);
+        $this->assertSame('urgent:blank:invoices.payment_method:6', $a[0]['key']);
+        $this->assertStringStartsWith('1 new row in invoices.payment_method saved with an empty value', $a[0]['text']);
+        $this->assertSame([], BooksWatchService::blankAlerts(['x.y' => 3], ['x.y' => 1]), 'fixed rows are not news');
+    }
+
     public function test_run_stores_baseline_then_reports_change(): void
     {
         $db = new PDO('sqlite::memory:');
@@ -54,6 +64,7 @@ class BooksWatchServiceTest extends TestCase
             public array $fake = [];
             public function drift(): array { return $this->fake; }
             public function lastSeen(): array { return ['bank_import' => '2026-10-13 19:12:33']; }
+            public function blankEnums(): array { return []; }
         };
         $w->fake = ['1010|2026-09' => ['drift' => 2344.10, 'name' => 'Chequing']];
         $this->assertSame([], $w->run('2026-10-14 02:00:00')['alerts']);

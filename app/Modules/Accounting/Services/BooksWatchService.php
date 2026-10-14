@@ -13,6 +13,10 @@
  *   canary  — something that should keep happening has gone quiet: no bank statement imported in
  *             35 days, no Interac e-Transfer notice in 14 days (autodeposit was off from Jun 12 and
  *             nobody was told), the Mac's text bridge silent for a day.
+ *   blank   — production MySQL is non-strict: a value outside an ENUM's list is saved as '' with no
+ *             error ('void' on accounting_transactions.status, 'account_credit' on
+ *             invoices.payment_method). Every ENUM column is counted for '' each night (177 columns,
+ *             ~1 s); a count that GROWS is an alert naming the column. First night = baseline.
  *
  * Stored in ops_settings 'books_watch' (json_encode in PHP, no MySQL JSON functions). Each alert
  * key carries the value or the last-seen date, so Tim hears about each change once.
@@ -47,12 +51,15 @@ class BooksWatchService
         $now = $now ?? date('Y-m-d H:i:s');
         $prev = $this->stored();
         $drift = $this->drift();
+        $blank = $this->blankEnums();
         $state = [
             'at'     => $now,
             'drift'  => $drift,
+            'blank'  => $blank,
             'alerts' => array_merge(
                 self::driftAlerts($prev['drift'] ?? null, $drift),
-                self::canaryAlerts($this->lastSeen(), $now)
+                self::canaryAlerts($this->lastSeen(), $now),
+                self::blankAlerts(array_key_exists('blank', $prev) ? (array)$prev['blank'] : null, $blank)
             ),
         ];
         $this->save($state);
@@ -97,6 +104,42 @@ class BooksWatchService
             'etransfer'   => $one("SELECT MAX(created_at) FROM etransfer_notifications"),
             'text_bridge' => $hb,
         ];
+    }
+
+    /** "table.column" => rows holding '' in an ENUM column whose list has no ''. */
+    public function blankEnums(): array
+    {
+        $out = [];
+        try {
+            $cols = $this->db->query("SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
+                                      WHERE TABLE_SCHEMA = DATABASE() AND DATA_TYPE = 'enum'")->fetchAll(PDO::FETCH_NUM);
+        } catch (Throwable $e) {
+            return [];
+        }
+        foreach ($cols as [$t, $c, $type]) {
+            if (strpos((string)$type, "''") !== false) continue;   // '' is a real value there
+            try {
+                $n = (int)$this->db->query('SELECT COUNT(*) FROM `' . str_replace('`', '', $t) . '` WHERE `' . str_replace('`', '', $c) . "` = ''")->fetchColumn();
+                if ($n > 0) $out[$t . '.' . $c] = $n;
+            } catch (Throwable $e) { /* a view or a table being altered: skip tonight */ }
+        }
+        return $out;
+    }
+
+    /** Pure (tested): ENUM columns whose blank count grew since last night. No previous night = baseline. */
+    public static function blankAlerts(?array $prev, array $now): array
+    {
+        if ($prev === null) return [];
+        $out = [];
+        foreach ($now as $col => $n) {
+            $was = (int)($prev[$col] ?? 0);
+            if ($n <= $was) continue;
+            $out[] = ['key' => 'urgent:blank:' . $col . ':' . $n, 'kind' => 'books',
+                      'text' => sprintf('%d new row%s in %s saved with an empty value: the code wrote something the column doesn\'t allow, and the database blanked it without an error (%d in all). Ada should fix the column or the code.',
+                                        $n - $was, $n - $was === 1 ? '' : 's', $col, $n),
+                      'url' => '/crm/dashboard_appstack.php'];
+        }
+        return $out;
     }
 
     /**
