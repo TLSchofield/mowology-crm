@@ -121,6 +121,7 @@ class AccountingService
             DELETE FROM accounting_transactions
             WHERE reference_type = 'expense'
               AND reference_id IS NOT NULL
+              AND " . self::NOT_LOCKED_SQL . "
               AND reference_id NOT IN (
                   SELECT id FROM expenses
                   WHERE status IN ('approved', 'forwarded')
@@ -134,6 +135,7 @@ class AccountingService
             DELETE FROM accounting_transactions
             WHERE reference_type = 'invoice'
               AND reference_id IS NOT NULL
+              AND " . self::NOT_LOCKED_SQL . "
               AND reference_id NOT IN (
                   SELECT id FROM invoices
                   WHERE status IN ('paid', 'partial')
@@ -958,6 +960,15 @@ class AccountingService
             return 'inserted';
         }
 
+        // A locked month never changes (Codex review 2026-10-14): the nightly sync rewrote rows in
+        // closed months on this table. Leave a row alone when its stored date or its new date is locked.
+        $cur = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE reference_type = ? AND reference_id = ? LIMIT 1");
+        $cur->execute([$data['reference_type'], $data['reference_id']]);
+        $was = $cur->fetchColumn();
+        if (($was && $this->monthLocked((string)$was)) || $this->monthLocked((string)$data['transaction_date'])) {
+            return 'skipped';
+        }
+
         $stmt = $this->db->prepare("
             INSERT INTO accounting_transactions
                 (transaction_date, type, account_id, amount, gst_amount, pst_amount,
@@ -1004,6 +1015,25 @@ class AccountingService
         if ($rowCount === 2) return 'updated';
         return 'skipped';
     }
+
+    /** Is the month of $date locked (accounting_periods)? Same rule as LedgerService::isLocked. */
+    private function monthLocked(string $date): bool
+    {
+        $t = strtotime($date);
+        if (!$t) return false;
+        try {
+            $s = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+            $s->execute([(int)date('Y', $t), (int)date('n', $t)]);
+            return $s->fetchColumn() === 'locked';
+        } catch (\Throwable $e) {
+            return false;   // no periods table yet
+        }
+    }
+
+    /** SQL: the row's month is not locked. */
+    private const NOT_LOCKED_SQL = "NOT EXISTS (SELECT 1 FROM accounting_periods ap WHERE ap.status = 'locked'
+                                      AND ap.year = YEAR(accounting_transactions.transaction_date)
+                                      AND ap.month = MONTH(accounting_transactions.transaction_date))";
 
     private function countUncategorized(): int
     {

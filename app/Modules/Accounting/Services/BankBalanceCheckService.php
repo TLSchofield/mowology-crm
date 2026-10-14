@@ -849,6 +849,21 @@ class BankBalanceCheckService
     /** Reversals first (the old entry out), then the new postings. Every step logged as it happens. */
     private function bookItem(string $group, string $batch, array $it, int $userId): void
     {
+        // One item, one transaction (Codex review 2026-10-14): a post that failed after its
+        // reversal left the old entry reversed with nothing in its place.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->bookItemSteps($group, $batch, $it, $userId);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function bookItemSteps(string $group, string $batch, array $it, int $userId): void
+    {
         $why = 'bank balance check: ' . $it['label'];
         foreach ($it['actions'] as $a) {
             if ($a['op'] !== 'reverse') continue;

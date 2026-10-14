@@ -202,6 +202,23 @@ class ReportingService
         return $this->buildBalanceSheet($this->accountTotals($asOf));
     }
 
+    /**
+     * The income statement in the P&L tab's shape (reports.php loadPL): rows carry `total`,
+     * net_profit and margin_pct, source 'journal'. Pure.
+     */
+    public static function asProfitLoss(array $is, string $from, string $to): array
+    {
+        $rows = fn(array $list) => array_map(fn($r) => ['code' => $r['code'], 'name' => $r['name'], 'total' => round((float)$r['amount'], 2)], $list);
+        $rev = round((float)$is['total_revenue'], 2);
+        $net = round((float)$is['net_income'], 2);
+        return [
+            'date_from' => $from, 'date_to' => $to, 'source' => 'journal',
+            'revenue' => $rows($is['revenue']), 'expenses' => $rows($is['expenses']),
+            'total_revenue' => $rev, 'total_expenses' => round((float)$is['total_expenses'], 2),
+            'net_profit' => $net, 'margin_pct' => $rev != 0.0 ? round($net / $rev * 100, 1) : 0,
+        ];
+    }
+
     public function getIncomeStatement(string $from, string $to): array
     {
         return $this->buildIncomeStatement($this->accountTotals($to, $from));

@@ -16,6 +16,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/LedgerAccountMap.php';
 
+require_once __DIR__ . '/GstReportService.php';
+
 class LedgerSyncService
 {
     private PDO $db;
@@ -89,7 +91,24 @@ class LedgerSyncService
             'service_type'    => $row['service_type'] ?? null,
             'job_id'          => !empty($row['job_id']) ? (int)$row['job_id'] : null,
             'vendor_id'       => !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
+            'meals'           => GstReportService::isMeals($row['accounting_category'] ?? null, $this->gstSettings()['meals_categories']),
+            'meals_itc_rate'  => $this->gstSettings()['meals_rate'],
         ];
+    }
+
+    private ?array $gstSettingsCache = null;
+
+    /** The meals categories and ITC rate, read once (GstReportService owns them). */
+    private function gstSettings(): array
+    {
+        if ($this->gstSettingsCache === null) {
+            try {
+                $this->gstSettingsCache = (new GstReportService($this->db))->settings();
+            } catch (\Throwable $e) {
+                $this->gstSettingsCache = GstReportService::parseSettings(null, null);
+            }
+        }
+        return $this->gstSettingsCache;
     }
 
     /** Funding account code from a payment method (see fundingCodeFor). */

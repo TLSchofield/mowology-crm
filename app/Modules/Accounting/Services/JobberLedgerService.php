@@ -584,8 +584,18 @@ class JobberLedgerService
         $entry = self::revenueEntry($inv, $acct);
         $entry['created_by'] = $userId;
         $entry['proposed_by'] = 'penny';
-        $id = $this->ledger->postManual($entry);
-        $this->log($batch, 'revenue', (int)$inv['id'], null, null, $id, null, (float)$inv['total'], (string)$inv['issued_date'], $userId);
+        // The entry and its log row together (Codex review 2026-10-14): a lost log row hid the entry
+        // from the batch undo, and a retry found the entry and never wrote it.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $id = $this->ledger->postManual($entry);
+            $this->log($batch, 'revenue', (int)$inv['id'], null, null, $id, null, (float)$inv['total'], (string)$inv['issued_date'], $userId);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
         return $id;
     }
 

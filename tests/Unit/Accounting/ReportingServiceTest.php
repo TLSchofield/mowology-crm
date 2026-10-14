@@ -147,4 +147,17 @@ class ReportingServiceTest extends TestCase
         $this->assertTrue($tb['in_balance']);
         $this->assertEqualsWithDelta(1200.00, $tb['total_debit'], 0.001);
     }
+
+    public function test_income_statement_in_the_pl_tab_shape(): void
+    {
+        $is = ['revenue' => [['code' => '4000', 'name' => 'Sales', 'amount' => 1000.0]],
+               'expenses' => [['code' => '6100', 'name' => 'Fuel', 'amount' => 250.0]],
+               'total_revenue' => 1000.0, 'total_expenses' => 250.0, 'net_income' => 750.0];
+        $pl = ReportingService::asProfitLoss($is, '2026-01-01', '2026-01-31');
+        $this->assertSame(1000.0, $pl['revenue'][0]['total']);
+        $this->assertSame(750.0, $pl['net_profit']);
+        $this->assertSame(75.0, $pl['margin_pct']);
+        $this->assertSame('journal', $pl['source']);
+        $this->assertSame(0, ReportingService::asProfitLoss(['revenue' => [], 'expenses' => [], 'total_revenue' => 0, 'total_expenses' => 0, 'net_income' => 0], 'a', 'b')['margin_pct']);
+    }
 }

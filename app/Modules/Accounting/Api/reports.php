@@ -54,8 +54,14 @@ try {
 
         // ── Profit & Loss ─────────────────────────────────────────────────────
         case 'pl':
-            $data = $svc->getProfitLoss($dateFrom, $dateTo);
+            // From the journal (Codex review 2026-10-14): the old accounting_transactions P&L counted
+            // unmatched bank deposits as income again and missed Jobber-era invoices. Same shape as before.
+            $data = ReportingService::asProfitLoss($reporting->getIncomeStatement($dateFrom, $dateTo), $dateFrom, $dateTo);
             echo json_encode(['ok' => true, 'report' => $data]);
+            break;
+
+        case 'pl_legacy':   // the old numbers, for comparison only
+            echo json_encode(['ok' => true, 'report' => $svc->getProfitLoss($dateFrom, $dateTo)]);
             break;
 
         // ── Double-entry statements (Phase 1) ─────────────────────────────────

@@ -147,6 +147,13 @@ class StatementCloseService
         if (!in_array($ym, self::lockable($this->status(), $this->lockedMonths()), true)) {
             return ['ok' => false, 'message' => "{$ym} isn't ready to lock — a statement covering it has a problem, or it's already locked."];
         }
+        // Only an exact month locks, whoever calls (Codex review 2026-10-14): the readiness check
+        // lived only in the API, and a month MonthCloseService didn't list fell through it.
+        require_once __DIR__ . '/MonthCloseService.php';
+        $month = null;
+        foreach ((new MonthCloseService($this->db))->months() as $row) if ($row['month'] === $ym) $month = $row;
+        if ($month === null) return ['ok' => false, 'message' => "{$ym} isn't a month the close list knows — nothing locked."];
+        if (!$month['ready']) return ['ok' => false, 'message' => "{$ym} isn't exact yet: " . implode('; ', $month['blockers']) . '.'];
         $this->db->prepare("
             INSERT INTO accounting_periods (year, month, label, status, closed_at, closed_by)
             VALUES (?, ?, ?, 'locked', NOW(), ?)

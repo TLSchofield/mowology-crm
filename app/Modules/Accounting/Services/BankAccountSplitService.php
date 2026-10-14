@@ -197,6 +197,24 @@ class BankAccountSplitService
      */
     private function moveLine(int $txId, int $fromId, int $toId, int $userId, string $batch, string $chainKey, ?array $mirror = null, ?int $dir = null)
     {
+        // The line and its chequing twin move together or not at all (Codex review 2026-10-14):
+        // a failed twin left the first side moved, and a failed put-back left a reversed entry.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $r = $this->moveLineSteps($txId, $fromId, $toId, $userId, $batch, $chainKey, $mirror, $dir);
+        } catch (Throwable $e) {
+            $r = $e->getMessage();
+        }
+        if ($own) {
+            if ($r === true) $this->db->commit();
+            elseif ($this->db->inTransaction()) $this->db->rollBack();
+        }
+        return $r;
+    }
+
+    private function moveLineSteps(int $txId, int $fromId, int $toId, int $userId, string $batch, string $chainKey, ?array $mirror = null, ?int $dir = null)
+    {
         $tx = $this->tx($txId);
         if (!$tx) return 'not found';
         $cur = $tx['bank_account_id'] !== null && $tx['bank_account_id'] !== '' ? (int)$tx['bank_account_id'] : $fromId;
@@ -245,7 +263,7 @@ class BankAccountSplitService
             } catch (Throwable $e) {
                 $this->restore($mid, null, $mirrorTx, false);
                 try { $this->rejournal($mid, $userId, 'transfer pairing failed — put back'); } catch (Throwable $e2) { /* repost runner */ }
-                return 'moved, but its chequing twin ' . $mid . ' could not be made the transfer: ' . $e->getMessage();
+                return 'not moved — its chequing twin ' . $mid . ' could not be made the transfer: ' . $e->getMessage();
             }
         }
         return true;

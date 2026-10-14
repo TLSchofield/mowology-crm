@@ -310,17 +310,20 @@ class LedgerService
         $pst = round((float)($exp['pst'] ?? 0), 2);
         $total = round($net + $gst + $pst, 2);
         $funding = $exp['funding'] ?? self::ACC_CREDIT_CARD;
+        // A meals receipt claims only part of its GST (s.236, GstReportService's rate) — the rest is
+        // cost, as the split builder already did (Codex review 2026-10-14: unsplit meals claimed it all).
+        $claim = !empty($exp['meals']) ? round($gst * (isset($exp['meals_itc_rate']) ? (float)$exp['meals_itc_rate'] : 0.5), 2) : $gst;
 
         $lines = [];
         $lines[] = [
-            'account' => $exp['expense_account'], 'debit' => round($net + $pst, 2), 'credit' => 0,
-            'gst_amount' => $gst, 'pst_amount' => $pst,
+            'account' => $exp['expense_account'], 'debit' => round($net + $pst + $gst - $claim, 2), 'credit' => 0,
+            'gst_amount' => $claim, 'pst_amount' => $pst,
             'cost_type_id' => $exp['cost_type_id'] ?? null,
             'service_type' => $exp['service_type'] ?? null,
             'job_id' => $exp['job_id'] ?? null, 'vendor_id' => $exp['vendor_id'] ?? null,
         ];
-        if ($gst > 0) {
-            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $gst, 'credit' => 0, 'gst_amount' => $gst];
+        if ($claim > 0) {
+            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $claim, 'credit' => 0, 'gst_amount' => $claim];
         }
         $lines[] = ['account' => $funding, 'debit' => 0, 'credit' => $total, 'vendor_id' => $exp['vendor_id'] ?? null];
 

@@ -47,6 +47,7 @@ class MonthCloseService
         $statementOk = array_flip(StatementCloseService::lockable($accounts, $locked, $today));
 
         $drift = [];   // month => [account label => drift]
+        $reportFailed = false;
         try {
             $report = (new BankBalanceCheckService($this->db, new LedgerService($this->db)))->report();
             foreach ($report['accounts'] ?? [] as $a) {
@@ -57,6 +58,7 @@ class MonthCloseService
             }
         } catch (Throwable $e) {
             error_log('[MonthClose] balance report: ' . $e->getMessage());
+            $reportFailed = true;   // books vs bank unproven: no month is ready (Codex review 2026-10-14)
         }
 
         $receipts = [];
@@ -83,6 +85,7 @@ class MonthCloseService
             ];
             $row['grace_until'] = self::graceUntil($m);
             $row['blockers'] = $row['locked'] ? [] : self::blockers($row, $today);
+            if (!$row['locked'] && $reportFailed) $row['blockers'][] = 'the bank balance check could not run — try again';
             $row['ready'] = !$row['locked'] && !$row['blockers'];
             $out[] = $row;
         }

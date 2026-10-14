@@ -20,6 +20,8 @@ require_once __DIR__ . '/LedgerService.php';
 require_once __DIR__ . '/LedgerSyncService.php';
 require_once __DIR__ . '/LedgerAccountMap.php';
 
+require_once __DIR__ . '/GstReportService.php';
+
 class LedgerRepostService
 {
     /** Lines that aren't the income / cost side of an entry. */
@@ -70,8 +72,12 @@ class LedgerRepostService
             if (!$have) continue;
             $amount = array_sum($have['lines']);
             // A receipt split by line (migration 1233) posts one line per share: compare with that recipe.
-            $want = isset($split[(int)$e['id']])
-                ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($this->sync->expenseArgs($e))))
+            // A split receipt, and a meals receipt (only part of its GST is claimable since 2026-10-14, the rest
+            // is cost — Codex review), post by the full recipe: compare with that. Others: the account only.
+            $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats()))
+                ? $this->sync->expenseArgs($e) : null;
+            $want = $args !== null
+                ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($args)))
                 : [$this->map->expenseCode($e['accounting_category'], $e['asset_tag'], $e['vendor_name'] ?: $e['vendor_name_raw']) => round($amount, 2)];
             if (!self::same($have['lines'], $want)) {
                 $expenses[] = ['id' => (int)$e['id'], 'entry_id' => $have['entry_id'], 'from' => $have['lines'], 'to' => $want,
@@ -211,6 +217,18 @@ class LedgerRepostService
     }
 
     /** code => debits of a built expense entry's cost side — the same reading as postedCategoryLines(). Pure. */
+    private ?array $mealsCatsCache = null;
+
+    private function mealsCats(): array
+    {
+        if ($this->mealsCatsCache === null) {
+            require_once __DIR__ . '/GstReportService.php';
+            try { $this->mealsCatsCache = (new GstReportService($this->db))->settings()['meals_categories']; }
+            catch (Throwable $e) { $this->mealsCatsCache = GstReportService::DEFAULT_MEALS_CATEGORIES; }
+        }
+        return $this->mealsCatsCache;
+    }
+
     public static function categoryMap(array $entry): array
     {
         $m = [];
