@@ -234,15 +234,14 @@ on production while the trial balance and income statement agreed with journal_l
 signed by their section (assets debit-positive, liabilities/equity credit-positive). **Rule:** contra accounts are
 signed by the statement section they sit in, never by their own normal balance.
 
-## 2026-10-13 — 6850 is two things (FIXED in code 2026-10-13; 82 old lines await Tim's yes)
+## 2026-10-13 — 6850 is two things (FIXED 2026-10-13: code + the 82 old lines moved to 6800)
 On production 6850 is named "Meals & Entertainment" (BankDeskService, BankGuidanceService and the bank desk file meals
 there), but `StripePayoutService` books Stripe processing fees to 6850 as "Payment Processing Fees". Meals are 50% for
 ITCs and income tax (GIFI 8523); card fees are 100% (8716). Until they are split, the GIFI mapping of 6850 is wrong for
 one of them. **Rule:** one account number, one meaning — check the chart's name before posting to a code.
 - Fixed: `StripePayoutService::feeAccountId()` and `BankImportService::getProcessingFeesAccountId()` use **6800 Bank
   Charges & Fees** and never an account named Meals (`ProcessingFeeAccountTest`). 82 fee lines ($1,028.30, all 2026)
-  were on 6850; the move to 6800 is previewed (all 82 re-post cleanly, Meals keeps $370.41 of real meals) and waits
-  for Tim's yes.
+  were on 6850; moved to 6800 with Tim's yes (all 82 re-posted; Meals keeps $370.41 of real meals).
 
 ## 2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)
 Stored at capture with GST 5.00 (the old "GST 5.0000 % 0.12" misread), subtotal −2.39. Rescan re-ran the (fixed)
