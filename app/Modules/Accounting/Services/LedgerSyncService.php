@@ -421,11 +421,32 @@ class LedgerSyncService
         return !in_array(strtolower(trim((string)$status)), ['draft', 'cancelled', 'canceled', 'void', ''], true);
     }
 
+    /**
+     * A record the nightly sync could not post. A closed-year refusal (dated before FY_START) is an
+     * expected skip; anything else (unmapped account, locked month, bad entry, a code error) is a
+     * failure: logged with its source and returned so the cron reports it. Until 2026-10-13 every
+     * one was counted as "skipped" and the cron said success — the same silent-catch family as the
+     * Stripe fee bug (StripePayoutService built LedgerSyncService with one argument).
+     */
+    private function noteFailure(string $source, int $id, \Throwable $e, int &$skipped, int &$errors, array &$failures): void
+    {
+        if (self::isExpectedSkip($e)) { $skipped++; return; }
+        $errors++;
+        error_log("[LedgerSync] {$source} #{$id} not posted: " . $e->getMessage());
+        if (count($failures) < 20) $failures[] = ['source' => $source, 'id' => $id, 'reason' => $e->getMessage()];
+    }
+
+    /** Pure (tested): is this refusal an expected skip rather than a failure? */
+    public static function isExpectedSkip(\Throwable $e): bool
+    {
+        return strpos($e->getMessage(), 'Closed year:') === 0;
+    }
+
     public function syncInvoices(): array
     {
         require_once __DIR__ . '/LedgerAccountMap.php';
         $map = new LedgerAccountMap($this->db);
-        $posted = 0; $payments = 0; $skipped = 0;
+        $posted = 0; $payments = 0; $skipped = 0; $errors = 0; $failures = [];
         $rows = $this->db->query("
             SELECT id, subtotal, tax_amount, total, amount_paid, status,
                    contact_id, plan_id, contract_id, issue_date, paid_at, created_at
@@ -471,10 +492,12 @@ class LedgerSyncService
                     $payments++;
                 }
             } catch (\Throwable $e) {
-                $skipped++; // never abort the batch
+                // never abort the batch — but a real failure is reported, not counted as a skip (2026-10-13)
+                $this->noteFailure('invoice', (int)$row['id'], $e, $skipped, $errors, $failures);
             }
         }
-        return ['invoices_posted' => $posted, 'payments_posted' => $payments, 'skipped' => $skipped, 'invoices_reversed' => $reversed];
+        return ['invoices_posted' => $posted, 'payments_posted' => $payments, 'skipped' => $skipped, 'invoices_reversed' => $reversed,
+                'errors' => $errors, 'failures' => $failures];
     }
 
     public function syncExpenses(): array
@@ -483,7 +506,7 @@ class LedgerSyncService
         // The owner's category → account map (migration 1130) wins over chart aliases.
         $categoryToCode = (new LedgerAccountMap($this->db))->categoryCodes() + $this->categoryToCodeMap();
         $categoryToCost = $this->categoryToCostTypeMap();
-        $posted = 0; $skipped = 0;
+        $posted = 0; $skipped = 0; $errors = 0; $failures = [];
 
         $rows = $this->db->query("
             SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category,
@@ -498,10 +521,10 @@ class LedgerSyncService
                 $this->ledger->postExpense($this->mapExpenseToExpenseArgs($row, $categoryToCode, $categoryToCost));
                 $posted++;
             } catch (\Throwable $e) {
-                $skipped++;
+                $this->noteFailure('expense', (int)$row['id'], $e, $skipped, $errors, $failures);
             }
         }
-        return ['expenses_posted' => $posted, 'skipped' => $skipped];
+        return ['expenses_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors, 'failures' => $failures];
     }
 
     /** Expense posting args with the same maps the nightly sync uses (repost shares this). */

@@ -694,6 +694,20 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
+    public function applyCcSettlement_a_card_charge_that_mentions_payment_stays_a_charge(): void
+    {
+        // Fable 2026-10-13: on a card statement, "GOOGLE *PAYMENT" or "PAYMENT PROCESSING" is a purchase.
+        $m = $this->ref->getMethod('applyCcSettlement');
+        foreach (['GOOGLE *PAYMENT', 'SQ *PAYMENT PROCESSING'] as $desc) {
+            $row = ['type' => 'expense', 'description' => $desc, 'amount' => 24.99, 'cc_role' => 'charge'];
+            $handled = $m->invokeArgs($this->service, [&$row, 42, 99, 'credit_card']);
+            $this->assertFalse($handled, $desc . ' is a charge, not the payoff');
+        }
+        $row = ['type' => 'expense', 'description' => 'JAN 16AUTOMATIC PAYMENT', 'amount' => 359.22, 'cc_role' => 'payment'];
+        $this->assertTrue($m->invokeArgs($this->service, [&$row, 42, 99, 'credit_card']), 'the real payoff still is one');
+    }
+
+    /** @test */
     public function applyCcSettlement_falls_back_to_expense_when_no_cc_account(): void
     {
         $row = ['type' => 'expense', 'description' => 'VISA PAYMENT', 'amount' => 500.0];
@@ -1022,6 +1036,7 @@ class BankImportServiceTest extends TestCase
             'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
             'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
             'FROM etransfer_notifications'         => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM journal_entries'                 => fn() => $this->stmtReturning(false, 'fetchColumn'),   // no live entry to reverse
             'DELETE FROM bank_import_rows'         => fn() => $deleteRowsStmt,
             'DELETE FROM accounting_transactions'  => fn() => $deleteTxStmt,
         ]);
@@ -1032,6 +1047,33 @@ class BankImportServiceTest extends TestCase
 
         $this->assertSame(172, $result['removed_row_id']);
         $this->assertSame(500, $result['removed_tx_id']);
+    }
+
+    public function test_removeDuplicateRow_reverses_the_lines_journal_entry_in_the_same_transaction(): void
+    {
+        // Fable 2026-10-13: removing a bank line (or rolling back an import) deleted the row and left its
+        // journal entry live — the books kept money the bank never had, until someone found the orphan.
+        $row = ['id'=>172,'session_id'=>35,'transaction_id'=>500,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'DELETE FROM bank_import_rows'         => fn() => $this->stmtReturning(null),
+            'DELETE FROM accounting_transactions'  => fn() => $this->stmtReturning(null),
+        ]);
+        $pdo->method('beginTransaction')->willReturn(true);
+        $pdo->method('commit')->willReturn(true);
+        $svc = new class($pdo) extends BankImportService {
+            public array $reversed = [];
+            protected function reverseJournalForLines(array $txIds, ?int $userId, string $why): int { $this->reversed[] = [$txIds, $why]; return count($txIds); }
+        };
+
+        $svc->removeDuplicateRow(172, 1);
+
+        $this->assertSame([500], $svc->reversed[0][0]);
+        $this->assertStringContainsString('duplicate', $svc->reversed[0][1]);
     }
 
     public function test_removeDuplicateRow_refuses_verified_keep_row_even_though_amount_matches(): void

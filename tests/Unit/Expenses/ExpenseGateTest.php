@@ -151,14 +151,33 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(1, $this->hooks->count('unpost'), 'rejected after posting: its entry is reversed');
     }
 
-    public function test_inside_someone_elses_transaction_the_repost_waits(): void
+    public function test_inside_someone_elses_transaction_the_repost_joins_it(): void
     {
+        // Was "the repost waits for the nightly repost" — a job that never existed (Fable 2026-10-13).
+        // Posting joins a caller's transaction now, so the books move with the change.
         $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
         $this->db->beginTransaction();
-        $this->gate->apply(412, ['total' => 210.00], self::TIM, 'penny_card');
+        $res = $this->gate->apply(412, ['total' => 210.00], self::TIM, 'penny_card');
         $this->db->commit();
-        $this->assertSame(0, $this->hooks->count('repost'), 'posting runs its own transaction — never nested');
-        $this->assertStringContainsString('waits', $this->audit(412)[0]['note']);
+        $this->assertSame(1, $this->hooks->count('repost'));
+        $this->assertTrue($res['reposted']);
+        $this->assertSame('books re-posted', $this->audit(412)[0]['note']);
+    }
+
+    public function test_inside_someone_elses_transaction_a_failed_repost_throws_so_the_caller_rolls_back(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->hooks->repostThrows = 'Accounting period 2026-10 is locked; cannot post.';
+        $this->db->beginTransaction();
+        $threw = false;
+        try {
+            $this->gate->apply(412, ['total' => 210.00], self::TIM, 'penny_card');
+        } catch (RuntimeException $e) {
+            $threw = true;
+        }
+        $this->db->rollBack();
+        $this->assertTrue($threw, 'half a repost must never be committed by the caller');
+        $this->assertSame(218.4, (float)$this->db->query("SELECT total FROM expenses WHERE id = 412")->fetchColumn());
     }
 
     // ── Lines ───────────────────────────────────────────────────────────
@@ -247,5 +266,18 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(218.4, (float)json_decode($last['before_text'], true)['total']);
         $this->assertSame(1, $this->hooks->count('unpost'));
         $this->assertSame(0.0, (float)$this->db->query("SELECT current_stock FROM products WHERE id = 44")->fetchColumn(), 'the seed it brought in leaves stock again');
+    }
+
+    public function test_a_delete_whose_books_entry_cannot_be_reversed_is_refused_and_the_receipt_stays(): void
+    {
+        // Fable 2026-10-13: the unpost error was swallowed, the receipt deleted, its journal entry left live.
+        $this->hooks->unpostThrows = 'Accounting period 2026-10 is locked; cannot post.';
+        try {
+            $this->gate->apply(412, [ExpenseGate::DELETE => true], self::TIM, 'desktop_delete');
+            $this->fail('expected the delete to be refused');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('locked', $e->getMessage());
+        }
+        $this->assertNotFalse($this->db->query("SELECT id FROM expenses WHERE id = 412")->fetch(), 'the receipt is still there');
     }
 }

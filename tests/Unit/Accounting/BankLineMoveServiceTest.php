@@ -39,6 +39,41 @@ class BankLineMoveServiceTest extends TestCase
         $this->assertSame(self::WAGES, (int)$db->query("SELECT account_id FROM accounting_transactions WHERE id = 100")->fetchColumn());
     }
 
+    public function test_a_move_whose_journal_cannot_follow_changes_nothing(): void
+    {
+        // Fable 2026-10-13: the row used to move while the repost failed silently (ok=true, journal 'failed'),
+        // so payroll/shareholder callers trusted a line that was on one account in the CRM and another in the books.
+        $db = $this->db();
+        $this->line($db, 110, '2026-09-18', 'expense', 500.00, 'WAVE PYRL 0012345', self::MISC, 0);
+        $this->post($db, 110, '2026-09-18', [[self::MISC, 500, 0], [self::BANK, 0, 500]]);
+        $db->exec("CREATE TRIGGER no_new_entries BEFORE INSERT ON journal_entries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END");
+
+        $r = $this->mover($db)->move(110, self::WAGES, 1);
+
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('journal', $r['message']);
+        $this->assertSame(self::MISC, (int)$db->query("SELECT account_id FROM accounting_transactions WHERE id = 110")->fetchColumn(), 'the line stays where it was');
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM journal_entries")->fetchColumn(), 'no half reversal');
+    }
+
+    public function test_inside_a_callers_transaction_a_failed_move_throws_so_the_caller_rolls_back(): void
+    {
+        $db = $this->db();
+        $this->line($db, 111, '2026-09-18', 'expense', 500.00, 'WAVE PYRL 0012345', self::MISC, 0);
+        $this->post($db, 111, '2026-09-18', [[self::MISC, 500, 0], [self::BANK, 0, 500]]);
+        $db->exec("CREATE TRIGGER no_new_entries BEFORE INSERT ON journal_entries BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END");
+        $db->beginTransaction();
+        $threw = false;
+        try {
+            $this->mover($db)->move(111, self::WAGES, 1);
+        } catch (RuntimeException | PDOException $e) {
+            $threw = true;
+        }
+        $db->rollBack();
+        $this->assertTrue($threw, 'a failed move inside a caller\'s transaction must throw');
+        $this->assertSame(self::MISC, (int)$db->query("SELECT account_id FROM accounting_transactions WHERE id = 111")->fetchColumn());
+    }
+
     public function test_a_journal_line_left_on_an_older_account_moves_too(): void
     {
         // The TD loan stragglers: the bank list said Miscellaneous, the journal still debited 6130, with GST.

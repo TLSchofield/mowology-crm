@@ -38,5 +38,20 @@ class AccountingEditGuardTest extends TestCase
         $this->assertNull(AccountingService::journalProblem(['invoices' => [], 'bank_imports' => ['errors' => 0]]));
         $this->assertSame('error', AccountingService::journalProblem(['error' => 'Table x missing'])[0]);
         $this->assertSame('warning', AccountingService::journalProblem(['bank_imports' => ['errors' => 2]])[0]);
+        // Invoices/receipts that failed to post are reported too (they used to count as "skipped").
+        $p = AccountingService::journalProblem(['invoices' => ['errors' => 1, 'failures' => [['source' => 'invoice', 'id' => 7, 'reason' => 'Chart of accounts code not found: 4120']]],
+                                                'expenses' => ['errors' => 2], 'bank_imports' => ['errors' => 0]]);
+        $this->assertSame('warning', $p[0]);
+        $this->assertStringContainsString('1 invoice, 2 receipts', $p[1]);
+        $this->assertStringContainsString('invoice #7: Chart of accounts code not found: 4120', $p[1]);
+        $this->assertNull(AccountingService::journalProblem(['invoices' => ['errors' => 0, 'skipped' => 40], 'expenses' => ['errors' => 0]]));
+    }
+
+    public function testClosedYearIsAnExpectedSkipEverythingElseIsAFailure(): void
+    {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LedgerSyncService.php';
+        $this->assertTrue(LedgerSyncService::isExpectedSkip(new RuntimeException('Closed year: invoice #5 is dated 2025-12-01, before 2026-01-01 — not posted')));
+        $this->assertFalse(LedgerSyncService::isExpectedSkip(new RuntimeException('Accounting period 2026-03 is locked; cannot post.')));
+        $this->assertFalse(LedgerSyncService::isExpectedSkip(new TypeError('Too few arguments')));
     }
 }

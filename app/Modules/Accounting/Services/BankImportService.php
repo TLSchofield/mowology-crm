@@ -943,6 +943,11 @@ class BankImportService
             //   (unmatched bank rows, invoice-match transfers, processing-fee expenses).
             //   Keyed on import_session_id so the fee rows — which have no
             //   bank_import_rows.transaction_id link — are also removed.
+            //   Their journal entries are reversed first, in this transaction (2026-10-13):
+            //   they used to stay live until someone approved the orphan proposal.
+            $ids = $this->db->prepare("SELECT id FROM accounting_transactions WHERE import_session_id = ? AND reference_type = 'bank_import'");
+            $ids->execute([$sessionId]);
+            $this->reverseJournalForLines(array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN)), $userId, 'import session ' . $sessionId . ' undone');
             $del = $this->db->prepare("
                 DELETE FROM accounting_transactions
                 WHERE import_session_id = ? AND reference_type = 'bank_import'
@@ -1189,6 +1194,25 @@ class BankImportService
     }
 
     /**
+     * Reverse the live journal entry of each bank line about to be deleted, inside the caller's
+     * transaction (posting joins it). A failure throws, so the delete is refused rather than
+     * leaving the books holding money the bank never had. @return int entries reversed
+     */
+    protected function reverseJournalForLines(array $txIds, ?int $userId, string $why): int
+    {
+        $txIds = array_values(array_filter(array_map('intval', $txIds)));
+        if (!$txIds) return 0;
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        $n = 0;
+        foreach ($txIds as $id) {
+            $entryId = $ledger->findEntryIdBySource('bank_import', $id);
+            if ($entryId) { $ledger->reverseEntry($entryId, $userId, $why, 'owner'); $n++; }
+        }
+        return $n;
+    }
+
+    /**
      * Remove one committed duplicate bank row (and its accounting_transactions
      * row) after re-verifying it's still safe — never trusts a caller-supplied
      * "this is fine" flag from an earlier read. Refuses (does not force) if
@@ -1266,6 +1290,7 @@ class BankImportService
 
         $this->db->beginTransaction();
         try {
+            $this->reverseJournalForLines([(int)$row['transaction_id']], $userId, 'duplicate bank line removed');
             $this->db->prepare("DELETE FROM bank_import_rows WHERE id = ?")->execute([$bankImportRowId]);
             $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ?")
                 ->execute([$row['transaction_id']]);
@@ -3446,7 +3471,8 @@ class BankImportService
             || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''))
             // On the card's OWN statement, "PAYMENT RECEIVED -- THANK YOU" is the payoff (the chequing
             // line carries the cash) — read as a $250 charge on 2026-10-13.
-            || ($kind === 'credit_card' && self::isCardStatementPayment($row['description'] ?? ''));
+            // A line the card parser already called a charge ("GOOGLE *PAYMENT") never is (Fable 2026-10-13).
+            || ($kind === 'credit_card' && ($row['cc_role'] ?? null) !== 'charge' && self::isCardStatementPayment($row['description'] ?? ''));
         if (!$isSettlement) {
             return false;
         }

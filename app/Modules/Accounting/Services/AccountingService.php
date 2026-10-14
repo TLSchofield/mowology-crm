@@ -94,8 +94,16 @@ class AccountingService
     {
         if (!is_array($journal)) return null;
         if (!empty($journal['error'])) return ['error', 'Journal sync failed: ' . $journal['error']];
-        $n = (int)($journal['bank_imports']['errors'] ?? 0);
-        if ($n > 0) return ['warning', $n . ' bank line(s) could not be posted to the journal'];
+        $parts = [];
+        foreach (['invoices' => 'invoice', 'expenses' => 'receipt', 'bank_imports' => 'bank line'] as $k => $word) {
+            $n = (int)($journal[$k]['errors'] ?? 0);
+            if ($n > 0) $parts[] = $n . ' ' . $word . ($n === 1 ? '' : 's');
+        }
+        if ($parts) {
+            $first = $journal['invoices']['failures'][0] ?? $journal['expenses']['failures'][0] ?? null;
+            return ['warning', implode(', ', $parts) . ' could not be posted to the journal'
+                . ($first ? ' (e.g. ' . $first['source'] . ' #' . $first['id'] . ': ' . $first['reason'] . ')' : '')];
+        }
         return null;
     }
 

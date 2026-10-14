@@ -72,19 +72,32 @@ class BankLineMoveService
             && LedgerSyncService::transferDirection($this->sync->directionFacts($txId)[$txId] ?? []) === 'in';
         $type = self::typeFor((string)$tx['type'], (string)$acct['type'], $moneyIn);
         $zeroGst = in_array($acct['type'], self::TRANSFER_TYPES, true);
-        $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, type = ?, is_auto_categorized = 0"
-                           . ($zeroGst ? ', gst_amount = 0' : '') . " WHERE id = ?")
-           ->execute([$accountId, $type, $txId]);
 
-        $done = 'none';
-        if ($journal && ($tx['reference_type'] ?? '') === 'bank_import') {
-            $done = $this->rejournal($txId, $userId, $proposedBy, 'moved to ' . $acct['code'] . ' ' . $acct['name']);
-        }
-        if ($proposedBy !== 'penny' && (int)($tx['account_id'] ?? 0) !== $accountId) {
-            require_once __DIR__ . '/PennyLessons.php';
-            $said = array_key_exists('said', $lesson) ? $lesson['said'] : PennyLessons::accountLabel($this->db, (int)($tx['account_id'] ?? 0) ?: null);
-            PennyLessons::bankLine($this->db, $txId, 'account', $said, trim($acct['code'] . ' ' . $acct['name']),
-                                   (string)($lesson['source'] ?? 'bank_line_move'), $userId ?: null);
+        // All or nothing (2026-10-13): the row and its journal entry move together. A failed repost
+        // used to leave the row moved with ok=true, and payroll/shareholder callers trusted it.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, type = ?, is_auto_categorized = 0"
+                               . ($zeroGst ? ', gst_amount = 0' : '') . " WHERE id = ?")
+               ->execute([$accountId, $type, $txId]);
+
+            $done = 'none';
+            if ($journal && ($tx['reference_type'] ?? '') === 'bank_import') {
+                $done = $this->repost($txId, $userId, $proposedBy, 'moved to ' . $acct['code'] . ' ' . $acct['name']);
+            }
+            if ($proposedBy !== 'penny' && (int)($tx['account_id'] ?? 0) !== $accountId) {
+                require_once __DIR__ . '/PennyLessons.php';
+                $said = array_key_exists('said', $lesson) ? $lesson['said'] : PennyLessons::accountLabel($this->db, (int)($tx['account_id'] ?? 0) ?: null);
+                PennyLessons::bankLine($this->db, $txId, 'account', $said, trim($acct['code'] . ' ' . $acct['name']),
+                                       (string)($lesson['source'] ?? 'bank_line_move'), $userId ?: null);
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            error_log("Bank line {$txId} not moved — its journal entry couldn't follow: " . $e->getMessage());
+            if (!$own) throw $e instanceof RuntimeException ? $e : new RuntimeException($e->getMessage(), 0, $e);   // the caller's transaction must not commit half a move
+            return ['ok' => false, 'message' => 'Not moved: the journal entry couldn\'t be updated (' . $e->getMessage() . '). Nothing changed.'];
         }
         return ['ok' => true, 'message' => 'Moved to ' . $acct['code'] . ' ' . $acct['name'] . '.', 'journal' => $done, 'type' => $type, 'account' => $acct];
     }
@@ -97,24 +110,29 @@ class BankLineMoveService
     public function rejournal(int $txId, int $userId, string $proposedBy = 'owner', string $why = 'bank line moved'): string
     {
         try {
-            $entryId = $this->ledger->findEntryIdBySource('bank_import', $txId);
-            $args = $this->sync->bankEntryArgsFor($txId);
-            if ($entryId && !$this->ledger->canRepostSource()) {
-                error_log("Bank line {$txId} moved but its journal entry #{$entryId} can't be re-posted before migration 1131");
-                return 'blocked';
-            }
-            if ($entryId) $this->ledger->reverseEntry($entryId, $userId, $why, $proposedBy);
-            if ($args) {
-                $args['created_by'] = $userId;
-                $args['proposed_by'] = $proposedBy;
-                $this->ledger->postManual($args);
-            }
-            return $entryId ? ($args ? 'reposted' : 'reversed') : ($args ? 'posted' : 'none');
+            return $this->repost($txId, $userId, $proposedBy, $why);
         } catch (Throwable $e) {
             // The repost runner (LedgerRepostService) finds a bank line whose entry disagrees.
             error_log("Bank line {$txId} journal move failed: " . $e->getMessage());
-            return 'failed';
+            return strpos($e->getMessage(), 'migration 1131') !== false ? 'blocked' : 'failed';
         }
+    }
+
+    /** rejournal() that throws instead of reporting 'failed'/'blocked' — move() uses it inside its transaction. */
+    private function repost(int $txId, int $userId, string $proposedBy, string $why): string
+    {
+        $entryId = $this->ledger->findEntryIdBySource('bank_import', $txId);
+        $args = $this->sync->bankEntryArgsFor($txId);
+        if ($entryId && !$this->ledger->canRepostSource()) {
+            throw new RuntimeException("journal entry #{$entryId} can't be re-posted before migration 1131");
+        }
+        if ($entryId) $this->ledger->reverseEntry($entryId, $userId, $why, $proposedBy);
+        if ($args) {
+            $args['created_by'] = $userId;
+            $args['proposed_by'] = $proposedBy;
+            $this->ledger->postManual($args);
+        }
+        return $entryId ? ($args ? 'reposted' : 'reversed') : ($args ? 'posted' : 'none');
     }
 
     /**

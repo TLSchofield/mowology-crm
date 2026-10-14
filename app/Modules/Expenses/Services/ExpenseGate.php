@@ -173,18 +173,21 @@ class ExpenseGate
         // ── 2. Write ─────────────────────────────────────────────────────────
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
-        if ($delete) {
-            // The posted entry is reversed (append-only) inside the same transaction as the delete
-            // — posting joins it — so a failed delete no longer leaves the receipt with its entry
-            // already reversed (review 2026-10-12).
-            $this->hooks->unpost((int)$expenseId, $actor['id'] ?? null, 'receipt deleted');
-        }
         $extra = [];
         $splitBefore = !$create && $this->split->ready() ? $this->split->forExpense((int)$expenseId) : [];
         $linesBefore = !$create ? $this->lineSummary((int)$expenseId) : null;
         $lineBefore = null; $lineAfter = null;
         try {
             if ($delete) {
+                // The posted entry is reversed (append-only) inside the same transaction as the delete
+                // — posting joins it — so a failed delete no longer leaves the receipt with its entry
+                // already reversed (review 2026-10-12). Strict: a reversal that fails (e.g. a locked
+                // month) refuses the delete; it used to be swallowed and the entry left live (2026-10-13).
+                try {
+                    $this->hooks->unpost((int)$expenseId, $actor['id'] ?? null, 'receipt deleted', true);
+                } catch (RuntimeException $e) {
+                    throw new RuntimeException('Not deleted: its entry in the books couldn\'t be reversed (' . $e->getMessage() . ').', 0, $e);
+                }
                 $id = (int)$expenseId;
                 $action = 'delete';
                 if (function_exists('reverseLineItemInventory')) reverseLineItemInventory($this->db, $id);
@@ -259,12 +262,15 @@ class ExpenseGate
                          || (bool)array_intersect(array_keys($set), self::BOOKS);
             $repost = $wasPosted && $isPosted && $booksChanged;
             $unpost = $wasPosted && !$isPosted;
-            $deferred = ($repost || $unpost) && !$own;
+            // Inside a caller's transaction the books change joins it (posting no longer opens its own),
+            // strictly: a failure throws so the caller rolls back. It used to "wait for the nightly
+            // repost" — a job that never existed (Fable review 2026-10-13).
+            $strict = !$own;
 
             $this->audit($id, $action, $source, $actor, $changed,
                 $create ? [] : self::auditValues(array_intersect_key($before, $set)) + ($linesChange ? ['lines' => $linesBefore] : []) + ($splitChange ? ['allocations' => self::splitSummary($splitBefore)] : []),
                 self::auditValues($set) + ($linesChange ? ['lines' => $this->lineSummary($id)] : []) + (isset($extra['allocations']) ? ['allocations' => self::splitSummary($extra['allocations'])] : []),
-                $repost ? ($deferred ? 'books: re-post waits for the nightly repost' : 'books re-posted') : ($unpost ? 'posted entry reversed' : null));
+                $repost ? 'books re-posted' : ($unpost ? 'posted entry reversed' : null));
             if ($own) $this->db->commit();
         } catch (Throwable $e) {
             if ($own && $this->db->inTransaction()) $this->db->rollBack();
@@ -286,10 +292,10 @@ class ExpenseGate
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
         $userId = $actor['id'] ?? null;
-        if (!$deferred && $repost) {
-            $result['reposted'] = $this->hooks->repost($id, $userId, 'receipt changed after posting (' . $source . ')');
-        } elseif (!$deferred && $unpost) {
-            $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting');
+        if ($repost) {
+            $result['reposted'] = $this->hooks->repost($id, $userId, 'receipt changed after posting (' . $source . ')', $strict);
+        } elseif ($unpost) {
+            $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting', $strict);
         }
         return $result;
     }

@@ -127,6 +127,8 @@ class ExpenseGateHooksSpy extends ExpenseGateHooks
     /** @var array<string, list<array>> */
     public array $calls = [];
     public bool $repostResult = true;
+    public ?string $unpostThrows = null;
+    public ?string $repostThrows = null;
 
     public function __construct()
     {
@@ -153,6 +155,16 @@ class ExpenseGateHooksSpy extends ExpenseGateHooks
     public function learnBank(int $expenseId, array $row, ?int $userId): void { $this->hit('learnBank', [$expenseId, $userId]); }
     public function chase(int $expenseId): void { $this->hit('chase', [$expenseId]); }
     public function lessons(int $expenseId, array $before, array $after, array $fields, ?int $userId, string $source, ?array $allocations = null): void { $this->hit('lessons', [$expenseId, $fields, $source]); }
-    public function repost(int $expenseId, ?int $userId, string $why): bool { $this->hit('repost', [$expenseId, $why]); return $this->repostResult; }
-    public function unpost(int $expenseId, ?int $userId, string $why): bool { $this->hit('unpost', [$expenseId, $why]); return true; }
+    public function repost(int $expenseId, ?int $userId, string $why, bool $strict = false): bool
+    {
+        $this->hit('repost', [$expenseId, $why]);
+        if ($this->repostThrows !== null) { if ($strict) throw new RuntimeException($this->repostThrows); return false; }
+        return $this->repostResult;
+    }
+    public function unpost(int $expenseId, ?int $userId, string $why, bool $strict = false): bool
+    {
+        $this->hit('unpost', [$expenseId, $why]);
+        if ($this->unpostThrows !== null && $strict) throw new RuntimeException($this->unpostThrows);
+        return $this->unpostThrows === null;
+    }
 }

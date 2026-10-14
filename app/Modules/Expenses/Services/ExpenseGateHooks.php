@@ -227,7 +227,7 @@ class ExpenseGateHooks
     }
 
     /** A posted receipt changed: reverse its entry and post it again as it is now. @return bool re-posted */
-    public function repost(int $expenseId, ?int $userId, string $why): bool
+    public function repost(int $expenseId, ?int $userId, string $why, bool $strict = false): bool
     {
         try {
             require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
@@ -267,13 +267,19 @@ class ExpenseGateHooks
             }
             return true;
         } catch (Throwable $e) {
+            // $strict (the gate inside a caller's transaction): throw, so the caller rolls back rather than
+            // committing a reversal without its repost (2026-10-13).
+            if ($strict) throw $e instanceof RuntimeException ? $e : new RuntimeException($e->getMessage(), 0, $e);
             error_log('Gate repost #' . $expenseId . ': ' . $e->getMessage());
             return false;
         }
     }
 
-    /** A posted receipt rejected / cancelled / deleted: reverse its entry. */
-    public function unpost(int $expenseId, ?int $userId, string $why): bool
+    /**
+     * A posted receipt rejected / cancelled / deleted: reverse its entry.
+     * $strict: rethrow instead of logging — a delete must not go ahead with its entry still live (2026-10-13).
+     */
+    public function unpost(int $expenseId, ?int $userId, string $why, bool $strict = false): bool
     {
         try {
             require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
@@ -283,6 +289,7 @@ class ExpenseGateHooks
             $ledger->reverseEntry($entryId, $userId, $why);
             return true;
         } catch (Throwable $e) {
+            if ($strict) throw $e instanceof RuntimeException ? $e : new RuntimeException($e->getMessage(), 0, $e);
             error_log('Gate unpost #' . $expenseId . ': ' . $e->getMessage());
             return false;
         }
