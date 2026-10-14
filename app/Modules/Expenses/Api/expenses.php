@@ -287,6 +287,16 @@ function assertCanEditExpense(PDO $db, int $expenseId): void
     if (($why = ExpenseService::editBlockReason($row, expenseActor())) !== null) throw new Exception($why);
 }
 
+/** Refuse a receipt photo this user may not see (Codex review 2026-10-14). */
+function assertMayUseReceiptMedia(PDO $db, ?int $mediaId): void
+{
+    if (!$mediaId) return;
+    $a = expenseActor();
+    if (!ExpenseService::userMayUseReceiptMedia($db, $mediaId, (int)$a['id'], (bool)$a['is_admin'])) {
+        throw new Exception('That receipt photo isn\'t yours to attach');
+    }
+}
+
 /** The expense a line item belongs to. */
 function lineItemExpenseId(PDO $db, int $lineItemId): int
 {
@@ -607,6 +617,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
     $createGuard  = new ExpenseCreateGuard($db);
     $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    assertMayUseReceiptMedia($db, $guardMediaId);
     $existingId   = $createGuard->claim($guardMediaId);
     if ($existingId !== null) {
         echo json_encode(ExpenseCreateGuard::existingResponse($existingId));
@@ -748,6 +759,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     // when the modal sends one); printed facts and the duplicate check re-run; line-item
     // lessons recorded (header / category lessons are recorded once, at approval or send,
     // against the capture baseline). A posted receipt is reversed and posted again.
+    assertMayUseReceiptMedia($db, !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null);
     $changes = [
         'expense_date'        => $expenseDate,
         'vendor_id'           => !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
@@ -786,7 +798,8 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         'price_intel' => true,
     ]);
 
-    echo json_encode(['success' => true, 'message' => 'Expense updated', 'reposted' => !empty($res['reposted'])]);
+    echo json_encode(['success' => true, 'message' => 'Expense updated', 'reposted' => !empty($res['reposted'])]
+        + (!empty($res['repost_failed']) ? ['warning' => 'Saved — but its journal entry could not be updated, so the books still show the old amounts. Tell Penny: the journal entry for this receipt needs reposting.'] : []));
 }
 
 
@@ -911,6 +924,9 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     $discardId = (int)($input['discard_id'] ?? 0);
     if (!$keepId || !$discardId) throw new Exception('keep_id and discard_id are required');
     if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
+    // Both must be expenses this user may change (Codex review 2026-10-14): merge deletes one.
+    assertCanEditExpense($db, $keepId);
+    assertCanEditExpense($db, $discardId);
 
     // Fetch both expenses (full rows for per-field merge)
     // Ids are ints, so plain (unprepared) queries are safe here — and they avoid MySQL
@@ -999,6 +1015,8 @@ function handleMergeReceipt(PDO $db, ?array $input): void
 
     $keepReceipt = $input['keep_receipt'] ?? 'target';
     $sourceMediaId = !empty($input['source_media_id']) ? (int)$input['source_media_id'] : null;
+    assertCanEditExpense($db, $targetId);
+    assertMayUseReceiptMedia($db, $sourceMediaId);
 
     // If user chose the new receipt, update the target
     if ($keepReceipt === 'source' && $sourceMediaId) {

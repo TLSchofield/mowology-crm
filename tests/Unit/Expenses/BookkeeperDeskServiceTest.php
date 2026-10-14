@@ -111,4 +111,13 @@ class BookkeeperDeskServiceTest extends TestCase
         $this->assertSame(0, BookkeeperDeskService::batchSize(5, 40, 55));   // over (manual runs) → still 0
         $this->assertSame(BookkeeperDeskService::DEFAULT_DAILY_CAP, 40);     // the cap is not raised
     }
+
+    public function test_a_typed_amount_must_be_a_number(): void
+    {
+        $this->assertNull(BookkeeperDeskService::amountProblem(['total' => '12.50', 'gst' => '', 'pst' => null, 'subtotal' => '$1,190.00']));
+        $this->assertSame("Total isn't a number", BookkeeperDeskService::amountProblem(['total' => 'oops']));
+        $this->assertNull(BookkeeperDeskService::amountProblem([]));
+        $f = BookkeeperDeskService::resolveFinal([], ['subtotal' => '$1,190.00'])['final'];
+        $this->assertSame(1190.0, $f['subtotal']);
+    }
 }

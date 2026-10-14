@@ -478,17 +478,19 @@
     }
     function usePennyItems() {
         var it = queue[idx];
-        var pi = pennyItems(it);
         itemSaved('Swapping in Penny\'s items…');
-        var chain = Promise.resolve();
-        (it.items || []).slice().forEach(function (i) {
-            chain = chain.then(function () { return lineApi({ action: 'delete_line_item', line_item_id: i.id }); })
-                         .then(function () { it.items = it.items.filter(function (x) { return x.id !== i.id; }); });
-        });
-        pi.forEach(function (x) { chain = chain.then(function () { return addItem(x.name, 1, Number(x.amount) || 0); }); });
-        chain.then(function () { return refreshSplit(it); })
-             .then(function () { render('Using Penny\'s items — check them before you approve'); })
-             .catch(function (e) { render('Items: ' + e.message); });
+        // One request, all lines at once (Codex review 2026-10-14) — never half a list.
+        post({ mode: 'use_penny_items', suggestion_id: it.suggestion_id })
+            .then(function (d) {
+                if (!d || !d.ok) throw new Error((d && d.message) || 'Could not use Penny\'s items');
+                it.items = (d.items || []).map(function (li) {
+                    return { id: li.id, name: li.name, quantity: li.quantity, unit_price: li.unit_price, line_total: li.line_total,
+                             product_id: li.product_id, product_name: li.product_name };
+                });
+                return refreshSplit(it);
+            })
+            .then(function () { render('Using Penny\'s items — check them before you approve'); })
+            .catch(function (e) { render('Items: ' + e.message); });
     }
 
     /** Turn the receipt photo(s) for this receipt; sideways turns shrink to fit their box. */

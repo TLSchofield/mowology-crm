@@ -294,6 +294,9 @@ class ExpenseGate
         $userId = $actor['id'] ?? null;
         if ($repost) {
             $result['reposted'] = $this->hooks->repost($id, $userId, 'receipt changed after posting (' . $source . ')', $strict);
+            // Said out loud (Codex review 2026-10-14): the edit is saved but the books still show the
+            // old receipt until the repost runner catches it.
+            if (!$result['reposted']) $result['repost_failed'] = true;
         } elseif ($unpost) {
             $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting', $strict);
         }

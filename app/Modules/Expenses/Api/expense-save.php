@@ -28,6 +28,7 @@ try {
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -62,6 +63,12 @@ try {
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
     $createGuard  = new ExpenseCreateGuard(getDB());
     $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    // Only a photo this user may see (Codex review 2026-10-14).
+    if ($guardMediaId && !ExpenseService::userMayUseReceiptMedia(getDB(), $guardMediaId, $userId,
+            ExpenseService::isOffice((string)($jwtUser['role'] ?? ''), jwtUserHasPermission($jwtUser, 'expenses.approve')))) {
+        echo json_encode(['success' => false, 'error' => 'That receipt photo isn\'t yours to attach']);
+        exit;
+    }
     $existingId   = $createGuard->claim($guardMediaId);
     if ($existingId !== null) {
         echo json_encode(ExpenseCreateGuard::existingResponse($existingId));

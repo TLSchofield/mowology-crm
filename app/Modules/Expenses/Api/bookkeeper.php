@@ -191,6 +191,7 @@ try {
         case 'decide':
         case 'recheck':
         case 'reject':
+        case 'use_penny_items':
         case 'prepare': {
             require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
             $desk = new BookkeeperDeskService($db, $svc);
@@ -216,6 +217,9 @@ try {
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
                 $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
                 echo json_encode($res);
+            } elseif ($mode === 'use_penny_items') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($desk->usePennyItems((int)($input['suggestion_id'] ?? 0), $user));
             } elseif ($mode === 'reject') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 echo json_encode($desk->reject((int)($input['suggestion_id'] ?? 0), (string)($input['reason'] ?? ''), $user));

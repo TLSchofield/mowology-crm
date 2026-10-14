@@ -392,6 +392,22 @@ class BookkeeperDeskService
      * Final values: Penny's suggestion, with the owner's edits laid over it. Pure.
      * @return array{final: array, outcome: array<string, array{suggested: mixed, final: mixed, accepted: bool}>}
      */
+    /**
+     * A typed amount that isn't a number (Codex review 2026-10-14: "oops" was saved as $0.00).
+     * Blank keeps the stored value. Pure.
+     */
+    public static function amountProblem(array $overrides): ?string
+    {
+        $names = ['subtotal' => 'Subtotal', 'gst' => 'GST', 'pst' => 'PST', 'total' => 'Total'];
+        foreach ($names as $k => $label) {
+            if (!array_key_exists($k, $overrides)) continue;
+            $v = $overrides[$k];
+            if ($v === null || (is_string($v) && trim($v) === '')) continue;
+            if (!is_numeric(is_string($v) ? str_replace([',', '$'], '', trim($v)) : $v)) return $label . ' isn\'t a number';
+        }
+        return null;
+    }
+
     public static function resolveFinal(array $suggestion, array $overrides): array
     {
         $fields = ['vendor', 'accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total'];
@@ -401,7 +417,7 @@ class BookkeeperDeskService
             $suggested = $suggestion[$f]['value'] ?? null;
             $value = array_key_exists($f, $overrides) ? $overrides[$f] : $suggested;
             if (in_array($f, ['subtotal', 'gst', 'pst', 'total'], true)) {
-                $value = $value === null || $value === '' ? null : round((float)$value, 2);
+                $value = $value === null || $value === '' ? null : round((float)(is_string($value) ? str_replace([',', '$'], '', trim($value)) : $value), 2);
                 $same = $suggested !== null && $value !== null && abs((float)$suggested - $value) < 0.005;
             } elseif ($f === 'job') {
                 $value = $value === null || $value === '' || (int)$value === 0 ? null : (int)$value;
@@ -461,6 +477,9 @@ class BookkeeperDeskService
             $approve = false;
         }
 
+        if ($why = self::amountProblem($overrides)) {
+            return ['ok' => false, 'message' => $why];
+        }
         $resolved = self::resolveFinal(json_decode((string)$row['suggestion_json'], true) ?: [], $overrides);
         $f = $resolved['final'];
         if ($f['accounting_category'] !== null && !in_array($f['accounting_category'], EXPENSE_ACCOUNTING_CATEGORIES, true)) {
@@ -509,6 +528,14 @@ class BookkeeperDeskService
         $split = self::splitChoices($overrides);
         $this->db->beginTransaction();
         try {
+            // One decision per suggestion (Codex review 2026-10-14): two tabs both saw 'pending'.
+            $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+            $st = $this->db->prepare("SELECT status FROM expense_suggestions WHERE id = ?" . $lock);
+            $st->execute([$suggestionId]);
+            if ($st->fetchColumn() !== 'pending') {
+                $this->db->rollBack();
+                return ['ok' => false, 'message' => 'Already decided'];
+            }
             // Through the expense gate (migration 1233): only what changed is written, audited
             // as the owner's change from Penny's card; the split's shares are worked out there.
             $changes = [
@@ -580,6 +607,29 @@ class BookkeeperDeskService
                ->execute([json_encode(['draft' => $f, 'saved_by' => (int)$user['id'], 'saved_at' => date('c')]), $suggestionId]);
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true, 'message' => 'Not approved: ' . $e->getMessage() . ' — your edits are saved'];
         }
+    }
+
+    /**
+     * "Use Penny's items" on the card, in one write (Codex review 2026-10-14): the card used to delete
+     * each line and add each of hers in separate requests, so a failure partway left half a list.
+     * Through the expense gate, replacing every line at once; nothing is approved.
+     * @return array{ok: bool, message: string, items?: list<array>}
+     */
+    public function usePennyItems(int $suggestionId, array $user): array
+    {
+        $st = $this->db->prepare("SELECT s.expense_id, s.status, s.suggestion_json, e.status AS expense_status, e.forwarded_to_accounting
+                                  FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id WHERE s.id = ?");
+        $st->execute([$suggestionId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return ['ok' => false, 'message' => 'Suggestion not found'];
+        if ($row['status'] !== 'pending' || !in_array($row['expense_status'], ['draft', 'pending_approval'], true) || (int)$row['forwarded_to_accounting'] === 1) {
+            return ['ok' => false, 'message' => 'This receipt has already been handled'];
+        }
+        $items = self::pennyItems(json_decode((string)$row['suggestion_json'], true) ?: []);
+        if (!$items) return ['ok' => false, 'message' => 'Penny has no line items for this receipt'];
+        $this->gate()->apply((int)$row['expense_id'], ['line_items' => $items, 'line_items_source' => 'penny'],
+                             ['id' => (int)$user['id'], 'kind' => 'user'], 'penny_card');
+        return ['ok' => true, 'message' => 'Using Penny\'s items', 'items' => $this->lineItems([(int)$row['expense_id']])[(int)$row['expense_id']] ?? []];
     }
 
     /** Penny's line items as expense lines (name, quantity 1, line total). Pure. */

@@ -4151,6 +4151,7 @@ async function submitReceiptExport() {
                 });
                 var d = await r.json();
                 if (!d.success) throw new Error(d.error);
+                if (d.warning) alert(d.warning);
             });
             $('#expenseModal').modal('hide');
             loadExpenses(currentPage);

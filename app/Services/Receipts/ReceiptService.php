@@ -48,6 +48,26 @@ require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
  */
 function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): array
 {
+    // One send per receipt at a time (Codex review 2026-10-14): two taps both saw "not sent yet" and
+    // both emailed. The second waits, then finds the first one's 'sent' log and only finishes the books.
+    $expenseId = (int)($opts['expense_id'] ?? 0);
+    $db = getDB();
+    if ($expenseId <= 0 || $db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
+        return sendReceiptToAccountingOnce($opts, $userIdOverride);
+    }
+    $lock = 'mw_receipt_send_' . $expenseId;
+    if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($lock) . ", 30)")->fetchColumn() !== 1) {
+        return ['success' => false, 'message' => 'This receipt is already being sent — try again in a moment.', 'log_id' => null];
+    }
+    try {
+        return sendReceiptToAccountingOnce($opts, $userIdOverride);
+    } finally {
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($lock) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+    }
+}
+
+function sendReceiptToAccountingOnce(array $opts, ?int $userIdOverride = null): array
+{
     $db = getDB();
     if ($userIdOverride !== null) {
         $userId = $userIdOverride;
@@ -96,10 +116,20 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
     // 4. Build email body
     $body = buildReceiptEmailBody($opts, $config);
 
+    // 4b. Already emailed, but the books step after it failed (Codex review 2026-10-14)? Finish that
+    //     step only — a retry must never email the same receipt twice.
+    $alreadySent = false;
+    if (!empty($opts['expense_id'])) {
+        $chk = $db->prepare("SELECT id FROM receipt_email_log WHERE expense_id = ? AND status = 'sent' ORDER BY id DESC LIMIT 1");
+        $chk->execute([(int)$opts['expense_id']]);
+        $prevLog = $chk->fetchColumn();
+        if ($prevLog) { $alreadySent = true; $logId = (int)$prevLog; }
+    }
+
     // 5. Create log entry (queued status) — single-row autocommit write,
     //    intentionally NOT wrapped in a transaction so the SMTP call below
     //    does not hold a long-lived DB transaction across network I/O.
-    $logId = createEmailLog($db, [
+    if (!$alreadySent) $logId = createEmailLog($db, [
         'expense_id' => $opts['expense_id'] ?? null,
         'media_id'   => $mediaId,
         'to_email'   => $toEmail,
@@ -110,16 +140,17 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
 
     // 6. Send the email with attachment (outside any transaction)
     $fromName = $config['from_name'] ?: 'Mowology Receipts';
-    $result = sendEmail($toEmail, $subject, $body, $filePath, $fromName);
+    $result = $alreadySent ? ['success' => true] : sendEmail($toEmail, $subject, $body, $filePath, $fromName);
 
-    // 7. Update log entry + expense status atomically on success
+    // 7. The send is recorded the moment it happens, in its own write, so a failure in the books
+    //    step below can't make a retry send it again (4b). Then the expense is marked forwarded.
     if ($result['success']) {
+        if (!$alreadySent) updateEmailLog($db, $logId, 'sent');
         // On success, the log row and the expense row must update together —
         // the UI uses expense.status='forwarded' as the "this was sent"
         // signal, and a partial write would leave them out of sync.
         $db->beginTransaction();
         try {
-            updateEmailLog($db, $logId, 'sent');
 
             if (!empty($opts['expense_id'])) {
                 // Through the expense gate (migration 1233): the audited 'forward' transition.
@@ -140,7 +171,7 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
 
         return [
             'success' => true,
-            'message' => 'Receipt sent to ' . $toEmail,
+            'message' => $alreadySent ? 'Receipt was already emailed to ' . $toEmail . ' — now marked as sent' : 'Receipt sent to ' . $toEmail,
             'log_id'  => $logId,
         ];
     } else {

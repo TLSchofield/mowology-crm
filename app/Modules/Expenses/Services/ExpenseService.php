@@ -121,6 +121,23 @@ class ExpenseService
     }
 
     /**
+     * May this user attach media #$mediaId as a receipt (Codex review 2026-10-14)? Same rule as
+     * seeing it: the office any; anyone else only a photo they uploaded or one already on a receipt
+     * of theirs. Attaching someone else's photo to your own expense used to expose it to you.
+     */
+    public static function userMayUseReceiptMedia(\PDO $db, int $mediaId, int $userId, bool $office): bool
+    {
+        if ($mediaId <= 0 || $office) return true;
+        $st = $db->prepare('SELECT created_by FROM media_assets WHERE id = ? LIMIT 1');
+        $st->execute([$mediaId]);
+        $by = $st->fetchColumn();
+        $st = $db->prepare('SELECT created_by FROM expenses WHERE receipt_media_id = ?');
+        $st->execute([$mediaId]);
+        $creators = array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN));
+        return self::canSeeReceiptMedia(false, $userId, $by !== false && $by !== null ? (int)$by : null, $creators);
+    }
+
+    /**
      * Only an approved receipt goes to the accountant (operating rules: phone receipts are
      * capture-only; approval happens in the office). Null = may be sent. Pure (tested).
      */
