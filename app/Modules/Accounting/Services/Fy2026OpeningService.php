@@ -402,6 +402,21 @@ class Fy2026OpeningService
                 $out[$accounts[$aid]['code']] = self::balanceAt($st, substr(self::AS_OF, 0, 7));
             }
         } catch (Throwable $e) { /* no statements */ }
+        // The first 2026 statement's printed OPENING balance is the bank's own Dec 31 figure
+        // (bank_statement_sections, migration 1360). It wins over the last line we happen to hold:
+        // Reserve funds' last line was 30 Nov 2025 ($3,003.15) while the Jan statement opens at
+        // $0.69 — December emptied it and no December line was ever imported (2026-10-13).
+        try {
+            $s = $this->db->prepare("
+                SELECT c.code, ss.opening_balance
+                FROM bank_statement_sections ss JOIN chart_of_accounts c ON c.id = ss.bank_account_id
+                WHERE ss.opening_balance IS NOT NULL AND ss.period_from > ?
+                  AND ss.period_from = (SELECT MIN(s2.period_from) FROM bank_statement_sections s2
+                                        WHERE s2.bank_account_id = ss.bank_account_id AND s2.opening_balance IS NOT NULL AND s2.period_from > ?)
+            ");
+            $s->execute([self::AS_OF, self::AS_OF]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(string)$r['code']] = round((float)$r['opening_balance'], 2);
+        } catch (Throwable $e) { /* before migration 1360 */ }
         return $out;
     }
 
@@ -444,6 +459,11 @@ class Fy2026OpeningService
         if (!$this->ready()) return ['ok' => false, 'message' => 'Run migration 1238 first (the filed figures and the accounts it needs).'];
         if ($booked = $this->existing()) return ['ok' => false, 'message' => 'The FY2026 opening is already booked (entry #' . $booked['entry_id'] . '). Undo it first to book it again.'];
         if ($this->ledger->isLocked(self::OPENING_DATE)) return ['ok' => false, 'message' => 'January 2026 is locked — unlock it to book the opening.'];
+        // The cash split was corrected by its own entry (2026-10-13). A rebook now reads the same Dec 31
+        // statements, so with that entry live the split would be applied twice.
+        if ($split = $this->ledger->findEntryIdBySource('fy2026_opening_split', self::FISCAL_YEAR)) {
+            return ['ok' => false, 'message' => 'Reverse the cash-split entry #' . $split . ' first — this rebook applies the same Dec 31 statement balances itself.'];
+        }
         $plan = self::plan($this->accounts(), $this->balances(), $this->filed(), $this->statementBalances());
         if (!hash_equals($plan['signature'], $signature)) {
             return ['ok' => false, 'message' => 'The books changed since you looked — reload the page and check the lines again.'];
