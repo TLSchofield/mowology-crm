@@ -72,7 +72,7 @@ class OverpaymentCreditTest extends TestCase
         $sql = PaymentOnTheWay::sql('i');
         $this->assertStringContainsString("en.status IN ('pending', 'partially_recorded')", $sql);
         $this->assertStringContainsString('en.matched_invoice_id = i.id', $sql);
-        $this->assertStringContainsString('FIND_IN_SET(i.invoice_number, en.invoice_hints)', $sql);
+        $this->assertStringContainsString('FIND_IN_SET(CONVERT(i.invoice_number USING utf8mb4) COLLATE utf8mb4_general_ci', $sql, 'one collation: production mixes two');
         $this->assertStringNotContainsString('invoice_hints', PaymentOnTheWay::sql('i', false), 'before migration 1363');
         foreach (['app/Modules/Marketing/Cron/invoice_reminders.php', 'app/Modules/Marketing/Cron/invoice_overdue.php',
                   'app/Modules/Marketing/Cron/automation_runner.php', 'app/Modules/Invoices/Cron/autopay_charge.php'] as $f) {

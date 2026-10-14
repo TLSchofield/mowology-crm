@@ -18,7 +18,9 @@ class PaymentOnTheWay
     /**
      * SQL: TRUE when a waiting e-Transfer points at invoice alias $i: matched to it, or its memo names it
      * (etransfer_notifications.invoice_hints, every number the memo names — migration 1363).
-     * Use as "AND NOT " . sql('i'). MySQL 5.7 (FIND_IN_SET).
+     * Use as "AND NOT " . sql('i'). MySQL 5.7 (FIND_IN_SET). Both sides are cast to one collation:
+     * invoices.invoice_number and etransfer_notifications differ on production (utf8mb4_0900_ai_ci vs
+     * utf8mb4_general_ci), and comparing them raw is an error that stops the cron.
      */
     public static function sql(string $i = 'i', bool $withHints = true): string
     {
@@ -26,8 +28,10 @@ class PaymentOnTheWay
         return "EXISTS (
             SELECT 1 FROM etransfer_notifications en
              WHERE en.status IN ('pending', 'partially_recorded')
-               AND (en.matched_invoice_id = {$i}.id OR en.invoice_hint = {$i}.invoice_number"
-            . ($withHints ? " OR FIND_IN_SET({$i}.invoice_number, en.invoice_hints) > 0" : '') . ")
+               AND (en.matched_invoice_id = {$i}.id
+                    OR CONVERT(en.invoice_hint USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT({$i}.invoice_number USING utf8mb4) COLLATE utf8mb4_general_ci"
+            . ($withHints ? "
+                    OR FIND_IN_SET(CONVERT({$i}.invoice_number USING utf8mb4) COLLATE utf8mb4_general_ci, CONVERT(en.invoice_hints USING utf8mb4) COLLATE utf8mb4_general_ci) > 0" : '') . ")
         )";
     }
 
