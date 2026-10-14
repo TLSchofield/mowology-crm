@@ -2193,6 +2193,36 @@ class BankImportService
     }
 
     /** Chart ids of every bank account (sub_type bank) — where a statement line may be routed. */
+    /**
+     * The statement says whose it is (2026-10-14): when its primary section's last four digits name
+     * exactly one bank account and the account picked for the upload is a different one, the import
+     * is refused. A session filed under the wrong account put GST Reserves lines on chequing.
+     * Returns the refusal message, or null when the statement doesn't say or agrees.
+     */
+    public function statementAccountMismatch(array $sections, int $chosenAccountId): ?string
+    {
+        if ($chosenAccountId <= 0) return null;
+        $bankIds = $this->bankAccountIds();
+        $found = [];
+        foreach (array_slice(array_values($sections), 0, 10) as $x) {
+            if (!is_array($x) || ($x['kind'] ?? '') !== 'primary') continue;
+            $sfx = (string)($x['suffix'] ?? '');
+            if (!preg_match('/^\d{4}$/', $sfx)) continue;
+            $id = $this->accountForSuffix($sfx, $bankIds);
+            if ($id !== null) $found[$id] = $sfx;
+        }
+        if (count($found) !== 1) return null;
+        $stmtId = (int)array_key_first($found);
+        if ($stmtId === $chosenAccountId) return null;
+        $name = function (int $id): string {
+            $s = $this->db->prepare("SELECT CONCAT(code, ' ', name) FROM chart_of_accounts WHERE id = ?");
+            $s->execute([$id]);
+            return (string)($s->fetchColumn() ?: ('account #' . $id));
+        };
+        return sprintf('This statement is for %s (••%s), but the import was set to %s. Pick %s and import again.',
+            $name($stmtId), $found[$stmtId], $name($chosenAccountId), $name($stmtId));
+    }
+
     private function bankAccountIds(): array
     {
         try {

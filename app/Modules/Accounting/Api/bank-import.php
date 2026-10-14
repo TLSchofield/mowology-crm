@@ -203,6 +203,8 @@ try {
             }
             unset($row);
 
+            if ($why = $importer->statementAccountMismatch($sections, $bankAccountId)) throw new Exception($why, 422);
+
             $balanceCheck = isset($input['balance_check']) && is_array($input['balance_check']) ? $input['balance_check'] : null;
             $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId, $balanceCheck);
             $result['sections'] = $importer->recordSections((int)$result['session_id'], $sections, $bankAccountId);
