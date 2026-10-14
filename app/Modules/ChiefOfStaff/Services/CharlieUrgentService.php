@@ -102,7 +102,7 @@ class CharlieUrgentService
                 SELECT al.id, al.action, al.invoice_id, al.details, i.invoice_number
                 FROM activity_log al
                 LEFT JOIN invoices i ON i.id = al.invoice_id
-                WHERE al.action IN ('stripe_dispute', 'stripe_ledger_failed') AND al.created_at >= ?
+                WHERE al.action IN ('stripe_dispute', 'stripe_ledger_failed', 'stripe_overpayment') AND al.created_at >= ?
                 ORDER BY al.id DESC
             ");
             $s->execute([date('Y-m-d H:i:s', strtotime('-7 days'))]);
@@ -163,7 +163,10 @@ class CharlieUrgentService
         $d = json_decode((string)($r['details'] ?? ''), true) ?: [];
         $amt = '$' . number_format((float)($d['amount'] ?? 0), 2);
         $inv = trim((string)($r['invoice_number'] ?? ($d['invoice_number'] ?? '')));
-        if (($r['action'] ?? '') === 'stripe_ledger_failed') {
+        if (($r['action'] ?? '') === 'stripe_overpayment') {
+            // Webhook, 2026-10-13: a card payment landed on an invoice already paid another way.
+            $text = "Card payment of {$amt}" . ($inv !== '' ? " on invoice {$inv}" : '') . ', which was already paid — probably paid twice. Check Stripe and refund the card if so.';
+        } elseif (($r['action'] ?? '') === 'stripe_ledger_failed') {
             $text = "A Stripe {$amt} " . str_replace('stripe_', '', (string)($d['source'] ?? 'event')) . ' could not be posted to the books — post it by hand.';
         } else {
             $text = "Card payment disputed: {$amt}" . ($inv !== '' ? " on invoice {$inv}" : '') . ' (' . ($d['reason'] ?? 'no reason given')

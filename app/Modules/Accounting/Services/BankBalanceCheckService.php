@@ -272,8 +272,14 @@ class BankBalanceCheckService
         $first = null;
         $pending = 0.0;
         $pendingUnknown = false;
-        foreach ($ordered as $l) {
+        // A balance on another account's track (a savings line printed on the chequing statement)
+        // is never this account's month-end (Fable 2026-10-13: $8.59 read as chequing Mar–May).
+        $chain = StatementCoverageService::walkChain(array_values($ordered));
+        $i = -1;
+        foreach (array_values($ordered) as $l) {
+            $i++;
             if ($first === null && (string)$l['date'] !== '') $first = substr((string)$l['date'], 0, 10);
+            if ($l['balance'] !== null && isset($chain['track_of'][$i]) && $chain['main'] !== null && $chain['track_of'][$i] !== $chain['main']) continue;
             if ($l['balance'] === null) {
                 if ($opening === null) {
                     if ($l['signed'] === null) $pendingUnknown = true; else $pending += (float)$l['signed'];

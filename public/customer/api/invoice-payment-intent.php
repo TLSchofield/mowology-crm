@@ -24,6 +24,7 @@ require_once dirname(__DIR__, 2) . '/app_config/config.php';
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 require_once dirname(__DIR__, 2) . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Services/Payments/StripeErrorRules.php';
 
 $input    = json_decode(file_get_contents('php://input'), true);
 $token    = trim($input['token'] ?? '');
@@ -201,6 +202,14 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
         writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+        // Only a missing intent is safe to forget. A network blip or rate limit leaves us unable to
+        // tell whether the earlier payment went through — stop rather than risk a second charge
+        // (same rule as the CRM's create-payment-intent.php; Fable review 2026-10-13).
+        if (!StripeErrorRules::canForgetIntent($e->getStripeCode())) {
+            http_response_code(502);
+            echo json_encode(['error' => 'We couldn\'t check your earlier card payment for this invoice. Please try again in a minute.']);
+            exit;
+        }
         // Clear the stale ID (e.g. test-mode PI used with live keys) so we create a fresh one below
         $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")
            ->execute([$invoice['id']]);

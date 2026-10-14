@@ -33,6 +33,12 @@ class InvoiceReconciliationService
     private const MAX_DAYS_AFTER_DUE  = 120;       // deposits later than this are a different payment
     private const PAYABLE_STATUSES    = ['sent', 'viewed', 'partial', 'overdue'];
 
+    /**
+     * Hand-recorded payment methods whose bank deposit is linked automatically (same payer, exact sum).
+     * Cheques and EFTs joined e-Transfers on 2026-10-13 (Kanco: 4 cheques recorded, deposit left as income).
+     */
+    public const LINKABLE_METHODS = ['e_transfer', 'cheque', 'eft', 'bank_transfer'];
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -446,7 +452,7 @@ class InvoiceReconciliationService
             LEFT JOIN contacts   ct ON ct.id = i.contact_id
             LEFT JOIN properties p  ON p.id  = i.property_id
             WHERE a.transaction_id IS NULL
-              AND a.method = 'e_transfer'
+              AND a.method IN ('" . implode("','", self::LINKABLE_METHODS) . "')
               AND a.amount > 0
               AND a.payment_date BETWEEN DATE_SUB(?, INTERVAL 5 DAY) AND DATE_ADD(?, INTERVAL 60 DAY)
             ORDER BY a.payment_date ASC, a.id ASC

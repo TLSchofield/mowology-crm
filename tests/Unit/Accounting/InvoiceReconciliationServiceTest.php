@@ -398,6 +398,15 @@ class InvoiceReconciliationServiceTest extends TestCase
         $this->assertEqualsWithDelta(302.40, $writes[1][0], 0.001);
     }
 
+    public function testChequesAndEftsRecordedBeforeTheirDepositLinkToo(): void
+    {
+        // Kanco 2026-10-08: four $170.89 cheque payments were recorded by hand, the $683.56 deposit
+        // stayed "income" because only e-Transfers were ever matched (Fable 2026-10-13).
+        $this->assertContains('cheque', InvoiceReconciliationService::LINKABLE_METHODS);
+        $this->assertContains('e_transfer', InvoiceReconciliationService::LINKABLE_METHODS);
+        $this->assertNotContains('credit_card', InvoiceReconciliationService::LINKABLE_METHODS, 'card payments arrive through Stripe payouts');
+    }
+
     public function testLinkRecordedPaymentsReturnsNullWhenAmountsDoNotSum(): void
     {
         $depStmt = $this->createMock(PDOStatement::class);

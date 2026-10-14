@@ -366,6 +366,7 @@ require_once __DIR__ . '/../app/Modules/Social/Services/SocialAccountConnectServ
 
 // Payments (autopay eligibility — pure rule, re-checked under the invoice lock)
 require_once __DIR__ . '/../app/Services/Payments/AutopayEligibility.php';
+require_once __DIR__ . '/../app/Services/Payments/StripeErrorRules.php';
 
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

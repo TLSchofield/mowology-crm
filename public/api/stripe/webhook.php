@@ -284,6 +284,17 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
             return true;
         }
 
+        // Re-check idempotency under a lock: the read above sits outside this transaction with a
+        // network call after it, so two deliveries of the same event could both pass it and add the
+        // same part payment twice (only a fully-paid invoice stopped the second). Fable 2026-10-13.
+        $lockPay = $db->prepare("SELECT status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1 FOR UPDATE");
+        $lockPay->execute([$paymentIntentId]);
+        if ($lockPay->fetchColumn() === 'succeeded') {
+            $db->rollBack();
+            error_log('[Stripe Webhook] Duplicate event (seen inside txn) — already processed: ' . $paymentIntentId);
+            return true;
+        }
+
         // Merge customer fields from the pre-transaction read.
         $invoice = array_merge($invoice, $customer);
 
@@ -295,6 +306,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 
         if ($invoice['status'] === 'paid') {
             error_log('[Stripe Webhook] Invoice already paid (seen inside txn) — stripe_payments update only: ' . $invoiceId);
+            // The client paid by card an invoice already paid another way (cheque, e-Transfer…):
+            // that is a double payment someone must look at — say so where staff will see it.
+            $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'stripe_overpayment', ?, ?, NOW())")
+               ->execute([json_encode(['amount' => $paidAmount, 'payment_intent' => $paymentIntentId, 'invoice_number' => $invoice['invoice_number'] ?? null]), $invoiceId]);
         }
 
         // ── Update invoice ────────────────────────────────────────────────────

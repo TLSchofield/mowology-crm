@@ -20,6 +20,7 @@ require_once PUBLIC_ROOT . '/vendor/autoload.php';
 require_once PUBLIC_ROOT . '/app_config/secrets.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 require_once __DIR__ . '/AutopayEligibility.php';
+require_once __DIR__ . '/StripeErrorRules.php';
 
 class AutopayService
 {
@@ -242,18 +243,27 @@ class AutopayService
 
         } catch (\Stripe\Exception\ApiErrorException $e) {
             $errorMessage = $e->getMessage();
+            // Unknown outcome (lost connection, Stripe 5xx): the card may have been charged. Never
+            // auto-retry it three days later under a new idempotency key — that can charge twice.
+            // Staff check Stripe first; if it did go through, the webhook marks the invoice paid
+            // (Fable review 2026-10-13). A clear refusal still retries as before.
+            $unknown = StripeErrorRules::chargeOutcomeUnknown(get_class($e), $e->getHttpStatus());
 
             $this->db->prepare("
                 UPDATE autopay_attempts
                 SET status = 'failed',
-                    failure_code = 'api_error',
+                    failure_code = ?,
                     failure_message = ?,
-                    next_retry_at = DATE_ADD(NOW(), INTERVAL 3 DAY),
+                    next_retry_at = " . ($unknown ? "NULL" : "DATE_ADD(NOW(), INTERVAL 3 DAY)") . ",
                     updated_at = NOW()
                 WHERE id = ?
-            ")->execute([$errorMessage, $attemptId]);
+            ")->execute([$unknown ? 'api_unknown' : 'api_error', $errorMessage, $attemptId]);
 
-            error_log('[AutopayService] Stripe API error for invoice ' . $invoiceId . ': ' . $errorMessage);
+            if ($unknown) {
+                $this->notifyStaffPaymentFailed($data, $invoiceId, 'api_unknown',
+                    'Stripe did not answer clearly (' . $errorMessage . '). The card MAY have been charged — check Stripe for this invoice before charging again. No automatic retry.', 3);
+            }
+            error_log('[AutopayService] Stripe API error for invoice ' . $invoiceId . ($unknown ? ' (outcome unknown — no auto-retry)' : '') . ': ' . $errorMessage);
 
             return ['status' => 'failed', 'message' => $errorMessage, 'attempt_id' => $attemptId];
         }

@@ -587,6 +587,8 @@ class StatementCoverageService
      *                 `missing` is the net of what is not in the CRM (+ in, − out)
      *   other_account [{from, to, lines}] — runs of lines that chain to a balance of their own
      *   linked / with_balance / lines
+     *   track_of [line index => track], main (the main account's track) — so a month-end is read
+     *   from the main account's lines only (BankBalanceCheckService::statementBalances, 2026-10-13)
      */
     public static function walkChain(array $ordered): array
     {
@@ -596,6 +598,7 @@ class StatementCoverageService
         $pendingLines = [];
         $linked = 0;
         $withBal = 0;
+        $trackOf = [];     // line index => track (balance lines only)
         $n = count($ordered);
         for ($i = 0; $i < $n; $i++) {
             $l = $ordered[$i];
@@ -608,6 +611,7 @@ class StatementCoverageService
             $bal = $l['balance'];
             if (!$tracks) {
                 $tracks[] = ['last' => $bal, 'date' => $l['date'], 'lines' => 1, 'from' => $l['date']];
+                $trackOf[$i] = 0;
                 $pending = 0.0; $pendingLines = [];
                 continue;
             }
@@ -620,6 +624,7 @@ class StatementCoverageService
                 }
             }
             if ($hit !== null) {
+                $trackOf[$i] = $hit;
                 $linked++;
                 $tracks[$hit]['last'] = $bal;
                 $tracks[$hit]['date'] = $l['date'];
@@ -629,6 +634,7 @@ class StatementCoverageService
                 if (self::resumesLater($ordered, $i, $tracks[$main]['last'])) {
                     // The main balance carries on further down: this line is another account's.
                     $tracks[] = ['last' => $bal, 'date' => $l['date'], 'lines' => 1, 'from' => $l['date']];
+                    $trackOf[$i] = count($tracks) - 1;
                 } else {
                     // The main account jumped: lines are missing in between.
                     $prev = $tracks[$main]['last'];
@@ -644,6 +650,7 @@ class StatementCoverageService
                     $tracks[$main]['last'] = $bal;
                     $tracks[$main]['date'] = $l['date'];
                     $tracks[$main]['lines']++;
+                    $trackOf[$i] = $main;
                 }
             }
             $pending = 0.0;
@@ -654,7 +661,8 @@ class StatementCoverageService
         foreach ($tracks as $t => $tr) {
             if ($t !== $main) $other[] = ['from' => $tr['from'], 'to' => $tr['date'], 'lines' => $tr['lines']];
         }
-        return ['breaks' => $breaks, 'other_account' => $other, 'linked' => $linked, 'with_balance' => $withBal, 'lines' => $n];
+        return ['breaks' => $breaks, 'other_account' => $other, 'linked' => $linked, 'with_balance' => $withBal, 'lines' => $n,
+                'track_of' => $trackOf, 'main' => $main];
     }
 
     /** The main account is the track with the most lines so far. */

@@ -85,6 +85,16 @@ class StripeEventLedgerServiceTest extends TestCase
         $this->assertStringContainsString('INV-2026-0100', $alert['text']);
     }
 
+    public function test_a_card_payment_on_a_paid_invoice_alerts_charlie(): void
+    {
+        $row = ['id' => 9, 'action' => 'stripe_overpayment', 'invoice_id' => 375,
+                'details' => json_encode(['amount' => 210.19, 'payment_intent' => 'pi_x', 'invoice_number' => 'INV-2026-0365'])];
+        $alert = CharlieUrgentService::disputeAlert($row + ['invoice_number' => 'INV-2026-0365']);
+        $this->assertStringContainsString('$210.19', $alert['text']);
+        $this->assertStringContainsString('already paid', $alert['text']);
+        $this->assertSame('/crm/invoices/view.php?id=375', $alert['url']);
+    }
+
     public function test_won_dispute_reverses_the_entry(): void
     {
         $svc = new StripeEventLedgerService($this->db, new UncachedLedger($this->db));

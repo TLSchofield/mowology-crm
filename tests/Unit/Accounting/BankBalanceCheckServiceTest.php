@@ -116,6 +116,22 @@ final class BankBalanceCheckServiceTest extends TestCase
         $this->assertSame(['2025-01' => 5050.0, '2025-02' => 5000.0], $b['closing']);
     }
 
+    public function testAnotherAccountsLineNeverBecomesTheMonthEnd(): void
+    {
+        // Vancity prints a savings account's interest line on the chequing statement. Mar–May 2026 the
+        // check read its $8.59 balance as chequing's month-end (drift +$18,609). Fable 2026-10-13.
+        $lines = [
+            ['date' => '2026-03-02', 'amount' => 100.0, 'signed' => 100.0, 'balance' => 5100.0],
+            ['date' => '2026-03-20', 'amount' => 50.0,  'signed' => -50.0, 'balance' => 5050.0],
+            ['date' => '2026-03-31', 'amount' => 0.01,  'signed' => 0.01,  'balance' => 8.59],     // GST Reserves interest
+            ['date' => '2026-04-02', 'amount' => 25.0,  'signed' => -25.0, 'balance' => 5025.0],
+            ['date' => '2026-04-30', 'amount' => 0.01,  'signed' => 0.01,  'balance' => 8.60],
+            ['date' => '2026-05-03', 'amount' => 25.0,  'signed' => 25.0,  'balance' => 5050.0],
+        ];
+        $b = BankBalanceCheckService::statementBalances($lines);
+        $this->assertSame(['2026-03' => 5050.0, '2026-04' => 5025.0, '2026-05' => 5050.0], $b['closing']);
+    }
+
     // ── DB: part-payment backfill + undo ────────────────────────────────────
 
     public function testPartPaymentBackfillPostsTheMissingPaymentAndUndoTakesItOut(): void

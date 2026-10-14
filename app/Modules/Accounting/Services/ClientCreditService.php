@@ -176,37 +176,42 @@ class ClientCreditService
      */
     public function applyToInvoice(int $invoiceId, ?int $userId = null, ?float $amount = null): array
     {
-        $invStmt = $this->db->prepare("SELECT id, client_id, contact_id, company_id, status, amount_paid, balance_due FROM invoices WHERE id = ?");
-        $invStmt->execute([$invoiceId]);
-        $invoice = $invStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$invoice) {
-            throw new \RuntimeException("Invoice {$invoiceId} not found");
-        }
-        if (in_array($invoice['status'], ['paid', 'cancelled'], true)) {
-            throw new \RuntimeException("Invoice is already {$invoice['status']} — nothing to apply credit to");
-        }
-
-        $clientId = $this->resolveClientId($invoice);
-        if (!$clientId) {
-            throw new \RuntimeException("Could not resolve a client for invoice {$invoiceId}");
-        }
-
-        $balanceDue = (float) $invoice['balance_due'];
-        $available  = $this->getBalance($clientId);
-        $requested  = $amount !== null && $amount > 0 ? $amount : min($available, $balanceDue);
-        $applied    = round(min($requested, $available, $balanceDue), 2);
-
-        if ($applied <= 0) {
-            throw new \RuntimeException('No credit available to apply, or invoice already fully paid');
-        }
-
-        $newPaid    = round((float) $invoice['amount_paid'] + $applied, 2);
-        $newBalance = round(max(0, $balanceDue - $applied), 2);
-        // 0.5¢ tolerance handles floating-point rounding, matching mark_paid in invoices/view.php.
-        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
-
-        $this->db->beginTransaction();
+        // One transaction from the read to the books (Fable 2026-10-13): the invoice is locked before its
+        // balance is read, so a double-click can't apply the same credit twice, and the journal entry
+        // posts inside it — the invoice is never marked paid with its receivable left open.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
         try {
+            $invStmt = $this->db->prepare("SELECT id, client_id, contact_id, company_id, status, amount_paid, balance_due FROM invoices WHERE id = ?"
+                                          . ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
+            $invStmt->execute([$invoiceId]);
+            $invoice = $invStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$invoice) {
+                throw new \RuntimeException("Invoice {$invoiceId} not found");
+            }
+            if (in_array($invoice['status'], ['paid', 'cancelled'], true)) {
+                throw new \RuntimeException("Invoice is already {$invoice['status']} — nothing to apply credit to");
+            }
+
+            $clientId = $this->resolveClientId($invoice);
+            if (!$clientId) {
+                throw new \RuntimeException("Could not resolve a client for invoice {$invoiceId}");
+            }
+
+            $balanceDue = (float) $invoice['balance_due'];
+            $available  = $this->getBalance($clientId);
+            $requested  = $amount !== null && $amount > 0 ? $amount : min($available, $balanceDue);
+            $applied    = round(min($requested, $available, $balanceDue), 2);
+
+            if ($applied <= 0) {
+                throw new \RuntimeException('No credit available to apply, or invoice already fully paid');
+            }
+
+            $newPaid    = round((float) $invoice['amount_paid'] + $applied, 2);
+            $newBalance = round(max(0, $balanceDue - $applied), 2);
+            // 0.5¢ tolerance handles floating-point rounding, matching mark_paid in invoices/view.php.
+            $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
+
             $this->db->prepare("
                 INSERT INTO client_credits (client_id, type, amount, invoice_id, source_note, created_by)
                 VALUES (?, 'applied', ?, ?, ?, ?)
@@ -220,15 +225,13 @@ class ClientCreditService
                 WHERE id = ?
             ")->execute([$newPaid, $newBalance, $newStatus, $newStatus, $invoiceId]);
 
-            $this->db->commit();
+            if ($this->postToLedger) {
+                $this->postAppliedToLedger($creditRowId, $invoiceId, $applied, date('Y-m-d'), $userId);
+            }
+            if ($own) $this->db->commit();
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
-        }
-        if ($this->postToLedger) try {
-            $this->postAppliedToLedger($creditRowId, $invoiceId, $applied, date('Y-m-d'), $userId);
-        } catch (\Throwable $e) {
-            error_log('[ClientCredit] journal for credit #' . $creditRowId . ': ' . $e->getMessage());
         }
 
         return [

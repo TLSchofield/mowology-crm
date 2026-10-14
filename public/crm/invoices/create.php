@@ -707,8 +707,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 logActivityExtended($user['id'], 'Invoice created', $details, $companyId ?: null, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
                 if ($linkedVisitId) {
-                    $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
-                       ->execute([$invoiceId, $linkedVisitId]);
+                    // Only claim a visit no other invoice holds (the same rule InvoiceFromVisitService uses):
+                    // two tabs, or a visit already billed elsewhere, must not be invoiced twice (Fable 2026-10-13).
+                    $claim = $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ? AND (invoice_id IS NULL OR invoice_id = ?)");
+                    $claim->execute([$invoiceId, $linkedVisitId, $invoiceId]);
+                    if ($claim->rowCount() === 0) {
+                        $held = $db->prepare("SELECT i.invoice_number FROM job_visits jv JOIN invoices i ON i.id = jv.invoice_id WHERE jv.id = ?");
+                        $held->execute([$linkedVisitId]);
+                        throw new DomainException('This visit is already on invoice ' . ($held->fetchColumn() ?: 'another invoice') . ' — nothing was created.');
+                    }
 
                     // Auto-attach salt/winter service report if one exists for this visit
                     $srCheck = $db->prepare("SELECT id, pdf_path, report_number FROM salt_run_reports WHERE visit_id = ? AND pdf_path IS NOT NULL LIMIT 1");
@@ -786,6 +793,24 @@ if ($apiKey) {
                 }
             ?></p>
 
+            <?php
+            // A visit on an active contract that bills itself monthly: extra work is fine (a mulch add-on),
+            // but say so before a second bill goes out for work the contract already covers (Fable 2026-10-13).
+            $contractNote = null;
+            if (!empty($prefill['plan_id'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+                    if ((new ContractService($db))->isPlanContractBilled((int)$prefill['plan_id'])) {
+                        $cn = $db->prepare("SELECT c.contract_number FROM job_plans jp JOIN contracts c ON c.id = jp.contract_id WHERE jp.id = ?");
+                        $cn->execute([(int)$prefill['plan_id']]);
+                        $contractNote = $cn->fetchColumn() ?: 'a contract';
+                    }
+                } catch (\Throwable $e) { error_log('invoice create contract check: ' . $e->getMessage()); }
+            }
+            ?>
+            <?php if ($contractNote): ?>
+                <div class="alert alert-warning">This client is on contract <?php echo htmlspecialchars($contractNote); ?>, which is billed monthly. Only bill work the contract doesn't cover (an add-on or extra visit).</div>
+            <?php endif; ?>
             <?php if ($error): ?>
                 <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
