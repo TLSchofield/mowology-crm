@@ -676,6 +676,9 @@ class InvoiceFromVisitService
         // Every invoice email carries the PDF (owner rule 2026-10-06). No PDF → nothing
         // is sent and the invoice stays a draft; Charlie alerts the owner.
         $gate       = $this->pdfGate ?? new InvoicePdfGate($this->db);
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once dirname(__DIR__, 2) . '/Accounting/Services/ClientCreditService.php';
+        \ClientCreditService::applyOnSend($this->db, $invoiceId);
         $attachPath = $gate->ensurePdf($invoiceId);
         if ($attachPath === null) {
             $gate->recordBlocked($invoiceId, 'invoice_from_visit');
@@ -816,7 +819,8 @@ class InvoiceFromVisitService
         // NOTE: invoices has no sent_by column on production (referencing it once
         // threw "Unknown column 'sent_by'" and stuck the invoice as a draft).
         try {
-            $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft','pending')")
+            // sent_at always; status only from draft/pending (an invoice prepaid by credit stays 'paid').
+            $this->db->prepare("UPDATE invoices SET sent_at = COALESCE(sent_at, NOW()), status = CASE WHEN status IN ('draft','pending') THEN 'sent' ELSE status END WHERE id = ?")
                ->execute([$invoiceId]);
 
             // Mark the source visit invoiced. Join invoices.visit_id -> job_visits.id;

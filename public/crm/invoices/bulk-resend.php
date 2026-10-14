@@ -140,6 +140,9 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         // Every invoice email carries the PDF (owner rule 2026-10-06): fresh render,
         // else the cached copy; neither → NOT sent, status and counters untouched.
         $pdfGate    = new InvoicePdfGate($db);
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+        ClientCreditService::applyOnSend($db, $invoiceId);
         $attachPath = $pdfGate->ensurePdf($invoiceId);
         if ($attachPath === null) {
             $pdfGate->recordBlocked($invoiceId, 'bulk_resend');
@@ -215,7 +218,7 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             $db->prepare("UPDATE invoices SET resend_count = COALESCE(resend_count,0)+1, last_resent_at = NOW() WHERE id = ?")
                ->execute([$invoiceId]);
         } else {
-            $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?")
+            $db->prepare("UPDATE invoices SET sent_at = NOW(), status = CASE WHEN status IN ('draft','pending') THEN 'sent' ELSE status END WHERE id = ?")
                ->execute([$invoiceId]);
 
             // Autopay: first-send transition to 'sent' — attempt an off-session

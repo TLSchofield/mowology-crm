@@ -199,4 +199,14 @@ class ClientCreditServiceTest extends TestCase
         $db2->method('prepare')->willReturn($this->makeStmt(false, [18388, 18400]));
         $this->assertNull((new ClientCreditService($db2))->findDepositLine(529.20));
     }
+
+    /** @test */
+    public function credit_is_used_on_send_only_when_there_is_both_a_balance_and_credit(): void
+    {
+        $this->assertTrue(ClientCreditService::shouldApplyOnSend('draft', 63.00, 186.49));
+        $this->assertTrue(ClientCreditService::shouldApplyOnSend('sent', 63.00, 10.00), 'part of it');
+        $this->assertFalse(ClientCreditService::shouldApplyOnSend('draft', 63.00, 0.0));
+        $this->assertFalse(ClientCreditService::shouldApplyOnSend('paid', 0.0, 186.49));
+        $this->assertFalse(ClientCreditService::shouldApplyOnSend('cancelled', 63.00, 186.49));
+    }
 }

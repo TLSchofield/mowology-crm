@@ -58,6 +58,9 @@ class ContractInvoiceSender
         }
 
         // The rule: no PDF, no email, and the invoice stays a draft.
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once dirname(__DIR__, 2) . '/Accounting/Services/ClientCreditService.php';
+        \ClientCreditService::applyOnSend($this->db, $invoiceId);
         $pdf = $this->gate->ensurePdf($invoiceId);
         if ($pdf === null) {
             $this->gate->recordBlocked($invoiceId, self::CONTEXT);
@@ -83,7 +86,8 @@ class ContractInvoiceSender
                     'message' => "{$row['contract_number']}: invoice {$num} — email failed, held, will retry next run"];
         }
 
-        $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status = 'draft'")
+        // sent_at always; status only from draft (an invoice prepaid by credit stays 'paid').
+        $this->db->prepare("UPDATE invoices SET sent_at = COALESCE(sent_at, NOW()), status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END WHERE id = ?")
                  ->execute([$invoiceId]);
         $this->db->prepare("UPDATE invoice_contacts SET invoice_sent_at = NOW() WHERE invoice_id = ?")
                  ->execute([$invoiceId]);

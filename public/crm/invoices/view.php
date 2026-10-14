@@ -372,6 +372,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // nothing is sent and the status is not touched (InvoicePdfGate).
         require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
         $pdfGate    = new InvoicePdfGate($db);
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+        if (ClientCreditService::applyOnSend($db, $invoiceId)) {
+            $invoice = array_merge($invoice, $db->query("SELECT status, amount_paid, balance_due FROM invoices WHERE id = " . (int)$invoiceId)->fetch(PDO::FETCH_ASSOC) ?: []);
+        }
         $attachPath = $pdfGate->ensurePdf($invoiceId);
         $pdfBlocked = ($attachPath === null);
         if ($pdfBlocked) {
@@ -536,8 +541,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $oldStatus = $invoice['status'] ?? 'draft';
                 $db->prepare("
                     UPDATE invoices
-                    SET status = 'sent', sent_at = NOW()
-                    WHERE id = ? AND status IN ('draft', 'sent')
+                    SET sent_at = NOW(), status = CASE WHEN status IN ('draft', 'sent') THEN 'sent' ELSE status END
+                    WHERE id = ?
                 ")->execute([$invoiceId]);
                 trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
                 $invoice['status'] = 'sent';

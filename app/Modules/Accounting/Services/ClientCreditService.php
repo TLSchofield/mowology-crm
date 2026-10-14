@@ -33,6 +33,37 @@ class ClientCreditService
     /** Unit tests with a mocked PDO: skip the journal posting (LedgerService has its own tests). */
     public function withoutLedger(): self { $this->postToLedger = false; return $this; }
 
+    /**
+     * Prepaid credit is used before an invoice goes out (Tim, 2026-10-14: "pay before auto").
+     * Every send path calls this just before it renders the PDF, so the PDF and email already
+     * show the credit, and autopay (which runs after the send) only charges what is left.
+     * Never throws: a credit problem must not stop an invoice being sent — it is logged and the
+     * invoice goes out at full balance, as before. @return array|null what applyToInvoice applied
+     */
+    public static function applyOnSend(PDO $db, int $invoiceId): ?array
+    {
+        try {
+            $svc = new self($db);
+            $s = $db->prepare("SELECT id, client_id, contact_id, company_id, status, balance_due FROM invoices WHERE id = ?");
+            $s->execute([$invoiceId]);
+            $inv = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$inv) return null;
+            $clientId = $svc->resolveClientId($inv);
+            $credit = $clientId ? $svc->getBalance($clientId) : 0.0;
+            if (!self::shouldApplyOnSend((string)$inv['status'], (float)$inv['balance_due'], $credit)) return null;
+            return $svc->applyToInvoice($invoiceId);
+        } catch (\Throwable $e) {
+            error_log('[ClientCredit] applyOnSend invoice ' . $invoiceId . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /** Pure (tested): use credit on this invoice now? */
+    public static function shouldApplyOnSend(string $status, float $balanceDue, float $credit): bool
+    {
+        return !in_array($status, ['paid', 'cancelled', 'void'], true) && $balanceDue > 0.005 && $credit > 0.005;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Balance
     // ─────────────────────────────────────────────────────────────────────────
