@@ -70,6 +70,18 @@ class EquipmentPlateParser
         'Kawasaki'  => ['FS' => ['other', 'gas'], 'FR' => ['other', 'gas'], 'FX' => ['other', 'gas'], 'FJ' => ['other', 'gas'], 'FH' => ['other', 'gas']],
     ];
 
+    /**
+     * Parent companies printed on plates instead of the brand (2026-10-14: a Shindaiwa EB770RT plate
+     * reads "YAMABIKO CORP"). The brand is then the one whose model prefix fits.
+     */
+    public const PARENTS = [
+        'yamabiko' => ['Shindaiwa', 'Echo'],
+        'husqvarna group' => ['Husqvarna', 'RedMax'],
+        'andreas stihl' => ['Stihl'],
+        'chervon' => ['EGO'],
+        'american honda' => ['Honda'],
+    ];
+
     /** Plate / title words → class (checked before model prefixes). */
     public const CLASS_WORDS = [
         'hedge_trimmer' => '/\b(hedge\s*trimmer|hedge\s*cutter|hedger|hedge)\b/i',
@@ -106,6 +118,9 @@ class EquipmentPlateParser
         $out['serial'] = self::labelled($lines, self::SERIAL_LABEL);
         $out['type'] = self::labelled($lines, self::TYPE_LABEL);
         if ($out['serial'] !== null && $out['model'] !== null && $out['serial'] === $out['model']) $out['serial'] = null;
+        // Many plates print the model and serial with no labels at all (2026-10-14, Shindaiwa:
+        // "EB770RT / P52115010324 / YAMABIKO CORP"): read them from lines that are one bare code.
+        self::unlabelled($lines, $out);
         if ($out['model'] !== null) $out['model_key'] = self::modelKey($out['model']);
 
         // A title line naming the machine ("HRC216 Hydrostatic Commercial") — letters and words, not a label.
@@ -240,6 +255,53 @@ class EquipmentPlateParser
         $engine = array_values(array_filter($names, fn($n) => in_array($n, self::ENGINE_MAKES, true)));
         if ($machine) return [$machine[0], $engine[0] ?? null];
         return [$engine[0], null];
+    }
+
+    /**
+     * Model and serial from lines that are a single bare code. A model: letters then digits, maybe a
+     * letter suffix (EB770RT, HRX217), preferring one whose prefix fits the maker — which also names the
+     * maker when only a parent company (or nothing) is printed. A serial: 8+ characters, at least 6
+     * digits, maybe one leading letter (P52115010324). Date stamps (JUL2023) are neither. Pure.
+     */
+    private static function unlabelled(array $lines, array &$out): void
+    {
+        $codes = [];
+        foreach ($lines as $l) {
+            $t = strtoupper(trim(preg_replace('/\s+/', '', $l)));
+            if ($t === '' || strlen($t) > 20 || !preg_match('/^[A-Z0-9\-]+$/', $t)) continue;
+            if (preg_match('/^(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2,4}$/', $t)) continue;
+            $codes[] = $t;
+        }
+        $lower = mb_strtolower(implode("\n", $lines));
+        $brands = $out['make'] !== null ? [$out['make']] : [];
+        foreach (self::PARENTS as $kw => $list) if (strpos($lower, $kw) !== false) $brands = array_merge($brands, $list);
+
+        if ($out['serial'] === null) {
+            foreach ($codes as $c) {
+                if (strlen($c) >= 8 && preg_match_all('/\d/', $c) >= 6 && preg_match('/^[A-Z]?\d[\dA-Z\-]*$/', $c)) { $out['serial'] = $c; break; }
+            }
+        }
+        if ($out['model'] === null) {
+            $plain = null;
+            foreach ($codes as $c) {
+                if ($c === $out['serial'] || !preg_match('/^[A-Z]{1,5}-?\d{2,5}[A-Z]{0,4}$/', $c)) continue;
+                $plain = $plain ?? $c;
+                foreach ($brands ?: array_keys(self::MODEL_PREFIXES) as $b) {
+                    if (self::prefixGuess($b, $c)) {
+                        $out['model'] = $c;
+                        if ($out['make'] === null && ($brands || count(self::makersFitting($c)) === 1)) $out['make'] = $b;
+                        return;
+                    }
+                }
+            }
+            if ($plain !== null && $out['make'] !== null) $out['model'] = $plain;   // the maker is known; the code is its model
+        }
+    }
+
+    /** Makers whose model prefix table fits $model. */
+    private static function makersFitting(string $model): array
+    {
+        return array_values(array_filter(array_keys(self::MODEL_PREFIXES), fn($b) => self::prefixGuess($b, $model) !== null));
     }
 
     /** [class, power|null] from the maker's model prefix table, or null. */

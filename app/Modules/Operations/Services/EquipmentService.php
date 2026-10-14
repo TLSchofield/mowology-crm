@@ -341,6 +341,57 @@ class EquipmentService
                 'url' => '/crm/ops/equipment-item.php?id=' . $id];
     }
 
+    /** The phone's fields for one machine (iPhone list/edit, 2026-10-14). */
+    public const PHONE_FIELDS = ['name', 'equipment_class', 'power_source', 'make', 'model', 'serial_no', 'assigned_user_id', 'truck_id',
+                                 'purchase_date', 'cost_manual', 'expense_id', 'notes', 'plate_media_id', 'photo_media_id', 'model_name'];
+
+    /** The register for the phone: active machines, the fields the edit form shows. */
+    public function phoneList(): array
+    {
+        $out = [];
+        foreach ($this->items(true) as $r) {
+            $row = ['id' => (int)$r['id']];
+            foreach (self::PHONE_FIELDS as $f) if (array_key_exists($f, $r)) $row[$f] = $r[$f];
+            foreach (['assigned_user_id', 'truck_id', 'expense_id', 'plate_media_id', 'photo_media_id'] as $k) {
+                $row[$k] = isset($row[$k]) && $row[$k] !== null ? (int)$row[$k] : null;
+            }
+            $row['cost_manual'] = isset($row['cost_manual']) && $row['cost_manual'] !== null ? (float)$row['cost_manual'] : null;
+            $row['assigned_name'] = $r['assigned_name'] ?? null;
+            $out[] = $row;
+        }
+        return $out;
+    }
+
+    /**
+     * Change a machine from the phone. save() writes the whole row, so the stored row is the base and
+     * only the fields the phone sends replace it — nothing the phone doesn't show is wiped. The serial
+     * must not belong to another machine.
+     */
+    public function updateFromPhone(int $id, array $in): array
+    {
+        $row = $this->row($id);
+        if (!$row) return ['ok' => false, 'message' => 'That machine is not in equipment.'];
+        if (!empty($in['serial_no'])) {
+            $s = $this->db->prepare("SELECT id, name FROM equipment WHERE UPPER(serial_no) = ? AND id <> ? LIMIT 1");
+            $s->execute([strtoupper(trim((string)$in['serial_no'])), $id]);
+            if ($dup = $s->fetch(PDO::FETCH_ASSOC)) return ['ok' => false, 'message' => 'That serial is already on ' . $dup['name'] . '.'];
+        }
+        if (!empty($in['expense_id'])) {
+            $s = $this->db->prepare("SELECT id FROM expenses WHERE id = ?");
+            $s->execute([(int)$in['expense_id']]);
+            if (!$s->fetchColumn()) return ['ok' => false, 'message' => 'Receipt #' . (int)$in['expense_id'] . ' is not in Expenses.'];
+        }
+        $merged = $row;
+        foreach (self::PHONE_FIELDS as $f) if (array_key_exists($f, $in)) $merged[$f] = $in[$f];
+        if (isset($in['cost']) && !array_key_exists('cost_manual', $in)) $merged['cost_manual'] = $in['cost'];
+        // The model link is re-made from make + model when the model changed (save() links it).
+        if (array_key_exists('model', $in) && strcasecmp(trim((string)$in['model']), trim((string)($row['model'] ?? ''))) !== 0) unset($merged['catalog_product_id']);
+        $merged['id'] = $id;
+        $r = $this->save($merged);
+        if ($r['ok']) $r['message'] = 'Saved ' . ($merged['name'] ?? 'it') . '.';
+        return $r;
+    }
+
     /** The purchase receipt for a machine (its cost then comes from the receipt). Null unlinks. */
     public function linkPurchase(int $id, ?int $expenseId): array
     {

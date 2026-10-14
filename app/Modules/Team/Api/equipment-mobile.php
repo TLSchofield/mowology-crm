@@ -49,7 +49,9 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method === 'GET') {
-        if (($_GET['mode'] ?? '') !== 'options') { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown mode']); exit; }
+        $gm = (string)($_GET['mode'] ?? '');
+        if ($gm === 'list') { echo json_encode(['ok' => true, 'items' => $eq->phoneList()]); exit; }   // iPhone list/edit (2026-10-14)
+        if ($gm !== 'options') { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown mode']); exit; }
         echo json_encode(['ok' => true] + $eq->formOptions());
         exit;
     }
@@ -68,6 +70,11 @@ try {
             exit;
         case 'receipts':
             echo json_encode(['ok' => true, 'receipts' => $eq->receiptCandidates($in)]);
+            exit;
+        case 'update':
+            $r = $eq->updateFromPhone((int)($in['id'] ?? 0), $in);
+            if (empty($r['ok'])) http_response_code(400);
+            echo json_encode($r);
             exit;
         case 'save':
             $r = $eq->addFromPlate($in, $uid);

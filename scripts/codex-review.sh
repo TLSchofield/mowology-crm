@@ -100,5 +100,5 @@ fi
 
 echo "reviewing $copied file(s) in $WORK"
 # ── 4. Codex, read-only ───────────────────────────────────────────────────────
-codex exec --sandbox read-only --skip-git-repo-check --ephemeral -C "$WORK" -o "$OUT" "$(cat "$PROMPT_FILE")" > "$BASE/$NAME.log" 2>&1
+codex exec --sandbox read-only --skip-git-repo-check --ephemeral -C "$WORK" -o "$OUT" "$(cat "$PROMPT_FILE")" < /dev/null > "$BASE/$NAME.log" 2>&1
 echo "findings: $OUT"

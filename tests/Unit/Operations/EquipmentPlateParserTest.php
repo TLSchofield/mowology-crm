@@ -69,4 +69,34 @@ final class EquipmentPlateParserTest extends TestCase
         $this->assertSame(['machine', 'Honda', 'HRC216K3HXCH', 'MAKA-2058647', 'mower', 'gas'],
                           [$r['kind'], $r['brand'], $r['model'], $r['serial'], $r['equipment_class'], $r['power_source']]);
     }
+
+    /** Tim's Shindaiwa plate, 2026-10-14: no labels, the parent company instead of the brand. */
+    public function test_an_unlabelled_plate_with_only_the_parent_company(): void
+    {
+        $p = EquipmentPlateParser::parse("EB770RT\nP52115010324\nYAMABIKO CORP JUL2823\nASSEMBLED IN USA");
+        $this->assertSame('Shindaiwa', $p['make']);
+        $this->assertSame('EB770RT', $p['model']);
+        $this->assertSame('P52115010324', $p['serial']);
+        $this->assertSame('blower', $p['equipment_class']);
+        $this->assertSame('gas', $p['power_source']);
+    }
+
+    /** The machine's side: brand printed, model bare, no serial ("440" is not one). */
+    public function test_a_bare_model_under_a_printed_brand(): void
+    {
+        $p = EquipmentPlateParser::parse("EB770RT\nshindaiwa\nshindaiwa\n440\nm");
+        $this->assertSame('Shindaiwa', $p['make']);
+        $this->assertSame('EB770RT', $p['model']);
+        $this->assertNull($p['serial']);
+        $this->assertSame('blower', $p['equipment_class']);
+    }
+
+    /** A date stamp is never the model or the serial; a labelled plate is unchanged. */
+    public function test_labels_still_win_and_dates_are_skipped(): void
+    {
+        $p = EquipmentPlateParser::parse("HONDA\nMODEL HRX217\nSERIAL MAGA-1234567\nJUL2023");
+        $this->assertSame('HRX217', $p['model']);
+        $this->assertSame('MAGA-1234567', $p['serial']);
+        $this->assertNull(EquipmentPlateParser::parse("JUL2023\nSEP24")['model']);
+    }
 }
