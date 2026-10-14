@@ -425,7 +425,68 @@ class StatementCoverageService
             $sIdx++;
         }
         usort($merged, fn($a, $b) => [$a['date'], $a['_s'], $a['_p']] <=> [$b['date'], $b['_s'], $b['_p']]);
-        return $merged;
+        return self::chainWithinDays($merged);
+    }
+
+    /** How many days a line may sit after its printed date (back-dated chargebacks, weekend postings). */
+    private const POSTING_WINDOW_DAYS = 4;
+
+    /**
+     * Put the lines in the order their balances follow, whichever import each came from:
+     *   - 31 Mar 2026: the $46.50 fee came from the PDF and the day's other lines from a CSV;
+     *     sorted by import it went first, failed to chain, and Apr–Jun was reported as
+     *     "$14,394 missing";
+     *   - 3 Jul 2026: two chargebacks DATED 3 Jul were POSTED on 6 Jul, after a Stripe deposit and
+     *     an ICBC payment — the balances only follow in posting order (2026-10-13).
+     * Greedy: next is the earliest line within POSTING_WINDOW_DAYS that follows the balance;
+     * failing that, the earliest line (on its day, the one nothing else that day leads into).
+     * A line with no balance is never moved.
+     */
+    public static function chainWithinDays(array $lines): array
+    {
+        $out = [];
+        $cur = null;
+        $left = array_values($lines);
+        while ($left) {
+            $first = $left[0];
+            if ($first['balance'] === null) { $out[] = $first; array_shift($left); continue; }
+            // A line whose balance is nowhere near the running one (a savings line printed on the
+            // chequing statement, $7.29 against $33,933) stays where it is: walkChain() puts it on
+            // its own track. Moving it after later-dated lines made it look like a $33,000 jump.
+            if ($cur !== null && !self::chains($cur, 0.0, $first, $first['balance'])
+                && abs($first['balance'] - $cur) > max(1000.0, 20 * $first['amount'])) {
+                $out[] = $first; array_shift($left); continue;
+            }
+            $limit = date('Y-m-d', strtotime($first['date'] . ' +' . self::POSTING_WINDOW_DAYS . ' days'));
+            $pick = null;
+            if ($cur !== null) {
+                // The first line's own day first; only then a later-dated line within the window.
+                foreach ([true, false] as $sameDay) {
+                    foreach ($left as $k => $l) {
+                        if ($l['date'] > $limit || $l['balance'] === null) break;   // never jump over a line we can't place
+                        if ($sameDay && $l['date'] !== $first['date']) break;
+                        if (self::chains($cur, 0.0, $l, $l['balance'])) { $pick = $k; break 2; }
+                    }
+                }
+            }
+            if ($pick === null) {
+                // Start of a run: on the first line's day, the line no other line of that day leads into.
+                foreach ($left as $k => $l) {
+                    if ($l['date'] !== $first['date'] || $l['balance'] === null) break;
+                    $leadsIn = false;
+                    foreach ($left as $k2 => $m) {
+                        if ($m['date'] !== $first['date'] || $m['balance'] === null) break;
+                        if ($k2 !== $k && self::chains($m['balance'], 0.0, $l, $l['balance'])) { $leadsIn = true; break; }
+                    }
+                    if (!$leadsIn) { $pick = $k; break; }
+                }
+            }
+            if ($pick === null) $pick = 0;
+            $out[] = $left[$pick];
+            $cur = $left[$pick]['balance'];
+            array_splice($left, $pick, 1);
+        }
+        return $out;
     }
 
     private static function countLinks(array $ls, int $pol): int

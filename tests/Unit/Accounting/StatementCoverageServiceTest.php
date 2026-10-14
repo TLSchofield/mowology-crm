@@ -195,4 +195,43 @@ class StatementCoverageServiceTest extends TestCase
         return ['key' => $key, 'account_id' => (int)substr($key, 1), 'list_id' => 1, 'label' => $label, 'kind' => $kind,
                 'expected' => $expected, 'statement_day' => $day, 'sessions' => []];
     }
+
+    /** 31 Mar 2026: a fee from the PDF and three lines from a CSV, one day — ordered by their balances (2026-10-13). */
+    public function test_lines_from_two_imports_on_one_day_chain_in_balance_order(): void
+    {
+        $l = fn($id, $s, $d, $signed, $bal) => ['id' => $id, 'session' => $s, 'date' => $d, 'amount' => abs($signed),
+                                                'signed' => $signed, 'balance' => $bal, 'duplicate' => false];
+        $lines = [
+            $l(1, 42, '2026-03-30', -760.17, 18879.97),
+            $l(2, 3, '2026-03-31', -46.50, 19203.36),     // the PDF's fee, last of the day at the bank
+            $l(3, 42, '2026-03-31', -13.80, 18866.17),
+            $l(4, 42, '2026-03-31', 399.00, 19265.17),
+            $l(5, 42, '2026-03-31', -15.31, 19249.86),
+            $l(6, 16, '2026-04-01', -16.00, 19187.36),
+        ];
+        $ordered = StatementCoverageService::orderLines($lines);
+        $this->assertSame([1, 3, 4, 5, 2, 6], array_column($ordered, 'id'));
+        $walk = StatementCoverageService::walkChain($ordered);
+        $this->assertSame([], $walk['breaks']);
+        $this->assertSame([], $walk['other_account']);
+    }
+
+    /** 3 Jul 2026: chargebacks dated 3 Jul posted on 6 Jul — the chain follows posting order (2026-10-13). */
+    public function test_backdated_lines_chain_where_the_bank_posted_them(): void
+    {
+        $l = fn($id, $d, $signed, $bal) => ['id' => $id, 'session' => 1, 'date' => $d, 'amount' => abs($signed),
+                                            'signed' => $signed, 'balance' => $bal, 'duplicate' => false];
+        $lines = [
+            $l(1, '2026-07-03', -13.34, 4909.10),
+            $l(2, '2026-07-03', -7.50, 4848.15),
+            $l(3, '2026-07-03', -456.84, 4391.31),
+            $l(4, '2026-07-06', 76.12, 4985.22),
+            $l(5, '2026-07-06', -129.57, 4855.65),
+            $l(6, '2026-07-06', -33.00, 4358.31),
+            $l(7, '2026-07-06', -2480.82, 1877.49),
+        ];
+        $ordered = StatementCoverageService::orderLines($lines);
+        $this->assertSame([1, 4, 5, 2, 3, 6, 7], array_column($ordered, 'id'));
+        $this->assertSame([], StatementCoverageService::walkChain($ordered)['breaks']);
+    }
 }
