@@ -308,3 +308,11 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   are booked, as paid by Tim (owed back to him).
 - The business account usually makes TWO Visa auto-payments a month (~$82 and a larger one) — find out which card
   each belongs to before booking both to 2400.
+
+## Business Visa ••4701 is mostly personal (Tim, 2026-10-13)
+- Business on 4701: Wave payroll fees (6800), Apple iCloud/email (Office/Admin), Anthropic/Claude (software).
+- Personal → 1300: Netflix, Gold's Gym, HelloFresh, ClassPass, Ergatta, WTPLUS, ElevenLabs, Scribd, restaurants/
+  groceries, AND the card's interest and overlimit fees (Tim: personal). 2026 moved: 46 lines $1,760.06 + interest/fees.
+- A card statement's own "PAYMENT RECEIVED"/"AUTOMATIC PAYMENT" line is the payoff — never a charge.
+- Other cards: Visa …3176 (seen on a Shell receipt), TD 0937/5276/2735 — Tim's personal; only business charges book,
+  as owner_paid.
