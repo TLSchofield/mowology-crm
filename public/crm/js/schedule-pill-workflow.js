@@ -1443,8 +1443,14 @@
     }
 
     /** A photo that didn't upload goes to the queue, which keeps trying until it's in (never dropped). */
-    function queueAfterFailure(visitId, file, category, takenAt, callback) {
+    function queueAfterFailure(visitId, file, category, takenAt, callback, waited) {
         if (!photoQueueDb) {
+            // The photo store opens a moment after the page; a photo that failed in that moment waits
+            // for it (up to 5 s) instead of being lost (Codex review, 2026-10-14).
+            if ((waited || 0) < 5000) {
+                setTimeout(function () { queueAfterFailure(visitId, file, category, takenAt, callback, (waited || 0) + 250); }, 250);
+                return;
+            }
             showToast('Upload failed \u2014 keep this screen open and try again.');
             callback(false, null);
             return;
