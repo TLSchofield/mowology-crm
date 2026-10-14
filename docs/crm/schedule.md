@@ -222,3 +222,13 @@ explicit dates — no DB, no clock — so they are fully deterministic and unit-
 ---
 _Last decomposed 2026-06-18: 3,200-line monolith → aggregator + 11 `Plan/` files._
 _Phase 2 began 2026-06-18 with VisitGenerationService._
+
+## Android crew schedule matches the iPhone (2026-10-14)
+- **Week strip:** rounded tiles (MON + date), today a solid green tile, a work dot under each day (orange = still to do, green = all done; `WeekStripService::dots()`, the same rule as the iPhone's `week.php`). A holiday shows as a red date, not a red fill.
+- **Stop card header:** property first, then company, then contact (`StopCardText::headline()`); "09:00 est. arrival" and distance on the right; client · crew (jobs.edit) · visit count underneath.
+- **The stop GPS moves to the top** draws its Before / After / Additionals / Gallery strip (`mw-hero-promoted` → `renderStripsForCard`). A one-visit stop shows one action row.
+- **Photos:**
+  - shrunk to 2048 px on the phone (`preparePhoto`), with the capture time sent as `taken_at`; the server uses it when EXIF is gone (`mediaTakenAt`);
+  - never dropped: server errors, odd answers and timeouts queue the photo; retries back off up to an hour and never give up; 'failed' and stuck items go back in line;
+  - Before / After take several shots through the in-app camera and keep the start/finish steps.
+- **An expired login** returns 401 "sign in again" from the service worker (mw-v77), not "offline".
