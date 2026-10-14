@@ -386,3 +386,13 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   (no GST: a voluntary tip is not consideration).
 - `invoices.payment_method` has no 'account_credit' on production (migration 1102's enum step never ran; prod is
   non-strict, so 5 credit-paid invoices hold ''). Run its runner page.
+- **An overpayment is credit, not income** (2026-10-14, Alberta 3025 Strata paid INV-0251 twice in a $165.38
+  e-Transfer). Keep it with "Keep $X as credit" (`EtransferInboxService::creditRest()` →
+  `ClientCreditService::addOverpayment()`): DR 1010 / CR 2160 on the day it came, linked to the e-Transfer, so its
+  bank line settles as a transfer (`InvoiceReconciliationService::allocatedTotal()` counts it). Never leave the rest
+  unassigned and link the deposit — the leftover reads as income. Refunds are Tim's to send.
+- **Interac changed its email layout in Oct 2026**: "Message:" sits inside the Transfer Details box, before "Date:".
+  The old reader stored no memo, so nothing knew which invoice was paid and reminders could chase it.
+- **Chasing pauses while a payment is on the way**: `PaymentOnTheWay::sql()` is the one check for reminders, the
+  overdue flip, automations and autopay. Compare invoice numbers in one collation (prod mixes 0900_ai_ci and
+  general_ci; a raw compare is an SQL error that stops the cron).

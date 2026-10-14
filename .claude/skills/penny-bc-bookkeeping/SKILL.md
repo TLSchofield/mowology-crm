@@ -126,6 +126,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | The monthly close list (oldest open month, after the grace; never locks) | `MonthCloseListService` (`due()`, `items()`, `email()`) | Charlie's 7 am run |
 | A statement imported under the wrong bank account → refused | `BankImportService::statementAccountMismatch()` | bank import commit |
 | Receipt list thumbnails | `ReceiptThumb::ensure()` via `serve-receipt.php?thumb=1` | receipts list |
+| An overpayment kept as the client's credit (DR Bank / CR 2160; settles its bank deposit) | `EtransferInboxService::creditRest()` → `ClientCreditService::addOverpayment()` | Penny's e-Transfer card (web/Android); iPhone has no e-Transfer card yet |
+| Don't chase an invoice whose payment is on the way (pending e-Transfer matched to it or named in its memo) | `PaymentOnTheWay::sql()` | invoice_reminders, invoice_overdue, automation_runner, autopay_charge |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
