@@ -107,3 +107,39 @@ struct EquipmentSaveResponse: Decodable {
         case sharedIntervals = "shared_intervals"
     }
 }
+
+/// One machine in the register (GET ?mode=list, EquipmentService::phoneList) — opened to edit.
+struct EquipmentItem: Decodable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let equipmentClass: String
+    let powerSource: String?
+    let make: String?
+    let model: String?
+    let serialNo: String?
+    let assignedUserId: Int?
+    let assignedName: String?
+    let truckId: Int?
+    let purchaseDate: String?
+    let costManual: Double?
+    let expenseId: Int?
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, make, model, notes
+        case equipmentClass = "equipment_class"
+        case powerSource = "power_source"
+        case serialNo = "serial_no"
+        case assignedUserId = "assigned_user_id"
+        case assignedName = "assigned_name"
+        case truckId = "truck_id"
+        case purchaseDate = "purchase_date"
+        case costManual = "cost_manual"
+        case expenseId = "expense_id"
+    }
+}
+
+struct EquipmentListResponse: Decodable {
+    let ok: Bool
+    let items: [EquipmentItem]
+}

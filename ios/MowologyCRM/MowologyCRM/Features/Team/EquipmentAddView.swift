@@ -8,6 +8,10 @@
 //  machine; its MODEL joins the shared catalogue so every unit of it shares specs, parts and the
 //  manual's intervals. Same server code as the web page (/crm/ops/equipment.php).
 //
+//  2026-10-14: the same form edits a machine already added (Otto → Equipment list → tap one): fix the
+//  serial, model or type, or retake the plate and let it fill in what it reads. Only the fields on this
+//  form change (EquipmentService::updateFromPhone keeps the rest).
+//
 
 import SwiftUI
 import PhotosUI
@@ -20,6 +24,8 @@ protocol EquipmentAPI {
     func readPlate(plate: Data, photo: Data?) async throws -> PlateReadResponse
     func receipts(_ body: [String: Any]) async throws -> EquipmentReceiptsResponse
     func save(_ body: [String: Any]) async throws -> EquipmentSaveResponse
+    func list() async throws -> EquipmentListResponse
+    func update(_ body: [String: Any]) async throws -> EquipmentSaveResponse
 }
 
 @MainActor
@@ -37,6 +43,12 @@ struct LiveEquipmentAPI: EquipmentAPI {
     }
     func save(_ body: [String: Any]) async throws -> EquipmentSaveResponse {
         try await client.request(.equipmentAction, body: body.merging(["mode": "save"]) { _, new in new })
+    }
+    func list() async throws -> EquipmentListResponse {
+        try await client.request(.equipmentList)
+    }
+    func update(_ body: [String: Any]) async throws -> EquipmentSaveResponse {
+        try await client.request(.equipmentAction, body: body.merging(["mode": "update"]) { _, new in new })
     }
 }
 
@@ -75,7 +87,28 @@ final class EquipmentAddViewModel: ObservableObject {
     var photoMediaId: Int?
     var labelCaptureId: Int?
 
-    init(api: EquipmentAPI) { self.api = api }
+    /// Set when the form edits a machine already in the register (nil = adding a new one).
+    let editingId: Int?
+
+    init(api: EquipmentAPI) { self.api = api; self.editingId = nil }
+
+    /// Edit a machine already added: the form opens filled in, at the confirm step.
+    init(api: EquipmentAPI, item: EquipmentItem) {
+        self.api = api
+        self.editingId = item.id
+        name = item.name
+        equipmentClass = item.equipmentClass
+        powerSource = item.powerSource ?? "gas"
+        make = item.make ?? ""
+        model = item.model ?? ""
+        serial = item.serialNo ?? ""
+        if let d = item.purchaseDate, let date = Self.ymd.date(from: d) { purchaseDate = date; hasPurchaseDate = true } else { hasPurchaseDate = false }
+        cost = item.costManual.map { String(format: "%.2f", $0) } ?? ""
+        assignedUserId = item.assignedUserId
+        truckId = item.truckId
+        expenseId = item.expenseId
+        step = .confirm
+    }
 
     func loadOptions() async {
         if options != nil { return }
@@ -94,11 +127,17 @@ final class EquipmentAddViewModel: ObservableObject {
         do {
             let r = try await api.readPlate(plate: plateData, photo: photoData)
             if let s = r.suggested {
-                name = s.name ?? ""
-                make = s.make ?? ""
-                model = s.model ?? ""
-                serial = s.serialNo ?? ""
-                if let c = s.equipmentClass, !c.isEmpty { equipmentClass = c }
+                // Editing: keep what's there unless the plate read something (it may read only the serial).
+                let keep = editingId != nil
+                func pick(_ read: String?, _ current: String) -> String {
+                    let v = (read ?? "").trimmingCharacters(in: .whitespaces)
+                    return v.isEmpty && keep ? current : v
+                }
+                if !keep || name.trimmingCharacters(in: .whitespaces).isEmpty { name = pick(s.name, name) }
+                make = pick(s.make, make)
+                model = pick(s.model, model)
+                serial = pick(s.serialNo, serial)
+                if let c = s.equipmentClass, !c.isEmpty, !(keep && c == "other") { equipmentClass = c }
                 if let p = s.powerSource, !p.isEmpty { powerSource = p }
                 modelName = s.modelName ?? ""
             }
@@ -116,7 +155,7 @@ final class EquipmentAddViewModel: ObservableObject {
         }
     }
 
-    private static let ymd: DateFormatter = {
+    static let ymd: DateFormatter = {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -150,7 +189,8 @@ final class EquipmentAddViewModel: ObservableObject {
         if let v = photoMediaId { body["photo_media_id"] = v }
         if let v = labelCaptureId { body["label_capture_id"] = v }
         do {
-            let r = try await api.save(body)
+            if let id = editingId { body["id"] = id }
+            let r = try await (editingId == nil ? api.save(body) : api.update(body))
             message = r.message
             messageIsError = !r.ok
             if r.ok { step = .done }
@@ -168,18 +208,101 @@ final class EquipmentAddViewModel: ObservableObject {
 struct OttoAddEquipmentButton: View {
     let api: EquipmentAPI
     @State private var showing = false
+    @State private var showingList = false
 
     var body: some View {
-        Button {
-            showing = true
-        } label: {
-            Label("Add equipment — snap the plate", systemImage: "camera.viewfinder")
-                .frame(maxWidth: .infinity)
+        HStack(spacing: 8) {
+            Button {
+                showing = true
+            } label: {
+                Label("Add — snap the plate", systemImage: "camera.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            Button {
+                showingList = true
+            } label: {
+                Label("Equipment", systemImage: "list.bullet")
+                    .frame(maxWidth: .infinity)
+            }
         }
         .buttonStyle(.bordered)
         .tint(Color.MW.green)
         .sheet(isPresented: $showing) {
             EquipmentAddView(vm: EquipmentAddViewModel(api: api))
+        }
+        .sheet(isPresented: $showingList) {
+            EquipmentListView(api: api)
+        }
+    }
+}
+
+// MARK: - The register (open a machine to edit it)
+
+struct EquipmentListView: View {
+    let api: EquipmentAPI
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [EquipmentItem] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var search = ""
+    @State private var editing: EquipmentItem?
+
+    private var shown: [EquipmentItem] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return items }
+        return items.filter { i in
+            [i.name, i.make ?? "", i.model ?? "", i.serialNo ?? "", i.assignedName ?? ""].joined(separator: " ").lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+                if loading && items.isEmpty { ProgressView() }
+                if !loading && items.isEmpty && error == nil {
+                    Text("No equipment yet — add one by snapping its plate.").foregroundStyle(.secondary)
+                }
+                ForEach(shown) { i in
+                    Button { editing = i } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(i.name).font(.subheadline.weight(.semibold))
+                            Text(Self.subtitle(i)).font(.caption).foregroundStyle(i.serialNo?.isEmpty ?? true ? .orange : .secondary)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+            .searchable(text: $search, prompt: "Name, model, serial, who uses it")
+            .navigationTitle("Equipment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .task { await load() }
+            .refreshable { await load() }
+            .sheet(item: $editing, onDismiss: { Task { await load() } }) { item in
+                EquipmentAddView(vm: EquipmentAddViewModel(api: api, item: item))
+            }
+        }
+    }
+
+    /// "Shindaiwa EB770RT · serial P5211… · Nigel" — "no serial yet" stands out so it gets filled in.
+    static func subtitle(_ i: EquipmentItem) -> String {
+        var parts: [String] = []
+        let mm = [i.make ?? "", i.model ?? ""].filter { !$0.isEmpty }.joined(separator: " ")
+        if !mm.isEmpty { parts.append(mm) }
+        parts.append((i.serialNo ?? "").isEmpty ? "no serial yet" : "serial \(i.serialNo!)")
+        if let who = i.assignedName, !who.isEmpty { parts.append(who) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            items = try await api.list().items
+            error = nil
+        } catch {
+            self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
     }
 }
@@ -211,7 +334,7 @@ struct EquipmentAddView: View {
                     }
                 }
             }
-            .navigationTitle("Add equipment")
+            .navigationTitle(vm.editingId == nil ? "Add equipment" : "Edit equipment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(vm.step == .done ? "Close" : "Cancel") { dismiss() } }
@@ -259,7 +382,7 @@ struct EquipmentAddView: View {
                 HStack { if vm.busy { ProgressView() }; Text(vm.busy ? "Reading…" : "Read the plate") }
             }
             .disabled(vm.plateImage == nil || vm.busy)
-            Button("Type it in instead") { vm.step = .confirm }
+            Button(vm.editingId == nil ? "Type it in instead" : "Back to the form") { vm.step = .confirm }
                 .disabled(vm.busy)
         }
     }
@@ -291,6 +414,16 @@ struct EquipmentAddView: View {
             Section {
                 Text("I know this model: \(k.name)" + (k.intervals > 0 ? " — the manual's \(k.intervals) service interval(s) are on file." : "."))
                     .font(.footnote)
+            }
+        }
+        if vm.editingId != nil {
+            Section {
+                Button {
+                    vm.step = .snap
+                    vm.message = nil
+                } label: {
+                    Label("Retake the plate — fill in model and serial", systemImage: "camera.viewfinder")
+                }
             }
         }
         Section("Machine") {
@@ -340,7 +473,7 @@ struct EquipmentAddView: View {
             Button {
                 Task { _ = await vm.save() }
             } label: {
-                HStack { if vm.busy { ProgressView() }; Text("Add to equipment") }
+                HStack { if vm.busy { ProgressView() }; Text(vm.editingId == nil ? "Add to equipment" : "Save changes") }
             }
             .disabled(vm.busy)
         }
@@ -348,14 +481,15 @@ struct EquipmentAddView: View {
 
     private var doneSection: some View {
         Section {
-            Label("Added. Service intervals, parts and the cost this year are on the machine's page on the web.", systemImage: "checkmark.seal.fill")
+            Label(vm.editingId == nil ? "Added. Service intervals, parts and the cost this year are on the machine's page on the web."
+                                      : "Saved.", systemImage: "checkmark.seal.fill")
                 .foregroundStyle(Color.MW.green)
-            Button("Add another") {
+            if vm.editingId == nil { Button("Add another") {
                 vm.step = .snap
                 vm.plateImage = nil; vm.photoImage = nil; vm.message = nil
                 vm.name = ""; vm.make = ""; vm.model = ""; vm.serial = ""; vm.cost = ""; vm.expenseId = nil; vm.receipts = []
                 vm.plateMediaId = nil; vm.photoMediaId = nil; vm.labelCaptureId = nil; vm.knownModel = nil
-            }
+            } }
         }
     }
 

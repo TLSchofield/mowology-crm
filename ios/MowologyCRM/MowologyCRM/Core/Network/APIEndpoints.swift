@@ -122,6 +122,9 @@ enum APIEndpoint {
     /// GET /api/team/equipment-mobile?mode=options — Otto's Add equipment choices (JWT).
     case equipmentOptions
 
+    /// GET /api/team/equipment-mobile?mode=list — the active machines, to open and edit (JWT, 2026-10-14).
+    case equipmentList
+
     /// POST /api/team/equipment-mobile — read a plate (multipart, APIClient.uploadPlate),
     /// receipts / save (JSON). EquipmentService on the server, same as the web page (JWT).
     case equipmentAction
@@ -392,6 +395,9 @@ enum APIEndpoint {
         case .equipmentOptions:
             return URL(string: "\(baseURLString)/team/equipment-mobile?mode=options")
 
+        case .equipmentList:
+            return URL(string: "\(baseURLString)/team/equipment-mobile?mode=list")
+
         case .equipmentAction:
             return URL(string: "\(baseURLString)/team/equipment-mobile")
 
@@ -631,6 +637,7 @@ enum APIEndpoint {
              .receiptUpload,
              .labelUpload,
              .equipmentOptions,
+             .equipmentList,
              .equipmentAction,
              .expenseSave,
              .expenseList,
@@ -690,6 +697,7 @@ enum APIEndpoint {
              .scheduleSpecialRequests,
              .snowRouteChoice,
              .equipmentOptions,
+             .equipmentList,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
