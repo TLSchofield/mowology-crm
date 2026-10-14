@@ -9,7 +9,7 @@ Source: Fable's read-only review of 2026-10-13. Claims 1, 2, 4 and 5 were spot-c
 
 ## The rule this plan enforces
 A money write either lands in **both** `accounting_transactions` and the journal, or in **neither**. When one side fails, the owner sees it on Penny's card the same day, with the record and the reason.
-The pattern to remove is `catch (Throwable) { log or count; carry on }` around a journal post. It caused the Stripe fee bug (fixed today, `b5…`) and every item below.
+The pattern to remove is `catch (Throwable) { log or count; carry on }` around a journal post. It caused the Stripe fee bug (fixed today, c92d9606) and every item below.
 
 ## Part A: silent failures (the six High findings), in this order
 1. **Journal problems become visible.** `LedgerSyncService` stops counting failures as "skipped":
