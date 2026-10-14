@@ -111,13 +111,31 @@ if (!$allowed || !$realPath || !is_file($realPath)) {
     exit('File not found');
 }
 
+// --- ?thumb=1: a small cached JPEG for lists (ReceiptThumb, 2026-10-14); the original if one can't be made ---
+$cacheFor = 3600;
+if (!empty($_GET['thumb']) && empty($row['original_removed'])) {
+    require_once APP_ROOT . '/Services/Receipts/ReceiptThumb.php';
+    $thumb = ReceiptThumb::ensure(PUBLIC_ROOT, (int)$row['id'], $realPath, $mimeType);
+    if ($thumb !== null) {
+        $realPath = $thumb;
+        $mimeType = 'image/jpeg';
+        $cacheFor = 86400;   // a thumbnail is re-made on disk when its photo changes; a day of browser caching
+    }
+}
+
 // --- Serve the file ---
 $fileSize = filesize($realPath);
 
 header('Content-Type: ' . $mimeType);
 header('Content-Length: ' . $fileSize);
-header('Cache-Control: private, max-age=3600');
+header('Cache-Control: private, max-age=' . $cacheFor);
 header('X-Content-Type-Options: nosniff');
+if (stripos($mimeType, 'html') !== false) {
+    // An emailed receipt (the email itself, ReceiptInboxService::ingestEmailBody): shown as sent, but
+    // sandboxed — no scripts, no forms, no same-origin access, nothing fetched but images and styles.
+    header("Content-Security-Policy: sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src https: data:");
+    header('Referrer-Policy: no-referrer');
+}
 // No Content-Disposition: inline so it displays in browser <img> tags
 
 readfile($realPath);

@@ -371,7 +371,8 @@ function handleList(PDO $db): void
                v.name AS vendor_name,
                u.full_name AS created_by_name,
                ma.file_path AS receipt_path,
-               ma.stored_filename AS receipt_filename
+               ma.stored_filename AS receipt_filename,
+               ma.mime_type AS receipt_mime
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN users u ON u.id = e.created_by
@@ -385,11 +386,18 @@ function handleList(PDO $db): void
 
     // Route receipt images through the auth-gated proxy instead of exposing
     // direct /uploads/receipts/ paths. Uses media_id for clean URL.
+    // receipt_thumb: a small cached JPEG for the list (full photos were ~1.6 MB each, 2026-10-14);
+    // receipt_kind: image | pdf | email (an emailed receipt — the email itself, opened sandboxed).
     foreach ($rows as &$row) {
         if (!empty($row['receipt_media_id'])) {
             $row['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$row['receipt_media_id'];
+            $mime = strtolower((string)($row['receipt_mime'] ?? ''));
+            $row['receipt_kind'] = strpos($mime, 'html') !== false ? 'email' : (strpos($mime, 'pdf') !== false ? 'pdf' : 'image');
+            $row['receipt_thumb'] = $row['receipt_kind'] === 'image' ? $row['receipt_path'] . '&thumb=1' : null;
         } else {
             $row['receipt_path'] = null;
+            $row['receipt_kind'] = null;
+            $row['receipt_thumb'] = null;
         }
     }
     unset($row);

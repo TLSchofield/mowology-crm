@@ -121,8 +121,8 @@ class ReceiptInboxService
     }
 
     /**
-     * Ingest a receipt that is the email body. The email is saved as a file (for the
-     * record), its text is read like OCR text, and it always becomes a draft for Penny —
+     * Ingest a receipt that is the email body. The email is saved as the receipt (media_assets,
+     * text/html), its text is read like OCR text, and it always becomes a draft for Penny —
      * never auto-posted (no photo to check against).
      */
     public function ingestEmailBody(array $msg, string $html, int $systemUserId): array
@@ -138,10 +138,11 @@ class ReceiptInboxService
                 $this->finalizeClaim($dedup, null, null, 'skipped', null, 'email body has no receipt text');
                 return ['status' => 'skipped', 'expense_id' => null, 'note' => 'no text'];
             }
-            $dir = PUBLIC_ROOT . '/uploads/receipts/';
-            if (!is_dir($dir)) @mkdir($dir, 0755, true);
-            $file = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.html';
-            file_put_contents($dir . $file, $html);
+            // Saved AND registered as the receipt (2026-10-14): before, the file was written but never
+            // linked, so the receipts list had no image for an emailed receipt ("sometimes missing").
+            // serve-receipt.php shows it sandboxed (no scripts).
+            $stored = $this->storeAttachment($html, 'email-receipt.html', 'text/html', true, $sha256, $systemUserId);
+            $file = basename($stored['web_path']);
 
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
             require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
@@ -159,7 +160,7 @@ class ReceiptInboxService
             $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
                     'suggestions' => $suggestions];
             $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
-            return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted', $systemUserId);
+            return $this->createExpenseFromRead($msg, $ocr, $stored['media_id'], $dedup, false, 'no text extracted', $systemUserId);
         } catch (\Throwable $e) {
             $this->releaseClaim($dedup);
             throw $e;

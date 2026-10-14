@@ -1214,6 +1214,8 @@ async function submitReceiptExport() {
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
+                        <!-- An emailed receipt (the email itself): shown sandboxed — no scripts, no forms -->
+                        <iframe id="expReceiptFrame" class="mw-modal-receipt-frame" sandbox="" referrerpolicy="no-referrer" title="Emailed receipt" hidden></iframe>
                     </div>
                     <!-- Right: Form Fields -->
                     <div class="col-lg-7" id="expFormCol">
@@ -3207,9 +3209,17 @@ async function submitReceiptExport() {
             anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
         }
 
-        var receiptIcon = e.receipt_path
-            ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
-            : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+        // A small cached thumbnail, loaded only when the row scrolls into view (full photos ~1.6 MB each);
+        // a PDF or an emailed receipt (the email itself) opens in a new tab from an icon.
+        var receiptIcon;
+        if (e.receipt_path && e.receipt_kind && e.receipt_kind !== 'image') {
+            receiptIcon = '<a href="' + esc(e.receipt_path) + '" target="_blank" rel="noopener" class="mw-receipt-doc" onclick="event.stopPropagation()" title="' + (e.receipt_kind === 'email' ? 'Emailed receipt' : 'PDF receipt') + '">'
+                + '<i data-feather="' + (e.receipt_kind === 'email' ? 'mail' : 'file-text') + '" style="width:16px;height:16px"></i></a>';
+        } else if (e.receipt_path) {
+            receiptIcon = '<img src="' + esc(e.receipt_thumb || e.receipt_path) + '" loading="lazy" decoding="async" alt="Receipt" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">';
+        } else {
+            receiptIcon = '<span class="mw-receipt-no-img" title="No receipt image"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+        }
 
         var actions = '';
         if (e.forwarded_to_accounting) {
@@ -3883,7 +3893,11 @@ async function submitReceiptExport() {
             var formCol = document.getElementById('expFormCol');
             var rescanBtn = document.getElementById('expRescanBtn');
             if (e.receipt_path) {
-                document.getElementById('expReceiptImg').src = e.receipt_path;
+                var isEmail = /html/i.test(e.receipt_mime_type || '');
+                var rFrame = document.getElementById('expReceiptFrame');
+                document.getElementById('expReceiptImg').closest('.mw-modal-receipt-preview').hidden = isEmail;
+                if (rFrame) { rFrame.hidden = !isEmail; rFrame.src = isEmail ? e.receipt_path : 'about:blank'; }
+                if (!isEmail) document.getElementById('expReceiptImg').src = e.receipt_path;
                 receiptCol.style.display = 'block';
                 formCol.className = 'col-lg-7';
                 if (rescanBtn) rescanBtn.style.display = '';

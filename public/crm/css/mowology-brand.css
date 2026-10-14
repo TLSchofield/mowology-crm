@@ -13831,6 +13831,30 @@ a.mw-clock-timer-nav:hover {
   border-color:var(--mw-green);
   box-shadow:0 0 0 2px rgb(45 134 89 / .2);
 }
+/* An emailed receipt in the expense modal, sandboxed (2026-10-14) */
+.mw-modal-receipt-frame {
+  width:100%;
+  height:480px;
+  border:1px solid var(--mw-rule, var(--mw-light));
+  border-radius:4px;
+  background-color:Canvas;
+}
+/* A PDF or emailed receipt in the list: an icon in the same 32px box (2026-10-14) */
+.mw-receipt-doc {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  border-radius:4px;
+  border:1px solid var(--mw-rule, var(--mw-light));
+  color:var(--mw-dark);
+  background:var(--mw-light);
+}
+.mw-receipt-doc:hover {
+  border-color:var(--mw-green);
+  color:var(--mw-green);
+}
 .mw-confidence-fill.high { background:var(--mw-green); }
 .mw-confidence-fill.medium { background:#C2551F; }
 .mw-confidence-fill.low { background:#dc3545; }

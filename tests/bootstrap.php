@@ -400,3 +400,4 @@ require_once __DIR__ . '/../app/Modules/Knowledge/Services/CategoryTaxonomy.php'
 require_once __DIR__ . '/../app/Modules/Knowledge/Services/LocalVendorKnowledgeStore.php';
 require_once __DIR__ . '/../app/Modules/Knowledge/Services/CodeSuggestionGate.php';
 require_once __DIR__ . '/../app/Services/Messaging/SmsTemplates.php';
+require_once __DIR__ . '/../app/Services/Receipts/ReceiptThumb.php';
