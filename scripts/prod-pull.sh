@@ -31,9 +31,12 @@ remote_of() {   # public/ IS public_html; everything else sits inside it
 GETS=""
 for f in "$@"; do
   mkdir -p "$OUT/$(dirname "$f")"
+  # Clear the previous copy first: a get that fails or hangs used to leave the OLD download in
+  # place, read as "live" — on 2026-10-13 that faked a production revert (stale copy from before a deploy).
+  rm -f "$OUT/$f"
   GETS+="get $(remote_of "$f") -o $OUT/$f; "
 done
-mw_lftp "set net:max-retries 3; set cmd:fail-exit no; ${GETS} quit" 2>&1 >/dev/null \
+mw_lftp "set net:max-retries 3; set net:timeout 30; set cmd:fail-exit no; ${GETS} quit" 2>&1 >/dev/null \
   | grep -i -E "fatal|certificate|login" >&2 || true
 
 status=0
