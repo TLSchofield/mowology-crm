@@ -67,6 +67,15 @@ try {
     $alertResult = $alerts->runAll();
     $output['alerts_active'] = count($alertResult);
 
+    // ── 3. Books vs bank + quiet signals (Charlie emails what's new) ───────────
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/BooksWatchService.php';
+        $output['books_watch'] = count((new BooksWatchService($db))->run()['alerts']);
+    } catch (Throwable $e) {
+        $output['books_watch_error'] = $e->getMessage();
+        error_log('[accounting_sync] books watch: ' . $e->getMessage());
+    }
+
 } catch (Throwable $e) {
     $success = false;
     $output['error'] = $e->getMessage();

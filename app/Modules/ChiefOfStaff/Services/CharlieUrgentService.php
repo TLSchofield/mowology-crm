@@ -10,6 +10,8 @@
  *             one alert per invoice
  *   dispute — a customer disputed a Stripe charge (chargeback; StripeEventLedgerService logs
  *             'stripe_dispute', last 7 days); also a dispute / refund the ledger could not post
+ *   books — Penny (BooksWatchService, stored nightly): a books-vs-bank difference that is new or
+ *             changed by $1+, or a signal gone quiet (bank import, e-Transfer notices, text bridge)
  *   security — Ada: failed-login spike, role change, system log cleared (AdaSecurityWatch), and
  *             each NEW red from the nightly security-posture checks (SecurityPostureService)
  * (client complaints join when Sam or Mia can flag them — phase B3.)
@@ -108,6 +110,16 @@ class CharlieUrgentService
             $s->execute([date('Y-m-d H:i:s', strtotime('-7 days'))]);
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = self::disputeAlert($r);
         } catch (Throwable $e) { /* no activity_log — nothing to watch */ }
+
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Accounting/Services/BooksWatchService.php')) {
+            try {
+                // Penny: books that stopped matching the bank, and signals gone quiet (stored nightly by sync-ledger).
+                require_once APP_ROOT . '/Modules/Accounting/Services/BooksWatchService.php';
+                foreach ((new BooksWatchService($this->db))->urgent() as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: books watch unavailable: ' . $e->getMessage());
+            }
+        }
 
         if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Technology/Services/AdaSecurityWatch.php')) {
             try {
@@ -300,7 +312,7 @@ class CharlieUrgentService
             $url = preg_match('#^https?://#', $a['url']) ? $a['url'] : $base . '/' . ltrim($a['url'], '/');
             $html .= '<li><a href="' . $e($url) . '" style="color:#0D3B2E;">' . $e($a['text']) . '</a></li>';
         }
-        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, same-day weather and security alarms. — Charlie</p>';
+        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, books that stop matching the bank, same-day weather and security alarms. — Charlie</p>';
         return ['subject' => $subject, 'body' => $html];
     }
 }
