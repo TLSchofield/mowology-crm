@@ -389,6 +389,22 @@ class SnowContractService
      */
     public function setupFromSignedQuote(int $quoteId): array
     {
+        // One setup per quote at a time (Codex review 2026-10-14): the nightly sweep and the signing
+        // request could both see "not set up" and both make a contract. The second waits, then finds 'done'.
+        $named = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        $lock = 'mw_snow_setup_' . $quoteId;
+        if ($named && (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 30)")->fetchColumn() !== 1) {
+            return ['status' => 'failed', 'detail' => 'Another setup of this quote is still running.'];
+        }
+        try {
+            return $this->setupFromSignedQuoteLocked($quoteId);
+        } finally {
+            if ($named) { try { $this->db->query("SELECT RELEASE_LOCK(" . $this->db->quote($lock) . ")"); } catch (Throwable $e) { /* ends with the connection */ } }
+        }
+    }
+
+    private function setupFromSignedQuoteLocked(int $quoteId): array
+    {
         try {
             $done = $this->db->prepare("SELECT status, contract_id, plan_id FROM snow_contract_setups WHERE quote_id = ?");
             $done->execute([$quoteId]);

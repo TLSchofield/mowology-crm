@@ -319,6 +319,15 @@ try {
         ]);
 
     } elseif ($action === 'add-upsell') {
+        // One add at a time per quote (Codex review 2026-10-14): a double-tap passed the "already
+        // added" check twice and inserted the line twice. Held until the response is sent.
+        $upLock = 'mw_quote_upsell_' . (int)$quoteId;
+        if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($upLock) . ", 10)")->fetchColumn() !== 1) {
+            throw new Exception('Still adding the last one — please try again in a moment.');
+        }
+        register_shutdown_function(function () use ($db, $upLock) {
+            try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($upLock) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+        });
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
 
@@ -528,6 +537,8 @@ try {
 
         // Recalculate quote totals
         $newTotals = recalculateQuoteTotals($quoteId);
+        // The line is in: let the next add through now, not after the office notice below.
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($upLock) . ")"); } catch (Throwable $e) { /* shutdown releases it */ }
 
         // After approval the job already exists: tell the office instead of changing the quote silently.
         if ($isPostAccept) {

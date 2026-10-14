@@ -205,7 +205,44 @@ class QuoteApprovalService
             $out['checked']++;
             if (($this->afterApproval((int)$id)['status'] ?? '') === 'done') $out['done']++;
         }
+        $out['snow_setups'] = $this->sweepSnowSetups($since);
         return $out;
+    }
+
+    /**
+     * A signed contract quote whose snow setup never ran (the signing request died after the commit;
+     * Codex review 2026-10-14) — run it now. Only quotes with NO setup row: a recorded failure may
+     * have made a contract already, and is left for the office (the setup would refuse anyway).
+     */
+    private function sweepSnowSetups(string $since): int
+    {
+        try {
+            $st = $this->db->prepare("
+                SELECT q.id FROM quotes q
+                LEFT JOIN snow_contract_setups s ON s.quote_id = q.id
+                WHERE q.status = 'accepted' AND q.is_contract = 1 AND q.accepted_at >= ? AND s.quote_id IS NULL
+                ORDER BY q.accepted_at LIMIT 20
+            ");
+            $st->execute([$since]);
+            $ids = $st->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Throwable $e) {
+            return 0;   // migration 1310 not run
+        }
+        $n = 0;
+        foreach ($ids as $id) {
+            try {
+                if (defined('CRM_INCLUDES')) {   // what the signing page loads before the setup
+                    require_once CRM_INCLUDES . '/functions.php';
+                    require_once CRM_INCLUDES . '/plan-functions.php';
+                }
+                require_once dirname(__DIR__, 2) . '/Contracts/Services/SnowContractService.php';
+                $r = (new SnowContractService($this->db))->setupFromSignedQuote((int)$id);
+                if (($r['status'] ?? '') === 'done') $n++;
+            } catch (Throwable $e) {
+                error_log('[QuoteApproval] snow setup retry quote ' . $id . ': ' . $e->getMessage());
+            }
+        }
+        return $n;
     }
 
     /** Sam's "Just approved" items: not yet acknowledged, last 30 days, newest first. */

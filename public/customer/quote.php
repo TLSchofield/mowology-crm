@@ -220,6 +220,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && in_array($_POST['
 }
 
 // Handle acceptance
+/** The quote was accepted by another request a moment ago (a double-click). */
+if (!class_exists('QuoteAlreadyAccepted', false)) { class QuoteAlreadyAccepted extends Exception {} }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] !== 'accepted') {
     $action = $_POST['action'] ?? '';
 
@@ -255,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                         accepted_ip_address = ?,
                         signature_data = ?,
                         signature_timestamp = NOW()
-                    WHERE id = ?
+                    WHERE id = ? AND status <> 'accepted'
                 ");
                 $stmt->execute([
                     $signatureName,
@@ -264,6 +266,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     $signatureData,
                     $quote['id']
                 ]);
+                // A double-click's second request finds it already accepted (Codex review 2026-10-14):
+                // stop here — no second signature, office email or contract setup.
+                if ($stmt->rowCount() === 0) {
+                    throw new QuoteAlreadyAccepted();
+                }
 
                 // Propagate acceptance back to the originating quote_request
                 // so the Quote Requests admin page reflects the real status.
@@ -370,8 +377,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                 $smsMsg = "QUOTE ACCEPTED: {$quote['quote_number']} - $" . number_format(floatval($quote['amount']), 2) . " - " . htmlspecialchars($signatureName);
                 sendSMSNotification($smsMsg);
 
+            } catch (QuoteAlreadyAccepted $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
             } catch (Exception $e) {
-                $db->rollBack();
+                if ($db->inTransaction()) $db->rollBack();
                 error_log("Quote acceptance error: " . $e->getMessage());
                 $error = 'There was an error processing your acceptance. Please try again.';
             }
