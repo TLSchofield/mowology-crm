@@ -121,6 +121,11 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | Which supplier stop a receipt came from, and Otto's job pick for a material receipt with no job (shadow: one tap confirms through `ExpenseGate::apply()`; every answer is a Penny lesson vendor + material → job type) | `SupplierJobSuggestService::forEditor()` / `SupplierJobSuggestService::confirm()` (Otto's service, Operations module) | web/Android expense modal (`supplier-stop.js`); iPhone gap |
 | Prepaid client credit used before an invoice is sent (before the PDF and autopay) | `ClientCreditService::applyOnSend()` | visit invoices, contract billing, invoice screen send, bulk resend |
 | A client's payment text / Interac alert text → payer hints on a deposit | `PaymentClueService::clueFor()` / `alertSendersFor()` (texts via `TextBridgeService::ingest()` / `ingestInterac()`) | Penny's which-invoice card (`BankInvoiceMatchService::suggest()`) |
+| Books vs bank every night + quiet signals (bank import, e-Transfer notices, text bridge) + blanked ENUM values → one Charlie email | `BooksWatchService::run()` (sync-ledger cron) / `urgent()` | Charlie's urgent pass |
+| Who pays as whom (bank memo words, e-Transfer senders, Interac alert names, emails, phones; owner's word first) | `PayerIdentityService` (`payersFor()`, `learn()`, `remove()`) on `payer_aliases` (1362) | Penny's which-invoice card, e-Transfer learning, deposit backfill, client page "Also pays as" |
+| The monthly close list (oldest open month, after the grace; never locks) | `MonthCloseListService` (`due()`, `items()`, `email()`) | Charlie's 7 am run |
+| A statement imported under the wrong bank account → refused | `BankImportService::statementAccountMismatch()` | bank import commit |
+| Receipt list thumbnails | `ReceiptThumb::ensure()` via `serve-receipt.php?thumb=1` | receipts list |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value

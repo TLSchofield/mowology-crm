@@ -478,3 +478,19 @@ A mixed receipt (Lawnboy #412: seed for shop stock, mulch for Oakridge Gardens) 
 Payment method `owner_paid` ("Paid personally (owner)"): a business purchase paid with the owner's own card or
 cash. The receipt's entry is funded by 1300 (shareholder loan) — it reduces what the owner owes the company — and
 keeps its GST credit. Example: Amazon business orders on Tim's personal Visa …1023 / TD cards.
+Also on the iPhone pickers (2026-10-14). Month-close names open receipts on no bank or card line and points here.
+
+## Receipt images in lists — thumbnails (2026-10-14)
+The list used to load each full phone photo (median 1.6 MB) for a 32 px box. `serve-receipt.php?id=N&thumb=1`
+serves a 320 px JPEG made once by `ReceiptThumb::ensure()` (GD) and cached in `/uploads/receipts/thumbs/` (denied to
+direct HTTP, like the originals); the list API returns `receipt_thumb` and `receipt_kind` (image | pdf | email) and
+loads thumbnails lazily. The lightbox still opens the full photo.
+
+## Emailed receipts (the email itself) — 2026-10-14
+`ReceiptInboxService::ingestEmailBody()` now registers the saved email as the receipt (`media_assets`, `text/html`).
+Before, the file was written but never linked, so the receipt showed no image. It is served sandboxed
+(`Content-Security-Policy: sandbox`) and shown in a sandboxed iframe in the modal; the list shows a mail icon.
+
+## "Use Penny's version" never approves — 2026-10-14
+It puts her read on the receipt as a draft; a person checks it and presses Approve (Tim: "sometimes not all of it is
+correct"). `PennyReadService::apply()` always calls `BookkeeperDeskService::decide(..., approve: false)`.
