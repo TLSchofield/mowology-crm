@@ -1012,7 +1012,9 @@
      * navigation or a crash before "Done" is tapped.
      * Falls back to triggerCamera() if getUserMedia is unavailable.
      */
-    function triggerBatchCamera(visitId) {
+    function triggerBatchCamera(visitId, category) {
+        // Before / After take several shots too, as on the iPhone (2026-10-14); default: additional.
+        category = category || 'additional';
         var v = visits[visitId];
         if (!v) return;
         // Special request gate (mw-special-request.js is only on the page when the feature is on):
@@ -1022,7 +1024,7 @@
         if (typeof BatchCamera === 'undefined' ||
             !navigator.mediaDevices ||
             !navigator.mediaDevices.getUserMedia) {
-            triggerCamera(visitId, 'additional');
+            triggerCamera(visitId, category);
             return;
         }
 
@@ -1033,12 +1035,18 @@
                 // Show on the card strip immediately via blob URL so the user
                 // sees each photo appear as they snap it.
                 var blobUrl = URL.createObjectURL(file);
-                if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
-                visits[visitId].additionalThumbs.push(blobUrl);
+                if (category === 'before') {
+                    visits[visitId].beforeThumb = blobUrl;
+                } else if (category === 'after') {
+                    visits[visitId].afterThumb = blobUrl;
+                } else {
+                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                    visits[visitId].additionalThumbs.push(blobUrl);
+                }
                 renderPhotoStrip(visitId);
 
                 // Save to IDB immediately — photo survives crash/navigation before Done
-                saveToPhotoQueue(visitId, file, 'additional', function (queueId) {
+                saveToPhotoQueue(visitId, file, category, function (queueId) {
                     if (queueId !== null) {
                         console.log('[PillWorkflow] Batch photo persisted to queue id=' + queueId);
                     }
@@ -1050,17 +1058,27 @@
                 showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — uploading…');
                 // All captured photos are already 'pending' in IDB — kick the queue runner
                 processPhotoQueue();
+                // The same job steps the one-shot camera takes (photo handler above): a Before photo
+                // before Start is the start; the After photo asked for at the finish completes the job.
+                var cur = visits[visitId] ? visits[visitId].status : null;
+                if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
+                    clockIn(visitId, { skipBeforePrompt: true });
+                } else if (category === 'after' && cur === 'prompt_after') {
+                    visits[visitId].status = 'completed';
+                    renderPhotoStrip(visitId);
+                    clockOut(visitId);
+                }
             },
 
             onCancel: function (count, reason) {
                 if (reason === 'denied') {
                     showCameraPermissionBanner();
-                    triggerCamera(visitId, 'additional');
+                    triggerCamera(visitId, category);
                     return;
                 }
                 if (reason === 'unsupported' || reason === 'error') {
                     // getUserMedia unavailable — fall back to OS camera silently
-                    triggerCamera(visitId, 'additional');
+                    triggerCamera(visitId, category);
                     return;
                 }
                 if (count > 0) {
@@ -1173,10 +1191,46 @@
      *  - HTTP 4xx other → error toast, do NOT queue
      */
     function uploadPhoto(visitId, file, category, callback) {
-        doUploadPhoto(visitId, file, category, false, callback);
+        // Shrink a big phone photo once, here, and keep that copy for every retry: the queue then
+        // re-sends identical bytes, which the server recognises as the same photo (2026-10-14:
+        // full-size photos up to 15 MB timed out on cellular and were dropped after 3 tries).
+        preparePhoto(file).then(function(p) {
+            doUploadPhoto(visitId, p.file, category, false, callback, p.takenAt);
+        });
     }
 
-    function doUploadPhoto(visitId, file, category, isRetry, callback) {
+    var PHOTO_MAX_EDGE = 2048;
+    var PHOTO_KEEP_UNDER = 1200 * 1024;   // a photo already this small and small enough keeps its own data
+
+    /**
+     * {file, takenAt}: the photo at most PHOTO_MAX_EDGE px on its long edge (upright), and when it was
+     * taken (the camera's file time). Shrinking drops the photo's embedded time, so takenAt is sent with
+     * the upload and the server uses it (MediaUploadService). Any problem → the original, unchanged.
+     */
+    function preparePhoto(file) {
+        var takenAt = new Date(file && file.lastModified ? file.lastModified : Date.now()).toISOString();
+        var keep = Promise.resolve({ file: file, takenAt: takenAt });
+        if (!file || !/^image\/(jpeg|png|webp)$/i.test(file.type || '') || typeof createImageBitmap !== 'function') return keep;
+        return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function(bmp) {
+            var w = bmp.width, h = bmp.height, edge = Math.max(w, h);
+            if (edge <= PHOTO_MAX_EDGE && file.size <= PHOTO_KEEP_UNDER) { if (bmp.close) bmp.close(); return { file: file, takenAt: takenAt }; }
+            var scale = Math.min(1, PHOTO_MAX_EDGE / edge);
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            if (bmp.close) bmp.close();
+            return new Promise(function(resolve) {
+                canvas.toBlob(function(blob) {
+                    if (!blob || blob.size >= file.size) { resolve({ file: file, takenAt: takenAt }); return; }
+                    var name = (file.name || 'photo').replace(/\.[a-z0-9]+$/i, '') + '.jpg';
+                    resolve({ file: new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified || Date.now() }), takenAt: takenAt });
+                }, 'image/jpeg', 0.85);
+            });
+        }).catch(function() { return { file: file, takenAt: takenAt }; });
+    }
+
+    function doUploadPhoto(visitId, file, category, isRetry, callback, takenAt) {
         // 1b. AbortController for 30-second fetch timeout
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timeoutId  = controller
@@ -1190,6 +1244,7 @@
         formData.append('context_id', String(visitId));
         formData.append('category', category);
         formData.append('visibility', 'client_visible');
+        if (takenAt) formData.append('taken_at', takenAt);
 
         // Attach GPS if available
         if (cachedGps) {
@@ -1233,7 +1288,7 @@
                                     state.csrf = d.token;
                                     console.log('[PillWorkflow] CSRF token refreshed');
                                 }
-                                doUploadPhoto(visitId, file, category, true, callback);
+                                doUploadPhoto(visitId, file, category, true, callback, takenAt);
                             })
                             .catch(function() {
                                 showToast('Session expired. Reload the page and try again.');
@@ -1249,22 +1304,22 @@
                 });
             }
 
-            // 1c. Server errors (5xx): do NOT queue — same error will recur on retry
+            // Server errors (5xx): keep the photo and retry later — a photo is never lost to a bad moment
+            // on the server (2026-10-14; it used to be dropped with a toast).
             if (status >= 500) {
                 return response.text().then(function(txt) {
                     console.error('[PillWorkflow] Server error ' + status + ':', txt.slice(0, 200));
-                    showToast('Server error (' + status + '). Check connection and try again.');
-                    callback(false, null);
+                    queueAfterFailure(visitId, file, category, takenAt, callback);
                 });
             }
 
             // Guard against non-JSON before parsing
             var ct = response.headers.get('content-type') || '';
             if (!ct.includes('application/json') && !ct.includes('text/json')) {
+                // A login page, an "Offline" page from the service worker, a proxy error: keep it and retry.
                 return response.text().then(function(txt) {
                     console.warn('[PillWorkflow] Non-JSON response status=' + status + ':', txt.slice(0, 120));
-                    showToast('Unexpected server response. Try again.');
-                    callback(false, null);
+                    queueAfterFailure(visitId, file, category, takenAt, callback);
                 });
             }
             return response.json();
@@ -1330,25 +1385,28 @@
                 console.error('[PillWorkflow] Upload error:', err.message || err);
             }
 
-            // Only queue on genuine network/timeout errors — not server errors
-            if ((isNetwork || isAbort) && photoQueueDb) {
-                saveToPhotoQueue(visitId, file, category, function(queueId) {
-                    if (queueId !== null) {
-                        showToast(navigator.onLine
-                            ? 'Upload failed \u2014 will retry automatically'
-                            : 'No signal \u2014 photo saved for later');
-                    } else {
-                        showToast('Upload failed \u2014 check connection and try again.');
-                    }
-                    callback(false, null);
-                });
-            } else {
-                showToast(isAbort
-                    ? 'Upload timed out. Check your signal and try again.'
-                    : 'Upload failed \u2014 check connection and try again.');
-                callback(false, null);
-            }
+            // Any failure keeps the photo and retries it (network, timeout, a bad answer).
+            queueAfterFailure(visitId, file, category, takenAt, callback);
         });
+    }
+
+    /** A photo that didn't upload goes to the queue, which keeps trying until it's in (never dropped). */
+    function queueAfterFailure(visitId, file, category, takenAt, callback) {
+        if (!photoQueueDb) {
+            showToast('Upload failed \u2014 keep this screen open and try again.');
+            callback(false, null);
+            return;
+        }
+        saveToPhotoQueue(visitId, file, category, function(queueId) {
+            if (queueId !== null) {
+                showToast(navigator.onLine
+                    ? 'Photo saved \u2014 it will upload automatically'
+                    : 'No signal \u2014 photo saved, it will upload when you have signal');
+            } else {
+                showToast('Upload failed \u2014 check connection and try again.');
+            }
+            callback(false, null);
+        }, takenAt);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -1373,9 +1431,9 @@
                     if (!v) return;
                     v.status = 'prompt_after';
                     markPhotoPrompt(visitId, 'after');
-                    triggerCamera(visitId, 'after');
+                    triggerBatchCamera(visitId, 'after');
                 } else {
-                    triggerCamera(visitId, cat);
+                    triggerBatchCamera(visitId, cat);
                 }
             });
         });
@@ -1764,7 +1822,9 @@
             ph.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var cat = ph.dataset.category;
-                triggerCamera(visitId, cat);
+                // Several shots per tap (the in-app camera), as on the iPhone; it falls back to the
+                // phone's own camera when the in-app one can't open.
+                triggerBatchCamera(visitId, cat);
             });
         });
 
@@ -2048,8 +2108,11 @@
             req.onsuccess = function(e) {
                 photoQueueDb = e.target.result;
                 if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] Photo queue IDB ready');
-                // Attempt to upload any photos queued during a previous session
-                processPhotoQueue();
+                // Photos left 'uploading' (the app was closed mid-upload) or marked 'failed' by the old
+                // 3-try limit go back in line (2026-10-14), then the queue runs.
+                rescueStuckPhotos(function() { processPhotoQueue(); });
+                // Keep trying while the page is open, not only when the network comes back.
+                setInterval(processPhotoQueue, 60000);
                 // Show queue badges for any pending/failed items on the visible cards
                 refreshQueueBadges();
             };
@@ -2061,6 +2124,35 @@
             console.warn('[PillWorkflow] Photo queue IDB unavailable:', err && err.message);
         }
     })();
+
+    /** 'failed' items, and 'uploading' ones older than 2 minutes, back to 'pending'. */
+    function rescueStuckPhotos(then) {
+        try {
+            var tx = photoQueueDb.transaction('queue', 'readwrite');
+            var store = tx.objectStore('queue');
+            var req = store.getAll();
+            req.onsuccess = function() {
+                (req.result || []).forEach(function(item) {
+                    var stale = item.status === 'uploading' && Date.now() - (item.lastAttempt || 0) > 120000;
+                    if (item.status === 'failed' || stale) {
+                        item.status = 'pending';
+                        store.put(item);
+                    }
+                });
+            };
+            tx.oncomplete = function() { if (then) then(); };
+            tx.onerror = function() { if (then) then(); };
+        } catch (err) {
+            if (then) then();
+        }
+    }
+
+    function refreshCsrfToken() {
+        fetch('/crm/api/get-csrf.php', { method: 'GET', credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { if (d && d.token) state.csrf = d.token; })
+            .catch(function() { /* next pass tries again */ });
+    }
 
     // Retry queued photos as soon as network is restored
     window.addEventListener('online', function() {
@@ -2147,7 +2239,7 @@
      * Converts to ArrayBuffer (survives page reloads / session restarts).
      * Calls callback(queueId) on success, callback(null) on failure.
      */
-    function saveToPhotoQueue(visitId, file, category, callback) {
+    function saveToPhotoQueue(visitId, file, category, callback, takenAt) {
         if (!photoQueueDb) {
             if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] IDB unavailable — cannot queue photo');
             if (callback) callback(null);
@@ -2167,6 +2259,7 @@
                     filename:    file.name    || 'photo.jpg',
                     mimeType:    file.type    || 'image/jpeg',
                     createdAt:   Date.now(),
+                    takenAt:     takenAt || new Date(file.lastModified || Date.now()).toISOString(),
                     status:      'pending',
                     retries:     0,
                     lastAttempt: 0,
@@ -2262,15 +2355,12 @@
         if (idx >= items.length) { done(); return; }
 
         var item       = items[idx];
-        var MAX_RETRY  = 3;
 
-        if (item.retries >= MAX_RETRY) {
-            console.warn('[PillWorkflow] Dropping queued photo after ' + MAX_RETRY +
-                ' retries: visit=' + item.visitId + ' cat=' + item.category);
-            updateQueueItemStatus(item.id, { status: 'failed' }, function() {
-                refreshQueueBadges();
-                processQueueItems(items, idx + 1, done);
-            });
+        // Never give up on a photo (2026-10-14; it was marked failed after 3 tries). Wait longer after
+        // each failure: 30 s, 1, 2, 4 … minutes, at most an hour — the iPhone does the same.
+        var wait = Math.min(3600000, 30000 * Math.pow(2, Math.max(0, (item.retries || 0) - 1)));
+        if ((item.retries || 0) > 0 && Date.now() - (item.lastAttempt || 0) < wait) {
+            processQueueItems(items, idx + 1, done);
             return;
         }
 
@@ -2280,7 +2370,7 @@
 
             var fd = new FormData();
             fd.append('files[]',      file);
-            fd.append('csrf_token',   item.csrf || state.csrf);
+            fd.append('csrf_token',   state.csrf || item.csrf);   // the page's current token; a stored one goes stale
             fd.append('context_type', 'job_visit');
             fd.append('context_id',   String(item.visitId));
             fd.append('category',     item.category);
@@ -2292,6 +2382,7 @@
             if (item.powStamp) fd.append('pow_stamp', '1');
             // When it was taken — the special-request gate accepts a queued photo, never strands it.
             fd.append('queued_at', String(item.createdAt || Date.now()));
+            if (item.takenAt) fd.append('taken_at', item.takenAt);
 
             if (MW_PHOTO_DEBUG) {
                 console.log('[PillWorkflow:DEBUG] Uploading queued photo id=' + item.id +
@@ -2358,6 +2449,7 @@
                         ? data.results[0].errors.join(', ')
                         : (data.error || 'Upload rejected');
                     console.warn('[PillWorkflow] Queue upload rejected:', errMsg);
+                    if (/csrf/i.test(errMsg)) refreshCsrfToken();   // next try uses a fresh token
                     updateQueueItemStatus(item.id, { status: 'pending', retries: item.retries + 1 }, function() {
                         processQueueItems(items, idx + 1, done);
                     });

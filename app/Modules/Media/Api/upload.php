@@ -14,6 +14,7 @@
  *   context_id     - ID in the context table (0 for general)
  *   category       - before, during, after, issue, other
  *   visibility     - internal, client_visible, marketing_eligible
+ *   taken_at       - When the photo was taken, ISO 8601 (optional; used when the photo has no EXIF time)
  *   gps_lat        - Browser geolocation latitude (optional)
  *   gps_lng        - Browser geolocation longitude (optional)
  *   gps_accuracy   - Browser geolocation accuracy in meters (optional)
@@ -151,7 +152,8 @@ $allSuccess = true;
 
 foreach ($files as $file) {
     // Upload the file
-    $uploadResult = mediaUploadFile($file, (int)$user['id'], $contextType, $browserGps, $altText);
+    $uploadResult = mediaUploadFile($file, (int)$user['id'], $contextType, $browserGps, $altText, null,
+                                    isset($_POST['taken_at']) ? (string)$_POST['taken_at'] : null);
 
     if (!$uploadResult['success']) {
         $results[] = [

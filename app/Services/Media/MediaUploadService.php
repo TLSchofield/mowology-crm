@@ -38,7 +38,8 @@ function mediaUploadFile(
     string $contextType = 'cms',
     ?array $browserGps = null,
     ?string $altText = null,
-    ?string $caption = null
+    ?string $caption = null,
+    ?string $takenAt = null
 ): array {
     $errors = [];
 
@@ -94,6 +95,9 @@ function mediaUploadFile(
     // --- Extract EXIF data ---
     $exifData = mediaExtractExif($file['tmp_name']);
     $capturedAt = $exifData['captured_at'] ?? null;
+    // A photo the phone shrank before upload has no embedded time; the phone sends when it was taken
+    // (crew page preparePhoto(), 2026-10-14). Only used when the photo itself says nothing.
+    if ($capturedAt === null) $capturedAt = mediaTakenAt($takenAt);
     $exifOrientation = $exifData['orientation'] ?? 1;
 
     // --- Determine GPS source ---
@@ -289,6 +293,20 @@ function generateMediaUuid(): string
  *
  * @return array ['captured_at' => string|null, 'orientation' => int, 'gps_lat' => float|null, 'gps_lng' => float|null]
  */
+/**
+ * Pure (tested): a client-sent capture time (ISO 8601) as server-local 'Y-m-d H:i:s', or null when it is
+ * missing, unreadable, more than 60 days old or more than 10 minutes in the future.
+ */
+function mediaTakenAt(?string $takenAt, ?int $now = null): ?string
+{
+    $takenAt = trim((string)$takenAt);
+    if ($takenAt === '') return null;
+    $ts = strtotime($takenAt);
+    $now = $now ?? time();
+    if ($ts === false || $ts < $now - 60 * 86400 || $ts > $now + 600) return null;
+    return date('Y-m-d H:i:s', $ts);
+}
+
 function mediaExtractExif(string $filePath): array
 {
     $result = [
