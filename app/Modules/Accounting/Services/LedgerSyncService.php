@@ -323,7 +323,7 @@ class LedgerSyncService
         $bankId   = $this->ledger->accountId(LedgerService::ACC_BANK);
         $codeToCostType = $this->accountCodeToCostTypeMap();
 
-        $posted = 0; $skipped = 0; $errors = 0;
+        $posted = 0; $skipped = 0; $errors = 0; $failures = [];
         $rows = $this->db->query("
             SELECT at.id, at.transaction_date, at.type, at.account_id,
                    coa.type AS account_type, coa.code AS account_code,
@@ -347,10 +347,10 @@ class LedgerSyncService
                 $this->ledger->postManual($args);
                 $posted++;
             } catch (\Throwable $e) {
-                $errors++;
+                $this->noteFailure('bank line', (int)$row['id'], $e, $skipped, $errors, $failures);
             }
         }
-        return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors];
+        return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors, 'failures' => $failures];
     }
 
     /** The entry a bank line should post now (null = it shouldn't post: revenue deposit, linked or settled deposit, zero). */

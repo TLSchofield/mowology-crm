@@ -100,7 +100,7 @@ class AccountingService
             if ($n > 0) $parts[] = $n . ' ' . $word . ($n === 1 ? '' : 's');
         }
         if ($parts) {
-            $first = $journal['invoices']['failures'][0] ?? $journal['expenses']['failures'][0] ?? null;
+            $first = $journal['invoices']['failures'][0] ?? $journal['expenses']['failures'][0] ?? $journal['bank_imports']['failures'][0] ?? null;
             return ['warning', implode(', ', $parts) . ' could not be posted to the journal'
                 . ($first ? ' (e.g. ' . $first['source'] . ' #' . $first['id'] . ': ' . $first['reason'] . ')' : '')];
         }
