@@ -70,8 +70,14 @@ $__scLabel = [
             <td><span class="mw-sc-st <?= $__cls ?>"><?= h($__txt) ?></span></td>
             <td>
               <div class="mw-sc-months">
-                <?php foreach ($__scMonths as $__m): $__c = (int)($__byMonth[$__m]['lines'] ?? 0); $__q = $__c === 0 && isset($__quiet[$__m]); ?>
-                  <span class="mw-sc-m<?= $__q ? '' : ($__c === 0 && $__a['lines'] > 0 && $__a['first'] && $__m >= substr($__a['first'], 0, 7) ? ' is-empty' : (isset($__gapMonths[$__m]) ? ' is-gap' : '')) ?>" title="<?= h(date('F Y', strtotime($__m . '-01'))) ?>: <?= $__q ? h('statement in, no activity' . ($__quiet[$__m]['balance'] !== null ? ' — balance $' . number_format((float)$__quiet[$__m]['balance'], 2) : '')) : $__c . ' lines' ?>"><?= h(date('M', strtotime($__m . '-01'))) ?><b><?= $__q ? '0' : ($__c ?: '–') ?></b></span>
+                <?php foreach ($__scMonths as $__m):
+                    $__c = (int)($__byMonth[$__m]['lines'] ?? 0); $__q = $__c === 0 && isset($__quiet[$__m]);
+                    $__before = !$__a['first'] || $__m < substr($__a['first'], 0, 7);
+                    // One state per month: in (lines chain), quiet (statement in, no activity), gap (balance breaks), missing, or none (before this account's first statement).
+                    $__ms = $__q ? 'is-quiet' : ($__c === 0 ? ($__a['lines'] > 0 && !$__before ? 'is-empty' : 'is-none') : (isset($__gapMonths[$__m]) ? 'is-gap' : 'is-in'));
+                    $__mw = ['is-in' => 'in', 'is-quiet' => 'in, no activity', 'is-gap' => 'balance gap inside', 'is-empty' => 'missing', 'is-none' => 'no statement expected yet'][$__ms];
+                    $__mt = date('F Y', strtotime($__m . '-01')) . ': ' . ($__q ? 'statement in, no activity' . ($__quiet[$__m]['balance'] !== null ? ' — balance $' . number_format((float)$__quiet[$__m]['balance'], 2) : '') : ($__c ? $__c . ' lines — ' . $__mw : $__mw)); ?>
+                  <span class="mw-sc-m <?= $__ms ?>" title="<?= h($__mt) ?>" aria-label="<?= h($__mt) ?>"><span class="mw-sc-mn"><?= h(date('M', strtotime($__m . '-01'))) ?></span><b><?= $__q ? '0' : ($__c ?: '–') ?></b><i aria-hidden="true"></i></span>
                 <?php endforeach; ?>
               </div>
             </td>
@@ -85,6 +91,10 @@ $__scLabel = [
         <?php endforeach; ?>
         </tbody>
       </table>
+    </div>
+    <div class="mw-sc-legend px-3 pt-3" aria-label="Key">
+      <span class="is-in">In, balances chain</span><span class="is-quiet">In, no activity</span>
+      <span class="is-gap">≠ Balance gap inside</span><span class="is-empty">✕ Missing</span>
     </div>
 
     <div class="p-3">

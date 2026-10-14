@@ -289,7 +289,7 @@ $activePage = 'accounting';
             <h4 class="mt-3 mb-1" id="done-title">Import Complete</h4>
             <p class="text-muted" id="done-body"></p>
             <div class="d-flex justify-content-center gap-3 mt-3">
-                <button class="btn btn-outline-secondary" onclick="undoImport()">Undo Import</button>
+                <button class="btn btn-outline-secondary mw-acct-undo" onclick="undoImport()">Undo Import</button>
                 <a href="/crm/accounting/transactions.php" class="btn btn-primary">View Transactions</a>
                 <button class="btn btn-outline-primary" onclick="resetUpload()">Import Another File</button>
             </div>

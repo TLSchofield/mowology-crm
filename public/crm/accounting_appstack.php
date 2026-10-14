@@ -437,7 +437,7 @@ function renderIntelligenceAlerts(alerts, summary) {
         cost_spike:       { icon: 'trending-up',   color: '#e85d04', label: 'Cost Spike'       },
         revenue_drop:     { icon: 'trending-down',  color: '#dc3545', label: 'Revenue Drop'     },
         low_margin_job:   { icon: 'briefcase',      color: '#fd7e14', label: 'Low Margin Job'   },
-        unusual_expense:  { icon: 'alert-circle',   color: '#ffc107', label: 'Unusual Expense'  },
+        unusual_expense:  { icon: 'alert-circle',   color: '#C2551F', label: 'Unusual Expense'  },
         default:          { icon: 'info',            color: '#0d6efd', label: 'Alert'            },
     };
     const SEV = {

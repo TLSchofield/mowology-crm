@@ -20,7 +20,7 @@
     function scoreColor(s) {
         if (s >= 0.75) return '#ef4444';         // critical — red
         if (s >= 0.50) return '#f97316';         // high — orange
-        if (s >= 0.25) return '#f59e0b';         // medium — amber
+        if (s >= 0.25) return '#C2551F';         // medium — amber
         return '#22c55e';                        // low — green
     }
 
@@ -248,7 +248,7 @@
             '  <div class="mw-pro-svg-wrap" id="mwProSvgWrap"></div>' +
             '  <div class="mw-pro-legend" id="mwProLegend">' +
             '    <span class="mw-pro-leg-item"><span class="mw-pro-leg-dot" style="background:#22c55e"></span>Low risk</span>' +
-            '    <span class="mw-pro-leg-item"><span class="mw-pro-leg-dot" style="background:#f59e0b"></span>Medium</span>' +
+            '    <span class="mw-pro-leg-item"><span class="mw-pro-leg-dot" style="background:#C2551F"></span>Medium</span>' +
             '    <span class="mw-pro-leg-item"><span class="mw-pro-leg-dot" style="background:#f97316"></span>High</span>' +
             '    <span class="mw-pro-leg-item"><span class="mw-pro-leg-dot" style="background:#ef4444"></span>Critical</span>' +
             '  </div>' +

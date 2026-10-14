@@ -626,7 +626,7 @@ function renderDonut(data) {
     const top  = data.slice(0, 8); // Show top 8 categories
     const total= top.reduce((s, r) => s + parseFloat(r.total), 0) || 1;
 
-    const COLORS = ['#2D8659','#e85d04','#3B82F6','#8B5CF6','#14B8A6','#F59E0B','#EF4444','#6B7280'];
+    const COLORS = ['#2D8659','#e85d04','#3B82F6','#3B5BA9','#14B8A6','#C2551F','#EF4444','#6B7280'];
 
     const W = 200, H = 200, cx = 100, cy = 100, r = 70, inner = 40;
     let angle = -Math.PI / 2;
@@ -732,7 +732,7 @@ async function loadBudget() {
 
     const STATUS_COLORS = {
         ok:          { bar: '#2D8659', badge: 'bg-success' },
-        warning:     { bar: '#F59E0B', badge: 'bg-warning text-dark' },
+        warning:     { bar: '#C2551F', badge: 'bg-warning text-dark' },
         critical:    { bar: '#e85d04', badge: 'bg-danger' },
         over_budget: { bar: '#dc3545', badge: 'bg-danger' },
     };
@@ -793,7 +793,7 @@ async function loadCrew() {
     tbody.innerHTML = d.crew.map(m => {
         const profitColor = m.profit >= 0 ? '#2D8659' : '#dc3545';
         const margin      = Math.max(0, Math.min(100, m.margin));
-        const barColor    = m.margin >= 30 ? '#2D8659' : (m.margin >= 0 ? '#F59E0B' : '#dc3545');
+        const barColor    = m.margin >= 30 ? '#2D8659' : (m.margin >= 0 ? '#C2551F' : '#dc3545');
 
         return `<tr>
             <td class="fw-bold">${esc(m.name)}</td>

@@ -85,6 +85,18 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 
 ---
 
+### Status scale (no purple, no yellow — Tim 2026-10-13)
+One scale for every state in the CRM, all text pairs WCAG AAA (≥7:1). Tokens in `mowology-brand.css`
+(`--mw-st-ok|warn|bad|off` with `-bg` and `-line`); warning tokens in `tokens.css` are rust.
+- green = in / balanced / done · rust = needs a look · red = missing / wrong · grey = not expected
+- Always pair the colour with a word or mark (✓, ≠, ✕), never colour alone.
+- AppStack's `secondary` (lavender) and `warning` (yellow) classes are remapped CRM-wide to neutral ink
+  and rust, so `btn-outline-secondary`, `badge bg-warning` etc. are safe to keep using. Never add a new
+  purple or yellow hex; use the tokens.
+- Bootstrap 5 `gap-*` and `bg-opacity-10/25` are defined in brand CSS (AppStack is Bootstrap 4).
+- Accounts pages get `body.mw-acct` (the ledger look) automatically from `appstack_head.php` when
+  `$activePage = 'accounting'`. Statements check month cells use `.mw-sc-m.is-in|is-quiet|is-gap|is-empty|is-none`.
+
 ## Form / Input Components
 
 ### MwDatePicker
