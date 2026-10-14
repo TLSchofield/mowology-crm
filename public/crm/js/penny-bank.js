@@ -524,7 +524,7 @@
                 if (!d || !d.ok || !d.ready || !(d.accounts || []).length) { sc.hidden = true; return; }
                 sc.hidden = false;
                 sc.innerHTML = '<div class="mw-bl-head"><b>📒 Statements</b><span>' + (GREETING ? esc(GREETING) + ', ' : '') +
-                    'each month is closed when its statement adds up, every line is in the books and it follows on from the last one.</span></div>' +
+                    'a month can be locked when its statements check out, the books equal the bank to the cent, and no receipt or bank line is left to sort.</span></div>' +
                     d.accounts.map(function (a) {
                         var bad = a.statements.filter(function (s) { return !s.ok && !s.unproven; });
                         return '<details class="mw-sc-acct"' + (bad.length ? '' : '') + '><summary><b>' + esc(a.account) + '</b> ' +
@@ -544,6 +544,9 @@
                               return '<button type="button" class="mw-rc-ed" data-lock="' + esc(m) + '">🔒 Lock ' + esc(m) + '</button>';
                           }).join(' ')
                         : '<span>No month is ready to close yet.</span>') +
+                      ((d.next || []).length ? '<div class="mw-sc-next">' + d.next.map(function (n) {
+                          return '<div><b>Next to close: ' + esc(n.month) + '</b> — ' + esc(n.blockers.join('; ')) + '</div>';
+                      }).join('') + '</div>' : '') +
                       ((d.locked || []).length ? ' <span class="mw-sc-un">Locked: ' + esc(d.locked.slice(-6).join(', ')) + '</span>' : '') +
                       (d.balances ? '' : '<div class="mw-sc-un">Run migration 1068 so new statements are proven against their balances.</div>') +
                     '</div><div class="mw-rc-msg" data-sc-msg></div>';

@@ -250,8 +250,14 @@ try {
             $close = new StatementCloseService($db);
             $accts = $close->status();
             $locked = $close->lockedMonths();
+            // Lockable = exact (MonthCloseService): statements, books = bank, no open receipts, no unsorted lines.
+            require_once APP_ROOT . '/Modules/Accounting/Services/MonthCloseService.php';
+            $months = (new MonthCloseService($db))->months();
+            $next = array_values(array_filter($months, fn($m) => !$m['locked'] && !$m['ready']));
             echo json_encode(['ok' => true, 'ready' => $close->ready(), 'accounts' => $accts, 'locked' => $locked,
-                              'lockable' => StatementCloseService::lockable($accts, $locked), 'balances' => $close->hasBalances()]);
+                              'lockable' => array_values(array_map(fn($m) => $m['month'], array_filter($months, fn($m) => $m['ready']))),
+                              'next' => array_slice(array_map(fn($m) => ['month' => $m['month'], 'blockers' => $m['blockers']], $next), 0, 3),
+                              'balances' => $close->hasBalances()]);
             break;
         }
 
@@ -265,7 +271,15 @@ try {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             if (!isAdmin()) throw new RuntimeException('Only an admin can lock a month');
             require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
-            echo json_encode((new StatementCloseService($db))->lockMonth((string)($input['month'] ?? ''), (int)$user['id']));
+            require_once APP_ROOT . '/Modules/Accounting/Services/MonthCloseService.php';
+            $ym = (string)($input['month'] ?? '');
+            foreach ((new MonthCloseService($db))->months() as $m) {
+                if ($m['month'] === $ym && !$m['ready']) {   // only an exact month locks (2026-10-14)
+                    echo json_encode(['ok' => false, 'message' => $ym . ' isn\'t exact yet: ' . implode('; ', $m['blockers']) . '.']);
+                    break 2;
+                }
+            }
+            echo json_encode((new StatementCloseService($db))->lockMonth($ym, (int)$user['id']));
             break;
         }
 
