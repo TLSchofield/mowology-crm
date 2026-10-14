@@ -106,11 +106,12 @@
                 : '<span class="mw-pi-off">no e-Transfer found</span>';
             out.push('<li>' + esc(e.name) + ' net ' + money(e.target) + ': ' + s + '</li>');
         });
-        if (p.shareholder) {
-            var sh = p.shareholder;
-            out.push('<li>' + esc(sh.name) + ' (shareholder) net ' + money(sh.net) + ': transfers to himself ' + money(sh.transfers)
-                + (sh.ids.length ? ' → ' + money(Math.min(sh.transfers, sh.net)) + ' is pay, ' + money(sh.sweep) + ' to Due from Shareholder' : ' — none found, his net stays in clearing') + '</li>');
-        }
+        shList(p).forEach(function (sh) {
+            var acct = sh.account || '1300';
+            out.push('<li>' + esc(sh.name) + ' (shareholder, ' + esc(acct) + ') net ' + money(sh.net) + ': transfers ' + money(sh.transfers)
+                + (sh.ids.length ? ' → ' + money(Math.min(sh.transfers, sh.net)) + ' is pay, ' + money(sh.sweep) + ' to ' + esc(acct) + ' ' + esc((data.accounts || {})[acct] || 'shareholder loan')
+                    + (sh.sweep < 0 ? ' (short of net pay — wages owed to them)' : '') : ' — none found, the net stays in clearing') + '</li>');
+        });
         return '<ul class="small mb-2">' + out.join('') + '</ul>';
     }
 
@@ -163,24 +164,43 @@
         return h + '</div></div></div>';
     }
 
+    /** The month's shareholders (older single-shareholder proposals too). */
+    function shList(p) {
+        if (p.shareholders && p.shareholders.length) return p.shareholders;
+        return p.shareholder ? [p.shareholder] : [];
+    }
+
     /** Live: what 2310 / 2520 hold for the month with the current ticks. */
     function updateClearing(runId) {
         var r = (data.runs || []).filter(function (x) { return x.id === runId; })[0];
         var el = $('pi-clear-' + runId);
         if (!r || !r.proposal || !el) return;
         var ticked = ticks(runId);
-        var remit = 0, net = 0, sh = 0;
+        var remit = 0, net = 0, sh = 0, paid = {};
+        var list = shList(r.proposal);
         r.proposal.moves.forEach(function (m) {
             if (ticked.indexOf(m.id) < 0) return;
             if (m.role === 'remittance') remit += m.amount;
             if (m.role === 'net_pay') net += m.amount;
-            if (m.role === 'shareholder') sh += m.amount;
+            if (m.role === 'shareholder') {
+                sh += m.amount;
+                var who = list.length === 1 ? list[0].name : (m.employee || '');
+                paid[who] = (paid[who] || 0) + m.amount;
+            }
         });
-        var sweep = r.proposal.shareholder && sh > 0 ? sh - r.proposal.shareholder.net : 0;
+        var sweep = 0, parts = [];
+        list.forEach(function (s) {
+            var p = paid[s.name] || 0;
+            var sw = p > 0 ? p - s.net : 0;
+            sweep += sw;
+            if (Math.abs(sw) >= 0.005) parts.push(money(sw) + ' to ' + esc(s.account || '1300') + ' (' + esc(s.name) + ')');
+        });
         var sd = r.totals.remittance - remit;
         var np = r.totals.net - net - sh + sweep;
+        sd = Math.round(sd * 100) / 100 || 0;
+        np = Math.round(np * 100) / 100 || 0;
         el.innerHTML = 'After booking: 2310 Source deductions <span class="' + cls(sd) + '">' + money(sd) + '</span> · 2520 Net pay clearing <span class="' + cls(np) + '">'
-            + money(np) + '</span>' + (sweep ? ' · ' + money(sweep) + ' to 1300 Due from Shareholder' : '') + ' (what\'s left owing for the month; ~$0 is right — anything else is for you to look at).';
+            + money(np) + '</span>' + (parts.length ? ' · ' + parts.join(' · ') : '') + ' (what\'s left owing for the month; ~$0 is right — anything else is for you to look at).';
     }
 
     function ticks(runId) {
@@ -201,6 +221,12 @@
             + names.map(function (n) { var sel = n === cur || (!cur && n === data.suggested_shareholder); return '<option' + (sel ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('')
             + '</select><button type="button" class="btn btn-sm btn-outline-primary" id="pi-sh-save">Save</button>'
             + (cur ? '' : '<span class="small mw-pi-off">Not set — his transfers can\'t be matched yet.</span>') + '</div>';
+        var others = (data.shareholders || []).filter(function (x) { return x.account !== '1300'; });
+        if (others.length) {
+            h += '<p class="small mb-2">Also a shareholder: ' + others.map(function (x) {
+                return esc(x.name) + ' → ' + esc(x.account) + ' ' + esc(x.account_name || '');
+            }).join(' · ') + '. Their transfers are pay up to their Wave net; the rest goes to their own loan account.</p>';
+        }
         h += '<div class="mw-pi-goal mb-2"><strong>Goal:</strong> ' + esc(s.goal || '') + '</div>';
         h += '<p class="small text-muted">' + esc(s.year_end_note || '') + '</p>';
         if (L.opening_note) h += '<div class="alert alert-info small">' + esc(L.opening_note) + '</div>';
@@ -214,14 +240,15 @@
             }).join('') + '</tbody></table></div></div></div>';
 
         var props = p.repayments.concat(p.personal);
-        h += '<div class="card mw-card mb-3"><div class="card-header"><h5 class="card-title mb-0">Penny\'s proposals for 1300</h5></div><div class="card-body p-0">';
-        h += props.length ? movesTable(props, 'sh', true) + '<div class="p-2 mw-pi-actions"><button type="button" class="btn btn-sm btn-primary" id="pi-sh-apply">Move the ticked lines to 1300</button>'
+        h += '<div class="card mw-card mb-3"><div class="card-header"><h5 class="card-title mb-0">Penny\'s shareholder-account proposals</h5></div><div class="card-body p-0">';
+        h += props.length ? movesTable(props, 'sh', true) + '<div class="p-2 mw-pi-actions"><button type="button" class="btn btn-sm btn-primary" id="pi-sh-apply">Move the ticked lines (each to its "Move" account)</button>'
             + '<span class="small text-muted">Repayments are ticked; "Personal?" charges are only suggestions — tick the ones that were personal.</span></div>'
             : '<div class="p-2 small text-muted">No repayments or personal charges to propose.</div>';
         if (p.waiting.length) {
             var tot = p.waiting.reduce(function (a, w) { return a + w.amount; }, 0);
             h += '<div class="p-2 small border-top">' + p.waiting.length + ' transfer' + (p.waiting.length === 1 ? '' : 's') + ' to the shareholder (' + money(tot)
-                + ') wait for their month\'s payroll report — net pay first, the rest goes to 1300 when the month is booked.</div>';
+                + ') wait for their month\'s payroll report — net pay first, the rest goes to that shareholder\'s own account ('
+                + p.waiting.map(function (w) { return w.to; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' / ') + ') when the month is booked.</div>';
         }
         if ((s.batches || []).length) {
             h += '<div class="p-2 border-top small">Moved: ' + s.batches.map(function (b) {

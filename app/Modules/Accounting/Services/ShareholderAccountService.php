@@ -18,6 +18,11 @@
  *   - the running balance by month, from the journal (1300 lines), with the year-end flag:
  *     a balance still owed at Dec 31 has tax consequences (CRA s.15(2)) — talk to the accountant.
  *
+ * Two shareholders since 2026-10-13 (WavePayrollImportService::shareholders(), ops_settings
+ * 'payroll_shareholders'): Tim → 1300, Katrenna Marenych → 1302 "Shareholder loan — Katrenna
+ * Marenych" (child of 1300). Each one's repayments / waiting transfers go to their own account;
+ * the running balance below is still Tim's 1300.
+ *
  * Penny proposes, Tim approves; moves go through BankLineMoveService (reversal + repost), 2026
  * only, locked months refused, every change logged (payroll_bank_moves / shareholder_clearings,
  * migration 1255) and undoable.
@@ -56,6 +61,14 @@ class ShareholderAccountService
         $name = trim($name);
         if ($name === '' || mb_strlen($name) > 120) return ['ok' => false, 'message' => 'Which employee is the shareholder?'];
         $this->setSetting('payroll_shareholder_name', $name, $userId, 'Employee on the Wave report who is the shareholder (Due from Shareholder 1300)');
+        // With the shareholder list in use, the 1300 entry is renamed there (the others stay).
+        $list = WavePayrollImportService::parseShareholders((string)$this->setting(WavePayrollImportService::SETTING_SHAREHOLDERS));
+        if ($list) {
+            $new = [$name => WavePayrollImportService::ACC_SHAREHOLDER];
+            foreach ($list as $n => $code) if ($code !== WavePayrollImportService::ACC_SHAREHOLDER && strcasecmp($n, $name) !== 0) $new[$n] = $code;
+            $this->setSetting(WavePayrollImportService::SETTING_SHAREHOLDERS, implode("\n", array_map(fn($n, $c) => $n . '=' . $c, array_keys($new), $new)),
+                              $userId, 'Shareholders on the Wave report and their loan accounts (Name=code per line)');
+        }
         return ['ok' => true, 'message' => $name . ' is the shareholder.'];
     }
 
@@ -83,7 +96,11 @@ class ShareholderAccountService
         $parts = preg_split('/\s+/', strtoupper(trim($name)));
         if (count($parts) < 2) return false;
         $d = ' ' . trim(preg_replace('/[^A-Z]+/', ' ', strtoupper($description))) . ' ';
-        return strpos($d, ' ' . $parts[0] . ' ') !== false && strpos($d, ' ' . end($parts) . ' ') !== false;
+        if (strpos($d, ' ' . $parts[0] . ' ') !== false && strpos($d, ' ' . end($parts) . ' ') !== false) return true;
+        // Run together on some statements: "ETRANSFERDEBIT(KATRENNAMARENYCH)".
+        $first = preg_replace('/[^A-Z]+/', '', $parts[0]);
+        $last = preg_replace('/[^A-Z]+/', '', end($parts));
+        return $first !== '' && $last !== '' && strpos(str_replace(' ', '', $d), $first . $last) !== false;
     }
 
     /**
@@ -209,29 +226,32 @@ class ShareholderAccountService
      */
     public function proposals(): array
     {
+        $shs = $this->payroll->shareholders();
         $name = $this->payroll->shareholderName();
-        $out = ['shareholder' => $name, 'repayments' => [], 'personal' => [], 'waiting' => []];
+        $out = ['shareholder' => $name, 'shareholders' => $shs, 'repayments' => [], 'personal' => [], 'waiting' => []];
         $locked = $this->payroll->lockedMonths();
+        $codes = array_unique(array_merge([self::ACC], array_values($shs)));
         $lines = array_values(array_filter($this->payroll->bankLines(self::YEAR . '-01-01', self::YEAR . '-12-31'),
-                                           fn($l) => !in_array(substr($l['date'], 0, 7), $locked, true) && $l['account_code'] !== self::ACC));
+                                           fn($l) => !in_array(substr($l['date'], 0, 7), $locked, true) && !in_array((string)$l['account_code'], $codes, true)));
         $booked = [];
         foreach ($this->db->query("SELECT period_month FROM payroll_runs WHERE status = 'booked'")->fetchAll(PDO::FETCH_COLUMN) as $m) $booked[(string)$m] = true;
-        $row = fn($l, $role, $checked) => ['id' => $l['id'], 'date' => $l['date'], 'amount' => $l['amount'], 'description' => $l['description'],
-                                            'from' => $l['account_code'], 'to' => self::ACC, 'role' => $role, 'checked' => $checked];
+        $row = fn($l, $role, $checked, $to = self::ACC, $who = null) => ['id' => $l['id'], 'date' => $l['date'], 'amount' => $l['amount'], 'description' => $l['description'],
+                                            'from' => $l['account_code'], 'to' => $to, 'role' => $role, 'checked' => $checked, 'employee' => $who];
         foreach ($lines as $l) {
-            $mine = $name !== null && self::isFromShareholder($l['description'], $name);
-            if ($mine && $l['direction'] === 'in') $out['repayments'][] = $row($l, 'repayment', true);
-            elseif ($mine && $l['direction'] === 'out' && !isset($booked[substr($l['date'], 0, 7)])) $out['waiting'][] = $row($l, 'waiting', false);
-            elseif (!$mine && $l['direction'] === 'out' && preg_match(self::PERSONAL_RE, $l['description'])) $out['personal'][] = $row($l, 'personal', false);
+            $who = null;
+            foreach ($shs as $n => $code) if (self::isFromShareholder($l['description'], $n)) { $who = $n; break; }
+            $to = $who !== null ? $shs[$who] : self::ACC;
+            if ($who !== null && $l['direction'] === 'in') $out['repayments'][] = $row($l, 'repayment', true, $to, $who);
+            elseif ($who !== null && $l['direction'] === 'out' && !isset($booked[substr($l['date'], 0, 7)])) $out['waiting'][] = $row($l, 'waiting', false, $to, $who);
+            elseif ($who === null && $l['direction'] === 'out' && preg_match(self::PERSONAL_RE, $l['description'])) $out['personal'][] = $row($l, 'personal', false);
         }
         return $out;
     }
 
-    /** Move the ticked repayment / personal lines to 1300 (one batch, undoable). */
+    /** Move the ticked repayment / personal lines to the shareholder's account (one batch, undoable). */
     public function apply(array $txIds, int $userId): array
     {
-        $acctId = $this->accountId(self::ACC);
-        if (!$acctId) return ['ok' => false, 'message' => 'Account ' . self::ACC . ' Due from Shareholder is missing.'];
+        if (!$this->accountId(self::ACC)) return ['ok' => false, 'message' => 'Account ' . self::ACC . ' Due from Shareholder is missing.'];
         $p = $this->proposals();
         $tick = array_map('intval', $txIds);
         $pick = array_values(array_filter(array_merge($p['repayments'], $p['personal']), fn($r) => in_array($r['id'], $tick, true)));
@@ -240,6 +260,8 @@ class ShareholderAccountService
         $mover = new BankLineMoveService($this->db, $this->ledger);
         $moved = 0; $failed = [];
         foreach ($pick as $m) {
+            $acctId = $this->accountId((string)$m['to']);
+            if (!$acctId) { $failed[] = $m['id'] . ': account ' . $m['to'] . ' is missing'; continue; }
             $s = $this->db->prepare("SELECT account_id, type FROM accounting_transactions WHERE id = ?");
             $s->execute([$m['id']]);
             $was = $s->fetch(PDO::FETCH_ASSOC) ?: ['account_id' => null, 'type' => null];
@@ -249,7 +271,7 @@ class ShareholderAccountService
             $moved++;
         }
         return ['ok' => $moved > 0, 'batch_id' => $batch, 'moved' => $moved, 'failed' => $failed,
-                'message' => $moved . ' line' . ($moved === 1 ? '' : 's') . ' moved to ' . self::ACC . ' Due from Shareholder.' . ($failed ? ' Not moved: ' . implode('; ', $failed) : '')];
+                'message' => $moved . ' line' . ($moved === 1 ? '' : 's') . ' moved to the shareholder account' . (count(array_unique(array_column($pick, 'to'))) === 1 ? ' (' . $pick[0]['to'] . ')' : 's') . '.' . ($failed ? ' Not moved: ' . implode('; ', $failed) : '')];
     }
 
     public function undoBatch(string $batch, int $userId): array

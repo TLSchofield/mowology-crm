@@ -393,6 +393,147 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertSame(-250.0, $net[$this->acct($db, '2310')]);
     }
 
+    // ── Two shareholders, each on their own loan account (Tim → 1300, Katrenna → 1302; 2026-10-13) ──
+
+    // Kim Partner — the second shareholder (invented): net $1,260.55.
+    private const KIM = ['fed' => [100.00, 0], 'prov' => [40.00, 0], 'ei' => [24.45, 34.23], 'cpp' => [75.00, 75.00], 'cpp2' => [0, 0]];
+
+    private static function janKim(): array
+    {
+        return ['first' => 'Kim', 'last' => 'Partner', 'wages' => 1500.00, 'tax' => self::KIM,
+                'paydays' => [['01/15/2026', '12/29/2025', '01/11/2026', 40.0], ['01/29/2026', '01/12/2026', '01/25/2026', 40.0]]];
+    }
+
+    private static function januaryThree(): string
+    {
+        return self::report('01/01/2026', '01/31/2026', [self::janJane(), self::janPat(), self::janKim()]);
+    }
+
+    /** Kim's bank lines: her transfers (one run together, as some statements print it) + Wave's debit for her share. */
+    private static function kimBank(): array
+    {
+        $l = fn($id, $d, $a, $desc, $dir = 'out', $code = '5100') => ['id' => $id, 'date' => $d, 'amount' => $a, 'description' => $desc, 'direction' => $dir, 'account_code' => $code];
+        return [
+            $l(20, '2026-01-16', 700.00, 'ETRANSFERDEBIT(KIMPARTNER)'),
+            $l(21, '2026-01-30', 300.00, 'e-Transfer debit Ref 20260130 Kim Partner'),
+            $l(22, '2026-01-27', 348.68, 'WAVE PYRL 0012400'),
+            $l(23, '2026-01-20', 250.00, 'Funds transfer Pay As You Go Chequing', 'out', '1302'),
+        ];
+    }
+
+    public function testShareholderListParsesAndOldSettingStillMeans1300(): void
+    {
+        $this->assertSame(['Tim Schofield' => '1300', 'Katrenna Marenych' => '1302'],
+                          WavePayrollImportService::parseShareholders("Tim Schofield=1300\nKatrenna Marenych=1302"));
+        $this->assertSame(['A B' => '1300', 'C D' => '1302'], WavePayrollImportService::parseShareholders('A B; C D=1302'));
+        $this->assertSame(['Pat Owner' => '1300'], WavePayrollImportService::shareholderMap('Pat Owner'));
+        $this->assertSame([], WavePayrollImportService::shareholderMap(null));
+        $all = [['name' => 'Katrenna Marenych', 'first' => 'Katrenna', 'last' => 'Marenych'], ['name' => 'Tim Schofield', 'first' => 'Tim', 'last' => 'Schofield']];
+        $this->assertTrue(WavePayrollImportService::nameMatches('ETRANSFERDEBIT(KATRENNAMARENYCH)', $all[0], $all), 'name run together');
+        $this->assertTrue(WavePayrollImportService::nameMatches('ETRANSFERDEBIT(TIMSCHOFIELD)', $all[1], $all));
+        $this->assertFalse(WavePayrollImportService::nameMatches('ETRANSFERDEBIT(TIMSCHOFIELD)', $all[0], $all));
+        $this->assertFalse(WavePayrollImportService::nameMatches('FUNDS TRANSFER TO REL #4659904', $all[0], $all), 'her REL transfers are not matched');
+        $this->assertTrue(ShareholderAccountService::isFromShareholder('ETRANSFERDEBIT(KATRENNAMARENYCH)', 'Katrenna Marenych'));
+        $this->assertFalse(ShareholderAccountService::isFromShareholder('Funds transfer Pay As You Go Chequing (...6912)', 'Katrenna Marenych'));
+    }
+
+    public function testTwoShareholdersOneOverOneUnderTheirNetEachSweptToTheirOwnAccount(): void
+    {
+        $m = WavePayrollImportService::months(WavePayrollImportService::parse(self::januaryThree()))['2026-01'];
+        $this->assertSame(1731.92, $m['totals']['remittance']);
+        $claimed = [];
+        $r = WavePayrollImportService::matchMonth($m, array_merge(self::bank(), self::kimBank()), ['Pat Owner' => '1300', 'Kim Partner' => '1302'], $claimed);
+        $this->assertSame('match', $r['remittance']['status']);
+        $this->assertEqualsCanonicalizing([1, 2, 22], $r['remittance']['ids']);
+        $this->assertCount(1, $r['employees'], 'only Jane is matched as crew');
+        $by = array_column($r['shareholders'], null, 'name');
+        // Pat: $3,500 against net $2,286.50 → $1,213.50 beyond his pay → 1300.
+        $this->assertSame('1300', $by['Pat Owner']['account']);
+        $this->assertSame(1213.5, $by['Pat Owner']['sweep']);
+        // Kim: $1,000 against net $1,260.55 → $260.55 short → wages owed to her, CR 1302.
+        $this->assertSame('1302', $by['Kim Partner']['account']);
+        $this->assertSame(1260.55, $by['Kim Partner']['net']);
+        $this->assertSame(1000.0, $by['Kim Partner']['transfers']);
+        $this->assertSame(-260.55, $by['Kim Partner']['sweep']);
+        $this->assertEqualsCanonicalizing([20, 21], $by['Kim Partner']['ids']);
+        $this->assertNotContains(23, array_column($r['moves'], 'id'), 'her Funds transfers (already 1302 draws) are left alone');
+        $this->assertSame(['source_deductions' => 0.0, 'net_pay' => 0.0, 'sweep' => 952.95], $r['clearing']);
+
+        $sw = WavePayrollImportService::sweeps($r['moves'], $r['shareholders']);
+        $e = WavePayrollImportService::buildEntry($m['totals'], $sw, '2026-01-29', 'Wave payroll');
+        $dr = round(array_sum(array_column($e['lines'], 'debit')), 2);
+        $this->assertSame($dr, round(array_sum(array_column($e['lines'], 'credit')), 2), 'balances');
+        $acct = [];
+        foreach ($e['lines'] as $l) $acct[$l['account']][] = [$l['debit'], $l['credit']];
+        $this->assertEquals([[1213.5, 0]], $acct['1300']);
+        $this->assertEquals([[0, 260.55]], $acct['1302']);
+        $this->assertEquals([[0, 5195.45], [0, 1213.5], [260.55, 0]], $acct['2520']);
+        // Unticking one of Kim's transfers moves only her sweep.
+        $sw2 = WavePayrollImportService::sweeps($r['moves'], $r['shareholders'], [1, 2, 3, 4, 5, 6, 7, 20, 22]);
+        $this->assertSame([1213.5, -560.55], array_column($sw2, 'sweep'));
+    }
+
+    public function testTwoShareholdersApproveBooksEachLoanAndUndoPutsItBack(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO chart_of_accounts (id, code, name, type) VALUES (29, '1302', 'Shareholder loan — Kim Partner', 'asset')");
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('payroll_shareholders', 'Pat Owner=1300\nKim Partner=1302')");
+        $sync = new LedgerSyncService($db, $this->ledger($db));
+        foreach (self::kimBank() as $l) {
+            $db->prepare("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type, bank_account_id)
+                          VALUES (?, ?, ?, ?, ?, ?, 'bank_import', 1)")->execute([$l['id'], $l['date'], $l['account_code'] === '1302' ? 'transfer' : 'expense', $l['amount'], $l['description'], $this->acct($db, $l['account_code'])]);
+            $args = $sync->bankEntryArgsFor($l['id']);
+            if ($args) $this->ledger($db)->postManual($args);
+        }
+        $svc = new WavePayrollImportService($db, $this->ledger($db));
+        $this->assertSame(['Pat Owner' => '1300', 'Kim Partner' => '1302'], $svc->shareholders());
+        $this->assertSame('Pat Owner', $svc->shareholderName());
+        $runId = $svc->import(self::januaryThree(), 'jan.pdf', 1)['run_ids'][0];
+        $rep = $svc->report();
+        $this->assertSame([], $rep['account_problems']);
+        $this->assertSame(['Pat Owner', 'Kim Partner'], array_column($rep['shareholders'], 'name'));
+        $prop = $rep['runs'][0]['proposal'];
+        $ticks = array_column(array_filter($prop['moves'], fn($m) => $m['checked']), 'id');
+        $before1302 = $this->net($db)[29] ?? 0.0;
+
+        $r = $svc->approve($runId, $ticks, 1);
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame(11, $r['moved']);
+        $net = $this->net($db);
+        $this->assertSame(6500.0, $net[$this->acct($db, '5100')], 'wages counted once (gross of all three)');
+        $this->assertSame(0.0, $net[$this->acct($db, '2310')] ?? 0.0);
+        $this->assertSame(0.0, $net[$this->acct($db, '2520')] ?? 0.0, 'net pay clearing at $0');
+        $this->assertSame(1213.5, $net[$this->acct($db, '1300')], 'Pat: beyond his net → his loan');
+        $this->assertSame(round($before1302 - 260.55, 2), $net[29], 'Kim: short of her net → CR her loan');
+        $this->assertSame(0.0, round(array_sum($net), 2));
+        $this->assertSame('1302', $this->codeOf($db, 23), 'her Funds transfer stays on 1302');
+        $booked = $svc->report()['runs'][0]['entry']['lines'];
+        $this->assertContains('1302', array_column($booked, 'account'), 'the page shows the entry as posted');
+
+        $this->assertTrue($svc->undo($runId, 1)['ok']);
+        $net = $this->net($db);
+        $this->assertSame(round($before1302, 2), $net[29] ?? 0.0);
+        $this->assertSame('5100', $this->codeOf($db, 20));
+    }
+
+    public function testShareholderProposalsGoToEachPersonsOwnAccount(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO chart_of_accounts (id, code, name, type) VALUES (29, '1302', 'Shareholder loan — Kim Partner', 'asset')");
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('payroll_shareholders', 'Pat Owner=1300\nKim Partner=1302')");
+        $db->prepare("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type, bank_account_id)
+                      VALUES (30, '2026-01-21', 'expense', 400.00, 'ETRANSFERDEBIT(KIMPARTNER)', ?, 'bank_import', 1)")->execute([$this->acct($db, '5100')]);
+        $sh = new ShareholderAccountService($db, $this->ledger($db));
+        $p = $sh->proposals();
+        $w = array_column($p['waiting'], 'to', 'id');
+        $this->assertSame('1302', $w[30]);
+        $this->assertSame('1300', $w[5]);
+        $this->assertSame('1300', $p['repayments'][0]['to']);
+        // Renaming the 1300 shareholder keeps the second one.
+        $sh->setShareholderName('Pat Owner', 1);
+        $this->assertSame(['Pat Owner' => '1300', 'Kim Partner' => '1302'], (new WavePayrollImportService($db, $this->ledger($db)))->shareholders());
+    }
+
     // ── SQLite fixture ──────────────────────────────────────────────────────
 
     private function ledger(PDO $db): LedgerService

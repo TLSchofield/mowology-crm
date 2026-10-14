@@ -291,3 +291,12 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - e-Transfers to Tim or Katrenna are PAY up to that person's Wave net pay for the month; anything beyond goes
   to their own shareholder loan (Tim 1300, Katrenna 1302). WavePayrollImportService does the match once the
   month's Wave "Wage & Tax Report" is imported and approved.
+- Built 2026-10-13: the shareholder list is ops_settings `payroll_shareholders` ("Name=code" per line, migration
+  1361; `WavePayrollImportService::shareholders()`); each one's sweep is `WavePayrollImportService::sweeps()` and
+  `buildEntry()` posts one DR/CR pair per shareholder on their own account. A shortfall (transfers below net) is
+  CR their loan — wages still owed to them. Booked months show the entry as posted (journal lines), not rebuilt.
+- **Trap found doing it:** half the year's e-Transfers print the name run together —
+  "ETRANSFERDEBIT(TIMSCHOFIELD)", "ETRANSFERDEBIT(KATRENNAMARENYCH)" (Jan–Feb, Jun). Word-based name matching
+  (`nameMatches()`, `ShareholderAccountService::isFromShareholder()`) never saw them; both now also match
+  FIRSTLAST with the letters joined. Her "Funds transfer … Pay As You Go Chequing" and "FUNDS TRANSFER TO REL
+  #4659904" lines carry no name and are never matched as pay.

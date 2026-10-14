@@ -27,8 +27,12 @@
  *   WAVE PYRL debits            → 2310 (subset that adds up to the month's remittance)
  *   e-Transfers to an employee  → 2520 (subset that adds up to that employee's net)
  *   WAVE payroll fee charges    → 6800 Bank Charges & Fees
- *   the shareholder's transfers to himself in the month → 2520, and the part beyond his
- *     net pay is swept DR 1300 Due from Shareholder / CR 2520 (a shortfall the other way)
+ *   each shareholder's transfers to them in the month → 2520, and the part beyond their
+ *     net pay is swept to THEIR loan account: DR 1300 (Tim) / DR 1302 (Katrenna) / CR 2520
+ *     (a shortfall the other way). Tim, 2026-10-13: "the larger amounts are to be considered
+ *     pay; if they exceed the Wave payroll, the balance should go to shareholder loan" — "same
+ *     for me". The list is ops_settings 'payroll_shareholders' ("Name=code" per line; migration
+ *     1361); the older single 'payroll_shareholder_name' still works (→ 1300).
  * After booking, 2310 and 2520 should be ~0 for the month; what isn't is shown for Tim.
  *
  * Also: hours per pay period against the CRM time clock (read only), and Penny's brief item
@@ -51,6 +55,8 @@ class WavePayrollImportService
     public const ACC_NET_PAY = '2520';
     public const ACC_SHAREHOLDER = LedgerService::ACC_DUE_FROM_SH;   // 1300
     public const ACC_FEES = '6800';
+    /** ops_settings: the shareholders on the Wave report, "Name=account code" one per line (or ';'). */
+    public const SETTING_SHAREHOLDERS = 'payroll_shareholders';
     public const BOOK_YEAR = 2026;
     /** Exact match (cents of rounding). */
     public const TOL = 0.05;
@@ -302,9 +308,12 @@ class WavePayrollImportService
 
     /**
      * The month's journal entry (account CODES; LedgerService resolves them). $sweep = the
-     * shareholder's transfers beyond his net pay (>0: DR 1300 / CR 2520; <0 the other way).
+     * shareholder's transfers beyond his net pay (>0: DR 1300 / CR 2520; <0 the other way) —
+     * a number (one shareholder, 1300), or a list from sweeps(): [{name, account, sweep}], one
+     * pair of lines per shareholder on their own loan account.
+     * @param float|array $sweep
      */
-    public static function buildEntry(array $totals, float $sweep, string $date, string $memo): array
+    public static function buildEntry(array $totals, $sweep, string $date, string $memo): array
     {
         $lines = [];
         $add = function (string $code, float $dr, float $cr, string $desc) use (&$lines) {
@@ -318,9 +327,13 @@ class WavePayrollImportService
         $add(self::ACC_EMPLOYER, $totals['employer'], 0, 'Employer EI + CPP');
         $add(self::ACC_SOURCE_DEDUCTIONS, 0, $totals['remittance'], 'Source deductions owed to CRA');
         $add(self::ACC_NET_PAY, 0, $totals['net'], 'Net pay to employees');
-        if (abs($sweep) >= 0.005) {
-            $add(self::ACC_SHAREHOLDER, $sweep > 0 ? $sweep : 0, $sweep < 0 ? -$sweep : 0, 'Shareholder transfers beyond net pay');
-            $add(self::ACC_NET_PAY, $sweep < 0 ? -$sweep : 0, $sweep > 0 ? $sweep : 0, 'Shareholder transfers beyond net pay');
+        $list = is_array($sweep) ? $sweep : [['name' => null, 'account' => self::ACC_SHAREHOLDER, 'sweep' => (float)$sweep]];
+        foreach ($list as $sw) {
+            $amt = round((float)($sw['sweep'] ?? 0), 2);
+            if (abs($amt) < 0.005) continue;
+            $desc = 'Shareholder transfers beyond net pay' . (!empty($sw['name']) ? ' — ' . $sw['name'] : '');
+            $add((string)($sw['account'] ?? self::ACC_SHAREHOLDER), $amt > 0 ? $amt : 0, $amt < 0 ? -$amt : 0, $desc);
+            $add(self::ACC_NET_PAY, $amt < 0 ? -$amt : 0, $amt > 0 ? $amt : 0, $desc);
         }
         return ['entry_date' => $date, 'memo' => $memo, 'lines' => $lines];
     }
@@ -328,6 +341,33 @@ class WavePayrollImportService
     // ═════════════════════════════════════════════════════════════════════════
     // Bank matching (pure)
     // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * "Tim Schofield=1300\nKatrenna Marenych=1302" (or ';'-separated) → name => account code.
+     * A name with no code is the 1300 shareholder.
+     */
+    public static function parseShareholders(string $v): array
+    {
+        $out = [];
+        foreach (preg_split('/[;\n]+/', $v) as $part) {
+            $part = trim($part);
+            if ($part === '') continue;
+            [$name, $code] = array_pad(array_map('trim', explode('=', $part, 2)), 2, '');
+            if ($name === '') continue;
+            $out[$name] = preg_match('/^\d{3,6}$/', $code) ? $code : self::ACC_SHAREHOLDER;
+        }
+        return $out;
+    }
+
+    /** null | 'Name' | [name => code] → [name => code]. */
+    public static function shareholderMap($shareholders): array
+    {
+        if ($shareholders === null || $shareholders === '' || $shareholders === []) return [];
+        if (is_string($shareholders)) return [trim($shareholders) => self::ACC_SHAREHOLDER];
+        $out = [];
+        foreach ($shareholders as $name => $code) $out[trim((string)$name)] = (string)$code;
+        return $out;
+    }
 
     /** Uppercase words of a bank description (non-letters → spaces). */
     private static function words(string $s): string
@@ -347,6 +387,9 @@ class WavePayrollImportService
         $hasFirst = $first !== '' && strpos($d, ' ' . $first . ' ') !== false;
         $hasLast = $last !== '' && strpos($d, ' ' . $last . ' ') !== false;
         if ($hasFirst && $hasLast) return true;
+        // Some statements print the name run together: "ETRANSFERDEBIT(KATRENNAMARENYCH)".
+        $compact = str_replace(' ', '', $d);
+        if ($first !== '' && $last !== '' && strpos($compact, str_replace(' ', '', $first . $last)) !== false) return true;
         $shares = function (string $field, string $v) use ($all, $emp) {
             foreach ($all as $o) {
                 if ($o['name'] === $emp['name']) continue;
@@ -398,11 +441,14 @@ class WavePayrollImportService
     /**
      * Penny's proposal for one month. $lines: bank lines [id, date, amount, description,
      * direction ('in'|'out'), account_code]. $claimed: ids taken by earlier months (updated).
-     * $shareholder: the employee name who is the shareholder (his transfers → net pay + sweep).
-     * @return array{remittance: array, employees: array, shareholder: ?array, fees: array, moves: array, clearing: array}
+     * $shareholders: the shareholder employees — a name (→ 1300) or [name => loan account code];
+     * each one's transfers → net pay first, the rest swept to their own loan account.
+     * @param null|string|array $shareholders
+     * @return array{remittance: array, employees: array, shareholder: ?array, shareholders: array, fees: array, moves: array, clearing: array}
      */
-    public static function matchMonth(array $month, array $lines, ?string $shareholder, array &$claimed): array
+    public static function matchMonth(array $month, array $lines, $shareholders, array &$claimed): array
     {
+        $shMap = self::shareholderMap($shareholders);
         $ym = $month['month'];
         $start = $ym . '-01';
         $end = date('Y-m-t', strtotime($start));
@@ -453,10 +499,12 @@ class WavePayrollImportService
 
         // ── Net pay: e-Transfers to each employee ──
         $emps = [];
-        $sh = null;
+        $shs = [];
         foreach ($month['employees'] as $e) {
             $mine = [];
-            $isSh = $shareholder !== null && strcasecmp(trim($e['name']), trim($shareholder)) === 0;
+            $shAcct = null;
+            foreach ($shMap as $n => $code) if (strcasecmp(trim($e['name']), $n) === 0) $shAcct = $code;
+            $isSh = $shAcct !== null;
             foreach ($out as $l) {
                 if (isset($claimed[$l['id']]) || preg_match(self::WAVE_REMIT_RE, $l['description'])) continue;
                 $lo = $isSh ? $start : self::addDays($start, -3);
@@ -470,8 +518,8 @@ class WavePayrollImportService
                 // Every transfer to himself that month: net pay first, the rest is a shareholder withdrawal.
                 foreach ($mine as $id => $l) { $moves[] = $mk($l, 'shareholder', self::ACC_NET_PAY, true, $e['name']); $claimed[$id] = true; }
                 $total = round(array_sum(array_map(fn($l) => (float)$l['amount'], $mine)), 2);
-                $sh = ['name' => $e['name'], 'net' => round($net, 2), 'transfers' => $total, 'sweep' => $mine ? round($total - $net, 2) : 0.0,
-                       'ids' => array_keys($mine)];
+                $shs[] = ['name' => $e['name'], 'account' => $shAcct, 'net' => round($net, 2), 'transfers' => $total,
+                          'sweep' => $mine ? round($total - $net, 2) : 0.0, 'ids' => array_keys($mine)];
                 continue;
             }
             $row = ['name' => $e['name'], 'target' => round($net, 2), 'status' => 'none', 'found' => 0.0, 'ids' => [], 'candidates' => count($mine)];
@@ -494,8 +542,8 @@ class WavePayrollImportService
             $emps[] = $row;
         }
 
-        return ['remittance' => $remit, 'employees' => $emps, 'shareholder' => $sh, 'fees' => $fees, 'moves' => $moves,
-                'clearing' => self::clearing($t, $moves, $sh)];
+        return ['remittance' => $remit, 'employees' => $emps, 'shareholder' => $shs[0] ?? null, 'shareholders' => $shs, 'fees' => $fees,
+                'moves' => $moves, 'clearing' => self::clearing($t, $moves, $shs)];
     }
 
     /**
@@ -512,12 +560,37 @@ class WavePayrollImportService
             if ($m['role'] === 'net_pay') $netPaid += $m['amount'];
             if ($m['role'] === 'shareholder') $shPaid += $m['amount'];
         }
-        $sweep = ($sh && $shPaid > 0) ? round($shPaid - $sh['net'], 2) : 0.0;
+        $sweep = round(array_sum(array_column(self::sweeps($moves, $sh, $tickedIds), 'sweep')), 2);
         return [
             'source_deductions' => round($totals['remittance'] - $remitPaid, 2),
             'net_pay' => round($totals['net'] - $netPaid - $shPaid + $sweep, 2),
             'sweep' => $sweep,
         ];
+    }
+
+    /**
+     * Each shareholder's sweep with the ticked moves: their ticked transfers − their net pay
+     * (nothing ticked → 0, their net stays in clearing). $sh: one shareholder row or a list.
+     * @return array<int, array{name: string, account: string, sweep: float}>
+     */
+    public static function sweeps(array $moves, ?array $sh, ?array $tickedIds = null): array
+    {
+        if (!$sh) return [];
+        $list = isset($sh['name']) ? [$sh] : $sh;
+        $isTicked = fn($m) => $tickedIds === null ? $m['checked'] : in_array($m['id'], $tickedIds, true);
+        $single = count($list) === 1;
+        $out = [];
+        foreach ($list as $s) {
+            $paid = 0.0;
+            foreach ($moves as $m) {
+                if ($m['role'] !== 'shareholder' || !$isTicked($m)) continue;
+                if (!$single && strcasecmp((string)($m['employee'] ?? ''), (string)$s['name']) !== 0) continue;
+                $paid += $m['amount'];
+            }
+            $out[] = ['name' => (string)$s['name'], 'account' => (string)($s['account'] ?? self::ACC_SHAREHOLDER),
+                      'sweep' => $paid > 0 ? round($paid - (float)$s['net'], 2) : 0.0];
+        }
+        return $out;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -687,14 +760,34 @@ class WavePayrollImportService
                                            ->fetchAll(PDO::FETCH_COLUMN));
     }
 
-    /** The shareholder employee (ops_settings 'payroll_shareholder_name'), or null. */
+    /**
+     * The shareholder employees → their loan account: ops_settings 'payroll_shareholders'
+     * ("Tim Schofield=1300\nKatrenna Marenych=1302"), else the older single
+     * 'payroll_shareholder_name' (→ 1300), else none.
+     * @return array<string, string> name => account code
+     */
+    public function shareholders(): array
+    {
+        $list = self::parseShareholders((string)$this->setting(self::SETTING_SHAREHOLDERS));
+        if ($list) return $list;
+        $one = trim((string)$this->setting('payroll_shareholder_name'));
+        return $one === '' ? [] : [$one => self::ACC_SHAREHOLDER];
+    }
+
+    /** The shareholder on 1300 Due from Shareholder (Tim), or null. */
     public function shareholderName(): ?string
     {
+        foreach ($this->shareholders() as $name => $code) if ($code === self::ACC_SHAREHOLDER) return $name;
+        return null;
+    }
+
+    private function setting(string $key): ?string
+    {
         try {
-            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'payroll_shareholder_name'");
-            $s->execute();
-            $v = trim((string)$s->fetchColumn());
-            return $v === '' ? null : $v;
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
+            $v = $s->fetchColumn();
+            return $v === false ? null : (string)$v;
         } catch (Throwable $e) {
             return null;
         }
@@ -742,7 +835,7 @@ class WavePayrollImportService
         $to = self::addDays(date('Y-m-t', strtotime(end($preview)['month'] . '-01')), 10);
         $locked = $this->lockedMonths();
         $lines = array_values(array_filter($this->bankLines($from, $to), fn($l) => !in_array(substr($l['date'], 0, 7), $locked, true)));
-        $sh = $this->shareholderName();
+        $sh = $this->shareholders();
         $claimed = [];
         $out = [];
         foreach ($preview as $r) $out[$r['id']] = self::matchMonth($r, $lines, $sh, $claimed);
@@ -765,15 +858,40 @@ class WavePayrollImportService
                 $r['clearing_ledger'] = ['source_deductions' => $this->monthMovement(self::ACC_SOURCE_DEDUCTIONS, $r['month']),
                                          'net_pay' => $this->monthMovement(self::ACC_NET_PAY, $r['month'])];
             }
-            $sweep = $r['status'] === 'preview' ? (float)($r['proposal']['clearing']['sweep'] ?? 0) : $r['sweep'];
-            $r['entry'] = self::buildEntry($r['totals'], $sweep, $r['last_payday'], self::memo($r));
+            if ($r['status'] === 'preview') {
+                $p = $r['proposal'] ?? null;
+                $sweep = $p ? self::sweeps($p['moves'], $p['shareholders'] ?? $p['shareholder']) : 0.0;
+                $r['entry'] = self::buildEntry($r['totals'], $sweep, $r['last_payday'], self::memo($r));
+            } else {
+                // Booked: the entry as posted (its sweep lines name each shareholder's own account).
+                $r['entry'] = $this->postedEntry($r) ?? self::buildEntry($r['totals'], $r['sweep'], $r['last_payday'], self::memo($r));
+            }
             $r['hours'] = $this->hoursCheck($r['employees']);
         }
         unset($r);
         $booked = array_values(array_map(fn($r) => $r['month'], array_filter($runs, fn($r) => $r['status'] === 'booked')));
-        return ['runs' => $runs, 'accounts' => $names, 'account_problems' => self::accountProblems($names),
-                'shareholder' => $this->shareholderName(), 'booked_months' => $booked,
+        $shList = [];
+        foreach ($this->shareholders() as $n => $code) $shList[] = ['name' => $n, 'account' => $code, 'account_name' => $names[$code] ?? null];
+        return ['runs' => $runs, 'accounts' => $names, 'account_problems' => self::accountProblems($names, array_values($this->shareholders())),
+                'shareholder' => $this->shareholderName(), 'shareholders' => $shList, 'booked_months' => $booked,
                 'employees' => array_values(array_unique(array_merge(...array_map(fn($r) => array_column($r['employees'], 'name'), $runs ?: [['employees' => []]]))))];
+    }
+
+    /** A booked run's journal entry as posted (account codes), or null. */
+    private function postedEntry(array $run): ?array
+    {
+        if (empty($run['journal_entry_id'])) return null;
+        try {
+            $s = $this->db->prepare("SELECT c.code AS account, l.debit, l.credit, l.description FROM journal_lines l
+                                     JOIN chart_of_accounts c ON c.id = l.account_id WHERE l.entry_id = ? ORDER BY l.id");
+            $s->execute([(int)$run['journal_entry_id']]);
+            $lines = array_map(fn($l) => ['account' => (string)$l['account'], 'debit' => round((float)$l['debit'], 2),
+                                           'credit' => round((float)$l['credit'], 2), 'description' => (string)($l['description'] ?? '')],
+                               $s->fetchAll(PDO::FETCH_ASSOC));
+            return $lines ? ['entry_date' => $run['last_payday'], 'memo' => self::memo($run), 'lines' => $lines] : null;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     public static function memo(array $run): string
@@ -794,7 +912,7 @@ class WavePayrollImportService
     public function accountNames(): array
     {
         $out = [];
-        foreach (array_merge(array_keys(self::ACCOUNT_NAME_RE), [self::ACC_FEES]) as $code) {
+        foreach (array_unique(array_merge(array_map('strval', array_keys(self::ACCOUNT_NAME_RE)), [self::ACC_FEES], array_values($this->shareholders()))) as $code) {
             $s = $this->db->prepare("SELECT name FROM chart_of_accounts WHERE code = ? LIMIT 1");
             $s->execute([(string)$code]);
             $n = $s->fetchColumn();
@@ -803,10 +921,19 @@ class WavePayrollImportService
         return $out;
     }
 
-    /** Accounts missing or named for something else (then nothing is booked). */
-    public static function accountProblems(array $names): array
+    /**
+     * Accounts missing or named for something else (then nothing is booked). $shareholderCodes:
+     * each shareholder's loan account (must exist and be a shareholder account).
+     */
+    public static function accountProblems(array $names, array $shareholderCodes = []): array
     {
         $p = [];
+        foreach (array_unique(array_map('strval', $shareholderCodes)) as $code) {
+            if ($code === self::ACC_SHAREHOLDER) continue;   // checked below
+            $n = $names[$code] ?? null;
+            if ($n === null) $p[] = "Shareholder loan account {$code} doesn't exist.";
+            elseif (!preg_match('/shareholder/i', $n)) $p[] = "Account {$code} is \"{$n}\" — not a shareholder loan account. Nothing is booked until it's sorted.";
+        }
         foreach (self::ACCOUNT_NAME_RE as $code => $re) {
             $n = $names[(string)$code] ?? null;
             if ($n === null) $p[] = "Account {$code} doesn't exist yet — run migration 1255.";
@@ -905,7 +1032,7 @@ class WavePayrollImportService
         if ($run['estimate'] && !$bookEstimate) {
             return ['ok' => false, 'message' => 'This month is split out of a multi-month report by hours — an estimate. Download the month on its own, or tick "book the estimate".'];
         }
-        $problems = self::accountProblems($this->accountNames());
+        $problems = self::accountProblems($this->accountNames(), array_values($this->shareholders()));
         if ($problems) return ['ok' => false, 'message' => implode(' ', $problems)];
         $s = $this->db->prepare("SELECT COUNT(*) FROM payroll_runs WHERE period_month = ? AND status = 'booked'");
         $s->execute([$run['month']]);
@@ -916,9 +1043,11 @@ class WavePayrollImportService
         if (!$prop) return ['ok' => false, 'message' => 'Could not rebuild the bank matches — reload the page.'];
         $tick = array_map('intval', $tickIds);
         $moves = array_values(array_filter($prop['moves'], fn($m) => in_array($m['id'], $tick, true)));
-        $clear = self::clearing($run['totals'], $prop['moves'], $prop['shareholder'], array_column($moves, 'id'));
+        $shRows = $prop['shareholders'] ?? $prop['shareholder'];
+        $clear = self::clearing($run['totals'], $prop['moves'], $shRows, array_column($moves, 'id'));
+        $clear['sweeps'] = self::sweeps($prop['moves'], $shRows, array_column($moves, 'id'));
 
-        $entry = self::buildEntry($run['totals'], $clear['sweep'], $run['last_payday'], self::memo($run));
+        $entry = self::buildEntry($run['totals'], $clear['sweeps'], $run['last_payday'], self::memo($run));
         $entry += ['source_type' => 'payroll_run', 'source_id' => $runId, 'created_by' => $userId, 'proposed_by' => 'penny'];
         $entryId = $this->ledger->postManual($entry);
 
