@@ -62,6 +62,30 @@ class PaymentClueService
         return null;   // nothing, or more than one client could be it: a guess, so no clue
     }
 
+    /** Interac alert texts are this many days before a deposit at most (a "claim" transfer waits to be claimed). */
+    public const ALERT_DAYS_BEFORE = 30;
+
+    /**
+     * Names from Interac's own alert texts ("NAME sent you money") from ALERT_DAYS_BEFORE days before
+     * a deposit to the day after, newest first. The alert has no amount, so these are only payer-name
+     * hints for ranking invoices — some are personal money (Gary Hughes, 2026-06-06). [] when none.
+     * @return list<array{name: string, date: string}>
+     */
+    public function alertSendersFor(string $date, int $limit = 5): array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT from_name, MAX(sent_at) AS at FROM sales_messages
+                WHERE mailbox = 'interac' AND sent_at >= ? AND sent_at < ?
+                GROUP BY from_name ORDER BY at DESC LIMIT " . max(1, min(10, $limit)));
+            $s->execute([date('Y-m-d 00:00:00', strtotime($date . ' -' . self::ALERT_DAYS_BEFORE . ' days')),
+                         date('Y-m-d 00:00:00', strtotime($date . ' +2 days'))]);
+            return array_map(fn($r) => ['name' => (string)$r['from_name'], 'date' => substr((string)$r['at'], 0, 10)], $s->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
     /** The clue for a deposit on $date of $amount, or null. */
     public function clueFor(string $date, float $amount): ?array
     {

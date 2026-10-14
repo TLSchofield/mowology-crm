@@ -180,6 +180,7 @@
               '<div class="mw-bl-desc">' + esc(l.description) + '</div>' +
               '<div class="mw-bl-now">Booked now: <s>income — ' + esc(l.current ? l.current.name : 'No account') + '</s></div>' +
               (r.ok && r.email ? '<div class="mw-bl-now">📧 Interac email from <b>' + esc(r.email.sender || '?') + '</b>' + (r.email.memo ? ' — “' + esc(r.email.memo) + '”' : '') + '</div>' : '') +
+              (r.ok && r.alerts && r.alerts.length ? '<div class="mw-bl-now">📱 Interac alerts before this: ' + r.alerts.map(function (a) { return '<b>' + esc(a.name) + '</b> (' + esc(a.date) + ')'; }).join(', ') + '</div>' : '') +
               (r.ok && r.text ? '<div class="mw-bl-now">💬 Text from <b>' + esc(r.text.name) + '</b> on ' + esc(r.text.date) + (r.text.exact ? ' (same amount)' : '') + ': “' + esc(r.text.snippet) + '”</div>' : '') +
             '</div>' +
             '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') +

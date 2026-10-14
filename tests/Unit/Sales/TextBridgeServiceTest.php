@@ -20,7 +20,7 @@ class TextBridgeServiceTest extends TestCase
         $db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, phone TEXT, mobile TEXT, is_active INTEGER DEFAULT 1)");
         $db->exec("CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)");
         $db->exec("CREATE TABLE sales_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, mailbox TEXT NOT NULL, message_key TEXT NOT NULL UNIQUE,
-                   direction TEXT NOT NULL, channel TEXT NOT NULL DEFAULT 'email', contact_id INTEGER, from_addr TEXT, to_addr TEXT,
+                   direction TEXT NOT NULL, channel TEXT NOT NULL DEFAULT 'email', contact_id INTEGER, from_addr TEXT, from_name TEXT, to_addr TEXT,
                    subject TEXT, snippet TEXT, sent_at TEXT NOT NULL)");
         $db->exec("INSERT INTO ops_settings VALUES ('text_bridge_salt', '" . self::SALT . "', '')");
         $db->exec("INSERT INTO contacts (id, first_name, last_name, phone, mobile, is_active) VALUES
@@ -129,6 +129,25 @@ class TextBridgeServiceTest extends TestCase
     {
         $row = TextBridgeService::row($this->msg(['text' => str_repeat('word ', 400)]), [self::VECTOR_HASH => 7]);
         $this->assertLessThanOrEqual(TextBridgeService::SNIPPET_MAX, mb_strlen($row['snippet']));
+    }
+
+    public function test_interac_alerts_are_stored_once_by_name_and_read_back_for_a_deposit(): void
+    {
+        $db = $this->db();
+        $svc = new TextBridgeService($db);
+        $jun15 = strtotime('2026-06-15 10:00:00');
+        $alert = ['guid' => 'SMS-1', 'sent_at' => $jun15, 'sender' => 'JOSEPH GALLENTINE'];
+        $this->assertSame(['stored' => 1, 'dupe' => 0, 'invalid' => 0], $svc->ingestInterac([$alert]));
+        $this->assertSame(['stored' => 0, 'dupe' => 1, 'invalid' => 0], $svc->ingestInterac([$alert]), 'resent: once');
+        $bad = $svc->ingestInterac([['guid' => 'SMS-2', 'sent_at' => $jun15, 'sender' => 'see https://et.interac.ca/sl/x'], ['guid' => '', 'sent_at' => $jun15, 'sender' => 'A']]);
+        $this->assertSame(2, $bad['invalid'], 'a link or a missing id is refused');
+        $row = $db->query("SELECT mailbox, contact_id, from_name FROM sales_messages")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(['mailbox' => 'interac', 'contact_id' => null, 'from_name' => 'JOSEPH GALLENTINE'], $row);
+
+        // Penny: his $63 reached the bank on Jun 21 (claimed six days later) — the alert is a payer hint.
+        $clue = new PaymentClueService($db);
+        $this->assertSame([['name' => 'JOSEPH GALLENTINE', 'date' => '2026-06-15']], $clue->alertSendersFor('2026-06-21'));
+        $this->assertSame([], $clue->alertSendersFor('2026-08-21'), 'more than 30 days later: not this deposit');
     }
 
     public function test_heartbeat_keeps_counts_only_and_status_flags_silence(): void

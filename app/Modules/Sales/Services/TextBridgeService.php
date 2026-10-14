@@ -104,6 +104,44 @@ class TextBridgeService
         return $res;
     }
 
+    /** Stored Interac alert texts (mailbox 'interac'): who sent money and when, no amount. */
+    public const INTERAC_MAILBOX = 'interac';
+
+    /**
+     * Interac alert texts from the bridge: {guid, sent_at, sender} each. Stored as sales_messages
+     * with mailbox 'interac', no contact (the sender may not be one, or may be personal money);
+     * Penny reads them as payer-name hints for a deposit (PaymentClueService::alertSendersFor).
+     * @return array{stored: int, dupe: int, invalid: int}
+     */
+    public function ingestInterac(array $alerts): array
+    {
+        $res = ['stored' => 0, 'dupe' => 0, 'invalid' => 0];
+        $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+        $s = $this->db->prepare("
+            {$verb} INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, from_name, to_addr, subject, snippet, sent_at)
+            VALUES (?, ?, 'inbound', 'sms', NULL, 'interac', ?, 'text', NULL, ?, ?)
+        ");
+        foreach ($alerts as $a) {
+            $row = is_array($a) ? self::interacRow($a) : null;
+            if ($row === null) { $res['invalid']++; continue; }
+            $s->execute([self::INTERAC_MAILBOX, $row['key'], $row['sender'], $row['sender'] . ' sent you money (Interac alert)', $row['sent_at']]);
+            $s->rowCount() > 0 ? $res['stored']++ : $res['dupe']++;
+        }
+        return $res;
+    }
+
+    /** Pure (tested): one alert → a row, or null when malformed. */
+    public static function interacRow(array $a): ?array
+    {
+        $guid = (string)($a['guid'] ?? '');
+        $at = $a['sent_at'] ?? null;
+        $sender = trim(preg_replace('/\s+/', ' ', (string)($a['sender'] ?? '')));
+        if (!preg_match('~^[A-Za-z0-9:_/\-]{1,150}$~', $guid)) return null;
+        if (!is_numeric($at) || (int)$at < 946684800 || (int)$at > time() + 86400) return null;
+        if ($sender === '' || mb_strlen($sender) > 120 || preg_match('~https?:|www\.|/~i', $sender)) return null;
+        return ['key' => 'interac-' . $guid, 'sender' => $sender, 'sent_at' => date('Y-m-d H:i:s', (int)$at)];
+    }
+
     /** Last-seen + counts from the Mac (numbers only). */
     public function heartbeat(array $counts): array
     {

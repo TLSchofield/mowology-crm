@@ -33,7 +33,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.0"
+VERSION = "1.1"
 DEFAULT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 DEFAULT_STATE_DIR = os.path.expanduser("~/Library/Application Support/mowology-bridge")
 DEFAULT_URL = "https://mowology.ca/crm/api/text-bridge.php"
@@ -181,6 +181,26 @@ def match(rows, salt, hashes):
     return out, len(customers)
 
 
+# Interac's own alert texts (short code 100001): "INTERAC e-Transfer: NAME sent you money. See …".
+# Only the sender's name and the time go up — no link, no number (2026-10-14: Penny pairs the name
+# with the bank deposit; the alert carries no amount). Outgoing ("X accepted your money transfer")
+# and account notices are ignored.
+INTERAC_SHORT_CODES = {"100001"}
+INTERAC_SENT = re.compile(r"^INTERAC e-Transfer:\s*(.+?)\s+sent you money\b", re.I)
+
+
+def interac_alerts(rows):
+    out = []
+    for r in rows:
+        if r["from_me"] or re.sub(r"\D", "", r["handle"] or "") not in INTERAC_SHORT_CODES:
+            continue
+        m = INTERAC_SENT.match(r["text"])
+        if not m:
+            continue
+        out.append({"guid": r["guid"], "sent_at": r["sent_at"], "sender": m.group(1).strip()[:120]})
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # State, token, CRM client
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,8 +292,9 @@ def run(db_path, state_dir, client, dry_run=False, now=None, out=print):
 
     salt, hashes = client.numbers()
     matched, customers = match(rows, salt, hashes)
+    alerts = interac_alerts(rows)
     counts = {"scanned": scanned, "one_to_one": len(rows), "matched_customers": customers,
-              "texts": len(matched)}
+              "texts": len(matched), "interac": len(alerts)}
 
     if dry_run:
         out("dry run: scanned %d, one-to-one %d, matched %d customers, would send %d texts"
@@ -284,14 +305,16 @@ def run(db_path, state_dir, client, dry_run=False, now=None, out=print):
     for i in range(0, len(matched), BATCH):
         res = client.post("ingest", {"messages": matched[i:i + BATCH]})
         stored += int(res.get("stored", 0))
+    if alerts:
+        client.post("interac", {"alerts": alerts})
     # Only after every batch was accepted: a failure above leaves the mark where it was,
     # so the next run re-sends (the CRM ignores duplicates by guid).
     save_state(state_dir, {"rowid": max_rowid, "updated": int(now)})
     counts["stored"] = stored
     client.post("heartbeat", {"scanned": scanned, "one_to_one": len(rows), "matched_customers": customers,
                               "sent": len(matched), "stored": stored, "version": VERSION})
-    out("%s scanned %d, one-to-one %d, matched %d customers, sent %d texts, %d new"
-        % (time.strftime("%Y-%m-%d %H:%M:%S"), scanned, len(rows), customers, len(matched), stored))
+    out("%s scanned %d, one-to-one %d, matched %d customers, sent %d texts, %d new, %d Interac alerts"
+        % (time.strftime("%Y-%m-%d %H:%M:%S"), scanned, len(rows), customers, len(matched), stored, len(alerts)))
     return counts
 
 

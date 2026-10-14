@@ -6,6 +6,7 @@
  *                        (last 10 digits). Contact ids and numbers never leave the CRM.
  * POST {mode: 'ingest', messages: [{hash, direction: in|out, sent_at, guid, text}, ...]}
  *                        at most 500 per call; unknown hashes are rejected, duplicates ignored.
+ * POST {mode: 'interac', alerts: [{guid, sent_at, sender}, ...]}  Interac alert texts (name + time only)
  * POST {mode: 'heartbeat', scanned, one_to_one, matched_customers, sent, stored, version}
  *
  * A machine endpoint: no session, no login. Auth is a bearer token compared (hash_equals)
@@ -81,6 +82,12 @@ try {
             $reply(413, ['ok' => false, 'error' => 'at most ' . TextBridgeService::MAX_BATCH . ' messages per call']);
         }
         $reply(200, ['ok' => true] + $svc->ingest(array_values($msgs)));
+    }
+    if ($method === 'POST' && $mode === 'interac') {
+        // Interac's own alert texts (bridge 1.1): sender name + time only, for Penny (2026-10-14).
+        $alerts = $input['alerts'] ?? null;
+        if (!is_array($alerts) || count($alerts) > TextBridgeService::MAX_BATCH) $reply(400, ['ok' => false, 'error' => 'alerts missing or too many']);
+        $reply(200, ['ok' => true] + $svc->ingestInterac(array_values($alerts)));
     }
     if ($method === 'POST' && $mode === 'heartbeat') {
         $svc->heartbeat($input);

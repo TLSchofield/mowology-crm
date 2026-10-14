@@ -69,6 +69,9 @@ class BankInvoiceMatchService
         // Gallentine's $65 reached no mailbox; his text or his bank's name is the only record of who sent it.
         $text = $email ? null : (new PaymentClueService($this->db))->clueFor($date, $amount);
         if ($text && $text['name'] !== '') $payerNames['Text from'] = $text['name'];
+        // Interac's own alert texts in the month before ("JOSEPH GALLENTINE sent you money"): name hints only.
+        $alerts = $email ? [] : (new PaymentClueService($this->db))->alertSendersFor($date);
+        foreach ($alerts as $a) $payerNames['Interac alert text: ' . $a['name']] = $a['name'];
         // A bank memo that names its payer ("VML EFT …" → Vancouver Management Ltd, migration 1284).
         foreach (self::memoPayers((string)$line['description'], $this->memoPayerRows()) as $p) {
             $payerNames['The bank memo is from'] = $payerNames['The bank memo is from'] ?? $p;
@@ -112,6 +115,7 @@ class BankInvoiceMatchService
                                     'status' => $email['status'], 'say' => $email['say'] ?? null] : null,
             'text'     => $text ? ['name' => $text['name'], 'date' => substr($text['sent_at'], 0, 10), 'snippet' => mb_substr($text['snippet'], 0, 160),
                                    'exact' => $text['exact']] : null,
+            'alerts'   => $alerts,
             'recorded' => $recorded,
             'legacy'   => $legacy,
             'invoices' => $invoices,

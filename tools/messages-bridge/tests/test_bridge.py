@@ -246,6 +246,21 @@ class RunTest(unittest.TestCase):
             self.run_bridge(Failing([CUSTOMER]))
         self.assertIsNone(bridge.load_state(self.state))
 
+    def test_interac_alerts_send_only_the_name_and_time(self):
+        ic = self.fx.handle("100001")
+        c = self.fx.chat(ic)
+        self.fx.msg(c, ic, text="INTERAC e-Transfer: JOSEPH GALLENTINE sent you money. See https://et.interac.ca/sl/F57S0cUXBKU4. Data rates may apply")
+        self.fx.msg(c, ic, text="INTERAC e-Transfer: Tim Schofield accepted your money transfer")
+        self.fx.msg(c, ic, text="INTERAC e-Transfer: Your Autodeposit registration is no longer active.")
+        client = FakeClient([])
+        self.run_bridge(client)
+        posted = [p for mode, p in client.posts if mode == "interac"]
+        self.assertEqual(1, len(posted))
+        self.assertEqual(["JOSEPH GALLENTINE"], [a["sender"] for a in posted[0]["alerts"]])
+        self.assertEqual({"guid", "sent_at", "sender"}, set(posted[0]["alerts"][0]))
+        self.assertNotIn("interac.ca", repr(posted))
+        self.assertEqual([], client.sent(), "a short code is never a customer text")
+
     def test_database_is_opened_read_only(self):
         conn = bridge.open_readonly(self.fx.path)
         with self.assertRaises(sqlite3.OperationalError):
