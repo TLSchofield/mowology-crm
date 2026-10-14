@@ -111,13 +111,15 @@ class RouteProofService
 
         $sites = [];
         $s = $this->db->prepare("
-            SELECT jv.id AS visit_id, p.id AS property_id, p.latitude, p.longitude
+            SELECT jv.id AS visit_id, p.id AS property_id, p.latitude, p.longitude,
+                   DATE(COALESCE(jv.completed_at, jv.scheduled_date)) AS day
             FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id JOIN properties p ON p.id = jp.property_id
             WHERE jv.id IN ($in)
         ");
         $s->execute($visitIds);
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $sites[(int)$r['visit_id']] = ['lat' => $r['latitude'], 'lng' => $r['longitude'], 'polygon' => $this->border((int)$r['property_id'])];
+            $sites[(int)$r['visit_id']] = ['lat' => $r['latitude'], 'lng' => $r['longitude'], 'polygon' => $this->border((int)$r['property_id']),
+                                           'day' => $r['day']];
         }
 
         $s = $this->db->prepare("
@@ -136,6 +138,26 @@ class RouteProofService
         $out = [];
         foreach ($byVisit as $vid => $fixes) {
             $kept = self::onSite($fixes, $sites[$vid] ?? [], $radius);
+            if ($kept) $out[$vid] = $kept;
+        }
+        // No timer ran (the truck tablet never starts one), or the visit was recorded afterwards:
+        // the fixes ON the property that day are still proof the crew was there — same on-site
+        // rule, never the fuel stop or the lunch. Terry Baird's cuts showed "GPS data not
+        // available" although the tablet sat on her lawn 13:01–13:13 on 9 Oct (2026-10-13).
+        foreach ($sites as $vid => $site) {
+            if (isset($out[$vid]) || empty($site['day']) || !is_numeric($site['lat']) || !is_numeric($site['lng'])) continue;
+            $lat = (float)$site['lat']; $lng = (float)$site['lng'];
+            $dLat = ($radius + 50) / 111320; $dLng = ($radius + 50) / (111320 * max(0.2, cos(deg2rad($lat))));
+            $f = $this->db->prepare("
+                SELECT ? AS visit_id, latitude, longitude, timestamp, is_mock
+                FROM crew_location_history
+                WHERE timestamp >= ? AND timestamp < DATE_ADD(?, INTERVAL 1 DAY)
+                  AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?
+                ORDER BY timestamp ASC
+                LIMIT 500
+            ");
+            $f->execute([$vid, $site['day'], $site['day'], $lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+            $kept = self::onSite($f->fetchAll(PDO::FETCH_ASSOC), $site, $radius);
             if ($kept) $out[$vid] = $kept;
         }
         return $out;
