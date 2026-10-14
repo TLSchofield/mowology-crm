@@ -99,11 +99,16 @@ class EtransferInboxService
         $memo = null;
         if (preg_match('/^Message:\s*(.+?)\s*Transfer Details/ims', $body, $m)) {
             $memo = trim(preg_replace('/\s+/', ' ', $m[1]));
+        } elseif (preg_match('/^Message:\s*(.+?)\s*^\s*(?:Date|Reference Number|Sent From|Amount):/ims', $body, $m)) {
+            // 2026-10 layout: "Message:" sits INSIDE the Transfer Details box, before "Date:"
+            // (Alberta 3025 Strata, "Invs 2026-0251 and 0383" — read as no memo).
+            $memo = trim(preg_replace('/\s+/', ' ', $m[1]));
         }
 
-        // Invoice number from the memo (or anywhere in the body). Accept
-        // "INV-2026-0096", "INV 2026 0096", "inv2026-96" → normalise.
-        $invoiceHint = self::extractInvoiceNumber($memo ?? '') ?? self::extractInvoiceNumber($body);
+        // Invoice numbers from the memo (or anywhere in the body). Accept
+        // "INV-2026-0096", "INV 2026 0096", "inv2026-96", "Invs 2026-0251 and 0383" → normalise.
+        $invoiceHints = self::extractInvoiceNumbers($memo ?? '') ?: self::extractInvoiceNumbers($body);
+        $invoiceHint = $invoiceHints[0] ?? null;
 
         // Transfer type — auto-deposited vs needs manual claiming.
         $type = 'unknown';
@@ -123,6 +128,7 @@ class EtransferInboxService
             'reference_number' => $reference,
             'memo'             => $memo,
             'invoice_hint'     => $invoiceHint,
+            'invoice_hints'    => $invoiceHints,
             'transfer_type'    => $type,
             'deposit_url'      => $depositUrl,
             'expires_on'       => $expiresOn,
@@ -196,10 +202,27 @@ class EtransferInboxService
         }
         // Accept both the "INV" abbreviation and the full word "invoice" — customers
         // typing memos write "invoice 2026-0308" at least as often as "INV-2026-0308".
-        if (preg_match('/\b(?:INV|invoice)[-\s]?(\d{4})[-\s]?(\d{2,5})\b/i', $text, $m)) {
-            return 'INV-' . $m[1] . '-' . str_pad($m[2], 4, '0', STR_PAD_LEFT);
+        return self::extractInvoiceNumbers($text)[0] ?? null;
+    }
+
+    /**
+     * Every invoice number in a memo, in order: "Invs 2026-0251 and 0383" → INV-2026-0251, INV-2026-0383
+     * (a bare number after "and" / "," / "&" takes the year before it). Pure (tested).
+     * @return string[]
+     */
+    public static function extractInvoiceNumbers(string $text): array
+    {
+        if ($text === '' || !preg_match_all('/\b(?:INVS?|invoices?)[-\s#:]*(\d{4})[-\s]?(\d{2,5})\b((?:\s*(?:,|&|and|\+)\s*#?\d{2,5}\b)*)/i', $text, $all, PREG_SET_ORDER)) {
+            return [];
         }
-        return null;
+        $out = [];
+        foreach ($all as $m) {
+            $out[] = 'INV-' . $m[1] . '-' . str_pad($m[2], 4, '0', STR_PAD_LEFT);
+            if (!empty($m[3]) && preg_match_all('/\d{2,5}/', $m[3], $more)) {
+                foreach ($more[0] as $n) $out[] = 'INV-' . $m[1] . '-' . str_pad($n, 4, '0', STR_PAD_LEFT);
+            }
+        }
+        return array_values(array_unique($out));
     }
 
     /**
@@ -230,20 +253,28 @@ class EtransferInboxService
             }
         }
 
-        // 1. Exact: invoice number from the memo.
-        if (!empty($parsed['invoice_hint'])) {
+        // 1. Exact: invoice number from the memo. Several named ("Invs 2026-0251 and 0383"): the first
+        // one still owing — a memo can name one already paid (2026-10-14).
+        $hints = !empty($parsed['invoice_hints']) ? (array)$parsed['invoice_hints'] : (!empty($parsed['invoice_hint']) ? [$parsed['invoice_hint']] : []);
+        if ($hints) {
             $stmt = $this->db->prepare(
                 "SELECT id, invoice_number, balance_due, total, status
                    FROM invoices WHERE invoice_number = ? LIMIT 1"
             );
-            $stmt->execute([$parsed['invoice_hint']]);
-            $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+            $inv = null;
+            $found = [];
+            foreach ($hints as $h) {
+                $stmt->execute([$h]);
+                if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) $found[] = $r;
+            }
+            foreach ($found as $r) { if ((float)$r['balance_due'] > 0.005) { $inv = $r; break; } }
+            $inv = $inv ?? ($found[0] ?? null);
             if ($inv) {
                 return [
                     'invoice_id' => (int) $inv['id'],
                     'method'     => 'invoice_number',
                     'confidence' => 'high',
-                    'candidates' => [$inv],
+                    'candidates' => $found ?: [$inv],
                 ];
             }
         }

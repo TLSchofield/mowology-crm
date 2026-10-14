@@ -241,4 +241,24 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertFalse(EtransferInboxService::isOutgoingNotice('Interac e-Transfer: Claim your $262.50'));
         $this->assertFalse(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: KAMALJEET SINGH has sent you $66.15 (CAD) and the money has been automatically deposited.'));
     }
+
+    public function test_2026_10_layout_memo_inside_transfer_details_and_several_invoices(): void
+    {
+        // Alberta 3025 Strata, 2026-10-14: "Message:" inside the Transfer Details box, before "Date:".
+        $body = "Hi MOWOLOGY LAWNS AND LANDSCAPES LTD,\nFunds Deposited!\n$165.38\nYour funds have been automatically deposited into your account at Vancity.\n"
+              . "Vancity\nAccount ending in 6801\nTransfer Details\nMessage:\nInvs 2026-0251 and 0383\nDate:\nOct 14, 2026\n"
+              . "Reference Number:\nCA6GjAAj\nSent From:\nAlberta 3025 Strata\nAmount:\n\$165.38 (CAD)\n";
+        $p = EtransferInboxService::parseInteracEmail("Interac e-Transfer: You've received $165.38 from Alberta 3025 Strata and it has been automatically deposited.", $body);
+        $this->assertSame('Invs 2026-0251 and 0383', $p['memo']);
+        $this->assertSame(['INV-2026-0251', 'INV-2026-0383'], $p['invoice_hints']);
+        $this->assertSame('INV-2026-0251', $p['invoice_hint']);
+        $this->assertSame('autodeposit', $p['transfer_type']);
+    }
+
+    public function test_invoice_number_lists(): void
+    {
+        $this->assertSame(['INV-2026-0308'], EtransferInboxService::extractInvoiceNumbers('invoice 2026-0308'));
+        $this->assertSame(['INV-2026-0012', 'INV-2026-0013', 'INV-2026-0014'], EtransferInboxService::extractInvoiceNumbers('INV-2026-0012, 0013 & 14'));
+        $this->assertSame([], EtransferInboxService::extractInvoiceNumbers('thanks for the great work'));
+    }
 }
