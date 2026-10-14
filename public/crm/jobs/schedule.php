@@ -942,12 +942,16 @@ $mobileIsToday = ($mobileDate === $today);
 // ─── Day strip: 7-day week data for the Jobber-style strip in mobile topbar ──
 $stripWeekStart    = date('Y-m-d', strtotime('monday this week', strtotime($mobileDate)));
 $stripDays         = [];
+// The dot under each day, as on the iPhone (WeekStripService; orange = to do, green = done).
+require_once APP_ROOT . '/Modules/Jobs/Services/WeekStripService.php';
+$stripDots         = (new WeekStripService($db))->dots($stripWeekStart, $crewFilter);
 for ($i = 0; $i < 7; $i++) {
     $d = date('Y-m-d', strtotime($stripWeekStart . " +{$i} days"));
     $dw = $weekWeather[$d] ?? [];
     $stripDays[] = [
         'date'         => $d,
-        'day_letter'   => strtoupper(substr(date('D', strtotime($d)), 0, 1)), // M T W T F S S
+        'day_letter'   => strtoupper(date('D', strtotime($d))), // MON TUE … as on the iPhone
+        'dot'          => $stripDots[$d] ?? null,
         'day_num'      => (int)date('j', strtotime($d)),
         'is_today'     => ($d === $today),
         'is_selected'  => ($d === $mobileDate),
@@ -2541,6 +2545,8 @@ if ($apiKey) {
                              <?php if ($sd['is_holiday'] && $sd['holiday_name']): ?>title="<?php echo htmlspecialchars($sd['holiday_name']); ?>"<?php endif; ?>>
                               <span class="mw-mc-strip-day-letter"><?php echo htmlspecialchars($sd['day_letter']); ?></span>
                               <span class="mw-mc-strip-day-num"><?php echo $sd['day_num']; ?></span>
+                              <span class="mw-mc-strip-day-dot<?php echo $sd['dot'] ? ' mw-mc-strip-day-dot-' . $sd['dot'] : ''; ?>"
+                                    <?php if ($sd['dot']): ?>aria-label="<?php echo $sd['dot'] === 'todo' ? 'Work to do' : 'All done'; ?>"<?php else: ?>aria-hidden="true"<?php endif; ?>></span>
                           </a>
                           <?php endforeach; ?>
                       </div>
@@ -3300,6 +3306,9 @@ function getServiceLabel(type) {
             if (!lat || !lng || (lat === 0 && lng === 0)) return;
 
             var dist = haversine(userLat, userLng, lat, lng);
+            // Distance on every card, as on the iPhone ("300 m", "2.4 km").
+            var distEl = card.querySelector('[data-eta-dist]');
+            if (distEl) distEl.textContent = dist < 1000 ? (Math.round(dist / 50) * 50 || 50) + ' m' : (dist / 1000).toFixed(1) + ' km';
             if (dist < nearestDist) {
                 nearestDist = dist;
                 nearest = card;

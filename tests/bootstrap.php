@@ -402,3 +402,5 @@ require_once __DIR__ . '/../app/Modules/Knowledge/Services/CodeSuggestionGate.ph
 require_once __DIR__ . '/../app/Services/Messaging/SmsTemplates.php';
 require_once __DIR__ . '/../app/Services/Receipts/ReceiptThumb.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentOnTheWay.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeekStripService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/StopCardText.php';

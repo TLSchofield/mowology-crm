@@ -544,11 +544,18 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
     <div class="mw-mc-card-body">
         <div class="mw-mc-compact-main">
             <div class="mw-mc-compact-info">
-                <!-- Line 1: Time + Phone + Client Name (ALL CAPS) -->
+                <?php
+                    // The iPhone's card (StopCardView.swift): the property first, arrival on the right, then
+                    // client · crew · visits underneath (StopCardText; Tim 2026-10-14 "iOS looks better").
+                    require_once APP_ROOT . '/Modules/Jobs/Services/StopCardText.php';
+                    $mwHead    = StopCardText::headline($stop);
+                    $mwClient  = StopCardText::client($stop);
+                    $mwArrive  = StopCardText::arrival($stop);
+                    $mwCrew    = (function_exists('userHasPermission') && userHasPermission('jobs.edit')) ? StopCardText::crew($stop) : '';
+                    $mwVisits  = StopCardText::visits($stop);
+                ?>
+                <!-- Line 1: Phone + headline (property, else company, else contact) + arrival on the right -->
                 <div class="mw-mc-compact-line1">
-                    <?php if ($timeDisplay): ?>
-                        <span class="mw-mc-compact-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
-                    <?php endif; ?>
                     <?php if ($contactPhone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
                     <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
                        class="mw-mc-compact-phone"
@@ -558,13 +565,20 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                     </a>
                     <?php endif; ?>
-                    <?php if ($clientName): ?>
-                        <span class="mw-mc-compact-client"><?php echo strtoupper($clientName); ?></span>
+                    <?php if ($mwHead !== ''): ?>
+                        <span class="mw-mc-compact-client"><?php echo htmlspecialchars(mb_strtoupper($mwHead)); ?></span>
                     <?php else: ?>
                         <span class="mw-mc-compact-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></span>
                     <?php endif; ?>
                     <?php if ($badge && $visitStatus === 'in_progress'): ?>
                         <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
+                    <?php endif; ?>
+                    <?php if ($mwArrive !== ''): ?>
+                        <span class="mw-mc-compact-eta">
+                            <span class="mw-mc-compact-eta-time"><?php echo htmlspecialchars($mwArrive); ?></span>
+                            <span class="mw-mc-compact-eta-lbl">est. arrival</span>
+                            <span class="mw-mc-compact-eta-dist" data-eta-dist></span>
+                        </span>
                     <?php endif; ?>
                 </div>
                 <!-- Line 2: Street address -->
@@ -573,6 +587,12 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 if (!empty($mwServiceHistory) && function_exists('mwServiceHistoryLine')) {
                     echo mwServiceHistoryLine($stop, $mwServiceHistory);
                 } ?>
+                <!-- Client · crew · visits, as on the iPhone -->
+                <div class="mw-mc-compact-meta">
+                    <?php if ($mwClient !== ''): ?><span class="mw-mc-compact-meta-item" title="Client"><?php echo htmlspecialchars($mwClient); ?></span><?php endif; ?>
+                    <?php if ($mwCrew !== ''): ?><span class="mw-mc-compact-meta-item" title="Crew"><?php echo htmlspecialchars($mwCrew); ?></span><?php endif; ?>
+                    <span class="mw-mc-compact-meta-item"><?php echo htmlspecialchars($mwVisits); ?></span>
+                </div>
             </div>
 
         </div>
