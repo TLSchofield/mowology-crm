@@ -167,7 +167,7 @@ class StripePayoutService
         if ($old) $ledger->reverseEntry($old, $userId, 'Stripe payout ' . $r['payout'] . ' — its invoices already carry this revenue', 'penny');
         if ($feeId) {
             try {
-                $args = (new LedgerSyncService($this->db))->bankEntryArgsFor($feeId);
+                $args = (new LedgerSyncService($this->db, $ledger))->bankEntryArgsFor($feeId);
                 if ($args) { $args['proposed_by'] = 'penny'; $ledger->postManual($args); }
             } catch (Throwable $e) {
                 error_log('Stripe fee journal post failed (tx ' . $feeId . '): ' . $e->getMessage());   // nightly sync posts it
