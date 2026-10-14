@@ -8,7 +8,8 @@
  *   1. statements — StatementCloseService::lockable() includes it;
  *   2. books = bank — every tracked account's month-end book balance equals its statement to the cent
  *      (BankBalanceCheckService drift; an account with no statement figure that month is not judged);
- *   3. no open receipts — no draft / pending_approval expense dated in the month;
+ *   3. no open receipts — no draft / pending_approval expense dated in the month (those on no bank or
+ *      card line are named: paid personally → 'owner_paid' posts to the shareholder loan, needs no line);
  *   4. no unsorted bank lines — none waiting on Penny's bank desk (default accounts 4900 / 6900).
  * Penny works the oldest unready month to zero (blockers() says what is left); lockMonth() refuses
  * anything not ready, server side.
@@ -59,9 +60,16 @@ class MonthCloseService
         }
 
         $receipts = [];
-        foreach ($this->db->query("SELECT DATE_FORMAT(expense_date, '%Y-%m') ym, COUNT(*) n, COALESCE(SUM(total), 0) amt
-                                   FROM expenses WHERE status IN ('draft', 'pending_approval') GROUP BY ym")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $receipts[$r['ym']] = [(int)$r['n'], round((float)$r['amt'], 2)];
+        // unmatched = no bank or card line carries it, nor one of the same amount within 5 days: paid personally,
+        // cash, or the statement isn't imported yet.
+        foreach ($this->db->query("SELECT DATE_FORMAT(e.expense_date, '%Y-%m') ym, COUNT(*) n, COALESCE(SUM(e.total), 0) amt,
+                                          SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.matched_expense_id = e.id)
+                                                AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.reference_type = 'bank_import'
+                                                                AND ABS(ABS(t.amount) - e.total) < 0.005
+                                                                AND t.transaction_date BETWEEN e.expense_date - INTERVAL 5 DAY AND e.expense_date + INTERVAL 5 DAY)
+                                           THEN 1 ELSE 0 END) unmatched
+                                   FROM expenses e WHERE e.status IN ('draft', 'pending_approval') GROUP BY ym")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $receipts[$r['ym']] = [(int)$r['n'], round((float)$r['amt'], 2), (int)$r['unmatched']];
         }
         $lines = $this->waitingBankLinesByMonth();
 
@@ -70,6 +78,7 @@ class MonthCloseService
             $row = [
                 'month' => $m, 'locked' => in_array($m, $locked, true), 'statements_ok' => isset($statementOk[$m]),
                 'drift' => $drift[$m] ?? [], 'receipts' => $receipts[$m][0] ?? 0, 'receipts_amount' => $receipts[$m][1] ?? 0.0,
+                'receipts_unmatched' => $receipts[$m][2] ?? 0,
                 'bank_lines' => $lines[$m] ?? 0,
             ];
             $row['grace_until'] = self::graceUntil($m);
@@ -98,7 +107,11 @@ class MonthCloseService
                 $b[] = sprintf('%s: books are $%s %s the bank', $acct, number_format(abs((float)$d), 2), $d > 0 ? 'above' : 'below');
             }
         }
-        if (($m['receipts'] ?? 0) > 0) $b[] = $m['receipts'] . ' open receipt' . ($m['receipts'] === 1 ? '' : 's') . ' ($' . number_format((float)($m['receipts_amount'] ?? 0), 2) . ')';
+        if (($m['receipts'] ?? 0) > 0) {
+            $u = (int)($m['receipts_unmatched'] ?? 0);
+            $b[] = $m['receipts'] . ' open receipt' . ($m['receipts'] === 1 ? '' : 's') . ' ($' . number_format((float)($m['receipts_amount'] ?? 0), 2) . ')'
+                 . ($u > 0 ? ' — ' . $u . ' on no bank or card line: if you paid personally, choose "Paid personally (owner)" and approve' : '');
+        }
         if (($m['bank_lines'] ?? 0) > 0) $b[] = $m['bank_lines'] . ' bank line' . ($m['bank_lines'] === 1 ? '' : 's') . ' still to sort';
         return $b;
     }

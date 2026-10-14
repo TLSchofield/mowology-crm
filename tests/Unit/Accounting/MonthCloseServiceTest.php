@@ -15,6 +15,13 @@ final class MonthCloseServiceTest extends TestCase
         $this->assertContains('a statement is missing or doesn\'t check out', MonthCloseService::blockers(['statements_ok' => false] + $clean));
     }
 
+    public function testReceiptsOnNoBankLineAreNamedWithTheWayOut(): void
+    {
+        $m = ['statements_ok' => true, 'drift' => [], 'receipts' => 3, 'receipts_amount' => 90.0, 'receipts_unmatched' => 2, 'bank_lines' => 0];
+        $this->assertSame(['3 open receipts ($90.00) — 2 on no bank or card line: if you paid personally, choose "Paid personally (owner)" and approve'],
+            MonthCloseService::blockers($m));
+    }
+
     public function testAMonthWaitsFifteenDaysAfterItEnds(): void
     {
         $this->assertSame('2026-10-15', MonthCloseService::graceUntil('2026-09'));

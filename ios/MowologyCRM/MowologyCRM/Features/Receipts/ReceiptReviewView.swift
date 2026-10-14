@@ -73,7 +73,7 @@ struct ReceiptReviewView: View {
         "Disposal/Dump", "Subcontractors", "Marketing", "Office/Admin",
         "Overhead", "Licenses/Permits", "Meals", "Vehicle", "Other",
     ]
-    private static let fallbackPayments = ["cash", "credit_card", "debit", "company_card", "etransfer", "cheque"]
+    private static let fallbackPayments = ["cash", "credit_card", "debit", "company_card", "etransfer", "cheque", "owner_paid"]
 
     init(viewModel: ReceiptsViewModel,
          intake: ReceiptIntakeResponse,
@@ -716,6 +716,7 @@ struct ReceiptReviewView: View {
         case "etransfer":     return "e-Transfer"
         case "company_card":  return "Company Card"
         case "cheque":        return "Cheque"
+        case "owner_paid":    return "Paid personally (owner)"
         default:              return method.capitalized
         }
     }

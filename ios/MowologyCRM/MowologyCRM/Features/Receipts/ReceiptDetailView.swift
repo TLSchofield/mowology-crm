@@ -761,7 +761,7 @@ private struct EditExpenseView: View {
         "Materials", "Fuel", "Equipment", "Subcontractor", "Disposal",
         "Safety", "Tools", "Office", "Meals", "Other",
     ]
-    private let paymentMethods = ["credit_card", "debit", "cash", "etransfer", "company_card"]
+    private let paymentMethods = ["credit_card", "debit", "cash", "etransfer", "company_card", "owner_paid"]
 
     init(viewModel: ReceiptsViewModel, expense: Expense, isPresented: Binding<Bool>, onSaved: @escaping () -> Void) {
         self.viewModel    = viewModel
@@ -856,6 +856,7 @@ private struct EditExpenseView: View {
         case "credit_card":  return "Credit Card"
         case "company_card": return "Company Card"
         case "etransfer":    return "e-Transfer"
+        case "owner_paid":   return "Paid personally (owner)"
         default:             return v.capitalized
         }
     }
