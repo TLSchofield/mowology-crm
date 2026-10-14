@@ -368,6 +368,7 @@ let previewRows      = [];
 let lastSessionId    = null;
 let allAccounts      = [];
 let lastBalanceCheck = null;
+let lastSections = [];   // preview.statement_sections — every account section of a PDF statement (migration 1360)
 let resolvedPreset   = '';   // preset the server actually used (auto-detect resolves it)
 
 const PRESET_HINTS = {
@@ -666,6 +667,7 @@ function renderPreview(preview) {
 
     // Balance self-check
     lastBalanceCheck = preview.balance_check || null;
+    lastSections     = Array.isArray(preview.statement_sections) ? preview.statement_sections : [];
     const bc    = preview.balance_check || {};
     const bcOk  = document.getElementById('balance-check-ok');
     const bcW   = document.getElementById('balance-check-warn');
@@ -946,7 +948,12 @@ function updateSelectedCount() {
 async function commitImport() {
     const selectedIdxs = [];
     document.querySelectorAll('.row-check:checked').forEach(cb => selectedIdxs.push(parseInt(cb.dataset.idx)));
-    if (!selectedIdxs.length) { mwToast('Select at least one transaction to import.', 'warning'); return; }
+    if (!selectedIdxs.length) {
+        // Every line already in: the statement can still be recorded, so the statements check
+        // knows its accounts' months are in (quiet accounts included).
+        if (!lastSections.length) { mwToast('Select at least one transaction to import.', 'warning'); return; }
+        if (!confirm('No new lines to import. Record this statement (' + lastSections.length + ' account section' + (lastSections.length === 1 ? '' : 's') + ') so the Statements check counts its months as in?')) return;
+    }
 
     const rowsToImport   = selectedIdxs.map(i => previewRows[i]).filter(Boolean);
     const skipDuplicates = document.getElementById('skip-duplicates').checked;
@@ -964,6 +971,7 @@ async function commitImport() {
             skip_duplicates: skipDuplicates,
             already_in_crm:  alreadyInCrm,
             balance_check:   lastBalanceCheck || null,
+            statement_sections: lastSections,
         }),
     });
     const d = await r.json();

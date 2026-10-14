@@ -268,3 +268,19 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   loan — Katrenna Marenych** (child of 1300; the 8 transfers Mar–Oct, $1,170, moved there 2026-10-13).
 - Shareholder loans are kept **per person**: s.15(2) (repay or include within one year after year-end) and
   s.80.4 interest apply per shareholder. The accountant clears a debit balance by salary/dividend at year-end.
+
+## Quiet accounts looked "Not imported" every month (2026-10-13)
+- The statements check only knew an account's month was in from its lines. Reserve funds ••6819 has had no
+  line since Nov 2025, so every month showed red although each Vancity PDF prints its section ("0.69, no
+  activity"); GST Reserves ••6827 went red in any month without an interest line.
+- Fixed: the PDF importer records every account section it reads, quiet ones too
+  (`BankImportService::statementSections()` → `recordSections()`, table `bank_statement_sections`, migration
+  1360; Vancity's page-1 ACCOUNT SUMMARY via `vancitySummary()` gives each account's opening/closing). The
+  check (`StatementCoverageService::monthStatus()`) calls such a month **quiet — in, no activity** with its
+  balance; a quiet month opening away from the last known balance is a break (`quietSectionBreaks()`).
+  Backfill = re-import the monthly PDFs (a statement with nothing new can be recorded on its own).
+- Same day: identical lines inside one statement are real (30 Mar 2026 7-Eleven −6.47 / +6.47 / −6.47);
+  `orderLines()` drops a line as a copy only when an EARLIER import had at least as many. Breaks and possible
+  gaps in closed years (before `StatementCoverageService::OPEN_FROM`, or a later fully locked year) are summed
+  into one quiet line ("FY2025 (closed): …"), never listed as alarms.
+- **Rule:** "no lines" is not "not imported" — ask the statement what it printed.

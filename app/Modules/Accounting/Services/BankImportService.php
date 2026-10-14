@@ -77,6 +77,9 @@ class BankImportService
     /** Import date ('Y-m-d'); tests pin it. A year-less row is never dated after it. */
     private ?string $today = null;
 
+    /** The account summary a Vancity (EBCDIC) statement prints on page 1: suffix => opening/closing. */
+    private array $pdfSummary = [];
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -1344,6 +1347,7 @@ class BankImportService
         //      groups ("A UG", "7 .34") — same visual result, different encoding scheme
         //      (seen in Vancity VCTY_16310 2025 statements). Caught by isSpacePaddedText.
         // Both cases route through the OCR fallback which renders page images cleanly.
+        $this->pdfSummary = [];
         if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
             // Native EBCDIC decode first (Vancity 2026+ font) — no poppler/OCR needed.
             $decoded = $this->decodeEbcdicStatement($text);
@@ -1364,6 +1368,14 @@ class BankImportService
         $result = $this->enrichRows($rows, $bankName, 'pdf', $kind);
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
         $result += $this->detectAccountNumber($text);
+        // Every account section the statement prints — including ones with no transactions — so
+        // the statements check can say "in, no activity" (bank_statement_sections, migration 1360).
+        $dates = array_column($rows, 'date');
+        $result['statement_sections'] = self::statementSections(
+            $parsed['sections'] ?? [], $this->pdfSummary,
+            self::statementPeriod($text) ?? ($dates ? [min($dates), max($dates)] : null),
+            $balMeta, $result['detected_account_number'] ?? null
+        );
         return $result;
     }
 
@@ -1647,6 +1659,7 @@ class BankImportService
         $section          = '';
         $sectionOpening   = [];
         $sharesSections   = [];
+        $sectionKind      = [];   // suffix => primary|savings, every non-shares header seen (even with no lines)
         $noiseLinesDropped = 0;
         foreach ($lines as $raw) {
             $l = trim($raw);
@@ -1660,6 +1673,7 @@ class BankImportService
                 if ($hdr !== null) {
                     $section = $hdr['suffix'];
                     if ($hdr['kind'] === 'shares') $sharesSections[$section] = true;
+                    elseif (!isset($sectionKind[$section])) $sectionKind[$section] = $hdr['kind'];
                     if ($hdr['opening'] !== null && !isset($sectionOpening[$section])) $sectionOpening[$section] = $hdr['opening'];
                 } elseif ($section !== '' && !isset($sectionOpening[$section])
                           && preg_match('/^OPENING\s+BALANCE\s+\$?(-?\d{1,3}(?:,\d{3})*\.\d{2})\s*$/i', $l, $ob)) {
@@ -1701,6 +1715,7 @@ class BankImportService
         // Track running balance column values (a2) to derive opening balance if
         // no explicit label was found.
         // Also track previous balance for 3-col income/expense type detection.
+        $sectionLines       = [];   // section suffix ('' = before any header) => transactions read
         $runningBalances    = [];
         $prevRunningBalance = $openingBalance;
         $primaryLastBalance = null;
@@ -1848,6 +1863,7 @@ class BankImportService
                 continue;
             }
 
+            $sectionLines[$rowSection] = ($sectionLines[$rowSection] ?? 0) + 1;
             $rows[] = [
                 'date'            => $date,
                 '_year_inferred'  => $yearInferred,
@@ -1926,9 +1942,23 @@ class BankImportService
             }
         }
 
+        // Every account section: the ones with lines and the headers printed with none.
+        $sections = [];
+        foreach (array_unique(array_merge(array_keys($sectionLines), array_keys($sectionKind))) as $sfx) {
+            $sfx = (string)$sfx;
+            if (isset($sharesSections[$sfx])) continue;
+            $sections[] = [
+                'suffix'  => $sfx,
+                'kind'    => $sectionKind[$sfx] ?? 'primary',
+                'opening' => $sfx === '' ? $openingBalance : ($sectionOpening[$sfx] ?? null),
+                'lines'   => (int)($sectionLines[$sfx] ?? 0),
+            ];
+        }
+
         return [
             'rows'         => $rows,
             'reject_log'   => $rejectLog,
+            'sections'     => $sections,
             'balance_meta' => [
                 'opening'            => $openingBalance,
                 'closing'            => $closingBalance,
@@ -1940,6 +1970,164 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * The statement period "01 JAN 2026 to 31 JAN 2026" / "Jan 1, 2026 - Jan 31, 2026" → [from, to], or null. Pure.
+     */
+    public static function statementPeriod(string $text): ?array
+    {
+        $mon = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?';
+        $d1 = null; $d2 = null;
+        if (preg_match('/(\d{1,2})\s*' . $mon . '\s*(20\d{2})\s*(?:to|-|–|through)\s*(\d{1,2})\s*' . $mon . '\s*(20\d{2})/i', $text, $m)) {
+            $d1 = sprintf('%s %s %s', $m[1], $m[2], $m[3]); $d2 = sprintf('%s %s %s', $m[4], $m[5], $m[6]);
+        } elseif (preg_match('/' . $mon . '\s*(\d{1,2}),?\s*(20\d{2})\s*(?:to|-|–|through)\s*' . $mon . '\s*(\d{1,2}),?\s*(20\d{2})/i', $text, $m)) {
+            $d1 = sprintf('%s %s %s', $m[2], $m[1], $m[3]); $d2 = sprintf('%s %s %s', $m[5], $m[4], $m[6]);
+        }
+        if ($d1 === null) return null;
+        $a = strtotime($d1); $b = strtotime($d2);
+        if (!$a || !$b || $b < $a || $b - $a > 100 * 86400) return null;
+        return [date('Y-m-d', $a), date('Y-m-d', $b)];
+    }
+
+    /**
+     * The ACCOUNT SUMMARY block on page 1 of a decoded Vancity statement: each account line
+     * ("INDEPENDENT BUSINESS ACCOUNT #100058186801", "…SAVINGS # 10 00 58 18 6 81 9 (RESERVE FUNDS)")
+     * followed by opening, withdrawals, deposits, closing. Kept only when the four add up. Pure.
+     * @return array<string, array{kind: string, opening: float, closing: float}>
+     */
+    public static function vancitySummary(array $lines): array
+    {
+        $out = [];
+        $n = count($lines);
+        $in = false;
+        $num = static function (string $s): ?float {
+            $c = str_replace(' ', '', $s);
+            return preg_match('/^-?\d{1,3}(?:,\d{3})*\.\d{2}$/', $c) ? (float)str_replace(',', '', $c) : null;
+        };
+        for ($i = 0; $i < $n; $i++) {
+            $c = strtoupper(str_replace(' ', '', $lines[$i]));
+            if (strpos($c, 'ACCOUNTSUMMARY') !== false) { $in = true; continue; }
+            if (!$in) continue;
+            if (strpos($c, 'TOTALNUMBEROFCHEQUES') !== false || strpos($c, 'OPENINGBALANCE') !== false) break;
+            if (!preg_match('/#(\d{6,})/', $c, $m)) continue;
+            $nums = [];
+            for ($j = $i + 1; $j < min($n, $i + 8) && count($nums) < 4; $j++) {
+                $v = $num($lines[$j]);
+                if ($v !== null) { $nums[] = $v; continue; }
+                if ($nums || preg_match('/#\d{6,}/', str_replace(' ', '', $lines[$j]))) break;   // another account's line
+            }
+            if (count($nums) < 4 || abs(round($nums[0] - $nums[1] + $nums[2], 2) - $nums[3]) > 0.015) continue;
+            $kind = strpos($c, 'SHARES') !== false ? 'shares' : (strpos($c, 'SAVINGS') !== false ? 'savings' : 'primary');
+            $out[substr($m[1], -4)] = ['kind' => $kind, 'opening' => $nums[0], 'closing' => $nums[3]];
+        }
+        return $out;
+    }
+
+    /**
+     * One row per account section the statement prints — with its period, opening / closing
+     * balance and how many transactions it had (0 = a quiet month, still "in"). Pure.
+     * @param array $parsed   parsePdfText()['sections']: [{suffix, kind, opening, lines}] ('' = before any header)
+     * @param array $summary  vancitySummary(): suffix => {kind, opening, closing}
+     * @param ?array $period  [from, to]
+     * @return array [{suffix, kind, period_from, period_to, opening, closing, lines}]
+     */
+    public static function statementSections(array $parsed, array $summary, ?array $period, array $balMeta = [], ?string $accountNumber = null): array
+    {
+        if (!$period) return [];
+        $summary = array_filter($summary, static fn($x) => $x['kind'] !== 'shares');
+        $primaries = array_keys(array_filter($summary, static fn($x) => $x['kind'] === 'primary'));
+        $out = [];
+        foreach ($parsed as $p) {
+            $sfx = (string)$p['suffix'];
+            if ($sfx === '') {
+                if (count($primaries) === 1) $sfx = (string)$primaries[0];
+                elseif ($accountNumber && strlen($accountNumber) >= 4) $sfx = substr($accountNumber, -4);
+            }
+            $sum = $sfx !== '' ? ($summary[$sfx] ?? null) : null;
+            $primary = $p['kind'] === 'primary' || (string)$p['suffix'] === '';
+            $out[$sfx] = [
+                'suffix' => $sfx, 'kind' => $sum['kind'] ?? ($primary ? 'primary' : 'savings'),
+                'opening' => $sum['opening'] ?? ($p['opening'] ?? ($primary ? ($balMeta['opening'] ?? null) : null)),
+                'closing' => $sum['closing'] ?? ($primary ? ($balMeta['closing'] ?? null) : null),
+                'lines' => ($out[$sfx]['lines'] ?? 0) + (int)$p['lines'],
+            ];
+        }
+        foreach ($summary as $sfx => $sum) {
+            $sfx = (string)$sfx;
+            if (isset($out[$sfx])) continue;
+            $out[$sfx] = ['suffix' => $sfx, 'kind' => $sum['kind'], 'opening' => $sum['opening'], 'closing' => $sum['closing'], 'lines' => 0];
+        }
+        $rows = [];
+        foreach ($out as $x) {
+            $rows[] = $x + ['period_from' => $period[0], 'period_to' => $period[1]];
+        }
+        return $rows;
+    }
+
+    /**
+     * Record the statement's sections for a committed import (bank_statement_sections, migration
+     * 1360). Each maps to a chart account by its last four digits (bank_statement_accounts'
+     * bank name "Vancity ••6819", or a bank account named with them); the statement's own
+     * account falls back to the account the import went to. Input comes back from the browser,
+     * so every field is re-checked. Never blocks an import.
+     */
+    public function recordSections(int $sessionId, array $sections, int $bankAccountId = 0): int
+    {
+        if ($sessionId <= 0 || !$sections) return 0;
+        try {
+            if ($this->db->query("SHOW TABLES LIKE 'bank_statement_sections'")->rowCount() === 0) return 0;
+            $bankIds = $this->bankAccountIds();
+            $ins = $this->db->prepare("
+                INSERT INTO bank_statement_sections
+                    (session_id, account_suffix, bank_account_id, period_from, period_to, opening_balance, closing_balance, line_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $n = 0; $from = null; $to = null;
+            foreach (array_slice(array_values($sections), 0, 10) as $x) {
+                if (!is_array($x)) continue;
+                $sfx = (string)($x['suffix'] ?? '');
+                if ($sfx !== '' && !preg_match('/^\d{4}$/', $sfx)) continue;
+                $pf = (string)($x['period_from'] ?? ''); $pt = (string)($x['period_to'] ?? '');
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $pf) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $pt) || $pt < $pf) continue;
+                if ((strtotime($pt) - strtotime($pf)) > 100 * 86400 || $pt > date('Y-m-d', strtotime($this->today() . ' +1 day'))) continue;
+                $acct = $sfx !== '' ? $this->accountForSuffix($sfx, $bankIds) : null;
+                if ($acct === null && ($x['kind'] ?? '') === 'primary' && $bankAccountId > 0) $acct = $bankAccountId;
+                $num = static fn($v) => is_numeric($v) ? round((float)$v, 2) : null;
+                $ins->execute([$sessionId, $sfx !== '' ? $sfx : null, $acct, $pf, $pt, $num($x['opening'] ?? null),
+                               $num($x['closing'] ?? null), max(0, min(100000, (int)($x['lines'] ?? 0)))]);
+                $n++;
+                $from = $from === null ? $pf : min($from, $pf);
+                $to = $to === null ? $pt : max($to, $pt);
+            }
+            if ($n) {
+                // A statement-only import (every line already in) still says which period it covered.
+                $this->db->prepare("UPDATE bank_import_sessions SET date_from = COALESCE(date_from, ?), date_to = COALESCE(date_to, ?) WHERE id = ?")
+                         ->execute([$from, $to, $sessionId]);
+            }
+            return $n;
+        } catch (Throwable $e) {
+            error_log('bank_statement_sections: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /** The bank account whose expected-statement entry or name carries these four digits, when only one does. */
+    private function accountForSuffix(string $sfx, array $bankIds): ?int
+    {
+        $ids = [];
+        try {
+            $s = $this->db->prepare("SELECT account_id FROM bank_statement_accounts WHERE bank_name_match LIKE ?");
+            $s->execute(['%' . $sfx . '%']);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) { /* no list yet */ }
+        if (!$ids) {
+            $s = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE sub_type = 'bank' AND (name LIKE ? OR account_number LIKE ?)");
+            $s->execute(['%' . $sfx . '%', '%' . $sfx]);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        $ids = array_values(array_unique(array_filter($ids, static fn($i) => in_array($i, $bankIds, true))));
+        return count($ids) === 1 ? $ids[0] : null;
+    }
 
     /**
      * An account section header on a multi-account statement (never a transaction line), or null:
@@ -2726,6 +2914,7 @@ class BankImportService
         }
         $n = count($lines);
         $isNum = static fn($s) => (bool)preg_match('/^\d{1,3}(?:,\d{3})*\.\d{2}$/', str_replace(' ', '', $s));
+        $this->pdfSummary = self::vancitySummary($lines);
 
         // Opening balance — first "OPENING BALANCE" label followed by a number line.
         // This is the primary (chequing) account; the statement also lists Reserve /
@@ -2785,7 +2974,11 @@ class BankImportService
             $h = self::accountSectionHeader($lines[$i]);
             if ($h === null || $h['kind'] === 'primary') continue;
             $open = null;
-            for ($k = $i; $k < min($i + 4, $n); $k++) {
+            // The label sits under the column headings (DATE / DESCRIPTION / WITHDRAWALS / DEPOSITS /
+            // BALANCE), six lines below the account's header — look that far, not past a date line.
+            for ($k = $i; $k < min($i + 9, $n); $k++) {
+                if ($k > $i && preg_match('/^\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/i', str_replace(' ', '', $lines[$k]))) break;
+                if ($k > $i && self::accountSectionHeader($lines[$k]) !== null) break;
                 if (stripos($lines[$k], 'OPENING BALANCE') === false) continue;
                 if (preg_match('/OPENING\s+BALANCE\s+(\d{1,3}(?:,\d{3})*\.\d{2})/i', $lines[$k], $om)) { $open = $om[1]; break; }
                 for ($q = $k + 1; $q < min($k + 3, $n); $q++) {

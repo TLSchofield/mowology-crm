@@ -1147,4 +1147,59 @@ class BankImportServiceTest extends TestCase
         $this->assertFalse(BankImportService::vendorInDescription('Canada Post', 'PREAUTHORIZEDPAYMENT(INSURANCECORPORATIONOFBC)'), 'a stop word alone is not a match');
         $this->assertFalse(BankImportService::vendorInDescription('', 'ANYTHING'));
     }
+
+    // ── Statement sections (migration 1360): quiet accounts are still "in" ──────
+
+    /** Text shaped like a decoded Vancity statement: Reserve funds ••6819 printed with no transactions. */
+    public function test_parser_records_a_section_with_no_transactions(): void
+    {
+        $text = "STATEMENT PERIOD 01 MAR 2026 to 31 MAR 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 21,919.50\n"
+              . "02 MAR POINT OF SALE SHELL 45.00 21,874.50\n"
+              . "31 MAR CHARGES APPLIED TO ACCOUNT 46.50 21,828.00\n\n"
+              . "BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)\nOPENING BALANCE 0.69\n\n"
+              . "BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES)\nOPENING BALANCE 8.58\n"
+              . "31 MAR INTEREST CREDITED TO ACCOUNT (CREDIT INTEREST) 0.01 8.59\n"
+              . "SHARES CLASS B MEMBERSHIP SHARES #100013640901\nOPENING BALANCE 7.29\n";
+        $parsed = $this->callPrivate('parsePdfText', $text, false);
+        $by = array_column($parsed['sections'], null, 'suffix');
+        $this->assertArrayHasKey('6819', $by, 'a header with no lines is still a section');
+        $this->assertSame(0, $by['6819']['lines']);
+        $this->assertSame(0.69, $by['6819']['opening']);
+        $this->assertSame(1, $by['6827']['lines']);
+        $this->assertArrayNotHasKey('0901', $by, 'membership shares are not a bank account');
+
+        $this->assertSame(['2026-03-01', '2026-03-31'], BankImportService::statementPeriod($text));
+        $sections = array_column(BankImportService::statementSections($parsed['sections'], [], BankImportService::statementPeriod($text), $parsed['balance_meta'], '100058186801'), null, 'suffix');
+        $this->assertSame(['6801', '6819', '6827'], (function ($k) { sort($k); return $k; })(array_map('strval', array_keys($sections))));
+        $this->assertSame(2, $sections['6801']['lines'], 'the statement\'s own account takes the number on the statement');
+        $this->assertSame('primary', $sections['6801']['kind']);
+        $this->assertSame(21919.5, $sections['6801']['opening']);
+        $this->assertSame(0, $sections['6819']['lines']);
+        $this->assertSame('2026-03-31', $sections['6819']['period_to']);
+    }
+
+    /** Page 1 of a Vancity statement: one line per account, then opening / withdrawals / deposits / closing. */
+    public function test_vancity_account_summary_gives_each_accounts_balances(): void
+    {
+        $lines = ['ACCOUNT SUMMARY', '01 JAN 2026', 'WITHDRAWALS', 'DEPOSITS', '31 JAN 2026',
+                  'INDE PE NDE NT B US INES S AC COUNT #1 00 0 58 18 68 01', '2,6 79.92', '14,97 5 .82', '22 ,06 2 .62', '9,76 6. 72',
+                  'B US INE S S INVE S TMENT SA VINGS # 10 00 58 18 6 81 9', '(RE S ERVE FUND S )', '0 .6 9', '0 .00', '0 .00', '0. 69',
+                  'B US INE S S J UMPS TA RT S A VIN GS #1 00 05 81 8 68 27 (G ST', 'RES ERV ES )', '8,329.38', '8 ,32 3.66', '2 .85', '8. 57',
+                  'TO TAL NUMB E R OF CHEQ UES 0', 'OPENING BALANCE', '2 ,6 79.92'];
+        $s = BankImportService::vancitySummary($lines);
+        $this->assertSame(['6801', '6819', '6827'], array_map('strval', array_keys($s)));
+        $this->assertSame(['kind' => 'savings', 'opening' => 0.69, 'closing' => 0.69], $s['6819']);
+        $this->assertSame(8329.38, $s['6827']['opening']);
+        $this->assertSame(8.57, $s['6827']['closing']);
+        $this->assertSame('primary', $s['6801']['kind']);
+
+        // The summary fills balances the transaction text doesn't carry; a quiet account still gets a row.
+        $rows = BankImportService::statementSections([['suffix' => '', 'kind' => 'primary', 'opening' => 2679.92, 'lines' => 73]], $s, ['2026-01-01', '2026-01-31']);
+        $by = array_column($rows, null, 'suffix');
+        $this->assertSame(73, $by['6801']['lines']);
+        $this->assertSame(9766.72, $by['6801']['closing']);
+        $this->assertSame(0, $by['6819']['lines']);
+        $this->assertSame(0, $by['6827']['lines'], 'no parsed lines for it here');
+        $this->assertSame([], BankImportService::statementSections([['suffix' => '', 'kind' => 'primary', 'opening' => 1.0, 'lines' => 1]], [], null), 'no period, no sections');
+    }
 }

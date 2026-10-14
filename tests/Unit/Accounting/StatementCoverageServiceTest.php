@@ -234,4 +234,79 @@ class StatementCoverageServiceTest extends TestCase
         $this->assertSame([1, 4, 5, 2, 3, 6, 7], array_column($ordered, 'id'));
         $this->assertSame([], StatementCoverageService::walkChain($ordered)['breaks']);
     }
+
+    /** 30 Mar 2026: −6.47, refund +6.47, −6.47 again — the third line has the first's key and is real. */
+    public function test_identical_lines_in_one_statement_are_both_kept(): void
+    {
+        $l = fn($id, $s, $signed, $bal) => ['id' => $id, 'session' => $s, 'date' => '2026-03-30', 'amount' => abs($signed),
+                                            'signed' => $signed, 'balance' => $bal, 'duplicate' => false];
+        $lines = [$l(1, 3, -6.47, 19640.14), $l(2, 3, 6.47, 19646.61), $l(3, 3, -6.47, 19640.14)];
+        $ordered = StatementCoverageService::orderLines(array_merge([$l(0, 3, -10.0, 19646.61)], $lines));
+        $this->assertCount(4, $ordered);
+        $this->assertSame([], StatementCoverageService::walkChain($ordered)['breaks'], 'no false "$6.47 missing"');
+        // A later import of the same day: copies only up to the count already in.
+        $again = [$l(11, 7, -6.47, 19640.14), $l(12, 7, 6.47, 19646.61), $l(13, 7, -6.47, 19640.14)];
+        $this->assertCount(4, StatementCoverageService::orderLines(array_merge([$l(0, 3, -10.0, 19646.61)], $lines, $again)));
+    }
+
+    /** Reserve funds ••6819: no lines since 2025, but the monthly statement printed it with no activity. */
+    public function test_a_statement_section_with_no_lines_is_in_with_no_activity(): void
+    {
+        $old = $this->chain(1, 0.6, [['2025-11-28', 0.09]]);   // last line: 28 Nov 2025, balance 0.69
+        $sep = ['from' => '2026-09-01', 'to' => '2026-09-30', 'lines' => 0, 'opening' => 0.69, 'closing' => 0.69];
+        $st = StatementCoverageService::monthStatus($old, '2026-09', null, [], [$sep]);
+        $this->assertSame('quiet', $st['status']);
+        $this->assertSame(0.69, $st['balance']);
+        $this->assertSame('missing', StatementCoverageService::monthStatus($old, '2026-09', null)['status'], 'without the section: not imported');
+        $this->assertSame('quiet', StatementCoverageService::monthStatus([], '2026-09', null, [], [$sep])['status'], 'never had a line, statement says quiet');
+        $this->assertSame('missing', StatementCoverageService::monthStatus($old, '2026-09', null, [], [['lines' => 2] + $sep])['status'], 'the statement printed lines the CRM lacks');
+        // Lines stopping early are fine when the statement runs to the month end.
+        $gst = $this->chain(1, 8.63, [['2026-09-10', 0.01]]);
+        $this->assertSame('partial', StatementCoverageService::monthStatus($gst, '2026-09', null)['status']);
+        $this->assertSame('ok', StatementCoverageService::monthStatus($gst, '2026-09', null, [], [['lines' => 1] + $sep])['status']);
+
+        $sections = [];
+        foreach (['01' => 31, '02' => 28, '03' => 31, '09' => 30] as $m => $d) {
+            $sections[] = ['from' => "2026-$m-01", 'to' => "2026-$m-$d", 'lines' => 0, 'opening' => 0.69, 'closing' => 0.69];
+        }
+        $report = StatementCoverageService::analyse([$this->group('a3', 'Reserve funds', 'bank', true)], ['a3' => $old], '2026-10-13', ['a3' => $sections]);
+        $a = $report['accounts'][0];
+        $this->assertSame('quiet', $a['last_month']['status']);
+        $this->assertSame([], $a['breaks'], 'quiet months that open at the last known balance are not a break');
+        $this->assertSame(['2026-01', '2026-02', '2026-03', '2026-09'], array_keys($a['quiet_months']));
+        $strip = StatementCoverageService::strip($report);
+        $this->assertTrue($strip['accounts'][0]['ok']);
+        $this->assertSame('no activity', $strip['accounts'][0]['note']);
+        $this->assertSame([], StatementCoverageService::briefItems($report, '2026-10-13'));
+
+        // A quiet month that opens away from the last balance: lines are missing before it.
+        $sections[0]['opening'] = 3003.15; $sections[0]['closing'] = 3003.15;
+        $report = StatementCoverageService::analyse([$this->group('a3', 'Reserve funds', 'bank', true)], ['a3' => $old], '2026-10-13', ['a3' => [$sections[0]]]);
+        $b = $report['accounts'][0]['breaks'];
+        $this->assertCount(1, $b);
+        $this->assertSame(['from' => '2025-11-28', 'to' => '2026-01-01', 'missing' => 3002.46, 'before' => 0.69, 'after' => 3003.15], $b[0]);
+    }
+
+    /** FY2025 is filed and locked: its differences are summed into one quiet line, not listed. */
+    public function test_closed_year_breaks_are_one_quiet_line(): void
+    {
+        $lines = array_merge(
+            $this->chain(1, 1000, [['2025-06-02', -10]]), $this->chain(2, 900, [['2025-07-01', -5]]),   // −90 missing
+            $this->chain(3, 880, [['2025-08-01', -5]]),                                                   // −15 missing
+            $this->chain(4, 800, [['2026-02-02', -10]])                                                   // −75 missing, open year
+        );
+        $report = StatementCoverageService::analyse([$this->group('a1', 'Chequing', 'bank', true)], ['a1' => $lines], '2026-03-05');
+        $a = $report['accounts'][0];
+        $this->assertCount(1, $a['breaks'], 'only the open year is listed');
+        $this->assertSame('2026-02-02', $a['breaks'][0]['to']);
+        $this->assertCount(2, $a['closed_breaks'], 'kept in the data');
+        $this->assertSame('FY2025 (closed): 2 small differences, net −$105.00 — not checked', $a['closed_text']);
+        $strip = StatementCoverageService::strip($report);
+        $this->assertCount(1, $strip['gaps']);
+        $this->assertSame('2026-01-01', $report['open_from']);
+        // A later year locked in full moves the line.
+        $later = StatementCoverageService::analyse([$this->group('a1', 'Chequing', 'bank', true)], ['a1' => $lines], '2026-03-05', [], '2027-01-01');
+        $this->assertSame([], $later['accounts'][0]['breaks']);
+        $this->assertStringStartsWith('FY2025–FY2026 (closed): 3 small differences', $later['accounts'][0]['closed_text']);
+    }
 }

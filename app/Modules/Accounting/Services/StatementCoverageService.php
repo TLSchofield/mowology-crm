@@ -42,6 +42,8 @@ class StatementCoverageService
     /** How far ahead a line that breaks the chain looks for the old balance resuming. */
     public const LOOKAHEAD = 60;
     public const URL = '/crm/accounting/bank-import.php#statements-check';
+    /** FY2025 is filed and locked (BankBalanceCheckService::FY_START): earlier years never raise alarms. */
+    public const OPEN_FROM = '2026-01-01';
 
     private PDO $db;
     private ?string $today;
@@ -292,7 +294,70 @@ class StatementCoverageService
             }
         }
 
-        return self::analyse(array_values($groups), $lines, $this->today());
+        return self::analyse(array_values($groups), $lines, $this->today(), $this->sectionsByKey($accounts, $groups), $this->openFrom());
+    }
+
+    /**
+     * Statement sections from imported statements (bank_statement_sections, migration 1360), by
+     * account key. A section without a chart account maps by its last four digits to the expected
+     * account whose bank name ("Vancity ••6819") carries them. Empty before the migration.
+     */
+    private function sectionsByKey(array $accounts, array &$groups): array
+    {
+        try {
+            if ($this->db->query("SHOW TABLES LIKE 'bank_statement_sections'")->rowCount() === 0) return [];
+            $rows = $this->db->query("
+                SELECT x.account_suffix, x.bank_account_id, x.period_from, x.period_to, x.opening_balance,
+                       x.closing_balance, x.line_count
+                FROM bank_statement_sections x
+                JOIN bank_import_sessions s ON s.id = x.session_id AND s.status = 'imported'
+                ORDER BY x.period_from, x.id
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        $bySuffix = [];
+        foreach ($accounts as $a) {
+            if (preg_match('/(\d{4})\D*$/', (string)$a['bank_name_match'] . ' ' . (string)$a['account_name'], $m)) $bySuffix[$m[1]][] = (int)$a['account_id'];
+        }
+        $out = [];
+        $seen = [];
+        foreach ($rows as $r) {
+            $aid = $r['bank_account_id'] ? (int)$r['bank_account_id'] : null;
+            if ($aid === null) {
+                $sfx = (string)$r['account_suffix'];
+                if (isset($bySuffix[$sfx]) && count(array_unique($bySuffix[$sfx])) === 1) $aid = $bySuffix[$sfx][0];
+            }
+            if ($aid === null || !isset($groups['a' . $aid])) continue;
+            $k = $aid . '|' . $r['period_from'] . '|' . $r['period_to'];
+            if (isset($seen[$k])) continue;   // the same statement imported twice
+            $seen[$k] = true;
+            $out['a' . $aid][] = [
+                'from' => (string)$r['period_from'], 'to' => (string)$r['period_to'], 'lines' => (int)$r['line_count'],
+                'opening' => $r['opening_balance'] !== null ? (float)$r['opening_balance'] : null,
+                'closing' => $r['closing_balance'] !== null ? (float)$r['closing_balance'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * First day of the first open fiscal year: OPEN_FROM, or later when the ledger has locked
+     * every month of a later year (accounting_periods; fiscal year = calendar year).
+     */
+    private function openFrom(): string
+    {
+        $from = self::OPEN_FROM;
+        try {
+            $y = $this->db->query("
+                SELECT MAX(year) FROM (SELECT year FROM accounting_periods WHERE status = 'locked'
+                                        GROUP BY year HAVING COUNT(DISTINCT month) = 12) t
+            ")->fetchColumn();
+            if ($y) $from = max($from, sprintf('%04d-01-01', (int)$y + 1));
+        } catch (Throwable $e) {
+            // no periods table — the filed year stands
+        }
+        return $from;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -396,7 +461,7 @@ class StatementCoverageService
         $bySession = [];
         foreach ($lines as $l) $bySession[$l['session']][] = $l;
         $merged = [];
-        $seen = [];
+        $seenMax = [];   // key => the most copies of it any EARLIER session had
         $sIdx = 0;
         foreach ($bySession as $sid => $ls) {
             usort($ls, fn($a, $b) => $a['id'] <=> $b['id']);
@@ -409,11 +474,15 @@ class StatementCoverageService
                 }
             }
             [, $ordered, $pol] = $best;
+            // A line is a copy only when an earlier session already had at least as many lines with
+            // the same date, amount and balance. Inside one session identical lines are real
+            // (30 Mar 2026: 7-Eleven −6.47, refund +6.47, −6.47 again — same key twice).
+            $here = [];
             foreach ($ordered as $pos => $l) {
                 if ($l['balance'] !== null) {
                     $k = $l['date'] . '|' . number_format($l['amount'], 2, '.', '') . '|' . number_format($l['balance'] * $pol, 2, '.', '');
-                    if (isset($seen[$k])) continue;
-                    $seen[$k] = true;
+                    $here[$k] = ($here[$k] ?? 0) + 1;
+                    if ($here[$k] <= ($seenMax[$k] ?? 0)) continue;
                     $l['balance'] = round($l['balance'] * $pol, 2);
                 } elseif ($l['duplicate']) {
                     continue;   // a copy of a line already imported, and nothing to chain it by
@@ -422,6 +491,7 @@ class StatementCoverageService
                 $l['_p'] = $pos;
                 $merged[] = $l;
             }
+            foreach ($here as $k => $c) $seenMax[$k] = max($seenMax[$k] ?? 0, $c);
             $sIdx++;
         }
         usort($merged, fn($a, $b) => [$a['date'], $a['_s'], $a['_p']] <=> [$b['date'], $b['_s'], $b['_p']]);
@@ -678,53 +748,164 @@ class StatementCoverageService
 
     /**
      * Is the month in for this account?
-     *   never   — no line from this account, ever
-     *   missing — no line in the month
-     *   partial — lines stop before the month's end (or the statement closing day), and nothing later
+     *   never   — no line from this account, ever, and no statement section for it
+     *   missing — no line in the month (and no statement section saying it was quiet)
+     *   quiet   — in, no activity: a statement covering the month was imported and printed this
+     *             account with no transactions (bank_statement_sections, migration 1360); `balance`
+     *   partial — lines stop before the month's end (or the statement closing day), nothing later,
+     *             and no statement section runs to the end
      *   gap     — in, but the running balance breaks inside the month
      *   ok
+     * @param array $sections [{from, to, lines, opening, closing}] this account's statement sections
      */
-    public static function monthStatus(array $lines, string $ym, ?int $statementDay, array $breaks = []): array
+    public static function monthStatus(array $lines, string $ym, ?int $statementDay, array $breaks = [], array $sections = []): array
     {
-        if (!$lines) return ['status' => 'never', 'through' => null];
         $days = (int)date('t', strtotime($ym . '-01'));
         $end = $statementDay ? sprintf('%s-%02d', $ym, min($statementDay, $days)) : sprintf('%s-%02d', $ym, $days);
         $start = $statementDay
             ? date('Y-m-d', strtotime(date('Y-m', strtotime($ym . '-01 -1 month')) . '-' . sprintf('%02d', min($statementDay, (int)date('t', strtotime($ym . '-01 -1 month')))) . ' +1 day'))
             : $ym . '-01';
+        $cover = self::sectionCovering($sections, $start, $end);
+        if (!$lines && !$cover) return ['status' => 'never', 'through' => null];
         $in = 0; $last = null; $later = false;
         foreach ($lines as $l) {
             $d = (string)$l['date'];
             if ($d >= $start && $d <= $end) { $in++; if ($last === null || $d > $last) $last = $d; }
             if ($d > $end) $later = true;
         }
-        if ($in === 0) return ['status' => 'missing', 'through' => null];
+        if ($in === 0) {
+            if ($cover && (int)$cover['lines'] === 0) {
+                return ['status' => 'quiet', 'through' => $cover['to'], 'balance' => $cover['closing'] ?? $cover['opening']];
+            }
+            return ['status' => 'missing', 'through' => null];
+        }
         foreach ($breaks as $b) {
             if ($b['to'] >= $start && $b['from'] <= $end) return ['status' => 'gap', 'through' => $last];
         }
         $slack = date('Y-m-d', strtotime($end . ' -' . self::END_SLACK_DAYS . ' days'));
-        if ($last < $slack && !$later) return ['status' => 'partial', 'through' => $last];
+        if ($last < $slack && !$later && !$cover) return ['status' => 'partial', 'through' => $last];
         return ['status' => 'ok', 'through' => $last];
+    }
+
+    /** The statement section that covers $start..$end (END_SLACK_DAYS either side), quiet ones first. */
+    public static function sectionCovering(array $sections, string $start, string $end): ?array
+    {
+        $from = date('Y-m-d', strtotime($start . ' +' . self::END_SLACK_DAYS . ' days'));
+        $to = date('Y-m-d', strtotime($end . ' -' . self::END_SLACK_DAYS . ' days'));
+        $hit = null;
+        foreach ($sections as $x) {
+            if ((string)$x['from'] <= $from && (string)$x['to'] >= $to) {
+                if ((int)$x['lines'] === 0) return $x;
+                $hit = $hit ?? $x;
+            }
+        }
+        return $hit;
+    }
+
+    /**
+     * A statement section with no lines (a quiet month) opens at a balance. When that balance is
+     * the account's previous known balance (the last line before it, or the previous section's
+     * closing), nothing is missing. When it differs, lines are missing before it: a break.
+     */
+    public static function quietSectionBreaks(array $ordered, array $sections): array
+    {
+        $out = [];
+        usort($sections, fn($a, $b) => [$a['from'], $a['to']] <=> [$b['from'], $b['to']]);
+        $prevSection = null;
+        foreach ($sections as $x) {
+            if ((int)$x['lines'] !== 0 || $x['opening'] === null) { $prevSection = $x; continue; }
+            $prev = null; $prevDate = null;
+            foreach ($ordered as $l) {
+                if ($l['balance'] === null || $l['date'] >= $x['from']) continue;
+                if ($prevDate === null || $l['date'] >= $prevDate) { $prev = (float)$l['balance']; $prevDate = $l['date']; }
+            }
+            if ($prevSection !== null && $prevSection['to'] < $x['from'] && ($prevDate === null || $prevSection['to'] >= $prevDate)) {
+                $c = $prevSection['closing'] ?? null;
+                if ($c !== null) { $prev = (float)$c; $prevDate = $prevSection['to']; }
+            }
+            $prevSection = $x;
+            if ($prev === null || abs($prev - (float)$x['opening']) < self::CENT) continue;
+            $out[] = ['from' => $prevDate, 'to' => $x['from'], 'missing' => round((float)$x['opening'] - $prev, 2),
+                      'before' => round($prev, 2), 'after' => round((float)$x['opening'], 2)];
+        }
+        return $out;
+    }
+
+    /** Fiscal-year label of a date (fiscal year ends Dec 31): FY2025. */
+    private static function fyLabel(string $date): string
+    {
+        return 'FY' . substr($date, 0, 4);
+    }
+
+    /**
+     * Closed years don't raise alarms: their breaks and possible gaps are kept in the data and
+     * summed into one quiet line — "FY2025 (closed): 9 small differences, net $1,204.11 — not checked".
+     */
+    public static function closedText(array $closedBreaks, array $closedGaps): ?string
+    {
+        $n = count($closedBreaks) + count($closedGaps);
+        if ($n === 0) return null;
+        $years = [];
+        foreach ($closedBreaks as $b) $years[self::fyLabel($b['to'])] = true;
+        foreach ($closedGaps as $g) $years[self::fyLabel((string)($g['to'] ?? ($g['month'] . '-01')))] = true;
+        ksort($years);
+        $ys = array_keys($years);
+        $label = count($ys) === 1 ? $ys[0] : $ys[0] . '–' . end($ys);
+        $net = round(array_sum(array_column($closedBreaks, 'missing')), 2);
+        return sprintf('%s (closed): %d small difference%s%s — not checked', $label, $n, $n === 1 ? '' : 's',
+            $closedBreaks ? ', net ' . ($net < 0 ? '−' : '') . '$' . number_format(abs($net), 2) : '');
     }
 
     /**
      * The whole report from accounts (+ their sessions) and their lines.
      * @param array $groups  [{key, account_id, label, kind, expected, statement_day, list_id, sessions}]
      * @param array $linesByKey  key => lines (lineFromRow shape)
+     * @param array $sectionsByKey key => statement sections [{from, to, lines, opening, closing}]
+     * @param string $openFrom  first day of the first open fiscal year: breaks and possible gaps
+     *                          before it are summed into one quiet line, never listed as alarms
      */
-    public static function analyse(array $groups, array $linesByKey, string $today): array
+    public static function analyse(array $groups, array $linesByKey, string $today, array $sectionsByKey = [], string $openFrom = self::OPEN_FROM): array
     {
         $lastMonth = date('Y-m', strtotime(substr($today, 0, 7) . '-01 -1 month'));
         $out = [];
         foreach ($groups as $g) {
             $all = $linesByKey[$g['key']] ?? [];
+            $sections = $sectionsByKey[$g['key']] ?? [];
             $future = array_values(array_filter($all, fn($l) => $l['date'] > $today));
             $lines = array_values(array_filter($all, fn($l) => $l['date'] <= $today));
             $ordered = self::orderLines($lines);
             $chain = self::walkChain($ordered);
             $hasBalances = $chain['with_balance'] > 0 && $chain['with_balance'] >= 0.5 * max(1, count($ordered));
             $fallback = $hasBalances ? [] : self::fallbackGaps($lines, $today);
-            $status = self::monthStatus($lines, $lastMonth, $g['statement_day'], $chain['breaks']);
+            if ($sections) {
+                // A quiet stretch the statements say was quiet is not a possible gap…
+                $fallback = array_values(array_filter($fallback, function ($gp) use ($sections) {
+                    if ($gp['type'] !== 'quiet') return true;
+                    for ($d = date('Y-m-d', strtotime($gp['from'] . ' +1 day')); $d < $gp['to']; $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
+                        $hit = false;
+                        foreach ($sections as $x) if ((int)$x['lines'] === 0 && $x['from'] <= $d && $x['to'] >= $d) { $hit = true; break; }
+                        if (!$hit) return true;
+                    }
+                    return false;
+                }));
+                // …but a quiet month that opens away from the last known balance has lines missing before it.
+                $chain['breaks'] = array_merge($chain['breaks'], self::quietSectionBreaks($ordered, $sections));
+                usort($chain['breaks'], fn($a, $b) => [$a['to'], (string)$a['from']] <=> [$b['to'], (string)$b['from']]);
+            }
+            // Closed fiscal years: kept, summed, not listed.
+            $closedBreaks = array_values(array_filter($chain['breaks'], fn($b) => $b['to'] < $openFrom));
+            $chain['breaks'] = array_values(array_filter($chain['breaks'], fn($b) => $b['to'] >= $openFrom));
+            $gapEnd = fn($gp) => (string)($gp['to'] ?? date('Y-m-t', strtotime($gp['month'] . '-01')));
+            $closedGaps = array_values(array_filter($fallback, fn($gp) => $gapEnd($gp) < $openFrom));
+            $fallback = array_values(array_filter($fallback, fn($gp) => $gapEnd($gp) >= $openFrom));
+            $status = self::monthStatus($lines, $lastMonth, $g['statement_day'], $chain['breaks'], $sections);
+            $sectionMonths = [];
+            foreach ($sections as $x) {
+                for ($m = substr($x['from'], 0, 7); $m <= substr($x['to'], 0, 7); $m = date('Y-m', strtotime($m . '-01 +1 month'))) {
+                    $st = self::monthStatus([], $m, $g['statement_day'], [], [$x]);
+                    if ($st['status'] === 'quiet') $sectionMonths[$m] = ['lines' => 0, 'balance' => $st['balance']];
+                }
+            }
             $recent = array_values(array_filter($g['sessions'], fn($s) => substr((string)$s['created_at'], 0, 10) >= date('Y-m-d', strtotime($today . ' -7 days'))));
             $out[] = [
                 'key' => $g['key'], 'account_id' => $g['account_id'], 'list_id' => $g['list_id'],
@@ -737,6 +918,10 @@ class StatementCoverageService
                 'linked' => $chain['linked'], 'with_balance' => $chain['with_balance'],
                 'breaks' => $chain['breaks'], 'other_account' => $chain['other_account'],
                 'possible_gaps' => $fallback,
+                'closed_breaks' => $closedBreaks, 'closed_gaps' => $closedGaps,
+                'closed_text' => self::closedText($closedBreaks, $closedGaps),
+                'quiet_months' => $sectionMonths,
+                'statement_sections' => count($sections),
                 'future_lines' => count($future),
                 'months' => self::months($lines),
                 'last_month' => ['month' => $lastMonth] + $status,
@@ -744,7 +929,7 @@ class StatementCoverageService
             ];
         }
         usort($out, fn($a, $b) => [!$a['expected'], $a['kind'], $a['label']] <=> [!$b['expected'], $b['kind'], $b['label']]);
-        return ['date' => $today, 'computed_at' => date('Y-m-d H:i:s'), 'last_month' => $lastMonth, 'accounts' => $out];
+        return ['date' => $today, 'computed_at' => date('Y-m-d H:i:s'), 'last_month' => $lastMonth, 'open_from' => $openFrom, 'accounts' => $out];
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -780,8 +965,8 @@ class StatementCoverageService
         foreach ($report['accounts'] ?? [] as $a) {
             if ($a['expected']) {
                 $st = $a['last_month']['status'];
-                $accounts[] = ['label' => $a['label'], 'ok' => $st === 'ok', 'status' => $st,
-                               'note' => $st === 'never' ? 'never imported' : ($st === 'missing' ? 'not imported' : ($st === 'partial' ? 'only to ' . date('j M', strtotime($a['last_month']['through'])) : ($st === 'gap' ? 'gap inside' : '')))];
+                $accounts[] = ['label' => $a['label'], 'ok' => $st === 'ok' || $st === 'quiet', 'status' => $st,
+                               'note' => $st === 'never' ? 'never imported' : ($st === 'missing' ? 'not imported' : ($st === 'partial' ? 'only to ' . date('j M', strtotime($a['last_month']['through'])) : ($st === 'gap' ? 'gap inside' : ($st === 'quiet' ? 'no activity' : ''))))];
             }
             foreach ($a['breaks'] as $b) $gaps[] = ['to' => $b['to'], 'text' => self::breakText($a['label'], $b, $report['date'] ?? null), 'weak' => false];
             foreach ($a['possible_gaps'] as $g) $gaps[] = ['to' => $g['to'] ?? ($g['month'] . '-28'), 'text' => self::possibleGapText($a['label'], $g), 'weak' => true];
@@ -807,7 +992,7 @@ class StatementCoverageService
         foreach ($report['accounts'] ?? [] as $a) {
             if (!$a['expected']) continue;
             $st = $a['last_month']['status'];
-            if ($st === 'ok') continue;
+            if ($st === 'ok' || $st === 'quiet') continue;
             if ($st === 'never') $text = "{$a['label']} has never been imported — the {$month} statement is missing";
             elseif ($st === 'missing') $text = "The {$month} {$a['label']} statement isn't imported yet";
             elseif ($st === 'partial') $text = "The {$month} {$a['label']} statement is only in to " . date('j M', strtotime($a['last_month']['through']));

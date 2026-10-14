@@ -12,7 +12,7 @@ $__scEnd = substr((string)$__scReport['date'], 0, 7);
 for ($__i = 11; $__i >= 0; $__i--) $__scMonths[] = date('Y-m', strtotime($__scEnd . '-01 -' . $__i . ' month'));
 $__scLabel = [
     'ok' => ['is-ok', 'In ✓'], 'never' => ['is-bad', 'Never imported'], 'missing' => ['is-bad', 'Not imported'],
-    'partial' => ['is-warn', 'Partly in'], 'gap' => ['is-warn', 'Gap inside'],
+    'partial' => ['is-warn', 'Partly in'], 'gap' => ['is-warn', 'Gap inside'], 'quiet' => ['is-ok', 'In — no activity'],
 ];
 ?>
 <div class="card mb-3" id="statements-check">
@@ -40,6 +40,8 @@ $__scLabel = [
             $__st = $__a['last_month']['status'];
             [$__cls, $__txt] = $__a['expected'] ? ($__scLabel[$__st] ?? ['is-off', $__st]) : ['is-off', 'Not expected'];
             if ($__st === 'partial' && $__a['expected']) $__txt = 'In to ' . date('j M', strtotime((string)$__a['last_month']['through']));
+            if ($__st === 'quiet' && $__a['expected'] && isset($__a['last_month']['balance'])) $__txt .= ' · balance $' . number_format((float)$__a['last_month']['balance'], 2);
+            $__quiet = $__a['quiet_months'] ?? [];
             $__byMonth = array_column($__a['months'], null, 'month');
             $__gapMonths = [];
             foreach ($__a['breaks'] as $__b) {
@@ -68,8 +70,8 @@ $__scLabel = [
             <td><span class="mw-sc-st <?= $__cls ?>"><?= h($__txt) ?></span></td>
             <td>
               <div class="mw-sc-months">
-                <?php foreach ($__scMonths as $__m): $__c = (int)($__byMonth[$__m]['lines'] ?? 0); ?>
-                  <span class="mw-sc-m<?= $__c === 0 && $__a['lines'] > 0 && $__a['first'] && $__m >= substr($__a['first'], 0, 7) ? ' is-empty' : (isset($__gapMonths[$__m]) ? ' is-gap' : '') ?>" title="<?= h(date('F Y', strtotime($__m . '-01'))) ?>: <?= $__c ?> lines"><?= h(date('M', strtotime($__m . '-01'))) ?><b><?= $__c ?: '–' ?></b></span>
+                <?php foreach ($__scMonths as $__m): $__c = (int)($__byMonth[$__m]['lines'] ?? 0); $__q = $__c === 0 && isset($__quiet[$__m]); ?>
+                  <span class="mw-sc-m<?= $__q ? '' : ($__c === 0 && $__a['lines'] > 0 && $__a['first'] && $__m >= substr($__a['first'], 0, 7) ? ' is-empty' : (isset($__gapMonths[$__m]) ? ' is-gap' : '')) ?>" title="<?= h(date('F Y', strtotime($__m . '-01'))) ?>: <?= $__q ? h('statement in, no activity' . ($__quiet[$__m]['balance'] !== null ? ' — balance $' . number_format((float)$__quiet[$__m]['balance'], 2) : '')) : $__c . ' lines' ?>"><?= h(date('M', strtotime($__m . '-01'))) ?><b><?= $__q ? '0' : ($__c ?: '–') ?></b></span>
                 <?php endforeach; ?>
               </div>
             </td>
@@ -87,7 +89,7 @@ $__scLabel = [
 
     <div class="p-3">
       <?php $__any = false; foreach ($__scReport['accounts'] as $__a):
-          if (!$__a['breaks'] && !$__a['possible_gaps'] && !$__a['other_account'] && !$__a['future_lines']) continue;
+          if (!$__a['breaks'] && !$__a['possible_gaps'] && !$__a['other_account'] && !$__a['future_lines'] && empty($__a['closed_text'])) continue;
           $__any = true; ?>
         <div class="mw-sc-acct">
           <h6><?= h($__a['label']) ?></h6>
@@ -102,6 +104,9 @@ $__scLabel = [
             <?php foreach ($__a['other_account'] as $__o): ?>
               <li class="is-info"><?= (int)$__o['lines'] ?> line<?= $__o['lines'] === 1 ? '' : 's' ?> <?= h(date('j M', strtotime($__o['from']))) ?> – <?= h(date('j M Y', strtotime($__o['to']))) ?> follow a balance of their own — another account printed on the same statement, not a gap.</li>
             <?php endforeach; ?>
+            <?php if (!empty($__a['closed_text'])): ?>
+              <li class="is-info"><?= h($__a['closed_text']) ?></li>
+            <?php endif; ?>
             <?php if ($__a['future_lines']): ?>
               <li><?= (int)$__a['future_lines'] ?> line<?= $__a['future_lines'] === 1 ? ' is' : 's are' ?> dated after today — a statement got the wrong year.</li>
             <?php endif; ?>

@@ -176,7 +176,10 @@ try {
             $bankAccountId = (int)($input['bank_account_id'] ?? 0);
             $skipDupes     = (bool)($input['skip_duplicates'] ?? true);
 
-            if (empty($rows)) throw new Exception('No rows to import');
+            // Statement sections (PDF): every account the statement prints, quiet ones too. A statement
+            // whose lines are all already in may be committed with no rows to record just these.
+            $sections = isset($input['statement_sections']) && is_array($input['statement_sections']) ? $input['statement_sections'] : [];
+            if (empty($rows) && !$sections) throw new Exception('No rows to import');
 
             // Re-validate: ensure account_id is set on every non-duplicate row
             foreach ($rows as &$row) {
@@ -189,6 +192,7 @@ try {
 
             $balanceCheck = isset($input['balance_check']) && is_array($input['balance_check']) ? $input['balance_check'] : null;
             $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId, $balanceCheck);
+            $result['sections'] = $importer->recordSections((int)$result['session_id'], $sections, $bankAccountId);
             // Statements check: count the "already imported" lines the owner left unticked (they never
             // reach commit()), and drop today's cached check — the coverage just changed.
             try {
