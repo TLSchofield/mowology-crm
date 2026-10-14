@@ -300,3 +300,11 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   (`nameMatches()`, `ShareholderAccountService::isFromShareholder()`) never saw them; both now also match
   FIRSTLAST with the letters joined. Her "Funds transfer … Pay As You Go Chequing" and "FUNDS TRANSFER TO REL
   #4659904" lines carry no name and are never matched as pay.
+
+## Two Visa cards (Tim, 2026-10-13)
+- Vancity Visa …9843 = the BUSINESS card (Credit Card Payable 2400; statements imported there).
+- Vancity Visa …1023 = Tim's PERSONAL card. A payment to it from business chequing is a draw → 1300 (the Jul 31
+  $1,800 moved there). Never import its statements into 2400; only its business charges (e.g. Wave payroll fees)
+  are booked, as paid by Tim (owed back to him).
+- The business account usually makes TWO Visa auto-payments a month (~$82 and a larger one) — find out which card
+  each belongs to before booking both to 2400.
