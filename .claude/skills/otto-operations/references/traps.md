@@ -20,6 +20,9 @@ Building supplier stops (migration 1359) on the days Tim had settled by hand:
   never used for stops; receipts match stops by vendor + time, not by photo position.
 - **Two vendors at one street address** ("Home Depot" at Dunbar Lumber's 5190 Ladner Trunk Rd) —
   a misread receipt. Geocoding skips it with a note (`SupplierStopService::streetKey()`).
+- **`scripts/prod-run.sh --commit` with DDL says "_error: There is no active transaction … rolled
+  back, nothing changed" — but the migration DID apply** (MySQL commits DDL implicitly; the wrapper's
+  final commit then fails). Check the tables / migrations_log with a preview before re-running.
 
 ## 2026-10-13 — The break button: a paused phone is not a quiet phone
 A break stops the phone sending fixes on purpose. Without care that reads as a dead phone (the

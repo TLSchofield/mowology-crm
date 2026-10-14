@@ -32,6 +32,7 @@ class SupplierJobSuggestServiceTest extends TestCase
         $why = SupplierJobSuggestService::reason($best, 'Nigel', 'LAWNBOY', 1);
         $this->assertStringContainsString('Nigel was at 6015 Tisdall Street before and after the LAWNBOY stop', $why);
         $this->assertStringContainsString('#397, Oct 2', $why);
+        $this->assertStringContainsString('Tim + Nigel were at', SupplierJobSuggestService::reason($best, 'Tim + Nigel', 'LAWNBOY', 1));
     }
 
     public function testWithNoHistoryTheVisitHeWasOnWins(): void

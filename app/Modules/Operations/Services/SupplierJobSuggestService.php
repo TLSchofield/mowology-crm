@@ -107,8 +107,9 @@ class SupplierJobSuggestService
     {
         $who = $who !== '' ? $who : 'The crew';
         $where = (string)$best['street'];
-        if (!empty($best['before']) && !empty($best['after'])) $bits = ["{$who} was at {$where} before and after the {$place} stop"];
-        elseif (!empty($best['before'])) $bits = ["{$who} was at {$where} before the {$place} stop"];
+        $was = strpos($who, '+') !== false ? 'were' : 'was';
+        if (!empty($best['before']) && !empty($best['after'])) $bits = ["{$who} {$was} at {$where} before and after the {$place} stop"];
+        elseif (!empty($best['before'])) $bits = ["{$who} {$was} at {$where} before the {$place} stop"];
         elseif (!empty($best['after'])) $bits = ["{$who} went to {$where} after the {$place} stop"];
         else $bits = ["{$where} was on {$who}'s schedule that day"];
         if (!empty($best['quote_words'])) $bits[] = 'its quote lists ' . implode(', ', array_slice($best['quote_words'], 0, 3));
