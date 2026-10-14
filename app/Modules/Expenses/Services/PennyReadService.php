@@ -230,16 +230,16 @@ class PennyReadService
             // Saved as a draft from this screen or her card — waiting for the office.
             'applied_draft'  => $draft !== null && !$differs,
             'can_apply'      => $r['apply'] && $differs,
-            'apply_approves' => $r['approve'],
+            'apply_approves' => false,   // "Use Penny's version" never approves (2026-10-14)
             'can_keep'       => $r['keep'] && $differs,
-            'apply_note'     => $r['approve'] ? 'Applies her read and approves the receipt.' : 'Applies her read; the office approves it.',
+            'apply_note'     => $r['approve'] ? 'Puts her read on the receipt; check it, then Approve.' : 'Applies her read; the office approves it.',
         ]];
     }
 
     // ── Writes ────────────────────────────────────────────────────────────────
 
     /**
-     * "Use Penny's version": every field of hers, and her line items, through decide().
+     * "Use Penny's version": every field of hers, and her line items, through decide() — never approved.
      * @param array $user ['id', 'role', 'full_name'] — what decide() / approve() read
      */
     public function apply(int $expenseId, array $user, array $actor): array
@@ -252,11 +252,12 @@ class PennyReadService
         if (!$row) return ['ok' => false, 'message' => 'Penny has no open suggestion for this receipt'];
         $s = json_decode((string)$row['suggestion_json'], true) ?: [];
         $overrides = self::itemsDiff($s, $this->items($expenseId)) ? ['line_items' => 'penny'] : [];
-        $res = $this->desk()->decide((int)$row['id'], $overrides, $user, $r['approve']);
-        if (!empty($res['ok']) && !$r['approve']) {
-            $res['message'] = 'Penny\'s version is on the receipt — the office approves it';
-        } elseif (!empty($res['ok']) && !empty($res['approved'])) {
-            $res['message'] = 'Penny\'s version applied and approved';
+        // Never approves (Tim, 2026-10-14: "sometimes not all of it is correct"): her read goes onto the
+        // receipt as a draft; a person checks it and presses Approve.
+        $res = $this->desk()->decide((int)$row['id'], $overrides, $user, false);
+        if (!empty($res['ok'])) {
+            $res['message'] = $r['approve'] ? 'Penny\'s version is on the receipt — check it, then Approve'
+                                            : 'Penny\'s version is on the receipt — the office approves it';
         }
         return $res;
     }

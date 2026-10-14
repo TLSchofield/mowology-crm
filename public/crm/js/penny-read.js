@@ -4,7 +4,7 @@
  * When she hasn't read the receipt yet, offers "Ask Penny" (POST penny_ask) instead.
  * Shows Penny's pending suggestion where it differs from the receipt: each field with her
  * reason, her line items next to the receipt's, her notes, and two buttons —
- * "Use Penny's version" (applies all of it; for approvers it also approves) and
+ * "Use Penny's version" (applies all of it; never approves — a person checks it and presses Approve, 2026-10-14) and
  * "Keep mine" (approvers: her read is set aside). Renders nothing when she has no open
  * suggestion or agrees with the receipt. Server: PennyReadService via /crm/api/expenses.php
  * (?action=penny_read&id=N, POST penny_apply / penny_keep). Same as the iPhone receipt detail.
