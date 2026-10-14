@@ -3712,6 +3712,14 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
+                <!-- Also pays as (Penny, payer_aliases 1362): a contact with a company pays as the company -->
+                <?php if (!$contactCompany) {
+                    $payerAliasName = trim(($viewContact['first_name'] ?? '') . ' ' . ($viewContact['last_name'] ?? ''));
+                    $payerAliasContactId = (int)$viewContact['id'];
+                    $payerAliasCompanyId = null;
+                    include __DIR__ . '/includes/payer-aliases-card.php';
+                } ?>
+
                 <!-- Recent Photos Card -->
                 <?php if (!empty($recentPhotos)): ?>
                 <div class="card mb-3">
@@ -5517,6 +5525,14 @@ $unconvertedRequests = $db->query("
                     <?php endif; ?>
                   </div>
                 </div>
+
+                <!-- Also pays as (Penny, payer_aliases 1362) -->
+                <?php
+                  $payerAliasName = (string)($viewCompany['company_name'] ?? '');
+                  $payerAliasContactId = null;
+                  $payerAliasCompanyId = (int)$viewCompany['id'];
+                  include __DIR__ . '/includes/payer-aliases-card.php';
+                ?>
 
                 <!-- Quotes Card -->
                 <div class="card mb-3">
