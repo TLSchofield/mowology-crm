@@ -85,11 +85,24 @@ $startStr  = $start->format('Y-m-d');
 $endStr    = $end->format('Y-m-d');
 
 // ── Role-based crew filter ────────────────────────────────────────────────────
-$crewFilter = jwtIsAdmin($jwtUser['role']) ? null : $jwtUser['id'];
+// The same rule and filters as the day (CrewViewScope, 2026-10-14), so the strip's dots match the list.
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()),
+                                    in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null);
+$crewFilter = $viewScope['crew'];
+$weekService = null;
+try {
+    $want = (string)($_GET['service'] ?? '');
+    if ($want !== '') {
+        $chk = getDB()->prepare("SELECT slug FROM service_types WHERE slug = ? AND is_active = 1");
+        $chk->execute([$want]);
+        $weekService = $chk->fetchColumn() ?: null;
+    }
+} catch (Throwable $e) { /* no job-type filter */ }
 
 // ── Fetch week stops ──────────────────────────────────────────────────────────
 try {
-    $calendarData = getCalendarStops($startStr, $endStr, $crewFilter);
+    $calendarData = getCalendarStops($startStr, $endStr, $crewFilter, $weekService);
 } catch (Throwable $e) {
     error_log('[schedule/week] getCalendarStops error: ' . $e->getMessage());
     http_response_code(500);

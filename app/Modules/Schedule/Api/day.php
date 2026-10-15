@@ -65,13 +65,24 @@ if (!$dt || $dt->format('Y-m-d') !== $date) {
     exit;
 }
 
-// ── Role-based crew filter ────────────────────────────────────────────────────
-// Admin/manager sees all stops; crew sees only their own
-$crewFilter = jwtIsAdmin($jwtUser['role']) ? null : $jwtUser['id'];
+// ── Whose stops (CrewViewScope, 2026-10-14) ──────────────────────────────────
+// Crew: only their own unless the company allows all; office: ?scope=mine|all (default all).
+// ?service=<slug> narrows to one job type (the tenant's service_types).
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$askedScope = in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null;
+$viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()), $askedScope);
+$crewFilter = $viewScope['crew'];
+$serviceFilter = null;
+$serviceTypes  = [];
+try {
+    $serviceTypes = getDB()->query("SELECT slug, label FROM service_types WHERE is_active = 1 ORDER BY sort_order, label")->fetchAll(PDO::FETCH_ASSOC);
+    $want = (string)($_GET['service'] ?? '');
+    if ($want !== '' && in_array($want, array_column($serviceTypes, 'slug'), true)) $serviceFilter = $want;
+} catch (Throwable $e) { /* no service_types table: no job-type filter */ }
 
 // ── Fetch stops ───────────────────────────────────────────────────────────────
 try {
-    $calendarData = getCalendarStops($date, $date, $crewFilter);
+    $calendarData = getCalendarStops($date, $date, $crewFilter, $serviceFilter);
 } catch (Throwable $e) {
     error_log('[schedule/day] getCalendarStops error: ' . $e->getMessage());
     http_response_code(500);
@@ -260,6 +271,10 @@ echo json_encode([
     'success'              => true,
     'date'                 => $date,
     'role'                 => $jwtUser['role'],
+    'scope'                => $viewScope['scope'],
+    'can_switch_scope'     => $viewScope['can_switch'],
+    'service'              => $serviceFilter,
+    'service_types'        => array_map(fn($t) => ['value' => (string)$t['slug'], 'label' => (string)$t['label']], $serviceTypes),
     'stop_count'           => count($stops),
     'extras_rate_per_5min' => $extrasRate,
     'stops'                => $stops,

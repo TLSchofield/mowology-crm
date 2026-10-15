@@ -494,3 +494,12 @@ Before, the file was written but never linked, so the receipt showed no image. I
 ## "Use Penny's version" never approves — 2026-10-14
 It puts her read on the receipt as a draft; a person checks it and presses Approve (Tim: "sometimes not all of it is
 correct"). `PennyReadService::apply()` always calls `BookkeeperDeskService::decide(..., approve: false)`.
+
+## Penny learns from your corrections (2026-10-14)
+
+- When Penny prepares a receipt she now sees your past corrections for that vendor (category, For
+  tag, job, and why you rejected one) and her own track record for it ("category 5 of 6 right").
+  A correction you make the same way twice is what she follows. Bulk clean-ups and misread vendor
+  names are never shown to her.
+- Rejecting a receipt on her card teaches her: the reason you give is kept as a lesson.
+- A part-number name (SKU → item name) is trusted after two approvals of the same name.

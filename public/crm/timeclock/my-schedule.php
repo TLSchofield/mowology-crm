@@ -64,8 +64,12 @@ $trackingEnabled  = (bool)($trackRow['tracking_on'] ?? false);
 $needsNativeApp = $trackingEnabled
                && !in_array($user['role'], ['admin']);
 
-// All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
-$allJobsToday = $isToday ? getAllJobsForDate($viewDate) : [];
+// All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in.
+// Only when the company lets crew see other crews' jobs (CrewViewScope, 2026-10-14): otherwise their
+// addresses and GPS are not sent to this phone at all (Codex review).
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$seesOthers   = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting($db));
+$allJobsToday = ($isToday && $seesOthers) ? getAllJobsForDate($viewDate) : [];
 // Filter out jobs already in the user's assigned list and completed ones
 $proximityJobs = [];
 $assignedJobIds = array_column($jobs, 'id');

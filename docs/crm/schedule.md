@@ -232,3 +232,13 @@ _Phase 2 began 2026-06-18 with VisitGenerationService._
   - never dropped: server errors, odd answers and timeouts queue the photo; retries back off up to an hour and never give up; 'failed' and stuck items go back in line;
   - Before / After take several shots through the in-app camera and keep the start/finish steps.
 - **An expired login** returns 401 "sign in again" from the service worker (mw-v77), not "offline".
+
+## Whose jobs you see (2026-10-14)
+
+- **Crew** see only the jobs they're on, on the web schedule, the Android and iPhone apps and the
+  "near a job" prompts. Time Clock → Settings → **Crew see every crew's jobs** turns that off; crew
+  then get the same Mine / All crews switch as the office.
+- **Managers and admins** have a **Mine / All crews** switch on the phone schedule (web, Android,
+  iPhone), and on the desktop the crew dropdown still picks one crew. Everyone has a **job type**
+  picker. Both are remembered per person.
+- The rule lives in one place: `app/Modules/Schedule/Services/CrewViewScope.php`.

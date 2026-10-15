@@ -42,6 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'auto_clock_out_hours' => max(1, min(24, (int)($_POST['auto_clock_out_hours'] ?? 12))),
             'require_gps_for_clock_in' => !empty($_POST['require_gps_for_clock_in']) ? '1' : '0',
             'require_gps_for_job_start' => !empty($_POST['require_gps_for_job_start']) ? '1' : '0',
+            // Whose jobs crew see (CrewViewScope): unticked = only their own.
+            'crew_job_visibility' => !empty($_POST['crew_job_visibility_all']) ? 'all' : 'own',
             'auto_arrival_enabled' => !empty($_POST['auto_arrival_enabled']) ? '1' : '0',
             'auto_arrival_service_types' => implode(',', $arrivalTypes),
             'gps_interval_standard_ms' => max(10000, min(120000, (int)($_POST['gps_interval_standard_ms'] ?? 30000))),
@@ -204,6 +206,19 @@ $activePage = 'timeclock-settings';
                        style="width: 100px;" min="50" max="500" step="10"
                        value="<?php echo $gpsProximity; ?>">
                 <small class="text-muted">meters (50–500)</small>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Crew see every crew's jobs
+                <small>Off: crew see only the jobs they're on (schedule, phone apps, nearby-job prompts). On: crew can switch between Mine and All crews. Managers and admins can always switch.</small>
+            </div>
+            <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="crewJobVisibilityAll"
+                       name="crew_job_visibility_all" value="1"
+                    <?php echo getTimeClockSetting('crew_job_visibility', 'own') === 'all' ? 'checked' : ''; ?>>
+                <label class="custom-control-label" for="crewJobVisibilityAll"></label>
             </div>
         </div>
 

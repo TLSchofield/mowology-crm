@@ -104,6 +104,29 @@ if ($view === 'day') {
 $crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
 $staff = getStaffMembers();
 
+// Whose jobs this person sees (CrewViewScope, 2026-10-14): crew only their own unless the company
+// allows all; the office switches Mine / All crews. The switch and the job type are remembered.
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$__remember = function (string $name, string $value): void {
+    setcookie($name, $value, ['expires' => time() + 31536000, 'path' => '/crm/', 'samesite' => 'Lax', 'secure' => true, 'httponly' => true]);
+};
+$askedScope = null;
+if (isset($_GET['scope']) && in_array($_GET['scope'], ['mine', 'all'], true)) {
+    $askedScope = $_GET['scope'];
+    $__remember('mw_sched_scope', $askedScope);
+} elseif ($crewFilter !== null) {
+    $askedScope = 'all';               // picking a crew in the dropdown means "show me that crew"
+    $__remember('mw_sched_scope', 'all');
+} elseif (in_array($_COOKIE['mw_sched_scope'] ?? '', ['mine', 'all'], true)) {
+    $askedScope = $_COOKIE['mw_sched_scope'];
+}
+$viewScope  = CrewViewScope::decide((string)($user['role'] ?? ''), (int)$user['id'], CrewViewScope::setting($db), $askedScope, $crewFilter);
+$crewFilter = $viewScope['crew'];
+if (!$viewScope['can_switch'] || $viewScope['scope'] === 'mine') {
+    // The crew dropdown can't widen what this person may see.
+    $staff = array_values(array_filter($staff, fn($m) => (int)$m['id'] === (int)$user['id']));
+}
+
 // ─── Service type filter ─────────────────────────────────────────────
 // Load from DB with fallback to hardcoded list
 $validServiceTypes = ['landscaping', 'lawn_care', 'snow_removal', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup'];
@@ -118,6 +141,12 @@ try {
 $serviceFilter = (isset($_GET['service']) && in_array($_GET['service'], $validServiceTypes, true))
     ? $_GET['service']
     : null;
+// The job type is remembered too: ?service= sets it, ?service=all clears it.
+if (isset($_GET['service'])) {
+    $__remember('mw_sched_service', $serviceFilter ?? '');
+} elseif (in_array($_COOKIE['mw_sched_service'] ?? '', $validServiceTypes, true)) {
+    $serviceFilter = $_COOKIE['mw_sched_service'];
+}
 
 // ─── Weather forecast ───────────────────────────────────────────────
 $todaysForecast = getWeekForecast('Vancouver', 'BC');
@@ -162,7 +191,8 @@ $profitabilityMap = !empty($allPlanIds) ? getStopProfitabilityBatch($allPlanIds)
 
 // ─── Unscheduled jobs tray ───────────────────────────────────────────
 // Visits with no calendar_stop yet — displayed in the collapsible left tray.
-$unscheduledVisits = getUnscheduledVisits();
+// Crew who see only their own jobs get no tray: it lists every unscheduled visit (Codex review 2026-10-14).
+$unscheduledVisits = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting($db)) ? getUnscheduledVisits() : [];
 $unscheduledCount  = count($unscheduledVisits);
 
 // Crew flag: 'user' role = mobile crew (auto-assign on drop); admin/manager = desktop
@@ -2522,6 +2552,32 @@ if ($apiKey) {
                               <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
                           </span>
                       </div>
+                  </div>
+
+                  <!-- Row 1b: whose jobs · job type (CrewViewScope, 2026-10-14; remembered per person) -->
+                  <?php
+                  $__scopeBase = '?view=day&date=' . urlencode($mobileDate);
+                  $__typeList  = $serviceTypeLabels ?: $serviceLabels;
+                  ?>
+                  <div class="mw-mc-scope-bar">
+                      <?php if ($viewScope['can_switch']): ?>
+                      <div class="mw-mc-scope-toggle" role="group" aria-label="Whose jobs">
+                          <a href="<?php echo htmlspecialchars($__scopeBase . '&scope=mine'); ?>"
+                             class="mw-mc-scope-btn<?php echo $viewScope['scope'] === 'mine' ? ' is-on' : ''; ?>"
+                             <?php echo $viewScope['scope'] === 'mine' ? 'aria-current="true"' : ''; ?>>Mine</a>
+                          <a href="<?php echo htmlspecialchars($__scopeBase . '&scope=all'); ?>"
+                             class="mw-mc-scope-btn<?php echo $viewScope['scope'] === 'all' ? ' is-on' : ''; ?>"
+                             <?php echo $viewScope['scope'] === 'all' ? 'aria-current="true"' : ''; ?>>All crews</a>
+                      </div>
+                      <?php endif; ?>
+                      <select class="mw-mc-scope-type" aria-label="Job type"
+                              data-base="<?php echo htmlspecialchars($__scopeBase); ?>"
+                              onchange="location.href = this.dataset.base + '&service=' + encodeURIComponent(this.value || 'all')">
+                          <option value="">All job types</option>
+                          <?php foreach ($__typeList as $__slug => $__label): ?>
+                          <option value="<?php echo htmlspecialchars($__slug); ?>" <?php echo $serviceFilter === $__slug ? 'selected' : ''; ?>><?php echo htmlspecialchars($__label); ?></option>
+                          <?php endforeach; ?>
+                      </select>
                   </div>
 
                   <!-- Row 2: prev-week · 7 days · next-week -->

@@ -43,12 +43,16 @@ try {
     $autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArrivalServiceTypesStr)));
 
     $allVisits = getAllJobsForDate($today);
+    // Crew get only their own stops unless the company lets them see every crew's (CrewViewScope, 2026-10-14).
+    require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+    $seesOthers = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting(getDB()));
 
     $stops = [];
     foreach ($allVisits as $v) {
         $vLat = $v['property_lat'] ?? null;
         $vLng = $v['property_lng'] ?? null;
         if (empty($vLat) || empty($vLng)) continue;
+        if (!$seesOthers && (int)($v['assigned_crew_id'] ?? 0) !== (int)$user['id'] && !userIsCrewOnVisit((int)$v['id'], (int)$user['id'])) continue;
 
         $stops[] = [
             'visit_id'        => (int)$v['id'],
