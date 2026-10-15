@@ -828,7 +828,9 @@ function deriveVendorPatterns(PDO $db, int $vendorId): void
                 $toAdd = [];
                 foreach ($ocrMisreads as $misread) {
                     $mis = strtolower(trim($misread));
-                    if (!empty($mis) && !in_array($mis, $existingAliases, true)) {
+                    // Only a misread that can name a vendor — "date:", "amount", "push" were learned as Chevron's (2026-10-15).
+                    if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorIdentity.php';
+                    if (!empty($mis) && VendorIdentity::usableAlias($mis) && !in_array($mis, $existingAliases, true)) {
                         $toAdd[] = $mis;
                     }
                 }

@@ -291,12 +291,14 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         return $kbHit;
     }
 
+    if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorIdentity.php';
     foreach ($vendors as $vendor) {
         $score = 0;
         $reason = '';
 
-        // Check vendor name
-        if (stripos($ocrLower, strtolower($vendor['name'])) !== false) {
+        // Check vendor name — whole words, and only a name that can identify a vendor (a vendor named "AMOUNT"
+        // or "DATE:" matched nearly every receipt; 2026-10-15).
+        if (VendorIdentity::usableAlias($vendor['name']) && VendorIdentity::textHas($ocrLower, (string)$vendor['name'])) {
             $score = 60;
             $reason = 'Name match: ' . $vendor['name'];
         }
@@ -305,8 +307,8 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         if ($score === 0 && !empty($vendor['aliases'])) {
             $aliases = array_map('trim', explode(',', $vendor['aliases']));
             foreach ($aliases as $alias) {
-                if (empty($alias)) continue;
-                if (stripos($ocrLower, strtolower($alias)) !== false) {
+                if (empty($alias) || !VendorIdentity::usableAlias($alias)) continue;
+                if (VendorIdentity::textHas($ocrLower, $alias)) {
                     $score = 60;
                     $reason = 'Alias match: ' . $alias;
                     break;
@@ -937,8 +939,9 @@ function gateVendorAutoCreation(string $vendorHint, PDO $db, int $minConfidence 
         // Also check aliases
         if (!empty($vendor['aliases'])) {
             $aliases = array_map('trim', explode(',', $vendor['aliases']));
+            if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorIdentity.php';
             foreach ($aliases as $alias) {
-                if (empty($alias)) continue;
+                if (empty($alias) || !VendorIdentity::usableAlias($alias)) continue;
                 $aliasLower = strtolower($alias);
 
                 $aliasSim = 0;

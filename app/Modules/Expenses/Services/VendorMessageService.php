@@ -93,6 +93,8 @@ class VendorMessageService
                 if ($siteLabels && array_intersect($labels, $siteLabels)) return (int)$v['id'];
             }
             foreach ($keys as $k) {
+                if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Knowledge/Services/VendorIdentity.php';
+                if (!VendorIdentity::usableAlias($k)) continue;   // "the", "date:", "amount" never name a sender (2026-10-15)
                 $sq = self::squash($k);
                 if (strlen($sq) < self::MIN_KEY) continue;
                 if (!$free) {

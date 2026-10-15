@@ -33,6 +33,45 @@ final class VendorIdentity
         return $key === '' ? null : mb_substr($key, 0, 160);
     }
 
+    /**
+     * Words that can't identify a vendor on their own: receipt labels, payment words, place words. An alias
+     * built only from these ("date:", "amount", "the", "city of", "w. broadway", "transaction red") matched
+     * nearly every receipt and filed it under the wrong vendor (2026-10-15).
+     */
+    private const NOT_A_NAME = ['the', 'and', 'of', 'for', 'a', 'an', 'to', 'at', 'on', 'in', 'by', 'de', 'la', 'le', 'des',
+        'date', 'time', 'amount', 'total', 'subtotal', 'sub', 'tax', 'gst', 'pst', 'hst', 'store', 'tel', 'phone', 'fax',
+        'transaction', 'trans', 'push', 'approved', 'approval', 'debit', 'credit', 'card', 'cash', 'change', 'balance',
+        'invoice', 'receipt', 'customer', 'copy', 'thank', 'thanks', 'you', 'red', 'sale', 'sales', 'item', 'items', 'qty',
+        'price', 'auth', 'ref', 'visa', 'mastercard', 'interac', 'chip', 'tip', 'merchant', 'terminal', 'operator', 'cashier',
+        'register', 'reg', 'account', 'acct', 'type', 'signature', 'required', 'purchase', 'payment', 'paid', 'number', 'welcome',
+        'city', 'street', 'avenue', 'road', 'drive', 'broadway', 'north', 'south', 'east', 'west', 'canada', 'british', 'columbia',
+        'vancouver', 'richmond', 'burnaby', 'surrey', 'delta', 'ladner', 'coquitlam', 'langley', 'kitsilano'];
+
+    /**
+     * Can this alias (or vendor name) identify a vendor on a receipt? It needs a word of 4+ letters that isn't a
+     * receipt or place word, or a store number (5+ digits in a row) or phone number (10+ digits). Pure.
+     */
+    public static function usableAlias(?string $alias): bool
+    {
+        $s = mb_strtolower(trim((string)$alias));
+        if ($s === '') return false;
+        // A store number (an unbroken run of 5+ digits) or a phone number (10+ digits); a street number like
+        // "320-507" is neither.
+        if (preg_match('/\d{5,}/', $s) || strlen(preg_replace('/\D+/', '', $s)) >= 10) return true;
+        foreach (preg_split('/[^\p{L}]+/u', $s) as $w) {
+            if (mb_strlen($w) >= 4 && !in_array($w, self::NOT_A_NAME, true)) return true;
+        }
+        return false;
+    }
+
+    /** Does the text carry this alias as whole words ("rona" in "RONA+ Vancouver", never in "Verona")? Pure. */
+    public static function textHas(string $text, string $alias): bool
+    {
+        $a = trim(mb_strtolower($alias));
+        if ($a === '') return false;
+        return (bool)preg_match('/(?<![\p{L}\p{N}])' . preg_quote($a, '/') . '(?![\p{L}\p{N}])/iu', $text);
+    }
+
     /** Last 10 digits of a North American number; null when there aren't 10. */
     public static function phoneDigits(?string $phone): ?string
     {
