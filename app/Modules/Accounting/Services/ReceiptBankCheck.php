@@ -190,9 +190,11 @@ class ReceiptBankCheck
     private function note(int $expenseId, float $total, string $vendor, string $text): void
     {
         try {
-            $s = $this->db->prepare("SELECT id FROM penny_questions WHERE kind = 'payment_source' AND expense_id = ?");
+            $s = $this->db->prepare("SELECT id, question, status FROM penny_questions WHERE kind = 'payment_source' AND expense_id = ?");
             $s->execute([$expenseId]);
-            $qid = $s->fetchColumn();
+            $q = $s->fetch(PDO::FETCH_ASSOC);
+            $qid = $q ? (int)$q['id'] : null;
+            if ($q && (string)$q['question'] === $text) return;   // already said (and maybe seen) — never nag nightly
             if ($qid) {
                 $this->db->prepare("UPDATE penny_questions SET category = 'notice', subject = NULL, amount = ?, vendor_name = ?, question = ?, status = 'open',
                                     answer = NULL, answered_by = NULL, answered_at = NULL WHERE id = ?")->execute([$total, $vendor, $text, (int)$qid]);

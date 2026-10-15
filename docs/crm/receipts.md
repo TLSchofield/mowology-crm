@@ -396,6 +396,20 @@ unmatched rows on `public/crm/accounting/transactions.php` ("Find Expense
 Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
 (`expense_candidates`/`transaction_expense_candidates`/`attach_expense`/`detach_expense`).
 
+### Every approved debit/card receipt has its statement line (2026-10-15)
+
+`ReceiptBankCheck` (nightly, sync-ledger cron; plan `docs/plans/2026-10-15-receipt-bank-line-check.md`). For an approved
+receipt paid by debit / no method (chequing) or credit card, 2026 on, not sent to the accountant, with no line linked:
+- the statement for its account doesn't cover its date + 5 days yet (PDF sections or CSV imports, joined end to end) → **waits**;
+- another live receipt has the same photo → Penny notes the **duplicate** (rejecting is the owner's call);
+- one free purchase line on its own account, exact amount, −3/+5 days, vendor on the statement, no rival receipt → **linked**
+  (link + the line's own posting retired + activity log, one transaction) — logged as a matcher miss;
+- a line exists but not clearly (name differs, another account, a transfer, already another receipt's) → Penny **notes** it;
+- nothing anywhere → **back to draft** through the gate's narrow `reopen` transition (approved → draft, status + note only; its
+  entry reversed in the same transaction) with a note to check card, cash, cheque or personal payment.
+Penny's notes use her payment-source card (`penny_questions` kind `payment_source`, category `notice`), said once, never re-opened nightly.
+First run 2026-10-15: 3 same-photo copies rejected (#372, #341, #342), 18 back to draft, 1 linked, 2 noted.
+
 ## Key files
 
 - `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)

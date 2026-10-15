@@ -67,6 +67,16 @@ try {
     $alertResult = $alerts->runAll();
     $output['alerts_active'] = count($alertResult);
 
+    // ── 2b. Approved debit/card receipts with no statement line (Tim, 2026-10-15) ──
+    // Waits for the statement; links a clear line; notes duplicates; otherwise back to draft.
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/ReceiptBankCheck.php';
+        $output['receipt_bank_check'] = (new ReceiptBankCheck($db))->run(true)['counts'];
+    } catch (Throwable $e) {
+        $output['receipt_bank_check_error'] = $e->getMessage();
+        error_log('[accounting_sync] receipt bank check: ' . $e->getMessage());
+    }
+
     // ── 3. Books vs bank + quiet signals (Charlie emails what's new) ───────────
     try {
         require_once APP_ROOT . '/Modules/Accounting/Services/BooksWatchService.php';
