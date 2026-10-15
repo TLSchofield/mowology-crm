@@ -253,6 +253,33 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(0, $this->hooks->count('learnBank'));
     }
 
+    public function test_reopen_puts_an_approved_receipt_back_to_draft_and_out_of_the_books(): void
+    {
+        // ReceiptBankCheck (2026-10-15): no statement line for an approved debit receipt.
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft'], ['id' => null, 'kind' => 'penny'], 'bank_check');
+        $this->assertSame('approved', $this->row(412)['status'], 'a plain edit never re-opens');
+        $this->assertSame(0, $this->hooks->count('unpost'));
+
+        $this->gate->apply(412, ['status' => 'draft', 'notes' => 'no chequing line'], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+        $this->assertSame('draft', $this->row(412)['status']);
+        $this->assertSame(1, $this->hooks->count('unpost'), 'its entry is reversed');
+    }
+
+    public function test_reopen_is_narrow(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->db->exec("UPDATE expenses SET status = 'rejected' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft'], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+    }
+
+    public function test_reopen_carries_nothing_but_status_and_a_note(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft', 'total' => 1.00], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+    }
+
     // ── Delete ──────────────────────────────────────────────────────────
 
     public function test_delete_keeps_the_row_in_the_audit_and_reverses_the_books(): void

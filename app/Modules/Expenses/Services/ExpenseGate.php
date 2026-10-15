@@ -70,7 +70,8 @@ class ExpenseGate
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
     /** The audited transition that may set each closed status. */
-    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled'];
+    // 'reopen': an approved receipt back to draft by its audited path (ReceiptBankCheck: no statement line for it, 2026-10-15).
+    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft'];
 
     private const INTS = ['vendor_id', 'job_id', 'property_id', 'contact_id', 'receipt_media_id', 'created_by', 'approved_by',
                           'odometer_start', 'odometer_end'];
@@ -136,6 +137,13 @@ class ExpenseGate
             }
         }
         $transition = (string)($opts['transition'] ?? '');
+        // Re-open is narrow: an approved receipt back to draft, carrying only its status and a note (Codex review 2026-10-15).
+        if ($transition === 'reopen') {
+            if ($create || ($before['status'] ?? '') !== 'approved' || array_diff(array_keys($changes), ['status', 'notes'])
+                || ($changes['status'] ?? null) !== 'draft') {
+                throw new InvalidArgumentException('Re-open takes an approved receipt back to draft, with a note, and nothing else');
+            }
+        }
 
         // ── 1. Validate and normalise ─────────────────────────────────────────
         $cols = [];
