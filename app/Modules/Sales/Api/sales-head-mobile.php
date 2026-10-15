@@ -12,6 +12,7 @@
  * POST {mode: 'draft_reply', card_key | reply_key}   Claude, Tim's tap only, daily-capped
  * POST {mode: 'handled', key}                         a waiting reply → Charlie's act/dismiss
  * POST {mode: 'answer', question_id, answer: lost|keep|won}
+ * POST {mode: 'accept_signed' | 'not_acceptance', id}   a "Looks like an acceptance" item (SamAcceptanceService)
  * POST {mode: 'send_quote', quote_id}                 a draft quote → its client (QuoteSendService, as the web page's Send)
  * POST {mode: 'move', key | card_key, to: penny|sam|otto|mia|yui}
  *                                                     "Move to…" (admins): InboundRouteService::move —
@@ -113,7 +114,36 @@ try {
         }
     };
 
+    // A client email that looks like it accepts quotes, each quote with its signed copy (a short-lived signed link
+    // the phone can open in Safari — InboundAttachmentService::appUrl).
+    $acceptances = static function () use ($db): array {
+        try {
+            require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundAttachmentService.php';
+            $groups = (new SamAcceptanceService($db))->open(10);
+            $exp = time() + 3600;
+            foreach ($groups as &$g) foreach ($g['quotes'] as &$q) {
+                if ($q['file']) $q['file']['url'] = InboundAttachmentService::appUrl($q['file']['id'], $exp, jwtSecret());
+            }
+            unset($g, $q);
+            return $groups;
+        } catch (Throwable $e) {
+            error_log('[sales-head-mobile] acceptances: ' . $e->getMessage());
+            return [];
+        }
+    };
+
     switch ($mode) {
+        case 'accept_signed':
+        case 'not_acceptance': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';
+            $acc = new SamAcceptanceService($db);
+            $res = $mode === 'accept_signed' ? $acc->accept((int)($input['id'] ?? 0), $user) : $acc->dismiss((int)($input['id'] ?? 0), $user);
+            echo json_encode(['ok' => $res['ok'], 'message' => $res['message'], 'error' => $res['ok'] ? null : $res['message']]);
+            break;
+        }
+
         case 'send_quote': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             $quoteId = (int)($input['quote_id'] ?? 0);
@@ -147,6 +177,7 @@ try {
                 'texts'     => (new TextBridgeService($db))->status(),
                 'unclaimed' => array_slice($desk->unclaimed($all), 0, 12),
                 'to_send'   => $toSend(),                    // draft quotes waiting to go out (2026-10-15)
+                'acceptances' => $acceptances(),              // "Looks like an acceptance" — signed quotes by email (2026-10-15)
             ]);
             break;
         }

@@ -69,6 +69,9 @@ final class SamCardViewModel: ObservableObject {
     @Published private(set) var toSend: [SalesDraftQuote] = []
     @Published var toSendMessage: String?
     @Published var toSendIsError = false
+    @Published private(set) var acceptances: [SalesAcceptance] = []
+    @Published var acceptanceMessage: String?
+    @Published var acceptanceIsError = false
     @Published private(set) var texts: SalesTextBridge?
     @Published private(set) var index = 0
     @Published private(set) var isLoading = false
@@ -138,6 +141,7 @@ final class SamCardViewModel: ObservableObject {
         replies = r.unclaimed
         approved = r.approved
         toSend = r.toSend
+        acceptances = r.acceptances
         texts = r.texts
         if index >= queue.count { index = 0 }
         let keys = Set(queue.map(\.key))
@@ -271,6 +275,16 @@ final class SamCardViewModel: ObservableObject {
         toSendMessage = "\(q.number): " + (r.message ?? "sent.")
         toSendIsError = false
         Task { await self.refreshQuietly() }
+    }
+
+    /// Accept (or "Not this one") a quote a client's email looks like it accepts.
+    func decideAcceptance(_ q: SalesAcceptance.Quote, accept: Bool) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": accept ? "accept_signed" : "not_acceptance", "id": q.id],
+                                    onError: { self.acceptanceMessage = $0; self.acceptanceIsError = true }) else { return }
+        acceptanceMessage = r.message ?? (accept ? "\(q.number) accepted." : "OK.")
+        acceptanceIsError = false
+        await refreshQuietly()
     }
 
     /// "Got it" on a Just approved item.

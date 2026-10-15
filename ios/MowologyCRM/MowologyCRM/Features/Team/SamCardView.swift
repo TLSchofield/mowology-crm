@@ -26,6 +26,7 @@ struct SamCardView: View {
                 errorState(err)
             } else if vm.hasLoaded {
                 statsStrip
+                acceptanceSection
                 toSendSection
                 approvedSection
                 repliesSection
@@ -100,6 +101,52 @@ struct SamCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Looks like an acceptance
+
+    /// A client wrote back with a yes (signed copies, "approved"): each matched quote, its signed PDF, Accept / Not this one.
+    @ViewBuilder
+    private var acceptanceSection: some View {
+        if !vm.acceptances.isEmpty || vm.acceptanceMessage != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHead("Looks like an acceptance", "a client wrote back with a yes — check each one")
+                note(vm.acceptanceMessage, error: vm.acceptanceIsError)
+                ForEach(vm.acceptances) { g in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(g.from) · “\(g.subject)”").font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(g.quotes) { q in acceptanceRow(q) }
+                    }
+                    if g.id != vm.acceptances.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private func acceptanceRow(_ q: SalesAcceptance.Quote) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(q.number).font(.subheadline.bold())
+                Spacer(minLength: 4)
+                Text(String(format: "$%.2f", q.amount)).font(.subheadline.monospacedDigit())
+            }
+            Text([q.title, q.address].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                if let s = q.fileURL, let url = URL(string: s) {
+                    Button { openURL(url) } label: { Label(q.fileName ?? "Signed copy", systemImage: "doc.richtext").lineLimit(1) }
+                        .font(.caption)
+                }
+                Spacer()
+                Button("Not this one") { Task { await vm.decideAcceptance(q, accept: false) } }
+                    .buttonStyle(.bordered).disabled(vm.isBusy)
+                if q.stillOpen {
+                    Button("Accept") { Task { await vm.decideAcceptance(q, accept: true) } }
+                        .buttonStyle(.borderedProminent).tint(Color.MW.green).disabled(vm.isBusy)
+                }
+            }
+        }
     }
 
     // MARK: - Quotes to send

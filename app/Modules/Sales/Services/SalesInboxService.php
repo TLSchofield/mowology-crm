@@ -230,15 +230,60 @@ class SalesInboxService
         }
     }
 
-    /** Keep a stored inbound email's PDF / photo attachments when it is Penny's (migration 1283). */
+    /**
+     * Keep an inbound client email's PDF / photo attachments (migration 1283) — for every head since 2026-10-15:
+     * Alena's 9 signed quotes went to Sam and were dropped because only Penny's mail kept its files.
+     */
     public function keepAttachment(string $key, string $filename, string $mime, string $bytes): ?int
     {
-        if ($this->lastHead !== 'penny' || $this->router === null) return null;
         try {
+            if ($this->router === null) {
+                require_once dirname(__DIR__, 2) . '/Comms/Services/InboundRouteService.php';
+                $this->router = new InboundRouteService($this->db);
+            }
             return $this->router->attachments()->store($key, $filename, $mime, $bytes);
         } catch (Throwable $e) {
             error_log('Inbound attachment (' . $key . '): ' . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Should the reader fetch this inbound email's attachments? A new email, or a copy of one we kept without any
+     * (the same email read again from another mailbox, or Tim forwarding it to office@). Cheap: one count.
+     */
+    public function wantsAttachments(string $key, string $result): bool
+    {
+        if ($this->lastDirection !== 'inbound' || !in_array($result, ['stored', 'dupe'], true)) return false;
+        try {
+            // Read until one full pass has finished (Codex review 2026-10-15): a failure part-way is retried, an
+            // email with no files is not re-read on every poll. Files dedupe by (message_key, sha256).
+            $s = $this->db->prepare("SELECT 1 FROM inbound_attachment_scans WHERE message_key = ?");
+            $s->execute([$key]);
+            return !$s->fetchColumn();
+        } catch (Throwable $e) {
+            return $result === 'stored';   // before migration 1366
+        }
+    }
+
+    /** The reader finished reading this email's attachments (all of them, any count). */
+    public function attachmentsScanned(string $key, int $files): void
+    {
+        try {
+            $this->db->prepare("INSERT INTO inbound_attachment_scans (message_key, files, scanned_at) VALUES (?, ?, NOW())
+                                ON DUPLICATE KEY UPDATE files = VALUES(files), scanned_at = VALUES(scanned_at)")->execute([$key, $files]);
+        } catch (Throwable $e) { /* before migration 1366 */ }
+    }
+
+    /** After an inbound email and its files are kept: does it accept quotes? (Sam's "Looks like an acceptance", 2026-10-15) */
+    public function afterAttachments(string $key): int
+    {
+        try {
+            require_once __DIR__ . '/SamAcceptanceService.php';
+            return (new SamAcceptanceService($this->db))->detect($key);
+        } catch (Throwable $e) {
+            error_log('Acceptance check (' . $key . '): ' . $e->getMessage());   // a bonus — never lose the mail
+            return 0;
         }
     }
 

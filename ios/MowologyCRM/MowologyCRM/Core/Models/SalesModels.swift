@@ -350,6 +350,52 @@ struct SalesApproval: Decodable, Identifiable, Equatable {
     }
 }
 
+/// A client email that looks like it accepts quotes (signed copies, "approved") — one group per email, each matched
+/// quote with its signed PDF. Nothing is accepted until Tim taps Accept (SamAcceptanceService, 2026-10-15).
+struct SalesAcceptance: Decodable, Identifiable, Equatable {
+    struct Quote: Decodable, Identifiable, Equatable {
+        let id: Int
+        let quoteId: Int
+        let number: String
+        let title: String
+        let address: String
+        let amount: Double
+        let stillOpen: Bool
+        let fileName: String?
+        let fileURL: String?
+        private enum CodingKeys: String, CodingKey { case id, number, title, address, amount, file, quoteId = "quote_id", stillOpen = "still_open" }
+        private struct File: Decodable { let name: String?; let url: String? }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = (try? c.decode(Int.self, forKey: .id)) ?? 0
+            quoteId = (try? c.decode(Int.self, forKey: .quoteId)) ?? 0
+            number = c.bkString(.number) ?? ""
+            title = c.bkString(.title) ?? ""
+            address = c.bkString(.address) ?? ""
+            amount = c.bkDouble(.amount) ?? 0
+            stillOpen = c.bkBool(.stillOpen) ?? true
+            let f = (try? c.decodeIfPresent(File.self, forKey: .file)) ?? nil
+            fileName = f?.name
+            fileURL = f?.url
+        }
+    }
+    let messageKey: String
+    let from: String
+    let subject: String
+    let sentAt: String?
+    let quotes: [Quote]
+    var id: String { messageKey }
+    private enum CodingKeys: String, CodingKey { case from, subject, quotes, messageKey = "message_key", sentAt = "sent_at" }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        messageKey = c.bkString(.messageKey) ?? UUID().uuidString
+        from = c.bkString(.from) ?? ""
+        subject = c.bkString(.subject) ?? ""
+        sentAt = c.bkString(.sentAt)
+        quotes = (try? c.decodeIfPresent([Quote].self, forKey: .quotes)) ?? []
+    }
+}
+
 /// A draft quote waiting to go to its client — sent from Sam's desk through the same QuoteSendService
 /// as the web page's "Send to Customer" (2026-10-15).
 struct SalesDraftQuote: Decodable, Identifiable, Equatable {
@@ -415,8 +461,9 @@ struct SalesDeskResponse: Decodable {
     let texts: SalesTextBridge?
     let approved: [SalesApproval]
     let toSend: [SalesDraftQuote]
+    let acceptances: [SalesAcceptance]
 
-    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts, approved, toSend = "to_send" }
+    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts, approved, toSend = "to_send", acceptances }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -431,6 +478,7 @@ struct SalesDeskResponse: Decodable {
         texts = try? c.decodeIfPresent(SalesTextBridge.self, forKey: .texts)
         approved = (try? c.decodeIfPresent([SalesApproval].self, forKey: .approved)) ?? []
         toSend = (try? c.decodeIfPresent([SalesDraftQuote].self, forKey: .toSend)) ?? []
+        acceptances = (try? c.decodeIfPresent([SalesAcceptance].self, forKey: .acceptances)) ?? []
     }
 }
 

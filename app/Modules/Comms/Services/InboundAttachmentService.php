@@ -18,7 +18,7 @@ class InboundAttachmentService
 {
     public const DIR = 'inbound-attachments';
     public const MAX_BYTES = 15 * 1024 * 1024;
-    public const MAX_PER_MESSAGE = 5;
+    public const MAX_PER_MESSAGE = 12;   // a property manager returns 9 signed quotes in one email (VML, 2026-10-15)
     public const APP_URL = 'https://mowology.ca/api/team/inbound-attachment';
     public const WEB_URL = '/crm/api/inbound-route.php?mode=attachment&id=';
     public const EXT = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/jpg' => 'jpg', 'image/png' => 'png',

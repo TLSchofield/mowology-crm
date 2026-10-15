@@ -115,6 +115,16 @@ try {
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
                 'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
                 'unclaimed' => array_slice($desk->unclaimed($all), 0, 12), // replies about a quote nobody answered ("Handled" = Charlie dismiss)
+                'acceptances' => (static function () use ($db): array {     // "Looks like an acceptance" (2026-10-15)
+                    try {
+                        require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';
+                        require_once APP_ROOT . '/Modules/Comms/Services/InboundAttachmentService.php';
+                        $g = (new SamAcceptanceService($db))->open(10);
+                        foreach ($g as &$x) foreach ($x['quotes'] as &$q) if ($q['file']) $q['file']['url'] = InboundAttachmentService::WEB_URL . $q['file']['id'];
+                        unset($x, $q);
+                        return $g;
+                    } catch (Throwable $e) { error_log('[sales-head] acceptances: ' . $e->getMessage()); return []; }
+                })(),
                 'maybe_leads' => $emailLeads->maybes(8),                // enquiries from email the rules weren't sure about
             ]);
             break;
@@ -133,6 +143,14 @@ try {
 
         case 'ask_close': {
             echo json_encode($asks->close((int)($input['observation_id'] ?? 0), (array)$user, 'Ask first: not now (Sam)'));
+            break;
+        }
+
+        case 'accept_signed':
+        case 'not_acceptance': {
+            require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';
+            $acc = new SamAcceptanceService($db);
+            echo json_encode($mode === 'accept_signed' ? $acc->accept((int)($input['id'] ?? 0), (array)$user) : $acc->dismiss((int)($input['id'] ?? 0), (array)$user));
             break;
         }
 

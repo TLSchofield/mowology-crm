@@ -1001,6 +1001,27 @@ $activePage = 'quotes';
                   </div>
                   <?php endif; ?>
 
+                  <!-- Signed copies the client sent back (QuoteAcceptService, migration 1366) -->
+                  <?php
+                  require_once APP_ROOT . '/Modules/Quotes/Services/QuoteAcceptService.php';
+                  $signedDocs = (new QuoteAcceptService($db))->documents($quoteId);
+                  ?>
+                  <?php if ($signedDocs): ?>
+                      <div class="card">
+                          <div class="card-header">
+                              <h5 class="card-title mb-0">Signed copy</h5>
+                          </div>
+                          <div class="card-body">
+                              <?php foreach ($signedDocs as $d): ?>
+                                  <p class="mb-1">
+                                      <a href="/crm/api/inbound-route.php?mode=attachment&amp;id=<?php echo (int)$d['attachment_id']; ?>" target="_blank" rel="noopener"><?php echo h($d['filename']); ?></a>
+                                      <small class="text-muted"> · <?php echo h((string)$d['note']); ?> · <?php echo h(date('M j, Y', strtotime((string)$d['created_at']))); ?></small>
+                                  </p>
+                              <?php endforeach; ?>
+                          </div>
+                      </div>
+                  <?php endif; ?>
+
                   <!-- Terms -->
                   <?php if ($quote['terms']): ?>
                       <div class="card">

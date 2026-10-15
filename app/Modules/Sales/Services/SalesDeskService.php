@@ -182,7 +182,7 @@ class SalesDeskService
                    q.sent_at, q.viewed_at, q.last_viewed_at, q.email_opened_at, q.view_count, q.valid_until,
                    q.follow_up_sent_at, COALESCE(q.follow_up_count, 0) AS follow_up_count,
                    c.id AS contact_id, c.first_name, c.last_name, c.email, COALESCE(NULLIF(c.mobile, ''), c.phone) AS phone,
-                   co.company_name AS company_name, p.address
+                   co.company_name AS company_name, p.address, q.company_id, c.company_id AS contact_company_id
             FROM quotes q
             LEFT JOIN properties p ON p.id = q.property_id
             LEFT JOIN contacts c ON c.id = COALESCE(q.contact_id, p.site_contact_id)
@@ -262,6 +262,64 @@ class SalesDeskService
         return $out;
     }
 
+    /**
+     * The latest Sam-relevant email in from each company and each mail organisation (120 days):
+     * ['company' => [company_id => [at, by, contact_id]], 'org' => [org => [at, by, contact_id]]].
+     */
+    public function orgReplies(): array
+    {
+        $out = ['company' => [], 'org' => []];
+        if (!$this->hasTable('sales_messages')) return $out;
+        require_once __DIR__ . '/SamAcceptanceService.php';
+        $routed = true;
+        try { $this->db->query('SELECT head, head_source FROM sales_messages LIMIT 0'); } catch (Throwable $e) { $routed = false; }
+        $rows = $this->db->query("
+            SELECT m.contact_id, m.sent_at, m.from_addr, m.from_name, m.subject, m.snippet" . ($routed ? ", m.head, m.head_source" : "") . ",
+                   c.company_id
+            FROM sales_messages m LEFT JOIN contacts c ON c.id = m.contact_id
+            WHERE m.direction = 'inbound' AND m.sent_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            if (!self::countsAsSamReply($r)) continue;
+            $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id']];
+            if (!empty($r['company_id'])) {
+                $k = (int)$r['company_id'];
+                if (!isset($out['company'][$k]) || $hit['at'] > $out['company'][$k]['at']) $out['company'][$k] = $hit;
+            }
+            $email = preg_match('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', (string)$r['from_addr'], $em) ? $em[0] : '';
+            $org = SamAcceptanceService::orgOf($email);
+            if ($org !== null && (!isset($out['org'][$org]) || $hit['at'] > $out['org'][$org]['at'])) $out['org'][$org] = $hit;
+        }
+        return $out;
+    }
+
+    /**
+     * A contact's quotes count as answered when anyone at the quote's company, or writing from the contact's mail
+     * organisation, wrote in later than the contact did — the card then names who wrote. Pure.
+     */
+    public static function mergeOrgReplies(array $touches, array $quotes, array $orgReplies): array
+    {
+        if (!class_exists('SamAcceptanceService')) require_once __DIR__ . '/SamAcceptanceService.php';
+        foreach ($quotes as $q) {
+            $cid = (int)($q['contact_id'] ?? 0);
+            if (!$cid || !isset($touches[$cid])) continue;
+            $hits = [];
+            foreach ([(int)($q['company_id'] ?? 0), (int)($q['contact_company_id'] ?? 0)] as $co) {
+                if ($co && isset($orgReplies['company'][$co])) $hits[] = $orgReplies['company'][$co];
+            }
+            $org = SamAcceptanceService::orgOf((string)($q['email'] ?? ''));
+            if ($org !== null && isset($orgReplies['org'][$org])) $hits[] = $orgReplies['org'][$org];
+            foreach ($hits as $h) {
+                if ($h['contact_id'] === $cid) continue;   // their own mail is already counted
+                if ($touches[$cid]['last_in'] === null || $h['at'] > (string)$touches[$cid]['last_in']) {
+                    $touches[$cid]['last_in'] = $h['at'];
+                    $touches[$cid]['last_in_by'] = $h['by'];
+                }
+            }
+        }
+        return $touches;
+    }
+
     /** "Monica Nicule" — or her address — for an email someone other than the contact wrote. */
     public static function senderLabel(array $r): string
     {
@@ -316,6 +374,9 @@ class SalesDeskService
     {
         $quotes = $this->openQuotes();
         $touches = $this->touches(array_column($quotes, 'contact_id'));
+        // Anyone at the client's company or organisation answering counts (2026-10-15: Alena at VML returned the
+        // signed quotes Ron was sent; Sam kept chasing Ron).
+        $touches = self::mergeOrgReplies($touches, $quotes, $this->orgReplies());
         return self::groupStale($quotes, $touches, date('Y-m-d H:i:s'), $this->staleDays(), $this->learnedWaits());
     }
 

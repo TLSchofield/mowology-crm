@@ -30,6 +30,14 @@
     var abox = document.getElementById('mw-sam-asks');
     var rbox = document.getElementById('mw-sam-replies');
     var apbox = document.getElementById('mw-sam-approved');
+    // "Looks like an acceptance" (2026-10-15): drawn just above Just approved, in the same style.
+    var acbox = null;
+    if (apbox && apbox.parentNode) {
+        acbox = document.createElement('div');
+        acbox.id = 'mw-sam-acceptances'; acbox.className = apbox.className; acbox.hidden = true;
+        apbox.parentNode.insertBefore(acbox, apbox);
+    }
+    var acceptances = [];
     var approved = [];       // quotes just approved — every line ✓ / ✗ (QuoteApprovalService)
     var replies = [];        // unclaimed customer replies (desk.unclaimed)
     var CHARLIE = '/crm/api/charlie.php';
@@ -92,8 +100,9 @@
                 replies = d.unclaimed || [];
                 maybes = d.maybe_leads || [];
                 approved = d.approved || [];
+                acceptances = d.acceptances || [];
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved();
+                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances();
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
     }
@@ -226,6 +235,38 @@
             approved = approved.filter(function (a) { return a.quote_id !== qid; });
             renderApproved(d && d.ok ? '' : 'That didn\'t work — try again.');
         }).catch(function () { busy = false; b.disabled = false; renderApproved('Network error — try again.'); });
+    });
+
+    // ── Looks like an acceptance ─────────────────────────────────────────
+    // A client email that reads like a yes (signed copies, "approved"): each quote it matched, with its signed PDF.
+    // Nothing is accepted until Tim taps Accept (SamAcceptanceService → QuoteAcceptService).
+    function renderAcceptances(msg) {
+        if (!acbox) return;
+        if (!acceptances.length && !msg) { acbox.hidden = true; return; }
+        acbox.hidden = false;
+        acbox.innerHTML = '<div class="mw-sam-leads-head"><b>Looks like an acceptance</b> <small>a client wrote back with a yes — check each one</small></div>' +
+            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
+            acceptances.map(function (g) {
+                var rows = (g.quotes || []).map(function (q) {
+                    var file = q.file ? ' · <a href="' + esc(q.file.url) + '" target="_blank" rel="noopener">' + esc(q.file.name) + '</a>' : '';
+                    return '<div class="mw-sam-appr" data-acc="' + q.id + '">' +
+                        '<div class="mw-sam-appr-head"><b>' + esc(q.number) + '</b> ' + esc(q.title || '') + ' — ' + money(q.amount) + '</div>' +
+                        '<small class="mw-sam-meta">' + esc(q.address || '') + file + (q.still_open ? '' : ' · <b>already decided</b>') + '</small>' +
+                        '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="/crm/quotes/view.php?id=' + q.quote_id + '">Quote</a>' +
+                        (q.still_open ? '<button type="button" class="mw-rc-ok" data-acc-yes>Accept</button>' : '') +
+                        '<button type="button" class="mw-rc-sk" data-acc-no>Not this one</button></div></div>';
+                }).join('');
+                return '<div class="mw-sam-appr-group"><small class="mw-sam-meta">' + esc(g.from) + ' · “' + esc(g.subject || '') + '” · ' + esc(ago(g.sent_at)) + '</small>' + rows + '</div>';
+            }).join('');
+    }
+    if (acbox) acbox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-acc-yes],[data-acc-no]'); if (!b || busy) return;
+        var item = b.closest('[data-acc]'), id = +item.getAttribute('data-acc'), yes = b.hasAttribute('data-acc-yes');
+        busy = true; item.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        post({ mode: yes ? 'accept_signed' : 'not_acceptance', id: id }).then(function (d) {
+            busy = false;
+            load().then(function () { renderAcceptances(d && d.message ? d.message : (yes ? 'Accepted.' : 'OK.')); });
+        }).catch(function () { busy = false; renderAcceptances('Network error — nothing changed. Try again.'); });
     });
 
     // ── Replies waiting ──────────────────────────────────────────────────

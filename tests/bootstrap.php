@@ -325,6 +325,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckS
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReceiptBankCheck.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorDetailsService.php';
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteSendService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamAcceptanceService.php';
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteAcceptService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/HoldingRepostService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/ProximityAutoStartService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingIngestService.php';

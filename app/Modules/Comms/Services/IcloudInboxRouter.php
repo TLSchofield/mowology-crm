@@ -811,15 +811,20 @@ class IcloudInboxRouter
                     if ($svc->lastDirection === 'inbound') {
                         $sig = SalesInboxService::signature($plainText);
                         if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
-                        // Billing mail routed to Penny keeps its PDF / photo (a direct-deposit form) — nothing else does.
-                        if ($svc->lastHead === 'penny') {
-                            $st = $structure();
-                            foreach ($st ? ImapReader::attachments($st) : [] as $a) {
-                                $bytes = $imap->fetchPart($conn, $no, $a['pn'], $a['encoding']);
-                                if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
-                            }
-                        }
                     }
+                }
+                // Client mail keeps its PDF / photo whatever head it goes to, and a copy of one kept without its files
+                // adds them (2026-10-15: VML's 9 signed quotes were dropped because only Penny's mail kept files).
+                if ($svc->wantsAttachments($svc->lastKey, $res)) {
+                    $st = $structure();
+                    $nFiles = 0;
+                    foreach ($st ? ImapReader::attachments($st) : [] as $a) {
+                        $bytes = $imap->fetchPart($conn, $no, $a['pn'], $a['encoding']);
+                        if ($bytes !== '') $svc->keepAttachment($svc->lastKey, $a['filename'], $a['mime'], $bytes);
+                        $nFiles++;
+                    }
+                    if ($st) $svc->attachmentsScanned($svc->lastKey, $nFiles);   // a full pass — no structure, or an exception above, leaves it for next time
+                    $svc->afterAttachments($svc->lastKey);
                 }
                 return $out + [$res === 'stored' ? 'stored' : 'dupe' => 1];
             }
