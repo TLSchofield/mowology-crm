@@ -110,6 +110,34 @@ class DeadlineRules
         return 3;
     }
 
+    public const LATE_STEP_DAYS = 7;
+    public const MAX_LEAD_DAYS = 60;
+
+    /**
+     * The reminder lead, learned from the last two times (D5, 2026-10-15) — only when both agree:
+     *   done after the due date both times → remind LATE_STEP_DAYS earlier;
+     *   snoozed both times and still done on time → remind later: when he actually did it, plus 3 days.
+     * Anything else (one time, mixed, skipped) → the lead as set.
+     * @param list<array{due_date: string, done_at: ?string, status: string, snoozed_until: ?string}> $last newest first
+     * @return array{lead: int, why: ?string}
+     */
+    public static function learnedLead(int $lead, array $last): array
+    {
+        $done = array_values(array_filter($last, fn($o) => ($o['status'] ?? '') === 'done' && !empty($o['done_at'])));
+        if (count($last) < 2 || count($done) < 2 || $last[0] !== $done[0] || $last[1] !== $done[1]) return ['lead' => $lead, 'why' => null];
+        $before = array_map(fn($o) => self::daysUntil(substr((string)$o['done_at'], 0, 10), (string)$o['due_date']), [$done[0], $done[1]]);
+        if ($before[0] < 0 && $before[1] < 0) {
+            return ['lead' => max($lead, min(self::MAX_LEAD_DAYS, $lead + self::LATE_STEP_DAYS)),   // never shorter than set
+                    'why' => 'Done late the last two times, so I remind you ' . self::LATE_STEP_DAYS . ' days earlier'];
+        }
+        if (!empty($done[0]['snoozed_until']) && !empty($done[1]['snoozed_until']) && min($before) >= 0) {
+            // The earlier of the two (more days before due): closer, but never so close he'd be late.
+            $l = max(self::URGENT_DAYS + 2, max($before) + 3);
+            if ($l < $lead) return ['lead' => $l, 'why' => 'You put it off the last two times and still made it, so I remind you closer to the date'];
+        }
+        return ['lead' => $lead, 'why' => null];
+    }
+
     /** Snooze N days, but never closer than … to the due date: returns the date it comes back. */
     public static function snoozeUntil(string $today, string $due, int $days): string
     {

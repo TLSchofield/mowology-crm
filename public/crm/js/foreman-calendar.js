@@ -47,7 +47,7 @@
         var u = CI.safeUrl(d.url);
         return '<div class="mw-charlie-dl' + (d.overdue ? ' is-overdue' : '') + '" id="d-' + esc(d.slug) + '">'
             + '<div class="mw-charlie-dl-hd"><b>' + esc(d.title) + '</b><span class="mw-charlie-dl-when">' + esc(d.when || '') + '</span></div>'
-            + '<div class="mw-charlie-dl-rule">' + esc(d.describe) + (d.due_date ? ' · next ' + esc(d.due_date) : '') + ' · reminds ' + (+d.lead_days) + ' days before'
+            + '<div class="mw-charlie-dl-rule">' + esc(d.describe) + (d.due_date ? ' · next ' + esc(d.due_date) : '') + ' · reminds ' + (+d.lead_days) + ' days before' + (d.lead_why ? ' (' + esc(d.lead_why) + '; you set ' + (+d.lead_set) + ')' : '')
             + (u ? ' · <a href="' + esc(u) + '">open</a>' : '') + '</div>'
             + notes.join('')
             + (prep.length ? '<ul class="mw-charlie-prep">' + prep.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '')
@@ -154,7 +154,7 @@
         if (d) {
             F.title.value = d.title;
             F.category.value = d.category;
-            F.lead_days.value = d.lead_days;
+            F.lead_days.value = d.lead_set != null ? d.lead_set : d.lead_days;   // your setting, not Charlie's learned one
             F.prepare.value = d.prepare || '';
             F.amount_hint.value = d.amount_hint || '';
             F.active.checked = !!+d.active;

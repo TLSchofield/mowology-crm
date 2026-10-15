@@ -122,4 +122,20 @@ class DeadlineRulesTest extends TestCase
         $with = AccountantPackService::compose(2025, ['receipts' => 1, 'bank' => null, 'closing_used' => 3, 'closed' => 11]);
         $this->assertSame(['1 receipt from 2025 still not approved', '1 month of 2025 not closed'], array_column(array_slice($with, 0, 2), 'text'));
     }
+
+    public function testLeadLearnedOnlyFromTheLastTwoAgreeing(): void
+    {
+        $late = fn($due, $done) => ['due_date' => $due, 'done_at' => $done . ' 10:00:00', 'status' => 'done', 'snoozed_until' => null];
+        $this->assertSame(21, DeadlineRules::learnedLead(14, [$late('2026-09-30', '2026-10-03'), $late('2026-06-30', '2026-07-02')])['lead'], 'late twice: a week earlier');
+        $this->assertSame(14, DeadlineRules::learnedLead(14, [$late('2026-09-30', '2026-10-03'), $late('2026-06-30', '2026-06-20')])['lead'], 'mixed: as set');
+        $this->assertSame(14, DeadlineRules::learnedLead(14, [$late('2026-09-30', '2026-10-03')])['lead'], 'once is a hint');
+        $skip = ['due_date' => '2026-06-30', 'done_at' => '2026-07-05 10:00:00', 'status' => 'skipped', 'snoozed_until' => null];
+        $this->assertSame(14, DeadlineRules::learnedLead(14, [$late('2026-09-30', '2026-10-03'), $skip])['lead'], 'a skip breaks the run');
+        $this->assertSame(60, DeadlineRules::learnedLead(58, [$late('2026-09-30', '2026-10-03'), $late('2026-06-30', '2026-07-02')])['lead'], 'capped');
+        $this->assertSame(90, DeadlineRules::learnedLead(90, [$late('2026-09-30', '2026-10-03'), $late('2026-06-30', '2026-07-02')])['lead'], 'a long lead is never cut');
+        $snoozed = fn($due, $done) => ['due_date' => $due, 'done_at' => $done . ' 10:00:00', 'status' => 'done', 'snoozed_until' => $done];
+        $r = DeadlineRules::learnedLead(30, [$snoozed('2026-09-30', '2026-09-26'), $snoozed('2026-06-30', '2026-06-25')]);
+        $this->assertSame(8, $r['lead'], 'put off twice and still on time: 5 days before + 3');
+        $this->assertNotNull($r['why']);
+    }
 }

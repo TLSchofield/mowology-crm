@@ -77,7 +77,12 @@ class DeadlineService
             ORDER BY d.active DESC, o.due_date IS NULL, o.due_date, d.title
         ")->fetchAll(PDO::FETCH_ASSOC);
         $today = $this->today();
+        $past = $this->lastTwo();
         foreach ($rows as &$r) {
+            $learned = DeadlineRules::learnedLead((int)$r['lead_days'], $past[(int)$r['id']] ?? []);
+            $r['lead_set'] = (int)$r['lead_days'];
+            $r['lead_days'] = $learned['lead'];
+            $r['lead_why'] = $learned['why'];
             $r['describe'] = DeadlineRules::describe((string)$r['rule']);
             $r['needs_setup'] = trim((string)$r['rule']) === '';
             if ($r['due_date']) {
@@ -91,6 +96,23 @@ class DeadlineService
             }
         }
         return $rows;
+    }
+
+    /** Each deadline's last two finished occurrences (done or skipped), newest first. */
+    private function lastTwo(): array
+    {
+        $out = [];
+        try {
+            $rows = $this->db->query("SELECT deadline_id, due_date, done_at, status, snoozed_until FROM charlie_deadline_occurrences
+                                      WHERE status IN ('done', 'skipped') ORDER BY deadline_id, due_date DESC, id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        foreach ($rows as $r) {
+            $id = (int)$r['deadline_id'];
+            if (count($out[$id] ?? []) < 2) $out[$id][] = $r;
+        }
+        return $out;
     }
 
     public function history(int $limit = 30): array
