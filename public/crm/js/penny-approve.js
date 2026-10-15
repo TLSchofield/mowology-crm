@@ -84,7 +84,7 @@
               '<div class="mw-pa-head">' +
                 '<div class="mw-pa-portrait">' +
                   '<img class="mw-pa-face" src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="150" height="150">' +
-                  '<button type="button" class="mw-brain mw-pa-brain" data-head="Penny"' +
+                  '<button type="button" class="mw-brain mw-pa-brain" data-head="Penny" data-no-page' +
                     ' aria-label="Penny\'s brain: ' + units + ' things learned"' +
                     ' data-empty="Nothing learned yet. Every receipt you approve or correct teaches her something."' +
                     ' data-teach="She glows brighter the more often she\'s right first time"' +
