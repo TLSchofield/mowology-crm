@@ -18,6 +18,9 @@ private struct DayResponse: Decodable {
     let stopCount: Int
     let stops: [Stop]
     let extrasRatePer5Min: Double?
+    let scope: String?
+    let canSwitchScope: Bool?
+    let serviceTypes: [ScheduleJobType]?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -26,7 +29,17 @@ private struct DayResponse: Decodable {
         case stopCount = "stop_count"
         case stops
         case extrasRatePer5Min = "extras_rate_per_5min"
+        case scope
+        case canSwitchScope = "can_switch_scope"
+        case serviceTypes = "service_types"
     }
+}
+
+/// A job type the schedule can be narrowed to (the company's service types).
+struct ScheduleJobType: Decodable, Hashable, Identifiable {
+    let value: String
+    let label: String
+    var id: String { value }
 }
 
 private struct WeekResponse: Decodable {
@@ -69,6 +82,13 @@ final class ScheduleViewModel: ObservableObject {
 
     /// True when the displayed schedule is from the disk cache (server unreachable).
     @Published var isOffline: Bool = false
+
+    // Whose jobs + job type (CrewViewScope, 2026-10-14). Remembered on the phone; the server decides
+    // what is allowed (crew see only their own unless the company allows all).
+    @Published private(set) var scope: String = UserDefaults.standard.string(forKey: "mw_sched_scope") ?? "all"
+    @Published private(set) var jobType: String = UserDefaults.standard.string(forKey: "mw_sched_service") ?? ""
+    @Published private(set) var canSwitchScope: Bool = false
+    @Published private(set) var jobTypes: [ScheduleJobType] = []
 
     // MARK: - Private
 
@@ -264,13 +284,13 @@ final class ScheduleViewModel: ObservableObject {
     private func silentRefresh() async {
         let dateString = isoDateString(from: selectedDate)
         do {
-            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString))
+            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType))
             guard !Task.isCancelled else { return }
             if response.stops != rawStops {
                 rawStops = response.stops
             }
             cacheStops(response.stops, forDate: dateString)
-            ScheduleCache.shared.save(response.stops, forDate: dateString)
+            ScheduleCache.shared.save(response.stops, forDate: diskKey(dateString))
         } catch {
             // Silent by design — a poll tick failing (offline, session hiccup)
             // isn't worth surfacing; the next tick or a manual refresh recovers.
@@ -343,12 +363,51 @@ final class ScheduleViewModel: ObservableObject {
         trailsTask = trailHandle
     }
 
+    /// What the server says this person may do (an older server sends none of it). The scope it
+    /// actually applied is kept, so a refused "All crews" isn't asked for again after a restart.
+    private func applyScope(_ r: DayResponse) {
+        canSwitchScope = r.canSwitchScope ?? false
+        jobTypes = r.serviceTypes ?? []
+        if let s = r.scope, s != scope {
+            scope = s
+            UserDefaults.standard.set(s, forKey: "mw_sched_scope")
+        }
+    }
+
+    /// The offline copy is kept per filter (Codex review 2026-10-14): an "All crews" copy must never
+    /// be shown as "Mine", or after the company limits crew to their own jobs.
+    private func diskKey(_ dateString: String) -> String {
+        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)"
+    }
+
+    /// Mine / All crews.
+    func setScope(_ value: String) async {
+        guard value != scope else { return }
+        scope = value
+        UserDefaults.standard.set(value, forKey: "mw_sched_scope")
+        await reloadForFilter()
+    }
+
+    /// One job type, or "" for all.
+    func setJobType(_ value: String) async {
+        guard value != jobType else { return }
+        jobType = value
+        UserDefaults.standard.set(value, forKey: "mw_sched_service")
+        await reloadForFilter()
+    }
+
+    /// A filter change: what was cached was for the old filter.
+    private func reloadForFilter() async {
+        stopCache.removeAll()
+        await refresh()
+    }
+
     /// Fetches the week summary strip (7 ScheduleDay objects).
     private func loadWeek(for date: Date) async {
         let startString = isoDateString(from: mondayOf(week: date))
         do {
             let response: WeekResponse = try await apiClient.request(
-                .scheduleWeek(start: startString)
+                .scheduleWeek(start: startString, scope: scope, service: jobType)
             )
             guard !Task.isCancelled else { return }
             isOffline = false
@@ -380,13 +439,14 @@ final class ScheduleViewModel: ObservableObject {
 
         do {
             let response: DayResponse = try await apiClient.request(
-                .scheduleDay(date: dateString)
+                .scheduleDay(date: dateString, scope: scope, service: jobType)
             )
             guard !Task.isCancelled else { return }
             AppExtrasConfig.shared.update(ratePer5Min: response.extrasRatePer5Min)
+            applyScope(response)
             let fetched = response.stops
             cacheStops(fetched, forDate: dateString)
-            ScheduleCache.shared.save(fetched, forDate: dateString)
+            ScheduleCache.shared.save(fetched, forDate: diskKey(dateString))
             isOffline   = false
             rawStops    = fetched
             lastFetched = .now
@@ -394,7 +454,7 @@ final class ScheduleViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             if case .networkError = err {
                 // Offline — try disk cache before showing an error.
-                if let diskCached = ScheduleCache.shared.load(forDate: dateString) {
+                if let diskCached = ScheduleCache.shared.load(forDate: diskKey(dateString)) {
                     cacheStops(diskCached, forDate: dateString)
                     rawStops  = diskCached
                     isOffline = true

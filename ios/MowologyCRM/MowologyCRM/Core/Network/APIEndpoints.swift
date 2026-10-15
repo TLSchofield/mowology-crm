@@ -17,11 +17,12 @@ enum APIEndpoint {
     /// POST /api/auth/token.php — exchange credentials for a JWT.
     case tokenAuth
 
-    /// GET /api/schedule/day?date=YYYY-MM-DD — stops for a specific date.
-    case scheduleDay(date: String)
+    /// GET /api/schedule/day?date=YYYY-MM-DD[&scope=mine|all][&service=slug] — stops for a specific date.
+    /// scope/service: whose jobs and which job type (CrewViewScope on the server, 2026-10-14).
+    case scheduleDay(date: String, scope: String? = nil, service: String? = nil)
 
     /// GET /api/schedule/week?start=YYYY-MM-DD — weekly summary strip.
-    case scheduleWeek(start: String)
+    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil)
 
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
@@ -270,14 +271,20 @@ enum APIEndpoint {
         case .tokenAuth:
             return URL(string: "\(baseURLString)/auth/token.php")
 
-        case .scheduleDay(let date):
+        case .scheduleDay(let date, let scope, let service):
             var components = URLComponents(string: "\(baseURLString)/schedule/day")
-            components?.queryItems = [URLQueryItem(name: "date", value: date)]
+            var items = [URLQueryItem(name: "date", value: date)]
+            if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
+            if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            components?.queryItems = items
             return components?.url
 
-        case .scheduleWeek(let start):
+        case .scheduleWeek(let start, let scope, let service):
             var components = URLComponents(string: "\(baseURLString)/schedule/week")
-            components?.queryItems = [URLQueryItem(name: "start", value: start)]
+            var items = [URLQueryItem(name: "start", value: start)]
+            if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
+            if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            components?.queryItems = items
             return components?.url
 
         case .scheduleTimer:

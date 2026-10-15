@@ -60,6 +60,11 @@ struct ScheduleView: View {
                         }
                 )
 
+                // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14)
+                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
+                    scopeBar
+                }
+
                 // MARK: Content
                 if viewMode == .list {
                     DayListView(
@@ -199,6 +204,42 @@ struct ScheduleView: View {
     }
 
     // MARK: - Computed
+
+    /// Mine / All crews (when allowed) and the job type — remembered on the phone.
+    private var scopeBar: some View {
+        HStack(spacing: 8) {
+            if viewModel.canSwitchScope {
+                Picker("Whose jobs", selection: Binding(
+                    get: { viewModel.scope },
+                    set: { v in Task { await viewModel.setScope(v) } }
+                )) {
+                    Text("Mine").tag("mine")
+                    Text("All crews").tag("all")
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 200)
+            }
+            if !viewModel.jobTypes.isEmpty {
+                Menu {
+                    Button("All job types") { Task { await viewModel.setJobType("") } }
+                    ForEach(viewModel.jobTypes) { t in
+                        Button(t.label) { Task { await viewModel.setJobType(t.value) } }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(viewModel.jobTypes.first(where: { $0.value == viewModel.jobType })?.label ?? "All job types")
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                    .font(.subheadline)
+                    .frame(minHeight: 44)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
 
     private var weekStripBinding: Binding<Date> {
         Binding(
