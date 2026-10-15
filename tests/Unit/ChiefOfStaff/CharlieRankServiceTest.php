@@ -110,4 +110,12 @@ class CharlieRankServiceTest extends TestCase
             CharlieRankService::score($yes, 1.0, '2026-10-07')
         );
     }
+
+    public function test_preferences_fade_back_to_neutral(): void
+    {
+        $this->assertSame(1.8, CharlieRankService::faded(1.8, '2026-10-15 00:00:00', '2026-10-15 00:00:00'));
+        $this->assertSame(1.4, CharlieRankService::faded(1.8, '2026-08-16 00:00:00', '2026-10-15 00:00:00'), 'half way after 60 days');
+        $this->assertSame(0.8, CharlieRankService::faded(0.6, '2026-08-16 00:00:00', '2026-10-15 00:00:00'), 'a dislike fades too');
+        $this->assertSame(1.5, CharlieRankService::faded(1.5, '', '2026-10-15 00:00:00'), 'no date: unchanged');
+    }
 }

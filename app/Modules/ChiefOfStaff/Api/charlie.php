@@ -130,6 +130,16 @@ try {
             echo json_encode($out);
             break;
 
+        case 'unmute':
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode($desk->unmute((string)($input['kind'] ?? '')));
+            break;
+
+        case 'prefs_reset':
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode($desk->resetPrefs(!empty($input['mutes'])));
+            break;
+
         case 'act':
             $what = (string)($input['what'] ?? '');
             if (!in_array($what, ['open', 'dismiss', 'snooze'], true)) {

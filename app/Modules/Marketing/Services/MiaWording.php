@@ -233,6 +233,30 @@ class MiaWording
         return $t;
     }
 
+    /**
+     * Keep Tim's edited wording as a candidate (the last 6 per kind) and say whether it repeats one he wrote before
+     * (HeadLessons::repeatedText) — only then does it become the template.
+     */
+    public static function rememberCandidate(PDO $db, string $kind, ?string $subject, string $body): bool
+    {
+        if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+        $key = 'mia_template_candidates_' . $kind;
+        $list = [];
+        try {
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
+            $list = json_decode((string)$s->fetchColumn(), true) ?: [];
+        } catch (Throwable $e) { /* none yet */ }
+        array_unshift($list, ['subject' => $subject, 'body' => $body, 'at' => date('Y-m-d')]);
+        $list = array_slice($list, 0, 6);
+        $db->prepare("
+            INSERT INTO ops_settings (setting_key, setting_value, description)
+            VALUES (?, ?, 'Mia: Tim''s recent edited wording for this kind — the one he writes alike twice becomes the template')
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+        ")->execute([$key, json_encode($list)]);
+        return HeadLessons::repeatedText(array_column($list, 'body')) === $body;
+    }
+
     public static function saveTemplate(PDO $db, string $kind, ?string $subject, string $body): void
     {
         $db->prepare("

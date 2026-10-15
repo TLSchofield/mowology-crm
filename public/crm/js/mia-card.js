@@ -264,7 +264,7 @@
             var m = okMsg;
             if (r.status === 'sent') {
                 m = 'Sent to ' + (s.name || s.email) + '.' +
-                    (r.learned ? ' I\'ve learned your wording for next time.' : '') + (r.note ? ' ' + r.note : '');
+                    (r.learned ? ' That\'s twice you\'ve written it this way — I\'ll use your wording from now on.' : (r.noted ? ' Write it like this once more and I\'ll use your wording.' : '')) + (r.note ? ' ' + r.note : '');
             }
             queue.splice(idx, 1);
             idx = Math.min(idx, Math.max(0, queue.length - 1));

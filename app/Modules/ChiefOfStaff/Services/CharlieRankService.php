@@ -132,4 +132,16 @@ class CharlieRankService
     {
         return max(self::MIN_PREF, min(self::MAX_PREF, $v ?: 1.0));
     }
+
+    /**
+     * A learned preference fades back toward neutral 1.0 with a half-life (2026-10-15): one busy month's habit
+     * doesn't rank the next season. Pure.
+     */
+    public static function faded(float $score, string $updatedAt, string $now, int $halfLifeDays = 60): float
+    {
+        $t = strtotime($updatedAt);
+        if (!$t) return $score;
+        $days = max(0, (strtotime($now) - $t) / 86400);
+        return round(1.0 + ($score - 1.0) * pow(0.5, $days / max(1, $halfLifeDays)), 3);
+    }
 }

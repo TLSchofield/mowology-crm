@@ -83,18 +83,21 @@ class SamFollowupService
     // Drafts
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Tim's latest edited version for this situation, if he has taught Sam one. */
+    /**
+     * Tim's wording for this situation — only once he has written it alike twice (HeadLessons::repeatedText,
+     * 2026-10-15: one edit used to rewrite the follow-up for every customer). His edits stay in sam_followups.
+     */
     public function learnedBody(string $template, string $channel = 'email'): ?string
     {
         try {
             $s = $this->db->prepare("
                 SELECT learned_body FROM sam_followups
                 WHERE template_key = ? AND channel = ? AND status = 'edited' AND learned_body IS NOT NULL AND learned_body <> ''
-                ORDER BY decided_at DESC, id DESC LIMIT 1
+                ORDER BY decided_at DESC, id DESC LIMIT 6
             ");
             $s->execute([$template, $channel]);
-            $v = $s->fetchColumn();
-            return $v !== false ? (string)$v : null;
+            if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+            return HeadLessons::repeatedText($s->fetchAll(PDO::FETCH_COLUMN));
         } catch (Throwable $e) {
             return null;
         }
@@ -275,7 +278,11 @@ class SamFollowupService
         }
         $this->logMessage($contactId, $channel, $to, $subject, $body);
         $hi = $owner !== '' ? ", {$owner}" : '';
-        return ['ok' => true, 'message' => $edited ? "Sent{$hi} — and I'll write it your way next time." : "Sent{$hi}. I'll watch for their reply."];
+        // Twice alike = his wording from now on; once = a hint (HeadLessons::repeatedText, 2026-10-15).
+        $nowLearned = $learned !== null && $this->learnedBody((string)($in['template'] ?? $card['template'] ?? ''), $channel) === $learned;
+        return ['ok' => true, 'message' => !$edited ? "Sent{$hi}. I'll watch for their reply."
+            : ($nowLearned ? "Sent{$hi} — that's twice you've written it this way, so I'll use your wording from now on."
+                           : "Sent{$hi}. Write it like this once more and I'll use your wording from then on.")];
     }
 
     /** Skip ("not now") or snooze — the card comes back after SNOOZE_DAYS. */

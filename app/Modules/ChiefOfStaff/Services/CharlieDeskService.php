@@ -189,7 +189,7 @@ class CharlieDeskService
         if (!$c['ok']) return;
 
         $in = implode(',', array_fill(0, count($c['ok']), '?'));
-        $s = $this->db->prepare("SELECT item_key, head, kind, learned, dismissed_at FROM charlie_items WHERE resolved_at IS NULL AND head IN ({$in})");
+        $s = $this->db->prepare("SELECT item_key, head, kind, learned, dismissed_at, opened_at FROM charlie_items WHERE resolved_at IS NULL AND head IN ({$in})");
         $s->execute($c['ok']);
         $gone = array_values(array_filter($s->fetchAll(PDO::FETCH_ASSOC), fn($r) => !isset($current[$r['item_key']])));
         if (!$gone) return;
@@ -201,7 +201,9 @@ class CharlieDeskService
         $close = $this->db->prepare("UPDATE charlie_items SET resolved_at = ? WHERE item_key = ?");
         foreach ($gone as $g) $close->execute([$now, $g['item_key']]);
         foreach ($gone as $g) {
-            if ((int)$g['learned'] === 0 && $g['dismissed_at'] === null && !isset($truncated[$g['head']])) {
+            // A win only when Tim had opened it and it then got dealt with — an item that simply aged out or was
+            // cleared by someone else teaches nothing (Codex review 2026-10-15: disappearance ≠ preference).
+            if ((int)$g['learned'] === 0 && $g['dismissed_at'] === null && $g['opened_at'] !== null && !isset($truncated[$g['head']])) {
                 $this->learnWin($g['item_key'], $g['kind']);
             }
         }
@@ -222,8 +224,10 @@ class CharlieDeskService
     public function prefs(): array
     {
         $out = [];
-        foreach ($this->db->query("SELECT kind, score, decisions, muted FROM charlie_prefs")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $out[$r['kind']] = ['score' => (float)$r['score'], 'decisions' => (int)$r['decisions'], 'muted' => (bool)$r['muted']];
+        foreach ($this->db->query("SELECT kind, score, decisions, muted, updated_at FROM charlie_prefs")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            // Preferences fade back toward neutral (half-life 60 days) — last season's habit isn't forever.
+            $out[$r['kind']] = ['score' => CharlieRankService::faded((float)$r['score'], (string)($r['updated_at'] ?? ''), $this->now()),
+                                'decisions' => (int)$r['decisions'], 'muted' => (bool)$r['muted']];
         }
         return $out;
     }
@@ -382,9 +386,9 @@ class CharlieDeskService
         $now = $this->now();
         switch ($what) {
             case 'open':
+                // Opening is not doing (2026-10-15): stamped only; the win is learned if it then gets dealt with.
                 if ($it['opened_at'] === null) {
                     $this->db->prepare("UPDATE charlie_items SET opened_at = ? WHERE item_key = ?")->execute([$now, $key]);
-                    if ((int)$it['learned'] === 0) $this->learnWin($key, $it['kind']);
                 }
                 return ['ok' => true, 'url' => $it['url']];
             case 'dismiss':
@@ -478,6 +482,27 @@ class CharlieDeskService
             return ['ok' => true, 'message' => "Done — I'll leave those out."];
         }
         return ['ok' => true, 'message' => "Okay — I'll keep showing them."];
+    }
+
+    /** Tim unmutes a kind Charlie was leaving out. */
+    public function unmute(string $kind): array
+    {
+        $s = $this->db->prepare("UPDATE charlie_prefs SET muted = 0 WHERE kind = ? AND muted = 1");
+        $s->execute([$kind]);
+        return ['ok' => true, 'message' => $s->rowCount() ? "Okay — I'll show those again." : 'That kind wasn\'t muted.'];
+    }
+
+    /** Tim resets what Charlie learned about the order he likes (mutes are kept unless $mutesToo). */
+    public function resetPrefs(bool $mutesToo = false): array
+    {
+        $this->db->exec($mutesToo ? "DELETE FROM charlie_prefs" : "UPDATE charlie_prefs SET score = 1.000, decisions = 0");
+        return ['ok' => true, 'message' => $mutesToo ? 'Done — I\'ve forgotten the order you like and everything you muted.' : 'Done — I\'ve forgotten the order you like; mutes stay.'];
+    }
+
+    /** The kinds Tim muted (for the unmute list). */
+    public function muted(): array
+    {
+        return $this->db->query("SELECT kind FROM charlie_prefs WHERE muted = 1 ORDER BY kind")->fetchAll(PDO::FETCH_COLUMN);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

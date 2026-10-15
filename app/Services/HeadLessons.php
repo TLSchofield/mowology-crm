@@ -12,7 +12,8 @@
  *   - Recording NEVER blocks the person's action: recordQuietly() catches and logs.
  *   - A "correction" that changes nothing (said == correct) is not a lesson.
  *   - Tenant-private: every row carries site_id (Ittai). Shared knowledge is a later layer.
- *   - Nothing here changes the books or any learner yet; A2 reads countConsistent().
+ *   - The shared rule (2026-10-15, every head): rule() — once is a hint, twice in a row is a rule; a newer
+ *     different answer resets it; old lessons fade; revoke() unlearns. Heads read rule(), not raw rows.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -111,7 +112,67 @@ class HeadLessons
         return ['value' => $latest, 'count' => $same, 'contradictions' => $total - $same, 'total' => $total];
     }
 
+    /** The row a revoke writes: a person unlearning a rule. */
+    public const REVOKED = '__revoked__';
+
+    /**
+     * The shared rule (2026-10-15): the newest answer is a rule only when it was given $minRepeat times IN A ROW (a
+     * newer different answer resets the streak), the newest is no older than $maxAgeDays, and it isn't a revoke.
+     * $rows: [{correct, created_at}] newest first. Pure.
+     * @return array{value: string, streak: int, total: int, confidence: float, since: string}|null
+     */
+    public static function decide(array $rows, int $minRepeat = 2, int $maxAgeDays = 365, ?string $now = null): ?array
+    {
+        if (!$rows) return null;
+        $newest = $rows[0];
+        $value = self::valueText($newest['correct'] ?? null);
+        if ($value === null || $value === self::REVOKED) return null;
+        $nowTs = $now !== null ? strtotime($now) : time();
+        if ($maxAgeDays > 0 && strtotime((string)$newest['created_at']) < $nowTs - $maxAgeDays * 86400) return null;
+        $streak = 0;
+        $since = (string)$newest['created_at'];
+        foreach ($rows as $r) {
+            if (!self::isNoChange($r['correct'] ?? null, $value)) break;
+            $streak++;
+            $since = (string)$r['created_at'];
+        }
+        if ($streak < max(1, $minRepeat)) return null;
+        $total = count($rows);
+        return ['value' => $value, 'streak' => $streak, 'total' => $total, 'confidence' => round($streak / $total, 2), 'since' => $since];
+    }
+
+    /**
+     * Wording learned only when repeated (2026-10-15): the newest text that the owner has written alike before —
+     * at least $minSimilar alike (0–1) after case and spacing are evened out. $texts newest first. Pure.
+     * One edit stays a hint; the second like it becomes the wording; a newer different one waits for its twin.
+     */
+    public static function repeatedText(array $texts, float $minSimilar = 0.8): ?string
+    {
+        $norm = static fn($t) => trim((string)preg_replace('/\s+/', ' ', mb_strtolower((string)$t)));
+        $texts = array_values(array_filter($texts, fn($t) => trim((string)$t) !== ''));
+        $n = count($texts);
+        for ($i = 0; $i < $n - 1; $i++) {
+            $a = $norm($texts[$i]);
+            for ($j = $i + 1; $j < $n; $j++) {
+                similar_text($a, $norm($texts[$j]), $pct);
+                if ($pct / 100 >= $minSimilar) return (string)$texts[$i];
+            }
+        }
+        return null;
+    }
+
     // ── Writes ────────────────────────────────────────────────────────────────
+
+    /** A person unlearns a rule: the next rule() for this subject+field is empty until it is taught again. */
+    public function revoke(string $head, string $kind, string $key, string $field, ?int $by, string $source = 'revoke'): ?int
+    {
+        $this->db->prepare("INSERT INTO " . self::TABLE . " (site_id, head, subject_kind, subject_key, field, said, correct, source,
+                                ref_type, ref_id, corrected_by, reason, created_at)
+                            VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'unlearned', ?)")
+           ->execute([$this->siteId, strtolower($head), strtolower($kind), self::normaliseKey($key), $field, self::REVOKED,
+                      mb_substr($source, 0, 60), $by, date('Y-m-d H:i:s')]);
+        return (int)$this->db->lastInsertId();
+    }
 
     /** @return int|null the new row's id; null when it is not a lesson. Throws on a database error. */
     public function record(array $lesson): ?int
@@ -157,6 +218,19 @@ class HeadLessons
                                  ORDER BY created_at DESC, id DESC LIMIT " . max(1, min(1000, $limit)));
         $s->execute([$this->siteId, strtolower($head), date('Y-m-d H:i:s', time() - max(0, $days) * 86400)]);
         return $s->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** The rule for one subject+field (decide() over its lessons, newest first), or null. */
+    public function rule(string $head, string $kind, string $key, string $field, int $minRepeat = 2, int $maxAgeDays = 365): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT correct, created_at FROM " . self::TABLE . " WHERE site_id = ? AND head = ? AND subject_kind = ?
+                                     AND subject_key = ? AND field = ? ORDER BY created_at DESC, id DESC LIMIT 50");
+            $s->execute([$this->siteId, strtolower($head), strtolower($kind), self::normaliseKey($key), $field]);
+            return self::decide($s->fetchAll(PDO::FETCH_ASSOC), $minRepeat, $maxAgeDays);
+        } catch (Throwable $e) {
+            return null;   // before migration 1348
+        }
     }
 
     /** tally() over one subject+field's corrections (A2 reads this). */

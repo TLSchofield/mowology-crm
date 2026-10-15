@@ -351,7 +351,7 @@ class MiaDeskService
                     ->execute([(int)$contact['id']]);
             } catch (Throwable $e) {}
         }
-        return ['ok' => true, 'status' => 'sent', 'channels' => $channels, 'learned' => $learned, 'note' => $smsNote];
+        return ['ok' => true, 'status' => 'sent', 'channels' => $channels, 'learned' => $learned, 'noted' => $edited && !$learned, 'note' => $smsNote];
     }
 
     /** Tim's edited wording becomes the template for this kind when it's reusable. */
@@ -382,6 +382,8 @@ class MiaDeskService
         }
         $tBody = MiaWording::learnTemplate($sg['kind'], $body, $vars);
         if ($tBody === null) return false;
+        // Only wording Tim has written alike twice becomes the template (2026-10-15: one edit used to replace it).
+        if (!MiaWording::rememberCandidate($this->db, $sg['kind'], MiaWording::tokenise($subject, $vars), $tBody)) return false;
         MiaWording::saveTemplate($this->db, $sg['kind'], MiaWording::tokenise($subject, $vars), $tBody);
         return true;
     }
