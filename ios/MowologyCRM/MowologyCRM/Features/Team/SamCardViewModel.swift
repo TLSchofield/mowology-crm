@@ -190,15 +190,23 @@ final class SamCardViewModel: ObservableObject {
             "suggested_subject": c.draft.subject, "suggested_body": sms ? e.suggestedSms : e.suggestedBody,
             "template": c.template, "drafted_by": e.draftedBy,
         ]
-        guard let r = await perform(body, onError: { self.showFollowup($0, error: true) }) else { return }
+        guard let r = await perform(body, onError: { self.showFollowup($0, error: true) }) else {
+            // The list moved on while Tim typed (a quote accepted, a reply arrived): refresh it — never make him pull.
+            if followupIsError, (followupMessage ?? "").contains("no longer waiting") { await refreshQuietly() }
+            return
+        }
         removeCard(c.key, r.message ?? "Sent.")
+        await refreshQuietly()   // what's left to chase, without a pull (Tim, 2026-10-15)
     }
 
     /// Not now: Sam leaves them for a week (park skip — recorded, as on the web).
     func notNow() async {
         guard let c = current, !isBusy else { return }
         guard let r = await perform(["mode": "park", "card_key": c.key, "how": "skip", "days": 7],
-                                    onError: { self.showFollowup($0, error: true) }) else { return }
+                                    onError: { self.showFollowup($0, error: true) }) else {
+            if followupIsError, (followupMessage ?? "").contains("no longer waiting") { await refreshQuietly() }
+            return
+        }
         removeCard(c.key, r.message ?? "OK — later.")
     }
 

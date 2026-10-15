@@ -203,6 +203,30 @@ class SamFollowupService
      */
     public function send(array $card, array $in, array $user, string $owner): array
     {
+        // One send at a time per customer, and never the same message twice in ten minutes: a double tap or a retry
+        // after the card left the queue must not email them again (Codex review 2026-10-15).
+        $cid = (int)($card['contact_id'] ?? 0);
+        $lock = 'mw_sam_send_' . ($cid ?: ($card['key'] ?? 'x'));
+        $held = false;
+        try { $g = $this->db->prepare("SELECT GET_LOCK(?, 15)"); $g->execute([$lock]); $held = (int)$g->fetchColumn() === 1; }
+        catch (Throwable $e) { /* SQLite tests */ }
+        if (!$held && $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') return ['ok' => false, 'message' => 'Already sending — one moment.'];
+        try {
+            $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
+            if ($cid && $body !== '') {
+                $d = $this->db->prepare("SELECT 1 FROM sam_followups WHERE contact_id = ? AND final_body = ? AND status IN ('sent', 'edited')
+                                         AND decided_at >= NOW() - INTERVAL 10 MINUTE LIMIT 1");
+                try { $d->execute([$cid, $body]); if ($d->fetchColumn()) return ['ok' => true, 'message' => 'Already sent to ' . ($card['name'] ?? 'them') . '.']; }
+                catch (Throwable $e) { /* older schema */ }
+            }
+            return $this->sendOnce($card, $in, $user, $owner);
+        } finally {
+            if ($held) $this->db->prepare("SELECT RELEASE_LOCK(?)")->execute([$lock]);
+        }
+    }
+
+    private function sendOnce(array $card, array $in, array $user, string $owner): array
+    {
         $channel = ($in['channel'] ?? 'email') === 'sms' ? 'sms' : 'email';
         $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
         $subject = trim((string)($in['subject'] ?? ''));
@@ -310,13 +334,15 @@ class SamFollowupService
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
         require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
         $qs = new QuoteService($this->db);
-        $host = $_SERVER['HTTP_HOST'] ?? 'mowology.ca';
+        // The business's own address, never the request's Host (Codex review 2026-10-15).
+        require_once APP_ROOT . '/Modules/Quotes/Services/QuoteSendService.php';
+        $origin = QuoteSendService::origin(EmailWrapper::getCompanyInfo()['company_website'] ?? null);
         $links = [];
         foreach ($card['quotes'] as $q) {
             $row = $qs->getWithContact((int)$q['id']);
             if (!$row) continue;
             $token = $qs->ensureAccessToken((int)$q['id'], $row);
-            $links[] = ['label' => $q['number'] . ($q['address'] !== '' ? ' — ' . $q['address'] : ''), 'url' => 'https://' . $host . '/customer/quote.php?token=' . urlencode($token)];
+            $links[] = ['label' => $q['number'] . ($q['address'] !== '' ? ' — ' . $q['address'] : ''), 'url' => $origin . '/customer/quote.php?token=' . urlencode($token)];
         }
         $html = '<p>' . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8')) . '</p>';
         if (count($links) > 1) {

@@ -138,8 +138,12 @@ try {
 
         case 'send': {
             $card = $findCard((string)($input['card_key'] ?? ''));
+            // Tim wrote it — it goes even when the card went stale while he typed (2026-10-15), without quote links.
+            if (!$card && trim((string)($input['body'] ?? '')) !== '') $card = $desk->cardForKey((string)($input['card_key'] ?? ''));
             if (!$card) { echo json_encode(['ok' => false, 'message' => 'That customer is no longer waiting — refresh.']); break; }
-            echo json_encode($fu->send($card, $input, (array)$user, $name));
+            $res = $fu->send($card, $input, (array)$user, $name);
+            if (!empty($card['gone']) && !empty($res['ok'])) $res['message'] = 'Sent to ' . $card['name'] . " — their quotes had changed since the card opened, so it went without quote links.";
+            echo json_encode($res);
             break;
         }
 

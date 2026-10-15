@@ -185,8 +185,13 @@ try {
                 break;
             }
             $card = $findCard((string)($input['card_key'] ?? ''));
+            // Tim wrote it — it goes, even when the card went stale while he typed (its quotes accepted): to the same
+            // person, without quote links (2026-10-15).
+            if (!$card && trim((string)($input['body'] ?? '')) !== '') $card = $desk->cardForKey((string)($input['card_key'] ?? ''));
             if (!$card) { echo json_encode($gone); break; }
-            echo json_encode($fu->send($card, $input, $user, $name));
+            $res = $fu->send($card, $input, $user, $name);
+            if (!empty($card['gone']) && !empty($res['ok'])) $res['message'] = 'Sent to ' . $card['name'] . " — their quotes had changed since the card opened, so it went without quote links.";
+            echo json_encode($res);
             break;
         }
 

@@ -286,6 +286,32 @@ class SalesDeskService
     }
 
     /** The carousel: one card per customer whose quotes need a nudge or an answer. */
+    /**
+     * A card for a contact even when nothing of theirs is waiting any more (2026-10-15: Tim's message to Alena was
+     * refused because her quote had just been accepted). Only for 'c<contact id>' keys; the card carries no quotes,
+     * so the email goes without quote links. Null when the contact is gone or has no address.
+     */
+    public function cardForKey(string $key): ?array
+    {
+        if (!preg_match('/^c(\d+)$/', $key, $m)) return null;
+        $s = $this->db->prepare("SELECT c.id, c.first_name, c.last_name, c.email, COALESCE(NULLIF(c.mobile, ''), c.phone) AS phone,
+                                        co.company_name
+                                 FROM contacts c LEFT JOIN companies co ON co.id = c.company_id WHERE c.id = ?");
+        $s->execute([(int)$m[1]]);
+        $c = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$c) return null;
+        // Only someone we actually sent a quote to (Codex review 2026-10-15: a made-up key must not reach any contact).
+        $q = $this->db->prepare("SELECT 1 FROM quotes q LEFT JOIN properties p ON p.id = q.property_id
+                                 WHERE COALESCE(q.contact_id, p.site_contact_id) = ? AND q.sent_at IS NOT NULL LIMIT 1");
+        $q->execute([(int)$c['id']]);
+        if (!$q->fetchColumn()) return null;
+        $first = trim((string)$c['first_name']);
+        return ['key' => $key, 'kind' => 'stale', 'template' => 'reply', 'contact_id' => (int)$c['id'],
+                'name' => trim($first . ' ' . (string)$c['last_name']) ?: ((string)$c['company_name'] ?: 'Customer'),
+                'first_name' => $first, 'company' => (string)($c['company_name'] ?? ''), 'email' => (string)($c['email'] ?? ''),
+                'phone' => (string)($c['phone'] ?? ''), 'amount' => 0.0, 'quotes' => [], 'gone' => true];
+    }
+
     public function queue(): array
     {
         $quotes = $this->openQuotes();

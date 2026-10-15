@@ -451,7 +451,10 @@
                 if (idx >= queue.length) idx = 0;
                 render(d.message);
             } else {
-                render(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.');
+                var msg = d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.';
+                // The list moved on while Tim typed: reload it — never make him refresh (2026-10-15).
+                if (/no longer waiting/.test(msg)) { load(); return; }
+                render(msg);
             }
         }).catch(function () { busy = false; render('Network error — nothing was sent. Try again.'); });
     });
