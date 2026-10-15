@@ -410,6 +410,16 @@ receipt paid by debit / no method (chequing) or credit card, 2026 on, not sent t
 Penny's notes use her payment-source card (`penny_questions` kind `payment_source`, category `notice`), said once, never re-opened nightly.
 First run 2026-10-15: 3 same-photo copies rejected (#372, #341, #342), 18 back to draft, 1 linked, 2 noted.
 
+### Vendor details from receipts (2026-10-15)
+
+`VendorDetailsService::fillFromReceipt()` runs on every approval (`ExpenseGateHooks::learnConfirmed`): the
+receipt's header gives the vendor's phone, website and GST number — written only when the vendor's field is
+empty — and its store (store number when the receipt says "Store", street, city, phone), matched to a known
+store or added (source `receipt`; geocoded by `SupplierStopService::geocodePending`). A website is taken only
+when its domain carries a word of the vendor's name (not loyalty, fuel-app or till-maker sites). The vendor
+form has a GST number field. Backfill 2026-10-15: 72 approved receipts → 9 phones, 3 websites, 7 GST numbers,
+13 stores added, 18 updated.
+
 ## Key files
 
 - `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)
