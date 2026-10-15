@@ -14,6 +14,8 @@
  * Global-namespace (no production autoloader): require_once the file and
  * `new ExpenseLookupService($db)` — matches every other service in this module.
  */
+if (!defined('EXPENSE_ACCOUNTING_CATEGORIES')) require_once dirname(__DIR__) . '/ExpenseConstants.php';
+
 class ExpenseLookupService
 {
     public const MIN_QUERY_LENGTH   = 2;
@@ -48,11 +50,9 @@ class ExpenseLookupService
     public static function categories(): array
     {
         return [
-            'accounting_categories' => [
-                'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
-                'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-                'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
-            ],
+            // The one list (ExpenseConstants) — a copy here lacked Safety and Personal, so a receipt Penny
+            // put in Safety showed "Select…" on the web form (Tim, 2026-10-15).
+            'accounting_categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
             'gbp_categories' => [
                 'Garden center/nursery', 'Hardware store', 'Building materials',
                 'Equipment rental', 'Gas station', 'Waste disposal/landfill',

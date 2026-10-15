@@ -14,11 +14,9 @@ $canApprove = userHasPermission('expenses.approve');
 require_once dirname(__DIR__) . '/app/Modules/Expenses/Services/ReceiptInboxService.php';
 $pendingReceipts = [];
 $inboxVendors    = [];
-$inboxCategories = [
-    'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
-    'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-    'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
-];
+// The one category list (ExpenseConstants) — this copy lacked Safety and Personal (2026-10-15).
+if (!defined('EXPENSE_ACCOUNTING_CATEGORIES')) require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+$inboxCategories = array_values(EXPENSE_ACCOUNTING_CATEGORIES);
 if ($canEdit) {
     try {
         $pendingReceipts = (new ReceiptInboxService(getDB()))->listPending();
