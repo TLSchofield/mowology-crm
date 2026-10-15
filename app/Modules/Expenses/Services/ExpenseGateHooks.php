@@ -149,6 +149,13 @@ class ExpenseGateHooks
         } catch (Throwable $e) {
             error_log('Gate confirm lessons #' . $expenseId . ': ' . $e->getMessage());
         }
+        // The vendor's phone / website / GST number and its store, from what the receipt prints (2026-10-15).
+        try {
+            require_once __DIR__ . '/VendorDetailsService.php';
+            (new VendorDetailsService($this->db))->fillFromReceipt($expenseId);
+        } catch (Throwable $e) {
+            error_log('Gate vendor details #' . $expenseId . ': ' . $e->getMessage());
+        }
     }
 
     /** The owner's split, remembered per vendor line (expense_split_lessons). */

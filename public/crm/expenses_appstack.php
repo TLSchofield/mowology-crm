@@ -1542,6 +1542,10 @@ async function submitReceiptExport() {
                     <input type="text" class="form-control" id="vendorCity" placeholder="City">
                 </div>
                 <div class="mb-3">
+                    <label class="form-label" for="vendorGstNumber">GST number <small class="text-muted">(Penny fills it in from their receipts)</small></label>
+                    <input type="text" class="form-control" id="vendorGstNumber" placeholder="123456789RT0001" maxlength="20">
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Notes</label>
                     <textarea class="form-control" id="vendorNotes" rows="2"></textarea>
                 </div>
@@ -4469,6 +4473,7 @@ async function submitReceiptExport() {
         document.getElementById('vendorGbpCategory').value = data?.default_gbp_category || '';
         document.getElementById('vendorPhone').value = data?.phone || '';
         document.getElementById('vendorWebsite').value = data?.website || '';
+        document.getElementById('vendorGstNumber').value = data?.gst_number || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
         document.getElementById('vendorGstExempt').checked = !!(data?.gst_exempt && data.gst_exempt != '0');
         // Populate address from preferred location (or first location)
@@ -4517,6 +4522,7 @@ async function submitReceiptExport() {
             default_gbp_category: document.getElementById('vendorGbpCategory').value,
             phone: document.getElementById('vendorPhone').value,
             website: document.getElementById('vendorWebsite').value,
+            gst_number: document.getElementById('vendorGstNumber').value,
             notes: document.getElementById('vendorNotes').value,
             gst_exempt: document.getElementById('vendorGstExempt').checked ? 1 : 0,
         };

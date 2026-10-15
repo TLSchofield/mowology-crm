@@ -255,11 +255,17 @@ function handleVendorCreate(PDO $db, ?array $input): void
         $input['notes'] ?? null,
         (int)($input['gst_exempt'] ?? 0),
     ]);
+    $newId = (int)$db->lastInsertId();
+    $gst = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string)($input['gst_number'] ?? '')));
+    if ($gst !== '') {
+        try { $db->prepare("UPDATE vendors SET gst_number = ? WHERE id = ?")->execute([mb_substr($gst, 0, 20), $newId]); }
+        catch (Throwable $e) { error_log('Vendor GST number: ' . $e->getMessage()); }
+    }
 
     echo json_encode([
         'success' => true,
         'message' => 'Vendor created',
-        'vendor_id' => (int)$db->lastInsertId(),
+        'vendor_id' => $newId,
     ]);
 }
 
@@ -295,6 +301,13 @@ function handleVendorUpdate(PDO $db, ?array $input): void
         isset($input['is_active']) ? (int)$input['is_active'] : 1,
         $id,
     ]);
+
+    // GST number (2026-10-15): only when the form sends it, so an older form never blanks one Penny filled in.
+    if (array_key_exists('gst_number', $input)) {
+        $gst = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string)$input['gst_number']));
+        try { $db->prepare("UPDATE vendors SET gst_number = ? WHERE id = ?")->execute([$gst !== '' ? mb_substr($gst, 0, 20) : null, $id]); }
+        catch (Throwable $e) { error_log('Vendor GST number: ' . $e->getMessage()); }
+    }
 
     echo json_encode(['success' => true, 'message' => 'Vendor updated']);
 }
