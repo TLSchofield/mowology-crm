@@ -230,6 +230,9 @@ enum APIEndpoint {
 
     case scheduleJobPhoto
 
+    /// POST /api/schedule/plant-id — "What is this plant?": {mode: identify | confirm, …} (2026-10-15).
+    case plantId
+
     /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
     case scheduleVisitPhotos(visitId: Int)
 
@@ -553,6 +556,9 @@ enum APIEndpoint {
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
+        case .plantId:
+            return URL(string: "\(baseURLString)/schedule/plant-id")
+
         case .scheduleSpecialRequests(let visitIds):
             var components = URLComponents(string: "\(baseURLString)/schedule/special-requests")
             components?.queryItems = [URLQueryItem(name: "mode", value: "visits"),
@@ -671,6 +677,7 @@ enum APIEndpoint {
              .quizAction,
              .quizQuestion,
              .scheduleJobPhoto,
+             .plantId,
              .scheduleVisitPhotos,
              .scheduleVisitPhotoHistory,
              .fieldJobNearby,
@@ -764,6 +771,7 @@ enum APIEndpoint {
              .recommendationCreate,
              .recommendationAskSend,
              .scheduleJobPhoto,
+             .plantId,
              .fieldJobAction,
              .scheduleInvoice,
              .pennyChaseAction,

@@ -164,6 +164,7 @@ $actionAliases = [
         'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)
         'quiz'               => 'quiz',        // Mobile pre-shift quiz (JWT)
         'recommendation'     => 'recommendation', // Crew service recommendations (JWT or session)
+        'plant-id'           => 'plant-id',    // "What is this plant?" (JWT) — identify / confirm on a visit's property
     ],
 ];
 

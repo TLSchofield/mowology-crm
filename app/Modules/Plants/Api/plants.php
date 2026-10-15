@@ -6,6 +6,9 @@
  * POST {mode: 'identify', property_id, media_ids: [whole, closer, close-up], lat?, lng?, accuracy?, heading?, csrf_token}
  * POST {mode: 'confirm', id, scientific_name?, common_name?, measurement_id (0 = no bed), notes?, csrf_token}
  * POST {mode: 'remove', id, csrf_token}
+ * Crew (any login that can work a visit — the same rule as visit photo uploads):
+ * POST {mode: 'identify_visit', visit_id, media_ids, lat?, lng?, accuracy?, heading?}   the visit's property
+ * POST {mode: 'confirm', …} on a plant they identified themselves in the last 24 h
  * The care library (PlantCareService, migration 1368):
  * GET  ?mode=library                      every card by group (finished batches are collected first)
  * POST {mode: 'care_now', scientific_name, common_name}    a plant not in the library: draft its card now
@@ -47,7 +50,9 @@ try {
         echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
         exit;
     }
-    if (!userHasPermission('clients.view')) {
+    // Crew modes are allowed without clients.view (field crew have no client access); everything else needs it.
+    $crewModes = ['identify_visit', 'confirm', 'beds_visit'];
+    if (!userHasPermission('clients.view') && !in_array($mode, $crewModes, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'Access denied']);
         exit;
@@ -94,9 +99,46 @@ try {
             echo json_encode($svc->identify((int)($input['property_id'] ?? 0), (array)($input['media_ids'] ?? []),
                 ['lat' => $input['lat'] ?? null, 'lng' => $input['lng'] ?? null, 'accuracy' => $input['accuracy'] ?? null, 'heading' => $input['heading'] ?? null], $uid));
             break;
+        case 'identify_visit':
+        case 'beds_visit': {
+            $vid = (int)($input['visit_id'] ?? $_GET['visit_id'] ?? 0);
+            $pv = $db->prepare('SELECT v.id, v.stop_id, v.assigned_crew_id, v.plan_id, jp.property_id FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id WHERE v.id = ?');
+            $pv->execute([$vid]);
+            $visit = $pv->fetch(PDO::FETCH_ASSOC);
+            $pid = $visit ? (int)$visit['property_id'] : 0;
+            if ($pid <= 0) { http_response_code(404); echo json_encode(['ok' => false, 'message' => 'That visit is gone.']); break; }
+            // The same rule as the iPhone's plant-id and photo upload: the stop's crew, or the office.
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            $office = userHasPermission('clients.view') || in_array($user['role'] ?? '', ['admin', 'manager', 'staff', 'owner'], true);
+            $stopCrew = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+            if (!VisitWorkService::canAccess($visit, $uid, $office, $stopCrew)) {
+                http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Not your visit.']); break;
+            }
+            if ($mode === 'beds_visit') {
+                echo json_encode(['ok' => true, 'property_id' => $pid, 'beds' => array_map(fn($b) => ['id' => $b['id'], 'name' => $b['name']], $svc->beds($pid))]);
+                break;
+            }
+            @set_time_limit(90);
+            $res = $svc->identify($pid, (array)($input['media_ids'] ?? []),
+                ['lat' => $input['lat'] ?? null, 'lng' => $input['lng'] ?? null, 'accuracy' => $input['accuracy'] ?? null, 'heading' => $input['heading'] ?? null], $uid);
+            if (!empty($res['record'])) {
+                $res['beds'] = array_map(fn($b) => ['id' => $b['id'], 'name' => $b['name']], $svc->beds($pid));
+                $res['care'] = $care->ready() ? $careOf($res['record']) : null;
+            }
+            echo json_encode($res);
+            break;
+        }
         case 'confirm':
-            if (!$canEdit) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'You can look but not change plants.']); break; }
-            echo json_encode($svc->confirm((int)($input['id'] ?? 0), $input, $uid));
+            if (!$canEdit) {
+                // A crew member may confirm the plant they identified themselves in the last day.
+                $own = $svc->one((int)($input['id'] ?? 0));
+                if (!$own || (int)$own['created_by'] !== $uid || strtotime((string)$own['created_at']) < time() - 86400) {
+                    http_response_code(403); echo json_encode(['ok' => false, 'message' => 'You can look but not change plants.']); break;
+                }
+            }
+            $res = $svc->confirm((int)($input['id'] ?? 0), $input, $uid);
+            if (!empty($res['record'])) $res['care'] = $care->ready() ? $careOf($res['record']) : null;
+            echo json_encode($res);
             break;
         case 'remove':
             if (!$canEdit) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'You can look but not change plants.']); break; }

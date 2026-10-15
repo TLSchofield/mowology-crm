@@ -17,6 +17,8 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import AVFoundation
+import CoreLocation
 
 // MARK: - JobPhotoType
 
@@ -265,6 +267,7 @@ struct JobPhotoSection: View {
 
     @StateObject private var vm: JobPhotoViewModel
     @State private var libraryItems: [PhotosPickerItem] = []
+    @State private var showPlantId = false
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
@@ -358,6 +361,20 @@ struct JobPhotoSection: View {
             crewShotsStrip()
 
             extrasStrip()
+
+            if !photosLocked {
+                Button {
+                    showPlantId = true
+                } label: {
+                    Label("What is this plant?", systemImage: "leaf")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.MW.green)
+            }
+        }
+        .fullScreenCover(isPresented: $showPlantId) {
+            PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
         }
         .task { await vm.loadExisting() }
         // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
@@ -651,3 +668,385 @@ struct JobPhotoSection: View {
     }
 }
 
+
+
+// MARK: - Plant ID ("What is this plant?", 2026-10-15)
+//
+// Three photos of one plant — whole plant, closer, close-up — taken with the app's own camera
+// (GPS written into each photo), plus the compass heading when the whole-plant shot was taken.
+// They upload as visit photos ("other"), then POST /api/schedule/plant-id identifies them with
+// Pl@ntNet on the visit's property and suggests the bed (inside it / facing it / near it).
+// The crew picks the name and the bed; approved care from the plant library is shown back.
+
+struct PlantMatchDTO: Decodable, Identifiable, Hashable {
+    let scientific: String
+    let common: String?
+    let score: Double
+    var id: String { scientific }
+}
+
+struct PlantBedRefDTO: Decodable, Hashable {
+    let id: Int
+    let name: String
+    let sure: Bool?
+}
+
+struct PlantBedDTO: Decodable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+}
+
+struct PlantRecordDTO: Decodable {
+    let id: Int
+    let status: String
+    let scientificName: String?
+    let commonName: String?
+    let matches: [PlantMatchDTO]
+    let bed: PlantBedRefDTO?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, matches, bed
+        case scientificName = "scientific_name"
+        case commonName = "common_name"
+    }
+}
+
+struct PlantCareTaskDTO: Decodable, Hashable {
+    let task: String
+    let when: String
+    let how: String?
+}
+
+struct PlantCareDTO: Decodable {
+    let name: String?
+    let general: Bool?
+    let tasks: [PlantCareTaskDTO]
+    let toxicPets: Bool?
+    let toxicNote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, general, tasks
+        case toxicPets = "toxic_pets"
+        case toxicNote = "toxic_note"
+    }
+}
+
+struct PlantIdResponse: Decodable {
+    let ok: Bool
+    let message: String?
+    let record: PlantRecordDTO?
+    let beds: [PlantBedDTO]?
+    let care: PlantCareDTO?
+}
+
+/// The best GPS fix and the compass heading while the plant camera is open.
+@MainActor
+final class PlantFixReader: NSObject, ObservableObject, CLLocationManagerDelegate {
+    @Published private(set) var best: CLLocation?
+    @Published private(set) var heading: Double?
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    func start() {
+        manager.startUpdatingLocation()
+        if CLLocationManager.headingAvailable() {
+            manager.headingFilter = 3
+            manager.startUpdatingHeading()
+        }
+    }
+
+    func stop() {
+        manager.stopUpdatingLocation()
+        manager.stopUpdatingHeading()
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in
+            for l in locations where l.horizontalAccuracy >= 0 && l.timestamp.timeIntervalSinceNow > -30 {
+                // Keep the most accurate recent fix (the first one is often the rough one).
+                if let b = self.best, b.horizontalAccuracy <= l.horizontalAccuracy, b.timestamp.timeIntervalSinceNow > -60 { continue }
+                self.best = l
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        guard newHeading.headingAccuracy >= 0 else { return }
+        let value = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+        Task { @MainActor in self.heading = value }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+}
+
+private struct PlantCameraPreview: UIViewRepresentable {
+    let camera: CameraController
+
+    final class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+    }
+
+    func makeUIView(context: Context) -> PreviewView {
+        let v = PreviewView()
+        v.backgroundColor = .black
+        camera.attach(previewLayer: v.previewLayer)
+        return v
+    }
+
+    func updateUIView(_ uiView: PreviewView, context: Context) {}
+}
+
+struct PlantIdView: View {
+    let visitId: Int
+    let authSession: AuthSession
+    let onClose: () -> Void
+
+    private static let steps = [
+        ("Whole plant", "Step back until the whole plant fills the frame. Stand still — this marks where it grows."),
+        ("Closer", "Half the plant: stems, leaves and any flowers."),
+        ("Close-up", "One leaf or flower, sharp and filling the frame."),
+    ]
+
+    @StateObject private var camera = CameraController()
+    @StateObject private var fix = PlantFixReader()
+    @State private var shots: [Data] = []
+    @State private var wholeHeading: Double?
+    @State private var busy = false
+    @State private var status: String?
+    @State private var result: PlantIdResponse?
+    @State private var pick: String = ""
+    @State private var other: String = ""
+    @State private var bedId: Int = 0
+    @State private var saved: PlantIdResponse?
+
+    var body: some View {
+        Group {
+            if let saved {
+                doneView(saved)
+            } else if let result, let record = result.record {
+                pickView(result, record)
+            } else {
+                shootView
+            }
+        }
+        .task {
+            fix.start()
+            await camera.start(videoMode: false)
+        }
+        .onDisappear {
+            fix.stop()
+            camera.stop()
+        }
+    }
+
+    // MARK: Shooting
+
+    private var shootView: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            PlantCameraPreview(camera: camera).ignoresSafeArea()
+            VStack(spacing: 12) {
+                HStack {
+                    Button("Cancel") { onClose() }.foregroundStyle(.white)
+                    Spacer()
+                    Text(fixText).font(.caption).foregroundStyle(.white.opacity(0.9))
+                }
+                .padding(.horizontal)
+                if shots.count < 3 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(shots.count + 1) of 3 — \(Self.steps[shots.count].0)").font(.headline)
+                        Text(Self.steps[shots.count].1).font(.subheadline)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal)
+                }
+                Spacer()
+                if let status {
+                    Text(status).font(.callout).foregroundStyle(.white)
+                        .padding(10).background(Color.black.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                HStack(spacing: 10) {
+                    ForEach(Array(shots.enumerated()), id: \.offset) { _, data in
+                        if let img = PhotoMetadata.thumbnail(from: data, maxPixel: 160) {
+                            Image(uiImage: img).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+                Button(action: shoot) {
+                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 74, height: 74)
+                        .overlay(Circle().fill(busy ? Color.gray : Color.white).frame(width: 60, height: 60))
+                }
+                .disabled(busy || shots.count >= 3)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var fixText: String {
+        guard let b = fix.best else { return "Finding location…" }
+        return "Location ±\(Int(b.horizontalAccuracy.rounded())) m"
+    }
+
+    private func shoot() {
+        guard !busy, shots.count < 3 else { return }
+        busy = true
+        if shots.isEmpty { wholeHeading = fix.heading }   // the direction the camera faced for the whole plant
+        camera.capturePhoto(location: fix.best) { data in
+            Task { @MainActor in
+                busy = false
+                guard let data else { status = "That photo didn't take — try again."; return }
+                shots.append(data)
+                if shots.count == 3 {
+                    camera.stop()   // the camera's job is done — no indicator light during upload and picking
+                    await identify()
+                }
+            }
+        }
+    }
+
+    private func identify() async {
+        busy = true
+        defer { busy = false }
+        let api = APIClient(authSession: authSession)
+        var ids: [Int] = []
+        do {
+            for (i, data) in shots.enumerated() {
+                status = "Uploading photo \(i + 1) of 3…"
+                let res = try await api.uploadVisitPhoto(imageData: data, visitId: visitId, photoTypeRaw: "other")
+                if let id = res["media_id"] as? Int { ids.append(id) }
+                else if let s = res["media_id"] as? String, let id = Int(s) { ids.append(id) }
+                else { throw APIError.serverError("A photo uploaded without an id") }
+            }
+            status = "Asking Pl@ntNet…"
+            var body: [String: Any] = ["mode": "identify", "visit_id": visitId, "media_ids": ids]
+            if let b = fix.best {
+                body["lat"] = b.coordinate.latitude
+                body["lng"] = b.coordinate.longitude
+                body["accuracy"] = b.horizontalAccuracy
+            }
+            if let h = wholeHeading { body["heading"] = h }
+            let res: PlantIdResponse = try await api.request(.plantId, body: body, timeout: 90)
+            if res.ok, let rec = res.record {
+                pick = rec.scientificName ?? (rec.matches.first?.scientific ?? "")
+                bedId = rec.bed?.id ?? 0
+                result = res
+                status = nil
+            } else {
+                status = res.message ?? "Couldn't identify it — try again."
+                await retake()
+            }
+        } catch {
+            status = "Couldn't send the photos — check the signal and try again."
+            await retake()
+        }
+    }
+
+    /// Back to shooting after a failure: clear the shots and turn the camera on again.
+    private func retake() async {
+        shots = []
+        await camera.start(videoMode: false)
+    }
+
+    // MARK: Picking the name and the bed
+
+    private func pickView(_ res: PlantIdResponse, _ rec: PlantRecordDTO) -> some View {
+        NavigationStack {
+            Form {
+                if let m = res.message, !m.isEmpty { Section { Text(m).font(.headline) } }
+                Section("What is it?") {
+                    ForEach(rec.matches) { m in
+                        Button {
+                            pick = m.scientific
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(m.common?.isEmpty == false ? m.common! : m.scientific)
+                                    Text(m.scientific).font(.caption).italic().foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("\(Int((m.score * 100).rounded()))%").foregroundStyle(.secondary)
+                                if pick == m.scientific { Image(systemName: "checkmark").foregroundStyle(Color.MW.green) }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    TextField("Something else (type the name)", text: $other)
+                        .onChange(of: other) { _, v in if !v.isEmpty { pick = "" } }
+                }
+                Section("Which bed?") {
+                    Picker("Bed", selection: $bedId) {
+                        Text("No bed / not drawn yet").tag(0)
+                        ForEach(res.beds ?? []) { b in Text(b.name).tag(b.id) }
+                    }
+                    if let b = rec.bed, b.sure != true {
+                        Text("Probably \(b.name) — from where you stood. Change it if not.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let status { Section { Text(status).foregroundStyle(.orange) } }
+            }
+            .navigationTitle("Plant")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { onClose() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await confirm(rec) } }.disabled(busy || (pick.isEmpty && other.trimmingCharacters(in: .whitespaces).isEmpty))
+                }
+            }
+        }
+    }
+
+    private func confirm(_ rec: PlantRecordDTO) async {
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["mode": "confirm", "id": rec.id, "measurement_id": bedId]
+        if pick.isEmpty { body["common_name"] = other.trimmingCharacters(in: .whitespaces) } else { body["scientific_name"] = pick }
+        do {
+            let res: PlantIdResponse = try await APIClient(authSession: authSession).request(.plantId, body: body)
+            if res.ok { saved = res } else { status = res.message ?? "Couldn't save it." }
+        } catch {
+            status = "Couldn't save it — check the signal."
+        }
+    }
+
+    // MARK: Done — with its care, when the library has an approved card
+
+    private func doneView(_ res: PlantIdResponse) -> some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(res.record?.commonName ?? res.record?.scientificName ?? "Saved").font(.headline)
+                    if let b = res.record?.bed { Text("In \(b.name)").foregroundStyle(.secondary) }
+                }
+                if let care = res.care, !care.tasks.isEmpty {
+                    Section(care.general == true ? "Care (general for this kind)" : "Care") {
+                        ForEach(care.tasks, id: \.self) { t in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack { Text(t.task).bold(); Spacer(); Text(t.when).foregroundStyle(.secondary) }
+                                if let how = t.how, !how.isEmpty { Text(how).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                        if care.toxicPets == true {
+                            Label(care.toxicNote?.isEmpty == false ? care.toxicNote! : "Toxic to pets", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(Color.MW.red)
+                        }
+                    }
+                } else {
+                    Section { Text("Its care card isn't in the library yet — the office will add it.").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+            .navigationTitle("Saved")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { onClose() } } }
+        }
+    }
+}

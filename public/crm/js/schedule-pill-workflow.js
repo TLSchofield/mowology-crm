@@ -461,12 +461,21 @@
             '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
             '    Recommend a Service' +
             '  </button>' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="plant">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>' +
+            '    Plant?' +
+            '  </button>' +
             '</div>';
 
         drawer.querySelector('[data-action="recommend"]')
             .addEventListener('click', function(e) {
                 e.stopPropagation();
                 openRecommendModal(visitId);
+            });
+        drawer.querySelector('[data-action="plant"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openPlantId(visitId);
             });
     }
 
@@ -492,6 +501,10 @@
             '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
             '    Recommend' +
             '  </button>' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="plant">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>' +
+            '    Plant?' +
+            '  </button>' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-stop" data-action="stop-timer">' +
             '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
             '    Stop Timer' +
@@ -514,6 +527,11 @@
             .addEventListener('click', function(e) {
                 e.stopPropagation();
                 openRecommendModal(visitId);
+            });
+        drawer.querySelector('[data-action="plant"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openPlantId(visitId);
             });
 
         drawer.querySelector('[data-action="finish"]')
@@ -2952,6 +2970,18 @@
                     return data;
                 });
         });
+    }
+
+    /** "What is this plant?" — plant-id-crew.js, loaded the first time it's tapped (2026-10-15). */
+    function openPlantId(visitId) {
+        if (window.MwPlantCrew) { window.MwPlantCrew.open(visitId, state.csrf || window.MW_CSRF_TOKEN || ''); return; }
+        if (openPlantId.loading) return;   // a second tap while it loads would open two
+        openPlantId.loading = true;
+        var s = document.createElement('script');
+        s.src = '/crm/js/plant-id-crew.js?v=20261015a';
+        s.onload = function () { openPlantId.loading = false; if (window.MwPlantCrew) window.MwPlantCrew.open(visitId, state.csrf || window.MW_CSRF_TOKEN || ''); };
+        s.onerror = function () { openPlantId.loading = false; s.remove(); if (window.mwToast) window.mwToast('Plant ID could not load — check the signal.', 'error'); };
+        document.head.appendChild(s);
     }
 
     function openRecommendModal(visitId) {
