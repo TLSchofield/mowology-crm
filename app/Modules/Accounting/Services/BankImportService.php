@@ -4036,7 +4036,7 @@ class BankImportService
      *
      * @return array{confidence:int, reasons:string[]}|null
      */
-    private function scoreExpenseTransactionPair(array $expense, array $transaction): ?array
+    private function scoreExpenseTransactionPair(array $expense, array $transaction, ?array $stop = null): ?array
     {
         $expAmt = round((float)$expense['total'], 2);
         $txAmt  = round((float)$transaction['amount'], 2);
@@ -4064,10 +4064,45 @@ class BankImportService
             $score += 20;
             $reasons[] = 'Vendor name matches statement description';
         }
+        // Otto saw the crew at the place that day (Tim, 2026-10-15: "time, GPS confirmation and date should add strength").
+        if ($o = self::ottoStopBonus($stop, (string)$transaction['transaction_date'])) {
+            $score += $o['points'];
+            $reasons[] = $o['reason'];
+        }
 
         $score = min(100, $score);
         if ($score < self::EXPENSE_MATCH_THRESHOLD) return null;
         return ['confidence' => $score, 'reasons' => $reasons];
+    }
+
+    /**
+     * Otto's GPS evidence for a receipt's bank line: the crew were at the place (SupplierStopService),
+     * and the receipt is tied to that stop by the time printed on it (strongest), the photo's time, or
+     * only the date. Counts when the bank line is dated the stop's day or up to 3 days after (card
+     * payments post late); never for a line dated before the stop.
+     * @return array{points: int, reason: string}|null
+     */
+    public static function ottoStopBonus(?array $stop, string $txDate): ?array
+    {
+        if (!$stop || empty($stop['arrived_at']) || $txDate === '') return null;
+        $lag = (int)round((strtotime($txDate) - strtotime(substr((string)$stop['arrived_at'], 0, 10))) / 86400);
+        if ($lag < 0 || $lag > 3) return null;
+        $points = ['printed' => 20, 'photo' => 15][$stop['basis'] ?? ''] ?? 8;
+        $who = trim(preg_replace('/\s*\(on the clock\)$/', '', (string)($stop['people'] ?? ''))) ?: 'The crew';
+        $at = date('G:i', strtotime((string)$stop['arrived_at']));
+        $how = ['printed' => 'at the time printed on the receipt', 'photo' => 'when the receipt photo was taken'][$stop['basis'] ?? ''] ?? 'that day';
+        return ['points' => $points, 'reason' => 'GPS: ' . $who . ' at ' . trim((string)$stop['place_name']) . ' ' . $at . ' — ' . $how];
+    }
+
+    /** Otto's stop for a receipt, or null (never fails a match). */
+    private function stopForExpense(int $expenseId): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Operations/Services/SupplierStopService.php';
+            return (new SupplierStopService($this->db))->stopForExpense($expenseId);
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     /**
@@ -4107,8 +4142,9 @@ class BankImportService
         ]);
 
         $out = [];
+        $stop = $this->stopForExpense($expenseId);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
-            $score = $this->scoreExpenseTransactionPair($expense, $tx);
+            $score = $this->scoreExpenseTransactionPair($expense, $tx, $stop);
             if ($score === null) continue;
             $out[] = [
                 'transaction_id' => (int)$tx['id'],
@@ -4226,7 +4262,7 @@ class BankImportService
         // Recorded for reporting even though the user picked it manually — falls
         // back to 0 if the pair is outside the normal scoring window (a deliberate
         // human override of what the candidate list would have suggested).
-        $score = $this->scoreExpenseTransactionPair($expense, $transaction);
+        $score = $this->scoreExpenseTransactionPair($expense, $transaction, $this->stopForExpense($expenseId));
         $confidence = $score['confidence'] ?? 0;
 
         $this->db->prepare("
