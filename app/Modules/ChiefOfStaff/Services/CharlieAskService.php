@@ -169,6 +169,14 @@ TXT;
             return ['ok' => true, 'answer' => $answer, 'source' => 'none', 'left' => $this->status()['left']];
         }
 
+        // The same question about the same records within the hour: his last answer, no new call (D6, 2026-10-15).
+        if ($prev = $this->recentAnswer($question, $matched)) {
+            $this->record($question, $terms, $matched, 'reused', $prev['answer'], null, 0, 0, null, $userId);
+            $mins = max(1, (int)round((time() - strtotime((string)$prev['created_at'])) / 60));
+            $answer = $prev['answer'] . "\n— my answer from {$mins} minute" . ($mins === 1 ? '' : 's') . ' ago (nothing new matched since)';
+            return ['ok' => true, 'answer' => $answer, 'source' => 'reused', 'left' => $this->status()['left']];
+        }
+
         if (!$this->hasKey()) return ['ok' => false, 'message' => 'No Anthropic key set up, so I can\'t answer questions yet.', 'left' => 0];
         $cap = $this->dailyCap();
         $used = $this->callsToday();
@@ -200,6 +208,21 @@ TXT;
         }
         if ($from) $answer .= "\n— from " . implode(' and ', array_values(array_unique($from)));
         return ['ok' => true, 'answer' => $answer, 'source' => 'claude', 'left' => self::capLeft($cap, $used + 1)];
+    }
+
+    public const REUSE_MINUTES = 60;
+
+    /** A Claude answer to the same question (same words, same matched records) in the last REUSE_MINUTES. */
+    private function recentAnswer(string $question, array $matched): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT answer, created_at FROM charlie_asks WHERE source = 'claude' AND error IS NULL AND answer IS NOT NULL
+                                     AND question = ? AND matched = ? AND created_at >= ? ORDER BY id DESC LIMIT 1");
+            $s->execute([$question, mb_substr(json_encode($matched), 0, 255), date('Y-m-d H:i:s', time() - self::REUSE_MINUTES * 60)]);
+            return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function record(string $q, array $terms, array $matched, string $source, ?string $answer, ?string $model, int $in, int $out, ?string $error, int $userId): void

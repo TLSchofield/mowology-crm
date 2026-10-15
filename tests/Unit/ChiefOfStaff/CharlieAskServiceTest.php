@@ -137,6 +137,22 @@ class CharlieAskServiceTest extends TestCase
         $this->assertEqualsWithDelta(0.0105, (float)$row['cost_usd'], 1e-9);
     }
 
+    public function test_the_same_question_within_the_hour_reuses_the_answer(): void
+    {
+        $db = $this->db();
+        $calls = 0;
+        $svc = new CharlieAskService($db, $this->transport('Yes — sent Sep 29.', $calls), self::TODAY);
+        $svc->ask("Has Linda's quote been sent?", 7);
+        $r = $svc->ask("Has  Linda's quote been sent?", 7);
+        $this->assertSame(1, $calls, 'no second call');
+        $this->assertSame('reused', $r['source']);
+        $this->assertStringContainsString('Yes — sent Sep 29.', $r['answer']);
+        $this->assertSame(29, $r['left'], 'a reuse is not counted');
+        $db->exec("UPDATE charlie_asks SET created_at = '2020-01-01 00:00:00'");
+        $svc->ask("Has Linda's quote been sent?", 7);
+        $this->assertSame(2, $calls, 'an hour on, he asks again');
+    }
+
     public function test_nothing_matched_is_answered_free(): void
     {
         $db = $this->db();
