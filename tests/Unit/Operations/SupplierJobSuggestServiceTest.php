@@ -53,6 +53,30 @@ class SupplierJobSuggestServiceTest extends TestCase
         $this->assertStringContainsString('its quote lists mulch, bark', SupplierJobSuggestService::reason($best, 'Nigel', 'LAWNBOY', 2));
     }
 
+    public function testTimsRepeatedRuleBeatsTheLastReceiptHere(): void
+    {
+        // The last receipt at Tisdall went on the one-off job, but Tim has put LAWNBOY mulch on maintenance jobs twice running.
+        $c = $this->tisdall();
+        $c[0]['rule'] = ['value' => 'maintenance', 'streak' => 2, 'what' => 'LAWNBOY mulch'];
+        $best = SupplierJobSuggestService::rank($c, self::MULCH);
+        $this->assertSame(59, $best['plan_id']);
+        $this->assertStringContainsString('you have put LAWNBOY mulch on maintenance jobs 2 times running',
+            SupplierJobSuggestService::reason($best, 'Nigel', 'LAWNBOY', 1));
+    }
+
+    public function testTheLastReceiptHereIsOnlyAHint(): void
+    {
+        $this->assertLessThan(SupplierJobSuggestService::W_LEARNED, SupplierJobSuggestService::W_RECENT);
+        $this->assertLessThan(SupplierJobSuggestService::W_BOTH_SIDES, SupplierJobSuggestService::W_RECENT);
+    }
+
+    public function testMaterialKey(): void
+    {
+        $this->assertSame('LAWNBOY|' . implode('+', TripAttributionService::materialWords('Black Composted Bark Mulch')),
+            SupplierJobSuggestService::materialKey(' LAWNBOY ', ['Black Composted Bark Mulch']));
+        $this->assertSame('Rona|materials', SupplierJobSuggestService::materialKey('Rona', ['Gift card']));
+    }
+
     public function testOnlyMaterialsGetAPick(): void
     {
         $this->assertTrue(SupplierJobSuggestService::isMaterial('Materials', 'supplier', []));

@@ -33,7 +33,7 @@ class SupplierJobSuggestService
     public const RECENT_DAYS = 60;
     public const SHADOW_MIN = 10;
     public const SHADOW_RATE = 0.95;
-    public const W_QUOTE = 100, W_LEARNED = 50, W_BOTH_SIDES = 20, W_GPS = 10, W_VISIT = 5, W_ONE_OFF = 3;
+    public const W_QUOTE = 100, W_LEARNED = 50, W_RECENT = 15, W_BOTH_SIDES = 20, W_GPS = 10, W_VISIT = 5, W_ONE_OFF = 3;
 
     private PDO $db;
     private SupplierStopService $stops;
@@ -69,7 +69,9 @@ class SupplierJobSuggestService
     /**
      * The best plan among candidates, with its score and the facts behind it.
      * @param list<array{plan_id: int, plan_number: string, street: string, is_recurring: bool, quote_lines: list,
-     *                   before: bool, after: bool, gps: bool, visit: bool, learned: ?array}> $cands
+     *                   before: bool, after: bool, gps: bool, visit: bool, learned: ?array, rule?: ?array}> $cands
+     *        learned = the last material receipt at this property went on this plan (a hint, W_RECENT);
+     *        rule = Tim has put this vendor + material on this kind of job twice running (HeadLessons::rule, W_LEARNED).
      * @param list<array{name: string, product_id?: ?int}> $lines the receipt's line items
      * @return ?array the winning candidate + score + quote_words
      */
@@ -88,7 +90,7 @@ class SupplierJobSuggestService
                 $both = array_intersect(TripAttributionService::materialWords((string)($l['name'] ?? '')), $quoteWords);
                 $words = array_merge($words, $both ?: [strtolower(trim((string)$l['name']))]);
             }
-            $score = ($words ? self::W_QUOTE : 0) + (!empty($c['learned']) ? self::W_LEARNED : 0)
+            $score = ($words ? self::W_QUOTE : 0) + (!empty($c['rule']) ? self::W_LEARNED : 0) + (!empty($c['learned']) ? self::W_RECENT : 0)
                    + (!empty($c['before']) && !empty($c['after']) ? self::W_BOTH_SIDES : 0)
                    + (!empty($c['gps']) ? self::W_GPS : 0) + (!empty($c['visit']) ? self::W_VISIT : 0)
                    + (empty($c['is_recurring']) ? self::W_ONE_OFF : 0);
@@ -113,11 +115,14 @@ class SupplierJobSuggestService
         elseif (!empty($best['after'])) $bits = ["{$who} went to {$where} after the {$place} stop"];
         else $bits = ["{$where} was on {$who}'s schedule that day"];
         if (!empty($best['quote_words'])) $bits[] = 'its quote lists ' . implode(', ', array_slice($best['quote_words'], 0, 3));
+        if (!empty($best['rule'])) {
+            $bits[] = 'you have put ' . $best['rule']['what'] . ' on ' . $best['rule']['value'] . ' jobs ' . (int)$best['rule']['streak'] . ' times running';
+        }
         if (!empty($best['learned'])) {
             $l = $best['learned'];
             $bits[] = 'the last material receipt for ' . $where . ' (#' . (int)$l['id'] . ', ' . date('M j', strtotime((string)$l['expense_date'])) . ') went on this job';
         }
-        if ($others > 0 && empty($best['quote_words']) && empty($best['learned']) && empty($best['is_recurring'])) {
+        if ($others > 0 && empty($best['quote_words']) && empty($best['learned']) && empty($best['rule']) && empty($best['is_recurring'])) {
             $bits[] = 'it is the one-off job there, not the regular visits';
         }
         return ucfirst(implode('; ', $bits)) . '.';
@@ -286,7 +291,7 @@ class SupplierJobSuggestService
 
         $in = implode(',', array_fill(0, count($props), '?'));
         $s = $this->db->prepare("
-            SELECT jp.id, jp.plan_number, jp.property_id, jp.is_recurring, jp.quote_id, jp.status, q.status AS quote_status,
+            SELECT jp.id, jp.plan_number, jp.property_id, jp.is_recurring, jp.service_type, jp.quote_id, jp.status, q.status AS quote_status,
                    COALESCE(p.address, p.property_name, '') AS address
             FROM job_plans jp LEFT JOIN quotes q ON q.id = jp.quote_id LEFT JOIN properties p ON p.id = jp.property_id
             WHERE jp.property_id IN ({$in}) AND (jp.status <> 'cancelled' OR jp.id IN (" . implode(',', array_map('intval', $visitPlanIds)) . "))
@@ -297,6 +302,7 @@ class SupplierJobSuggestService
 
         $attr = new TripAttributionService($this->db);
         $learnedBy = $this->lastMaterialReceipts($props, $date, $expenseId);
+        $rule = $this->materialRule($rc);
         $cands = [];
         foreach ($plans as $p) {
             $prop = (int)$p['property_id'];
@@ -308,6 +314,7 @@ class SupplierJobSuggestService
                 'before' => $beforeProp === $prop, 'after' => $afterProp === $prop, 'gps' => $gps,
                 'visit' => in_array((int)$p['id'], $visitPlanIds, true),
                 'learned' => $l && (int)$l['job_id'] === (int)$p['id'] ? $l : null,
+                'rule' => $rule && strcasecmp((string)$p['service_type'], $rule['value']) === 0 ? $rule : null,
             ];
         }
         $best = self::rank($cands, $rc['lines']);
@@ -463,7 +470,9 @@ class SupplierJobSuggestService
                 $p = $this->db->prepare("SELECT id, plan_number, service_type FROM job_plans WHERE id = ?");
                 $p->execute([(int)$r['job_id']]);
                 $plan = $p->fetch(PDO::FETCH_ASSOC);
-                if ($rc && $plan) $this->lessons($rc, (int)$r['suggested_plan_id'], $plan, null, 'otto_stop_suggestion:elsewhere');
+                // Only a person's choice teaches: a job the trip cron or Penny set would just teach Otto his own guesses.
+                $by = $this->personWhoSetJob((int)$r['expense_id']);
+                if ($rc && $plan && $by !== false) $this->lessons($rc, (int)$r['suggested_plan_id'], $plan, $by, 'otto_stop_suggestion:elsewhere');
             }
             $n++;
         }
@@ -489,6 +498,21 @@ class SupplierJobSuggestService
         return ['suggested' => $n, 'reconciled' => $this->reconcile()];
     }
 
+    /** The user who last set the receipt's job (expense_change_log), null for an unknown person; false when it wasn't a person. */
+    private function personWhoSetJob(int $expenseId)
+    {
+        try {
+            $s = $this->db->prepare("SELECT actor_kind, actor_user_id FROM expense_change_log WHERE expense_id = ? AND fields LIKE '%job_id%'
+                                     ORDER BY created_at DESC, id DESC LIMIT 1");
+            $s->execute([$expenseId]);
+            $row = $s->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return false;
+        }
+        if (!$row || ($row['actor_kind'] ?? '') !== 'user') return false;
+        return $row['actor_user_id'] !== null ? (int)$row['actor_user_id'] : null;
+    }
+
     private function planNumber(int $planId): ?string
     {
         if ($planId <= 0) return null;
@@ -497,15 +521,41 @@ class SupplierJobSuggestService
         return ($v = $s->fetchColumn()) ? (string)$v : null;
     }
 
-    /** Penny: vendor + material → job type (every decision). Otto: stop → job (when it differs). */
+    /** "LAWNBOY|bark+mulch": the vendor + the material words on the receipt (the key Penny's lessons use). */
+    public static function materialKey(string $vendor, array $lineNames): string
+    {
+        $words = TripAttributionService::materialWords(implode(' ', $lineNames));
+        return trim($vendor) . '|' . ($words ? implode('+', $words) : 'materials');
+    }
+
+    /**
+     * Tim's rule for this vendor + material → job type: the same type twice running (HeadLessons::rule;
+     * a newer different answer resets it, a year old fades). @return ?array{value, streak, what}
+     */
+    private function materialRule(array $rc): ?array
+    {
+        require_once APP_ROOT . '/Services/HeadLessons.php';
+        $names = array_column($rc['lines'], 'name');
+        $r = (new HeadLessons($this->db))->rule('penny', 'vendor_material', self::materialKey((string)$rc['vendor'], $names), 'job_type');
+        if (!$r || $r['value'] === '' || $r['value'] === 'unknown') return null;
+        $words = TripAttributionService::materialWords(implode(' ', $names));
+        return $r + ['what' => trim((string)$rc['vendor']) . ' ' . ($words ? implode(', ', $words) : 'materials')];
+    }
+
+    /** Penny: vendor + material → job type (every decision). Otto: stop → job (every decision; said = his pick). */
     private function lessons(array $rc, ?int $suggestedPlanId, array $plan, ?int $by, string $source): void
     {
         require_once APP_ROOT . '/Services/HeadLessons.php';
-        $words = TripAttributionService::materialWords(implode(' ', array_column($rc['lines'], 'name')));
-        $key = trim((string)$rc['vendor']) . '|' . ($words ? implode('+', $words) : 'materials');
+        $key = self::materialKey((string)$rc['vendor'], array_column($rc['lines'], 'name'));
+        $said = null;
+        if ($suggestedPlanId) {
+            $s = $this->db->prepare("SELECT service_type FROM job_plans WHERE id = ?");
+            $s->execute([$suggestedPlanId]);
+            $said = ($v = $s->fetchColumn()) !== false ? ((string)$v ?: 'unknown') : null;
+        }
         HeadLessons::recordQuietly($this->db, [
             'head' => 'penny', 'subject_kind' => 'vendor_material', 'subject_key' => $key, 'field' => 'job_type',
-            'said' => null, 'correct' => (string)($plan['service_type'] ?: 'unknown'), 'source' => $source,
+            'said' => $said, 'correct' => (string)($plan['service_type'] ?: 'unknown'), 'source' => $source, 'agreement' => true,
             'ref_type' => 'expense', 'ref_id' => (int)$rc['id'], 'corrected_by' => $by,
         ]);
         $this->ottoLesson($rc, $suggestedPlanId ? $this->planNumber($suggestedPlanId) : null, (string)$plan['plan_number'], $by, $source, null);
@@ -516,7 +566,7 @@ class SupplierJobSuggestService
         require_once APP_ROOT . '/Services/HeadLessons.php';
         HeadLessons::recordQuietly($this->db, [
             'head' => 'otto', 'subject_kind' => 'supplier_stop', 'subject_key' => trim((string)$rc['vendor']) ?: 'unknown vendor',
-            'field' => 'job', 'said' => $said, 'correct' => $correct, 'source' => $source,
+            'field' => 'job', 'said' => $said, 'correct' => $correct, 'source' => $source, 'agreement' => $correct !== null,
             'ref_type' => 'expense', 'ref_id' => (int)$rc['id'], 'corrected_by' => $by, 'reason' => $reason,
         ]);
     }

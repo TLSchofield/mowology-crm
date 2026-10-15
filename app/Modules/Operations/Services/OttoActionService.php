@@ -94,6 +94,8 @@ class OttoActionService
                 if ($choice !== 'none') return ['ok' => false, 'message' => 'Nothing bought, or find the receipt?'];
                 require_once __DIR__ . '/SupplierStopService.php';
                 (new SupplierStopService($this->db))->markNone((int)$sug['subject_id'], $actorId ?: null);
+                $this->headLesson('supplier_stop', $this->stopVendor((int)$sug['subject_id']), 'bought', 'receipt', 'nothing',
+                                  'otto_supplier_receipt:none', 'supplier_stop', (int)$sug['subject_id'], $actorId, null);
                 return $this->close($sug, 'accepted', ['choice' => 'none'], $actorId, 'Noted — nothing bought at that stop.');
             }
             case 'training_gap':
@@ -177,6 +179,10 @@ class OttoActionService
             $msg = 'Kept. It stays on the schedule.';
         }
         $this->learnWeather((string)($sug['service_type'] ?? ''), $choice, $sug['rain_pct'] !== null ? (int)$sug['rain_pct'] : null);
+        // Every call, with what Otto leaned to: a reversal (he said move, Tim kept) is the lesson that matters.
+        $this->headLesson('weather_call', strtolower(trim((string)($sug['service_type'] ?? ''))) ?: 'visit', 'move_or_keep', $lean, $choice,
+                          $lean !== null && $lean !== $choice ? 'otto_weather:reversed' : 'otto_weather', 'visit', $visitId, $actorId,
+                          $sug['rain_pct'] !== null ? 'Rain ' . (int)$sug['rain_pct'] . '%' : null);
         return $this->close($sug, 'accepted', $outcome, $actorId, $msg);
     }
 
@@ -431,6 +437,29 @@ class OttoActionService
             WHERE id = ? AND status = 'open'
         ")->execute([$status, json_encode($outcome), $actorId ?: null, (int)$sug['id']]);
         return ['ok' => true, 'message' => $message, 'status' => $status];
+    }
+
+    /** One owner decision into head_lessons (the shared rule: twice running = a rule). Never fails the button. */
+    private function headLesson(string $kind, string $key, string $field, ?string $said, string $correct, string $source,
+                                string $refType, int $refId, int $actorId, ?string $reason): void
+    {
+        require_once APP_ROOT . '/Services/HeadLessons.php';
+        HeadLessons::recordQuietly($this->db, [
+            'head' => 'otto', 'subject_kind' => $kind, 'subject_key' => $key, 'field' => $field, 'said' => $said, 'correct' => $correct,
+            'source' => $source, 'ref_type' => $refType, 'ref_id' => $refId, 'corrected_by' => $actorId ?: null, 'reason' => $reason,
+            'agreement' => true,   // following Otto's lean counts towards a rule too
+        ]);
+    }
+
+    private function stopVendor(int $stopId): string
+    {
+        try {
+            $s = $this->db->prepare("SELECT place_name FROM supplier_stops WHERE id = ?");
+            $s->execute([$stopId]);
+            return trim((string)$s->fetchColumn()) ?: 'unknown vendor';
+        } catch (Throwable $e) {
+            return 'unknown vendor';
+        }
     }
 
     public function learnWeather(string $serviceType, string $choice, ?int $rain): void

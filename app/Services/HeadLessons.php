@@ -64,7 +64,8 @@ class HeadLessons
 
     /**
      * A clean row from a caller's lesson, or null when it is not a lesson.
-     * Required: head, subject_kind, subject_key, field, source; said ≠ correct.
+     * Required: head, subject_kind, subject_key, field, source; said ≠ correct — unless 'agreement' => true
+     * (a confirmation of the head's own guess, which has to count towards "twice running" too).
      */
     public static function row(array $l, int $siteId = 1): ?array
     {
@@ -74,7 +75,7 @@ class HeadLessons
         $field = trim((string)($l['field'] ?? ''));
         $source = trim((string)($l['source'] ?? ''));
         if ($head === '' || $kind === '' || $key === '' || $field === '' || $source === '') return null;
-        if (self::isNoChange($l['said'] ?? null, $l['correct'] ?? null)) return null;
+        if (empty($l['agreement']) && self::isNoChange($l['said'] ?? null, $l['correct'] ?? null)) return null;
         $by = isset($l['corrected_by']) && (int)$l['corrected_by'] > 0 ? (int)$l['corrected_by'] : null;
         $refId = isset($l['ref_id']) && (int)$l['ref_id'] > 0 ? (int)$l['ref_id'] : null;
         $reason = self::valueText($l['reason'] ?? null);

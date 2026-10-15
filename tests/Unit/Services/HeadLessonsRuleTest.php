@@ -53,6 +53,14 @@ class HeadLessonsRuleTest extends TestCase
         $this->assertNull(HeadLessons::repeatedText([$c, $a]));
     }
 
+    public function test_an_agreement_is_kept_only_when_asked(): void
+    {
+        $l = ['head' => 'otto', 'subject_kind' => 'weather_call', 'subject_key' => 'maintenance', 'field' => 'move_or_keep',
+              'said' => 'move', 'correct' => 'move', 'source' => 'otto_weather'];
+        $this->assertNull(HeadLessons::row($l), 'a no-change is not a correction');
+        $this->assertSame('move', HeadLessons::row($l + ['agreement' => true])['correct']);
+    }
+
     public function test_a_lesson_too_old_does_not_complete_the_streak(): void
     {
         $rows = [self::r('not_now', '2026-10-15 09:00:00'), self::r('not_now', '2024-01-01 09:00:00')];
