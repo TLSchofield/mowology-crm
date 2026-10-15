@@ -139,7 +139,27 @@
         q('.mw-plants-go').disabled = Object.keys(state.files).length < SHOTS.length;   // all three: whole, closer, close-up
     });
 
-    function upload(file) {
+    // Phone photos are 12–24 MP; Pl@ntNet needs far less. Shrink to 2048 px JPEG first (fast upload, fast server).
+    function shrink(file) {
+        var MAX = 2048;
+        if (!window.createImageBitmap || !document.createElement('canvas').toBlob) return Promise.resolve(file);
+        return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
+            var k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+            if (k === 1 && file.size < 2500000) return file;
+            var c = document.createElement('canvas');
+            c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+            c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+            return new Promise(function (res) {
+                c.toBlob(function (b) { res(b ? new File([b], 'plant.jpg', { type: 'image/jpeg' }) : file); }, 'image/jpeg', 0.88);
+            });
+        }).catch(function () { return file; });
+    }
+
+    function upload(original) {
+        return shrink(original).then(send);
+    }
+
+    function send(file) {
         var fd = new FormData();
         fd.append('files[]', file);
         fd.append('csrf_token', CSRF);
@@ -157,7 +177,9 @@
         go.disabled = true; go.textContent = 'Uploading…';
         var files = SHOTS.map(function (s) { return state.files[s[0]]; }).filter(Boolean);
         var ids = [];
-        files.reduce(function (p, f) { return p.then(function () { return upload(f).then(function (id) { ids.push(id); }); }); }, Promise.resolve())
+        files.reduce(function (p, f, i) {
+            return p.then(function () { go.textContent = 'Uploading photo ' + (i + 1) + ' of ' + files.length + '…'; return upload(f).then(function (id) { ids.push(id); }); });
+        }, Promise.resolve())
             .then(function () {
                 go.textContent = 'Asking Pl@ntNet…';
                 var heading = state.wholeHeading != null ? state.wholeHeading : state.heading;

@@ -180,7 +180,8 @@ foreach ($files as $file) {
     if (!$isDuplicate) {
         $originalAbsPath = PUBLIC_ROOT . $uploadResult['file_path'];
         $thumbOnlyContexts = ['job_visit', 'quote_visit', 'field_observation'];
-        if (in_array($contextType, $thumbOnlyContexts)) {
+        // Plant ID photos are for Pl@ntNet and a list thumbnail only (2026-10-15).
+        if (in_array($contextType, $thumbOnlyContexts) || $category === 'plant') {
             $variantResult = generateMediaThumbOnly($mediaId, $originalAbsPath);
         } else {
             $variantResult = generateMediaVariants($mediaId, $originalAbsPath);
