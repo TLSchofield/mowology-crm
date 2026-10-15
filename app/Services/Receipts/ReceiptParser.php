@@ -935,11 +935,27 @@ function isTaxOrSummaryLabel(string $s): bool
     );
 }
 
-/** Items without tax / total lines (whatever pass produced them). Pure. */
+/**
+ * A receipt's column headings read as an item: "QTY PRICE AMOUNT", "DESCRIPTION QTY AMT",
+ * "ITEM EACH TOTAL". Only heading words, nothing else. Chevron #114 (2026-10-15). Pure.
+ */
+function isColumnHeading(string $s): bool
+{
+    // Three or more heading words and nothing else, one of them a quantity / amount column — so a real
+    // two-word item like "UNIT PRICE" or "ITEM TOTAL" is never dropped (Codex review 2026-10-15).
+    $words = preg_split('/[\s\/|:.]+/', strtoupper(trim($s)), -1, PREG_SPLIT_NO_EMPTY);
+    if (count($words) < 3) return false;
+    $heading = ['QTY', 'QUANTITY', 'PRICE', 'AMOUNT', 'AMT', 'DESCRIPTION', 'DESC', 'ITEM', 'ITEMS', 'EACH', 'EA', 'UNIT', 'EXT', 'EXTENDED', 'TOTAL', 'SKU', 'PRODUCT', '$'];
+    foreach ($words as $w) if (!in_array($w, $heading, true)) return false;
+    return (bool)array_intersect($words, ['QTY', 'QUANTITY', 'AMOUNT', 'AMT']);
+}
+
+/** Items without tax / total lines or column headings (whatever pass produced them). Pure. */
 function dropTaxLineItems(array $items): array
 {
     return array_values(array_filter($items, fn($it) => !isTaxOrSummaryLabel((string)($it['name'] ?? ''))
-        && !isTaxOrSummaryLabel((string)($it['ocr_name'] ?? ''))));
+        && !isTaxOrSummaryLabel((string)($it['ocr_name'] ?? ''))
+        && !isColumnHeading((string)(($it['name'] ?? '') !== '' ? $it['name'] : ($it['ocr_name'] ?? '')))));
 }
 
 /**

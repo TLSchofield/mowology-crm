@@ -131,4 +131,17 @@ TXT;
 
         $this->assertSame(['Diet Coke 500ml'], array_column(ExpenseLookupService::rankUsualItems($rows, '2026-10-13', 'coke'), 'name'));
     }
+
+    public function testColumnHeadingsAreNotItems(): void
+    {
+        $this->assertTrue(isColumnHeading('QTY PRICE AMOUNT'));
+        $this->assertTrue(isColumnHeading('Description Qty Amt'));
+        $this->assertFalse(isColumnHeading('UNIT PRICE'), 'two words could be a real item');
+        $this->assertFalse(isColumnHeading('PRODUCT DESCRIPTION ITEM'), 'no quantity / amount column');
+        $this->assertFalse(isColumnHeading('SUPREME (91) 9.483L AT $2.109/L'));
+        $this->assertFalse(isColumnHeading('Price tag'), 'a real item that happens to start with a heading word');
+        $this->assertFalse(isColumnHeading('TOTAL'), 'one word is left to the tax/total filter');
+        $kept = dropTaxLineItems([['name' => 'QTY PRICE AMOUNT', 'line_total' => 12.49], ['name' => 'HOT BE', 'line_total' => 2.49]]);
+        $this->assertSame(['HOT BE'], array_column($kept, 'name'));
+    }
 }

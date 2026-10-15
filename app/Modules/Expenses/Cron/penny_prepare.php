@@ -147,6 +147,14 @@ try {
     }
 
     if (function_exists('set_time_limit')) @set_time_limit(300);
+    // A vendor's layout was just learned: rescan a few of its waiting receipts first (ReaderRelearnService).
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReaderRelearnService.php';
+        $rl = (new ReaderRelearnService($db))->run();
+        if ($rl['rescanned'] || $rl['failed']) $pennyLog("Reader relearn: rescanned {$rl['rescanned']}, failed {$rl['failed']}, vendors finished {$rl['vendors_done']}.");
+    } catch (Throwable $e) {
+        $pennyLog('Reader relearn skipped: ' . $e->getMessage());
+    }
     $res = $desk->prepare($max, $hold);
     if (!empty($res['capped'])) {
         $finish('success', 'Daily cap reached — nothing prepared until tomorrow.');

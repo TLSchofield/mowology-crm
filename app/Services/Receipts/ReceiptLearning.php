@@ -1649,6 +1649,13 @@ function teachReaderFromPenny(PDO $db, int $expenseId): array
         PennyLessons::expense($db, $expenseId, 'reader_line_items', lineItemsSummary($reader) ?: '(none)', lineItemsSummary($kept),
                               'reader_corrected_by_penny', !empty($e['approved_by']) ? (int)$e['approved_by'] : null,
                               'Reader corrected by Penny, accepted by owner; ' . $n . ' line(s) of the layout learned');
+        // The layout helps the vendor's waiting receipts too, not only the next one (Tim, 2026-10-15).
+        if ($n > 0) {
+            try {
+                require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 2)) . '/Modules/Expenses/Services/ReaderRelearnService.php';
+                (new ReaderRelearnService($db))->queue($vendorId);
+            } catch (Throwable $q) { error_log('Reader relearn queue: ' . $q->getMessage()); }
+        }
         return ['taught' => true, 'layout_lines' => $n];
     } catch (Throwable $ex) {
         error_log('teachReaderFromPenny #' . $expenseId . ': ' . $ex->getMessage());

@@ -36,8 +36,14 @@ class ExpenseRescanService
      * @return array{success: bool, ocr_available: bool, ocr_source: string, ocr_text: string, parsed: array,
      *               suggestions: array, pre_screen: array, line_items_stored: bool, baseline_set: bool}
      */
-    public function rescan(int $expenseId, array $actor, string $source): array
+    public function rescan(int $expenseId, array $actor, string $source, array $opts = []): array
     {
+        // waiting_only (the reader relearn, 2026-10-15): every write only while the receipt is still draft /
+        // pending approval at that moment — no allow_locked — and stored amounts are never repaired.
+        $waitingOnly = !empty($opts['waiting_only']);
+        $guard = $waitingOnly
+            ? ['only_if' => fn(array $e) => in_array((string)($e['status'] ?? ''), ExpenseGate::OPEN, true)]
+            : ['allow_locked' => true];
         if ($expenseId <= 0) throw new InvalidArgumentException('Expense ID required');
         $stmt = $this->db->prepare("
             SELECT e.id, e.receipt_media_id, e.vendor_id, e.job_id, ma.file_path, ma.stored_filename
@@ -113,7 +119,7 @@ class ExpenseRescanService
         $baselineSet = false;
         if ($ocrAvailable && $ocrText !== '') {
             $rawJson = $ocr['raw_response'] ? json_encode($ocr['raw_response']) : $ocrText;
-            $this->gate->apply($expenseId, ['raw_ocr_json' => $rawJson], $actor, $source, ['allow_locked' => true]);
+            $this->gate->apply($expenseId, ['raw_ocr_json' => $rawJson], $actor, $source, $guard);
             // This read becomes the first-read baseline when there is none (fills NULL only).
             if ($parsed) {
                 $before = $this->db->prepare("SELECT ocr_parsed_json IS NULL FROM expenses WHERE id = ?");
@@ -135,7 +141,7 @@ class ExpenseRescanService
         catch (Throwable $e) { $state = ['splits' => 0]; }   // before the split table existed
         $frozen = ($state['status'] ?? '') === 'forwarded' || (int)($state['fwd'] ?? 0) === 1 || (int)($state['splits'] ?? 0) > 0;
         if (!empty($fresh) && !$frozen) {
-            $this->gate->apply($expenseId, ['line_items' => $fresh], $actor, $source, ['keep_linked' => true, 'allow_locked' => true]);
+            $this->gate->apply($expenseId, ['line_items' => $fresh], $actor, $source, ['keep_linked' => true] + $guard);
             $li = $this->db->prepare("
                 SELECT eli.*, p.name AS product_name, p.sku AS product_sku
                 FROM expense_line_items eli
@@ -152,7 +158,7 @@ class ExpenseRescanService
         // open receipt are replaced by this read when it agrees on the total. Before, a rescan only
         // filled EMPTY form fields, so a bad first read (Chevron #355: GST 5.00, subtotal −2.39)
         // survived every rescan.
-        $amountsRepaired = $frozen ? null : $this->repairAmounts($expenseId, $parsed, $actor, $source);
+        $amountsRepaired = ($frozen || $waitingOnly) ? null : $this->repairAmounts($expenseId, $parsed, $actor, $source);
 
         // Penny's read, when she has one open, is read again against the rescanned receipt.
         $pennyRefreshed = $this->refreshPenny($expenseId);
