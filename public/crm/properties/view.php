@@ -572,7 +572,7 @@ if ($apiKey) {
                 <div class="card-header d-flex align-items-center justify-content-between">
                     <div>
                         <h5 class="card-title mb-0">Plants</h5>
-                        <small class="text-muted">What grows here, and in which bed.</small>
+                        <small class="text-muted">What grows here, and in which bed. <a href="/crm/plants/library.php">Plant library</a></small>
                     </div>
                     <button type="button" class="btn btn-sm btn-primary mw-plants-open">What is this?</button>
                 </div>

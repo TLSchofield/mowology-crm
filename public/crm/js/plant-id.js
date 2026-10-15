@@ -30,7 +30,7 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d.ok) { q('.mw-plants-list').innerHTML = '<p class="text-muted small mb-0">' + esc(d.error || 'Plant ID is not set up yet.') + '</p>'; return; }
-                state.beds = d.beds || []; state.canEdit = !!d.can_edit;
+                state.beds = d.beds || []; state.canEdit = !!d.can_edit; state.canLibrary = !!d.can_library;
                 q('.mw-plants-attr').textContent = d.attribution || '';
                 renderList(d.plants || []);
             })
@@ -46,6 +46,23 @@
         return (p.bed.sure ? '' : 'probably ') + esc(p.bed.name);
     }
 
+    // The plant's care from the library: approved jobs + months; else where its card stands.
+    function careOf(p) {
+        var c = p.care;
+        if (!c || !p.scientific_name) return '';
+        if (c.status === 'approved') {
+            return '<div class="small mt-1">' + (c.match === 'genus' ? '<span class="text-muted">General care for the genus · </span>' : '')
+                + (c.tasks || []).map(function (t) { return '<span class="mr-2 text-nowrap" title="' + esc(t.how) + '"><b>' + esc(t.task) + '</b> ' + esc(t.when) + '</span>'; }).join('')
+                + (c.toxic_pets ? ' <span class="badge badge-danger" title="' + esc(c.toxic_note) + '">toxic to pets</span>' : '') + '</div>';
+        }
+        if (c.status === 'none') {
+            return state.canLibrary && p.status === 'confirmed'
+                ? '<div class="small mt-1"><button type="button" class="btn btn-sm btn-link p-0" data-care="' + p.id + '">Get its care from the web</button> <span class="text-muted">(not in the library yet, about a minute)</span></div>' : '';
+        }
+        var what = c.status === 'draft' ? 'Care card waiting for approval' : (c.status === 'queued' || c.status === 'writing' ? 'Care card being written' : 'Care card failed');
+        return '<div class="small mt-1"><a href="/crm/plants/library.php">' + what + '</a></div>';
+    }
+
     function renderList(plants) {
         var box = q('.mw-plants-list');
         if (!plants.length) { box.innerHTML = '<p class="text-muted small mb-0">No plants recorded here yet. Tap <b>What is this?</b> and take three photos of one plant.</p>'; return; }
@@ -55,15 +72,23 @@
             var acts = state.canEdit ? (p.status !== 'confirmed' ? '<button type="button" class="btn btn-sm btn-outline-primary mr-1" data-check="' + p.id + '">Check</button>' : '')
                 + (!p.bed ? '<a class="btn btn-sm btn-outline-secondary mr-1" href="/crm/products/area-measurement.php?property_id=' + PID + '&plant=' + p.id + '">Draw its bed</a>' : '')
                 + '<button type="button" class="btn btn-sm btn-link text-muted" data-remove="' + p.id + '">Remove</button>' : '';
-            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div></td>'
+            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + '</td>'
                 + '<td class="text-right text-nowrap">' + acts + '</td></tr>';
         }).join('') + '</tbody></table>';
         state.plants = plants;
     }
 
     root.addEventListener('click', function (e) {
-        var t = e.target.closest('[data-check],[data-remove]');
+        var t = e.target.closest('[data-check],[data-remove],[data-care]');
         if (!t) return;
+        if (t.hasAttribute('data-care')) {
+            var pl = (state.plants || []).filter(function (x) { return +x.id === +t.getAttribute('data-care'); })[0];
+            if (!pl) return;
+            t.disabled = true; t.textContent = 'Reading gardening sources…';
+            post({ mode: 'care_now', scientific_name: pl.scientific_name, common_name: pl.common_name || '' })
+                .then(function (r) { toast(r.message || 'Done', r.ok ? 'success' : 'error'); load(); });
+            return;
+        }
         if (t.hasAttribute('data-remove')) {
             if (!window.confirm('Remove this plant from the property?')) return;
             post({ mode: 'remove', id: +t.getAttribute('data-remove') }).then(function (r) { toast(r.message || 'Done', r.ok ? 'success' : 'error'); load(); });
