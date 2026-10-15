@@ -241,20 +241,28 @@ class MiaWording
     {
         if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
         $key = 'mia_template_candidates_' . $kind;
-        $list = [];
+        $own = !$db->inTransaction();
+        if ($own) $db->beginTransaction();
         try {
-            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            // Locked read-modify-write: two sends at once must not drop each other's candidate (Codex review).
+            $db->prepare("INSERT IGNORE INTO ops_settings (setting_key, setting_value, description)
+                          VALUES (?, '[]', 'Mia: Tim''s recent edited wording for this kind — the one he writes alike twice becomes the template')")
+               ->execute([$key]);
+            $lockSql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?" . $lockSql);
             $s->execute([$key]);
             $list = json_decode((string)$s->fetchColumn(), true) ?: [];
-        } catch (Throwable $e) { /* none yet */ }
-        array_unshift($list, ['subject' => $subject, 'body' => $body, 'at' => date('Y-m-d')]);
-        $list = array_slice($list, 0, 6);
-        $db->prepare("
-            INSERT INTO ops_settings (setting_key, setting_value, description)
-            VALUES (?, ?, 'Mia: Tim''s recent edited wording for this kind — the one he writes alike twice becomes the template')
-            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
-        ")->execute([$key, json_encode($list)]);
-        return HeadLessons::repeatedText(array_column($list, 'body')) === $body;
+            array_unshift($list, ['subject' => $subject, 'body' => $body, 'at' => date('Y-m-d')]);
+            $list = array_slice($list, 0, 6);
+            $db->prepare("UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?")->execute([json_encode($list), $key]);
+            if ($own) $db->commit();
+        } catch (Throwable $e) {
+            if ($own && $db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+        // Subject and body together: a matching body with an unrelated subject is not the same wording (Codex review).
+        $texts = array_map(fn($c) => (string)($c['subject'] ?? '') . "\n" . (string)($c['body'] ?? ''), $list);
+        return HeadLessons::repeatedText($texts) === $texts[0];
     }
 
     public static function saveTemplate(PDO $db, string $kind, ?string $subject, string $body): void

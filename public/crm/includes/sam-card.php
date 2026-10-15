@@ -106,6 +106,24 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
       </div>
     </div>
 
+    <?php include __DIR__ . '/sam-mulch-fact.php'; /* mulch price per yard (MulchPricingService) — renders nothing on failure */ ?>
+    <?php
+    // What works (2026-10-15): per kind of follow-up in the last year — replies within 14 days, wins within 30.
+    $__works = [];
+    try {
+        require_once APP_ROOT . '/Modules/Sales/Services/SamFollowupService.php';
+        $__works = array_values(array_filter((new SamFollowupService(getDB()))->templateScores(), fn($w) => $w['sent'] >= 2));
+    } catch (Throwable $e) { $__works = []; }
+    $__wlabel = ['first_nudge' => 'First nudge', 'second_nudge' => 'Second nudge', 'viewed' => 'After they looked', 'last_call' => 'Last call',
+                 'multi' => 'Several quotes', 'reply' => 'Replies'];
+    ?>
+    <?php if ($__works): ?>
+      <p class="mw-n mw-sam-works">What works:
+        <?= implode(' · ', array_map(fn($w) => h($__wlabel[$w['template']] ?? $w['template']) . ' ' . (int)$w['replied'] . '/' . (int)$w['sent'] . ' replied, '
+                                       . (int)$w['won'] . ' won', array_slice($__works, 0, 5))) ?>
+      </p>
+    <?php endif; ?>
+
     <div class="mw-pq" id="mw-sq" hidden></div>
 
     <div class="mw-rc mw-sam-rc" id="mw-sam-rc" aria-live="polite" data-name="<?= h($__sname) ?>">

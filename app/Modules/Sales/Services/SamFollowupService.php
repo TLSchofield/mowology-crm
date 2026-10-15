@@ -285,13 +285,68 @@ class SamFollowupService
                            : "Sent{$hi}. Write it like this once more and I'll use your wording from then on.")];
     }
 
+    /**
+     * What works (2026-10-15): per kind of follow-up over the last year — how many went, how many got a reply from
+     * the customer within 14 days, how many of their quotes were won within 30. @return list<array{template:string, sent:int, replied:int, won:int}>
+     */
+    public function templateScores(): array
+    {
+        // Worked out once a day (Codex review: the query is too heavy for every dashboard load).
+        try {
+            $c = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'sam_template_scores'");
+            $c->execute();
+            $v = json_decode((string)$c->fetchColumn(), true);
+            if (is_array($v) && ($v['day'] ?? '') === date('Y-m-d') && is_array($v['scores'] ?? null)) return $v['scores'];
+        } catch (Throwable $e) { /* compute */ }
+        $scores = $this->computeTemplateScores();
+        try {
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES ('sam_template_scores', ?, 'Sam: replies and wins per follow-up kind, worked out daily')
+                                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([json_encode(['day' => date('Y-m-d'), 'scores' => $scores])]);
+        } catch (Throwable $e) { /* cache is a bonus */ }
+        return $scores;
+    }
+
+    private function computeTemplateScores(): array
+    {
+        try {
+            $rows = $this->db->query("
+                SELECT f.template_key AS template, COUNT(*) AS sent,
+                       SUM(EXISTS (SELECT 1 FROM sales_messages m WHERE m.contact_id = f.contact_id AND m.direction = 'inbound'
+                                   AND m.sent_at > f.decided_at AND m.sent_at <= DATE_ADD(f.decided_at, INTERVAL 14 DAY))) AS replied,
+                       SUM(EXISTS (SELECT 1 FROM quotes q WHERE FIND_IN_SET(q.id, f.quote_ids) AND q.status = 'accepted'
+                                   AND q.accepted_at > f.decided_at AND q.accepted_at <= DATE_ADD(f.decided_at, INTERVAL 30 DAY))) AS won
+                FROM sam_followups f
+                WHERE f.status IN ('sent', 'edited') AND f.contact_id IS NOT NULL AND f.decided_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+                  AND f.template_key IS NOT NULL
+                GROUP BY f.template_key ORDER BY sent DESC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        return array_map(fn($r) => ['template' => (string)$r['template'], 'sent' => (int)$r['sent'], 'replied' => (int)$r['replied'], 'won' => (int)$r['won']], $rows);
+    }
+
     /** Skip ("not now") or snooze — the card comes back after SNOOZE_DAYS. */
     public function park(array $card, string $how, array $user, int $days = self::SNOOZE_DAYS): array
     {
         $status = $how === 'skip' ? 'skipped' : 'snoozed';
+        // "Not now" twice in a row for the same customer → leave them two weeks (head_lessons, the shared rule).
+        $twice = false;
+        if ($how === 'skip' && !empty($card['contact_id'])) {
+            try {
+                if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+                HeadLessons::recordQuietly($this->db, ['head' => 'sam', 'subject_kind' => 'client', 'subject_key' => 'c' . (int)$card['contact_id'],
+                    'field' => 'chase', 'said' => 'nudge', 'correct' => 'not_now', 'source' => 'sam_not_now',
+                    'ref_type' => 'contact', 'ref_id' => (int)$card['contact_id'], 'corrected_by' => (int)($user['id'] ?? 0) ?: null]);
+                $twice = ((new HeadLessons($this->db))->rule('sam', 'client', 'c' . (int)$card['contact_id'], 'chase', 2, 60)['value'] ?? null) === 'not_now';
+                if ($twice) $days = max($days, 14);
+            } catch (Throwable $e) { /* never blocks the button */ }
+        }
         $this->record($card, ['template' => $card['template'] ?? null], 'email', $status, $user, null, null, null, null,
             date('Y-m-d', strtotime('+' . max(1, min(60, $days)) . ' days')));
-        return ['ok' => true, 'message' => $status === 'skipped' ? "OK — I'll leave {$card['name']} for a week." : "Snoozed — back in {$days} days."];
+        return ['ok' => true, 'message' => $status === 'skipped'
+            ? ($twice ? "That's twice — I'll leave {$card['name']} for two weeks." : "OK — I'll leave {$card['name']} for a week.")
+            : "Snoozed — back in {$days} days."];
     }
 
     private function record(array $card, array $in, string $channel, string $status, array $user, ?string $subject, ?string $body,

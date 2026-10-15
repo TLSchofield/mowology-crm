@@ -49,7 +49,13 @@ class HeadLessonsRuleTest extends TestCase
         $c = "Hey {first_name}! Winter is coming — want us on the list for snow?";
         $this->assertNull(HeadLessons::repeatedText([$a]), 'one edit is a hint');
         $this->assertSame($b, HeadLessons::repeatedText([$b, $a]), 'the second alike becomes the wording');
-        $this->assertSame($b, HeadLessons::repeatedText([$c, $b, $a]), 'a newer different edit waits for its twin');
+        $this->assertNull(HeadLessons::repeatedText([$c, $b, $a]), 'a newer different edit resets to a hint');
         $this->assertNull(HeadLessons::repeatedText([$c, $a]));
+    }
+
+    public function test_a_lesson_too_old_does_not_complete_the_streak(): void
+    {
+        $rows = [self::r('not_now', '2026-10-15 09:00:00'), self::r('not_now', '2024-01-01 09:00:00')];
+        $this->assertNull(HeadLessons::decide($rows, 2, 60, '2026-10-15 10:00:00'));
     }
 }

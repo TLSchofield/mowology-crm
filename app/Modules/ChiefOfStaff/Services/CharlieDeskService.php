@@ -193,6 +193,9 @@ class CharlieDeskService
         $s->execute($c['ok']);
         $gone = array_values(array_filter($s->fetchAll(PDO::FETCH_ASSOC), fn($r) => !isset($current[$r['item_key']])));
         if (!$gone) return;
+        // No brief for today yet (just after midnight): wait — closing now would lose what an opened item teaches,
+        // because the win is compared against today's brief (Codex review 2026-10-15).
+        if (!$this->briefKeys()) return;
 
         $truncated = [];
         foreach ($c['heads'] as $head => $h) {

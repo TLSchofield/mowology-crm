@@ -102,6 +102,14 @@ class SamQuestionService
             $this->db->rollBack();
             throw $e;
         }
+        try {   // a lesson (head_lessons): what became of a quote Sam asked about
+            if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+            $n = $this->db->prepare("SELECT quote_number FROM quotes WHERE id = ?");
+            $n->execute([$quoteId]);
+            HeadLessons::recordQuietly($this->db, ['head' => 'sam', 'subject_kind' => 'quote', 'subject_key' => (string)$n->fetchColumn(),
+                'field' => 'outcome', 'said' => 'waiting', 'correct' => $answer, 'source' => 'sam_question',
+                'ref_type' => 'quote', 'ref_id' => $quoteId, 'corrected_by' => $userId]);
+        } catch (Throwable $e) { /* never blocks the answer */ }
         if (function_exists('logActivityExtended')) {
             $what = ['lost' => 'marked lost (expired) from Sam\'s question', 'keep' => 'kept open another ' . self::KEEP_DAYS . ' days from Sam\'s question',
                      'won' => 'Tim said it was won another way (Sam\'s question)'][$answer];

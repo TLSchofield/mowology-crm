@@ -330,6 +330,25 @@ class SalesDeskService
     /** Learned wait per service: median days sent → accepted, from accepted quotes. */
     public function learnedWaits(): array
     {
+        // Worked out once a day, not on every desk load (Codex review 2026-10-15).
+        static $memo = null;
+        if ($memo !== null) return $memo;
+        try {
+            $c = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'sam_learned_waits'");
+            $c->execute();
+            $v = json_decode((string)$c->fetchColumn(), true);
+            if (is_array($v) && ($v['day'] ?? '') === date('Y-m-d') && is_array($v['waits'] ?? null)) return $memo = $v['waits'];
+        } catch (Throwable $e) { /* compute */ }
+        $memo = $this->computeWaits();
+        try {
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES ('sam_learned_waits', ?, 'Sam: median days sent → accepted per service, worked out daily')
+                                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([json_encode(['day' => date('Y-m-d'), 'waits' => $memo])]);
+        } catch (Throwable $e) { /* cache is a bonus */ }
+        return $memo;
+    }
+
+    private function computeWaits(): array
+    {
         try {
             $rows = $this->db->query("
                 SELECT LOWER(TRIM(COALESCE(NULLIF(q.service_type, ''), 'other'))) AS service, DATEDIFF(q.accepted_at, q.sent_at) AS days

@@ -131,8 +131,10 @@ class HeadLessons
         if ($maxAgeDays > 0 && strtotime((string)$newest['created_at']) < $nowTs - $maxAgeDays * 86400) return null;
         $streak = 0;
         $since = (string)$newest['created_at'];
+        $cutoff = $maxAgeDays > 0 ? $nowTs - $maxAgeDays * 86400 : null;
         foreach ($rows as $r) {
             if (!self::isNoChange($r['correct'] ?? null, $value)) break;
+            if ($cutoff !== null && strtotime((string)$r['created_at']) < $cutoff) break;   // too old to count (Codex review)
             $streak++;
             $since = (string)$r['created_at'];
         }
@@ -144,19 +146,18 @@ class HeadLessons
     /**
      * Wording learned only when repeated (2026-10-15): the newest text that the owner has written alike before —
      * at least $minSimilar alike (0–1) after case and spacing are evened out. $texts newest first. Pure.
-     * One edit stays a hint; the second like it becomes the wording; a newer different one waits for its twin.
+     * One edit stays a hint; the second like it becomes the wording; a newer different one resets to a hint.
      */
     public static function repeatedText(array $texts, float $minSimilar = 0.8): ?string
     {
         $norm = static fn($t) => trim((string)preg_replace('/\s+/', ' ', mb_strtolower((string)$t)));
         $texts = array_values(array_filter($texts, fn($t) => trim((string)$t) !== ''));
-        $n = count($texts);
-        for ($i = 0; $i < $n - 1; $i++) {
-            $a = $norm($texts[$i]);
-            for ($j = $i + 1; $j < $n; $j++) {
-                similar_text($a, $norm($texts[$j]), $pct);
-                if ($pct / 100 >= $minSimilar) return (string)$texts[$i];
-            }
+        // Only the newest can be the rule — a newer different wording resets to a hint, like decide() (Codex review).
+        if (count($texts) < 2) return null;
+        $a = $norm($texts[0]);
+        for ($j = 1; $j < count($texts); $j++) {
+            similar_text($a, $norm($texts[$j]), $pct);
+            if ($pct / 100 >= $minSimilar) return (string)$texts[0];
         }
         return null;
     }

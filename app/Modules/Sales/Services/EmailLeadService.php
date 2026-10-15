@@ -342,6 +342,9 @@ class EmailLeadService
     {
         $ageDays = (time() - (strtotime($m['received_at']) ?: time())) / 86400;
         if ($ageDays > self::MAX_AGE_DAYS || $score['strength'] === null) return 'stale';
+        // Tim said "not a lead" to this sender twice in a row (or to this organisation three times): don't ask again —
+        // for weak maybes only; a strong enquiry always comes through (Codex review: never drop a real customer).
+        if ($score['strength'] !== 'strong' && $this->learnedNotLead((string)$m['from_addr'])) return 'stale';
         $s = $this->db->prepare("
             INSERT IGNORE INTO email_lead_candidates
                 (message_key, mailbox, from_name, from_addr, subject, snippet, address, services, strength, score, status, received_at)
@@ -387,15 +390,59 @@ class EmailLeadService
     /** Tim: "Make it a lead". Returns the quote_requests id, or null if already decided. */
     public function accept(int $id, int $userId): ?int
     {
-        return $this->makeLead($id, $userId);
+        $from = $this->candidateFrom($id);
+        $lead = $this->makeLead($id, $userId);
+        if ($lead !== null && $from !== '') $this->lesson($from, 'yes', $userId, $id);
+        return $lead;
     }
 
     /** Tim: "Not a lead". */
     public function dismiss(int $id, int $userId): bool
     {
+        $from = $this->candidateFrom($id);
         $s = $this->db->prepare("UPDATE email_lead_candidates SET status = 'dismissed', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'maybe'");
         $s->execute([$userId, date('Y-m-d H:i:s'), $id]);
+        if ($s->rowCount() > 0 && $from !== '') $this->lesson($from, 'no', $userId, $id);
         return $s->rowCount() > 0;
+    }
+
+    private function candidateFrom(int $id): string
+    {
+        $s = $this->db->prepare("SELECT from_addr FROM email_lead_candidates WHERE id = ?");
+        $s->execute([$id]);
+        $from = strtolower(trim((string)$s->fetchColumn()));
+        return preg_match('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $from, $m) ? strtolower($m[0]) : $from;   // the address, not "Name <…>"
+    }
+
+    /** Tim's answer, per sender and per organisation (head_lessons — the shared rule reads it). */
+    private function lesson(string $from, string $answer, int $userId, int $id): void
+    {
+        try { $this->lessonUnsafe($from, $answer, $userId, $id); }
+        catch (Throwable $e) { error_log('Lead lesson: ' . $e->getMessage()); }   // never fails Tim's button (Codex review)
+    }
+
+    private function lessonUnsafe(string $from, string $answer, int $userId, int $id): void
+    {
+        if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+        if (!class_exists('SamAcceptanceService')) require_once __DIR__ . '/SamAcceptanceService.php';
+        $base = ['head' => 'sam', 'field' => 'is_lead', 'said' => 'maybe', 'correct' => $answer, 'source' => 'maybe_lead',
+                 'ref_type' => 'email_lead', 'ref_id' => $id, 'corrected_by' => $userId];
+        HeadLessons::recordQuietly($this->db, $base + ['subject_kind' => 'sender', 'subject_key' => $from]);
+        $org = SamAcceptanceService::orgOf($from);
+        if ($org !== null) HeadLessons::recordQuietly($this->db, $base + ['subject_kind' => 'sender_org', 'subject_key' => $org]);
+    }
+
+    /** "Not a lead" twice in a row for this sender, or three times for its organisation. */
+    public function learnedNotLead(string $from): bool
+    {
+        if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+        if (!class_exists('SamAcceptanceService')) require_once __DIR__ . '/SamAcceptanceService.php';
+        $from = strtolower(trim($from));
+        if (preg_match('/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i', $from, $m)) $from = strtolower($m[0]);
+        $hl = new HeadLessons($this->db);
+        if (($hl->rule('sam', 'sender', $from, 'is_lead', 2)['value'] ?? null) === 'no') return true;
+        $org = SamAcceptanceService::orgOf($from);
+        return $org !== null && ($hl->rule('sam', 'sender_org', $org, 'is_lead', 3)['value'] ?? null) === 'no';
     }
 
     /**
