@@ -13,6 +13,7 @@
  *                straight to the bank, receipts with no bank line, manual entries, Stripe, client credits.
  *   3. missing — the statement's movement vs the lines we hold: lines never imported (or imported twice).
  * The statement is bank_statement_sections (opening, closing, line count per account per month).
+ * Stripe fee lines are ours, not the bank's (split out of a payout): expected to move the account by nothing.
  *
  * Uses: BankBalanceCheckService's sign rules (book sign: bank Dr − Cr, card Cr − Dr) and
  * LedgerSyncService::transferDirection for transfers. Tenant-neutral; no namespace (require_once + new).
@@ -115,7 +116,10 @@ class StatementBooksCheckService
         $listed = [];
         $expectedSum = 0.0;
         foreach ($lines as $l) {
-            $expected = round(self::lineSign($l, $facts[(int)$l['id']] ?? [], $acct['kind']) * (float)$l['amount'], 2);
+            // A Stripe fee line is split out of a payout by us — the statement shows only the net payout — so it
+            // should move this account by nothing (it belongs on 1015 Stripe clearing). 2026-10-15.
+            $feeLine = LedgerSyncService::isStripeFeeLine((string)$l['description']);
+            $expected = $feeLine ? 0.0 : round(self::lineSign($l, $facts[(int)$l['id']] ?? [], $acct['kind']) * (float)$l['amount'], 2);
             $expectedSum += $expected;
             $actual = 0.0;
             $how = [];
@@ -138,7 +142,8 @@ class StatementBooksCheckService
                     'type' => (string)$l['type'], 'expected' => $expected, 'actual' => round($actual, 2), 'diff' => $diff,
                     'posted_as' => $how ? implode(', ', $how) : 'nothing posted this month',
                     'receipt' => !empty($l['matched_expense_id']) ? (int)$l['matched_expense_id'] : null,
-                    'why' => self::why($expected, $actual, $how, $l, $acct['kind']),
+                    'why' => $feeLine ? 'a Stripe fee booked to this account — it is not a statement line (Stripe takes it before the payout)'
+                                      : self::why($expected, $actual, $how, $l, $acct['kind']),
                 ];
             }
         }

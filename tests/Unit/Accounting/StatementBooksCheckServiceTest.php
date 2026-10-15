@@ -70,4 +70,26 @@ class StatementBooksCheckServiceTest extends TestCase
         $this->assertStringContainsString('reversed', $r['lines'][0]['why']);
         $this->assertSame([], $r['others'], 'the reversal is not a separate item');
     }
+
+    public function test_a_stripe_fee_line_is_ours_not_the_banks(): void
+    {
+        $db = $this->db();
+        // Statement: one net Stripe payout of $97. We hold the payout line and a $3 fee line split out of it.
+        $db->exec("INSERT INTO bank_statement_sections VALUES (1, 2, '2026-07-01', '2026-07-31', 0, 97, 1)");
+        $db->exec("INSERT INTO accounting_transactions VALUES
+            (1, '2026-07-02', 'transfer', 97, 'PREAUTHORIZED CREDIT (STRIPE)', 9, 2, NULL, NULL, 'bank_import', 'cleared'),
+            (2, '2026-07-02', 'expense', 3, 'Stripe fees — payout po_1 (1 invoice)', 10, 2, NULL, NULL, 'bank_import', 'cleared')");
+        $db->exec("INSERT INTO bank_import_rows VALUES (1, 1, 'income'), (2, 2, 'expense')");
+        $this->entry($db, 30, '2026-07-02', 'bank_import', 1, 97, 0);
+        $r = (new StatementBooksCheckService($db))->check(2, '2026-07-01', '2026-07-31');
+        $this->assertEquals(0.0, $r['gap'], 'the fee booked to Stripe clearing: chequing matches');
+        $this->assertSame([], $r['lines']);
+        $this->assertEquals(0.0, $r['missing'], 'the fee line is not counted as a statement line');
+
+        $this->entry($db, 31, '2026-07-02', 'bank_import', 2, 0, 3);   // the old way: the fee taken out of chequing too
+        $r = (new StatementBooksCheckService($db))->check(2, '2026-07-01', '2026-07-31');
+        $this->assertEquals(-3.0, $r['gap']);
+        $this->assertTrue($r['adds_up']);
+        $this->assertStringContainsString('Stripe fee', $r['lines'][0]['why']);
+    }
 }

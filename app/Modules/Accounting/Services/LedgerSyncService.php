@@ -601,7 +601,21 @@ class LedgerSyncService
                 $this->noteFailure('expense', (int)$row['id'], $e, $skipped, $errors, $failures);
             }
         }
-        return ['expenses_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors, 'failures' => $failures];
+        // A receipt linked to its bank line after both had posted: retire the line's own posting (no double count).
+        $retired = 0;
+        $linked = $this->db->query("
+            SELECT DISTINCT at.matched_expense_id FROM accounting_transactions at
+            JOIN journal_entries je ON je.source_type = 'bank_import' AND je.source_id = at.id
+                 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+            WHERE at.reference_type = 'bank_import' AND at.matched_expense_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($linked as $expenseId) {
+            try {
+                $retired += $this->ledger->retireLinkedBankEntries((int)$expenseId);
+            } catch (\Throwable $e) {
+                $this->noteFailure('expense', (int)$expenseId, $e, $skipped, $errors, $failures);
+            }
+        }
+        return ['expenses_posted' => $posted, 'bank_lines_retired' => $retired, 'skipped' => $skipped, 'errors' => $errors, 'failures' => $failures];
     }
 
     /** Expense posting args with the same maps the nightly sync uses (repost shares this). */

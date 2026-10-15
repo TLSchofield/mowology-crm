@@ -263,6 +263,9 @@ class LedgerService
                     $line['service_type'] ?? null,
                 ]);
             }
+            if ($sourceType === 'expense' && $sourceId !== null) {
+                $this->retireLinkedBankEntries((int)$sourceId, $entry['created_by'] ?? null);
+            }
 
             if ($own) $this->db->commit();
             return $entryId;
@@ -560,6 +563,61 @@ class LedgerService
     // ══════════════════════════════════════════════════════════════════════════
     // HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * A bank line linked to a receipt (matched_expense_id) is booked by the receipt's entry. When the line had
+     * already posted its own entry (imported before the receipt was linked or approved), that posting is
+     * reversed — otherwise the purchase counts twice (Home Depot #321, Flute & Fromage #349; 2026-10-15).
+     * Only when the receipt's entry pays from the line's own account for the line's amount: anything else is
+     * left for a person (the statement checker shows it). Joins the caller's transaction.
+     * @return int bank postings reversed
+     */
+    public function retireLinkedBankEntries(int $expenseId, ?int $userId = null): int
+    {
+        $expEntry = $this->findEntryIdBySource('expense', $expenseId);
+        if ($expEntry === null) return 0;
+        $c = $this->db->prepare("SELECT account_id, SUM(credit) - SUM(debit) AS paid FROM journal_lines WHERE entry_id = ? GROUP BY account_id");
+        $c->execute([$expEntry]);
+        $paid = [];
+        foreach ($c->fetchAll(PDO::FETCH_ASSOC) as $r) $paid[(int)$r['account_id']] = round((float)$r['paid'], 2);
+        try {
+            $t = $this->db->prepare("SELECT id, bank_account_id, amount FROM accounting_transactions
+                                     WHERE matched_expense_id = ? AND reference_type = 'bank_import' AND transaction_date >= ?");
+            $t->execute([$expenseId, self::FY_START]);   // a filed, closed year is never touched
+        } catch (PDOException $e) {
+            // Only a schema without the receipt↔bank-line link columns is quiet; any other failure rolls the receipt back.
+            if ($e->getCode() === '42S22' || stripos($e->getMessage(), 'no such column') !== false) return 0;
+            throw $e;
+        }
+        $live = $this->db->prepare("SELECT je.id, SUM(jl.credit) - SUM(jl.debit) AS out_
+                                    FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id AND jl.account_id = ?
+                                    WHERE je.source_type = 'bank_import' AND je.source_id = ? AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+                                    GROUP BY je.id");
+        // Per paying account: the live postings of every linked line, all money OUT of that account. They are retired
+        // together only when they add up to what the receipt paid from it — a refund, a partial link or a second
+        // line of the same amount is left for a person (Codex review 2026-10-15).
+        $groups = [];
+        foreach ($t->fetchAll(PDO::FETCH_ASSOC) as $line) {
+            $acct = !empty($line['bank_account_id']) ? (int)$line['bank_account_id'] : $this->accountId(self::ACC_BANK);
+            $live->execute([$acct, (int)$line['id']]);
+            foreach ($live->fetchAll(PDO::FETCH_ASSOC) as $e) {
+                $out = round((float)$e['out_'], 2);
+                if ($out <= 0 || abs($out - abs((float)$line['amount'])) >= 0.01) { $groups[$acct] = false; continue 2; }
+                if (($groups[$acct] ?? null) === false) continue;
+                $groups[$acct]['ids'][] = (int)$e['id'];
+                $groups[$acct]['sum'] = round(($groups[$acct]['sum'] ?? 0) + $out, 2);
+            }
+        }
+        $n = 0;
+        foreach ($groups as $acct => $g) {
+            if ($g === false || empty($g['ids']) || abs(($paid[$acct] ?? 0) - $g['sum']) >= 0.01) continue;
+            foreach ($g['ids'] as $id) {
+                $this->reverseEntry($id, $userId, 'booked by receipt #' . $expenseId, 'system');
+                $n++;
+            }
+        }
+        return $n;
+    }
 
     /** Existing (not reversed) entry id for a source, or null. */
     public function findEntryIdBySource(string $sourceType, int $sourceId): ?int
