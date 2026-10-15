@@ -45,4 +45,24 @@ class VendorDetailsServiceTest extends TestCase
         $this->assertSame(VendorDetailsService::streetKey('8277 Ontario Street'), VendorDetailsService::streetKey('8277 ONTARIO ST.'));
         $this->assertNull(VendorDetailsService::streetKey(' '));
     }
+
+    public function test_only_the_vendors_own_website(): void
+    {
+        $this->assertTrue(VendorDetailsService::ownSite('rona.ca', 'Rona'));
+        $this->assertTrue(VendorDetailsService::ownSite('https://www.dunbarlumber.com', 'Dunbar Lumber'));
+        $this->assertTrue(VendorDetailsService::ownSite('canadiantire.ca', 'Canadian Tire'));
+        $this->assertFalse(VendorDetailsService::ownSite('triangle.com', 'Canadian Tire'), 'its loyalty programme');
+        $this->assertFalse(VendorDetailsService::ownSite('journie.ca', 'CHEVRON'));
+        $this->assertFalse(VendorDetailsService::ownSite('rona.ca', 'Home Depot'), 'a misfiled receipt');
+        $this->assertFalse(VendorDetailsService::ownSite('point-of-rental.com', 'KERRISDALE'));
+    }
+
+    public function test_a_bare_number_is_not_a_store(): void
+    {
+        $r = VendorDetailsService::read("DATE:\n#22594 - 0 Phone 604-738-3880\n2801 West 16th Avenue\n");
+        $this->assertNull($r['store_number']);
+        $r = VendorDetailsService::read("THE HOME DEPOT\nStore #103 - 2368\n2700 Sweden Way\n");
+        $this->assertSame('103', $r['store_number']);
+        $this->assertNull($r['store_name'], 'no letters: not a name');
+    }
 }

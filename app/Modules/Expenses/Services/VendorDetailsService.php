@@ -57,14 +57,32 @@ class VendorDetailsService
         }
         foreach ($lines as $l) {
             // "STORE #605 - MARINE & ONTARIO", "Store 7128", "THE HOME DEPOT #7043"
-            if (preg_match('/\bstore\s*(?:#|no\.?|num(?:ber)?)?\s*(\d{2,6})\b(?:\s*[-–:]\s*(.{3,40}))?/i', $l, $m)
-                || preg_match('/#\s*(\d{3,6})\b(?:\s*[-–:]\s*(.{3,40}))?/', $l, $m)) {
+            // Only when the receipt says "Store" — a bare "#22594" is a receipt or register number (2026-10-15 preview).
+            if (preg_match('/\bstore\s*(?:#|no\.?|num(?:ber)?)?\s*(\d{2,6})\b(?:\s*[-–:]\s*(.{3,40}))?/i', $l, $m)) {
                 $out['store_number'] = $m[1];
-                if (!empty($m[2])) $out['store_name'] = self::tidy($m[2]);
+                $name = !empty($m[2]) ? self::tidy($m[2]) : '';
+                if ($name !== '' && preg_match('/[A-Za-z]{3,}/', $name) && !preg_match('/\b(?:phone|tel|fax)\b/i', $name)) $out['store_name'] = $name;
                 break;
             }
         }
         return $out;
+    }
+
+    /**
+     * Is this web address the vendor's own? It must carry a word of the vendor's name — receipts also print
+     * loyalty programmes (triangle.com on Canadian Tire), fuel apps (journie.ca) and till makers. Pure.
+     */
+    public static function ownSite(?string $website, string $vendorName): bool
+    {
+        $domain = VendorIdentity::domainOf($website);
+        if ($domain === null) return false;
+        $host = str_replace(['-', '.'], '', strtolower(preg_replace('/\.[a-z]{2,}$/', '', $domain)));
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($vendorName)) as $w) {
+            if (strlen($w) >= 4 && !in_array($w, ['store', 'shop', 'company', 'supply', 'supplies', 'centre', 'center', 'the'], true)
+                && strpos($host, $w) !== false) return true;
+        }
+        $squashed = preg_replace('/[^a-z0-9]+/', '', strtolower($vendorName));
+        return strlen($squashed) >= 4 && strpos($host, $squashed) !== false;
     }
 
     /** "MARINE & ONTARIO" → "Marine & Ontario"; trims stray punctuation. Pure. */
@@ -105,6 +123,7 @@ class VendorDetailsService
         $v->execute([$vendorId]);
         $vendor = $v->fetch(PDO::FETCH_ASSOC);
         if (!$vendor) return $done;
+        if ($info['website'] !== null && !self::ownSite($info['website'], (string)$vendor['name'])) $info['website'] = null;
         $set = [];
         foreach (['phone', 'website', 'gst_number'] as $f) {
             if ($info[$f] !== null && isset($cols[$f]) && trim((string)($vendor[$f] ?? '')) === '') $set[$f] = $info[$f];
