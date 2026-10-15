@@ -321,6 +321,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/CrewViewScope.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/ProximityAutoStartService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingIngestService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingConsentService.php';
