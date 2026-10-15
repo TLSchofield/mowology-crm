@@ -34,6 +34,7 @@ class PennyLessonsReadTest extends TestCase
         $this->assertSame(['job_id', 'rejected', 'accounting_category'], array_column($all, 'field'));
         $this->assertSame('personal purchase', $all[1]['why']);
 
+        $ins->execute(['asset_tag', 'none', 'truck', 'expense_gate:desktop_modal', 14, null, '2026-09-15 16:00:00']);   // the receipt's own day
         $replay = PennyLessons::forVendor($db, 'Dunbar Lumber', 20, '2026-09-15');
         $this->assertSame(['rejected', 'accounting_category'], array_column($replay, 'field'), 'a replay never sees later lessons');
     }

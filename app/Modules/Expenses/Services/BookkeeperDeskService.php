@@ -736,6 +736,9 @@ class BookkeeperDeskService
         (new ExpenseApprovalService($this->db))->reject($expenseId, $user, $reason);
         $this->db->prepare("UPDATE expense_suggestions SET status = 'rejected', decided_by = ?, decided_at = NOW() WHERE id = ?")
            ->execute([(int)$user['id'], $suggestionId]);
+        // The reason is a lesson she reads next time for this vendor (PennyLessons::forVendor).
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        PennyLessons::expense($this->db, $expenseId, 'rejected', 'prepared', 'rejected', 'penny_reject', (int)$user['id'], $reason);
         return ['ok' => true, 'message' => 'Rejected — ' . $reason];
     }
 

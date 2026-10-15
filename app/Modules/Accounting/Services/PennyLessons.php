@@ -101,7 +101,7 @@ class PennyLessons
         foreach ($rows as $l) {
             if (!self::safeLesson($l)) continue;
             if ($exceptExpenseId > 0 && ($l['ref_type'] ?? '') === 'expense' && (int)$l['ref_id'] === $exceptExpenseId) continue;
-            if ($before !== null && substr((string)$l['created_at'], 0, 10) > $before) continue;
+            if ($before !== null && substr((string)$l['created_at'], 0, 10) >= $before) continue;   // strictly before the receipt's day
             $row = ['field' => $l['field'], 'said' => $l['said'], 'owner_set' => $l['correct'], 'on' => substr((string)$l['created_at'], 0, 10)];
             if (!empty($l['reason'])) $row['why'] = mb_substr((string)$l['reason'], 0, 200);
             $out[] = $row;

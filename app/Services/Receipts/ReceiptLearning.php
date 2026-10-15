@@ -427,7 +427,9 @@ function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
             INSERT INTO vendor_product_skus (vendor_id, sku_raw, product_id, item_name, times_seen, times_confirmed, last_seen_at)
             VALUES (?, ?, ?, ?, 1, 1, NOW())
             ON DUPLICATE KEY UPDATE
-                times_confirmed = times_confirmed + 1,
+                -- Counts approvals of THIS name: a different name starts again at 1 (Codex review 2026-10-14).
+                -- MySQL applies these left to right, so item_name here is still the old one.
+                times_confirmed = IF(item_name <=> VALUES(item_name), times_confirmed + 1, 1),
                 item_name       = VALUES(item_name),
                 product_id      = COALESCE(VALUES(product_id), product_id),
                 last_seen_at    = NOW()
@@ -1314,9 +1316,13 @@ function getVendorLineItemProfile(?int $vendorId): array
             }
         } catch (Throwable $e) { /* pre-migration */ }
 
-        // Names an approval confirmed for a SKU (migration 1322) — "FELCO4" → "Felco Pruner #4".
+        // Names an approval confirmed for a SKU (migration 1322) — "FELCO4" → "Felco Pruner #4". Two approvals
+        // before a name is trusted (2026-10-14: one approval of a one-off name applied it forever); names
+        // last confirmed before then keep working until the row changes.
         try {
-            $stmt = $db->prepare("SELECT sku_raw, item_name FROM vendor_product_skus WHERE vendor_id = ? AND times_confirmed >= 1 AND item_name IS NOT NULL AND item_name <> ''");
+            $stmt = $db->prepare("SELECT sku_raw, item_name FROM vendor_product_skus WHERE vendor_id = ?
+                                    AND (times_confirmed >= 2 OR (times_confirmed >= 1 AND updated_at < '2026-10-15'))
+                                    AND item_name IS NOT NULL AND item_name <> ''");
             $stmt->execute([$vendorId]);
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $out['sku_names'][trim($row['sku_raw'])] = (string)$row['item_name'];
