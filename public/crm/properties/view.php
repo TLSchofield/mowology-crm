@@ -567,6 +567,24 @@ if ($apiKey) {
                 <?php endif; ?>
             </form>
 
+            <!-- Plants on this property: "What is this?" — three photos → Pl@ntNet → the bed it grows in (plant-id.js, migration 1367) -->
+            <div class="card mb-4" id="mw-plants" data-property-id="<?= (int)$propertyId ?>" data-csrf="<?= htmlspecialchars(generateCSRFToken()) ?>">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">Plants</h5>
+                        <small class="text-muted">What grows here, and in which bed.</small>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary mw-plants-open">What is this?</button>
+                </div>
+                <div class="card-body">
+                    <div class="mw-plants-take mb-3" hidden></div>
+                    <div class="mw-plants-result border rounded p-2 mb-3" hidden></div>
+                    <div class="mw-plants-list"><p class="text-muted small mb-0">Loading…</p></div>
+                    <p class="small text-muted mt-2 mb-0 mw-plants-attr"></p>
+                </div>
+            </div>
+            <script src="/crm/js/plant-id.js?v=<?= @filemtime(dirname(__DIR__) . '/js/plant-id.js') ?: '1' ?>" defer></script>
+
 <?php
 // Jobber invoice history at this address (migration 1239 — history only, never CRM invoices).
 $jobberHistory = [];

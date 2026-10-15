@@ -414,3 +414,5 @@ require_once __DIR__ . '/../app/Services/Receipts/ReceiptThumb.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentOnTheWay.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeekStripService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/StopCardText.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/BedLocator.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PlantIdService.php';

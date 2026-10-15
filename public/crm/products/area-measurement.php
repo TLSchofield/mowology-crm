@@ -56,6 +56,20 @@ if ($propertyId) {
     }
 }
 
+// Opened from a plant ("Draw its bed"): show where its photo was taken and which way the camera faced.
+$plantFocus = null;
+if ($property && !empty($_GET['plant'])) {
+    try {
+        require_once APP_ROOT . '/Modules/Plants/Services/PlantIdService.php';
+        $pl = (new PlantIdService($db))->one((int)$_GET['plant']);
+        if ($pl && (int)$pl['property_id'] === (int)$propertyId && $pl['lat'] !== null) {
+            $plantFocus = ['lat' => (float)$pl['lat'], 'lng' => (float)$pl['lng'], 'accuracy' => $pl['accuracy_m'] !== null ? (float)$pl['accuracy_m'] : null,
+                           'heading' => $pl['heading_deg'] !== null ? (float)$pl['heading_deg'] : null, 'thumb' => $pl['thumbs'][0] ?? null,
+                           'name' => (string)($pl['common_name'] ?: $pl['scientific_name'] ?: 'the plant')];
+        }
+    } catch (Throwable $e) { $plantFocus = null; }
+}
+
 // Handle AJAX save request (using shared MeasurementService)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
@@ -158,6 +172,12 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                           </div>
                       </div>
                       <div class="card-body p-0">
+                          <?php if ($plantFocus): ?>
+                          <div class="d-flex align-items-center p-2 border-bottom small">
+                              <?php if ($plantFocus['thumb']): ?><img src="<?= htmlspecialchars($plantFocus['thumb']) ?>" alt="" width="56" height="56" class="rounded mr-2"><?php endif; ?>
+                              <div>Draw the bed <b><?= htmlspecialchars($plantFocus['name']) ?></b> grows in. The green pin is where the photo was taken<?= $plantFocus['heading'] !== null ? '; the line shows which way the camera faced' : '' ?><?= $plantFocus['accuracy'] !== null ? ' (within ' . (int)$plantFocus['accuracy'] . ' m)' : '' ?>. Name the bed when you save it.</div>
+                          </div>
+                          <?php endif; ?>
                           <div id="map" class="mw-measure-map-container" style="height: 500px;"></div>
                       </div>
                   </div>
@@ -571,6 +591,24 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
 
         // Existing measurements from database
         const existingMeasurements = <?php echo json_encode($existingMeasurements); ?>;
+        const PLANT_FOCUS = <?php echo json_encode($plantFocus, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+        function showPlantFocus(m) {
+            if (!PLANT_FOCUS || !window.google) return;
+            const at = { lat: PLANT_FOCUS.lat, lng: PLANT_FOCUS.lng };
+            m.setCenter(at);
+            m.setZoom(21);
+            new google.maps.Marker({ map: m, position: at, title: 'Photo of ' + PLANT_FOCUS.name,
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#2D8659', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 } });
+            if (PLANT_FOCUS.accuracy) {
+                new google.maps.Circle({ map: m, center: at, radius: PLANT_FOCUS.accuracy, strokeColor: '#2D8659', strokeOpacity: .5, strokeWeight: 1, fillOpacity: .05, clickable: false });
+            }
+            if (PLANT_FOCUS.heading !== null && google.maps.geometry) {
+                const end = google.maps.geometry.spherical.computeOffset(at, 15, PLANT_FOCUS.heading);
+                new google.maps.Polyline({ map: m, path: [at, end], strokeColor: '#2D8659', strokeWeight: 3, clickable: false,
+                    icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3 }, offset: '100%' }] });
+            }
+        }
 
         // Area type options for inline editing
         const areaTypeOptions = <?php echo json_encode($areaTypeOptions); ?>;
@@ -602,6 +640,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                     if (existingMeasurements && existingMeasurements.length > 0) {
                         loadExistingMeasurements();
                     }
+                    showPlantFocus(map);
                 },
                 onDraw: function (m) {
                     currentMetrics = m;

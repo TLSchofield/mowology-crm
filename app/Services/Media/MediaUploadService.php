@@ -109,6 +109,7 @@ function mediaUploadFile(
     if (!empty($exifData['gps_lat']) && !empty($exifData['gps_lng'])) {
         $gpsLat = $exifData['gps_lat'];
         $gpsLng = $exifData['gps_lng'];
+        $gpsAccuracy = $exifData['gps_accuracy'] ?? null;   // the iPhone camera writes its fix's accuracy (PhotoMetadata.swift)
         $gpsSource = 'exif';
     } elseif ($browserGps && !empty($browserGps['lat']) && !empty($browserGps['lng'])) {
         $gpsLat = (float)$browserGps['lat'];
@@ -314,6 +315,7 @@ function mediaExtractExif(string $filePath): array
         'orientation' => 1,
         'gps_lat' => null,
         'gps_lng' => null,
+        'gps_accuracy' => null,
     ];
 
     if (!function_exists('exif_read_data')) {
@@ -349,6 +351,13 @@ function mediaExtractExif(string $filePath): array
             $exif['GPS']['GPSLongitude'],
             $exif['GPS']['GPSLongitudeRef'] ?? 'W'
         );
+        // Horizontal positioning error in metres (EXIF 2.31 GPSHPositioningError), when the camera wrote one.
+        // Older PHP builds name it by number (tag 0x001F).
+        $hpe = $exif['GPS']['GPSHPositioningError'] ?? $exif['GPS']['UndefinedTag:0x001F'] ?? null;
+        if ($hpe !== null) {
+            $acc = is_array($hpe) ? 0.0 : mediaEvalRational((string)$hpe);
+            if ($acc > 0 && $acc < 100000) $result['gps_accuracy'] = round($acc, 1);
+        }
     }
 
     return $result;
