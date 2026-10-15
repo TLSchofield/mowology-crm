@@ -96,8 +96,7 @@
     function shape(k) {
         var need = k + 3, r = rng(k * 7919), fam, tris, name;
         if (k === 1) {
-            // A single triangle — the seed (owner, 2026-10-10). Drawn from both sides as it turns.
-            tris = [[[0, 1, 0], [-0.866, -0.5, 0], [0.866, -0.5, 0]]]; name = 'triangle'; fam = 'geo';
+            tris = geodesic('tetra', 1); name = 'tetrahedron'; fam = 'geo';
         } else if (k <= 90 && k % 3 !== 0) {
             if (k % 3 === 1) { var n = Math.max(3, Math.ceil(need / 2)); tris = bipyramid(n); name = n + '-sided double pyramid'; }
             else { var m = Math.max(3, Math.ceil(need / 4)); tris = gyrobipyramid(m); name = m + '-sided twisted double pyramid'; }
@@ -252,7 +251,7 @@
 
     function draw(canvas, units, bright, items) {
         units = Math.max(units, items.length);
-        var k = Math.max(1, Math.min(SHAPES, units));   // shape 1 = one triangle: the first thing learned
+        var k = Math.max(1, Math.min(SHAPES, units + 1));
         var sh = shape(k), A = assign(sh, units, items), owner = A.owner, newest = A.newest;
         var t0 = performance.now(), alive = true, light = null;
         function frame(now) {
@@ -318,8 +317,7 @@
                         g.strokeStyle = rgba(edgeOf(T, nrm, light), 0.16);
                     }
                 } else {
-                    // Unlit outline: pale on dark cards, forest on light ones (else it vanishes).
-                    g.strokeStyle = light ? 'rgba(13,59,46,' + (fc.front ? 0.35 : 0.12) + ')' : 'rgba(232,243,240,' + (fc.front ? 0.26 : 0.07) + ')';
+                    g.strokeStyle = 'rgba(232,243,240,' + (fc.front ? 0.26 : 0.07) + ')';
                 }
                 g.lineWidth = thin; g.stroke();
             }
