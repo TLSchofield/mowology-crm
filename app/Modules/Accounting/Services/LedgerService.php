@@ -206,6 +206,16 @@ class LedgerService
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         try {
+            // A deposit booked by the Jobber / bank-balance workflow ('bank_deposit') replaces whatever its
+            // bank line already posted — after the holding switch a customer deposit posts DR bank / CR 1016 as
+            // 'bank_import', and both live would count the cash twice (Codex review 2026-10-14).
+            if ($sourceType === 'bank_deposit' && $sourceId !== null) {
+                $live = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ? AND status = 'posted' AND reversed_by_entry_id IS NULL");
+                $live->execute([(int)$sourceId]);
+                foreach ($live->fetchAll(PDO::FETCH_COLUMN) as $old) {
+                    $this->reverseEntry((int)$old, $entry['created_by'] ?? null, 'replaced by the deposit booking', 'system');
+                }
+            }
             $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
             $withKind     = $this->hasColumn('journal_entries', 'entry_kind');   // migration 1355
             $withLate     = $lateFor !== null && $this->hasColumn('journal_entries', 'late_for');   // migration 1356

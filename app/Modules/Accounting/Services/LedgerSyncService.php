@@ -523,12 +523,12 @@ class LedgerSyncService
         require_once __DIR__ . '/LedgerAccountMap.php';
         $map = new LedgerAccountMap($this->db);
         $posted = 0; $payments = 0; $skipped = 0; $errors = 0; $failures = [];
-        $rows = $this->db->query("
-            SELECT id, subtotal, tax_amount, total, amount_paid, status,
-                   contact_id, plan_id, contract_id, issue_date, paid_at, created_at
-            FROM invoices
-            WHERE COALESCE(total, 0) > 0
-        ")->fetchAll(PDO::FETCH_ASSOC);
+        $cols = "id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id, issue_date, paid_at, created_at";
+        try {   // payment_method: a Stripe-paid invoice's payment waits in 1015 (holding accounts; Codex review 2026-10-14)
+            $rows = $this->db->query("SELECT {$cols}, payment_method FROM invoices WHERE COALESCE(total, 0) > 0")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            $rows = $this->db->query("SELECT {$cols} FROM invoices WHERE COALESCE(total, 0) > 0")->fetchAll(PDO::FETCH_ASSOC);
+        }
 
         // Migration 1236: each payment is its own entry (InvoicePaymentPlanner). Before it ran, the
         // old way: one payment entry per invoice for amount_paid at the first sync.
