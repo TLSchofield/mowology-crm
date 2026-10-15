@@ -117,6 +117,7 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaTagRules.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaTagService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaPickerService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSocialService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaThemeOutcomes.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaChannelsService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCalendar.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/WaterRestrictionService.php';

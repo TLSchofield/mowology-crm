@@ -217,7 +217,12 @@ class MiaChannelsService
         $s = $this->db->prepare("SELECT id FROM mia_channel_drafts WHERE kind = 'gbp_post' AND week_start = ?");
         $s->execute([$week]);
         if ($s->fetchColumn()) return null;
-        $perf = MiaSocialService::rankThemes((new MiaSocialService($this->db))->performance(), MiaSeasonThemes::all());
+        // What brought in work around this time of year leads; engagement only nudges (D4, 2026-10-15).
+        require_once __DIR__ . '/MiaThemeOutcomes.php';
+        $perf = MiaThemeOutcomes::blend(
+            MiaThemeOutcomes::scores(MiaThemeOutcomes::wins($this->db, $today), MiaSeasonThemes::all(), $today),
+            MiaSocialService::rankThemes((new MiaSocialService($this->db))->performance(), MiaSeasonThemes::all())
+        );
         $theme = MiaSeasonThemes::pick($this->themes, $today, $this->recentThemes('gbp_post'), $perf);
         if (!$theme) return null;
         // Older drafts nobody used make way for this week's.

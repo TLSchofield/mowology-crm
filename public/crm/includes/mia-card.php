@@ -99,6 +99,14 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
       <div class="mw-n"><?= (int)$__ms['referrals_open'] ?> waiting on a first visit</div>
     </div>
   </div>
+  <?php if (!empty($__ms['works'])):
+      $__mk = ['seasonal' => 'Same time last year', 'reconnect' => 'Past customers', 'pm_quiet' => 'Quiet property managers',
+               'referral' => 'Referral asks', 'consent_ask' => 'Consent asks']; ?>
+    <p class="mw-n mw-mia-works">What works (last 12 months):
+      <?= implode(' · ', array_map(fn($w) => h($__mk[$w['kind']] ?? $w['kind']) . ' ' . (int)$w['won'] . '/' . (int)$w['sent'] . ' booked or quoted'
+                                     . ($w['replied'] ? ', ' . (int)$w['replied'] . ' replied' : ''), $__ms['works'])) ?>
+    </p>
+  <?php endif; ?>
 
   <?php if ($__miaHub): $__w = $__miaHub['water']; ?>
   <div class="mw-mia-hub" id="mw-mia-hub">

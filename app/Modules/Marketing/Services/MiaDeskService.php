@@ -37,6 +37,8 @@ class MiaDeskService
     private MiaFinder $finder;
     private ConsentLedgerService $ledger;
 
+    public const WORKS_MIN = 3;
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -470,6 +472,20 @@ class MiaDeskService
         foreach ($this->db->query("SELECT kind, COUNT(*) n FROM mia_suggestions WHERE status = 'open' GROUP BY kind")->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $byKind[$r['kind']] = (int)$r['n'];
         }
+        // What works, per kind of message (the last year; a kind shows from WORKS_MIN sends): sent → booked/quoted, replied.
+        $works = [];
+        try {
+            $w = $this->db->prepare("SELECT kind, COUNT(*) AS sent, SUM(outcome IN ('booked', 'quote')) AS won, SUM(outcome = 'reply') AS replied
+                                     FROM mia_suggestions WHERE status = 'sent' AND decided_at >= ? GROUP BY kind");
+            $w->execute([$today->modify('-365 days')->format('Y-m-d')]);
+            foreach ($w->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if ((int)$r['sent'] < self::WORKS_MIN) continue;
+                $works[] = ['kind' => (string)$r['kind'], 'sent' => (int)$r['sent'], 'won' => (int)$r['won'], 'replied' => (int)$r['replied']];
+            }
+            usort($works, fn($a, $b) => [$b['won'] / $b['sent'], $b['sent']] <=> [$a['won'] / $a['sent'], $a['sent']]);
+        } catch (Throwable $e) {
+            $works = [];
+        }
         $d90 = $today->modify('-90 days')->format('Y-m-d');
         $d30 = $today->modify('-30 days')->format('Y-m-d');
         return [
@@ -486,6 +502,7 @@ class MiaDeskService
             'referrals_open' => (int)$one("SELECT COUNT(*) FROM referrals WHERE status = 'pending'"),
             'questions'      => (int)$one("SELECT COUNT(*) FROM mia_questions WHERE status = 'open'"),
             'consent_ok'     => (int)$one("SELECT COUNT(DISTINCT contact_id) FROM consent_ledger WHERE channel = 'email' AND consent_type IN ('express', 'implied') AND (expires_at IS NULL OR expires_at > ?)", [$today->format('Y-m-d')]),
+            'works'          => $works,
             'consent_express'=> (int)$one("SELECT COUNT(DISTINCT contact_id) FROM consent_ledger WHERE channel = 'email' AND consent_type = 'express'"),
         ];
     }
