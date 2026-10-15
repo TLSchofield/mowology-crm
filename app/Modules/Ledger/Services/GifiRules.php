@@ -129,6 +129,8 @@ final class GifiRules
                 if ($has('subcontract')) return $s('8360', '30', 'high', 'Trades and sub-contracts (cost of sales).');
                 if ($sub === 'labour' || $has('crew wages', 'labour', 'labor', 'direct wages')) return $s('8340', '30', 'high', 'Direct wages (cost of sales). Office wages would be 9060.');
                 if ($has('cpp', 'employer', 'benefit')) return $s('8622', '40', 'high', "Employer's portion of employee benefits (CPP/EI).");
+                // Before materials: "PPE & Safety Supplies" is gear the crew wears, not materials sold (2026-10-15).
+                if ($sub === 'safety' || $has('safety', 'ppe')) return $s('9130', '40', 'medium', 'Supplies (safety gear / PPE the crew uses) — confirm.');
                 if ($sub === 'materials' || $has('materials', 'supplies')) return $s('8320', '30', 'high', 'Purchases/cost of materials (cost of sales).');
                 if ($has('equipment rental', 'rental')) return $s('8914', '40', 'medium', 'Equipment rental.');
                 if ($has('fuel') && $has('vehicle')) return $s('9281', '40', 'medium', 'Vehicle expenses (fuel, tires, washing). If this account is fuel only for machines, 9224 fuel costs — ask.');

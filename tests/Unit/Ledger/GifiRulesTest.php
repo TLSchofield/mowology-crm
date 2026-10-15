@@ -149,6 +149,8 @@ class GifiRulesTest extends TestCase
     public function test_suggestions_are_marked_by_confidence_and_never_invent_the_hard_ones(): void
     {
         $this->assertSame('1002', GifiRules::suggest(['type' => 'asset', 'sub_type' => 'bank', 'name' => 'Chequing Account'])['code']);
+        $this->assertSame('9130', GifiRules::suggest(['type' => 'expense', 'sub_type' => 'safety', 'name' => 'PPE & Safety Supplies'])['code'], 'safety gear, not materials (8320)');
+        $this->assertSame('8320', GifiRules::suggest(['type' => 'expense', 'sub_type' => 'materials', 'name' => 'Materials & Supplies'])['code']);
         $this->assertSame('2680', GifiRules::suggest(['type' => 'liability', 'sub_type' => 'tax_itc', 'name' => 'GST/HST Input Tax Credits'])['code']);
         $this->assertSame('2707', GifiRules::suggest(['type' => 'liability', 'sub_type' => 'credit_card', 'name' => 'Credit Card Payable'])['code']);
         $this->assertSame('3600', GifiRules::suggest(['type' => 'equity', 'sub_type' => 'retained', 'name' => 'Retained Earnings'])['code']);
