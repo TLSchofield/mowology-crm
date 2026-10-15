@@ -105,10 +105,40 @@ class PennyLessons
             if ($before !== null && substr((string)$l['created_at'], 0, 10) >= $before) continue;   // strictly before the receipt's day
             $row = ['field' => $l['field'], 'said' => $l['said'], 'owner_set' => $l['correct'], 'on' => substr((string)$l['created_at'], 0, 10)];
             if (!empty($l['reason'])) $row['why'] = mb_substr((string)$l['reason'], 0, 200);
+            if (($l['ref_type'] ?? '') === 'expense' && (int)$l['ref_id'] > 0) $row['_ref'] = (int)$l['ref_id'];
             $out[] = $row;
             if (count($out) >= $limit) break;
         }
-        return $out;
+        return self::withExamples($db, $out);
+    }
+
+    /**
+     * Each lesson gets "on_receipt": the receipt it was made on, in brief (total, first items) — so a
+     * correction made once is applied only to receipts like it (middle path, Tim 2026-10-14: the coffee
+     * at Chevron is Meals; the fill-ups stay Fuel).
+     */
+    private static function withExamples(PDO $db, array $lessons): array
+    {
+        $refs = array_values(array_unique(array_filter(array_map(fn($l) => $l['_ref'] ?? 0, $lessons))));
+        $brief = [];
+        if ($refs) {
+            try {
+                $in = implode(',', array_map('intval', $refs));
+                foreach ($db->query("SELECT id, total FROM expenses WHERE id IN ($in)")->fetchAll(PDO::FETCH_ASSOC) as $e) {
+                    $brief[(int)$e['id']] = ['total' => round((float)$e['total'], 2), 'items' => []];
+                }
+                foreach ($db->query("SELECT expense_id, name FROM expense_line_items WHERE expense_id IN ($in) ORDER BY expense_id, sort_order, id")->fetchAll(PDO::FETCH_ASSOC) as $li) {
+                    $id = (int)$li['expense_id'];
+                    if (isset($brief[$id]) && count($brief[$id]['items']) < 5) $brief[$id]['items'][] = mb_substr((string)$li['name'], 0, 60);
+                }
+            } catch (Throwable $e) { /* examples are a bonus */ }
+        }
+        foreach ($lessons as &$l) {
+            if (isset($l['_ref'], $brief[$l['_ref']])) $l['on_receipt'] = $brief[$l['_ref']];
+            unset($l['_ref']);
+        }
+        unset($l);
+        return $lessons;
     }
 
     /**
