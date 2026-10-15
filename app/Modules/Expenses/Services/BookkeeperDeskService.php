@@ -206,8 +206,16 @@ class BookkeeperDeskService
             JOIN expenses e ON e.id = s.expense_id
             LEFT JOIN vendors v ON v.id = e.vendor_id
             LEFT JOIN users u ON u.id = e.created_by
+            LEFT JOIN (
+                SELECT LOWER(TRIM(COALESCE(v2.name, e2.vendor_name_raw, ''))) AS vk, COUNT(*) AS n
+                FROM expense_suggestions s2 JOIN expenses e2 ON e2.id = s2.expense_id LEFT JOIN vendors v2 ON v2.id = e2.vendor_id
+                WHERE s2.source = 'live' AND s2.status = 'pending' AND e2.status IN ('draft', 'pending_approval')
+                GROUP BY vk
+            ) g ON g.vk = LOWER(TRIM(COALESCE(v.name, e.vendor_name_raw, '')))
             WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval'){$holdSql}
-            ORDER BY (s.outcome_json IS NOT NULL) ASC, (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
+            -- Saved drafts first, then one vendor at a time, biggest group first (2026-10-14: corrections
+            -- made twice for a vendor redo the rest of its group), oldest first within it.
+            ORDER BY (s.outcome_json IS NOT NULL) ASC, g.n DESC, g.vk ASC, e.expense_date ASC, e.id ASC
             LIMIT {$limit}
         ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -600,7 +608,17 @@ class BookkeeperDeskService
                 'learn_baseline' => ($before['source'] ?? '') === 'email_inbox' ? baselineFromExpenseRow($before) : null,
             ]);
             $this->afterInboxApproval((int)$row['expense_id'], $before);
-            return ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
+            $res = ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
+            // A correction made the same way twice for this vendor: her other waiting reads for it are redone
+            // with that lesson (the API does it after replying — rereadVendor). Said on the card.
+            $learned = $allAccepted ? null : $this->learnedTwice((int)$row['expense_id'], $resolved['outcome']);
+            if ($learned && $learned['others']) {
+                $res['reread'] = $learned;
+                $n = count($learned['others']);
+                $res['message'] .= ' — I\'ll redo my other ' . $n . ' ' . $learned['vendor'] . ' receipt' . ($n === 1 ? '' : 's') . ' with that'
+                                 . ($n > self::REREAD_MAX ? ' (' . self::REREAD_MAX . ' now, the rest in the background)' : '');
+            }
+            return $res;
         } catch (Throwable $e) {
             // Not approved after all: put it back on the desk as a saved draft, undecided.
             $this->db->prepare("UPDATE expense_suggestions SET status = 'pending', decided_by = NULL, decided_at = NULL, outcome_json = ? WHERE id = ?")
@@ -649,6 +667,146 @@ class BookkeeperDeskService
      * The owner changed what Penny suggested on her card: one head_lessons row per field she got
      * wrong (migration 1348). Recording only; never blocks the decision.
      */
+    /** Most waiting reads of one vendor redone at once after a lesson (each is one AI call). */
+    public const REREAD_MAX = 10;
+
+    /**
+     * Did this approval make a correction the owner has now made the same way twice for this vendor?
+     * Then: the vendor and its OTHER waiting suggestion ids (oldest first, at most REREAD_MAX).
+     * @return ?array{vendor: string, fields: string[], others: int[]}
+     */
+    public function learnedTwice(int $expenseId, array $outcome): ?array
+    {
+        $corrected = [];
+        foreach (['accounting_category' => 'accounting_category', 'asset_tag' => 'asset_tag', 'job' => 'job_id'] as $f => $lf) {
+            if (isset($outcome[$f]) && empty($outcome[$f]['accepted']) && ($outcome[$f]['final'] ?? null) !== null) $corrected[$lf] = (string)$outcome[$f]['final'];
+        }
+        if (!$corrected) return null;
+        $v = $this->db->prepare("SELECT COALESCE(v.name, e.vendor_name_raw) FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
+        $v->execute([$expenseId]);
+        $vendor = trim((string)$v->fetchColumn());
+        if ($vendor === '') return null;
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        $lessons = PennyLessons::forVendor($this->db, $vendor, 0, null, 40);
+        $twice = [];
+        foreach ($corrected as $f => $val) {
+            $n = count(array_filter($lessons, fn($l) => $l['field'] === $f && (string)$l['owner_set'] === $val));
+            if ($n >= 2) $twice[] = $f;
+        }
+        if (!$twice) return null;
+        $o = $this->db->prepare("
+            SELECT s.id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id LEFT JOIN vendors v ON v.id = e.vendor_id
+            WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval') AND e.id <> ?
+              AND LOWER(TRIM(COALESCE(v.name, e.vendor_name_raw))) = LOWER(?)
+            ORDER BY e.expense_date, e.id LIMIT 1000");
+        $o->execute([$expenseId, $vendor]);
+        $others = array_map('intval', $o->fetchAll(PDO::FETCH_COLUMN));
+        // The first REREAD_MAX are redone now; the rest by the background preparer, first in line (relearn()).
+        if (count($others) > self::REREAD_MAX) $this->markRelearn($vendor);
+        return ['vendor' => $vendor, 'fields' => $twice, 'others' => $others];
+    }
+
+    private const RELEARN_KEY = 'penny_relearn';
+
+    /** Remember: this vendor's reads made before now are out of date (ops_settings JSON vendor-key => time). */
+    public function markRelearn(string $vendor): void
+    {
+        $lock = false;
+        try { $lock = (int)$this->db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.penny_relearn'), 5)")->fetchColumn() === 1; }
+        catch (Throwable $e) { /* no named locks */ }
+        try {
+            $map = $this->relearnMap();
+            $map[mb_strtolower(trim($vendor))] = date('Y-m-d H:i:s');
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Penny: vendors whose waiting reads are redone after a lesson')
+                                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([self::RELEARN_KEY, json_encode($map)]);
+        } catch (Throwable $e) { error_log('Penny relearn mark: ' . $e->getMessage()); }
+        finally {
+            if ($lock) { try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.penny_relearn'))"); } catch (Throwable $e) { /* ends with the connection */ } }
+        }
+    }
+
+    private function relearnMap(): array
+    {
+        try {
+            $v = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '" . self::RELEARN_KEY . "'")->fetchColumn();
+            $m = $v ? json_decode((string)$v, true) : [];
+            return is_array($m) ? $m : [];
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Waiting reads made before a lesson about their vendor (markRelearn), oldest first, at most $n — the
+     * background preparer redoes these before new receipts. A vendor with none left drops off the list.
+     */
+    public function staleReads(int $n): array
+    {
+        $map = $this->relearnMap();
+        if (!$map || $n <= 0) return [];
+        $out = []; $done = [];
+        foreach ($map as $vk => $at) {
+            $s = $this->db->prepare("
+                SELECT s.id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id LEFT JOIN vendors v ON v.id = e.vendor_id
+                WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval') AND s.created_at < ?
+                  AND LOWER(TRIM(COALESCE(v.name, e.vendor_name_raw))) = ?
+                ORDER BY e.expense_date, e.id LIMIT " . (int)$n);
+            $s->execute([$at, $vk]);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+            if (!$ids) { $done[] = $vk; continue; }
+            foreach ($ids as $id) { if (count($out) < $n) $out[] = $id; }
+            if (count($out) >= $n) break;
+        }
+        if ($done) {
+            foreach ($done as $vk) unset($map[$vk]);
+            try {
+                $this->db->prepare("UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?")->execute([json_encode($map), self::RELEARN_KEY]);
+            } catch (Throwable $e) { /* next run */ }
+        }
+        return $out;
+    }
+
+    /**
+     * Redo these waiting reads now (after a lesson). Owner-triggered like a re-check, so the receipt
+     * daily cap doesn't apply; the AI-call ceiling (LlmDailyCap) inside suggest() still does. A read
+     * already decided meanwhile is skipped. The old read is kept as 'superseded' only once the new one
+     * is in. @return int redone
+     */
+    public function rereadVendor(array $suggestionIds): int
+    {
+        // Under the preparer's lock (Codex review 2026-10-14): the background run and an approval never
+        // re-read the same receipt twice. Waits for a running batch to finish.
+        $got = true;
+        try { $got = (int)$this->db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.penny_prepare'), 120)")->fetchColumn() === 1; }
+        catch (Throwable $e) { /* no named locks here: carry on */ }
+        if (!$got) return 0;
+        try {
+            return $this->rereadVendorLocked($suggestionIds);
+        } finally {
+            try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.penny_prepare'))"); } catch (Throwable $e) { /* ends with the connection */ }
+        }
+    }
+
+    private function rereadVendorLocked(array $suggestionIds): int
+    {
+        $done = 0;
+        foreach (array_slice(array_map('intval', $suggestionIds), 0, self::REREAD_MAX) as $sid) {
+            $s = $this->db->prepare("SELECT s.expense_id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+                                     WHERE s.id = ? AND s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')");
+            $s->execute([$sid]);
+            $eid = (int)$s->fetchColumn();
+            if (!$eid) continue;
+            $r = $this->suggestOne($eid);
+            if (!empty($r['error'])) {
+                if (!empty($r['id'])) $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
+                continue;   // the old read stays on the desk
+            }
+            $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ? AND status = 'pending'")->execute([$sid]);
+            $done++;
+        }
+        return $done;
+    }
+
     private function recordLessons(int $expenseId, array $outcome, int $userId): void
     {
         try {
@@ -792,9 +950,13 @@ class BookkeeperDeskService
         if ($next['room'] === 0) {
             return ['prepared' => [], 'capped' => true];
         }
-        $ids = $next['ids'];
+        // Out-of-date reads first (a lesson since — markRelearn), within the same budget and daily cap.
+        $budget = count($next['ids']) ?: min($max, $next['room']);
+        $stale = $this->staleReads($budget);
+        $redone = $stale ? $this->rereadVendorLocked($stale) : 0;
+        $ids = array_slice($next['ids'], 0, max(0, count($next['ids']) - count($stale)));
 
-        $done = [];
+        $done = $redone ? [['reread' => $redone]] : [];
         foreach ($ids as $id) {
             $r = $this->suggestOne((int)$id);
             $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];

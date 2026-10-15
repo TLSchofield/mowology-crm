@@ -22,14 +22,16 @@ class PennyLessonsReadTest extends TestCase
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec("CREATE TABLE head_lessons (id INTEGER PRIMARY KEY, site_id INT, head TEXT, subject_kind TEXT, subject_key TEXT, field TEXT,
                    said TEXT, correct TEXT, source TEXT, ref_type TEXT, ref_id INT, corrected_by INT, reason TEXT, created_at TEXT)");
-        $ins = $db->prepare("INSERT INTO head_lessons (head, subject_kind, subject_key, field, said, correct, source, ref_type, ref_id, reason, created_at)
-                             VALUES ('penny', 'vendor', 'dunbar lumber', ?, ?, ?, ?, 'expense', ?, ?, ?)");
+        $ins = $db->prepare("INSERT INTO head_lessons (site_id, head, subject_kind, subject_key, field, said, correct, source, ref_type, ref_id, reason, created_at)
+                             VALUES (1, 'penny', 'vendor', 'dunbar lumber', ?, ?, ?, ?, 'expense', ?, ?, ?)");
         $ins->execute(['accounting_category', 'Tools/Equipment', 'Materials', 'expense_gate:desktop_modal', 10, null, '2026-09-01 10:00:00']);
         $ins->execute(['accounting_category', 'Tools/Equipment', 'Materials', 'expense_gate:owner_paid_import', 11, null, '2026-09-02 10:00:00']);
         $ins->execute(['rejected', 'prepared', 'rejected', 'penny_reject', 12, 'personal purchase', '2026-09-03 10:00:00']);
         $ins->execute(['asset_tag', 'none', 'stock', 'expense_gate:desktop_modal', 20, null, '2026-09-04 10:00:00']);   // the receipt itself
         $ins->execute(['job_id', null, '55', 'expense_gate:desktop_modal', 13, null, '2026-10-01 10:00:00']);           // after the replay date
 
+        $db->exec("INSERT INTO head_lessons (site_id, head, subject_kind, subject_key, field, said, correct, source, created_at)
+                   VALUES (2, 'penny', 'vendor', 'dunbar lumber', 'accounting_category', 'x', 'Fuel', 'expense_gate:desktop_modal', '2026-09-05')");   // another company
         $all = PennyLessons::forVendor($db, 'Dunbar  Lumber', 20);
         $this->assertSame(['job_id', 'rejected', 'accounting_category'], array_column($all, 'field'));
         $this->assertSame('personal purchase', $all[1]['why']);

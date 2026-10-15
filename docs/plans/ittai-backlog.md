@@ -72,3 +72,19 @@ trades first. The AI back office is the edge.
   out of the books; business on own card → owed to the owner; personal on the business card →
   shareholder account). A personal list with T1 tags exports for the accountant. Not a second ledger.
 - Shared: the seed list of usually-personal vendor types. Private: each owner's own personal vendors.
+
+## Receipt catch-up, vendor by vendor, teaching Penny as you go (STANDARD) — built 2026-10-14
+- Tim: "This should be a standard. Other tenants may join with 100's of receipts." Every tenant's
+  receipt review works this way, including the onboarding backlog.
+- Penny's card groups waiting receipts by vendor, biggest group first. Approving unchanged counts toward
+  her track record. A fix is a lesson; a reject keeps its reason.
+- When the owner corrects a vendor the same way twice, she redoes that vendor's other waiting reads
+  with the lesson: 10 at once, the rest by the background preparer first in line, within the daily cap.
+- Private per tenant: the lessons (head_lessons.site_id) and track record. Shared: nothing yet.
+  Candidate for the shared layer: vendor category/tax hints once 2+ tenants agree (the vendor
+  knowledge commons already does this for confirmed receipts).
+- Before 100s-of-receipts tenants: the daily cap (bookkeeper_daily_cap, default 40) needs an
+  onboarding allowance, and the cost per receipt should be shown up front.
+- BLOCKER before a second tenant: there is no "current tenant" lookup yet. Lessons are written and
+  read as site_id 1 (HeadLessons default; PennyLessons::forVendor's $siteId). Once tenancy exists,
+  every caller passes the tenant's site_id (Codex review 2026-10-14).

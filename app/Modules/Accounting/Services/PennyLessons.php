@@ -86,13 +86,14 @@ class PennyLessons
      * [{field, she_or_reader_said, owner_set, on, why?}]. $exceptExpenseId's own lessons and (for a replay)
      * anything after $before are left out, so a backtest never sees the answer.
      */
-    public static function forVendor(PDO $db, string $vendor, int $exceptExpenseId = 0, ?string $before = null, int $limit = 8): array
+    public static function forVendor(PDO $db, string $vendor, int $exceptExpenseId = 0, ?string $before = null, int $limit = 8, int $siteId = 1): array
     {
         if (trim($vendor) === '') return [];
         try {
+            // One company's lessons only (site_id, as HeadLessons writes them): a tenant's corrections are private.
             $s = $db->prepare("SELECT field, said, correct, source, reason, ref_type, ref_id, created_at FROM head_lessons
-                               WHERE head = 'penny' AND subject_kind = 'vendor' AND subject_key = ? ORDER BY id DESC LIMIT 60");
-            $s->execute([HeadLessons::normaliseKey($vendor)]);
+                               WHERE site_id = ? AND head = 'penny' AND subject_kind = 'vendor' AND subject_key = ? ORDER BY id DESC LIMIT 60");
+            $s->execute([$siteId, HeadLessons::normaliseKey($vendor)]);
             $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             return [];   // migration 1348 not run

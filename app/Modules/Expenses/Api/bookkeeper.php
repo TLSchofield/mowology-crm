@@ -216,7 +216,15 @@ try {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
                 $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
+                $reread = $res['reread']['others'] ?? [];
                 echo json_encode($res);
+                // A lesson made twice: redo the vendor's other waiting reads after the card has its answer.
+                if ($reread) {
+                    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                    ignore_user_abort(true);
+                    set_time_limit(300);
+                    try { $desk->rereadVendor($reread); } catch (Throwable $e) { error_log('Penny reread: ' . $e->getMessage()); }
+                }
             } elseif ($mode === 'use_penny_items') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 echo json_encode($desk->usePennyItems((int)($input['suggestion_id'] ?? 0), $user));

@@ -232,7 +232,16 @@ try {
         case 'decide': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
-            echo json_encode($desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft'])));
+            $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
+            $reread = $res['reread']['others'] ?? [];
+            echo json_encode($res);
+            // Same as the web card: a lesson made twice redoes the vendor's other waiting reads after replying.
+            if ($reread) {
+                if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                ignore_user_abort(true);
+                set_time_limit(300);
+                try { $desk->rereadVendor($reread); } catch (Throwable $e) { error_log('Penny reread (mobile): ' . $e->getMessage()); }
+            }
             break;
         }
 
