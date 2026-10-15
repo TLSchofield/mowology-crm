@@ -26,8 +26,28 @@ Replaces PictureThis ($90+/yr). Build after the heads' outcome loops (docs/plans
 6. **Learning**: the owner's corrections to the plant name or the care timing are lessons (head_lessons, the shared
    rule: twice = rule).
 
-## Unknowns to settle first
-- Pl@ntNet API terms for a commercial CRM inside 500/day (terms say free up to 500/day; confirm commercial use is allowed).
-- Polygon format actually stored in production (GeoJSON order lng/lat?) — read a few rows.
-- Phone GPS accuracy in a courtyard vs bed size — test with real photos; fall back to "pick the bed".
-- Where care knowledge comes from (Claude + a reviewed table) and who signs it off.
+## Unknowns — settled 2026-10-15 (sources checked this session)
+- **Pl@ntNet terms** (my.plantnet.org/terms_of_use): free up to 500 identifications/day, paid for commercial use beyond that;
+  attribution sentence + logo required; 20 simultaneous requests; photos not stored (only date/time/image URL).
+  Silent on reselling inside a product for other businesses → **Ittai tenants need their own key or a written agreement**; Mowology alone is fine.
+  API: `POST https://my-api.plantnet.org/v2/identify/all?api-key=…`, multipart `images` (≤5, JPEG/PNG) + `organs`
+  (leaf|flower|fruit|bark|auto); results[] with species.scientificNameWithoutAuthor, commonNames, score 0–1.
+- **Key**: Tim adds `define('PLANTNET_API_KEY', …)` to production secrets.php himself.
+- **Bed outlines** (production query): `property_measurements.polygon_coords` = JSON `[{lat, lng}, …]`; only 2 garden beds +
+  1 hedge drawn (19 properties have outlines, mostly lawns). → Bed matching works where beds exist; otherwise the crew picks
+  from the property's list or the plant stays on the property with its pin. Drawing beds is the real limiter.
+- **Photo GPS** (production, last 60 days): 134/326 photos have GPS; browser fixes average ~169 m (too rough for a bed),
+  EXIF fixes have none recorded. → Use EXIF from the photo first, then the phone's fix; match a bed only when accuracy ≤ 15 m
+  (or the point is inside exactly one bed); otherwise ask.
+
+## Build order (each step tested before the next)
+1. `PlantIdService` (app/Modules/Plants/Services): Pl@ntNet call (fake transport in tests), top 3 matches, attribution;
+   daily count kept well under 500. Migration: `plant_records` (tenant-neutral: site_id, property_id, measurement_id NULL,
+   media_id, lat/lng/accuracy, scientific_name, common_name, score, confirmed_by/at, status).
+2. `BedLocator`: point-in-polygon + nearest bed within 5 m; tests on the real Garden Bed South polygons' shape.
+3. CRM first: "What is this?" on a property photo → matches → crew/Tim confirms plant + bed → plant list on the property page.
+4. Care: shared `plant_care` table (species → task + month window, Claude-drafted, owner-approved before use); the property's
+   timing stays private. Care tasks show on the property; Otto adds them to the site plan, Sam offers a quote line — both as
+   suggestions Tim approves.
+5. Phones: iOS camera + Android crew camera call the same endpoint (JWT), after the CRM path is proven.
+6. Corrections → head_lessons (twice = rule).
