@@ -384,7 +384,7 @@ class PlantCareService
             . "Search the trusted gardening sources for its care. Use only what the sources support, in your own words — never copy sentences. "
             . "Give the jobs a gardener schedules (pruning, shearing, pinching, deadheading, cutting back, dividing, feeding, mulching, winter protection) "
             . "with the months to do them in Vancouver's climate. Skip watering schedules for established garden plants and houseplant care.\n\n"
-            . "End your answer with ONE fenced ```json block, exactly this shape:\n"
+            . "Do not write the care out in prose: after searching, reply with ONE short line saying which sources you used, then ONE fenced ```json block, exactly this shape:\n"
             . "{\"common_name\": \"the usual garden name\", \"group\": \"hedge|shrub|perennial|grass|groundcover|tree|bulb|vine|annual\", "
             . "\"tasks\": [{\"task\": \"Cut back to 10 cm\", \"from\": 11, \"to\": 12, \"how\": \"one short line\"}], "
             . "\"toxic_pets\": true, \"toxic_note\": \"Toxic to dogs and cats if eaten\", \"sun\": \"Full sun\", \"soil\": \"Well-drained\", "
@@ -392,7 +392,7 @@ class PlantCareService
             . "Months are numbers 1–12 (a window may wrap the year, e.g. from 11 to 2). At most 6 tasks. Leave a field empty when the sources don't support it.";
         return [
             'model' => self::MODEL,
-            'max_tokens' => 3000,
+            'max_tokens' => 6000,   // search results are long; prose before the card once ran a 3000 cap out (2026-10-15)
             'tools' => [[
                 'type' => 'web_search_20250305', 'name' => 'web_search', 'max_uses' => self::MAX_SEARCHES,
                 'allowed_domains' => self::TRUSTED,
@@ -407,7 +407,14 @@ class PlantCareService
     {
         $text = '';
         $sources = [];
+        $seen = [];   // pages the searches returned — the fallback when the short answer cites nothing
         foreach ($resp['content'] ?? [] as $b) {
+            if (($b['type'] ?? '') === 'web_search_tool_result' && is_array($b['content'] ?? null) && !isset($b['content']['error_code'])) {
+                foreach ($b['content'] as $res) {
+                    $url = (string)($res['url'] ?? '');
+                    if ($url !== '' && preg_match('#^https?://#', $url) && !isset($seen[$url])) $seen[$url] = ['url' => $url, 'title' => mb_substr((string)($res['title'] ?? $url), 0, 160)];
+                }
+            }
             if (($b['type'] ?? '') !== 'text') continue;
             $text .= (string)($b['text'] ?? '');
             foreach ($b['citations'] ?? [] as $c) {
@@ -417,6 +424,7 @@ class PlantCareService
         }
         $card = null;
         if (preg_match_all('/```json\s*(\{.*?\})\s*```/s', $text, $m)) $card = json_decode(end($m[1]), true);
+        if (!$sources) $sources = array_slice($seen, 0, 5, true);
         return ['card' => is_array($card) ? $card : null, 'sources' => array_values($sources)];
     }
 

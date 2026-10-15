@@ -110,6 +110,9 @@ class PlantCareServiceTest extends TestCase
         $this->assertSame('Nov–Feb', PlantCareService::window(11, 2));
         $this->assertSame('Oct', PlantCareService::window(10, 10));
         $this->assertNull(PlantCareService::parse(['content' => [['type' => 'text', 'text' => 'no json']]])['card']);
+        $p = PlantCareService::parse(['content' => [['type' => 'web_search_tool_result', 'content' => [['type' => 'web_search_result', 'url' => 'https://www.aspca.org/x', 'title' => 'ASPCA']]],
+                                                    ['type' => 'text', 'text' => "Used ASPCA.\n```json\n{\"tasks\": []}\n```"]]]);
+        $this->assertSame('https://www.aspca.org/x', $p['sources'][0]['url'], 'no citations: the pages searched');
     }
 
     public function testGbifMatchRules(): void
