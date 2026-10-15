@@ -12,6 +12,7 @@
  * POST {mode: 'draft_reply', card_key | reply_key}   Claude, Tim's tap only, daily-capped
  * POST {mode: 'handled', key}                         a waiting reply → Charlie's act/dismiss
  * POST {mode: 'answer', question_id, answer: lost|keep|won}
+ * POST {mode: 'send_quote', quote_id}                 a draft quote → its client (QuoteSendService, as the web page's Send)
  * POST {mode: 'move', key | card_key, to: penny|sam|otto|mia|yui}
  *                                                     "Move to…" (admins): InboundRouteService::move —
  *                                                     re-routes the message and learns sender + topic.
@@ -101,7 +102,30 @@ try {
         return $card ? ['card' => $card, 'reply' => $reply] : null;
     };
 
+    // Draft quotes, sent from the phone through the same QuoteSendService as the web page's Send (2026-10-15).
+    $toSend = static function () use ($db): array {
+        try {
+            require_once APP_ROOT . '/Modules/Quotes/Services/QuoteSendService.php';
+            return (new QuoteSendService($db))->drafts(20);
+        } catch (Throwable $e) {
+            error_log('[sales-head-mobile] drafts: ' . $e->getMessage());
+            return [];
+        }
+    };
+
     switch ($mode) {
+        case 'send_quote': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $quoteId = (int)($input['quote_id'] ?? 0);
+            // From the phone: drafts only (a re-send stays a deliberate act on the quote page); one send at a time
+            // per quote is QuoteSendService's own lock.
+            require_once APP_ROOT . '/Modules/Quotes/Services/QuoteSendService.php';
+            $res = (new QuoteSendService($db))->send($quoteId, $user, true);
+            echo json_encode(['ok' => $res['ok'], 'message' => $res['message'], 'error' => $res['ok'] ? null : $res['message'],
+                              'status' => $res['status'], 'sent_via' => $res['sent_via']]);
+            break;
+        }
+
         case 'desk': {
             $sq->scan();
             $all = $desk->queue();
@@ -122,6 +146,7 @@ try {
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),
                 'unclaimed' => array_slice($desk->unclaimed($all), 0, 12),
+                'to_send'   => $toSend(),                    // draft quotes waiting to go out (2026-10-15)
             ]);
             break;
         }
