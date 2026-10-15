@@ -180,6 +180,21 @@ class ReceiptFactsService
                 }
             }
         }
+        // The label alone on its line and the number on the next (Rona: "Auth#" / "355100", 2026-10-15 —
+        // #405 and #444 were one purchase scanned twice and the shared auth number went unread).
+        if ($out['doc_number'] === null) {
+            foreach (self::DOC_LABELS as $kind => $label) {
+                foreach ($lines as $i => $l) {
+                    if (preg_match('/^' . $label . '[ \t]*[:#\-]?[ \t]*$/i', $l) && isset($lines[$i + 1])
+                        && preg_match('/^#?[ \t]*([A-Z0-9][A-Z0-9\-]*\d[A-Z0-9\-]*)$/i', $lines[$i + 1], $m)
+                        && strlen(preg_replace('/\D/', '', $m[1])) >= 3 && strlen($m[1]) <= 40) {
+                        $out['doc_number'] = strtoupper($m[1]);
+                        $out['doc_kind'] = $kind;
+                        break 2;
+                    }
+                }
+            }
+        }
         // Numbered receipt pads (Lawnboy, 2026-10-11): a stamped "Nº 003", often read as "No" on
         // one line and "003" on the next. Only a line that is JUST the label (or label + number)
         // counts, so "No signature required" never does. Different numbers = two receipts.

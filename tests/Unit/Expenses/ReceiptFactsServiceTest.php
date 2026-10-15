@@ -305,4 +305,13 @@ class ReceiptFactsServiceTest extends TestCase
         $f2 = StopEvidenceService::receiptFacts($row, '2026-03-26');
         $this->assertNull($f2['in'], 'a printed date that is not this day: no times');
     }
+
+    public function test_an_auth_number_on_the_line_after_its_label(): void
+    {
+        // Rona #405 / #444 (2026-10-15): one purchase scanned twice; "Auth#" and "355100" on separate lines.
+        $p = ReceiptFactsService::parse("DEBIT:\n\$68.23\nAcct#\n*************2976\nAuth#\n355100\nAcct Type#\nUNKNOWN\n");
+        $this->assertSame('355100', $p['doc_number']);
+        $this->assertSame('auth', $p['doc_kind']);
+        $this->assertNull(ReceiptFactsService::parse("Auth#\nAPPROVED\n")['doc_number'], 'a word is not a number');
+    }
 }

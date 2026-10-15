@@ -752,6 +752,32 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
             continue;
         }
 
+        // Pattern: Rona — "BARCODE QTY UNIT_PRICE EA", the description on the NEXT line and the total after it
+        // ("3295249290177 2 32.49EA" / "EARMUFF GREY 28 DECIBEL" / "64.98P"). OCR reads EA as ER.
+        // Before the Home Depot rule below, which took "2 32.49EA" as the item's name (2026-10-15).
+        if (preg_match('/^(\d{8,15})\s+(\d{1,3})\s+(\d{1,6}\.\d{2})\s*E[AR4]\b\.?\s*$/i', $line, $m)) {
+            $qty = max(1, (int)$m[2]);
+            $unit = round((float)$m[3], 2);
+            $desc = trim((string)($lines[$i + 1] ?? ''));
+            $next = trim((string)($lines[$i + 2] ?? ''));
+            $amount = number_format($qty * $unit, 2, '.', '');
+            $isDesc = $desc !== '' && preg_match('/[A-Za-z]{3,}/', $desc) && !preg_match('/\d+\.\d{2}/', $desc);
+            if ($isDesc) {
+                $i++;                                                    // the description line is used
+                if (preg_match('/^\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/', $next, $pm)) {
+                    $amount = $pm[1];                                    // the printed line total wins
+                    $i++;
+                }
+                $items[] = ['name' => $desc, 'amount' => $amount, 'quantity' => $qty, 'unit_price' => $unit, 'sku_raw' => $m[1]];
+                $inItemZone = true;
+                continue;
+            }
+            $pendingItems[] = '__sku_context__';
+            $pendingContext[] = ['sku_raw' => $m[1], 'quantity' => $qty, 'unit_price' => $unit];
+            $inItemZone = true;
+            continue;
+        }
+
         // Pattern: Barcode + item name (Home Depot style)
         if (preg_match('/^(\d{6,15})\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
             $skuRaw = $m[1];
