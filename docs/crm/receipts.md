@@ -499,7 +499,10 @@ correct"). `PennyReadService::apply()` always calls `BookkeeperDeskService::deci
 
 - When Penny prepares a receipt she now sees your past corrections for that vendor (category, For
   tag, job, and why you rejected one) and her own track record for it ("category 5 of 6 right").
-  A correction you make the same way twice is what she follows. Bulk clean-ups and misread vendor
-  names are never shown to her.
+  Bulk clean-ups and misread vendor names are never shown to her.
+- **Vendor by vendor:** her card groups waiting receipts by vendor, biggest group first. Fix one and
+  she redoes that vendor's other waiting receipts. A single fix is applied only to receipts like the
+  one you fixed (a coffee at Chevron is Meals; the fill-ups stay Fuel). The same fix twice is how
+  you book that vendor.
 - Rejecting a receipt on her card teaches her: the reason you give is kept as a lesson.
 - A part-number name (SKU → item name) is trusted after two approvals of the same name.
