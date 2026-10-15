@@ -176,6 +176,10 @@ class LedgerSyncService
         $catId   = (int)$row['account_id'];
         $bankId  = !empty($row['bank_account_id']) ? (int)$row['bank_account_id'] : $defaultBankId;
         $amount  = round((float)$row['amount'], 2);
+        // Holding accounts (migration 1364, plan 2026-10-14): on/after the switch date a customer deposit
+        // moves money from 1015/1016 into the bank, and Stripe's fee comes out of 1015 — see holdingEntry().
+        $held = $this->holdingEntry($row, $bankId, $amount);
+        if ($held !== false) return $held;
         $gst     = round((float)($row['gst_amount'] ?? 0), 2);
         $pst     = round((float)($row['pst_amount'] ?? 0), 2);
         // A card refund / statement credit is staged as a NEGATIVE expense: money back onto the card,
@@ -249,6 +253,59 @@ class LedgerSyncService
             'source_id'   => (int)$row['id'],
             'lines'       => $lines,
         ];
+    }
+
+    /**
+     * The holding-account posting for a bank line, or false when the line posts as before (switch off,
+     * dated before the switch, or not a customer deposit / Stripe fee). Rules:
+     *   - Stripe's fee line (StripePayoutService / the import's single-charge match): DR fee / CR 1015.
+     *   - a customer deposit into the bank — settled by payments (allocations, "already recorded",
+     *     matched_invoice_id) or left as income on a revenue account — DR bank / CR 1015 when it is a
+     *     Stripe payout, else CR 1016 (cheques, e-Transfers, EFT, Jobber Payments payouts).
+     * @return array|null|false entry args, null (posts nothing), false (not ours: the old rules apply)
+     */
+    public function holdingEntry(array $row, int $bankId, float $amount)
+    {
+        $from = $this->ledger->holdingFrom();
+        $date = substr((string)($row['transaction_date'] ?? ''), 0, 10);
+        if ($from === null || $date < $from || $amount <= 0) return false;
+        $desc = (string)($row['description'] ?? '');
+        $type = (string)($row['type'] ?? '');
+        $isStripe = self::isStripeText($desc);
+
+        if ($type === 'expense' && self::isStripeFeeLine($desc)) {
+            return ['entry_date' => $date, 'memo' => $desc, 'source_type' => 'bank_import', 'source_id' => (int)$row['id'],
+                    'lines' => [
+                        ['account_id' => (int)$row['account_id'], 'debit' => $amount, 'credit' => 0, 'description' => $desc],
+                        ['account_id' => $this->ledger->accountId(LedgerService::ACC_STRIPE_CLEARING), 'debit' => 0, 'credit' => $amount],
+                    ]];
+        }
+        $customerIn =
+            ($type === 'transfer' && ($row['direction'] ?? 'out') === 'in' && (!empty($row['settled']) || ($row['account_type'] ?? '') === 'revenue'))
+            || ($type === 'income' && ($row['account_type'] ?? '') === 'revenue')
+            || !empty($row['matched_invoice_id']);
+        if (!$customerIn) return false;
+        if ((int)($row['account_id'] ?? 0) === $bankId) return null;    // the self-filed side of a pair
+        $hold = $this->ledger->accountId($isStripe ? LedgerService::ACC_STRIPE_CLEARING : LedgerService::ACC_UNDEPOSITED);
+        return ['entry_date' => $date, 'memo' => $desc !== '' ? $desc : 'Customer deposit', 'source_type' => 'bank_import', 'source_id' => (int)$row['id'],
+                'lines' => [
+                    ['account_id' => $bankId, 'debit' => $amount, 'credit' => 0],
+                    ['account_id' => $hold, 'debit' => 0, 'credit' => $amount, 'description' => $desc,
+                     'contact_id' => !empty($row['contact_id']) ? (int)$row['contact_id'] : null],
+                ]];
+    }
+
+    /** A deposit from OUR Stripe account (not Jobber Payments, which also says "by Stripe"). Pure. */
+    public static function isStripeText(string $desc): bool
+    {
+        return stripos($desc, 'stripe') !== false && stripos($desc, 'jobber') === false;
+    }
+
+    /** A Stripe fee line booked against a payout (StripePayoutService, BankImportService). Pure. */
+    public static function isStripeFeeLine(string $desc): bool
+    {
+        return stripos($desc, 'Stripe fees') === 0
+            || (stripos($desc, 'Payment processing fee') === 0 && self::isStripeText($desc));
     }
 
     /**
@@ -347,11 +404,11 @@ class LedgerSyncService
             SELECT at.id, at.transaction_date, at.type, at.account_id,
                    coa.type AS account_type, coa.code AS account_code,
                    at.bank_account_id, at.amount, at.gst_amount, at.pst_amount,
-                   at.description, at.job_id, at.contact_id, at.vendor_id
+                   at.description, at.job_id, at.contact_id, at.vendor_id, at.matched_invoice_id
             FROM accounting_transactions at
             JOIN chart_of_accounts coa ON coa.id = at.account_id
             WHERE at.reference_type = 'bank_import'
-              AND at.matched_invoice_id IS NULL
+              AND (at.matched_invoice_id IS NULL OR at.transaction_date >= " . $this->db->quote((string)($this->ledger->holdingFrom() ?? '9999-12-31')) . ")
               AND at.matched_expense_id IS NULL
               AND COALESCE(at.status, '') NOT IN ('void', 'deleted')   -- voided lines are not money (review 2026-10-12)
         ")->fetchAll(PDO::FETCH_ASSOC);
@@ -379,13 +436,13 @@ class LedgerSyncService
             SELECT at.id, at.transaction_date, at.type, at.account_id,
                    coa.type AS account_type, coa.code AS account_code,
                    at.bank_account_id, at.amount, at.gst_amount, at.pst_amount,
-                   at.description, at.job_id, at.contact_id, at.vendor_id
+                   at.description, at.job_id, at.contact_id, at.vendor_id, at.matched_invoice_id
             FROM accounting_transactions at
             JOIN chart_of_accounts coa ON coa.id = at.account_id
             WHERE at.id = ? AND at.reference_type = 'bank_import'
-              AND at.matched_invoice_id IS NULL AND at.matched_expense_id IS NULL
+              AND (at.matched_invoice_id IS NULL OR at.transaction_date >= ?) AND at.matched_expense_id IS NULL
         ");
-        $s->execute([$transactionId]);
+        $s->execute([$transactionId, (string)($this->ledger->holdingFrom() ?? '9999-12-31')]);
         $row = $s->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
         if (isset($this->bankDepositEntries($transactionId)[$transactionId])) return null;   // posted as a 'bank_deposit' (1236)
@@ -507,6 +564,7 @@ class LedgerSyncService
                 }
                 $pay = $this->mapInvoiceToPaymentArgs($row);
                 if ($pay !== null) {
+                    $pay['bank_account'] = LedgerService::paymentAccount('payment', (string)$pay['date'], $this->ledger->holdingFrom());
                     $this->ledger->postPayment($pay);
                     $payments++;
                 }

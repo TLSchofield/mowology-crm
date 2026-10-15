@@ -66,7 +66,7 @@ class StripeEventLedgerService
             if ($invoiceId) {
                 $this->db->prepare("UPDATE invoices SET dispute_status = 'disputed', disputed_at = NOW() WHERE id = ?")->execute([$invoiceId]);
             }
-            $entryId = $this->post('stripe_dispute', $eventRow, $amount, LedgerService::ACC_AR, LedgerService::ACC_BANK,
+            $entryId = $this->post('stripe_dispute', $eventRow, $amount, LedgerService::ACC_AR, $this->stripeCash(),
                 'Stripe dispute ' . $d['dispute_id'] . ($invoice ? ' — invoice ' . $invoice['invoice_number'] : '') . ' (' . ($d['reason'] ?? 'no reason given') . ')',
                 $invoice['contact_id'] ?? null);
             $this->log('stripe_dispute', $invoiceId, [
@@ -120,7 +120,7 @@ class StripeEventLedgerService
             if ($delta <= 0) return ['status' => 'nothing_new'];
             $amount = round($delta / 100, 2);
             $invoiceId = $invoice ? (int)$invoice['id'] : null;
-            $entryId = $this->post('stripe_refund', $eventRow, $amount, self::ACC_DEPOSITS, LedgerService::ACC_BANK,
+            $entryId = $this->post('stripe_refund', $eventRow, $amount, self::ACC_DEPOSITS, $this->stripeCash(),
                 'Stripe refund on charge ' . $d['charge_id'] . ($invoice ? ' — invoice ' . $invoice['invoice_number'] : '') . ' (through Customer Deposits)',
                 $invoice['contact_id'] ?? null);
             $this->log('stripe_refund', $invoiceId, ['charge_id' => $d['charge_id'], 'amount' => $amount,
@@ -156,6 +156,12 @@ class StripeEventLedgerService
     }
 
     /** Post DR $debit / CR $credit. A ledger failure is logged, never lost: the alert says to post it by hand. */
+    /** Where Stripe takes money back from: 1015 Stripe clearing once the holding switch is on, else chequing. */
+    private function stripeCash(): string
+    {
+        return LedgerService::paymentAccount('stripe_payment', date('Y-m-d'), $this->ledger->holdingFrom());
+    }
+
     private function post(string $source, int $sourceId, float $amount, string $debit, string $credit, string $memo, $contactId): ?int
     {
         if ($amount <= 0) return null;

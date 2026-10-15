@@ -44,6 +44,43 @@ class LedgerService
     public const ACC_RETAINED        = '3200'; // Retained Earnings
     public const ACC_OWNER_DRAW      = '3300'; // Owner's Draw
     public const ACC_OPENING_EQUITY  = '3900'; // Opening Balance Equity
+    public const ACC_STRIPE_CLEARING = '1015'; // Stripe clearing — card payments until paid out (migration 1364)
+    public const ACC_UNDEPOSITED     = '1016'; // Undeposited funds — cheques/e-Transfers until deposited (1364)
+    /** ops_settings: entries dated on/after this use the holding accounts ('' = off). */
+    public const HOLDING_SETTING = 'ledger_holding_from';
+
+    private ?string $holdingFrom = null;
+    private bool $holdingRead = false;
+
+    /** The holding-accounts switch date, or null (off). */
+    public function holdingFrom(): ?string
+    {
+        if ($this->holdingRead) return $this->holdingFrom;
+        $this->holdingRead = true;
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ? LIMIT 1");
+            $s->execute([self::HOLDING_SETTING]);
+            $v = trim((string)$s->fetchColumn());
+            $this->holdingFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
+        } catch (Throwable $e) {
+            $this->holdingFrom = null;
+        }
+        return $this->holdingFrom;
+    }
+
+    /** Tests / the repost preview: set the switch without the database. */
+    public function withHoldingFrom(?string $date): self { $this->holdingFrom = $date; $this->holdingRead = true; return $this; }
+
+    /**
+     * Which account a customer payment lands in (plan 2026-10-14 deposit matcher). Pure given the switch:
+     * before the switch date (or with it off) → 1010 Chequing, as always; on/after → 1015 for a Stripe card
+     * payment, 1016 for everything else (cheque, e-Transfer, EFT, cash, a payment with no record).
+     */
+    public static function paymentAccount(string $sourceType, string $date, ?string $holdingFrom): string
+    {
+        if ($holdingFrom === null || substr($date, 0, 10) < $holdingFrom) return self::ACC_BANK;
+        return $sourceType === 'stripe_payment' ? self::ACC_STRIPE_CLEARING : self::ACC_UNDEPOSITED;
+    }
 
     public function __construct(PDO $db)
     {

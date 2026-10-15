@@ -304,6 +304,8 @@ class InvoicePaymentPlanner
     {
         $e = $ledger->buildPaymentEntry([
             'id' => $action['source_id'], 'invoice_id' => $plan['invoice_id'], 'date' => $action['date'],
+            // holding account once the switch is on (1015 card / 1016 other) — chequing moves only with the deposit
+            'bank_account' => LedgerService::paymentAccount((string)$action['source_type'], (string)$action['date'], $ledger->holdingFrom()),
             'amount' => $action['amount'], 'contact_id' => $plan['contact_id'] ?? null,
             'memo' => ($action['label'] ?? 'Payment') . ' — invoice ' . (($plan['invoice_number'] ?? '') !== '' ? $plan['invoice_number'] : '#' . $plan['invoice_id']),
         ]);

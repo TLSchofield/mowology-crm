@@ -194,7 +194,8 @@ class ClientCreditService
                     'source_type' => 'client_credit', 'source_id' => $id,
                     'created_by' => $userId, 'proposed_by' => 'owner',
                     'lines' => [
-                        ['account_id' => $ledger->accountId(LedgerService::ACC_BANK), 'debit' => $amount, 'credit' => 0],
+                        // Undeposited funds once the holding switch is on: the e-Transfer's bank deposit clears it.
+                        ['account_id' => $ledger->accountId(LedgerService::paymentAccount('client_credit', $date, $ledger->holdingFrom())), 'debit' => $amount, 'credit' => 0],
                         ['account_id' => $ledger->accountId(self::DEPOSITS_CODE), 'debit' => 0, 'credit' => $amount],
                     ],
                 ]);
