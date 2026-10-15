@@ -21,7 +21,7 @@ class MiaThemeOutcomes
     /**
      * @param list<array{service_type: ?string, at: string, amount?: float|string, attributed?: bool|int}> $wins
      * @param list<array> $themes MiaSeasonThemes::all()
-     * @return array<string, float> theme key => score (only themes above the average and with enough wins)
+     * @return array<string, float> theme key => score (themes with enough wins; the best scores MAX_SCORE)
      */
     public static function scores(array $wins, array $themes, DateTimeImmutable $today): array
     {
@@ -36,13 +36,11 @@ class MiaThemeOutcomes
         }
         $counted = array_filter($byTheme, fn($w) => $w >= self::MIN_WINS);
         if (!$counted) return [];
-        $avg = array_sum($counted) / count($counted);
+        // Relative to the theme that brought in the most: the best gets MAX_SCORE, the rest in proportion
+        // (an "above average" score gave two equally good themes nothing — seen on production, 2026-10-15).
+        $best = max($counted);
         $out = [];
-        foreach ($counted as $k => $w) {
-            // One theme alone with enough wins: it is the one that sells now.
-            $s = count($counted) === 1 ? 1.0 : min(self::MAX_SCORE, max(0.0, $w / $avg - 1.0) * 2);
-            if ($s > 0) $out[$k] = round($s, 2);
-        }
+        foreach ($counted as $k => $w) $out[$k] = round(self::MAX_SCORE * $w / $best, 2);
         return $out;
     }
 

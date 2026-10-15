@@ -31,7 +31,7 @@ class MiaThemeOutcomesTest extends TestCase
             self::win('leaf cleanup', '2026-10-08'),
         ];
         $s = MiaThemeOutcomes::scores($wins, $themes, $this->today());
-        $this->assertSame(['irrigation_blowout' => 1.0], $s, 'irrigation has 4 weighted wins; leaves has 1 (below the minimum)');
+        $this->assertSame(['irrigation_blowout' => 1.5], $s, 'irrigation has 4 weighted wins; leaves has 1 (below the minimum)');
         $this->assertSame([], MiaThemeOutcomes::scores(array_slice($wins, 0, 2), $themes, $this->today()), 'two wins are not enough');
     }
 
@@ -40,6 +40,14 @@ class MiaThemeOutcomesTest extends TestCase
         // "maintenance" fits several themes: three such wins give none of them three wins each.
         $wins = [self::win('maintenance', '2026-10-01'), self::win('maintenance', '2026-10-02'), self::win('maintenance', '2026-10-03')];
         $this->assertSame([], MiaThemeOutcomes::scores($wins, MiaSeasonThemes::all(), $this->today()));
+    }
+
+    public function testEquallyGoodThemesBothScore(): void
+    {
+        // Production, Oct 2026: 24 snow contracts accepted, shared by the two snow themes.
+        $wins = array_fill(0, 24, self::win('snow_removal', '2026-10-10'));
+        $s = MiaThemeOutcomes::scores($wins, MiaSeasonThemes::all(), $this->today());
+        $this->assertSame(['snow_salt_contracts' => 1.5, 'winter_quiet' => 1.5], $s);
     }
 
     public function testLeapYearEdge(): void
