@@ -98,6 +98,9 @@ class FieldSearchService
         $where  = [
             "p.address LIKE ?", "p.property_name LIKE ?", "p.city LIKE ?", "p.postal_code LIKE ?",
             "CONCAT_WS(' ', ct.first_name, ct.last_name) LIKE ?",
+            // The quote contact too: a strata's decider is often not its site contact (Linda Nimmerrichter at VR15-40,
+            // 2026-10-15: "linda n" found nothing).
+            "EXISTS (SELECT 1 FROM contacts qc WHERE qc.id = p.quote_contact_id AND CONCAT_WS(' ', qc.first_name, qc.last_name) LIKE ?)",
             // A property's company is linked two ways in this database: the company_properties
             // junction (what the schedule reads) and the older properties.company_id column.
             "EXISTS (SELECT 1 FROM companies co
