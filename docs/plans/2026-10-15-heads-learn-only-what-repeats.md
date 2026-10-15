@@ -36,3 +36,11 @@ reason) or a verified disappearance teaches. Preference scores fade (half-life) 
 Read the head's code first (and the vault's notes for it) → tests → local site → Codex review (it changes what the
 heads say to clients) → deploy (3-way merge with live) → production preview where data changes → report.
 Live-only files are copied from production first (the Comms module was live-only).
+
+## Status (2026-10-15, end of day)
+All phases built, Codex-reviewed (findings checked and fixed) and live:
+A–C and D1 (earlier); D2 Otto `SupplierJobSuggestService`/`OttoActionService`; D3 Yui `InboundRouteService`/`MailTidyService`;
+D4 Mia `MiaThemeOutcomes` + What works on her card; D5 Charlie `DeadlineRules::learnedLead`; reuse-before-Claude for Charlie's
+Ask (same question + same records within 60 min). Shared: `HeadLessons` rows can now record agreements (`'agreement' => true`).
+**Not built, on purpose:** reusing a past reply word for word for Sam / Yui — Sam already gives Claude Tim's approved replies as
+examples, and a verbatim reuse for another client risks the wrong details. Tim's call.
