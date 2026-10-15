@@ -47,6 +47,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
            . '<script src="/crm/js/offline-receipts.js?v=20261014keep" defer></script>'
            . '<script src="/crm/js/label-capture.js?v=20261007" defer></script>'
            . '<script src="/crm/js/expense-split.js?v=20261007" defer></script>'
+           . '<script src="/crm/js/penny-approve.js?v=' . (@filemtime(__DIR__ . '/js/penny-approve.js') ?: '20261014') . '" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -6801,7 +6802,9 @@ async function submitReceiptExport() {
     }
 
     window.approveExpense = async function(id) {
-        if (!confirm('Approve this expense?')) return false;
+        // Penny's approve window: her face, her brain, and what this approval teaches her (penny-approve.js).
+        var ok = window.MwPennyApprove ? await window.MwPennyApprove.confirm(id) : confirm('Approve this expense?');
+        if (!ok) return false;
         try {
             var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',

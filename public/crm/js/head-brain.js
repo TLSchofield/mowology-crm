@@ -443,6 +443,7 @@
             btn.addEventListener('click', function () { open(btn, units, bright, parts, since, who, empty, teach); });
         });
     }
-    window.HeadBrain = { shape: shape, SHAPES: SHAPES, TIERS: TIERS, tierRank: tierRank, hash: hash };
+    // mount(): draw brains added after the page loaded (Penny's approve window, 2026-10-14). Safe to repeat.
+    window.HeadBrain = { shape: shape, SHAPES: SHAPES, TIERS: TIERS, tierRank: tierRank, hash: hash, mount: init };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

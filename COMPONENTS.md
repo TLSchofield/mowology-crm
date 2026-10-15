@@ -427,3 +427,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 ---
 
 **Total: 22 components documented.**
+
+## Penny's approve window — `MwPennyApprove` (2026-10-14)
+
+`/crm/js/penny-approve.js` + `.mw-pa-*` in `mowology-brand.css`. `await MwPennyApprove.confirm(expenseId)`
+→ `true` when the owner presses Approve. A large window with Penny's face and brain (head-brain.js,
+`HeadBrain.mount()`), one line per field she read (right, or what you set instead), how many of the
+vendor's other waiting receipts she'll redo, and her record there. Data: `expenses.php?action=approve_preview`
+(BookkeeperDeskService::approvalPreview). The caller still does the approval; falls back to `confirm()`.
+Use it for any approve-a-receipt button instead of a bare `confirm()`.

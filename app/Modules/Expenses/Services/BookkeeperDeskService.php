@@ -667,6 +667,110 @@ class BookkeeperDeskService
      * The owner changed what Penny suggested on her card: one head_lessons row per field she got
      * wrong (migration 1348). Recording only; never blocks the decision.
      */
+    // ─────────────────────────────────────────────────────────────────────────
+    // Approving on the receipts page (2026-10-14): Penny's approve window says what it teaches her
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Her latest waiting read of a receipt, or null. */
+    private function pendingRead(int $expenseId): ?array
+    {
+        $s = $this->db->prepare("SELECT id, suggestion_json FROM expense_suggestions WHERE expense_id = ? AND source = 'live' AND status = 'pending' ORDER BY id DESC LIMIT 1");
+        $s->execute([$expenseId]);
+        $r = $s->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    /**
+     * Her read vs the receipt as it stands: field => [suggested, final, accepted] (the shape resolveFinal()
+     * gives on her card). Pure.
+     */
+    public static function readVsReceipt(array $suggestion, array $e): array
+    {
+        $val = fn($f) => $suggestion[$f]['value'] ?? null;
+        $out = [];
+        if (array_key_exists('vendor', $suggestion)) {
+            $now = (string)($e['vendor'] ?? '');
+            $out['vendor'] = ['suggested' => $val('vendor'), 'final' => $now, 'accepted' => sameVendorName((string)$val('vendor'), $now)];
+        }
+        if (array_key_exists('accounting_category', $suggestion)) {
+            $out['accounting_category'] = ['suggested' => $val('accounting_category'), 'final' => $e['accounting_category'] ?? null,
+                                           'accepted' => (string)$val('accounting_category') === (string)($e['accounting_category'] ?? '')];
+        }
+        if (array_key_exists('asset_tag', $suggestion)) {
+            $said = $val('asset_tag') === 'none' ? '' : (string)$val('asset_tag');
+            $out['asset_tag'] = ['suggested' => $val('asset_tag'), 'final' => ($e['asset_tag'] ?? '') ?: 'none', 'accepted' => $said === (string)($e['asset_tag'] ?? '')];
+        }
+        if (array_key_exists('job', $suggestion)) {
+            $out['job'] = ['suggested' => $val('job'), 'final' => $e['job_id'] ?? null, 'accepted' => (int)$val('job') === (int)($e['job_id'] ?? 0)];
+        }
+        if (array_key_exists('total', $suggestion) && $val('total') !== null) {
+            $out['total'] = ['suggested' => $val('total'), 'final' => $e['total'] ?? null, 'accepted' => abs((float)$val('total') - (float)($e['total'] ?? 0)) <= 0.02];
+        }
+        return $out;
+    }
+
+    /**
+     * What approving this receipt teaches Penny, for her approve window: one line per field she read,
+     * her track record for the vendor, and how many of its other waiting receipts she'd redo.
+     * @return array{vendor: string, read: bool, lessons: list<array{field:string,label:string,said:?string,set:?string,right:bool}>,
+     *               track: array<string,string>, redo: int, units: int, parts: array, since: string}
+     */
+    public function approvalPreview(int $expenseId): array
+    {
+        $s = $this->db->prepare("SELECT e.*, COALESCE(v.name, e.vendor_name_raw) AS vendor FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
+        $s->execute([$expenseId]);
+        $e = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        $vendor = trim((string)($e['vendor'] ?? ''));
+        $out = ['vendor' => $vendor, 'read' => false, 'lessons' => [], 'track' => [], 'redo' => 0, 'units' => 0, 'parts' => [], 'since' => ''];
+        if (!$e) return $out;
+        $read = $this->pendingRead($expenseId);
+        if ($read) {
+            $out['read'] = true;
+            $labels = ['vendor' => 'Vendor', 'accounting_category' => 'Category', 'asset_tag' => 'For', 'job' => 'Job', 'total' => 'Total'];
+            foreach (self::readVsReceipt(json_decode((string)$read['suggestion_json'], true) ?: [], $e) as $f => $o) {
+                $out['lessons'][] = ['field' => $f, 'label' => $labels[$f] ?? $f,
+                                     'said' => $o['suggested'] === null ? null : (string)$o['suggested'],
+                                     'set' => $o['final'] === null ? null : (string)$o['final'], 'right' => (bool)$o['accepted']];
+            }
+            $outcome = self::readVsReceipt(json_decode((string)$read['suggestion_json'], true) ?: [], $e);
+            $learned = $this->learnedTwice($expenseId, $outcome, false);
+            $out['redo'] = $learned ? count($learned['others']) : 0;
+        }
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        if (!empty($e['vendor_id'])) $out['track'] = PennyLessons::trackRecord($this->db, (int)$e['vendor_id'], $expenseId);
+        try {
+            require_once __DIR__ . '/PennyBrainService.php';
+            $b = (new PennyBrainService($this->db))->learned();
+            $out['units'] = (int)($b['units'] ?? 0);
+            $out['parts'] = $b['parts'] ?? [];
+            $out['since'] = !empty($b['since']) ? date('M j, Y', strtotime((string)$b['since'])) : '';
+        } catch (Throwable $ex) { /* the brain is a bonus */ }
+        return $out;
+    }
+
+    /**
+     * Approved on the receipts page, not her card: her waiting read is decided too (accepted / edited, with
+     * the field outcome — her track record counts it), and a corrected field redoes the vendor's group,
+     * as on her card. The corrections themselves were recorded as lessons when the receipt was edited.
+     * @return int[] suggestion ids to redo (the API does it after replying)
+     */
+    public function decideOffCard(int $expenseId, int $userId): array
+    {
+        $read = $this->pendingRead($expenseId);
+        if (!$read) return [];
+        $s = $this->db->prepare("SELECT e.*, COALESCE(v.name, e.vendor_name_raw) AS vendor FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
+        $s->execute([$expenseId]);
+        $e = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$e) return [];
+        $outcome = self::readVsReceipt(json_decode((string)$read['suggestion_json'], true) ?: [], $e);
+        $all = !in_array(false, array_column($outcome, 'accepted'), true);
+        $u = $this->db->prepare("UPDATE expense_suggestions SET status = ?, outcome_json = ?, decided_by = ?, decided_at = NOW() WHERE id = ? AND status = 'pending'");
+        $u->execute([$all ? 'accepted' : 'edited', json_encode($outcome), $userId, (int)$read['id']]);
+        if ($u->rowCount() !== 1 || $all) return [];
+        $learned = $this->learnedTwice($expenseId, $outcome);
+        return $learned['others'] ?? [];
+    }
+
     /** Most waiting reads of one vendor redone at once after a lesson (each is one AI call). */
     public const REREAD_MAX = 10;
 
@@ -675,7 +779,7 @@ class BookkeeperDeskService
      * and its OTHER waiting suggestion ids, oldest first. (Was "twice"; one is enough since the middle path.)
      * @return ?array{vendor: string, fields: string[], others: int[]}
      */
-    public function learnedTwice(int $expenseId, array $outcome): ?array
+    public function learnedTwice(int $expenseId, array $outcome, bool $mark = true): ?array
     {
         $corrected = [];
         foreach (['accounting_category' => 'accounting_category', 'asset_tag' => 'asset_tag', 'job' => 'job_id'] as $f => $lf) {
@@ -704,7 +808,7 @@ class BookkeeperDeskService
         $o->execute([$expenseId, $vendor]);
         $others = array_map('intval', $o->fetchAll(PDO::FETCH_COLUMN));
         // The first REREAD_MAX are redone now; the rest by the background preparer, first in line (relearn()).
-        if (count($others) > self::REREAD_MAX) $this->markRelearn($vendor);
+        if ($mark && count($others) > self::REREAD_MAX) $this->markRelearn($vendor);
         return ['vendor' => $vendor, 'fields' => $twice, 'others' => $others];
     }
 

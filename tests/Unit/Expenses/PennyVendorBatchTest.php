@@ -66,4 +66,19 @@ class PennyVendorBatchTest extends TestCase
         $this->assertSame([], $desk->staleReads(5));
         $this->assertSame('[]', $db->query("SELECT setting_value FROM ops_settings")->fetchColumn(), 'a finished vendor drops off');
     }
+
+    /** The approve window compares her read with the receipt as it stands now. */
+    public function test_read_vs_receipt_marks_each_field(): void
+    {
+        $sug = ['vendor' => ['value' => 'CHEVRON #4381'], 'accounting_category' => ['value' => 'Fuel'],
+                'asset_tag' => ['value' => 'none'], 'job' => ['value' => null], 'total' => ['value' => 9.67]];
+        $now = ['vendor' => 'Chevron', 'accounting_category' => 'Meals', 'asset_tag' => null, 'job_id' => null, 'total' => '9.67'];
+        $o = BookkeeperDeskService::readVsReceipt($sug, $now);
+        $this->assertTrue($o['vendor']['accepted'], 'same business');
+        $this->assertFalse($o['accounting_category']['accepted']);
+        $this->assertSame('Meals', $o['accounting_category']['final']);
+        $this->assertTrue($o['asset_tag']['accepted'], '"none" and empty are the same');
+        $this->assertTrue($o['job']['accepted']);
+        $this->assertTrue($o['total']['accepted']);
+    }
 }

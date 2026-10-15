@@ -118,6 +118,12 @@ try {
             handlePriceTrend($db);
             break;
 
+        case 'approve_preview':   // GET — what approving teaches Penny (her approve window, 2026-10-14)
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            echo json_encode(['success' => true] + (new BookkeeperDeskService($db))->approvalPreview((int)($_GET['id'] ?? 0)));
+            break;
+
         case 'approve':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
@@ -1182,8 +1188,28 @@ function handleApprove(PDO $db, ?array $input, array $user): void
     }
 
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
-    $result = (new ExpenseApprovalService($db, expenseGate($db)))->approve((int)($input['id'] ?? 0), $user, ['source' => 'desktop_approval']);
-    echo json_encode($result);
+    $id = (int)($input['id'] ?? 0);
+    $result = (new ExpenseApprovalService($db, expenseGate($db)))->approve($id, $user, ['source' => 'desktop_approval']);
+    // Penny's waiting read of it is decided too (her track record counts it), and a corrected field
+    // redoes the vendor's other waiting reads — as on her card, after the page has its answer.
+    $redo = [];
+    if (!empty($result['success'])) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            $desk = new BookkeeperDeskService($db);
+            $redo = $desk->decideOffCard($id, (int)$user['id']);
+        } catch (Throwable $e) { error_log('Penny off-card decision #' . $id . ': ' . $e->getMessage()); }
+    }
+    echo json_encode($result + ($redo ? ['penny_redo' => count($redo)] : []));
+    if ($redo) {
+        if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+        ignore_user_abort(true);
+        set_time_limit(300);
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptBookkeeperService.php';
+            (new BookkeeperDeskService($db, new ReceiptBookkeeperService($db)))->rereadVendor($redo);
+        } catch (Throwable $e) { error_log('Penny reread (receipts page): ' . $e->getMessage()); }
+    }
 }
 
 

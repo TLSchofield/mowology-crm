@@ -40384,3 +40384,45 @@ body.mw-books {
 .mw-books .text-primary { color: var(--mw-dark) !important; }
 .mw-books .text-info { color: #1E3A8A !important; }
 .mw-books .text-dark { color: #111827 !important; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Penny's approve window (penny-approve.js, 2026-10-14) — her face, her brain, and what
+   approving this receipt teaches her. Above Bootstrap modals (the Edit Expense window).
+   ════════════════════════════════════════════════════════════════════════════ */
+.mw-pa-overlay { position: fixed; inset: 0; z-index: 1095; display: flex; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(13, 59, 46, .6); }
+.mw-pa-card { width: 100%; max-width: 760px; max-height: calc(100vh - 32px); overflow: auto; background: var(--mw-ink-0);
+    border-radius: var(--mw-radius-lg); box-shadow: var(--mw-shadow-md); padding: 24px 24px 20px; }
+.mw-pa-head { display: flex; align-items: center; gap: 22px; margin-bottom: 16px; }
+.mw-pa-portrait { position: relative; flex: 0 0 auto; }
+.mw-pa-face { width: 150px; height: 150px; border-radius: 22px; object-fit: cover; display: block; box-shadow: var(--mw-shadow-md); }
+.mw-pa-brain.mw-brain { right: -34px; bottom: -34px; width: 96px; height: 96px; }
+.mw-pa-title { margin: 0 0 4px 22px; font-size: 1.6rem; font-weight: 800; color: var(--mw-forest); line-height: 1.25; }
+.mw-pa-sub { margin-left: 22px; font-size: .95rem; color: var(--mw-ink-500); }
+.mw-pa-body { margin-top: 34px; font-size: 1rem; color: var(--mw-forest); }
+.mw-pa-lead { font-weight: 700; margin: 0 0 10px; }
+.mw-pa-lessons { list-style: none; padding: 0; margin: 0 0 12px; }
+.mw-pa-lessons li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; margin-bottom: 6px; }
+.mw-pa-right { background: var(--mw-light); }
+.mw-pa-wrong { background: rgba(232, 93, 4, .08); border: 1px solid rgba(232, 93, 4, .25); }
+.mw-pa-mark { flex: 0 0 22px; font-weight: 800; text-align: center; }
+.mw-pa-right .mw-pa-mark { color: var(--mw-green); }
+.mw-pa-wrong .mw-pa-mark { color: var(--mw-orange); }
+.mw-pa-redo { margin: 6px 0; padding: 10px 12px; border-radius: 12px; background: var(--mw-forest); color: var(--mw-lime); font-weight: 600; }
+.mw-pa-track { margin: 8px 0 0; font-size: .82rem; color: var(--mw-ink-500); }
+.mw-pa-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.mw-pa-actions .btn { min-height: 48px; padding: 0 22px; font-weight: 700; border-radius: 12px; }
+.mw-pa-go { min-width: 160px; }
+.mw-pa-overlay.is-learning .mw-pa-brain { animation: mw-pa-glow .65s ease-out; }
+@keyframes mw-pa-glow { 0% { box-shadow: 0 0 0 3px var(--mw-ink-0), 0 0 0 0 var(--mw-lime); }
+                         60% { box-shadow: 0 0 0 3px var(--mw-lime), 0 0 32px 10px var(--mw-lime); }
+                         100% { box-shadow: 0 0 0 3px var(--mw-ink-0), 0 0 0 0 var(--mw-lime); } }
+@media (max-width: 575px) {
+    .mw-pa-head { flex-direction: column; align-items: flex-start; }
+    .mw-pa-face { width: 110px; height: 110px; }
+    .mw-pa-brain.mw-brain { width: 72px; height: 72px; right: -26px; bottom: -26px; }
+    .mw-pa-title, .mw-pa-sub { margin-left: 0; }
+    .mw-pa-actions { flex-direction: column-reverse; }
+    .mw-pa-actions .btn { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .mw-pa-overlay.is-learning .mw-pa-brain { animation: none; } }
