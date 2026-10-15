@@ -671,8 +671,8 @@ class BookkeeperDeskService
     public const REREAD_MAX = 10;
 
     /**
-     * Did this approval make a correction the owner has now made the same way twice for this vendor?
-     * Then: the vendor and its OTHER waiting suggestion ids (oldest first, at most REREAD_MAX).
+     * Did this approval correct a learnable field (category, For tag, job) for this vendor? Then: the vendor
+     * and its OTHER waiting suggestion ids, oldest first. (Was "twice"; one is enough since the middle path.)
      * @return ?array{vendor: string, fields: string[], others: int[]}
      */
     public function learnedTwice(int $expenseId, array $outcome): ?array
@@ -688,10 +688,12 @@ class BookkeeperDeskService
         if ($vendor === '') return null;
         require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
         $lessons = PennyLessons::forVendor($this->db, $vendor, 0, null, 40);
+        // Middle path (Tim 2026-10-14): one correction is enough to redo the group — her prompt applies a
+        // single correction only to receipts like the one it was made on (on_receipt), twice = the rule.
         $twice = [];
         foreach ($corrected as $f => $val) {
             $n = count(array_filter($lessons, fn($l) => $l['field'] === $f && (string)$l['owner_set'] === $val));
-            if ($n >= 2) $twice[] = $f;
+            if ($n >= 1) $twice[] = $f;
         }
         if (!$twice) return null;
         $o = $this->db->prepare("

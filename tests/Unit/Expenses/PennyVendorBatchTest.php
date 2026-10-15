@@ -34,12 +34,13 @@ class PennyVendorBatchTest extends TestCase
            ->execute([$correct, $ref]);
     }
 
-    public function test_one_correction_teaches_but_does_not_redo_the_group(): void
+    public function test_one_correction_redoes_the_group_middle_path(): void
     {
         $db = $this->db();
         $this->lesson($db, 10, 'Meals');
-        $desk = new BookkeeperDeskService($db);
-        $this->assertNull($desk->learnedTwice(10, ['accounting_category' => ['accepted' => false, 'final' => 'Meals']]));
+        $r = (new BookkeeperDeskService($db))->learnedTwice(10, ['accounting_category' => ['accepted' => false, 'final' => 'Meals']]);
+        $this->assertSame([2, 3], $r['others'], 'the other Chevron reads (11, 12)');
+        $this->assertNull((new BookkeeperDeskService($db))->learnedTwice(10, ['asset_tag' => ['accepted' => true, 'final' => 'none']]), 'nothing corrected');
     }
 
     public function test_the_same_correction_twice_redoes_the_vendors_other_waiting_reads(): void
