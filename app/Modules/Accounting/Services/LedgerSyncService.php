@@ -564,7 +564,7 @@ class LedgerSyncService
                 }
                 $pay = $this->mapInvoiceToPaymentArgs($row);
                 if ($pay !== null) {
-                    $pay['bank_account'] = LedgerService::paymentAccount('payment', (string)$pay['date'], $this->ledger->holdingFrom());
+                    $pay['bank_account'] = LedgerService::paymentAccount('payment', (string)$pay['date'], $this->ledger->holdingFrom(), $row['payment_method'] ?? null);
                     $this->ledger->postPayment($pay);
                     $payments++;
                 }

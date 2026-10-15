@@ -205,9 +205,12 @@ class InvoicePaymentPlanner
     {
         $from = $this->goForwardFrom();
         $one = $invoiceId !== null ? ' AND id = ' . (int)$invoiceId : '';
-        $invoices = $this->db->query("SELECT id, invoice_number, amount_paid, paid_at, created_at, contact_id
-                                      FROM invoices WHERE COALESCE(total, 0) > 0 AND COALESCE(amount_paid, 0) > 0{$one}")
-                             ->fetchAll(PDO::FETCH_ASSOC);
+        $where = "FROM invoices WHERE COALESCE(total, 0) > 0 AND COALESCE(amount_paid, 0) > 0{$one}";
+        try {   // payment_method routes a Stripe-paid invoice's payment to 1015 (holding accounts)
+            $invoices = $this->db->query("SELECT id, invoice_number, amount_paid, paid_at, created_at, contact_id, payment_method {$where}")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            $invoices = $this->db->query("SELECT id, invoice_number, amount_paid, paid_at, created_at, contact_id {$where}")->fetchAll(PDO::FETCH_ASSOC);
+        }
         if (!$invoices) return [];
 
         $payments = [];
@@ -259,6 +262,7 @@ class InvoicePaymentPlanner
             $plan = self::plan($inv, $payments[$iid] ?? [], $posted, $legacy[$iid] ?? null, $from);
             $plan['invoice_number'] = (string)($inv['invoice_number'] ?? '');
             $plan['contact_id'] = !empty($inv['contact_id']) ? (int)$inv['contact_id'] : null;
+            $plan['payment_method'] = (string)($inv['payment_method'] ?? '');
             $out[$iid] = $plan;
         }
         return $out;
@@ -305,7 +309,7 @@ class InvoicePaymentPlanner
         $e = $ledger->buildPaymentEntry([
             'id' => $action['source_id'], 'invoice_id' => $plan['invoice_id'], 'date' => $action['date'],
             // holding account once the switch is on (1015 card / 1016 other) — chequing moves only with the deposit
-            'bank_account' => LedgerService::paymentAccount((string)$action['source_type'], (string)$action['date'], $ledger->holdingFrom()),
+            'bank_account' => LedgerService::paymentAccount((string)$action['source_type'], (string)$action['date'], $ledger->holdingFrom(), $plan['payment_method'] ?? null),
             'amount' => $action['amount'], 'contact_id' => $plan['contact_id'] ?? null,
             'memo' => ($action['label'] ?? 'Payment') . ' — invoice ' . (($plan['invoice_number'] ?? '') !== '' ? $plan['invoice_number'] : '#' . $plan['invoice_id']),
         ]);

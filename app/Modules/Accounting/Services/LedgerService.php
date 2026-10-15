@@ -76,10 +76,13 @@ class LedgerService
      * before the switch date (or with it off) → 1010 Chequing, as always; on/after → 1015 for a Stripe card
      * payment, 1016 for everything else (cheque, e-Transfer, EFT, cash, a payment with no record).
      */
-    public static function paymentAccount(string $sourceType, string $date, ?string $holdingFrom): string
+    public static function paymentAccount(string $sourceType, string $date, ?string $holdingFrom, ?string $invoiceMethod = null): string
     {
         if ($holdingFrom === null || substr($date, 0, 10) < $holdingFrom) return self::ACC_BANK;
-        return $sourceType === 'stripe_payment' ? self::ACC_STRIPE_CLEARING : self::ACC_UNDEPOSITED;
+        // A card payment through Stripe — its own record, or an invoice paid by Stripe whose payment is the
+        // one-per-invoice 'payment' entry (240 of them in 2026, preview 2026-10-14) — waits in Stripe clearing.
+        if ($sourceType === 'stripe_payment' || strtolower((string)$invoiceMethod) === 'stripe') return self::ACC_STRIPE_CLEARING;
+        return self::ACC_UNDEPOSITED;
     }
 
     public function __construct(PDO $db)

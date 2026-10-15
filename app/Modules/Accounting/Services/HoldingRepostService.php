@@ -50,7 +50,8 @@ class HoldingRepostService
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
             if (abs((float)$r['net']) < 0.005) continue;   // reversal pairs etc.
             $kind = in_array($r['source_type'], ['stripe_payment', 'stripe_dispute', 'stripe_refund'], true) ? 'stripe_payment' : 'payment';
-            $to = LedgerService::paymentAccount($kind, (string)$r['entry_date'], $from);
+            $method = $r['source_type'] === 'payment' ? $this->invoiceMethod((int)$r['source_id']) : null;
+            $to = LedgerService::paymentAccount($kind, (string)$r['entry_date'], $from, $method);
             $item = ['entry_id' => (int)$r['id'], 'date' => (string)$r['entry_date'], 'source' => $r['source_type'] . ':' . $r['source_id'],
                      'amount' => round((float)$r['net'], 2), 'to' => $to];
             if ($this->ledger->isLocked((string)$r['entry_date'])) $out['locked'][] = $item; else $out['payments'][] = $item;
@@ -131,6 +132,14 @@ class HoldingRepostService
         $this->ledger->postManual(['entry_date' => $entry['entry_date'], 'memo' => $entry['memo'], 'source_type' => $entry['source_type'],
                                    'source_id' => $entry['source_id'] !== null ? (int)$entry['source_id'] : null,
                                    'created_by' => $userId, 'proposed_by' => 'penny', 'lines' => $lines]);
+    }
+
+    private function invoiceMethod(int $invoiceId): ?string
+    {
+        $s = $this->db->prepare("SELECT payment_method FROM invoices WHERE id = ?");
+        $s->execute([$invoiceId]);
+        $m = $s->fetchColumn();
+        return $m === false ? null : (string)$m;
     }
 
     /** The live bank_import / bank_deposit entry of a line, with its line signature. */

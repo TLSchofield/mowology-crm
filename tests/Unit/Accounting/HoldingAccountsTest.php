@@ -13,6 +13,8 @@ class HoldingAccountsTest extends TestCase
         $this->assertSame('1015', LedgerService::paymentAccount('stripe_payment', '2026-02-25', '2026-02-25'));
         $this->assertSame('1016', LedgerService::paymentAccount('payment_allocation', '2026-05-01', '2026-02-25'));
         $this->assertSame('1016', LedgerService::paymentAccount('client_credit', '2026-10-14', '2026-02-25'));
+        $this->assertSame('1015', LedgerService::paymentAccount('payment', '2026-05-01', '2026-02-25', 'stripe'), 'an invoice paid by Stripe');
+        $this->assertSame('1016', LedgerService::paymentAccount('payment', '2026-05-01', '2026-02-25', 'cheque'));
     }
 
     public function test_our_stripe_is_told_apart_from_jobber_payments(): void
