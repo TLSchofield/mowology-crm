@@ -350,6 +350,59 @@ struct SalesApproval: Decodable, Identifiable, Equatable {
     }
 }
 
+/// A draft quote waiting to go to its client — sent from Sam's desk through the same QuoteSendService
+/// as the web page's "Send to Customer" (2026-10-15).
+struct SalesDraftQuote: Decodable, Identifiable, Equatable {
+    struct Item: Decodable, Equatable, Hashable {
+        let name: String
+        let description: String
+        let qty: Double
+        let price: Double
+        let total: Double
+        let optional: Bool
+        private enum CodingKeys: String, CodingKey { case name, description, qty, price, total, optional }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = c.bkString(.name) ?? "Service"
+            description = c.bkString(.description) ?? ""
+            qty = c.bkDouble(.qty) ?? 1
+            price = c.bkDouble(.price) ?? 0
+            total = c.bkDouble(.total) ?? 0
+            optional = c.bkBool(.optional) ?? false
+        }
+    }
+    let id: Int
+    let number: String
+    let title: String
+    let client: String
+    let email: String?
+    let address: String
+    let subtotal: Double
+    let gst: Double
+    let amount: Double
+    let validUntil: String?
+    let items: [Item]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, number, title, client, email, address, subtotal, gst, amount, items
+        case validUntil = "valid_until"
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(Int.self, forKey: .id)) ?? 0
+        number = c.bkString(.number) ?? ""
+        title = c.bkString(.title) ?? ""
+        client = c.bkString(.client) ?? ""
+        email = c.bkString(.email)
+        address = c.bkString(.address) ?? ""
+        subtotal = c.bkDouble(.subtotal) ?? 0
+        gst = c.bkDouble(.gst) ?? 0
+        amount = c.bkDouble(.amount) ?? 0
+        validUntil = c.bkString(.validUntil)
+        items = (try? c.decodeIfPresent([Item].self, forKey: .items)) ?? []
+    }
+}
+
 struct SalesDeskResponse: Decodable {
     let ok: Bool
     let error: String?
@@ -361,8 +414,9 @@ struct SalesDeskResponse: Decodable {
     let unclaimed: [SalesReply]
     let texts: SalesTextBridge?
     let approved: [SalesApproval]
+    let toSend: [SalesDraftQuote]
 
-    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts, approved }
+    private enum CodingKeys: String, CodingKey { case ok, error, name, stats, queue, leads, questions, unclaimed, texts, approved, toSend = "to_send" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -376,6 +430,7 @@ struct SalesDeskResponse: Decodable {
         unclaimed = (try? c.decodeIfPresent([SalesReply].self, forKey: .unclaimed)) ?? []
         texts = try? c.decodeIfPresent(SalesTextBridge.self, forKey: .texts)
         approved = (try? c.decodeIfPresent([SalesApproval].self, forKey: .approved)) ?? []
+        toSend = (try? c.decodeIfPresent([SalesDraftQuote].self, forKey: .toSend)) ?? []
     }
 }
 

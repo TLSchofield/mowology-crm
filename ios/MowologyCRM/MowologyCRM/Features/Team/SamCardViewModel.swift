@@ -66,6 +66,9 @@ final class SamCardViewModel: ObservableObject {
     @Published private(set) var replies: [SalesReply] = []
     @Published private(set) var approved: [SalesApproval] = []
     @Published private(set) var approvedMessage: String?
+    @Published private(set) var toSend: [SalesDraftQuote] = []
+    @Published var toSendMessage: String?
+    @Published var toSendIsError = false
     @Published private(set) var texts: SalesTextBridge?
     @Published private(set) var index = 0
     @Published private(set) var isLoading = false
@@ -134,6 +137,7 @@ final class SamCardViewModel: ObservableObject {
         questions = r.questions
         replies = r.unclaimed
         approved = r.approved
+        toSend = r.toSend
         texts = r.texts
         if index >= queue.count { index = 0 }
         let keys = Set(queue.map(\.key))
@@ -249,6 +253,17 @@ final class SamCardViewModel: ObservableObject {
     }
 
     func cancelReplyDraft(_ reply: SalesReply) { replyDrafts[reply.key] = nil }
+
+    /// Send a draft quote to its client (the server's QuoteSendService — the web page's Send).
+    func sendQuote(_ q: SalesDraftQuote) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "send_quote", "quote_id": q.id],
+                                    onError: { self.toSendMessage = $0; self.toSendIsError = true }) else { return }
+        toSend.removeAll { $0.id == q.id }
+        toSendMessage = "\(q.number): " + (r.message ?? "sent.")
+        toSendIsError = false
+        Task { await self.refreshQuietly() }
+    }
 
     /// "Got it" on a Just approved item.
     func approvalSeen(_ a: SalesApproval) async {

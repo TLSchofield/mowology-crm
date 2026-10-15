@@ -15,6 +15,7 @@ struct SamCardView: View {
     @Environment(\.openURL) private var openURL
 
     @State private var threadTarget: SamThreadTarget?
+    @State private var confirmQuote: SalesDraftQuote?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -25,6 +26,7 @@ struct SamCardView: View {
                 errorState(err)
             } else if vm.hasLoaded {
                 statsStrip
+                toSendSection
                 approvedSection
                 repliesSection
                 followupSection
@@ -34,6 +36,13 @@ struct SamCardView: View {
         }
         .sheet(item: $threadTarget) { t in
             SamThreadSheet(vm: vm, target: t)
+        }
+        .confirmationDialog("Send this quote?", isPresented: Binding(get: { confirmQuote != nil }, set: { if !$0 { confirmQuote = nil } }),
+                            titleVisibility: .visible, presenting: confirmQuote) { q in
+            Button("Send \(q.number) to \(q.client.isEmpty ? "the client" : q.client)") { Task { await vm.sendQuote(q) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { q in
+            Text((q.email.map { "Email to \($0) with the PDF and their link. " } ?? "") + String(format: "Total $%.2f incl. GST.", q.amount))
         }
     }
 
@@ -91,6 +100,55 @@ struct SamCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Quotes to send
+
+    /// Draft quotes waiting to go out (2026-10-15). Send = the web page's Send to Customer, after a confirm.
+    @ViewBuilder
+    private var toSendSection: some View {
+        if !vm.toSend.isEmpty || vm.toSendMessage != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHead("Quotes to send", "drafts waiting for your tap")
+                note(vm.toSendMessage, error: vm.toSendIsError)
+                ForEach(vm.toSend) { q in
+                    draftQuoteRow(q)
+                    if q.id != vm.toSend.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private func draftQuoteRow(_ q: SalesDraftQuote) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(q.number) · \(q.title.isEmpty ? "Quote" : q.title)").font(.subheadline.bold())
+                .fixedSize(horizontal: false, vertical: true)
+            Text([q.client, q.address].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+            if let e = q.email { Text(e).font(.caption).foregroundStyle(.secondary) }
+            else { Text("No email on file — add one in the CRM first").font(.caption).foregroundStyle(Color.MW.red) }
+            ForEach(q.items, id: \.self) { it in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(it.name + (it.optional ? " (optional)" : "")).font(.subheadline)
+                    Spacer(minLength: 4)
+                    Text(String(format: "$%.2f", it.total)).font(.subheadline.monospacedDigit())
+                }
+            }
+            HStack {
+                Text(String(format: "GST $%.2f · Total $%.2f", q.gst, q.amount)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack(spacing: 10) {
+                if let url = SamCardViewModel.webURL("/crm/quotes/view.php?id=\(q.id)") {
+                    Button("Open in CRM") { openURL(url) }.buttonStyle(.bordered)
+                }
+                Spacer()
+                Button("Send…") { confirmQuote = q }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.MW.green)
+                    .disabled(vm.isBusy || q.email == nil)
+            }
+        }
     }
 
     // MARK: - Just approved
