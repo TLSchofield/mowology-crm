@@ -81,4 +81,16 @@ class PennyVendorBatchTest extends TestCase
         $this->assertTrue($o['job']['accepted']);
         $this->assertTrue($o['total']['accepted']);
     }
+
+    /** A field still empty on the receipt is not a correction (Chevron #36: she said equipment, the tag was just unset). */
+    public function test_an_unfilled_field_is_not_a_correction(): void
+    {
+        $sug = ['accounting_category' => ['value' => 'Fuel'], 'asset_tag' => ['value' => 'equipment'], 'job' => ['value' => 55]];
+        $o = BookkeeperDeskService::readVsReceipt($sug, ['accounting_category' => 'Fuel', 'asset_tag' => null, 'job_id' => null]);
+        $this->assertArrayNotHasKey('asset_tag', $o);
+        $this->assertArrayNotHasKey('job', $o);
+        $this->assertTrue($o['accounting_category']['accepted']);
+        $o2 = BookkeeperDeskService::readVsReceipt(['asset_tag' => ['value' => 'none']], ['asset_tag' => '']);
+        $this->assertTrue($o2['asset_tag']['accepted'], 'she said none and it is none');
+    }
 }

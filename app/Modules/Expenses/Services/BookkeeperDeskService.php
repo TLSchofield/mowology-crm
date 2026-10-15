@@ -687,20 +687,23 @@ class BookkeeperDeskService
     public static function readVsReceipt(array $suggestion, array $e): array
     {
         $val = fn($f) => $suggestion[$f]['value'] ?? null;
+        // A field still empty on the receipt is not the owner's answer — it was never filled in (her read
+        // wasn't applied). Left out, so approving can't teach "you set nothing" (2026-10-14, Chevron #36).
+        $blank = fn($v) => $v === null || trim((string)$v) === '' || (string)$v === '0';
         $out = [];
         if (array_key_exists('vendor', $suggestion)) {
             $now = (string)($e['vendor'] ?? '');
             $out['vendor'] = ['suggested' => $val('vendor'), 'final' => $now, 'accepted' => sameVendorName((string)$val('vendor'), $now)];
         }
-        if (array_key_exists('accounting_category', $suggestion)) {
+        if (array_key_exists('accounting_category', $suggestion) && !$blank($e['accounting_category'] ?? null)) {
             $out['accounting_category'] = ['suggested' => $val('accounting_category'), 'final' => $e['accounting_category'] ?? null,
                                            'accepted' => (string)$val('accounting_category') === (string)($e['accounting_category'] ?? '')];
         }
-        if (array_key_exists('asset_tag', $suggestion)) {
+        if (array_key_exists('asset_tag', $suggestion) && (!$blank($e['asset_tag'] ?? null) || in_array($val('asset_tag'), [null, 'none'], true))) {
             $said = $val('asset_tag') === 'none' ? '' : (string)$val('asset_tag');
             $out['asset_tag'] = ['suggested' => $val('asset_tag'), 'final' => ($e['asset_tag'] ?? '') ?: 'none', 'accepted' => $said === (string)($e['asset_tag'] ?? '')];
         }
-        if (array_key_exists('job', $suggestion)) {
+        if (array_key_exists('job', $suggestion) && (!$blank($e['job_id'] ?? null) || $blank($val('job')))) {
             $out['job'] = ['suggested' => $val('job'), 'final' => $e['job_id'] ?? null, 'accepted' => (int)$val('job') === (int)($e['job_id'] ?? 0)];
         }
         if (array_key_exists('total', $suggestion) && $val('total') !== null) {
