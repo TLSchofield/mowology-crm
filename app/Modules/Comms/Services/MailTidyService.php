@@ -42,6 +42,9 @@ class MailTidyService
     private ?array $plan = null;
     private ?array $ctx = null;
 
+    public const STAY = 'stay';
+    private ?array $kept = null;
+
     public function __construct(PDO $db, ?MailTidyPort $port = null, array $opts = [])
     {
         $this->db = $db;
@@ -242,7 +245,92 @@ class MailTidyService
             }
         }
         if (!$r['move'] || $r['folder'] === $folder || ImapWriter::isProtected((string)$r['folder'])) return null;
+        // Tim unticked this sender in the last two tidies running: shown, but left unticked (and keep-tidy leaves it).
+        $sender = strtolower((string)(SalesInboxService::addresses((string)$row['from'])[0] ?? ''));
+        if ($sender !== '' && $this->keptSender($sender)) {
+            return ['target' => $r['folder'], 'key' => $r['key'], 'confidence' => $r['confidence'],
+                    'reason' => 'You kept mail from this sender the last two tidies', 'selected' => 0];
+        }
         return ['target' => $r['folder'], 'key' => $r['key'], 'confidence' => $r['confidence'], 'reason' => $r['reason'], 'selected' => 1];
+    }
+
+    /** Has Tim kept (unticked) this sender's mail twice running? (HeadLessons rule; all senders decided in one query per run.) */
+    private function keptSender(string $sender): bool
+    {
+        if ($this->kept === null) {
+            $this->kept = [];
+            try {
+                require_once APP_ROOT . '/Services/HeadLessons.php';
+                $q = $this->db->prepare("SELECT subject_key, correct, created_at FROM head_lessons WHERE head = 'yui' AND subject_kind = 'tidy_sender'
+                                           AND field = 'tidy' AND created_at >= ? ORDER BY created_at DESC, id DESC");
+                $q->execute([date('Y-m-d H:i:s', strtotime('-365 days'))]);
+                $by = [];
+                foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $by[(string)$r['subject_key']][] = $r;
+                foreach ($by as $key => $rows) {
+                    $rule = HeadLessons::decide($rows);
+                    if ($rule !== null && $rule['value'] === self::STAY) $this->kept[$key] = true;
+                }
+            } catch (Throwable $e) {
+                error_log('Mail tidy kept senders: ' . $e->getMessage());
+            }
+        }
+        return isset($this->kept[$sender]);
+    }
+
+    /**
+     * After a tidy is applied: a sender whose every message Tim unticked → "stay"; a sender ticked
+     * after an earlier "stay" → its folder (that resets the streak). Mixed choices teach nothing.
+     * @param list<array{from_addr: string, unsel: int, n: int, targets: int, target_key: ?string}> $rows
+     * @return array<string, string> sender => 'stay' | target key
+     */
+    public static function senderChoices(array $rows, array $hadStay): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $from = strtolower(trim((string)$r['from_addr']));
+            if ($from === '') continue;
+            $unsel = (int)$r['unsel']; $n = (int)$r['n'];
+            if ($unsel === $n) $out[$from] = self::STAY;
+            elseif ($unsel === 0 && isset($hadStay[$from]) && (int)$r['targets'] === 1) $out[$from] = (string)$r['target_key'] ?: 'move';
+        }
+        return $out;
+    }
+
+    private function learnChoices(int $previewId, ?int $userId): void
+    {
+        $lock = 'mw_tidy_learn_' . $previewId;
+        try {
+            // One request learns from a preview: two finishing batches at once must not count it twice.
+            if ((int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($lock) . ", 5)")->fetchColumn() !== 1) return;
+        } catch (Throwable $e) {
+            return;
+        }
+        try {
+            require_once APP_ROOT . '/Services/HeadLessons.php';
+            $s = $this->db->prepare("SELECT from_addr, SUM(CASE WHEN selected = 0 THEN 1 ELSE 0 END) AS unsel, COUNT(*) AS n,
+                                            COUNT(DISTINCT target_key) AS targets, MIN(target_key) AS target_key
+                                     FROM mail_tidy_items WHERE preview_id = ? AND kind = 'move' GROUP BY from_addr");
+            $s->execute([$previewId]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            $had = $this->db->prepare("SELECT DISTINCT subject_key FROM head_lessons WHERE head = 'yui' AND subject_kind = 'tidy_sender' AND correct = ?");
+            $had->execute([self::STAY]);
+            $hadStay = array_fill_keys($had->fetchAll(PDO::FETCH_COLUMN), true);
+            // Once per preview: a second batch of the same preview doesn't count twice.
+            $done = $this->db->prepare("SELECT DISTINCT subject_key FROM head_lessons WHERE head = 'yui' AND subject_kind = 'tidy_sender' AND ref_type = 'mail_tidy_preview' AND ref_id = ?");
+            $done->execute([$previewId]);
+            $already = array_fill_keys($done->fetchAll(PDO::FETCH_COLUMN), true);
+            foreach (self::senderChoices($rows, $hadStay) as $from => $choice) {
+                if (isset($already[HeadLessons::normaliseKey($from)])) continue;
+                HeadLessons::recordQuietly($this->db, [
+                    'head' => 'yui', 'subject_kind' => 'tidy_sender', 'subject_key' => $from, 'field' => 'tidy', 'said' => null,
+                    'correct' => $choice, 'source' => 'mail_tidy', 'ref_type' => 'mail_tidy_preview', 'ref_id' => $previewId, 'corrected_by' => $userId,
+                ]);
+            }
+        } catch (Throwable $e) {
+            error_log('Mail tidy learning: ' . $e->getMessage());
+        } finally {
+            try { $this->db->query("SELECT RELEASE_LOCK(" . $this->db->quote($lock) . ")"); } catch (Throwable $e) {}
+        }
     }
 
     /** A Junk message: rescue to INBOX, or null (spam stays). */
@@ -481,7 +569,10 @@ class MailTidyService
         }
         $b = $this->batch($batchId);
         $done = (int)$b['moved'] + (int)$b['failed'] >= (int)$b['target'] || !$this->hasPending($previewId, $itemKind);
-        if ($done) $this->finishBatch($batchId, 'done', null);
+        if ($done) {
+            $this->finishBatch($batchId, 'done', null);
+            if ($kind === 'apply') $this->learnChoices($previewId, $userId);
+        }
         return $this->batchOut($batchId, $done);
     }
 
@@ -721,7 +812,7 @@ class MailTidyService
                 $mid = trim((string)($row['message_id'] ?? ''));
                 if ($mid === '') continue;
                 $v = $this->tidyRow('INBOX', $row, $plan, $ctx, $headers);
-                if ($v !== null) $byTarget[$v['target']][] = ['id' => 0, 'uid' => (int)$row['uid'], 'uid_validity' => (int)$info['uidvalidity'], 'message_id' => $mid];
+                if ($v !== null && !empty($v['selected'])) $byTarget[$v['target']][] = ['id' => 0, 'uid' => (int)$row['uid'], 'uid_validity' => (int)$info['uidvalidity'], 'message_id' => $mid];
                 if ($seen >= $max) break;
             }
             if (count($rows) < self::SCAN_CHUNK) break;

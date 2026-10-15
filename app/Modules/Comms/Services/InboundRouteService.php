@@ -38,6 +38,9 @@ class InboundRouteService
     public const NEVER_SEND_NOTE = 'Penny never fills in or sends banking details — this one is yours.';
     /** Sources a stamp may overwrite (Tim's moves and the re-route are kept). */
     public const RESTAMPABLE = ['', 'rule', 'learned'];
+    /** An address is learned from one move; a whole domain only from DOMAIN_MOVES moves running to the same head. */
+    public const DOMAIN_MOVES = 3;
+    public const RULE_FADE_DAYS = 365;
 
     private PDO $db;
     private ?bool $ready = null;
@@ -94,7 +97,10 @@ class InboundRouteService
         if ($this->learned !== null) return $this->learned;
         $this->learned = [];
         if (!$this->rulesReady()) return $this->learned;
-        foreach ($this->db->query('SELECT sender_key, topic, head FROM inbound_route_rules')->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        // Rules fade: one not confirmed by a move in RULE_FADE_DAYS stops routing (the next move relearns it).
+        $s = $this->db->prepare('SELECT sender_key, topic, head FROM inbound_route_rules WHERE updated_at >= ?');
+        $s->execute([date('Y-m-d H:i:s', strtotime('-' . self::RULE_FADE_DAYS . ' days'))]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $this->learned[strtolower((string)$r['sender_key']) . '|' . $r['topic']] = (string)$r['head'];
         }
         return $this->learned;
@@ -208,7 +214,12 @@ class InboundRouteService
         $this->db->prepare('UPDATE sales_messages SET head = ?, topic = ?, head_source = ?, head_reason = ?, handled_at = NULL WHERE id = ?')
            ->execute([$to, $topic, 'moved', 'Moved to ' . $name . ' by Tim', (int)$row['id']]);
         $this->log((string)$row['message_key'], $from, $to, $topic, 'move', $userId, $now);
-        $taught = $this->teach((string)$row['from_addr'], $topic, $to, $userId, $now);
+        try {
+            $taught = $this->teach((string)$row['from_addr'], $topic, $to, $userId, $now, $from, (int)$row['id']);
+        } catch (Throwable $e) {
+            $taught = false;   // the move stands; only the learning missed
+            error_log('Yui route learning: ' . $e->getMessage());
+        }
 
         $addr = InboundTopicClassifier::address((string)$row['from_addr']);
         return [
@@ -310,23 +321,42 @@ class InboundRouteService
         return ['moving' => $moving, 'others' => $others];
     }
 
-    private function teach(string $fromAddr, string $topic, string $head, int $userId, string $now): bool
+    /**
+     * The address learns from this one move. The domain (not free mail) is a rule only when the last
+     * DOMAIN_MOVES moves from it, for this topic, all went to the same head (HeadLessons::rule) — one
+     * person at a company is not the company; a newer different move takes the domain rule away.
+     */
+    private function teach(string $fromAddr, string $topic, string $head, int $userId, string $now, ?string $fromHead = null, int $msgId = 0): bool
     {
         if (!$this->rulesReady()) return false;
         $keys = InboundTopicClassifier::senderKeys(InboundTopicClassifier::address($fromAddr));
         if (!$keys) return false;
-        $get = $this->db->prepare('SELECT hits FROM inbound_route_rules WHERE sender_key = ? AND topic = ?');
-        $del = $this->db->prepare('DELETE FROM inbound_route_rules WHERE sender_key = ? AND topic = ?');
-        $ins = $this->db->prepare('INSERT INTO inbound_route_rules (sender_key, topic, head, hits, created_by, created_at, updated_at)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)');
+        require_once APP_ROOT . '/Services/HeadLessons.php';
+        $lessons = new HeadLessons($this->db);
         foreach ($keys as $k) {
-            $get->execute([$k, $topic]);
-            $hits = (int)($get->fetchColumn() ?: 0);
-            $del->execute([$k, $topic]);
-            $ins->execute([$k, $topic, $head, $hits + 1, $userId ?: null, $now, $now]);
+            $domain = $k[0] === '@';
+            HeadLessons::recordQuietly($this->db, [
+                'head' => 'yui', 'subject_kind' => $domain ? 'route_domain' : 'route_address', 'subject_key' => $k . '|' . $topic,
+                'field' => 'head', 'said' => $fromHead, 'correct' => $head, 'source' => 'yui_move', 'agreement' => true,
+                'ref_type' => 'sales_message', 'ref_id' => $msgId, 'corrected_by' => $userId,
+            ]);
+            if (!$domain) { $this->setRule($k, $topic, $head, $userId, $now); continue; }
+            $rule = $lessons->rule('yui', 'route_domain', $k . '|' . $topic, 'head', self::DOMAIN_MOVES, self::RULE_FADE_DAYS);
+            if ($rule) $this->setRule($k, $topic, (string)$rule['value'], $userId, $now);
+            else $this->db->prepare('DELETE FROM inbound_route_rules WHERE sender_key = ? AND topic = ?')->execute([$k, $topic]);
         }
         $this->learned = null;
         return true;
+    }
+
+    private function setRule(string $key, string $topic, string $head, int $userId, string $now): void
+    {
+        $get = $this->db->prepare('SELECT hits FROM inbound_route_rules WHERE sender_key = ? AND topic = ?');
+        $get->execute([$key, $topic]);
+        $hits = (int)($get->fetchColumn() ?: 0);
+        $this->db->prepare('DELETE FROM inbound_route_rules WHERE sender_key = ? AND topic = ?')->execute([$key, $topic]);
+        $this->db->prepare('INSERT INTO inbound_route_rules (sender_key, topic, head, hits, created_by, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([$key, $topic, $head, $hits + 1, $userId ?: null, $now, $now]);
     }
 
     private function log(string $messageKey, ?string $from, string $to, ?string $topic, string $source, int $userId, string $now): void
