@@ -785,7 +785,9 @@ class BookkeeperDeskService
     public function learnedTwice(int $expenseId, array $outcome, bool $mark = true): ?array
     {
         $corrected = [];
-        foreach (['accounting_category' => 'accounting_category', 'asset_tag' => 'asset_tag', 'job' => 'job_id'] as $f => $lf) {
+        // Never the job: it is per purchase, not per vendor (Tim 2026-10-14) — a job set on one LAWNBOY receipt
+        // says nothing about the others.
+        foreach (['accounting_category' => 'accounting_category', 'asset_tag' => 'asset_tag'] as $f => $lf) {
             if (isset($outcome[$f]) && empty($outcome[$f]['accepted']) && ($outcome[$f]['final'] ?? null) !== null) $corrected[$lf] = (string)$outcome[$f]['final'];
         }
         if (!$corrected) return null;

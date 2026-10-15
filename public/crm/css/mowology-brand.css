@@ -40406,6 +40406,8 @@ body.mw-books {
 .mw-pa-right { background: var(--mw-light); }
 .mw-pa-wrong { background: rgba(232, 93, 4, .08); border: 1px solid rgba(232, 93, 4, .25); }
 .mw-pa-mark { flex: 0 0 22px; font-weight: 800; text-align: center; }
+.mw-pa-info { background: var(--mw-ink-100); }
+.mw-pa-info .mw-pa-mark { color: var(--mw-ink-500); }
 .mw-pa-right .mw-pa-mark { color: var(--mw-green); }
 .mw-pa-wrong .mw-pa-mark { color: var(--mw-orange); }
 .mw-pa-redo { margin: 6px 0; padding: 10px 12px; border-radius: 12px; background: var(--mw-forest); color: var(--mw-lime); font-weight: 600; }

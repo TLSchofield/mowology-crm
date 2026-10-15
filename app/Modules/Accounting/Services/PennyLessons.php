@@ -65,8 +65,12 @@ class PennyLessons
         ]);
     }
 
-    /** Fields of a receipt lesson the bookkeeper may learn from (never the vendor: a misread is filed under the wrong vendor). */
-    public const LEARN_FIELDS = ['accounting_category', 'asset_tag', 'job_id', 'rejected'];
+    /**
+     * Fields of a receipt lesson the bookkeeper may learn per VENDOR. Never the vendor name (a misread is
+     * filed under the wrong vendor) and never the job (Tim 2026-10-14: the job is per purchase — which
+     * property that day — not a fact about the vendor; it comes from where the truck/crew went).
+     */
+    public const LEARN_FIELDS = ['accounting_category', 'asset_tag', 'rejected'];
 
     /**
      * Is this lesson the owner's own one-at-a-time correction (not a bulk clean-up script)? Pure.

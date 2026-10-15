@@ -10,6 +10,7 @@ class PennyLessonsReadTest extends TestCase
     {
         $this->assertTrue(PennyLessons::safeLesson(['field' => 'accounting_category', 'source' => 'expense_gate:desktop_modal']));
         $this->assertTrue(PennyLessons::safeLesson(['field' => 'rejected', 'source' => 'penny_reject']));
+        $this->assertFalse(PennyLessons::safeLesson(['field' => 'job_id', 'source' => 'penny_card']), 'the job is per purchase');
         $this->assertFalse(PennyLessons::safeLesson(['field' => 'accounting_category', 'source' => 'expense_gate:owner_paid_import']), 'bulk import');
         $this->assertFalse(PennyLessons::safeLesson(['field' => 'accounting_category', 'source' => 'expense_gate:reconcile_visa']));
         $this->assertFalse(PennyLessons::safeLesson(['field' => 'vendor_name_raw', 'source' => 'expense_gate:desktop_modal']), 'a misread vendor is never learned');
@@ -33,8 +34,8 @@ class PennyLessonsReadTest extends TestCase
         $db->exec("INSERT INTO head_lessons (site_id, head, subject_kind, subject_key, field, said, correct, source, created_at)
                    VALUES (2, 'penny', 'vendor', 'dunbar lumber', 'accounting_category', 'x', 'Fuel', 'expense_gate:desktop_modal', '2026-09-05')");   // another company
         $all = PennyLessons::forVendor($db, 'Dunbar  Lumber', 20);
-        $this->assertSame(['job_id', 'rejected', 'accounting_category'], array_column($all, 'field'));
-        $this->assertSame('personal purchase', $all[1]['why']);
+        $this->assertSame(['rejected', 'accounting_category'], array_column($all, 'field'), 'a job is never a vendor lesson');
+        $this->assertSame('personal purchase', $all[0]['why']);
 
         $ins->execute(['asset_tag', 'none', 'truck', 'expense_gate:desktop_modal', 14, null, '2026-09-15 16:00:00']);   // the receipt's own day
         $replay = PennyLessons::forVendor($db, 'Dunbar Lumber', 20, '2026-09-15');

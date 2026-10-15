@@ -37,10 +37,12 @@
             return '<li class="mw-pa-right"><span class="mw-pa-mark" aria-hidden="true">✓</span>' +
                    '<span><strong>' + esc(l.label) + '</strong> — I said ' + esc(show(l.said)) + '. Right.</span></li>';
         }
-        var teach = (l.field === 'accounting_category' || l.field === 'asset_tag' || l.field === 'job')
+        var teach = (l.field === 'accounting_category' || l.field === 'asset_tag')
             ? ' I\'ll use that on ' + esc(vendor || 'this vendor\'s') + ' receipts like this one.'
-            : (l.field === 'vendor' ? ' I\'ll read the name better next time.' : ' Noted.');
-        return '<li class="mw-pa-wrong"><span class="mw-pa-mark" aria-hidden="true">✎</span>' +
+            : l.field === 'job'
+                ? ' Jobs go by the purchase, not the store — I won\'t apply this to other ' + esc(vendor || 'vendor') + ' receipts.'
+                : (l.field === 'vendor' ? ' I\'ll read the name better next time.' : ' Noted.');
+        return '<li class="' + (l.field === 'job' ? 'mw-pa-info' : 'mw-pa-wrong') + '"><span class="mw-pa-mark" aria-hidden="true">' + (l.field === 'job' ? 'ⓘ' : '✎') + '</span>' +
                '<span><strong>' + esc(l.label) + '</strong> — I said ' + esc(show(l.said)) +
                ', you set <strong>' + esc(show(l.set)) + '</strong>.' + teach + '</span></li>';
     }
@@ -48,13 +50,17 @@
     function render(p) {
         var vendor = p.vendor || 'this vendor';
         var wrong = (p.lessons || []).filter(function (l) { return !l.right; });
+        // The job is per purchase, never a lesson about the vendor (Tim 2026-10-14): shown, not counted.
+        var teachable = wrong.filter(function (l) { return l.field !== 'job'; });
         var body;
         if (!p.read) {
             body = '<p class="mw-pa-lead">I didn\'t read this one. Approving it still adds to what I know about ' + esc(vendor) + '.</p>';
         } else if (!wrong.length) {
             body = '<p class="mw-pa-lead">Nothing new to learn — I had this one right.</p>';
+        } else if (!teachable.length) {
+            body = '<p class="mw-pa-lead">Nothing new to learn about ' + esc(vendor) + ' — you only set the job for this purchase.</p>';
         } else {
-            body = '<p class="mw-pa-lead">Approving this teaches me ' + wrong.length + ' thing' + (wrong.length === 1 ? '' : 's') + ':</p>';
+            body = '<p class="mw-pa-lead">Approving this teaches me ' + teachable.length + ' thing' + (teachable.length === 1 ? '' : 's') + ':</p>';
         }
         if (p.read && (p.lessons || []).length) {
             var right = p.lessons.filter(function (l) { return l.right; }).map(function (l) { return l.label; });
@@ -92,7 +98,7 @@
               '<div class="mw-pa-body">' + body + '</div>' +
               '<div class="mw-pa-actions">' +
                 '<button type="button" class="btn btn-outline-secondary mw-pa-cancel">Cancel</button>' +
-                '<button type="button" class="btn btn-success mw-pa-go">Approve' + (wrong.length ? ' & teach Penny' : '') + '</button>' +
+                '<button type="button" class="btn btn-success mw-pa-go">Approve' + (teachable.length ? ' & teach Penny' : '') + '</button>' +
               '</div>' +
             '</div>' +
           '</div>';
