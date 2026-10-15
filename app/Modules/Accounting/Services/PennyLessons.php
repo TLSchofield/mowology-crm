@@ -9,8 +9,11 @@
  *                BankImportService::descriptionKey — numbers and cities stripped)
  *   subject()  → any other subject (an invoice, an e-Transfer sender, a service type)
  *
- * All quiet: a failure is logged and never reaches the person's action. Recording only — no
- * learner reads these yet (A2 will), and nothing here touches the books.
+ * All quiet: a failure is logged and never reaches the person's action. Nothing here touches the books.
+ *
+ * Read back (2026-10-14, plan penny-learning-and-crew-view A): forVendor() gives the receipt
+ * bookkeeper the owner's one-at-a-time corrections for a vendor, and trackRecord() how often her
+ * own suggestions for it were right. Bulk clean-ups and vendor misreads are left out (safeLesson).
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -60,6 +63,86 @@ class PennyLessons
             'said' => $said, 'correct' => $correct, 'source' => $source, 'ref_type' => $refType, 'ref_id' => $refId,
             'corrected_by' => $by, 'reason' => $reason,
         ]);
+    }
+
+    /** Fields of a receipt lesson the bookkeeper may learn from (never the vendor: a misread is filed under the wrong vendor). */
+    public const LEARN_FIELDS = ['accounting_category', 'asset_tag', 'job_id', 'rejected'];
+
+    /**
+     * Is this lesson the owner's own one-at-a-time correction (not a bulk clean-up script)? Pure.
+     * Receipt edits (expense_gate:<screen>), Penny's card, the owner's answers, the self-audit — but not
+     * imports, reconciles or anything else run over many rows at once.
+     */
+    public static function safeLesson(array $l): bool
+    {
+        if (!in_array((string)($l['field'] ?? ''), self::LEARN_FIELDS, true)) return false;
+        $src = (string)($l['source'] ?? '');
+        if (preg_match('/import|reconcile|backfill|bulk|fix|_to_/i', $src)) return false;
+        return strpos($src, 'expense_gate:') === 0 || in_array($src, ['penny_card', 'owner_answer', 'self_audit', 'penny_reject'], true);
+    }
+
+    /**
+     * The owner's corrections for a vendor's receipts, newest first, for the bookkeeper's context:
+     * [{field, she_or_reader_said, owner_set, on, why?}]. $exceptExpenseId's own lessons and (for a replay)
+     * anything after $before are left out, so a backtest never sees the answer.
+     */
+    public static function forVendor(PDO $db, string $vendor, int $exceptExpenseId = 0, ?string $before = null, int $limit = 8): array
+    {
+        if (trim($vendor) === '') return [];
+        try {
+            $s = $db->prepare("SELECT field, said, correct, source, reason, ref_type, ref_id, created_at FROM head_lessons
+                               WHERE head = 'penny' AND subject_kind = 'vendor' AND subject_key = ? ORDER BY id DESC LIMIT 60");
+            $s->execute([HeadLessons::normaliseKey($vendor)]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];   // migration 1348 not run
+        }
+        $out = [];
+        foreach ($rows as $l) {
+            if (!self::safeLesson($l)) continue;
+            if ($exceptExpenseId > 0 && ($l['ref_type'] ?? '') === 'expense' && (int)$l['ref_id'] === $exceptExpenseId) continue;
+            if ($before !== null && substr((string)$l['created_at'], 0, 10) > $before) continue;
+            $row = ['field' => $l['field'], 'said' => $l['said'], 'owner_set' => $l['correct'], 'on' => substr((string)$l['created_at'], 0, 10)];
+            if (!empty($l['reason'])) $row['why'] = mb_substr((string)$l['reason'], 0, 200);
+            $out[] = $row;
+            if (count($out) >= $limit) break;
+        }
+        return $out;
+    }
+
+    /**
+     * How often the bookkeeper's suggestions for this vendor were kept, per field, from the owner's
+     * decisions (expense_suggestions.outcome_json): ['accounting_category' => '5 of 6 right', …]. Fields
+     * with no decisions are left out.
+     */
+    public static function trackRecord(PDO $db, int $vendorId, int $exceptExpenseId = 0, ?string $before = null): array
+    {
+        try {
+            $sql = "SELECT s.outcome_json FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+                    WHERE e.vendor_id = ? AND s.source = 'live' AND s.status IN ('accepted', 'edited') AND s.expense_id <> ?"
+                 . ($before !== null ? " AND s.decided_at < ?" : '') . " ORDER BY s.id DESC LIMIT 40";
+            $s = $db->prepare($sql);
+            $s->execute($before !== null ? [$vendorId, $exceptExpenseId, $before] : [$vendorId, $exceptExpenseId]);
+            return self::tallyOutcomes(array_map(fn($j) => json_decode((string)$j, true) ?: [], $s->fetchAll(PDO::FETCH_COLUMN)));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Pure: outcome_json rows → field => "n of m right". */
+    public static function tallyOutcomes(array $outcomes): array
+    {
+        $right = []; $all = [];
+        foreach ($outcomes as $o) {
+            foreach (['vendor', 'accounting_category', 'asset_tag', 'job', 'total'] as $f) {
+                if (!isset($o[$f]) || !is_array($o[$f]) || !array_key_exists('accepted', $o[$f])) continue;
+                $all[$f] = ($all[$f] ?? 0) + 1;
+                if (!empty($o[$f]['accepted'])) $right[$f] = ($right[$f] ?? 0) + 1;
+            }
+        }
+        $out = [];
+        foreach ($all as $f => $n) $out[$f] = ($right[$f] ?? 0) . ' of ' . $n . ' right';
+        return $out;
     }
 
     /** The bank wording as the bank rules see it; the raw text when that strips to nothing. Pure. */
