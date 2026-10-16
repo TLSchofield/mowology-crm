@@ -446,8 +446,13 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
     // pay. Failures here only affect that convenience, never the recorded payment.
     if ($setDefaultPm && $paymentMethodId && $stripeCustomerIdFromIntent) {
         try {
-            // Attach first (idempotent) — saved-card PIs don't guarantee attachment.
-            \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
+            // Attach first — saved-card PIs don't guarantee attachment. attach() is an INSTANCE method in this
+            // stripe-php: the static call was a fatal Error (not an ApiErrorException), so the receipt email after it
+            // never went and Stripe got a 500 (2026-10-16). Retrieve, then attach unless already this customer's.
+            $pm = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+            if (($pm->customer ?? null) !== $stripeCustomerIdFromIntent) {
+                $pm->attach(['customer' => $stripeCustomerIdFromIntent]);
+            }
             \Stripe\Customer::update($stripeCustomerIdFromIntent, [
                 'invoice_settings' => ['default_payment_method' => $paymentMethodId],
             ]);
@@ -455,7 +460,8 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
                 '[Stripe Webhook] Set default_payment_method %s on customer %s',
                 $paymentMethodId, $stripeCustomerIdFromIntent
             ));
-        } catch (\Stripe\Exception\ApiErrorException $e) {
+        } catch (\Throwable $e) {
+            // Any failure here is only the one-click convenience — never stop the receipt below (2026-10-16).
             error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
         }
     }
