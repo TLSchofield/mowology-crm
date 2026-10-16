@@ -297,6 +297,10 @@ class ExpenseGate
         if ($create || array_intersect($changed, ['total', 'expense_date', 'status'])) {
             $this->hooks->chase($id);   // a receipt Penny was chasing (missing-receipt item) may just have arrived
         }
+        // A date the reader can't have read right (handwritten): the bank line's date, or a flag (ReceiptDateCheck).
+        if ($source !== 'date_check' && ($create || array_intersect($changed, ['total', 'expense_date']))) {
+            $this->hooks->dateCheck($id);
+        }
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
         $userId = $actor['id'] ?? null;

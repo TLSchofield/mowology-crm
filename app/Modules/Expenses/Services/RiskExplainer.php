@@ -86,6 +86,9 @@ class RiskExplainer
                     return 'That\'s more than double the usual ' . ($cat !== '' ? $cat : 'spend') . ' for this month (about $' . $m[1] . ').';
                 }
                 return 'Bigger than usual for ' . ($cat !== '' ? $cat : 'this kind of expense') . ' — make sure the amount is right.';
+            case 'DATE_UNREADABLE':
+                $d = !empty($e['expense_date']) ? date('M j, Y', strtotime((string)$e['expense_date'])) : 'this date';
+                return "I read the date as {$d}, long before it was uploaded — it may be handwritten. Check the date on the paper.";
             case 'DUPLICATE_DAY':
                 return !empty($ctx['same_amount'])
                     ? "There's another {$vendor} receipt that day for the same amount."

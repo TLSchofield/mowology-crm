@@ -72,6 +72,13 @@ try {
     try {
         require_once APP_ROOT . '/Modules/Accounting/Services/ReceiptBankCheck.php';
         $output['receipt_bank_check'] = (new ReceiptBankCheck($db))->run(true)['counts'];
+        // Receipts flagged DATE_UNREADABLE: their bank lines may have arrived since (ReceiptDateCheck).
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptDateCheck.php';
+            $output['receipt_date_check'] = (new ReceiptDateCheck($db))->sweep();
+        } catch (Throwable $e) {
+            $output['receipt_date_check'] = ['error' => $e->getMessage()];
+        }
     } catch (Throwable $e) {
         $output['receipt_bank_check_error'] = $e->getMessage();
         error_log('[accounting_sync] receipt bank check: ' . $e->getMessage());

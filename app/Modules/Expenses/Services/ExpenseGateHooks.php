@@ -35,6 +35,17 @@ class ExpenseGateHooks
      * Penny's missing-receipt chaser (migration 1245): a receipt that fits an open "missing
      * receipt" item closes it, whatever path it came in by.
      */
+    /** ReceiptDateCheck on a new or re-dated receipt. Never fails the save. */
+    public function dateCheck(int $expenseId): void
+    {
+        try {
+            require_once __DIR__ . '/ReceiptDateCheck.php';
+            (new ReceiptDateCheck($this->db))->check($expenseId);
+        } catch (Throwable $e) {
+            error_log('Receipt date check #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     public function chase(int $expenseId): void
     {
         try {
