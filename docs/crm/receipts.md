@@ -541,3 +541,13 @@ only while the receipt is still waiting and never repairing amounts. When none a
 vendor's receipts. Column headings read as items ("QTY PRICE AMOUNT") are dropped by the parser.
 Penny's card shows **Items read**: this week's photographed receipts whose items add up, beside last week.
 Handwritten receipts (Lawnboy's date) can't be learned this way — see the date check backlog.
+
+## Handwritten dates (2026-10-15)
+
+`ReceiptDateCheck` runs after a receipt is created or its date / total changes (gate hook) and nightly for
+flagged receipts (`sync-ledger`). A waiting receipt dated more than 30 days before its upload, or more than a
+day after it, is doubted. If exactly one unmatched bank purchase names the vendor at that amount, dated 3 days
+before to 6 days after the upload, and no other waiting receipt of the vendor has that amount, the receipt takes
+the line's date. Otherwise a fresh single upload is flagged `DATE_UNREADABLE` (Penny explains it); batch scans
+(5+ by one person within the hour) are old on purpose and never flagged. The scanner's fallback for an
+unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated Apr 2.
