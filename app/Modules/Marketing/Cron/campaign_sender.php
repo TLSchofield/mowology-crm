@@ -51,6 +51,17 @@ if (!$isCli) {
 
 $batchSize = 20; // Max emails per run
 
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$cronStart = microtime(true);
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('campaign_sender', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
+    } catch (\Throwable $e) {
+        error_log('campaign_sender: could not record the run — ' . $e->getMessage());
+    }
+};
+
 try {
     $db = getDB();
 
@@ -59,6 +70,7 @@ try {
         $db->query("SELECT 1 FROM marketing_campaigns LIMIT 0");
     } catch (\Exception $e) {
         $msg = 'marketing_campaigns table does not exist. Run migration 604 first.';
+        $logRun('error', $msg, $msg);
         if ($isCli) { echo "SKIP: $msg\n"; exit(0); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
@@ -70,6 +82,7 @@ try {
     // this connection closes.
     if ((int)$db->query("SELECT GET_LOCK('mowology_campaign_sender', 0)")->fetchColumn() !== 1) {
         $msg = 'Another campaign_sender run is in progress.';
+        $logRun('success', $msg);
         if ($isCli) { echo "$msg\n"; exit(0); }
         echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0]);
         exit;
@@ -89,6 +102,7 @@ try {
 
     if (empty($campaigns)) {
         $msg = 'No campaigns in sending status.';
+        $logRun('success', $msg);
         if ($isCli) { echo "$msg\n"; exit(0); }
         echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0]);
         exit;
@@ -314,6 +328,9 @@ try {
         'campaigns_processed' => $campaignsProcessed,
     ];
 
+    $logRun($totalFailed > 0 ? 'warning' : 'success', $result['message'],
+            $totalFailed > 0 ? $totalFailed . ' email(s) failed — see campaign_sends.error_message' : null);
+
     if ($isCli) {
         echo $result['message'] . "\n";
     } else {
@@ -323,6 +340,7 @@ try {
 } catch (\Throwable $e) {
     $error = 'campaign_sender error: ' . $e->getMessage();
     error_log($error);
+    $logRun('error', 'campaign_sender failed', $error);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }
