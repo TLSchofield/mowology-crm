@@ -421,3 +421,4 @@ require_once __DIR__ . '/../app/Modules/Plants/Services/BedLocator.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantIdService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantCareService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/SitePlantQuizService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';

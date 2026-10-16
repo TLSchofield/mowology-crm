@@ -11,7 +11,9 @@
  *       (stripe_payments), truck GPS (vehicle_location_pings);
  *   (3) security — active logins with no login and no phone seen for 90 days, the JWT key, failed
  *       logins and sensitive changes (AdaSecurityWatch), and the nightly security-posture rows
- *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group.
+ *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group;
+ *   (4) server crashes — PHP fatal / parse errors in the server error log's last day, by file:line
+ *       (AdaServerErrors, 2026-10-16: the Stripe webhook crashed on 189 payments and nothing said so).
  * Each check fails on its own (logged, then shown as "can't tell") — one bad query never
  * blanks the page or Charlie's brief.
  *
@@ -61,7 +63,7 @@ class AdaDeskService
     {
         if ($this->checks !== null) return $this->checks;
         $all = [];
-        foreach (['cronChecks', 'connectionChecks', 'securityChecks'] as $part) {
+        foreach (['cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks'] as $part) {
             try {
                 $all = array_merge($all, $this->$part());
             } catch (Throwable $e) {
@@ -249,5 +251,15 @@ class AdaDeskService
         require_once __DIR__ . '/SecurityPostureService.php';
         foreach ((new SecurityPostureService($this->db, $this->now))->deskChecks() as $c) $out[] = $c;
         return $out;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // (4) Server crashes
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function serverErrorChecks(): array
+    {
+        require_once __DIR__ . '/AdaServerErrors.php';
+        return (new AdaServerErrors(null, $this->now()))->checks();
     }
 }

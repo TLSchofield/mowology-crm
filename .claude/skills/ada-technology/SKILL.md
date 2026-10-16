@@ -114,6 +114,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | Cron run history API | `app/Modules/Database/Api/cron-log.php` (`latest`, `history`) | admin only |
 | Cron overlap lock | `CronLock::acquire()` in `app/Core/CronLock.php` | records nothing |
 | Server error log | `writeSystemLog()` → table `system_log`; page `public/crm/system-log_appstack.php` | |
+| PHP crashes (fatal / parse errors in pages, APIs, webhooks) | `AdaServerErrors` in `app/Modules/Technology/Services/AdaServerErrors.php` reads the tail of the PHP error log (`ini_get('error_log')`), last 24 h, grouped by file:line; ≥3 = red | added 2026-10-16: the Stripe webhook fataled on 189 payments since May and Ada never saw it (system_log ≠ PHP error log) |
 | Migrations run | table `migrations_log`; runner `app/Modules/Database/Api/migrations-manager.php` | files in `database/migrations/` |
 | Schema snapshot + drift | `app/Modules/Database/Cron/schema_snapshot.php`, `getSchemaSnapshot()` and `compareSnapshots()` in `app/Modules/Database/Services/SchemaFunctions.php` | daily 4 AM (`schema_snapshot`) |
 | Mailbox list + configured or not | `MailboxConfig::status()` in `app/Services/Mail/MailboxConfig.php` | says "configured", not "login works" |
