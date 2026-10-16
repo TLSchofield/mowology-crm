@@ -3853,6 +3853,7 @@ async function submitReceiptExport() {
             document.getElementById('expAmount').value = e.amount;
             document.getElementById('expGst').value = e.gst_amount;
             document.getElementById('expTotal').value = e.total;
+            window.mwExpSavedTotal = parseFloat(e.total) || 0;   // Attach is judged on the SAVED total (the server's rule)
             document.getElementById('expAcctCategory').value = e.accounting_category || '';
             document.getElementById('expGbpCategory').value = e.gbp_category || '';
             // Job link — populate the search field display and hidden ID
@@ -4052,7 +4053,16 @@ async function submitReceiptExport() {
                         '</div>' +
                     '</div>' +
                     '<div class="mw-match-apply">' +
-                        '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>' +
+                        // Same vendor at another amount / date: the receipt was misread — fill the form from the bank
+                        // line (check the paper, then Save); Attach only once the totals agree (2026-10-15).
+                        (function () {
+                            var agree = function (t) { return Math.abs(c.amount - t) <= Math.max(0.5, t * 0.02) + 0.001; };
+                            var saved = window.mwExpSavedTotal || 0, form = parseFloat(fTot) || 0;
+                            if (agree(saved)) return '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>';
+                            if (agree(form)) return '<button type="button" class="mw-action-btn" disabled title="Save the new total first">Save, then attach</button>';
+                            return c.vendor_only ? '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\')">Use $' + c.amount.toFixed(2) + '</button>'
+                                                 : '<button type="button" class="mw-action-btn" disabled title="The amounts differ">Totals differ</button>';
+                        })()) +
                     '</div>' +
                 '</div>';
             }).join('') +
@@ -4061,6 +4071,14 @@ async function submitReceiptExport() {
         } catch (err) {
             area.innerHTML = '<div class="text-danger small">Error: ' + esc(err.message) + '</div>';
         }
+    };
+
+    /** Put a same-vendor bank line's amount and date in the form (nothing saved): check the paper, then Save, then Attach. */
+    window.mwUseBankLine = function(amount, date) {
+        var t = document.getElementById('expTotal'), d = document.getElementById('expDate');
+        if (t) { t.value = amount; t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (d && date) { d.value = date; d.dispatchEvent(new Event('input', { bubbles: true })); d.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (window.mwToast) mwToast('Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
     };
 
     window.mwAttachExpenseMatch = async function(transactionId, expenseId) {

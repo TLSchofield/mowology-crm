@@ -4113,7 +4113,8 @@ class BankImportService
     public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null): array
     {
         $stmt = $this->db->prepare("
-            SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?
         ");
         $stmt->execute([$expenseId]);
         $expense = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -4158,7 +4159,76 @@ class BankImportService
         }
         usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
         $out = $this->receiptFactsBoost($out, null, $expenseId);
-        return array_slice($out, 0, $limit);
+        $out = array_slice($out, 0, $limit);
+        // Below them: the same vendor's lines at ANY amount within ±VENDOR_WINDOW_DAYS — a misread total or date
+        // (handwritten 8 read as 3: Champion $184.40 vs the receipt's $134.40, Tim 2026-10-15). Never above an amount match.
+        return array_merge($out, $this->sameVendorLines($expense, array_column($out, 'transaction_id')));
+    }
+
+    public const VENDOR_WINDOW_DAYS = 30;
+
+    /** Do a receipt total and a bank line agree (exact, or within 2% / 50¢ — the candidates' own rule)? Pure. */
+    public static function amountsAgree(float $total, float $line): bool
+    {
+        return abs(round($total, 2) - round($line, 2)) <= max(0.5, round($total, 2) * 0.02) + 0.001;
+    }
+    public const VENDOR_LINES_MAX = 3;
+
+    /** Unmatched bank lines naming the receipt's vendor, any amount, nearest date first. */
+    private function sameVendorLines(array $expense, array $exclude): array
+    {
+        $names = array_values(array_filter([trim((string)($expense['vendor_name'] ?? '')), trim((string)($expense['vendor_name_raw'] ?? ''))]));
+        if (!$names) return [];
+        // Narrow in SQL by the vendor's words (vendorInDescription confirms each in PHP), so no cap can hide a match.
+        $words = [];
+        foreach ($names as $n) {
+            foreach (preg_split('/[^a-z0-9]+/', strtolower($n)) as $w) {
+                if (strlen($w) >= 4 && !in_array($w, ['store', 'shop', 'company', 'canada', 'limited'], true)) $words[$w] = true;
+            }
+        }
+        if (!$words) return [];
+        $like = implode(' OR ', array_fill(0, count($words), 'LOWER(at.description) LIKE ?'));
+        $s = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
+            FROM accounting_transactions at
+            WHERE at.type = 'expense' AND at.reference_type = 'bank_import' AND at.matched_expense_id IS NULL
+              AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+              AND ({$like})
+            ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
+            LIMIT 50
+        ");
+        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date']], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date']]));
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+            if (in_array((int)$tx['id'], $exclude, true)) continue;
+            $hit = false;
+            foreach ($names as $n) if (self::vendorInDescription($n, (string)$tx['description'])) { $hit = true; break; }
+            if (!$hit) continue;
+            $out[] = self::vendorLine($expense, $tx);
+            if (count($out) >= self::VENDOR_LINES_MAX) break;
+        }
+        return $out;
+    }
+
+    /** One same-vendor candidate, shaped like the others; low confidence, says what to check. Pure. */
+    public static function vendorLine(array $expense, array $tx): array
+    {
+        $days = (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400);
+        $amt = round((float)$tx['amount'], 2);
+        $same = abs($amt - round((float)$expense['total'], 2)) < 0.01;
+        $reasons = ['Same vendor'];
+        $reasons[] = $same ? 'Same amount, ' . $days . ' day' . ($days === 1 ? '' : 's') . ' apart — check the date'
+                           : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total';
+        return [
+            'transaction_id' => (int)$tx['id'],
+            'date'           => substr((string)$tx['transaction_date'], 0, 10),
+            'description'    => (string)$tx['description'],
+            'bank_account'   => (string)($tx['bank_account'] ?? ''),
+            'amount'         => $amt,
+            'confidence'     => max(10, 30 - $days),
+            'reasons'        => $reasons,
+            'vendor_only'    => true,
+        ];
     }
 
     /**
@@ -4254,6 +4324,12 @@ class BankImportService
         $stmt->execute([$expenseId]);
         $expense = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$expense) throw new RuntimeException('Expense not found.');
+        // A bank line is the same purchase only when the amounts agree (within the candidates' 2%): a same-vendor
+        // line at another amount means the receipt's total is misread — fix and save it first (2026-10-15).
+        if (!self::amountsAgree((float)$expense['total'], (float)$transaction['amount'])) {
+            throw new RuntimeException('The receipt says $' . number_format((float)$expense['total'], 2) . ' and the bank line $'
+                . number_format((float)$transaction['amount'], 2) . ' — correct the receipt total and save it first.');
+        }
 
         $stmt = $this->db->prepare("SELECT id FROM accounting_transactions WHERE matched_expense_id = ?");
         $stmt->execute([$expenseId]);
