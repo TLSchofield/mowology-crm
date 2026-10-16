@@ -1,13 +1,13 @@
 {
   "android": {
-    "version": "1.5.2",
-    "build": 17,
-    "min_version": "1.3.2",
-    "min_build": 12,
+    "version": "1.6.0",
+    "build": 18,
+    "min_version": "1.6.0",
+    "min_build": 18,
     "apk_url": "/crm/downloads/mowology-crew.apk",
-    "released": "2026-10-14",
-    "release_notes": "Photos you take are kept on the phone and keep trying to upload until they are in, even with the app closed. A new camera is ready to try.",
-    "force_update": false,
+    "released": "2026-10-16",
+    "release_notes": "Salt and snow stops, extra work and special requests are ready for the new Finish screen. Jobs you finish with no signal now always keep their details until they send.",
+    "force_update": true,
     "native_camera": false,
     "native_visit": false
   },
