@@ -455,4 +455,15 @@ class ContractServiceTest extends TestCase
             3 => false,  // cancelled -> not contract-billed
         ], $result);
     }
+
+    public function test_a_running_contract_prints_as_a_copy_for_records_not_a_request_to_sign(): void
+    {
+        $c = ['status' => 'active', 'signature_status' => 'unsigned', 'start_date' => '2026-05-01'];
+        $this->assertTrue(ContractService::isRunningCopy($c, '2026-10-16'));
+        $this->assertFalse(ContractService::isRunningCopy(['start_date' => '2026-10-14'] + $c, '2026-10-16'), 'a new one this week still has sign lines');
+        $this->assertFalse(ContractService::isRunningCopy(['start_date' => '2026-11-01'] + $c, '2026-10-16'), 'not started');
+        $this->assertFalse(ContractService::isRunningCopy(['status' => 'draft'] + $c, '2026-10-16'));
+        $this->assertFalse(ContractService::isRunningCopy(['signature_status' => 'signed'] + $c, '2026-10-16'), 'signed shows its signature');
+        $this->assertFalse(ContractService::isRunningCopy(['start_date' => null] + $c, '2026-10-16'));
+    }
 }

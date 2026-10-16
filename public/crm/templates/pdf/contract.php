@@ -151,6 +151,12 @@ $dateOrDash = function ($d) { return $d ? date('F j, Y', strtotime((string)$d)) 
             <?php endif; ?>
         </div>
     </div>
+<?php elseif ((require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php') && ContractService::isRunningCopy($contract, date('Y-m-d'))): ?>
+    <!-- Already running: a copy for the client's records, never a request to sign (Tim 2026-10-16). -->
+    <p style="font-size:9.5pt;color:#334155;">
+        This agreement has been in place since <?php echo $dateOrDash($contract['start_date'] ?? null); ?>.
+        This copy is for your records.
+    </p>
 <?php else: ?>
     <!-- Not yet signed — ruled lines so this can be printed, signed by hand
          and returned. Both parties sign: a wet copy has no server-side record

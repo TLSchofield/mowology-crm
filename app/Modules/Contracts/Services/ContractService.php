@@ -578,6 +578,19 @@ class ContractService
         )->execute([$contractId]);
     }
 
+    /**
+     * A contract already running (active, started over a week ago) with no signature: its PDF is a copy for the
+     * client's records, with no lines to sign — asking a running client to sign reads as "you don't have to keep
+     * paying" (Tim 2026-10-16). A new contract (not started, or started this week) still prints the sign lines. Pure.
+     */
+    public static function isRunningCopy(array $contract, string $today): bool
+    {
+        if (($contract['status'] ?? '') !== 'active' || ($contract['signature_status'] ?? '') === 'signed') return false;
+        $start = (string)($contract['start_date'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $start)) return false;
+        return substr($start, 0, 10) <= date('Y-m-d', strtotime($today . ' -7 days'));
+    }
+
     /** Tim: contracts rise 5% each March/April. Overridable by ops_settings.contract_renewal_increase_pct. */
     public const DEFAULT_RENEWAL_INCREASE_PCT = 5.0;
 
