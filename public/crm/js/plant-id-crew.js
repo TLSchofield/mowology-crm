@@ -131,17 +131,31 @@
         var e = $('.mw-plant-error');
         if (e) { e.textContent = msg; e.style.display = ''; }
         var b = $('[data-plant="identify"]');
-        if (b) { b.disabled = false; b.textContent = 'Identify'; }
+        // The photos stay: Try again sends only the ones not sent yet (2026-10-16).
+        if (b) { b.disabled = false; b.textContent = 'Try again'; }
+        if (S) S.failed = true;
     }
+
+    // Back in the app after a send was cut off (the phone pauses a page in the background): carry on by itself.
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && S && S.failed && !S.busy && $('[data-plant="identify"]')) identify();
+    });
 
     function identify() {
         var b = $('[data-plant="identify"]');
+        if (!b || S.busy) return;
         b.disabled = true;
-        var files = SHOTS.map(function (s) { return S.files[s[0]]; }).filter(Boolean);
-        var ids = [];
-        files.reduce(function (p, f, i) {
-            return p.then(function () { b.textContent = 'Uploading ' + (i + 1) + ' of ' + files.length + '…'; return upload(f).then(function (id) { ids.push(id); }); });
+        S.busy = true; S.failed = false;
+        S.sent = S.sent || {};   // shot → media id already uploaded
+        var shots = SHOTS.map(function (s) { return s[0]; }).filter(function (k) { return S.files[k]; });
+        shots.reduce(function (p, k, i) {
+            return p.then(function () {
+                if (S.sent[k]) return;
+                b.textContent = 'Uploading ' + (i + 1) + ' of ' + shots.length + '…';
+                return upload(S.files[k]).then(function (id) { S.sent[k] = id; });
+            });
         }, Promise.resolve()).then(function () {
+            var ids = shots.map(function (k) { return S.sent[k]; });
             b.textContent = 'Asking Pl@ntNet…';
             return post({ mode: 'identify_visit', visit_id: S.visitId, media_ids: ids, lat: S.fix && S.fix.lat, lng: S.fix && S.fix.lng,
                           accuracy: S.fix && S.fix.accuracy, heading: S.wholeHeading != null ? S.wholeHeading : S.heading });
@@ -149,7 +163,8 @@
             if (!r || !r.ok || !r.record) throw new Error((r && (r.message || r.error)) || 'Could not identify it');
             stopFix(); stopCompass();
             renderPick(r);
-        }).catch(function (err) { fail(err.message || 'Something went wrong — try again.'); });
+        }).catch(function (err) { fail((err.message && err.message !== 'Failed to fetch' ? err.message : 'Couldn\'t send — your photos are kept.') + ' Tap Try again.'); })
+          .then(function () { if (S) S.busy = false; });
     }
 
     function renderPick(r) {
@@ -225,6 +240,7 @@
             if (!inp.matches || !inp.matches('input[data-shot]') || !inp.files || !inp.files[0]) return;
             var shot = inp.getAttribute('data-shot');
             S.files[shot] = inp.files[0];
+            if (S.sent) delete S.sent[shot];   // a retaken photo is sent again
             if (shot === 'whole') S.wholeHeading = S.heading;
             var fix = S.fix, where = $('.mw-plant-where') ? $('.mw-plant-where').textContent : '';
             renderShots();

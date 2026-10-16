@@ -808,6 +808,22 @@ private struct PlantCameraPreview: UIViewRepresentable {
     func updateUIView(_ uiView: PreviewView, context: Context) {}
 }
 
+/// Holds an iOS background task for the length of a send, ending it once (either way it finishes).
+@MainActor
+final class BackgroundTaskHold {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            Task { @MainActor in self?.end() }
+        }
+    }
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
+}
+
 struct PlantIdView: View {
     let visitId: Int
     let authSession: AuthSession
@@ -830,6 +846,11 @@ struct PlantIdView: View {
     @State private var other: String = ""
     @State private var bedId: Int = 0
     @State private var saved: PlantIdResponse?
+    /// Media ids of the shots already uploaded, in order — a retry sends only the rest (2026-10-16).
+    @State private var uploaded: [Int] = []
+    /// The send stopped (no signal, or the app went to the background): the photos are kept for Try again.
+    @State private var sendFailed = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -844,6 +865,10 @@ struct PlantIdView: View {
         .task {
             fix.start()
             await camera.start(videoMode: false)
+        }
+        // Back from the background after a send was cut off: carry on by itself.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, sendFailed, !busy, shots.count == 3 { Task { await identify() } }
         }
         .onDisappear {
             fix.stop()
@@ -888,12 +913,22 @@ struct PlantIdView: View {
                         }
                     }
                 }
-                Button(action: shoot) {
-                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 74, height: 74)
-                        .overlay(Circle().fill(busy ? Color.gray : Color.white).frame(width: 60, height: 60))
+                if sendFailed && !busy {
+                    HStack(spacing: 12) {
+                        Button("Retake photos") { Task { await retake() } }
+                            .buttonStyle(.bordered).tint(.white)
+                        Button("Try again") { Task { await identify() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.bottom, 24)
+                } else {
+                    Button(action: shoot) {
+                        Circle().stroke(Color.white, lineWidth: 4).frame(width: 74, height: 74)
+                            .overlay(Circle().fill(busy ? Color.gray : Color.white).frame(width: 60, height: 60))
+                    }
+                    .disabled(busy || shots.count >= 3)
+                    .padding(.bottom, 24)
                 }
-                .disabled(busy || shots.count >= 3)
-                .padding(.bottom, 24)
             }
         }
     }
@@ -921,18 +956,24 @@ struct PlantIdView: View {
     }
 
     private func identify() async {
+        guard !busy else { return }
         busy = true
-        defer { busy = false }
+        sendFailed = false
+        // Switching apps mid-send: iOS lets a background task finish (about 30 s) instead of cutting it off.
+        let bg = BackgroundTaskHold(name: "plant-id")
+        defer { busy = false; bg.end() }
         let api = APIClient(authSession: authSession)
-        var ids: [Int] = []
         do {
-            for (i, data) in shots.enumerated() {
+            // Only the shots not sent yet (a re-sent photo is recognised by the server anyway).
+            for i in uploaded.count..<shots.count {
                 status = "Uploading photo \(i + 1) of 3…"
+                let data = shots[i]
                 let res = try await api.uploadVisitPhoto(imageData: data, visitId: visitId, photoTypeRaw: "other")
-                if let id = res["media_id"] as? Int { ids.append(id) }
-                else if let s = res["media_id"] as? String, let id = Int(s) { ids.append(id) }
+                if let id = res["media_id"] as? Int { uploaded.append(id) }
+                else if let s = res["media_id"] as? String, let id = Int(s) { uploaded.append(id) }
                 else { throw APIError.serverError("A photo uploaded without an id") }
             }
+            let ids = uploaded
             status = "Asking Pl@ntNet…"
             var body: [String: Any] = ["mode": "identify", "visit_id": visitId, "media_ids": ids]
             if let b = fix.best {
@@ -952,14 +993,18 @@ struct PlantIdView: View {
                 await retake()
             }
         } catch {
-            status = "Couldn't send the photos — check the signal and try again."
-            await retake()
+            // Keep the photos: Try again sends what is left (or it carries on by itself when the app comes back).
+            status = "Couldn't send — your photos are kept. Tap Try again."
+            sendFailed = true
         }
     }
 
-    /// Back to shooting after a failure: clear the shots and turn the camera on again.
+    /// Back to shooting: clear the shots and turn the camera on again.
     private func retake() async {
         shots = []
+        uploaded = []
+        sendFailed = false
+        status = nil
         await camera.start(videoMode: false)
     }
 
