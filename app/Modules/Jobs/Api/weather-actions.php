@@ -37,6 +37,11 @@ $__deny = WeatherActionGuard::reject(
     $__csrf !== '' && verifyCSRFToken($__csrf),
     function_exists('userHasPermission') && userHasPermission(WeatherActionGuard::PERMISSION)
 );
+// Reading the list shows clients' addresses and the crews' days: clients.view (office), not any login (Codex 2026-10-15).
+if ($__deny === null && strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST'
+    && !(function_exists('userHasPermission') && userHasPermission('clients.view'))) {
+    $__deny = [403, 'You need permission to view clients (clients.view)'];
+}
 session_write_close(); // release session lock immediately
 if ($__deny !== null) {
     header('Content-Type: application/json');
@@ -74,6 +79,10 @@ try {
             WHERE v.scheduled_date BETWEEN ? AND ?
               AND v.weather_status IN ('NOT_OK', 'BORDERLINE')
               AND v.status = 'scheduled'
+              -- Dismissed since its weather was last decided: off the list (Codex 2026-10-15: dismiss did nothing)
+              AND NOT EXISTS (SELECT 1 FROM weather_action_log w
+                              WHERE w.action_type = 'DISMISSED' AND w.entity_type = 'visit' AND w.entity_id = v.id
+                                AND w.created_at >= COALESCE(v.weather_decision_at, '1970-01-01'))
             ORDER BY v.scheduled_date, v.scheduled_time_start
         ");
         $stmt->execute([$dateFrom, $dateTo]);

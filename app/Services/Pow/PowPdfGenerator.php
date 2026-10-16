@@ -173,7 +173,7 @@ class PowPdfGenerator
         $stmt = $this->db->prepare("
             SELECT id, photo_type, filename, caption, uploaded_at
             FROM visit_photos
-            WHERE visit_id = ?
+            WHERE visit_id = ? AND deleted_at IS NULL   -- a deleted photo never goes to the client (as the salt report)
             ORDER BY photo_type, uploaded_at
         ");
         $stmt->execute([$visitId]);

@@ -26,7 +26,7 @@ $db = getDB();
 // Load visit + report + weather + contact
 $stmt = $db->prepare("
     SELECT
-        jv.id AS visit_id, jv.scheduled_date, jv.started_at, jv.completed_at,
+        jv.id AS visit_id, jv.plan_id, jv.scheduled_date, jv.started_at, jv.completed_at,
         jv.status, jv.gps_dwell_minutes, jv.gps_dwell_quality, jv.gps_points_count,
         jp.title AS plan_title, jp.plan_number,
         pr.address AS property_address, pr.city AS property_city,

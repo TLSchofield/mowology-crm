@@ -81,6 +81,11 @@ function jsonRespond(array $data): void {
 
 try {
     $db = getDB();
+    // One guard at a time (Codex review 2026-10-15): the cron and a "Run guard" click could both pass the
+    // per-visit "evaluated today" check and both move the same visit. A MySQL lock covers web + CLI.
+    if ((int)$db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.weather_schedule_guard'), 0)")->fetchColumn() !== 1) {
+        jsonRespond(['success' => true, 'skipped' => 'Another weather guard run is in progress.']);
+    }
     $ops = getWeatherOpsConstraints();
     $lookaheadDays = (int)($ops['lookahead_days'] ?? 2);
 
@@ -171,6 +176,13 @@ try {
         $hourlyWindow = getHourlyForecastWindow($lat, $lon, $visit['scheduled_date'], $timeStart, $timeEnd);
         $evalResult = evaluateVisitWeather($visitRule, $hourlyWindow, $timeStart, $timeEnd);
         $evalResult['visit_rule'] = $visitRule;
+
+        // No forecast (the weather API timed out): not "evaluated today" — the next run tries again instead
+        // of leaving the visit unchecked until tomorrow (Codex review 2026-10-15).
+        if (empty($hourlyWindow)) {
+            $results['errors'][] = "Visit {$visit['visit_number']}: no forecast yet — will retry next run";
+            continue;
+        }
 
         // Save snapshot
         saveWeatherSnapshot($visitId, $evalResult);

@@ -211,11 +211,17 @@ if ($action === 'attach_invoice') {
         exit;
     }
 
-    // Verify invoice exists
-    $invStmt = $db->prepare("SELECT id FROM invoices WHERE id = ?");
-    $invStmt->execute([$invoiceId]);
+    // The invoice must be this visit's, its plan's or its property's (Codex review 2026-10-15: any invoice id
+    // was accepted, so one client's service record could be attached to another client's invoice).
+    $invStmt = $db->prepare("
+        SELECT i.id FROM invoices i
+        JOIN job_visits jv ON jv.id = ?
+        LEFT JOIN job_plans jp ON jp.id = jv.plan_id
+        WHERE i.id = ? AND (i.visit_id = jv.id OR i.plan_id = jv.plan_id OR (jp.property_id IS NOT NULL AND i.property_id = jp.property_id))
+    ");
+    $invStmt->execute([$visitId, $invoiceId]);
     if (!$invStmt->fetch()) {
-        echo json_encode(['success' => false, 'error' => 'Invoice not found']);
+        echo json_encode(['success' => false, 'error' => 'That invoice is not for this visit or property.']);
         exit;
     }
 

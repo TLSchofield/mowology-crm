@@ -308,11 +308,11 @@ class MapSnapshotService
 
     private function computeHash(array $points): string
     {
+        // Every point (Codex review 2026-10-15: count + first + last reused an old map after a replay changed
+        // the route in between, so the picture and the PDF's distance disagreed).
         $data = count($points) . '|';
-        if (!empty($points)) {
-            $first = $points[0];
-            $last  = $points[count($points) - 1];
-            $data .= $first['lat'] . $first['lng'] . $last['lat'] . $last['lng'];
+        foreach ($points as $p) {
+            $data .= ($p['lat'] ?? '') . ',' . ($p['lng'] ?? '') . ',' . ($p['ts'] ?? '') . ';';
         }
         return md5($data);
     }

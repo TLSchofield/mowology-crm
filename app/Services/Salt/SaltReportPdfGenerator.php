@@ -281,39 +281,29 @@ class SaltReportPdfGenerator
         $propLat = isset($visit['property_lat']) && $visit['property_lat'] !== null ? (float)$visit['property_lat'] : null;
         $propLng = isset($visit['property_lng']) && $visit['property_lng'] !== null ? (float)$visit['property_lng'] : null;
 
-        if ($propLat !== null && $propLng !== null) {
-            $latMin = $propLat - 0.006; $latMax = $propLat + 0.006; // ≈600m
-            $lngMin = $propLng - 0.008; $lngMax = $propLng + 0.008; // wider for lng at lat ~49°
-            $stmt = $this->db->prepare("
-                SELECT clh.latitude AS lat, clh.longitude AS lng,
-                       clh.accuracy_meters AS accuracy_m, clh.timestamp AS ts
-                FROM crew_location_history clh
-                INNER JOIN users u ON u.id = clh.crew_id
-                WHERE u.is_vehicle_tablet = 1
-                  AND clh.is_mock = 0
-                  AND clh.timestamp >= ?
-                  AND clh.timestamp <= ?
-                  AND clh.latitude  BETWEEN ? AND ?
-                  AND clh.longitude BETWEEN ? AND ?
-                ORDER BY clh.timestamp ASC
-                LIMIT 500
-            ");
-            $stmt->execute([$windowStart, $windowEnd, $latMin, $latMax, $lngMin, $lngMax]);
-        } else {
-            $stmt = $this->db->prepare("
-                SELECT clh.latitude AS lat, clh.longitude AS lng,
-                       clh.accuracy_meters AS accuracy_m, clh.timestamp AS ts
-                FROM crew_location_history clh
-                INNER JOIN users u ON u.id = clh.crew_id
-                WHERE u.is_vehicle_tablet = 1
-                  AND clh.is_mock = 0
-                  AND clh.timestamp >= ?
-                  AND clh.timestamp <= ?
-                ORDER BY clh.timestamp ASC
-                LIMIT 500
-            ");
-            $stmt->execute([$windowStart, $windowEnd]);
+        // Without the property's location there is no way to say the vehicle was HERE: no vehicle evidence
+        // (Codex review 2026-10-15 — every tablet's route for the window was shown as proof). With it, only
+        // points within ~200 m of the property count.
+        if ($propLat === null || $propLng === null) {
+            return [];
         }
+        $latMin = $propLat - 0.0018; $latMax = $propLat + 0.0018; // ≈200 m
+        $lngMin = $propLng - 0.0028; $lngMax = $propLng + 0.0028; // ≈200 m at lat ~49°
+        $stmt = $this->db->prepare("
+            SELECT clh.latitude AS lat, clh.longitude AS lng,
+                   clh.accuracy_meters AS accuracy_m, clh.timestamp AS ts
+            FROM crew_location_history clh
+            INNER JOIN users u ON u.id = clh.crew_id
+            WHERE u.is_vehicle_tablet = 1
+              AND clh.is_mock = 0
+              AND clh.timestamp >= ?
+              AND clh.timestamp <= ?
+              AND clh.latitude  BETWEEN ? AND ?
+              AND clh.longitude BETWEEN ? AND ?
+            ORDER BY clh.timestamp ASC
+            LIMIT 500
+        ");
+        $stmt->execute([$windowStart, $windowEnd, $latMin, $latMax, $lngMin, $lngMax]);
 
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }

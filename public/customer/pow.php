@@ -14,6 +14,7 @@ header('X-Frame-Options: SAMEORIGIN');
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
+header('Referrer-Policy: no-referrer'); // the link's token never travels in a Referer (Codex 2026-10-15)
 
 $db    = getDB();
 $error = '';
@@ -55,7 +56,8 @@ if (!$error) {
 
     if (!$visit) {
         $error = 'Visit record not found.';
-    } elseif ($visit['proof_complete'] != 1 && empty($visit['pdf_path'])) {
+    } elseif ($visit['proof_complete'] != 1 && (empty($visit['pdf_path']) || ($visit['status'] ?? '') !== 'completed')) {
+        // A PDF alone isn't enough: a draft made before the visit was finished must not show it as done (Codex 2026-10-15).
         $error = 'This visit report is not yet available. Please check back after your scheduled service date.';
     } else {
         // Token check: must match quote access token and not be expired
@@ -146,6 +148,11 @@ $clientSees = ['report' => true, 'length' => true];
 if ($visit) {
     require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
     $clientSees = (new ClientVisibilityService($db))->forVisit((int)$visitId);
+    // Report switched off for this client (Settings → Client Portal): nothing here either, as visit-report.php.
+    if (!$clientSees['report']) {
+        $visit = null;
+        $error = 'This service report isn\'t available online. Please contact us if you need details of this visit.';
+    }
 }
 
 $duration = '';
@@ -223,7 +230,7 @@ $serviceLabel = [
       <?php endif; ?>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo $visit['distance_m'] ? number_format($visit['distance_m']/1000, 2).' km' : '—'; ?></div>
-        <div class="portal-stat-lbl">Area Covered</div>
+        <div class="portal-stat-lbl">Distance walked</div>
       </div>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo htmlspecialchars((string)($visit['actual_crew_count'] ?? 1)); ?></div>

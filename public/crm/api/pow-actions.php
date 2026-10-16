@@ -746,8 +746,11 @@ try {
             if (!str_starts_with($dataUrl, 'data:image/png;base64,')) {
                 throw new InvalidArgumentException('Invalid signature format');
             }
-            $imgData = base64_decode(substr($dataUrl, 22));
+            // At most ~500 KB, and really a PNG (Codex review 2026-10-15: any size was decoded and written).
+            if (strlen($dataUrl) > 700000) throw new InvalidArgumentException('Signature image too large');
+            $imgData = base64_decode(substr($dataUrl, 22), true);
             if ($imgData === false) throw new InvalidArgumentException('Invalid base64');
+            if (strncmp($imgData, "\x89PNG\r\n\x1a\n", 8) !== 0) throw new InvalidArgumentException('Invalid signature format');
 
             $sigDir = PUBLIC_ROOT . '/uploads/pow/signatures/';
             if (!is_dir($sigDir)) mkdir($sigDir, 0755, true);
