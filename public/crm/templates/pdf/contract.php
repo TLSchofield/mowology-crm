@@ -88,7 +88,7 @@ $dateOrDash = function ($d) { return $d ? date('F j, Y', strtotime((string)$d)) 
 <div class="header">
     <div class="company-name"><?php echo $esc($companyName); ?></div>
     <?php if ($companyBits): ?>
-        <div class="company-meta"><?php echo $esc(implode('  &bull;  ', $companyBits)); ?></div>
+        <div class="company-meta"><?php echo implode('  &bull;  ', array_map($esc, $companyBits)); /* escape the parts, not the separator (it printed "&bull;") */ ?></div>
     <?php endif; ?>
     <div class="doc-title">Service Contract<?php echo !empty($contract['title']) ? ' — ' . $esc($contract['title']) : ''; ?></div>
     <div class="doc-number"><?php echo $esc($contract['contract_number'] ?? ''); ?></div>
@@ -119,6 +119,8 @@ $dateOrDash = function ($d) { return $d ? date('F j, Y', strtotime((string)$d)) 
         <td class="v"><?php
             echo !empty($contract['auto_renew'])
                 ? 'Yes' . (!empty($contract['renewal_date']) ? ' — renews ' . $dateOrDash($contract['renewal_date']) : '')
+                  . ((float)($contract['renewal_increase_pct'] ?? 0) > 0
+                      ? '; the price rises ' . rtrim(rtrim(number_format((float)$contract['renewal_increase_pct'], 2), '0'), '.') . '% at each renewal' : '')
                 : 'No — this agreement ends on the date above and does not renew automatically';
         ?></td></tr>
 </table>
