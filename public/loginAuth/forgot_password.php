@@ -43,10 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Generate secure reset token
                     $token = bin2hex(random_bytes(32));
 
-                    // Delete any existing tokens for this user
-                    $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?")->execute([$user['id']]);
-
-                    // Store new token - use MySQL's NOW() + INTERVAL for consistent timezone
+                    // Store the new token; older links are removed only once this one has been sent (below), so a failed
+                    // send never leaves the person with no working link (Codex review 2026-10-16).
                     $stmt = $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))");
                     $stmt->execute([$user['id'], hash('sha256', $token)]);
 
@@ -68,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                         <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
                             <h2 style='color: #1A5F4A;'>Password Reset Request</h2>
-                            <p>Hi {$user['full_name']},</p>
+                            <p>Hi " . htmlspecialchars((string)$user['full_name'], ENT_QUOTES, 'UTF-8') . ",</p>
                             <p>We received a request to reset your password for the Mowology CRM system.</p>
                             <p>Click the button below to reset your password:</p>
                             <p style='margin: 30px 0;'>
@@ -85,7 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </html>
                     ";
 
-                    mail($to, $subject, $emailBody, $headers);
+                    // Through the messaging service (CLAUDE.md rule 9), not bare mail(); a failure is logged.
+                    require_once CRM_INCLUDES . '/messaging.php';
+                    if (sendCrmEmail($to, $subject, $emailBody)) {
+                        $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? AND token <> ?")->execute([$user['id'], hash('sha256', $token)]);
+                    } else {
+                        error_log('Forgot password: reset email NOT sent to user #' . (int)$user['id']);
+                    }
 
                     // Log activity
                     logActivity($user['id'], null, 'Password reset requested', "IP: " . $_SERVER['REMOTE_ADDR']);

@@ -28,6 +28,9 @@ header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
 requireLogin();
+// Make (and save) the token BEFORE closing the session: generated after the close it was never stored, so the
+// next request (the app-token mint straight after a login) refused it as CSRF_INVALID (Codex review 2026-10-16).
+$token = generateCSRFToken();
 session_write_close();
 
-echo json_encode(['token' => generateCSRFToken()]);
+echo json_encode(['token' => $token]);

@@ -88,12 +88,16 @@ try {
             && preg_match_all('/(?:^|;\s*)' . preg_quote($__sessName, '/') . '=([A-Za-z0-9,-]{16,256})(?=;|$)/', $__sessRaw, $__sessM)) {
             $__sessDir = (string)session_save_path();
             $__sessDir = rtrim(strpos($__sessDir, ';') !== false ? substr($__sessDir, strrpos($__sessDir, ';') + 1) : $__sessDir, '/');
-            $__sessPick = null; $__sessAt = -1;
+            // Prefer a SIGNED-IN session (user_id set), then the newest; "newest" alone could pick a stray
+            // anonymous one (Codex review 2026-10-16).
+            $__sessPick = null; $__sessRank = [-1, -1];
             foreach (array_unique($__sessM[1]) as $__sessId) {
                 $__sessFile = $__sessDir . '/sess_' . $__sessId;
-                if ($__sessDir !== '' && is_file($__sessFile) && filesize($__sessFile) > 0 && filemtime($__sessFile) > $__sessAt) {
-                    $__sessPick = $__sessId; $__sessAt = filemtime($__sessFile);
-                }
+                if ($__sessDir === '' || !is_file($__sessFile) || filesize($__sessFile) <= 0) continue;
+                $__sessBody = (string)@file_get_contents($__sessFile, false, null, 0, 65536);
+                $__sessIn = preg_match('/(?:^|[;}])user_id\|i:[1-9]/', $__sessBody) ? 1 : 0;
+                $__sessRankNow = [$__sessIn, (int)filemtime($__sessFile)];
+                if ($__sessRankNow > $__sessRank) { $__sessPick = $__sessId; $__sessRank = $__sessRankNow; }
             }
             if ($__sessPick !== null) session_id($__sessPick);
         }

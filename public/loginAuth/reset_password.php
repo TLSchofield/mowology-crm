@@ -71,6 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && $tokenData && $db) {
             try {
                 $db->beginTransaction();
 
+                // Use the link up FIRST, atomically: two submits of the same link at once both passed the check above
+                // and both changed the password (Codex review 2026-10-16). Only the one that deletes it goes on.
+                $use = $db->prepare("DELETE FROM password_reset_tokens WHERE token = ? AND user_id = ? AND expires_at > NOW()");
+                $use->execute([hash('sha256', $token), (int)$tokenData['user_id']]);
+                if ($use->rowCount() !== 1) {
+                    $db->rollBack();
+                    throw new RuntimeException('reset link already used');
+                }
+
                 // Update password
                 $hashedPassword = hashPassword($password);
                 $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1");

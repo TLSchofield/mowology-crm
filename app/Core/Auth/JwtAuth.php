@@ -130,9 +130,14 @@ function validateJwtToken(string $token): ?array
         return null;
     }
 
-    // Check expiry
-    if (isset($payload['exp']) && time() > (int)$payload['exp']) {
-        return null;  // Token expired
+    // The header must say HS256, and every token must expire: both issuers (generateMowologyJwt, api/auth/token.php)
+    // always set exp, so a token without one is not ours to honour forever (Codex review 2026-10-16).
+    $header = json_decode(base64url_decode($headerB64), true);
+    if (!is_array($header) || ($header['alg'] ?? '') !== 'HS256') {
+        return null;
+    }
+    if (!isset($payload['exp']) || time() > (int)$payload['exp']) {
+        return null;  // No expiry, or expired
     }
 
     // Validate issuer
