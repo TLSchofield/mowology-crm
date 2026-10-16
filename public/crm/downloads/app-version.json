@@ -9,7 +9,8 @@
     "release_notes": "Salt and snow stops, extra work and special requests are ready for the new Finish screen. Jobs you finish with no signal now always keep their details until they send.",
     "force_update": true,
     "native_camera": false,
-    "native_visit": false
+    "native_visit": false,
+    "native_receipts": true
   },
   "ios": {
     "version": "1.0.0",

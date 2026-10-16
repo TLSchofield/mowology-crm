@@ -7,6 +7,7 @@ How vendor receipts/invoices become expenses, and how forwarding by email is han
 | Path | Entry point | Notes |
 |------|-------------|-------|
 | Camera / gallery (web + Android WebView) | `public/crm/expenses_appstack.php` → `app/Modules/Expenses/Api/receipt-intake.php` | OCR on upload, mobile review card, Save / Save & Send, then a Snap Another / Done loop. |
+| Android app 1.7.0 (native, app token; switch `android.native_receipts`) | `MwCameraActivity` receipt mode → queue (`mw_receipts.db`) → `/api/expenses/receipt-capture` (`ReceiptCaptureService`) | One call: photo read + ONE `pending_approval` expense. The phone's `client_ref` (`receipt_capture_keys`, migration 1370) makes a resend return the same receipt. Typed total wins; a visit only if the person is on it. Capture-only. |
 | iOS app (native, JWT) | `receipt-upload.php` → `expense-save.php` (+ `expense-lookup.php`, `expense-delete.php`, `receipt-actions.php`) | Same review-form data as the web card (see below). Saves as `draft`; `and_send: true` forwards in the same call. |
 | **Email** | forward to **receipts@mowology.ca** → `app/Modules/Expenses/Cron/receipt_inbox_poll.php` | This document. |
 
