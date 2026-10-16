@@ -230,9 +230,18 @@ class SitePlantQuizService
                  ->execute([$cat, $sci !== '' ? mb_strtolower($sci) : null, $weed ? 'What is this weed?' : 'What is this plant?', $notes ? mb_substr(implode(' ', $notes), 0, 2000) : null]);
         $qid = (int)$this->db->lastInsertId();
 
+        $this->writeOptions($qid, $cat, $name);
+        return $qid;
+    }
+
+    /** The answers for a photo-ID question: the plant's name and 3 other PLANT names (linked questions, then the care library). */
+    public function writeOptions(int $qid, int $cat, string $name): void
+    {
+        $this->db->prepare("DELETE FROM quiz_options WHERE question_id = ?")->execute([$qid]);
         $opt = $this->db->prepare("INSERT INTO quiz_options (question_id, option_text, is_correct, sort_order) VALUES (?, ?, ?, ?)");
         $wrong = $this->db->prepare("SELECT DISTINCT o.option_text FROM quiz_options o JOIN quiz_questions q ON q.id = o.question_id
-                                     WHERE q.category_id = ? AND o.is_correct = 1 AND q.id <> ? AND q.is_active = 1");
+                                     WHERE q.category_id = ? AND o.is_correct = 1 AND q.id <> ? AND q.is_active = 1
+                                       AND q.plant_key IS NOT NULL AND q.plant_key <> ''");   // plant names only, never 'Mulch'
         $wrong->execute([$cat, $qid]);
         $pool = array_values(array_filter($wrong->fetchAll(PDO::FETCH_COLUMN), fn($t) => self::norm((string)$t) !== self::norm($name)));
         shuffle($pool);
@@ -248,7 +257,6 @@ class SitePlantQuizService
         $options = array_merge([[$name, 1]], array_map(fn($t) => [(string)$t, 0], array_slice($pool, 0, 3)));
         shuffle($options);
         foreach ($options as $i => [$text, $ok]) $opt->execute([$qid, mb_substr($text, 0, 255), $ok, $i]);
-        return $qid;
     }
 
     /** media id → file path, for the picked photos (images only). */

@@ -94,6 +94,9 @@ class SitePlantQuizServiceTest extends TestCase
     {
         $db = $this->db();
         $db->exec("INSERT INTO plant_records VALUES (3, 73, '1,2,3', NULL, 'Lavandula angustifolia', 'English lavender', 'confirmed')");
+        $db->exec("INSERT INTO quiz_questions (id, category_id, question_text, is_active) VALUES (60, 2, 'Why do leaves brown in a drought?', 1)");
+        $db->exec("INSERT INTO quiz_options (question_id, option_text, is_correct) VALUES (60, 'Heat and drought stress', 1)");
+        $this->svc($db)->linkQuestions();   // as on production: only questions about a plant give wrong answers
         $r = $this->svc($db)->fromConfirmed(3);
         $this->assertTrue($r['drafted']);
         $q = $db->query("SELECT category_id, plant_key, question_type, is_active, question_text, learn_notes FROM quiz_questions WHERE id = {$r['question_id']}")->fetch(PDO::FETCH_ASSOC);
