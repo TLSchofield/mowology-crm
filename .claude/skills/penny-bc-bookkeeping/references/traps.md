@@ -396,3 +396,19 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - **Chasing pauses while a payment is on the way**: `PaymentOnTheWay::sql()` is the one check for reminders, the
   overdue flip, automations and autopay. Compare invoice numbers in one collation (prod mixes 0900_ai_ci and
   general_ci; a raw compare is an SQL error that stops the cron).
+
+## Chequing $504 below the bank: receipts and their bank line both took the money (2026-10-15)
+- **Signature:** the statements check shows a gap that the "others" list explains — approved receipts paid by
+  debit, posted DR expense / CR 1010, while the very same purchase's bank line (same vendor, amount, day) sat
+  unlinked and posted its own CR 1010. Nine of them (Feb–Sep) made $370 of the gap; two more were duplicates:
+  the same Chevron receipt scanned again in August (#309, #319) and linked to the bank line, while the
+  originals (#165, #166) were approved later and posted on their own.
+- **Also:** a receipt saved at the misread amount ($9.52) and linked to a $10.00 line keeps the line's own
+  entry too (retirement needs the amounts to agree) — fix the receipt total and the sync retires the line.
+- **Rule:** before approving a receipt, link its bank line (Find Match); for a duplicate pair keep the
+  original, move the link to it, reject the copy (the reject reverses its entry). Measure the effect with
+  `StatementBooksCheckService::check()` per month: gap = others − missing, where "missing" lines (never
+  imported) are covered by receipts on purpose.
+- **Card statement sections** imported before the closing-balance parser fix had `closing_balance` NULL; filled
+  from the PDFs / the next statement's opening on 2026-10-15. `BankBalanceCheckService::report()` still shows
+  one bogus card month (statement 5) — its card statements need fixing; check 2400 directly against closings.
