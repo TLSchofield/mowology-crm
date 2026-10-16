@@ -4290,6 +4290,35 @@ async function submitReceiptExport() {
                 formCol.className = 'col-lg-7';
                 if (rescanBtn) rescanBtn.style.display = '';
                 if (window.feather) feather.replace();
+                // The attached receipt is the source: its amounts replace the form's (Tim, 2026-10-15 — City of
+                // Vancouver read $9.52, the receipt and bank say $10.00). Date and vendor only fill blanks.
+                // Nothing is saved until Save; the toast says what changed.
+                var p = d.parsed || {}, s = d.suggestions || {}, changed = [];
+                var money = function (v) { var n = parseFloat(v); return isFinite(n) && n >= 0 ? n.toFixed(2) : null; };
+                var total = money(p.total);
+                if (total !== null) {
+                    // Parts first, without the auto-sum (a part the reader missed would rewrite the receipt's total);
+                    // a missing subtotal is the total less the taxes; the total goes in last.
+                    var val = function (id) { var f = document.getElementById(id); return f ? (parseFloat(f.value) || 0) : 0; };
+                    var gst = money(p.gst) !== null ? money(p.gst) : val('expGst').toFixed(2);
+                    var pst = money(p.pst) !== null ? money(p.pst) : val('expPst').toFixed(2);
+                    var sub = money(p.subtotal) !== null ? money(p.subtotal)
+                            : Math.max(0, parseFloat(total) - parseFloat(gst) - parseFloat(pst) - val('expRecyclingTax')).toFixed(2);
+                    [['expAmount', sub, 'subtotal'], ['expGst', gst, 'GST'], ['expPst', pst, 'PST'], ['expTotal', total, 'total']].forEach(function (m) {
+                        var f = document.getElementById(m[0]);
+                        if (!f || money(f.value) === m[1]) return;
+                        if (m[2] === 'total') changed.unshift('total ' + (f.value ? '$' + (money(f.value) || f.value) + ' → ' : '') + '$' + m[1]);
+                        f.value = m[1];
+                        f.classList.add('mw-field-updated');
+                    });
+                }
+                if (p.date) { var df = document.getElementById('expDate'); if (df && !df.value) { df.value = safeDate(p.date); df.dispatchEvent(new Event('input', { bubbles: true })); df.dispatchEvent(new Event('change', { bubbles: true })); } }
+                if (s.vendor_name) { var vf = document.getElementById('expVendorSearch'); if (vf && !vf.value) { vf.value = s.vendor_name; var vi = document.getElementById('expVendorId'); if (vi) vi.value = s.vendor_id || ''; } }
+                if (typeof window.mwToast === 'function') {
+                    window.mwToast(changed.length ? 'From the receipt: ' + (changed[0].indexOf('total') === 0 ? changed[0] : 'amounts updated') + '. Check it, then Save.'
+                                                  : (total !== null ? 'Receipt attached — its total matches.' : 'Receipt attached — its total could not be read; check the amounts.'),
+                                   total !== null ? 'success' : 'warning', 6000);
+                }
             } catch(e) { alert('Receipt upload failed: ' + e.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = origHtml; if (window.feather) feather.replace(); }

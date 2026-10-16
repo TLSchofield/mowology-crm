@@ -40462,3 +40462,6 @@ body.mw-books {
 .mw-appt-who, .mw-appt-addr { color: var(--mw-dark); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 575.98px) { .mw-qv-field { min-width: 45%; flex: 1 1 45%; } }
 .mw-appt-list { padding: 0 0.75rem; }
+
+/* Expenses: a field the attached receipt just filled in (expenses_appstack.php, 2026-10-15) */
+.mw-field-updated { border-color: var(--mw-green) !important; box-shadow: 0 0 0 0.15rem var(--mw-light); }
