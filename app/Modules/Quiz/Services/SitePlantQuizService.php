@@ -80,6 +80,7 @@ class SitePlantQuizService
     public static function caption(?string $address, ?string $bed): string
     {
         $a = trim(preg_replace('/\s+/', ' ', (string)$address));
+        if (strpos($a, ',') !== false) $a = trim(substr($a, 0, strpos($a, ',')));   // the street, not ", Vancouver, BC, Canada"
         $b = trim((string)$bed);
         $out = $a !== '' ? 'Seen at ' . $a : 'Seen on one of our sites';
         return mb_substr($out . ($b !== '' ? ' · ' . $b : ''), 0, 250);

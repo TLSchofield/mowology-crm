@@ -56,6 +56,7 @@ class SitePlantQuizServiceTest extends TestCase
         $this->assertSame('Seen at 1935 West 12th Avenue · Front bed', SitePlantQuizService::caption(' 1935  West 12th Avenue', 'Front bed'));
         $this->assertSame('Seen at 315 Midlothian Ave', SitePlantQuizService::caption('315 Midlothian Ave', null));
         $this->assertSame('Seen on one of our sites', SitePlantQuizService::caption('', ''));
+        $this->assertSame('Seen at 70 West 18th Avenue', SitePlantQuizService::caption('70 West 18th Avenue, Vancouver, BC, Canada', ''));
         $this->assertSame([12, 13], SitePlantQuizService::pickMedia(['11', '12', '13']), 'never the whole-plant shot');
         $this->assertSame([12], SitePlantQuizService::pickMedia([11, 12]));
         $this->assertSame([11], SitePlantQuizService::pickMedia([11]));
