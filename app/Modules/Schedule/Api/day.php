@@ -306,4 +306,11 @@ echo json_encode([
     'stops'                => $stops,
     'appointments'         => $appointments,
     'snow_choices'         => class_exists('VisitNeedsService') ? VisitNeedsService::snowChoices() : [],
-], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    // The Android Receipt button shows only for a login that may add receipts (receipt-capture's gate).
+    'can_add_receipts'     => (static function () use ($jwtUser): bool {
+        try {
+            require_once PUBLIC_ROOT . '/loginAuth/auth.php';   // getUserPermissions() (authz), else non-admins read as false
+            return jwtUserHasPermission($jwtUser, 'expenses.edit');
+        } catch (Throwable $e) { return false; }
+    })(),
+],JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
