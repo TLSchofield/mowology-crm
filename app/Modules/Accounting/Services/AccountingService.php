@@ -108,6 +108,19 @@ class AccountingService
     }
 
     /**
+     * Is this MySQL 1615 "Prepared statement needs to be re-prepared"? (pure — tested)
+     * The shared host's table-definition cache (2000) is always full with other tenants' tables, so a
+     * definition can be evicted between prepare and execute; the nightly sync — the most prepares of any
+     * cron — lost that race 9 times Sep 4 → Oct 13 (cron_runs). It is transient: the cron runs again once.
+     */
+    public static function isReprepareError($e): bool
+    {
+        if ($e instanceof \PDOException && (int)($e->errorInfo[1] ?? 0) === 1615) return true;
+        $msg = $e instanceof \Throwable ? $e->getMessage() : (string)$e;
+        return stripos($msg, 'needs to be re-prepared') !== false || strpos($msg, ' 1615 ') !== false;
+    }
+
+    /**
      * Remove accounting_transactions that reference expenses or invoices which
      * no longer qualify for the ledger (deleted, merged, status changed, etc.).
      * Safe to run on every sync — only touches non-manual reference_type rows.

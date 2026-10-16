@@ -57,15 +57,33 @@ $output   = [];
 $success  = true;
 
 try {
-    // ── 1. Sync invoices + expenses into unified ledger ────────────────────────
-    $svc    = new AccountingService($db);
-    $sync   = $svc->syncAll();
-    $output = array_merge($output, $sync);
+    // ── 1 + 2. Sync invoices + expenses into the ledger, then the alert engine ─
+    // MySQL 1615 (the shared host's table cache evicting a definition mid-run) is transient: run both
+    // once more. Safe — the sync upserts and the alerts update the active alert in place.
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            $svc    = new AccountingService($db);
+            $sync   = $svc->syncAll();
+            $jp = AccountingService::journalProblem($sync['journal'] ?? null);
+            if ($attempt === 1 && $jp && AccountingService::isReprepareError($jp[1])) {
+                $output['retried'] = 'journal: ' . $jp[1];
+                continue;
+            }
+            $output = array_merge($output, $sync);
 
-    // ── 2. Run alert engine ────────────────────────────────────────────────────
-    $alerts      = new AlertEngine($db);
-    $alertResult = $alerts->runAll();
-    $output['alerts_active'] = count($alertResult);
+            $alerts      = new AlertEngine($db);
+            $alertResult = $alerts->runAll();
+            $output['alerts_active'] = count($alertResult);
+            break;
+        } catch (Throwable $e) {
+            if ($attempt === 1 && AccountingService::isReprepareError($e)) {
+                $output['retried'] = $e->getMessage();
+                sleep(2);
+                continue;
+            }
+            throw $e;
+        }
+    }
 
     // ── 2b. Approved debit/card receipts with no statement line (Tim, 2026-10-15) ──
     // Waits for the statement; links a clear line; notes duplicates; otherwise back to draft.
@@ -101,7 +119,8 @@ try {
 $durationMs = (int)(round(microtime(true) - $cronStart, 3) * 1000);
 $summary    = 'Invoices: ' . ($output['invoices_synced'] ?? 0)
             . ', Expenses: ' . ($output['expenses_synced'] ?? 0)
-            . ', Alerts: ' . ($output['alerts_active'] ?? 0);
+            . ', Alerts: ' . ($output['alerts_active'] ?? 0)
+            . (isset($output['retried']) ? ' (ran twice: MySQL asked to re-prepare)' : '');
 // The journal half of syncAll() catches its own exception — report it, never as 'success'.
 $status  = $success ? 'success' : 'error';
 $errText = $success ? null : ($output['error'] ?? null);
