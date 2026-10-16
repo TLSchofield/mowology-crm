@@ -50,6 +50,13 @@
     function careOf(p) {
         var c = p.care;
         if (!c || !p.scientific_name) return '';
+        var weed = c.weed ? ' <span class="badge badge-warning">Weed</span>' + (c.invasive ? ' <span class="badge badge-danger" title="' + esc(c.invasive_note) + '">Invasive in BC</span>' : '') : '';
+        if (c.status === 'approved' && c.weed) {
+            return '<div class="small mt-1">' + weed + ' '
+                + (c.tasks || []).map(function (t) { return '<span class="mr-2 text-nowrap" title="' + esc(t.how) + '"><b>' + esc(t.task) + '</b> ' + esc(t.when) + '</span>'; }).join('')
+                + (c.safety ? '<div class="text-danger">Safety: ' + esc(c.safety) + '</div>' : '')
+                + (c.disposal ? '<div class="text-muted">Disposal: ' + esc(c.disposal) + '</div>' : '') + '</div>';
+        }
         if (c.status === 'approved') {
             return '<div class="small mt-1">' + (c.match === 'genus' ? '<span class="text-muted">General care for the genus · </span>' : '')
                 + (c.tasks || []).map(function (t) { return '<span class="mr-2 text-nowrap" title="' + esc(t.how) + '"><b>' + esc(t.task) + '</b> ' + esc(t.when) + '</span>'; }).join('')
@@ -59,6 +66,7 @@
             return state.canLibrary && p.status === 'confirmed'
                 ? '<div class="small mt-1"><button type="button" class="btn btn-sm btn-link p-0" data-care="' + p.id + '">Get its care from the web</button> <span class="text-muted">(not in the library yet, about a minute)</span></div>' : '';
         }
+        if (weed) return '<div class="small mt-1">' + weed + ' <a href="/crm/plants/library.php">control card waiting for approval</a></div>';
         var what = c.status === 'draft' ? 'Care card waiting for approval' : (c.status === 'queued' || c.status === 'writing' ? 'Care card being written' : 'Care card failed');
         return '<div class="small mt-1"><a href="/crm/plants/library.php">' + what + '</a></div>';
     }

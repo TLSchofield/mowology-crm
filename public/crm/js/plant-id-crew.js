@@ -187,11 +187,15 @@
 
     function renderDone(r) {
         var rec = r.record || {}, c = r.care;
+        var weed = c && c.weed
+            ? '<p><b>Weed' + (c.invasive ? ' — invasive in BC' : '') + '.</b>' + (c.invasive_note ? ' ' + esc(c.invasive_note) : '') + '</p>'
+              + (c.safety ? '<p><b>Safety:</b> ' + esc(c.safety) + '</p>' : '') + (c.disposal ? '<p><b>Disposal:</b> ' + esc(c.disposal) + '</p>' : '')
+            : '';
         var care = c && c.status === 'approved' && (c.tasks || []).length
-            ? '<p><b>Care' + (c.match === 'genus' ? ' (general for this kind)' : '') + '</b></p><ul>' + c.tasks.map(function (t) {
+            ? weed + '<p><b>' + (c.weed ? 'How to remove it' : 'Care' + (c.match === 'genus' ? ' (general for this kind)' : '')) + '</b></p><ul>' + c.tasks.map(function (t) {
                 return '<li><b>' + esc(t.task) + '</b> — ' + esc(t.when) + (t.how ? '<br><small>' + esc(t.how) + '</small>' : '') + '</li>';
             }).join('') + '</ul>' + (c.toxic_pets ? '<p><b>Toxic to pets.</b> ' + esc(c.toxic_note || '') + '</p>' : '')
-            : '<p><small>Its care card isn\'t in the library yet — the office will add it.</small></p>';
+            : weed + '<p><small>Its ' + (c && c.weed ? 'control' : 'care') + ' card isn\'t in the library yet — the office will add it.</small></p>';
         shell('Saved', '<p><b>' + esc(rec.common_name || rec.scientific_name || 'Plant') + '</b>' + (rec.bed ? ' — ' + esc(rec.bed.name) : '') + '</p>' + care,
               '<button class="mw-obs-btn mw-obs-btn-submit" data-plant="close">Done</button>');
     }

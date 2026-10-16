@@ -76,12 +76,16 @@
             + '<div class="d-flex flex-wrap justify-content-between"><div><b>' + esc(x.common_name || x.scientific_name) + '</b> <i class="text-muted">' + esc(x.scientific_name) + '</i>'
             + (x.level === 'genus' ? ' <span class="badge badge-info">general — all ' + esc(x.scientific_name) + '</span>' : '')
             + (x.origin === 'identified' ? ' <span class="badge badge-secondary">found by crew</span>' : '')
-            + (k.toxic_pets ? ' <span class="badge badge-danger" title="' + esc(k.toxic_note) + '">toxic to pets</span>' : '') + '</div>'
+            + (k.toxic_pets ? ' <span class="badge badge-danger" title="' + esc(k.toxic_note) + '">toxic to pets</span>' : '')
+            + (k.invasive_bc ? ' <span class="badge badge-danger" title="' + esc(k.invasive_note) + '">invasive in BC</span>' : '') + '</div>'
             + '<div class="text-nowrap">' + acts + '</div></div>'
             + (tasks.length ? '<ul class="mb-1 mt-2 pl-3">' + tasks.map(function (t) {
                 return '<li><b>' + esc(t.task) + '</b> — ' + esc(when(t)) + (t.how ? ' <span class="text-muted">· ' + esc(t.how) + '</span>' : '') + '</li>';
             }).join('') + '</ul>' : (x.status === 'queued' ? '<div class="small text-muted mt-1">Being written…</div>' : ''))
             + (facts ? '<div class="small text-muted">' + facts + '</div>' : '')
+            + (k.invasive_note ? '<div class="small mt-1">' + esc(k.invasive_note) + '</div>' : '')
+            + (k.safety ? '<div class="small mt-1 text-danger">Safety: ' + esc(k.safety) + '</div>' : '')
+            + (k.disposal ? '<div class="small mt-1">Disposal: ' + esc(k.disposal) + '</div>' : '')
             + (k.notes ? '<div class="small mt-1">' + esc(k.notes) + '</div>' : '')
             + ((x.sources || []).length ? '<div class="small mt-1">Sources: ' + x.sources.map(function (s) {
                 return '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.title || s.url) + '</a>';
@@ -111,6 +115,11 @@
             + '<button type="button" class="btn btn-sm btn-link px-0 mb-2" data-add-task>+ Add a job</button>'
             + '<div class="form-row"><div class="col-md-3 mb-2"><div class="custom-control custom-checkbox mt-4"><input type="checkbox" class="custom-control-input" id="mw-pl-tox' + x.id + '" data-f="toxic_pets"' + (k.toxic_pets ? ' checked' : '') + '><label class="custom-control-label" for="mw-pl-tox' + x.id + '">Toxic to pets</label></div></div>'
             + inp('toxic_note', 'Toxicity note', k.toxic_note) + inp('hardiness', 'Hardiness', k.hardiness)
+            + (k.weed || x.plant_group === 'weed'
+                ? '<div class="col-md-3 mb-2"><div class="custom-control custom-checkbox mt-4"><input type="checkbox" class="custom-control-input" id="mw-pl-inv' + x.id + '" data-f="invasive_bc"' + (k.invasive_bc ? ' checked' : '') + '><label class="custom-control-label" for="mw-pl-inv' + x.id + '">Invasive in BC</label></div></div>'
+                  + inp('invasive_note', 'Invasive note', k.invasive_note) + inp('safety', 'Safety', k.safety) + inp('disposal', 'Disposal', k.disposal)
+                  + '<input type="hidden" data-f="weed" value="1">'
+                : '')
             + '<div class="col-md-12 mb-2"><label class="small mb-0">Notes for the crew</label><input class="form-control form-control-sm" data-f="notes" value="' + esc(k.notes) + '"></div></div>'
             + '<button type="button" class="btn btn-sm btn-primary" data-save="' + x.id + '">Save and approve</button> <button type="button" class="btn btn-sm btn-link" data-cancel>Cancel</button></div>';
     }
@@ -121,7 +130,9 @@
             return { task: r.querySelector('[data-f="task"]').value, from: +r.querySelector('[data-f="from"]').value, to: +r.querySelector('[data-f="to"]').value, how: r.querySelector('[data-f="how"]').value };
         }).filter(function (t) { return t.task.trim(); });
         return { common_name: v('common_name'), card: { tasks: tasks, toxic_pets: box.querySelector('[data-f="toxic_pets"]').checked, toxic_note: v('toxic_note'),
-                 sun: v('sun'), soil: v('soil'), size: v('size'), hardiness: v('hardiness'), notes: v('notes') } };
+                 sun: v('sun'), soil: v('soil'), size: v('size'), hardiness: v('hardiness'), notes: v('notes'),
+                 weed: v('weed') === '1', invasive_bc: !!(box.querySelector('[data-f="invasive_bc"]') || {}).checked,
+                 invasive_note: v('invasive_note'), safety: v('safety'), disposal: v('disposal') } };
     }
 
     root.addEventListener('click', function (e) {

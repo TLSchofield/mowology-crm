@@ -25,10 +25,13 @@ class PlantCareService
     public const DAILY_CAP = 25;                       // one-at-a-time lookups (crew finds); batches are separate
     public const PRICE_IN = 3.0, PRICE_OUT = 15.0, PRICE_SEARCH = 0.01;
     public const GROUPS = ['hedge' => 'Hedges', 'shrub' => 'Shrubs', 'perennial' => 'Perennials and ferns', 'grass' => 'Grasses and bamboo',
-                           'groundcover' => 'Groundcovers', 'tree' => 'Trees', 'bulb' => 'Bulbs', 'vine' => 'Climbers', 'annual' => 'Annuals', '' => 'Other'];
+                           'groundcover' => 'Groundcovers', 'tree' => 'Trees', 'bulb' => 'Bulbs', 'vine' => 'Climbers', 'annual' => 'Annuals',
+                           'weed' => 'Weeds and invasives', '' => 'Other'];
     public const TRUSTED = [
         'rhs.org.uk', 'missouribotanicalgarden.org', 'botanicalgarden.ubc.ca', 'extension.wsu.edu',
         'extension.oregonstate.edu', 'plants.ces.ncsu.edu', 'extension.umn.edu', 'aspca.org', 'gardenia.net',
+        // Weeds: BC's invasive / noxious lists and local control guidance.
+        'bcinvasives.ca', 'gov.bc.ca', 'metrovancouver.org', 'vancouver.ca',
     ];
     public const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -164,12 +167,12 @@ class PlantCareService
             $this->db->prepare("UPDATE plant_care_cards SET batch_id = ? WHERE batch_id IS NULL AND status = 'queued' AND id IN (" . implode(',', array_map('intval', $want)) . ")")
                      ->execute([$claim]);   // only rows still unclaimed become ours
         }
-        $s = $this->db->prepare("SELECT id, scientific_name, common_name, level FROM plant_care_cards WHERE batch_id = ? ORDER BY id");
+        $s = $this->db->prepare("SELECT id, scientific_name, common_name, level, plant_group FROM plant_care_cards WHERE batch_id = ? ORDER BY id");
         $s->execute([$claim]);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         if (!$rows) return ['ok' => true, 'sent' => 0, 'message' => 'Nothing waiting.'];
         $requests = array_map(fn($r) => ['custom_id' => 'pcc-' . (int)$r['id'],
-                                         'params' => self::request((string)$r['scientific_name'], (string)$r['common_name'], (string)$r['level'])], $rows);
+                                         'params' => self::request((string)$r['scientific_name'], (string)$r['common_name'], (string)$r['level'], (string)($r['plant_group'] ?? ''))], $rows);
         $res = $this->call('POST', self::BATCH_URL, ['requests' => $requests]);
         $j = json_decode($res['body'], true) ?: [];
         if ($res['code'] !== 200 || empty($j['id'])) {
@@ -240,7 +243,7 @@ class PlantCareService
         $c->execute([$now, $userId ?: null, $now, $id, date('Y-m-d H:i:s', time() - 600)]);
         if ($c->rowCount() === 0) return ['ok' => false, 'message' => 'That card is already being written — check the plant library in a minute.'];
         $card = $this->byId($id);
-        $body = self::request((string)$card['scientific_name'], $common, 'species');
+        $body = self::request((string)$card['scientific_name'], $common, 'species', (string)($card['plant_group'] ?? ''));
         $msg = null;
         for ($i = 0; $i < 3; $i++) {   // a long search turn can pause; send it back to finish
             $res = $this->call('POST', self::API_URL, $body);
@@ -362,7 +365,11 @@ class PlantCareService
         }
         $out = ['tasks' => $tasks, 'toxic_pets' => !empty($c['toxic_pets']) && $c['toxic_pets'] !== 'false', 'toxic_note' => $t($c['toxic_note'] ?? '', 160),
                 'sun' => $t($c['sun'] ?? '', 80), 'soil' => $t($c['soil'] ?? '', 80), 'size' => $t($c['size'] ?? '', 80),
-                'hardiness' => $t($c['hardiness'] ?? '', 60), 'notes' => $t($c['notes'] ?? '', 400)];
+                'hardiness' => $t($c['hardiness'] ?? '', 60), 'notes' => $t($c['notes'] ?? '', 400),
+                // Weeds: on BC's invasive / noxious lists, and what a crew must know to remove it safely.
+                'weed' => !empty($c['weed']) && $c['weed'] !== 'false',
+                'invasive_bc' => !empty($c['invasive_bc']) && $c['invasive_bc'] !== 'false', 'invasive_note' => $t($c['invasive_note'] ?? '', 200),
+                'safety' => $t($c['safety'] ?? '', 240), 'disposal' => $t($c['disposal'] ?? '', 200)];
         if (isset($c['common_name'])) $out['common_name'] = $t($c['common_name'], 160);
         if (isset($c['group'])) $out['group'] = strtolower($t($c['group'], 20));
         return $out;
@@ -374,8 +381,9 @@ class PlantCareService
         return $from === $to ? self::MONTHS[$from] : self::MONTHS[$from] . '–' . self::MONTHS[$to];
     }
 
-    public static function request(string $scientific, string $commonHint, string $level = 'species'): array
+    public static function request(string $scientific, string $commonHint, string $level = 'species', string $group = ''): array
     {
+        if ($group === 'weed') return self::weedRequest($scientific, $commonHint);
         $who = $level === 'genus'
             ? "the genus {$scientific}" . ($commonHint !== '' ? " ({$commonHint})" : '') . " — general care for the garden species and cultivars, saying in notes where the common ones differ"
             : $scientific . ($commonHint !== '' ? " ({$commonHint})" : '');
@@ -400,6 +408,28 @@ class PlantCareService
             ]],
             'messages' => [['role' => 'user', 'content' => $prompt]],
         ];
+    }
+
+    /** A weed / invasive: how and when to control it on the coast, BC's lists, safety and disposal. */
+    public static function weedRequest(string $scientific, string $commonHint): array
+    {
+        $who = $scientific . ($commonHint !== '' ? " ({$commonHint})" : '');
+        $prompt = "Write a control card for {$who}, a weed a landscaping company finds in client gardens and lawns in Vancouver, BC "
+            . "(Pacific Northwest coast, zone 8b).\n\n"
+            . "Search the trusted sources (BC's invasive species council and government lists first). Use only what they support, in your own words. "
+            . "Give the control jobs a crew schedules — pulling, digging out roots, cutting before seed set, smothering, mowing — with the months to do them "
+            . "on the coast. Say whether it is on BC's invasive or noxious weed lists, what a crew must know to stay safe (sap, spines, toxicity, gloves), "
+            . "and how to dispose of it (bagged to the landfill, never green waste, when the sources say so). No herbicide product names or rates.\n\n"
+            . "Do not write it out in prose: after searching, reply with ONE short line saying which sources you used, then ONE fenced ```json block, exactly this shape:\n"
+            . "{\"common_name\": \"the usual name\", \"group\": \"weed\", \"weed\": true, "
+            . "\"tasks\": [{\"task\": \"Dig out before it seeds\", \"from\": 4, \"to\": 6, \"how\": \"one short line\"}], "
+            . "\"invasive_bc\": true, \"invasive_note\": \"which BC list and what it means for the client\", \"safety\": \"one line, or empty\", "
+            . "\"disposal\": \"one line\", \"toxic_pets\": false, \"toxic_note\": \"\", \"sun\": \"\", \"soil\": \"\", \"size\": \"\", "
+            . "\"hardiness\": \"\", \"notes\": \"anything a crew must know, one line\"}\n"
+            . "Months are numbers 1–12. At most 6 tasks. Leave a field empty when the sources don't support it.";
+        $body = self::request($scientific, $commonHint, 'species');
+        $body['messages'] = [['role' => 'user', 'content' => $prompt]];
+        return $body;
     }
 
     /** Claude's answer → the card JSON (last ```json block) and the cited sources (unique by URL). */

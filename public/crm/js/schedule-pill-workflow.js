@@ -2978,7 +2978,7 @@
         if (openPlantId.loading) return;   // a second tap while it loads would open two
         openPlantId.loading = true;
         var s = document.createElement('script');
-        s.src = '/crm/js/plant-id-crew.js?v=20261015a';
+        s.src = '/crm/js/plant-id-crew.js?v=20261015b';
         s.onload = function () { openPlantId.loading = false; if (window.MwPlantCrew) window.MwPlantCrew.open(visitId, state.csrf || window.MW_CSRF_TOKEN || ''); };
         s.onerror = function () { openPlantId.loading = false; s.remove(); if (window.mwToast) window.mwToast('Plant ID could not load — check the signal.', 'error'); };
         document.head.appendChild(s);

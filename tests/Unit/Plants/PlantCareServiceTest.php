@@ -134,4 +134,17 @@ class PlantCareServiceTest extends TestCase
         }
         $this->assertGreaterThan(140, count($names));
     }
+
+    public function testWeedCardsKeepInvasiveSafetyAndDisposal(): void
+    {
+        $c = PlantCareService::clean(['weed' => true, 'invasive_bc' => true, 'invasive_note' => 'Regional noxious weed', 'safety' => 'Sap burns skin in sunlight — full cover, no strimming',
+                                      'disposal' => 'Bag it; landfill only, never green waste', 'tasks' => [['task' => 'Cut flower heads before seed', 'from' => 6, 'to' => 7]]]);
+        $this->assertTrue($c['weed']);
+        $this->assertTrue($c['invasive_bc']);
+        $this->assertSame('Bag it; landfill only, never green waste', $c['disposal']);
+        $body = PlantCareService::request('Heracleum mantegazzianum', 'Giant hogweed', 'species', 'weed');
+        $this->assertStringContainsString('BC\'s invasive', $body['messages'][0]['content']);
+        $this->assertContains('bcinvasives.ca', $body['tools'][0]['allowed_domains']);
+        $this->assertSame('weed', PlantLibrarySeed::PLANTS[array_search('Heracleum mantegazzianum', array_column(PlantLibrarySeed::PLANTS, 0))][2]);
+    }
 }

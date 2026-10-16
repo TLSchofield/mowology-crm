@@ -76,7 +76,13 @@ try {
         $tasks = array_map(fn($t) => ['task' => $t['task'], 'when' => PlantCareService::window((int)$t['from'], (int)$t['to']), 'how' => $t['how']], $c['card']['tasks'] ?? []);
         return ['id' => (int)$c['id'], 'status' => $c['status'], 'match' => $c['match'], 'name' => $c['common_name'], 'level' => $c['level'],
                 'tasks' => $c['status'] === 'approved' ? $tasks : [], 'toxic_pets' => $c['status'] === 'approved' && !empty($c['card']['toxic_pets']),
-                'toxic_note' => $c['status'] === 'approved' ? ($c['card']['toxic_note'] ?? '') : '', 'sun' => $c['status'] === 'approved' ? ($c['card']['sun'] ?? '') : ''];
+                'toxic_note' => $c['status'] === 'approved' ? ($c['card']['toxic_note'] ?? '') : '', 'sun' => $c['status'] === 'approved' ? ($c['card']['sun'] ?? '') : '']
+             // A weed shows as a weed even before its card is approved; the control details only once approved.
+             + ['weed' => !empty($c['card']['weed']) || ($c['plant_group'] ?? '') === 'weed',
+                'invasive' => $c['status'] === 'approved' && !empty($c['card']['invasive_bc']),
+                'invasive_note' => $c['status'] === 'approved' ? ($c['card']['invasive_note'] ?? '') : '',
+                'safety' => $c['status'] === 'approved' ? ($c['card']['safety'] ?? '') : '',
+                'disposal' => $c['status'] === 'approved' ? ($c['card']['disposal'] ?? '') : ''];
     };
     if (!$svc->ready()) {
         echo json_encode(['ok' => false, 'ready' => false, 'error' => 'Plant ID needs migration 1367.']);

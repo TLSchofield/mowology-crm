@@ -723,11 +723,17 @@ struct PlantCareDTO: Decodable {
     let tasks: [PlantCareTaskDTO]
     let toxicPets: Bool?
     let toxicNote: String?
+    let weed: Bool?
+    let invasive: Bool?
+    let invasiveNote: String?
+    let safety: String?
+    let disposal: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, general, tasks
+        case name, general, tasks, weed, invasive, safety, disposal
         case toxicPets = "toxic_pets"
         case toxicNote = "toxic_note"
+        case invasiveNote = "invasive_note"
     }
 }
 
@@ -1027,8 +1033,17 @@ struct PlantIdView: View {
                     Text(res.record?.commonName ?? res.record?.scientificName ?? "Saved").font(.headline)
                     if let b = res.record?.bed { Text("In \(b.name)").foregroundStyle(.secondary) }
                 }
+                if let care = res.care, care.weed == true {
+                    Section {
+                        Label(care.invasive == true ? "Weed — invasive in BC" : "Weed", systemImage: "exclamationmark.octagon")
+                            .foregroundStyle(care.invasive == true ? Color.MW.red : Color.MW.orange)
+                        if let n = care.invasiveNote, !n.isEmpty { Text(n).font(.caption) }
+                        if let s = care.safety, !s.isEmpty { Label(s, systemImage: "hand.raised").font(.caption).foregroundStyle(Color.MW.red) }
+                        if let d = care.disposal, !d.isEmpty { Label(d, systemImage: "trash").font(.caption) }
+                    }
+                }
                 if let care = res.care, !care.tasks.isEmpty {
-                    Section(care.general == true ? "Care (general for this kind)" : "Care") {
+                    Section(care.weed == true ? "How to remove it" : (care.general == true ? "Care (general for this kind)" : "Care")) {
                         ForEach(care.tasks, id: \.self) { t in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack { Text(t.task).bold(); Spacer(); Text(t.when).foregroundStyle(.secondary) }

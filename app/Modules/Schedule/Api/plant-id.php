@@ -52,7 +52,10 @@ try {
         if (!$c || $c['status'] !== 'approved') return null;   // only approved care goes to the field
         return ['name' => $c['common_name'], 'general' => $c['match'] === 'genus',
                 'tasks' => array_map(fn($t) => ['task' => $t['task'], 'when' => PlantCareService::window((int)$t['from'], (int)$t['to']), 'how' => $t['how']], $c['card']['tasks'] ?? []),
-                'toxic_pets' => !empty($c['card']['toxic_pets']), 'toxic_note' => (string)($c['card']['toxic_note'] ?? '')];
+                'toxic_pets' => !empty($c['card']['toxic_pets']), 'toxic_note' => (string)($c['card']['toxic_note'] ?? ''),
+                'weed' => !empty($c['card']['weed']) || ($c['plant_group'] ?? '') === 'weed', 'invasive' => !empty($c['card']['invasive_bc']),
+                'invasive_note' => (string)($c['card']['invasive_note'] ?? ''), 'safety' => (string)($c['card']['safety'] ?? ''),
+                'disposal' => (string)($c['card']['disposal'] ?? '')];
     };
     $slim = fn(?array $r) => $r === null ? null : [
         'id' => (int)$r['id'], 'status' => $r['status'], 'scientific_name' => $r['scientific_name'], 'common_name' => $r['common_name'],
