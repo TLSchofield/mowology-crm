@@ -1638,6 +1638,13 @@ class BankImportService
             $closingBalance = $this->parseNumber($bm[1]);
         }
 
+        // Credit card statements (Vancity Visa) label the closing figure "Statement balance" with the amount
+        // right after it ("Statement balance\t$5,574.08"); the label must touch the amount, so "pay your
+        // statement balance in full" never matches (2026-10-15: every card import showed "closing ?").
+        if ($closingBalance === null && preg_match('/statement\s+balance[ \t]*\$?[ \t]*(\d{1,3}(?:,\d{3})*\.\d{2})/i', $text, $bm)) {
+            $closingBalance = $this->parseNumber($bm[1]);
+        }
+
         // If the closing regex matched the same value as opening — this happens when
         // the statement table puts the opening column before the closing column in text
         // order (e.g. Vancity multi-column headers), so .*? finds the opening amount
