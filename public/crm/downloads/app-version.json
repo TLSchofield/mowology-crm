@@ -7,7 +7,7 @@
     "apk_url": "/crm/downloads/mowology-crew.apk",
     "released": "2026-10-16",
     "release_notes": "Salt and snow stops, extra work and special requests are ready for the new Finish screen. Jobs you finish with no signal now always keep their details until they send.",
-    "force_update": true,
+    "force_update": false,
     "native_camera": false,
     "native_visit": false,
     "native_receipts": true
