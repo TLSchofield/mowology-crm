@@ -76,6 +76,30 @@ session_set_cookie_params([
     'samesite' => $sameSite,
 ]);
 
+// Two session cookies on one request (2026-10-16): an Android phone's native layer sent a stray MOWOSESS
+// ahead of the real one; PHP took the first, started a blank session and its new cookie replaced the
+// signed-in one — a driver was signed out a second after every sign-in. With more than one, use the one
+// whose session file exists (the newest). Self-contained: the live copy of this file differs from the repo.
+try {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        $__sessName = session_name();
+        $__sessRaw  = (string)($_SERVER['HTTP_COOKIE'] ?? '');
+        if (substr_count($__sessRaw, $__sessName . '=') > 1
+            && preg_match_all('/(?:^|;\s*)' . preg_quote($__sessName, '/') . '=([A-Za-z0-9,-]{16,256})(?=;|$)/', $__sessRaw, $__sessM)) {
+            $__sessDir = (string)session_save_path();
+            $__sessDir = rtrim(strpos($__sessDir, ';') !== false ? substr($__sessDir, strrpos($__sessDir, ';') + 1) : $__sessDir, '/');
+            $__sessPick = null; $__sessAt = -1;
+            foreach (array_unique($__sessM[1]) as $__sessId) {
+                $__sessFile = $__sessDir . '/sess_' . $__sessId;
+                if ($__sessDir !== '' && is_file($__sessFile) && filesize($__sessFile) > 0 && filemtime($__sessFile) > $__sessAt) {
+                    $__sessPick = $__sessId; $__sessAt = filemtime($__sessFile);
+                }
+            }
+            if ($__sessPick !== null) session_id($__sessPick);
+        }
+    }
+} catch (Throwable $__sessE) { /* never block a request over this */ }
+
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
