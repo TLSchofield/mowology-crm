@@ -59,10 +59,23 @@ if (!$isCli) {
 require_once APP_ROOT . '/Modules/Tracking/Services/TrackimoService.php';
 require_once APP_ROOT . '/Modules/Tracking/Services/TruckLocationService.php';
 
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+// The off-hours "not this minute" skip below is not a run and is not recorded.
+$cronStart = microtime(true);
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('trackimo_poll', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
+    } catch (Throwable $e) {
+        error_log('[trackimo_poll] could not record the run — ' . $e->getMessage());
+    }
+};
+
 // ─── Config: hardcoded for the single-truck phase ───
 $deviceId = defined('TRACKIMO_DEVICE_ID') ? (string)TRACKIMO_DEVICE_ID : '';
 if ($deviceId === '') {
     trackimoLog('ERROR', 'TRACKIMO_DEVICE_ID not defined in secrets.php');
+    $logRun('error', 'Truck tracker not configured', 'TRACKIMO_DEVICE_ID not defined in secrets.php');
     if (!$isCli) echo json_encode(['success' => false, 'error' => 'Device not configured']);
     exit($isCli ? 0 : 0);
 }
@@ -90,6 +103,7 @@ try {
     $ping = $trackimo->getLastLocation($deviceId);
     if ($ping === null) {
         trackimoLog('WARN', "No location returned for device {$deviceId}");
+        $logRun('warning', 'No location returned for the truck', "No location returned for device {$deviceId}");
         if (!$isCli) echo json_encode(['success' => true, 'inserted' => null, 'note' => 'no location']);
         exit(0);
     }
@@ -98,11 +112,16 @@ try {
     if ($id > 0) {
         trackimoLog('INFO', "Saved ping #{$id} for {$deviceId} at {$ping['recorded_at']}");
     }
+    // Every minute in business hours: a quiet success is recorded at most once an hour (cron_runs is never pruned).
+    if (!(function_exists('cronRecentSuccess') && cronRecentSuccess('trackimo_poll', 55))) {
+        $logRun('success', $id > 0 ? "Saved ping #{$id}" : 'Ping already saved (duplicate skipped)');
+    }
     if (!$isCli) {
         echo json_encode(['success' => true, 'inserted' => $id, 'ping' => $ping]);
     }
 } catch (Throwable $e) {
     trackimoLog('ERROR', $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    $logRun('error', 'Truck poll failed', $e->getMessage());
     if (!$isCli) {
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);

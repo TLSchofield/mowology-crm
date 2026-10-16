@@ -138,6 +138,12 @@ try {
 
     if (!$snapshot) {
         $msg = "No GSC snapshot found in last 28 days. Run Sync Now first.";
+        // Every run is recorded in cron_runs (Ada, 2026-10-15: this early exit was the one path that wasn't).
+        try {
+            recordCronRun('seo_recommendations', 'error', 'No GSC snapshot in the last 28 days', (int)((time() - $startTime) * 1000), $msg, !$isCli);
+        } catch (Throwable $recErr) {
+            error_log('[seo_recommendations] could not record the run — ' . $recErr->getMessage());
+        }
         if ($isCli) {
             echo "[ERROR] $msg\n";
             exit(1);

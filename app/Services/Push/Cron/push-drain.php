@@ -42,6 +42,8 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Services/Push/ApnsService.php';
 require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
+// recordCronRun() lives here; the CLI bootstrap (config.php only) doesn't load it.
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 
 // ── Guard: only run as CLI ────────────────────────────────────────────────────
 if (php_sapi_name() !== 'cli') {
@@ -52,8 +54,28 @@ if (php_sapi_name() !== 'cli') {
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 $start  = microtime(true);
-$counts = PushDispatcher::drainQueue();
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($start): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('push_drain', $status, $summary, (int)round((microtime(true) - $start) * 1000), $error, false);
+    } catch (\Throwable $e) {
+        error_log('[push-drain] could not record the run — ' . $e->getMessage());
+    }
+};
+
+try {
+    $counts = PushDispatcher::drainQueue();
+} catch (\Throwable $e) {
+    $logRun('error', 'push-drain failed', $e->getMessage());
+    throw $e; // same behaviour as before: the failure still surfaces in the cron log
+}
 $ms     = round((microtime(true) - $start) * 1000);
+// Every 5 minutes: a run that sent nothing is recorded at most once an hour (cron_runs is never pruned).
+$quiet = (int)$counts['sent'] === 0 && (int)$counts['failed'] === 0 && (int)$counts['expired'] === 0;
+if (!$quiet || !(function_exists('cronRecentSuccess') && cronRecentSuccess('push_drain', 55))) $logRun((int)$counts['failed'] > 0 ? 'warning' : 'success',
+    "sent={$counts['sent']} failed={$counts['failed']} expired={$counts['expired']}",
+    (int)$counts['failed'] > 0 ? $counts['failed'] . ' push(es) failed — see push_queue' : null);
 
 $ts = date('Y-m-d H:i:s');
 echo "[{$ts}] push-drain: sent={$counts['sent']} failed={$counts['failed']} expired={$counts['expired']} ({$ms}ms)\n";

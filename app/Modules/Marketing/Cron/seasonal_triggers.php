@@ -45,6 +45,17 @@ if (!$isCli) {
     }
 }
 
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$cronStart = microtime(true);
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('seasonal_triggers', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
+    } catch (\Throwable $e) {
+        error_log('seasonal_triggers: could not record the run — ' . $e->getMessage());
+    }
+};
+
 try {
     $db = getDB();
 
@@ -71,6 +82,7 @@ try {
 
     if (!$hasCampaigns) {
         $msg = 'marketing_campaigns table does not exist. Run migration 604 first.';
+        $logRun('error', $msg, $msg);
         if ($isCli) { echo "SKIP: $msg\n"; exit(0); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
@@ -78,6 +90,7 @@ try {
 
     if (!$hasTriggerMonth) {
         $msg = 'products.trigger_month column does not exist. Run migration 600 first.';
+        $logRun('error', $msg, $msg);
         if ($isCli) { echo "SKIP: $msg\n"; exit(0); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
@@ -98,6 +111,7 @@ try {
 
     if (empty($triggerProducts)) {
         $msg = "No products have trigger_month = {$currentMonth} ({$monthName}).";
+        $logRun('success', $msg);
         if ($isCli) { echo "$msg\n"; exit(0); }
         echo json_encode(['success' => true, 'message' => $msg, 'campaigns_created' => 0]);
         exit;
@@ -218,6 +232,8 @@ try {
         'total_recipients'   => $totalRecipients,
     ];
 
+    $logRun('success', $result['message']);
+
     if ($isCli) {
         echo "\n" . $result['message'] . "\n";
     } else {
@@ -227,6 +243,7 @@ try {
 } catch (\Throwable $e) {
     $error = 'seasonal_triggers error: ' . $e->getMessage();
     error_log($error);
+    $logRun('error', 'seasonal_triggers failed', $error);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }

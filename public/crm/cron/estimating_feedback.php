@@ -55,6 +55,17 @@ if (!$isCli) {
 }
 
 // ── Main ───────────────────────────────────────────────────────────────
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$cronStart = microtime(true);
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('estimating_feedback', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
+    } catch (\Throwable $e) {
+        error_log('estimating_feedback: could not record the run — ' . $e->getMessage());
+    }
+};
+
 try {
     $db = getDB();
 
@@ -237,6 +248,8 @@ try {
         'message'           => "Estimating feedback: {$insertedAccuracy} accuracy records, {$updatedPrices} price index rows updated",
     ];
 
+    $logRun('success', $result['message']);
+
     if ($isCli) {
         echo $result['message'] . "\n";
         foreach ($log as $entry) {
@@ -250,6 +263,7 @@ try {
 } catch (\Throwable $e) {
     $error = 'estimating_feedback error: ' . $e->getMessage();
     error_log($error);
+    $logRun('error', 'estimating_feedback failed', $error);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";

@@ -41,6 +41,8 @@ function ovLog(string $msg): void {
 }
 
 ovLog("=== Invoice Overdue Cron started ===");
+$cronStart = microtime(true);
+$cronError = null;
 
 try {
     // Mark eligible invoices as overdue:
@@ -64,9 +66,21 @@ try {
 } catch (Throwable $e) {
     ovLog("ERROR: " . $e->getMessage());
     error_log('[invoice_overdue_cron] ' . $e->getMessage());
+    $cronError = $e->getMessage();
 }
 
 ovLog("=== Done ===");
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('invoice_overdue', $cronError === null ? 'success' : 'error',
+            $cronError === null ? 'Marked ' . ($rows ?? 0) . ' invoice(s) overdue' : 'Marking invoices overdue failed',
+            (int)round((microtime(true) - $cronStart) * 1000), $cronError, PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('[invoice_overdue_cron] could not record the run — ' . $e->getMessage());
+    }
+}
 
 // If running via web shim, return JSON
 if (PHP_SAPI !== 'cli') {

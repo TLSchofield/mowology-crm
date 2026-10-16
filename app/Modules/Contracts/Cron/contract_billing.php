@@ -75,6 +75,15 @@ require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
 
 $startMs    = (int)(microtime(true) * 1000);
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($startMs, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('contract_billing', $status, $summary, (int)(microtime(true) * 1000) - $startMs, $error, !$isCli);
+    } catch (Throwable $e) {
+        error_log('[contract_billing] could not record the run — ' . $e->getMessage());
+    }
+};
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
@@ -86,6 +95,7 @@ $taxRate  = TaxEngine::gstRate($db);
 // (the idempotency check is a plain SELECT before the INSERT; review 2026-10-12).
 if ((int)$db->query("SELECT GET_LOCK('mw_contract_billing', 0)")->fetchColumn() !== 1) {
     $msg = 'contract_billing: another run is in progress — nothing done.';
+    $logRun('success', $msg);
     if ($isCli) { echo $msg . "\n"; exit(0); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -111,6 +121,7 @@ try {
     if (empty($colCheck)) {
         $msg = 'Migration 1007 not applied — invoices.contract_id column missing. Run /crm/api/run-migration-1007.php first.';
         error_log("[contract_billing] {$msg}");
+        $logRun('error', 'Migration 1007 not applied', $msg);
         if ($isCli) { echo $msg . PHP_EOL; exit(1); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
@@ -225,6 +236,7 @@ try {
 } catch (Throwable $e) {
     $msg = 'Failed to query contracts: ' . $e->getMessage();
     error_log("[contract_billing] {$msg}");
+    $logRun('error', 'Could not query contracts', $msg);
     if ($isCli) { echo $msg . PHP_EOL; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -411,6 +423,10 @@ $report = [
         'errors'  => $errors,
     ],
 ];
+
+$logRun(count($errors) > 0 ? 'warning' : 'success',
+    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, ' . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+    count($errors) > 0 ? implode(' | ', array_slice($errors, 0, 5)) : null);
 
 if ($isCli) {
     echo "Contract billing complete [{$monthLabel}]\n";

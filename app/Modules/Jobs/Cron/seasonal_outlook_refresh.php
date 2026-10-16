@@ -81,6 +81,18 @@ try {
 
 $result['duration_s'] = round(microtime(true) - $started, 2);
 
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('seasonal_outlook', $result['ok'] ? 'success' : 'error',
+            $result['ok'] ? ('Winter ' . $result['winter'] . ' outlook refreshed, ' . $result['months'] . ' months') : 'Outlook refresh failed',
+            (int)round((microtime(true) - $started) * 1000),
+            $result['ok'] ? null : (string)($result['reason'] ?? 'unknown'), !$isCli);
+    } catch (Throwable $e) {
+        error_log('[seasonal_outlook_refresh] could not record the run — ' . $e->getMessage());
+    }
+}
+
 if ($isCli) {
     $stamp = date('Y-m-d H:i:s');
     echo "[{$stamp}] seasonal_outlook_refresh: " . ($result['ok'] ? 'OK' : 'FAILED') . "\n";

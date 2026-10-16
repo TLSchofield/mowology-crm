@@ -2986,6 +2986,23 @@ function getDailyProfitability(string $startDate, string $endDate): array
  * @param string|null $errorMessage Error detail when status = 'error'
  * @param bool        $fromWeb      true when triggered via the Run Now button
  */
+/**
+ * Did this cron record a success in the last $minutes? Crons that run every minute or five record a
+ * quiet success at most hourly with this (cron_runs is never pruned); errors and warnings always go in.
+ * On any failure to check, answers false, so the run is recorded.
+ */
+function cronRecentSuccess(string $cronKey, int $minutes): bool
+{
+    try {
+        $s = getDB()->prepare("SELECT 1 FROM cron_runs WHERE cron_key = ? AND status = 'success'
+                               AND ran_at >= DATE_SUB(NOW(), INTERVAL " . max(1, $minutes) . " MINUTE) LIMIT 1");
+        $s->execute([$cronKey]);
+        return (bool)$s->fetchColumn();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
 function recordCronRun(
     string  $cronKey,
     string  $status      = 'success',

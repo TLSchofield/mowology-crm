@@ -37,6 +37,8 @@ $db = getDB();
 $log = [];
 $processed = 0;
 $maxActions = 50; // Max queue items per run
+$cronStart = microtime(true);
+$cronFailed = 0; // rules or queued actions that threw this run
 
 function logMsg(string $msg): void {
     global $log;
@@ -63,6 +65,7 @@ foreach ($rules as $rule) {
     } catch (Throwable $e) {
         logMsg("ERROR evaluating rule #{$rule['id']} ({$rule['name']}): " . $e->getMessage());
         error_log("automation_runner rule #{$rule['id']}: " . $e->getMessage());
+        $cronFailed++;
     }
 }
 
@@ -97,10 +100,23 @@ foreach ($pending as $qa) {
         $db->prepare("UPDATE queued_actions SET status=?, error_message=? WHERE id=?")->execute([$newStatus, $e->getMessage(), $qa['id']]);
         logMsg("  FAILED action #{$qa['id']} ({$qa['action_type']}): " . $e->getMessage() . ($willRetry ? " [will retry]" : " [max retries]"));
         error_log("queued_action #{$qa['id']}: " . $e->getMessage());
+        $cronFailed++;
     }
 }
 
 logMsg("=== Done. Processed $processed actions ===");
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('automation_runner', $cronFailed > 0 ? 'warning' : 'success',
+            count($rules) . ' rule(s) checked, ' . $processed . ' queued action(s) processed' . ($cronFailed > 0 ? ', ' . $cronFailed . ' failed' : ''),
+            (int)round((microtime(true) - $cronStart) * 1000),
+            $cronFailed > 0 ? $cronFailed . ' rule(s)/action(s) failed — see the PHP error log' : null, PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('automation_runner: could not record the run — ' . $e->getMessage());
+    }
+}
 
 
 // ── Rule Evaluator ─────────────────────────────────────────────────────────

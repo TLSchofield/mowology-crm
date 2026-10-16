@@ -46,6 +46,10 @@ function qrLog(string $msg): void {
 }
 
 qrLog('=== Quote Request Reminder started ===');
+$cronStart = microtime(true);
+$cronError = null;
+$reminded = 0;
+$smsFailed = 0;
 
 try {
     // Find quote_requests older than 4 hours that:
@@ -85,6 +89,8 @@ try {
 
         $sent = sendSMSNotification($sms);
         qrLog(($sent ? 'SMS sent' : 'SMS FAILED') . " for quote_request #{$row['id']} ({$name})");
+        $reminded++;
+        if (!$sent) $smsFailed++;
 
         // Mark as reminded so it doesn't fire again
         $logStmt = $db->prepare("
@@ -101,9 +107,23 @@ try {
 } catch (Throwable $e) {
     qrLog('ERROR: ' . $e->getMessage());
     error_log('[quote_request_reminder] ' . $e->getMessage());
+    $cronError = $e->getMessage();
 }
 
 qrLog('=== Done ===');
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('quote_request_reminder',
+            $cronError !== null ? 'error' : ($smsFailed > 0 ? 'warning' : 'success'),
+            $reminded . ' reminder(s) sent' . ($smsFailed > 0 ? ', ' . $smsFailed . ' SMS failed' : '') . ($cronError !== null ? ' before it failed' : ''),
+            (int)round((microtime(true) - $cronStart) * 1000),
+            $cronError ?? ($smsFailed > 0 ? $smsFailed . ' reminder SMS failed to send' : null), PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('[quote_request_reminder] could not record the run — ' . $e->getMessage());
+    }
+}
 
 if (PHP_SAPI !== 'cli') {
     header('Content-Type: application/json');
