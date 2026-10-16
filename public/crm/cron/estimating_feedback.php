@@ -54,18 +54,14 @@ if (!$isCli) {
     }
 }
 
-// ── Main ───────────────────────────────────────────────────────────────
-// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
-$cronStart = microtime(true);
-$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
-    if (!function_exists('recordCronRun')) return;
-    try {
-        recordCronRun('estimating_feedback', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
-    } catch (\Throwable $e) {
-        error_log('estimating_feedback: could not record the run — ' . $e->getMessage());
-    }
-};
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
+$insertedAccuracy = 0;
+$updatedPrices    = 0;
 
+// ── Main ───────────────────────────────────────────────────────────────
 try {
     $db = getDB();
 
@@ -88,7 +84,7 @@ try {
         FROM job_plans jp
         JOIN quotes q ON jp.quote_id = q.id
         JOIN expenses e ON e.job_id = jp.id
-        WHERE jp.is_active = 1
+        WHERE jp.status = 'active'
           AND e.status != 'rejected'
           AND q.status NOT IN ('draft')
         LIMIT 200
@@ -248,7 +244,15 @@ try {
         'message'           => "Estimating feedback: {$insertedAccuracy} accuracy records, {$updatedPrices} price index rows updated",
     ];
 
-    $logRun('success', $result['message']);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'estimating_feedback',
+        $cronStatus,
+        "Accuracy records: {$insertedAccuracy}, Price index rows: {$updatedPrices}",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
 
     if ($isCli) {
         echo $result['message'] . "\n";
@@ -263,7 +267,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'estimating_feedback error: ' . $e->getMessage();
     error_log($error);
-    $logRun('error', 'estimating_feedback failed', $error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('estimating_feedback', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";
