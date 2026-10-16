@@ -48,11 +48,28 @@ if ($invoiceId <= 0) {
 // ── Load invoice from DB (source of truth for amount) ────────────────────────
 $db   = getDB();
 $stmt = $db->prepare("
-    SELECT id, invoice_number, total, balance_due, status, company_id, stripe_payment_intent_id
+    SELECT id, invoice_number, total, balance_due, status, company_id, stripe_payment_intent_id, access_token
     FROM invoices
     WHERE id = ?
     LIMIT 1
 ");
+$stmt->execute([$invoiceId]);
+$invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// One payment request per invoice at a time — the SAME lock as the customer page (customer/api/invoice-payment-intent.php),
+// so two clicks here, or here and the client's page at once, can't each make an intent (Codex payment review 2026-10-16).
+if ($invoice && !empty($invoice['access_token'])) {
+    $piLock = 'mw_inv_pay_' . md5((string)$invoice['access_token']);
+    if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($piLock) . ", 15)")->fetchColumn() !== 1) {
+        http_response_code(409);
+        echo json_encode(['error' => 'A payment for this invoice is being set up already — try again in a moment.']);
+        exit;
+    }
+    register_shutdown_function(function () use ($db, $piLock) {
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($piLock) . ")"); } catch (\Throwable $e) { /* lock went with the connection */ }
+    });
+}
+// Read the invoice AGAIN under the lock: the customer page may have just replaced its intent (Codex re-review).
 $stmt->execute([$invoiceId]);
 $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -122,7 +139,18 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             ]);
             exit;
         }
-        // Otherwise fall through and create a new one (e.g., amount changed or intent was cancelled)
+        // Otherwise fall through and create a new one (e.g., amount changed or intent was cancelled).
+        // An open intent for the OLD amount is cancelled first, so it can't still be charged (Codex payment review 2026-10-16).
+        if (in_array($existingIntent->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)) {
+            try { $existingIntent->cancel(); }
+            catch (\Throwable $e) {
+                // Couldn't cancel: it may still be chargeable — keep its id and make NO second one (Codex re-review).
+                error_log('[Stripe] Could not cancel stale PaymentIntent ' . $existingIntent->id . ': ' . $e->getMessage());
+                http_response_code(503);
+                echo json_encode(['error' => 'Could not replace the earlier payment request — try again in a moment.']);
+                exit;
+            }
+        }
         // Clear the stale ID so we don't try to reuse it again
         $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")->execute([$invoiceId]);
     } catch (\Stripe\Exception\ApiErrorException $e) {

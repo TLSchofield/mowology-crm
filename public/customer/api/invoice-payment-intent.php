@@ -205,12 +205,18 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             exit;
         }
 
-        // Cancel stale/wrong-type intent so we create a fresh card-only one below
-        if ($isReusable && !$isCardOnly) {
+        // Cancel stale/wrong-type intent so we create a fresh card-only one below — including one for an OLD amount
+        // (the invoice changed): left open, an old tab could still charge it (Codex payment review 2026-10-16).
+        $isOpen = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true);
+        if ($isOpen && (!$isReusable || !$isCardOnly)) {
             try {
                 $existing->cancel();
-            } catch (\Stripe\Exception\ApiErrorException $e) {
+            } catch (\Throwable $e) {
+                // Couldn't cancel it: it may still be chargeable, so make NO second one — try again (Codex re-review).
                 writeSystemLog('warning', 'stripe', 'Could not cancel stale PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+                http_response_code(503);
+                echo json_encode(['error' => 'The payment page needs a moment — please try again.']);
+                exit;
             }
         }
 

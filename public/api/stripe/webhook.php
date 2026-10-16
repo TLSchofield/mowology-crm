@@ -174,10 +174,26 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 
     // ── Idempotency check ─────────────────────────────────────────────────────
     $checkStmt = $db->prepare("
-        SELECT id, status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1
+        SELECT id, status, invoice_id FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1
     ");
     $checkStmt->execute([$paymentIntentId]);
     $existingPayment = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Codex payment review 2026-10-16: the money must be in our currency, and a payment already recorded against
+    // one invoice must not be applied to another by its metadata. Either way: record nothing, tell the office.
+    $mismatch = null;
+    if ($currency !== 'cad') $mismatch = 'currency ' . strtoupper($currency) . ', not CAD';
+    elseif ($existingPayment && (int)($existingPayment['invoice_id'] ?? 0) > 0 && (int)$existingPayment['invoice_id'] !== $invoiceId) {
+        $mismatch = 'recorded for invoice #' . (int)$existingPayment['invoice_id'] . ' but its metadata says #' . $invoiceId;
+    }
+    if ($mismatch !== null) {
+        error_log('[Stripe Webhook] NOT recorded — ' . $paymentIntentId . ': ' . $mismatch);
+        try {
+            $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'stripe_payment_not_recorded', ?, ?, NOW())")
+               ->execute([json_encode(['payment_intent' => $paymentIntentId, 'amount_cents' => $amountCents, 'why' => $mismatch]), $invoiceId]);
+        } catch (\Throwable $e) { /* logged above */ }
+        return true;   // retrying can't change it; the office decides
+    }
 
     if ($existingPayment && $existingPayment['status'] === 'succeeded') {
         error_log('[Stripe Webhook] Duplicate event — already processed: ' . $paymentIntentId);
@@ -319,7 +335,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
                     status                    = ?,
                     amount_paid               = amount_paid + ?,
                     balance_due               = ?,
-                    paid_at                   = NOW(),
+                    paid_at                   = IF(? = 'paid', NOW(), paid_at),   -- a part payment is not 'paid' (Codex review)
                     payment_method            = 'stripe',
                     payment_reference         = ?,
                     stripe_payment_intent_id  = ?,
@@ -333,6 +349,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
                 $newStatus,
                 $paidAmount,
                 $balanceDue,
+                $newStatus,
                 $paymentIntentId,
                 $paymentIntentId,
                 $chargeId,          // ch_XXXXXXXX — used for deterministic bank import matching
@@ -367,7 +384,9 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         }
 
         // ── Save card details to contact (if applicable) ──────────────────────
-        if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
+        // An autopay charge used the card ALREADY on file (possibly the company's): never copy it onto the contact (Codex review).
+        $fromAutopay = (string)($intent->metadata['source'] ?? '') === 'autopay';
+        if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent && !$fromAutopay) {
             // Autopay only from a NEWLY entered card (security review #13): paying with the card
             // already on file proves nothing about who holds the invoice link.
             $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
