@@ -127,12 +127,12 @@ $dateOrDash = function ($d) { return $d ? date('F j, Y', strtotime((string)$d)) 
 
 <?php if (!empty($contract['notes'])): ?>
     <div class="section-title">Notes</div>
-    <div class="notes"><?php echo $esc($contract['notes']); ?></div>
+    <div class="notes"><?php echo nl2br($esc($contract['notes'])); /* mPDF ignores pre-line: line breaks as <br> */ ?></div>
 <?php endif; ?>
 
 <?php if ($terms && trim((string)$terms['body']) !== ''): ?>
     <div class="section-title">Terms &amp; Conditions</div>
-    <div class="terms-body"><?php echo $esc($terms['body']); ?></div>
+    <div class="terms-body"><?php echo nl2br($esc($terms['body'])); ?></div>
 <?php endif; ?>
 
 <div class="section-title">Agreement</div>
