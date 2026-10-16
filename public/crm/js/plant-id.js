@@ -60,7 +60,9 @@
         if (c.status === 'approved') {
             return '<div class="small mt-1">' + (c.match === 'genus' ? '<span class="text-muted">General care for the genus · </span>' : '')
                 + (c.tasks || []).map(function (t) { return '<span class="mr-2 text-nowrap" title="' + esc(t.how) + '"><b>' + esc(t.task) + '</b> ' + esc(t.when) + '</span>'; }).join('')
-                + (c.toxic_pets ? ' <span class="badge badge-danger" title="' + esc(c.toxic_note) + '">toxic to pets</span>' : '') + '</div>';
+                + (c.toxic_pets ? ' <span class="badge badge-danger" title="' + esc(c.toxic_note) + '">toxic to pets</span>' : '')
+                + ((c.propagation || []).length ? '<div class="text-muted">Propagation: ' + c.propagation.map(function (p) { return esc(p.method) + (p.when ? ' ' + esc(p.when) : ''); }).join(' · ')
+                    + (c.propagation_note ? ' — ' + esc(c.propagation_note) : '') + '</div>' : '') + '</div>';
         }
         if (c.status === 'none') {
             return state.canLibrary && p.status === 'confirmed'

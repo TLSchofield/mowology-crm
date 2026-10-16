@@ -314,7 +314,8 @@ class PlantCareService
             return ['ok' => true, 'message' => 'Back in the queue for the next batch.'];
         }
         if (!in_array($have['status'], ['draft', 'approved'], true)) return ['ok' => false, 'message' => 'There is no draft to approve yet.'];
-        $card = self::clean(is_array($in['card'] ?? null) ? $in['card'] : $have['card']);
+        // An edit carries the fields the editor shows; everything else on the card (propagation…) is kept.
+        $card = self::clean(is_array($in['card'] ?? null) ? array_merge($have['card'], $in['card']) : $have['card']);
         if (!$card['tasks']) return ['ok' => false, 'message' => 'Keep at least one care task.'];
         unset($card['common_name'], $card['group']);
         $common = mb_substr(trim((string)($in['common_name'] ?? $have['common_name'] ?? '')), 0, 160) ?: null;
@@ -363,7 +364,18 @@ class PlantCareService
             $tasks[] = ['task' => $task, 'from' => $from, 'to' => $to, 'how' => $t($x['how'] ?? '', 240)];
             if (count($tasks) >= 8) break;
         }
-        $out = ['tasks' => $tasks, 'toxic_pets' => !empty($c['toxic_pets']) && $c['toxic_pets'] !== 'false', 'toxic_note' => $t($c['toxic_note'] ?? '', 160),
+        $prop = [];
+        foreach ((array)($c['propagation'] ?? []) as $x) {
+            if (!is_array($x)) continue;
+            $m = $t($x['method'] ?? '', 60);
+            $from = (int)($x['from'] ?? 0); $to = (int)($x['to'] ?? $from);
+            if ($m === '') continue;
+            if ($from < 1 || $from > 12) { $from = 0; $to = 0; } elseif ($to < 1 || $to > 12) $to = $from;
+            $prop[] = ['method' => $m, 'from' => $from, 'to' => $to, 'how' => $t($x['how'] ?? '', 240)];
+            if (count($prop) >= 4) break;
+        }
+        $out = ['propagation' => $prop, 'propagation_note' => $t($c['propagation_note'] ?? '', 200),
+                'tasks' => $tasks, 'toxic_pets' => !empty($c['toxic_pets']) && $c['toxic_pets'] !== 'false', 'toxic_note' => $t($c['toxic_note'] ?? '', 160),
                 'sun' => $t($c['sun'] ?? '', 80), 'soil' => $t($c['soil'] ?? '', 80), 'size' => $t($c['size'] ?? '', 80),
                 'hardiness' => $t($c['hardiness'] ?? '', 60), 'notes' => $t($c['notes'] ?? '', 400),
                 // Weeds: on BC's invasive / noxious lists, and what a crew must know to remove it safely.
@@ -396,7 +408,8 @@ class PlantCareService
             . "{\"common_name\": \"the usual garden name\", \"group\": \"hedge|shrub|perennial|grass|groundcover|tree|bulb|vine|annual\", "
             . "\"tasks\": [{\"task\": \"Cut back to 10 cm\", \"from\": 11, \"to\": 12, \"how\": \"one short line\"}], "
             . "\"toxic_pets\": true, \"toxic_note\": \"Toxic to dogs and cats if eaten\", \"sun\": \"Full sun\", \"soil\": \"Well-drained\", "
-            . "\"size\": \"30–90 cm tall\", \"hardiness\": \"Zones 5–9\", \"notes\": \"anything a crew must know, one line\"}\n"
+            . "\"size\": \"30–90 cm tall\", \"hardiness\": \"Zones 5–9\", \"notes\": \"anything a crew must know, one line\", "
+            . "\"propagation\": [{\"method\": \"Semi-ripe cuttings\", \"from\": 7, \"to\": 9, \"how\": \"one short line\"}], \"propagation_note\": \"e.g. grafted — not worth propagating\"}\n"
             . "Months are numbers 1–12 (a window may wrap the year, e.g. from 11 to 2). At most 6 tasks. Leave a field empty when the sources don't support it.";
         return [
             'model' => self::MODEL,
@@ -408,6 +421,107 @@ class PlantCareService
             ]],
             'messages' => [['role' => 'user', 'content' => $prompt]],
         ];
+    }
+
+    public const PROP_KEY = 'plant_prop_batches';
+
+    /** Propagation only (Tim, 2026-10-15: "propagation wasn't included"): for a plant, how to make more; for a weed, how it spreads. */
+    public static function propagationRequest(string $scientific, string $commonHint, bool $weed): array
+    {
+        $who = $scientific . ($commonHint !== '' ? " ({$commonHint})" : '');
+        $ask = $weed
+            ? "How does {$who} spread in Vancouver gardens (seed, runners, rhizomes, root or stem fragments, bulbils)? Crews need this to stop it."
+            : "How is {$who} propagated by gardeners on the Pacific Northwest coast (Vancouver, zone 8b): cuttings (softwood / semi-ripe / hardwood), division, layering, seed — with the months.";
+        $prompt = $ask . " Search the trusted sources and use only what they support, in your own words.\n\n"
+            . "After searching, reply with ONE short line naming the sources, then ONE fenced ```json block, exactly this shape:\n"
+            . "{\"propagation\": [{\"method\": \"" . ($weed ? "Root fragments" : "Semi-ripe cuttings") . "\", \"from\": 7, \"to\": 9, \"how\": \"one short line\"}], "
+            . "\"propagation_note\": \"" . ($weed ? "one line on how to stop it spreading" : "one line, e.g. grafted or patented — buy new rather than propagate") . "\"}\n"
+            . "Months are numbers 1–12 (0 when the method has no season). At most 4 methods.";
+        $body = self::request($scientific, $commonHint, 'species');
+        $body['max_tokens'] = 2500;
+        $body['tools'][0]['max_uses'] = 2;
+        $body['messages'] = [['role' => 'user', 'content' => $prompt]];
+        return $body;
+    }
+
+    /** Ask for propagation on every drafted / approved card that hasn't got it, as one batch. */
+    public function submitPropagation(int $max = 400): array
+    {
+        if (!$this->hasKey()) return ['ok' => false, 'message' => 'No Anthropic key set up.'];
+        $rows = $this->db->query("SELECT id, scientific_name, common_name, plant_group, level, card FROM plant_care_cards
+                                  WHERE status IN ('draft', 'approved') ORDER BY id LIMIT " . max(1, min(1000, $max)))->fetchAll(PDO::FETCH_ASSOC);
+        $pending = $this->propBatches();
+        $busy = [];
+        foreach ($pending as $ids) foreach ($ids as $i) $busy[(int)$i] = true;
+        $want = [];
+        foreach ($rows as $r) {
+            $card = json_decode((string)$r['card'], true) ?: [];
+            if (!empty($card['propagation']) || !empty($card['propagation_note']) || isset($busy[(int)$r['id']])) continue;
+            $name = $r['level'] === 'genus' ? 'the genus ' . $r['scientific_name'] : (string)$r['scientific_name'];
+            $want[] = ['custom_id' => 'pcp-' . (int)$r['id'], 'params' => self::propagationRequest($name, (string)$r['common_name'], $r['plant_group'] === 'weed')];
+        }
+        if (!$want) return ['ok' => true, 'sent' => 0, 'message' => 'Every card has its propagation.'];
+        $res = $this->call('POST', self::BATCH_URL, ['requests' => $want]);
+        $j = json_decode($res['body'], true) ?: [];
+        if ($res['code'] !== 200 || empty($j['id'])) return ['ok' => false, 'message' => 'Anthropic did not take the batch (' . $res['code'] . ').'];
+        $pending[(string)$j['id']] = array_map(fn($w) => (int)substr($w['custom_id'], 4), $want);
+        $this->saveProp($pending);
+        return ['ok' => true, 'sent' => count($want), 'batch_id' => $j['id']];
+    }
+
+    /** Merge finished propagation answers into their cards (nothing else on a card changes). */
+    public function collectPropagation(): array
+    {
+        $pending = $this->propBatches();
+        $merged = 0; $failed = 0;
+        foreach ($pending as $bid => $ids) {
+            $st = json_decode($this->call('GET', self::BATCH_URL . '/' . rawurlencode((string)$bid), null)['body'], true) ?: [];
+            if (($st['processing_status'] ?? '') !== 'ended' || empty($st['results_url'])) continue;
+            $res = $this->call('GET', (string)$st['results_url'], null);
+            if ($res['code'] !== 200) continue;
+            foreach (preg_split('/\r?\n/', trim($res['body'])) as $line) {
+                $r = json_decode($line, true);
+                if (!$r || !preg_match('/^pcp-(\d+)$/', (string)($r['custom_id'] ?? ''), $m)) continue;
+                $p = ($r['result']['type'] ?? '') === 'succeeded' ? self::parse($r['result']['message'] ?? []) : ['card' => null];
+                $have = $p['card'] ? $this->byId((int)$m[1]) : null;
+                if (!$have) { $failed++; continue; }
+                $c = self::clean(array_merge($have['card'], ['propagation' => $p['card']['propagation'] ?? [], 'propagation_note' => $p['card']['propagation_note'] ?? '']));
+                $src = $have['sources'];
+                foreach ($p['sources'] as $x) if (!in_array($x['url'], array_column($src, 'url'), true)) $src[] = $x;
+                $this->db->prepare("UPDATE plant_care_cards SET card = ?, sources = ?, updated_at = ? WHERE id = ?")
+                         ->execute([json_encode($c), json_encode($src), date('Y-m-d H:i:s'), (int)$m[1]]);
+                $merged++;
+            }
+            unset($pending[$bid]);
+        }
+        $this->saveProp($pending);
+        return ['merged' => $merged, 'failed' => $failed, 'pending' => count($pending)];
+    }
+
+    private function propBatches(): array
+    {
+        try {
+            $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
+            $s->execute([self::PROP_KEY]);
+            $m = json_decode((string)$s->fetchColumn(), true);
+            return is_array($m) ? $m : [];
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function saveProp(array $m): void
+    {
+        $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
+        $u->execute([json_encode($m), self::PROP_KEY]);
+        if ($u->rowCount() === 0) {
+            $c = $this->db->prepare('SELECT COUNT(*) FROM ops_settings WHERE setting_key = ?');
+            $c->execute([self::PROP_KEY]);
+            if (!(int)$c->fetchColumn()) {
+                $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Plant library: propagation batches being written')")
+                         ->execute([self::PROP_KEY, json_encode($m)]);
+            }
+        }
     }
 
     /** A weed / invasive: how and when to control it on the coast, BC's lists, safety and disposal. */

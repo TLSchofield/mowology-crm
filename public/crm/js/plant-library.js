@@ -83,6 +83,9 @@
                 return '<li><b>' + esc(t.task) + '</b> — ' + esc(when(t)) + (t.how ? ' <span class="text-muted">· ' + esc(t.how) + '</span>' : '') + '</li>';
             }).join('') + '</ul>' : (x.status === 'queued' ? '<div class="small text-muted mt-1">Being written…</div>' : ''))
             + (facts ? '<div class="small text-muted">' + facts + '</div>' : '')
+            + ((k.propagation || []).length || k.propagation_note ? '<div class="small mt-1"><b>' + (x.plant_group === 'weed' ? 'How it spreads' : 'Propagation') + ':</b> '
+                + (k.propagation || []).map(function (p) { return esc(p.method) + (p.from ? ' ' + esc(when(p)) : '') + (p.how ? ' <span class="text-muted">(' + esc(p.how) + ')</span>' : ''); }).join(' · ')
+                + (k.propagation_note ? ' <span class="text-muted">— ' + esc(k.propagation_note) + '</span>' : '') + '</div>' : '')
             + (k.invasive_note ? '<div class="small mt-1">' + esc(k.invasive_note) + '</div>' : '')
             + (k.safety ? '<div class="small mt-1 text-danger">Safety: ' + esc(k.safety) + '</div>' : '')
             + (k.disposal ? '<div class="small mt-1">Disposal: ' + esc(k.disposal) + '</div>' : '')

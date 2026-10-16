@@ -147,4 +147,20 @@ class PlantCareServiceTest extends TestCase
         $this->assertContains('bcinvasives.ca', $body['tools'][0]['allowed_domains']);
         $this->assertSame('weed', PlantLibrarySeed::PLANTS[array_search('Heracleum mantegazzianum', array_column(PlantLibrarySeed::PLANTS, 0))][2]);
     }
+
+    public function testPropagationIsKeptAndSurvivesAnEdit(): void
+    {
+        $c = PlantCareService::clean(['tasks' => [['task' => 'Shear', 'from' => 6, 'to' => 6]],
+            'propagation' => [['method' => 'Semi-ripe cuttings', 'from' => 7, 'to' => 9, 'how' => '10 cm side shoots'], ['method' => 'Seed', 'from' => 0], ['method' => '']],
+            'propagation_note' => 'Named cultivars come true only from cuttings']);
+        $this->assertSame([['method' => 'Semi-ripe cuttings', 'from' => 7, 'to' => 9, 'how' => '10 cm side shoots'], ['method' => 'Seed', 'from' => 0, 'to' => 0, 'how' => '']], $c['propagation']);
+        $db = $this->db();
+        $svc = new PlantCareService($db, fn() => ['code' => 200, 'body' => json_encode(self::claude(self::MUM + ['propagation' => [['method' => 'Division', 'from' => 3, 'to' => 4]]]))], $this->gbif($db));
+        $id = (int)$svc->draftNow('Chrysanthemum × morifolium', 'Garden mum', 7)['card']['id'];
+        $ok = $svc->decide($id, ['card' => ['tasks' => [['task' => 'Pinch tips', 'from' => 5, 'to' => 7]]]], 7);
+        $this->assertSame('Division', $ok['card']['card']['propagation'][0]['method'], 'the editor does not send propagation; it is kept');
+        $w = PlantCareService::propagationRequest('Equisetum arvense', 'Field horsetail', true);
+        $this->assertStringContainsString('spread', $w['messages'][0]['content']);
+        $this->assertSame(2, $w['tools'][0]['max_uses']);
+    }
 }

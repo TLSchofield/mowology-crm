@@ -78,6 +78,10 @@ try {
                 'tasks' => $c['status'] === 'approved' ? $tasks : [], 'toxic_pets' => $c['status'] === 'approved' && !empty($c['card']['toxic_pets']),
                 'toxic_note' => $c['status'] === 'approved' ? ($c['card']['toxic_note'] ?? '') : '', 'sun' => $c['status'] === 'approved' ? ($c['card']['sun'] ?? '') : '']
              // A weed shows as a weed even before its card is approved; the control details only once approved.
+             + ['propagation' => $c['status'] === 'approved'
+                    ? array_map(fn($x) => ['method' => $x['method'], 'when' => $x['from'] ? PlantCareService::window((int)$x['from'], (int)$x['to']) : '', 'how' => $x['how']], $c['card']['propagation'] ?? [])
+                    : [],
+                'propagation_note' => $c['status'] === 'approved' ? ($c['card']['propagation_note'] ?? '') : '']
              + ['weed' => !empty($c['card']['weed']) || ($c['plant_group'] ?? '') === 'weed',
                 'invasive' => $c['status'] === 'approved' && !empty($c['card']['invasive_bc']),
                 'invasive_note' => $c['status'] === 'approved' ? ($c['card']['invasive_note'] ?? '') : '',
@@ -152,7 +156,7 @@ try {
             break;
         case 'library': {
             if (!$care->ready()) { echo json_encode(['ok' => false, 'error' => 'The plant library needs migration 1368.']); break; }
-            $got = $care->collect();
+            $got = $care->collect() + ['propagation' => $care->collectPropagation()];
             echo json_encode(['ok' => true, 'can_edit' => $canLibrary, 'collected' => $got, 'groups_named' => PlantCareService::GROUPS, 'months' => PlantCareService::MONTHS] + $care->library());
             break;
         }
