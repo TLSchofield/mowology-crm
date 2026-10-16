@@ -50,6 +50,8 @@ function remLog(string $msg): void {
 }
 
 remLog("=== Invoice Reminders Cron started ===");
+$cronStart = microtime(true);
+$cronError = null;
 
 $MAX_REMINDERS   = 3;
 $COOLDOWN_DAYS   = 3;
@@ -216,9 +218,21 @@ try {
 } catch (Throwable $e) {
     remLog("ERROR: " . $e->getMessage());
     error_log('[invoice_reminders_cron] ' . $e->getMessage());
+    $cronError = $e->getMessage();
 }
 
 remLog("=== Done ===");
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('invoice_reminders', $cronError === null ? 'success' : 'error',
+            ($emailsSent ?? 0) . ' email(s), ' . ($smsSent ?? 0) . ' SMS sent' . ($cronError === null ? '' : ' before it failed'),
+            (int)round((microtime(true) - $cronStart) * 1000), $cronError, PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('[invoice_reminders_cron] could not record the run — ' . $e->getMessage());
+    }
+}
 
 // If running via web shim, return JSON
 if (PHP_SAPI !== 'cli') {

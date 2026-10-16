@@ -35,6 +35,19 @@ if (!$isCli) {
 }
 
 require_once APP_ROOT . '/Modules/Privacy/Services/PrivacyService.php';
+// recordCronRun() lives here; the CLI bootstrap (config.php only) doesn't load it.
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$cronStart = microtime(true);
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($cronStart, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('data_retention', $status, $summary, (int)round((microtime(true) - $cronStart) * 1000), $error, !$isCli);
+    } catch (\Throwable $e) {
+        error_log('data_retention: could not record the run — ' . $e->getMessage());
+    }
+};
 
 $db  = getDB();
 $svc = new PrivacyService($db);
@@ -53,6 +66,9 @@ try {
         error_log(sprintf('[%s] cron_runs_log insert (privacy_purge success) failed — %s in %s:%d',
             basename(__FILE__), $logErr->getMessage(), $logErr->getFile(), $logErr->getLine()));
     }
+
+    $logRun('success', sprintf('Deleted: %d crew location, %d visit GPS, %d audit log rows',
+        (int)($result['crew_location_deleted'] ?? 0), (int)($result['visit_gps_deleted'] ?? 0), (int)($result['audit_log_deleted'] ?? 0)));
 
     if ($isCli) {
         echo "Privacy purge complete:\n";
@@ -76,6 +92,8 @@ try {
         error_log(sprintf('[%s] cron_runs_log insert (privacy_purge error) failed — %s in %s:%d',
             basename(__FILE__), $logErr->getMessage(), $logErr->getFile(), $logErr->getLine()));
     }
+
+    $logRun('error', 'Privacy purge failed', $errMsg);
 
     if ($isCli) {
         fwrite(STDERR, "Privacy purge error: {$errMsg}\n");
