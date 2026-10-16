@@ -252,6 +252,38 @@ class SnowContractService
     }
 
     /** Record (or correct) what was done at a stop. */
+    /**
+     * May this crew member record (or read) what was done at this stop? (Codex review 2026-10-15: the web
+     * endpoint let any login change any stop's snow/salt choice, which sets what the run is billed; the app
+     * endpoint checked only the visit's main crew, refusing a second crew member on the same stop.)
+     * Yes when they are the visit's crew, on the stop's crew list, or the truck login. Office callers
+     * (schedule.edit / jobs.edit) don't ask.
+     */
+    public function mayRecord(int $visitId, int $userId): bool
+    {
+        if ($visitId <= 0 || $userId <= 0) return false;
+        $s = $this->db->prepare("SELECT jv.assigned_crew_id, jv.stop_id, cs.crew_id AS stop_crew
+                                 FROM job_visits jv LEFT JOIN calendar_stops cs ON cs.id = jv.stop_id WHERE jv.id = ?");
+        $s->execute([$visitId]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v) return false;
+        if ((int)$v['assigned_crew_id'] === $userId || (int)$v['stop_crew'] === $userId) return true;
+        if (!empty($v['stop_id'])) {
+            try {
+                $c = $this->db->prepare("SELECT 1 FROM calendar_stop_crew WHERE stop_id = ? AND user_id = ? LIMIT 1");
+                $c->execute([(int)$v['stop_id'], $userId]);
+                if ($c->fetchColumn()) return true;
+            } catch (Throwable $e) { /* no crew list table: the visit's crew only */ }
+        }
+        try {
+            $t = $this->db->prepare("SELECT device_type FROM users WHERE id = ?");
+            $t->execute([$userId]);
+            return (string)$t->fetchColumn() === 'truck';
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     public function recordChoice(int $visitId, string $choice, ?int $userId, string $source = 'crew'): array
     {
         if (!in_array($choice, self::CHOICES, true)) {
@@ -294,21 +326,13 @@ class SnowContractService
      * contract only flips contracts.status, so without this the building kept a
      * stop on the crew's schedule every day of the season.
      *
-     * @return int number of route plans stopped
+     * @return int|null number of route plans stopped; null when the routes couldn't be looked up (the caller
+     *                  must say so — "cancelled" with the route still on the schedule misled, Codex 2026-10-15)
      */
-    public function stopRoutesForContract(int $contractId): int
+    public function stopRoutesForContract(int $contractId): ?int
     {
-        try {
-            $stmt = $this->db->prepare("
-                SELECT DISTINCT jp.id FROM job_plans jp
-                JOIN snow_route_rates r ON r.plan_id = jp.id
-                WHERE jp.contract_id = ? AND jp.status IN ('active', 'paused')
-            ");
-            $stmt->execute([$contractId]);
-            $planIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        } catch (Throwable $e) {
-            return 0;
-        }
+        $planIds = $this->routePlanIds($contractId, ['active', 'paused']);
+        if ($planIds === null) return null;
 
         foreach ($planIds as $planId) {
             $stops = $this->db->prepare("
@@ -332,6 +356,52 @@ class SnowContractService
             }
         }
         return count($planIds);
+    }
+
+    /** The contract's snow & salt route plans in these statuses; null when they can't be read. */
+    private function routePlanIds(int $contractId, array $statuses): ?array
+    {
+        try {
+            $in = implode(',', array_fill(0, count($statuses), '?'));
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT jp.id FROM job_plans jp
+                JOIN snow_route_rates r ON r.plan_id = jp.id
+                WHERE jp.contract_id = ? AND jp.status IN ($in)
+            ");
+            $stmt->execute(array_merge([$contractId], $statuses));
+            return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) {
+            error_log('[SnowContractService] route lookup for contract ' . $contractId . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Pausing or resuming a snow contract pauses or resumes its daily route too (Codex 2026-10-15: pausing
+     * only flipped contracts.status, so crews kept getting the daily stop). Uses the plan pause/resume the
+     * rest of the CRM uses: pause cancels the route's future stops, resume rebuilds them from today.
+     * Needs plan-functions.php loaded. @return int|null routes changed; null when they couldn't be read
+     */
+    public function pauseRoutesForContract(int $contractId, int $userId, bool $pause): ?int
+    {
+        $planIds = $this->routePlanIds($contractId, [$pause ? 'active' : 'paused']);
+        if ($planIds === null) return null;
+        $n = 0;
+        foreach ($planIds as $planId) {
+            $stops = [];
+            if ($pause) {
+                $q = $this->db->prepare("SELECT DISTINCT stop_id FROM job_visits WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE() AND stop_id IS NOT NULL");
+                $q->execute([$planId]);
+                $stops = $q->fetchAll(PDO::FETCH_COLUMN);
+            }
+            $ok = $pause ? pausePlan($planId, $userId, 'Contract paused') : resumePlan($planId, $userId);
+            if (!$ok) continue;
+            $n++;
+            if (class_exists('VisitLifecycleService')) {
+                foreach ($stops as $stopId) VisitLifecycleService::propagateStopStatus((int)$stopId);
+            }
+        }
+        return $n;
     }
 
     /**
@@ -405,6 +475,7 @@ class SnowContractService
 
     private function setupFromSignedQuoteLocked(int $quoteId): array
     {
+        $prev = null;
         try {
             $done = $this->db->prepare("SELECT status, contract_id, plan_id FROM snow_contract_setups WHERE quote_id = ?");
             $done->execute([$quoteId]);
@@ -436,7 +507,11 @@ class SnowContractService
         try {
             $existing = $this->db->prepare("SELECT id FROM contracts WHERE quote_id = ? LIMIT 1");
             $existing->execute([$quoteId]);
-            if ($existing->fetchColumn()) {
+            $existingId = (int)$existing->fetchColumn();
+            // Our own earlier setup stopped partway (contract made, then the plan or a rate failed): finish it.
+            // The plan helper commits its own transaction, so the steps can't share one (Codex 2026-10-15).
+            $resume = $existingId && $prev && $prev['status'] === 'failed' && (int)$prev['contract_id'] === $existingId;
+            if ($existingId && !$resume) {
                 return $this->record($quoteId, 'skipped', null, null, 'A contract already exists for this quote; set up by hand.');
             }
 
@@ -466,6 +541,9 @@ class SnowContractService
             }
             $perVisit = (float)($byRole[self::ROLE_SALT]['unit_price'] ?? $byRole[self::ROLE_SNOW]['unit_price']);
 
+            if ($resume) {
+                $contractId = $existingId;
+            } else {
             $result = createContract([
                 'property_id'       => (int)$quote['property_id'],
                 'contact_id'        => $contactId,
@@ -489,6 +567,7 @@ class SnowContractService
 
             require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
             (new ContractService($this->db))->adoptQuoteSignature($contractId, $quoteId, (int)$quote['created_by']);
+            }
 
             $areas = $byRole[self::ROLE_AREAS]['description'] ?? '';
             $planLines = [];
@@ -506,6 +585,13 @@ class SnowContractService
                 ];
             }
 
+            // A resumed setup reuses the route it already made.
+            if ($resume && (int)($prev['plan_id'] ?? 0) > 0) {
+                $chk = $this->db->prepare("SELECT id FROM job_plans WHERE id = ? AND contract_id = ?");
+                $chk->execute([(int)$prev['plan_id'], $contractId]);
+                $planId = (int)$chk->fetchColumn() ?: null;
+            }
+            if (!$planId) {
             $crew = $this->routeCrew();
             $plan = createJobPlan([
                 'property_id'              => (int)$quote['property_id'],
@@ -537,8 +623,13 @@ class SnowContractService
                 return $this->record($quoteId, 'failed', $contractId, null, 'Plan: ' . implode(' ', $plan['errors'] ?? []));
             }
             $planId = (int)$plan['plan_id'];
+            }
 
-            // Which plan line is which rate.
+            // Which plan line is which rate (a resumed setup keeps rates it already wrote).
+            $have = $this->db->prepare("SELECT role FROM snow_route_rates WHERE plan_id = ?");
+            $have->execute([$planId]);
+            $haveRoles = array_flip($have->fetchAll(PDO::FETCH_COLUMN));
+            {
             $pli = $this->db->prepare("SELECT id, quote_line_item_id FROM plan_line_items WHERE plan_id = ?");
             $pli->execute([$planId]);
             $pliByQuoteLine = [];
@@ -547,7 +638,9 @@ class SnowContractService
             }
             $ins = $this->db->prepare("INSERT INTO snow_route_rates (plan_id, role, label, plan_line_item_id, unit_price) VALUES (?, ?, ?, ?, ?)");
             foreach ($rates as $r) {
+                if (isset($haveRoles[$r['role']])) continue;
                 $ins->execute([$planId, $r['role'], $r['label'], $pliByQuoteLine[(int)$r['quote_line_item_id']] ?? null, $r['unit_price']]);
+            }
             }
 
             // price_per_visit was set to the sum of every rate; show the salt rate instead

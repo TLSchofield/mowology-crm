@@ -41,20 +41,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $action      = '';
     }
 
-    if ($action === 'pause_contract' && $contract['status'] === 'active') {
-        $db->prepare("UPDATE contracts SET status = 'paused', updated_at = NOW() WHERE id = ?")
-           ->execute([$contractId]);
-        $message     = 'Contract paused.';
-        $messageType = 'success';
-        $contract    = getContractById($contractId);
-    }
-
-    if ($action === 'resume_contract' && $contract['status'] === 'paused') {
-        $db->prepare("UPDATE contracts SET status = 'active', updated_at = NOW() WHERE id = ?")
-           ->execute([$contractId]);
-        if (function_exists('pipelineStageEvent')) pipelineStageEvent('contract', (int)$contractId);
-        $message     = 'Contract resumed.';
-        $messageType = 'success';
+    if (($action === 'pause_contract' && $contract['status'] === 'active') || ($action === 'resume_contract' && $contract['status'] === 'paused')) {
+        $pause = $action === 'pause_contract';
+        $db->prepare("UPDATE contracts SET status = ?, updated_at = NOW() WHERE id = ?")
+           ->execute([$pause ? 'paused' : 'active', $contractId]);
+        if (!$pause && function_exists('pipelineStageEvent')) pipelineStageEvent('contract', (int)$contractId);
+        // A snow contract's daily route pauses and resumes with it.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        $routes = (new SnowContractService($db))->pauseRoutesForContract((int)$contractId, (int)$user['id'], $pause);
+        $message     = ($pause ? 'Contract paused.' : 'Contract resumed.')
+                     . ($routes === null ? ' Its route could not be ' . ($pause ? 'paused' : 'resumed') . ' — check the schedule.'
+                       : ($routes > 0 ? ' Its daily route ' . ($pause ? 'is paused too.' : 'is back on the schedule.') : ''));
+        $messageType = $routes === null ? 'warning' : 'success';
         $contract    = getContractById($contractId);
     }
 
@@ -64,9 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // A snow contract's daily route comes off the schedule with it.
         require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
         require_once CRM_INCLUDES . '/plan-functions.php';
-        (new SnowContractService($db))->stopRoutesForContract((int)$contractId);
-        $message     = 'Contract cancelled.';
-        $messageType = 'success';
+        $stopped = (new SnowContractService($db))->stopRoutesForContract((int)$contractId);
+        $message     = $stopped === null ? 'Contract cancelled, but its route could not be stopped — check the schedule.' : 'Contract cancelled.';
+        $messageType = $stopped === null ? 'warning' : 'success';
         $contract    = getContractById($contractId);
     }
 
@@ -324,7 +323,7 @@ if ($hasPropCoords && !$hasBorder) {
           <a href="../contracts_appstack.php" class="mw-back-link">&larr; All Contracts</a>
 
           <?php if ($message): ?>
-              <div class="alert alert-<?php echo $messageType === 'error' ? 'danger' : ($messageType === 'info' ? 'info' : 'success'); ?> mb-3">
+              <div class="alert alert-<?php echo $messageType === 'error' ? 'danger' : ($messageType === 'info' ? 'info' : ($messageType === 'warning' ? 'warning' : 'success')); ?> mb-3">
                   <?php echo htmlspecialchars($message); ?>
               </div>
           <?php endif; ?>

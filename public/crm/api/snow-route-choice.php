@@ -32,6 +32,13 @@ session_write_close();
 
 $db  = getDB();
 $svc = new SnowContractService($db);
+// The office corrects any stop; crew only their own (it sets what the run is billed — Codex 2026-10-15).
+$isOffice = userHasPermission('schedule.edit') || userHasPermission('jobs.edit');
+$deny = function () {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'You are not on this stop.']);
+    exit;
+};
 
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -41,12 +48,14 @@ try {
             echo json_encode(['success' => false, 'error' => 'Session expired - refresh and try again.', 'code' => 'CSRF_INVALID']);
             exit;
         }
-        echo json_encode($svc->recordChoice((int)($in['visit_id'] ?? 0), (string)($in['choice'] ?? ''), (int)$user['id'],
-            in_array($user['role'] ?? '', ['admin', 'manager'], true) ? 'office' : 'crew'));
+        $visitId = (int)($in['visit_id'] ?? 0);
+        if (!$isOffice && !$svc->mayRecord($visitId, (int)$user['id'])) $deny();
+        echo json_encode($svc->recordChoice($visitId, (string)($in['choice'] ?? ''), (int)$user['id'], $isOffice ? 'office' : 'crew'));
         exit;
     }
 
     $visitId = (int)($_GET['visit_id'] ?? 0);
+    if (!$isOffice && !$svc->mayRecord($visitId, (int)$user['id'])) $deny();
     $stmt = $db->prepare("SELECT plan_id FROM job_visits WHERE id = ?");
     $stmt->execute([$visitId]);
     $planId = (int)($stmt->fetchColumn() ?: 0);

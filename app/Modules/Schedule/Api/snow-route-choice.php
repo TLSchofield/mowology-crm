@@ -59,17 +59,16 @@ try {
         exit;
     }
 
+    // Managers/admins any stop; crew the stops they are on (visit crew, stop crew list) and the truck login —
+    // for reading too: the choice and the contract's rates are not other crews' business (Codex 2026-10-15).
+    $isAdmin = jwtIsAdmin($jwtUser['role']);
+    if (!$isAdmin && !$svc->mayRecord($visitId, (int)$jwtUser['id'])) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
+        exit;
+    }
+
     if ($isPost) {
-        $isAdmin = jwtIsAdmin($jwtUser['role']);
-        // Managers/admins and the truck login (device_type 'truck') may record any stop.
-        $dt = $db->prepare("SELECT device_type FROM users WHERE id = ?");
-        $dt->execute([(int)$jwtUser['id']]);
-        $isTruck = (string)$dt->fetchColumn() === 'truck';
-        if (!$isAdmin && !$isTruck && (int)($visit['assigned_crew_id'] ?? 0) !== (int)$jwtUser['id']) {
-            http_response_code(403);
-            echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
-            exit;
-        }
         echo json_encode($svc->recordChoice($visitId, (string)($body['choice'] ?? ''), (int)$jwtUser['id'], $isAdmin ? 'office' : 'crew'));
         exit;
     }

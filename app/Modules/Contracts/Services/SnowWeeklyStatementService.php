@@ -130,7 +130,11 @@ class SnowWeeklyStatementService
             JOIN job_visits jv ON jv.id = i.visit_id
             JOIN job_plans jp  ON jp.id = jv.plan_id
             LEFT JOIN properties p ON p.id = jp.property_id
+            -- The people the invoice itself goes to (InvoiceRouting's roles, not bounced) — not every contact
+            -- on it, e.g. a site supervisor (Codex 2026-10-15).
             JOIN invoice_contacts ic ON ic.invoice_id = i.id AND TRIM(ic.email_address) <> ''
+                 AND (ic.bounced IS NULL OR ic.bounced = 0)
+                 AND ic.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
             LEFT JOIN visit_service_choices vsc ON vsc.visit_id = jv.id
             WHERE jv.scheduled_date BETWEEN ? AND ?
               AND i.status NOT IN ('draft', 'cancelled', 'void')
@@ -158,6 +162,21 @@ class SnowWeeklyStatementService
         if (!$this->enabled()) {
             return $out + ['disabled' => true];
         }
+        // One sender at a time (Codex 2026-10-15): the cron and a "Run now" could both find a statement
+        // unsent and both email it before either records it. A busy lock means the other run is sending.
+        $named = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        if ($named && (int)$this->db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.snow_weekly_statements'), 0)")->fetchColumn() !== 1) {
+            return $out + ['busy' => true];
+        }
+        try {
+            return $this->sendDueLocked($week, $out, $mailer);
+        } finally {
+            if ($named) { try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.snow_weekly_statements'))"); } catch (Throwable $e) { /* ends with the connection */ } }
+        }
+    }
+
+    private function sendDueLocked(array $week, array $out, ?callable $mailer): array
+    {
         foreach (self::group($this->runInvoices($week)) as $email => $group) {
             $done = $this->db->prepare("SELECT 1 FROM snow_weekly_statements WHERE recipient_email = ? AND week_start = ?");
             $done->execute([$email, $week['start']]);
