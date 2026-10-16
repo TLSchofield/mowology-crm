@@ -525,6 +525,23 @@ class ReceiptInboxService
 
         $imagePath = $diskPath;
         $tmpPng    = null;
+        // A PDF with a text layer (invoices from Anthropic, the web host, Amazon…) is read as text — no
+        // Imagick or OCR. Every emailed PDF was "not OCR-able" since Oct 10: the cron's PHP has no Imagick
+        // (2026-10-15). Scans (no text) still go the image route below.
+        if ($isPdf) {
+            $layer = self::pdfTextLayer($diskPath);
+            if ($layer !== '') {
+                try {
+                    require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+                    require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+                    $parsed = parseReceiptText($layer, null);
+                    return ['readable' => true, 'source' => 'pdf_text', 'ocr_text' => $layer, 'parsed' => $parsed,
+                            'suggestions' => suggestReceiptMeta($layer, null, null, null, $parsed)];
+                } catch (\Throwable $e) {
+                    error_log('[ReceiptInboxService] PDF text read failed: ' . $e->getMessage());
+                }
+            }
+        }
         if ($isPdf) {
             if (!extension_loaded('imagick')) {
                 return $empty + ['note' => 'imagick missing'];
@@ -592,6 +609,27 @@ class ReceiptInboxService
             if ($tmpPng && is_file($tmpPng)) {
                 @unlink($tmpPng);
             }
+        }
+    }
+
+    /**
+     * The text layer of a PDF (smalot/pdfparser, already used for bank statements), or '' when there is none
+     * worth reading (a scan: under 50 non-space characters) or the parser isn't installed. Pages 1–3 only.
+     */
+    public static function pdfTextLayer(string $path): string
+    {
+        if (!is_file($path) || !defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) return '';
+        try {
+            require_once VENDOR_ROOT . '/autoload.php';
+            if (!class_exists('\Smalot\PdfParser\Parser')) return '';
+            $pdf = (new \Smalot\PdfParser\Parser())->parseFile($path);
+            $text = '';
+            foreach (array_slice($pdf->getPages(), 0, 3) as $page) $text .= $page->getText() . "\n";
+            $text = trim(preg_replace("/[ \t]+/", ' ', str_replace("\r", '', $text)));
+            return strlen(preg_replace('/\s+/', '', $text)) >= 50 ? $text : '';
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] pdfTextLayer: ' . $e->getMessage());
+            return '';
         }
     }
 
