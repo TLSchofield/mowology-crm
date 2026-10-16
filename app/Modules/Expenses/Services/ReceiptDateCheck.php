@@ -37,7 +37,8 @@ class ReceiptDateCheck
     {
         $d = strtotime($date); $u = strtotime(substr($uploadDay, 0, 10));
         if (!$d || !$u) return false;
-        return $d < $u - self::SUSPECT_DAYS * 86400 || $d > $u;   // after the upload day = can't be true
+        // A day ahead is allowed: an evening upload's server day can trail the printed date (#29, 2026-02-19/20).
+        return $d < $u - self::SUSPECT_DAYS * 86400 || $d > $u + 86400;
     }
 
     /** "ROUND_NUMBER" + DATE_UNREADABLE → "ROUND_NUMBER,DATE_UNREADABLE" (once). Pure. */
@@ -53,7 +54,7 @@ class ReceiptDateCheck
      * Check one receipt. @return array{action: string, date?: string, line?: int}
      *   action: none (fine / not waiting) | dated (took the bank line's date) | flagged | cleared
      */
-    public function check(int $expenseId): array
+    public function check(int $expenseId, bool $mayFlag = true): array
     {
         $s = $this->db->prepare("SELECT e.id, e.expense_date, e.total, e.status, e.created_at, e.anomaly_flags, e.anomaly_score, e.vendor_name_raw,
                                         v.name AS vendor_name
@@ -77,7 +78,22 @@ class ReceiptDateCheck
                  'note' => 'Date read as ' . $was . '; the bank line #' . $line['id'] . ' (same vendor and amount) is dated ' . $line['date']]);
             return !empty($res['noop']) ? ['action' => 'none'] : ['action' => 'dated', 'date' => $line['date'], 'line' => $line['id']];
         }
-        return $flagged ? ['action' => 'none'] : $this->setFlag($e, true);
+        // A flag is for a fresh, single upload: a backlog scanned in a batch is old on purpose (preview 2026-10-15:
+        // 85 of 86 doubted receipts were batch scans — May 15, Jun 21–22, Aug 2).
+        if ($flagged && $this->inBatch($e)) return $this->setFlag($e, false);   // the batch grew after it was flagged
+        if ($flagged || !$mayFlag || $this->inBatch($e)) return ['action' => 'none'];
+        return $this->setFlag($e, true);
+    }
+
+    public const BATCH_SIZE = 5;
+
+    /** Was this receipt one of BATCH_SIZE or more uploaded by the same person within the hour? */
+    private function inBatch(array $e): bool
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM expenses WHERE created_by <=> (SELECT created_by FROM expenses WHERE id = ?)
+                                 AND created_at BETWEEN DATE_SUB(?, INTERVAL 1 HOUR) AND DATE_ADD(?, INTERVAL 1 HOUR)");
+        $s->execute([(int)$e['id'], (string)$e['created_at'], (string)$e['created_at']]);
+        return (int)$s->fetchColumn() >= self::BATCH_SIZE;
     }
 
     public static function hasFlag(string $flags): bool
