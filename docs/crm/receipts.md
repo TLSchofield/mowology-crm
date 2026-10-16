@@ -530,3 +530,14 @@ correct"). `PennyReadService::apply()` always calls `BookkeeperDeskService::deci
   you book that vendor.
 - Rejecting a receipt on her card teaches her: the reason you give is kept as a lesson.
 - A part-number name (SKU → item name) is trusted after two approvals of the same name.
+
+## The reader relearns a vendor (2026-10-15)
+
+When Penny's line items are accepted over the reader's and the receipt is approved, the reader learns the
+vendor's layout (`teachReaderFromPenny`). It now also queues that vendor (`ReaderRelearnService`): the
+`penny_prepare` cron (every 15 min) rescans 3 of its waiting receipts per run — draft / pending approval,
+with a photo, whose items are missing or don't add up, never ones a person edited — once per lesson, writing
+only while the receipt is still waiting and never repairing amounts. When none are left, Penny re-reads the
+vendor's receipts. Column headings read as items ("QTY PRICE AMOUNT") are dropped by the parser.
+Penny's card shows **Items read**: this week's photographed receipts whose items add up, beside last week.
+Handwritten receipts (Lawnboy's date) can't be learned this way — see the date check backlog.
