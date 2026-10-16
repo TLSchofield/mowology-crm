@@ -1,21 +1,22 @@
 {
-    "android": {
-        "version": "1.5.2",
-        "build": 17,
-        "min_version": "1.3.2",
-        "min_build": 12,
-        "apk_url": "/crm/downloads/mowology-crew.apk",
-        "released": "2026-10-14",
-        "release_notes": "Photos you take are kept on the phone and keep trying to upload until they are in, even with the app closed. A new camera is ready to try.",
-        "force_update": false,
-        "native_camera": false
-    },
-    "ios": {
-        "version": "1.0.0",
-        "min_version": "1.0.0",
-        "store_url": "",
-        "released": "2026-03-03",
-        "release_notes": "Initial release.",
-        "force_update": false
-    }
+  "android": {
+    "version": "1.5.2",
+    "build": 17,
+    "min_version": "1.3.2",
+    "min_build": 12,
+    "apk_url": "/crm/downloads/mowology-crew.apk",
+    "released": "2026-10-14",
+    "release_notes": "Photos you take are kept on the phone and keep trying to upload until they are in, even with the app closed. A new camera is ready to try.",
+    "force_update": false,
+    "native_camera": false,
+    "native_visit": false
+  },
+  "ios": {
+    "version": "1.0.0",
+    "min_version": "1.0.0",
+    "store_url": "",
+    "released": "2026-03-03",
+    "release_notes": "Initial release.",
+    "force_update": false
+  }
 }

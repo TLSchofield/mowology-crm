@@ -171,6 +171,21 @@ try {
     error_log('[schedule/day] endorsements failed: ' . $e->getMessage());
 }
 
+// ── What each visit needs before Finish (VisitNeedsService, 2026-10-16) ────────
+// Snow route + choice, required photos, special requests — so a phone can work the visit offline.
+// Older apps ignore the key.
+$needsByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/VisitNeedsService.php';
+    $needVisits = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) $needVisits[] = ['visit_id' => (int)($v['visit_id'] ?? 0), 'plan_id' => (int)($v['plan_id'] ?? 0)];
+    }
+    $needsByVisit = (new VisitNeedsService(getDB()))->forVisits($needVisits, (int)$jwtUser['id'], jwtIsAdmin($jwtUser['role']));
+} catch (Throwable $e) {
+    error_log('[schedule/day] visit needs: ' . $e->getMessage());
+}
+
 // ── Shape response ────────────────────────────────────────────────────────────
 $stops = [];
 foreach ($dayStops as $stop) {
@@ -208,6 +223,7 @@ foreach ($dayStops as $stop) {
             'pricing_model'       => (string)($v['pricing_model'] ?? 'per_visit'),
             'is_contract_billed'  => !empty($v['is_contract_billed']),
             'history'             => $historyByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
+            'needs'               => $needsByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
         ];
     }
 
@@ -289,4 +305,5 @@ echo json_encode([
     'extras_rate_per_5min' => $extrasRate,
     'stops'                => $stops,
     'appointments'         => $appointments,
+    'snow_choices'         => class_exists('VisitNeedsService') ? VisitNeedsService::snowChoices() : [],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

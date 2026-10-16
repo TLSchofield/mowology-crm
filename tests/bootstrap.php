@@ -323,6 +323,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/CrewViewScope.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/AppointmentService.php';
+require_once __DIR__ . '/../app/Modules/Schedule/Services/VisitNeedsService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReceiptBankCheck.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorDetailsService.php';

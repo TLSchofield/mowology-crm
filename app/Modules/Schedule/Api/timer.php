@@ -210,36 +210,49 @@ try {
             }
             if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
 
+            // What the completion carries is saved BEFORE the visit is completed (Codex review 2026-10-16): if
+            // this fails the phone gets an error and keeps its queued completion, instead of a "done" visit
+            // that lost its snow choice or billable extras.
+            //   - the snow & salt route stop's choice (what the run bills); refused only when it isn't a route
+            //     stop or the run is already invoiced — then there is nothing to record
+            //   - timed extra work (the invoice create flow itemises it; calc single-sourced in the service)
+            if (!isset($db)) $db = getDB();
+            $snowChoice = (string)($input['snow_choice'] ?? '');
+            try {
+                if ($completeVisit && $snowChoice !== '') {
+                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                    $sc = (new SnowContractService($db))->recordChoice($visitId, $snowChoice, $userId, 'crew');
+                    if (empty($sc['success'])) error_log("timer.php snow choice for visit {$visitId}: " . ($sc['error'] ?? 'refused'));
+                }
+                if ($extrasMinutes > 0 || $extrasNote !== '') {
+                    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
+                    $extras = (new InvoiceFromVisitService($db))->computeExtrasAmount($extrasMinutes);
+                    $db->prepare("UPDATE job_visits SET extras_minutes = ?, extras_amount = ?, extras_note = ? WHERE id = ?")
+                       ->execute([$extrasMinutes, $extras['amount'], ($extrasNote !== '' ? $extrasNote : null), $visitId]);
+                }
+            } catch (Throwable $saveEx) {
+                error_log('timer.php completion details not saved (visit ' . $visitId . '): ' . $saveEx->getMessage());
+                http_response_code(503);
+                echo json_encode(['success' => false, 'message' => 'Could not save the job details — it will try again.']);
+                exit;
+            }
+            // A route stop finished with no choice anywhere (an older app): completed, but the office is told,
+            // because the run can't be billed until someone says what was done.
+            if ($completeVisit && $snowChoice === '') {
+                try {
+                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                    $scs = new SnowContractService($db);
+                    $planRow = $db->prepare("SELECT plan_id FROM job_visits WHERE id = ?");
+                    $planRow->execute([$visitId]);
+                    if ($scs->isRoutePlan((int)$planRow->fetchColumn()) && $scs->choiceForVisit($visitId) === null && function_exists('logActivity')) {
+                        logActivity($userId, null, 'snow_stop_no_choice', "Visit {$visitId} finished with no salt/snow choice — set what was done before it is billed.");
+                    }
+                } catch (Throwable $e) { /* a note only */ }
+            }
+
             $duration = stopVisitTimer($visitId, $userId, $lat, $lng, $notes, (bool)$completeVisit,
                                        $when['from_phone'] ? $when['at'] : null);
 
-            // Persist timed extra work on the visit so it is never lost when the
-            // crew complete without invoicing. The invoice create flow reads these
-            // back and itemises them. Calc is the single source in the service.
-            if ($extrasMinutes > 0 || $extrasNote !== '') {
-                try {
-                    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
-                    $extras       = (new InvoiceFromVisitService($db ?? getDB()))->computeExtrasAmount($extrasMinutes);
-                    if (!isset($db)) $db = getDB();
-                    $db->prepare("UPDATE job_visits SET extras_minutes = ?, extras_amount = ?, extras_note = ? WHERE id = ?")
-                       ->execute([$extrasMinutes, $extras['amount'], ($extrasNote !== '' ? $extrasNote : null), $visitId]);
-                } catch (Throwable $exEx) {
-                    error_log('timer.php extras persist failed: ' . $exEx->getMessage());
-                }
-            }
-            // What was done at a snow & salt route stop, sent WITH the completion (Codex review 2026-10-16: a
-            // separate call was lost offline, so the run had no billing choice). Recorded once, here; a stop
-            // that isn't a route, or a run already invoiced, is left alone.
-            $snowChoice = (string)($input['snow_choice'] ?? '');
-            if ($completeVisit && $snowChoice !== '') {
-                try {
-                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
-                    $sc = (new SnowContractService($db ?? getDB()))->recordChoice($visitId, $snowChoice, $userId, 'crew');
-                    if (empty($sc['success'])) error_log("timer.php snow choice for visit {$visitId}: " . ($sc['error'] ?? 'refused'));
-                } catch (Throwable $scEx) {
-                    error_log('timer.php snow choice failed: ' . $scEx->getMessage());
-                }
-            }
             // Special-request extra work goes on top of the sheet's extras (once; never throws).
             if ($completeVisit) {
                 require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';

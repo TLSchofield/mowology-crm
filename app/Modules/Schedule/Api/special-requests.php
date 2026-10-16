@@ -50,12 +50,21 @@ try {
         exit;
     }
 
+    // A queued answer replayed after a lost response gets the first answer back, not a second save
+    // (Codex review 2026-10-16), the same Idempotency-Key rule as /schedule/timer.
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
+    $idempKey = trim((string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
+    if ($idempKey !== '') {
+        $cached = idempotencyCheck(getDB(), $idempKey, $userId);
+        if ($cached !== null) { echo $cached; exit; }
+    }
+
     $input = json_decode((string)file_get_contents('php://input'), true) ?? [];
     $mode  = (string)($input['mode'] ?? '');
     $srvId = (int)($input['request_visit_id'] ?? 0);
 
     if ($mode === 'ack') {
-        $r = $svc->ack($srvId, $userId, 'ios', $isOffice);
+        $r = $svc->ack($srvId, $userId, in_array($input['source'] ?? '', ['android'], true) ? 'android' : 'ios', $isOffice);
     } elseif ($mode === 'outcome') {
         $r = $svc->outcome($srvId, $userId, (string)($input['outcome'] ?? ''), (string)($input['reason'] ?? ''),
             (string)($input['extra_description'] ?? ''), (int)($input['extra_minutes'] ?? 0), $isOffice);
@@ -67,7 +76,9 @@ try {
         echo json_encode(['success' => false, 'message' => $r['error'] ?? 'Could not save.']);
         exit;
     }
-    echo json_encode(['success' => true, 'request' => $r['request']]);
+    $answer = json_encode(['success' => true, 'request' => $r['request']]);
+    if ($idempKey !== '') { try { idempotencyStore(getDB(), $idempKey, $userId, 'special-requests', $mode, $answer); } catch (Throwable $e) { /* the answer stands */ } }
+    echo $answer;
 } catch (Throwable $e) {
     error_log('schedule/special-requests: ' . $e->getMessage());
     http_response_code(500);
