@@ -4013,6 +4013,18 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
 
     private const EXPENSE_MATCH_THRESHOLD = 30; // lower bar than auto-match — a human confirms
+    /**
+     * A Stripe fee line is split out of a payout by StripePayoutService (description "Stripe fees — payout po_…",
+     * payment_reference = the payout id): Stripe's fee, booked to fees, never a receipt's purchase. Receipt matching
+     * leaves it out (Tim, 2026-10-15: it was offered as a match for a Chevron receipt). SQL for alias `at`.
+     */
+    public const NOT_STRIPE_FEE_SQL = "NOT (COALESCE(at.payment_reference, '') LIKE 'po\\_%' AND at.description LIKE 'Stripe fees%')";
+
+    public static function isStripeFeeLine(string $description, ?string $paymentReference): bool
+    {
+        return strncmp((string)$paymentReference, 'po_', 3) === 0 && strncmp($description, 'Stripe fees', 11) === 0;
+    }
+
     private const EXPENSE_MATCH_WINDOW_DAYS = 14; // wider than findExpenseMatch()'s ±3d, same reason
 
     /**
@@ -4137,6 +4149,7 @@ class BankImportService
             WHERE at.type = 'expense'
               AND at.reference_type = 'bank_import'
               AND at.matched_expense_id IS NULL
+              AND " . self::NOT_STRIPE_FEE_SQL . "
               AND ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02)
               AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
                                           AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
@@ -4199,6 +4212,7 @@ class BankImportService
             SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
             FROM accounting_transactions at
             WHERE at.type = 'expense' AND at.reference_type = 'bank_import' AND at.matched_expense_id IS NULL
+              AND " . self::NOT_STRIPE_FEE_SQL . "
               AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
               AND ({$like})
             ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
@@ -4249,13 +4263,14 @@ class BankImportService
     public function candidateExpensesForTransaction(int $transactionId, int $limit = 8): array
     {
         $stmt = $this->db->prepare("
-            SELECT id, transaction_date, description, amount, matched_expense_id
+            SELECT id, transaction_date, description, amount, matched_expense_id, payment_reference
             FROM accounting_transactions
             WHERE id = ? AND type = 'expense' AND reference_type = 'bank_import'
         ");
         $stmt->execute([$transactionId]);
         $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$transaction || $transaction['matched_expense_id']) return [];
+        if (self::isStripeFeeLine((string)$transaction['description'], $transaction['payment_reference'] ?? null)) return [];
 
         $stmt = $this->db->prepare("
             SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, e.status, e.accounting_category

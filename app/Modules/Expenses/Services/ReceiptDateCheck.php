@@ -110,9 +110,11 @@ class ReceiptDateCheck
         $names = array_values(array_filter([trim((string)$e['vendor_name']), trim((string)$e['vendor_name_raw'])]));
         if (!$names) return null;
         $up = substr((string)$e['created_at'], 0, 10);
+        require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
         $s = $this->db->prepare("
-            SELECT id, transaction_date, description FROM accounting_transactions
-            WHERE reference_type = 'bank_import' AND type = 'expense' AND matched_expense_id IS NULL
+            SELECT at.id, at.transaction_date, at.description FROM accounting_transactions at
+            WHERE at.reference_type = 'bank_import' AND at.type = 'expense' AND at.matched_expense_id IS NULL
+              AND " . BankImportService::NOT_STRIPE_FEE_SQL . "
               AND ABS(amount - ?) < 0.01
               AND transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::BEFORE_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::AFTER_DAYS . " DAY)
             ORDER BY ABS(DATEDIFF(transaction_date, ?)), id LIMIT 20");
