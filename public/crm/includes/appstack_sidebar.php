@@ -136,6 +136,7 @@ $navItems = [
     ['type' => 'header', 'label' => 'Library', 'head' => 'mia'],
     ['key' => 'photos',    'label' => 'Photo Timeline', 'icon' => 'camera',  'href' => '/crm/photos_appstack.php',        'perm' => 'jobs.view'],
     ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
+    ['key' => 'plants',    'label' => 'Plant Library', 'icon' => 'feather',  'href' => '/crm/plants/library.php',         'perm' => 'clients.view'],
     ['key' => 'portfolio',     'label' => 'Portfolio',       'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
     ['key' => 'before-after', 'label' => 'Before & After', 'icon' => 'columns',  'href' => '/crm/before-after_appstack.php',  'perm' => 'portfolio.view'],
     ['key' => 'media',         'label' => 'Media Library',  'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],

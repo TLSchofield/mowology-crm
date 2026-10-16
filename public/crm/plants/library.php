@@ -12,7 +12,7 @@ $user = getCurrentUser();
 requirePermission('clients.view');
 
 $pageTitle = 'Plant library';
-$activePage = 'clients';
+$activePage = 'plants';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
