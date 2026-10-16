@@ -104,14 +104,23 @@ try {
         ];
     }
 
-    $questions = array_map(function ($q) use ($optsByQ) {
+    // Every picture with its caption, one query (our own site photos — 2026-10-16).
+    // Site photos travel without their address: the offline bundle goes to every phone at once (Codex review).
+    $iStmt = $db->prepare("SELECT question_id, image_path, CASE WHEN source = 'site' THEN 'Seen on one of our sites' ELSE COALESCE(caption, '') END AS caption FROM quiz_question_images WHERE question_id IN ({$ph}) ORDER BY question_id, sort_order, id");
+    $iStmt->execute($qids);
+    $imgsByQ = [];
+    foreach ($iStmt->fetchAll(PDO::FETCH_ASSOC) as $im) $imgsByQ[(int)$im['question_id']][] = ['image_path' => $im['image_path'], 'caption' => $im['caption']];
+
+    $questions = array_map(function ($q) use ($optsByQ, $imgsByQ) {
+        $imgs = $imgsByQ[(int)$q['id']] ?? ($q['image_path'] ? [['image_path' => $q['image_path'], 'caption' => '']] : []);
         return [
             'id'              => (int)$q['id'],
             'text'            => $q['text'],
             'category_name'   => $q['category_name'],
             'category_colour' => $q['category_colour'],
             'difficulty'      => $q['difficulty'],
-            'image_path'      => $q['image_path'] ?: null,
+            'image_path'      => $q['image_path'] ?: ($imgs[0]['image_path'] ?? null),
+            'images'          => $imgs,
             'options'         => $optsByQ[(int)$q['id']] ?? [],
         ];
     }, $rawQuestions);

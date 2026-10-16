@@ -303,6 +303,12 @@ try {
         $options = $ostmt->fetchAll(PDO::FETCH_ASSOC);
         shuffle($options);
 
+        // Every picture with its caption (our own site photos say where they grow — 2026-10-16); image_path stays for older apps.
+        $istmt = $db->prepare("SELECT image_path, COALESCE(caption, '') AS caption FROM quiz_question_images WHERE question_id = ? ORDER BY sort_order, id");
+        $istmt->execute([$questionId]);
+        $images = $istmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$images && !empty($question['image_path'])) $images = [['image_path' => $question['image_path'], 'caption' => '']];
+
         $meta = mMasteryMeta();
         mOk([
             'question_num' => $qNum,
@@ -310,7 +316,8 @@ try {
             'question'     => [
                 'id'              => (int)$question['id'],
                 'text'            => $question['question_text'],
-                'image_path'      => $question['image_path'],
+                'image_path'      => $question['image_path'] ?: ($images[0]['image_path'] ?? null),
+                'images'          => $images,
                 'difficulty'      => $question['difficulty'],
                 'category_name'   => $question['category_name'],
                 'category_colour' => $question['category_colour'],
@@ -361,6 +368,15 @@ try {
                 // seasonal (default for mobile)
                 $qids = mSelectSeasonalQuestions($db, $userId, $categoryId, $sessionLength);
             }
+
+            // Our own plant photos from today's sites first (SitePlantQuizService, 2026-10-16) — any-category or plant/weed quizzes.
+            try {
+                if (($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
+                    require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
+                    $__site = (new SitePlantQuizService($db))->todaySiteQuestionIds((int)$userId, null, 4, $categoryId !== null ? (int)$categoryId : null);
+                    if ($__site) $qids = SitePlantQuizService::mergeSiteFirst($qids, $__site, (int)$sessionLength);
+                }
+            } catch (Throwable $__e) { error_log('quiz today sites: ' . $__e->getMessage()); }
 
             if (count($qids) < 1) {
                 mErr('No questions available yet. Ask an admin to add some.');

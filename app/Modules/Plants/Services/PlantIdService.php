@@ -216,6 +216,13 @@ class PlantIdService
                 'ref_type' => 'plant_record', 'ref_id' => $id, 'corrected_by' => $userId,
             ]);
         }
+        // Its photos teach the crew quiz (SitePlantQuizService, 2026-10-16). Never stops the save.
+        try {
+            require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
+            (new SitePlantQuizService($this->db))->fromConfirmed($id);
+        } catch (Throwable $e) {
+            error_log('PlantIdService confirm → quiz: ' . $e->getMessage());
+        }
         return ['ok' => true, 'record' => $this->one($id), 'message' => 'Saved' . ($bedName ? ' in ' . $bedName : '') . '.'];
     }
 
@@ -223,6 +230,17 @@ class PlantIdService
     {
         $s = $this->db->prepare("UPDATE plant_records SET status = 'removed', updated_at = ? WHERE id = ? AND status <> 'removed'");
         $s->execute([date('Y-m-d H:i:s'), $id]);
+        if ($s->rowCount()) {
+            // A removed plant's photos leave the quiz too.
+            try {
+                $q = $this->db->prepare("SELECT id, image_path FROM quiz_question_images WHERE plant_record_id = ? AND source = 'site'");
+                $q->execute([$id]);
+                foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $img) {
+                    $this->db->prepare("DELETE FROM quiz_question_images WHERE id = ?")->execute([(int)$img['id']]);
+                    if (strpos((string)$img['image_path'], '/uploads/quiz/site_') === 0) @unlink($this->root . $img['image_path']);
+                }
+            } catch (Throwable $e) { /* before migration 1371 */ }
+        }
         return $s->rowCount() ? ['ok' => true, 'message' => 'Removed.'] : ['ok' => false, 'message' => 'Already gone.'];
     }
 

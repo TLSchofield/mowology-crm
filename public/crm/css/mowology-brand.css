@@ -23964,6 +23964,14 @@ textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
   color:#6c757d;
   font-weight:500;
 }
+/* Where our own site photo was taken ("Seen at … · Front bed") — quiz picture caption (2026-10-16) */
+.mw-quiz-img-caption {
+  font-size:12px;
+  color:var(--mw-dark);
+  text-align:center;
+  margin:4px 0 8px;
+}
+.mw-quiz-img-caption:empty { display:none; }
 .mw-img-manager {
   background:#f8f9fa;
   border:1px solid #dee2e6;

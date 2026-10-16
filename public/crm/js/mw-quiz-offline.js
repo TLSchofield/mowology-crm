@@ -112,6 +112,7 @@
                 mastery_level:    0,
                 mastery_name:     'Offline',
                 image_path:       q.image_path || null,
+                images:           q.images || (q.image_path ? [{ image_path: q.image_path, caption: "" }] : []),
             },
             options: opts.map(function (o) { return { id: o.id, option_text: o.text }; }),
         });
