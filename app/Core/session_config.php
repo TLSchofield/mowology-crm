@@ -80,6 +80,19 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+// TEMPORARY (2026-10-16): one Android phone loses its sign-in a second after logging in. Logs, for that
+// phone model only, how many session cookies arrive and short fingerprints (never the values). Remove after.
+if (stripos($ua, 'SM-A156W') !== false) {
+    try {
+        $raw = (string)($_SERVER['HTTP_COOKIE'] ?? '');
+        preg_match_all('/(?:^|;\s*)MOWOSESS=([^;]*)/', $raw, $m);
+        error_log('[mw-sessdiag] ' . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . strtok((string)($_SERVER['REQUEST_URI'] ?? ''), '?')
+            . ' cookies=' . count($m[1]) . ' fp=' . implode(',', array_map(fn($v) => substr(sha1($v), 0, 6), $m[1]))
+            . ' used=' . substr(sha1(session_id()), 0, 6) . ' user=' . (int)($_SESSION['user_id'] ?? 0)
+            . ' wv=' . (stripos($ua, 'wv)') !== false ? 1 : 0) . ' strict=' . ini_get('session.use_strict_mode'));
+    } catch (Throwable $e) { /* diagnostic only */ }
+}
+
 // An outside accountant's login reaches the Ledger and nothing else — deny by default, before any
 // page code runs (Accountant's Ledger, 2026-10-13). auth.php repeats this and logs each view.
 require_once __DIR__ . '/Auth/AccountantFence.php';
