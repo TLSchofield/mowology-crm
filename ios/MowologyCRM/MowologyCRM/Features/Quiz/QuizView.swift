@@ -161,6 +161,10 @@ struct QuizView: View {
                     .clipShape(Capsule())
             }
 
+            if !q.question.images.isEmpty {
+                QuizImagePager(images: q.question.images)
+            }
+
             Text(q.question.text)
                 .font(.title3.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
@@ -347,5 +351,39 @@ private extension Color {
         let g = Double((value >> 8)  & 0xFF) / 255
         let b = Double(value         & 0xFF) / 255
         self.init(red: r, green: g, blue: b)
+    }
+}
+
+
+/// The question's pictures: swipe between them; a site photo says where it grows (2026-10-16).
+private struct QuizImagePager: View {
+    let images: [QuizQuestionImage]
+    @State private var page = 0
+
+    var body: some View {
+        VStack(spacing: 6) {
+            TabView(selection: $page) {
+                ForEach(Array(images.enumerated()), id: \.offset) { i, img in
+                    AsyncImage(url: img.url) { phase in
+                        switch phase {
+                        case .success(let image): image.resizable().scaledToFit()
+                        case .failure: Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+                        default: ProgressView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .tag(i)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .automatic : .never))
+            .frame(height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            if let cap = images[min(page, images.count - 1)].caption, !cap.isEmpty {
+                Label(cap, systemImage: "mappin.and.ellipse")
+                    .font(.caption)
+                    .foregroundStyle(Color.MW.green)
+            }
+        }
     }
 }
