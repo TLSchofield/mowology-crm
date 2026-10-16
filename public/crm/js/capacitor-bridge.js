@@ -1565,7 +1565,9 @@
                 var minVersion  = android.min_version || android.version || null;
                 var forceUpdate = android.force_update === true;
 
-                if (forceUpdate) {
+                // force_update = everyone below the LATEST version must update. It used to block every
+                // install, the up-to-date ones too, so an updated tablet could never get past it (2026-10-16).
+                if (forceUpdate && (!installed || _semverLessThan(installed, android.version || minVersion))) {
                     _showUpdateOverlay(android);
                     return;
                 }
