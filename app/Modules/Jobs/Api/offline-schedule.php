@@ -46,6 +46,15 @@ try {
     // Use the existing getCalendarStops() from PlanFunctions — already optimised
     $calendarData = getCalendarStops($start, $end, $crewFilter);
 
+    // Quote visits (AppointmentService, 2026-10-15) — their own list per day, the person's own for crew.
+    $appointments = [];
+    try {
+        require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
+        $appointments = (new AppointmentService(getDB()))->forRange($start, $end, $crewFilter);
+    } catch (Throwable $e) {
+        error_log('[offline-schedule] appointments: ' . $e->getMessage());
+    }
+
     // Build compact day array suitable for IDB storage
     $days = [];
     $cursor = new DateTime($start);
@@ -87,7 +96,11 @@ try {
             ];
         }
 
-        $days[] = ['date' => $dateStr, 'stops' => $stops];
+        $days[] = ['date' => $dateStr, 'stops' => $stops, 'appointments' => array_map(static fn(array $a) => [
+            'appointment_id' => $a['appointment_id'], 'kind_label' => $a['kind_label'], 'time_label' => $a['time_label'],
+            'contact_name' => $a['contact_name'], 'property_address' => $a['property_address'], 'property_city' => $a['property_city'],
+            'assigned_name' => $a['assigned_name'], 'duration_minutes' => $a['duration_minutes'], 'notes' => $a['notes'],
+        ], $appointments[$dateStr] ?? [])];
         $cursor->modify('+1 day');
     }
 

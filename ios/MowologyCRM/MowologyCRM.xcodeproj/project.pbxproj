@@ -130,6 +130,7 @@
 		DD53BEE16E22C65882476C72 /* OttoMissedReviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */; };
 		7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */; };
 		6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */; };
+		81DAE3BC5BFBF521EB8228C0 /* AppointmentCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -258,6 +259,7 @@
 		8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoMissedReviewViews.swift; sourceTree = "<group>"; };
 		1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentModels.swift; sourceTree = "<group>"; };
 		6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentAddView.swift; sourceTree = "<group>"; };
+		55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -419,6 +421,7 @@
 				0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */,
 				A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */,
 				860BC924D1E18395DC0120F1 /* UnbilledWorkSection.swift */,
+				55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -748,6 +751,7 @@
 				DD53BEE16E22C65882476C72 /* OttoMissedReviewViews.swift in Sources */,
 				7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */,
 				6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */,
+				81DAE3BC5BFBF521EB8228C0 /* AppointmentCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -821,7 +825,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.40;
+				MARKETING_VERSION = 1.3.41;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -907,7 +911,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.40;
+				MARKETING_VERSION = 1.3.41;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -69,6 +69,7 @@ struct ScheduleView: View {
                 if viewMode == .list {
                     DayListView(
                         stops:        viewModel.stops,
+                        appointments: viewModel.appointments,
                         isLoading:    viewModel.isLoading,
                         errorMessage: viewModel.errorMessage,
                         isOffline:    viewModel.isOffline,

@@ -265,6 +265,16 @@ try {
     $extrasRate = round(floatval($erRow['setting_value'] ?? 5.00), 2);
 } catch (Throwable $e) { /* default 5.00 */ }
 
+// ── Appointments (quote visits) — their own list, never stops (AppointmentService, 2026-10-15) ──
+// Same people filter as the stops. Older app builds ignore the key.
+$appointments = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
+    $appointments = (new AppointmentService(getDB()))->forRange($date, $date, $crewFilter ? (int)$crewFilter : null)[$date] ?? [];
+} catch (Throwable $e) {
+    error_log('[schedule/day] appointments: ' . $e->getMessage());
+}
+
 // ── Respond ───────────────────────────────────────────────────────────────────
 http_response_code(200);
 echo json_encode([
@@ -278,4 +288,5 @@ echo json_encode([
     'stop_count'           => count($stops),
     'extras_rate_per_5min' => $extrasRate,
     'stops'                => $stops,
+    'appointments'         => $appointments,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

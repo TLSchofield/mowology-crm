@@ -62,7 +62,7 @@
                 var store = tx.objectStore(S_SCHEDULE);
                 var now  = Date.now();
                 days.forEach(function (day) {
-                    store.put({ date: day.date, stops: day.stops || [], savedAt: now });
+                    store.put({ date: day.date, stops: day.stops || [], appointments: day.appointments || [], savedAt: now });
                 });
                 tx.oncomplete = function () { resolve(); };
                 tx.onerror    = function () { reject(tx.error); };

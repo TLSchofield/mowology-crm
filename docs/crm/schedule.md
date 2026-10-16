@@ -242,3 +242,15 @@ _Phase 2 began 2026-06-18 with VisitGenerationService._
   iPhone), and on the desktop the crew dropdown still picks one crew. Everyone has a **job type**
   picker. Both are remembered per person.
 - The rule lives in one place: `app/Modules/Schedule/Services/CrewViewScope.php`.
+
+## Quote visits — appointments that aren't job visits (2026-10-15)
+
+Tim booked a quote visit by phone (Anita Venier, request #72, Fri Oct 16 8:15) and the CRM had nowhere to put it: schedule visits belong to a job plan, and there is no job before the quote.
+
+- **Table** `appointments` (migration 1369): kind (`quote_visit`, trade-neutral), quote request, client, property, date, time, length, who goes, status (booked / done / cancelled), note, `confirmed_at`.
+- **Service** `app/Modules/Schedule/Services/AppointmentService.php`: one booked visit per request (booking again moves it and clears `confirmed_at`), `forRange($from, $to, $crewFilter)` for every schedule, the confirmation email and text (≤160 chars, no links).
+- **Booking**: the quote workflow page, "Book quote visit" under the request (`quote-visit.js` → `/crm/api/appointments.php`). Viewing needs `clients.view`; booking, moving, cancelling and confirming need `schedule.edit` or `jobs.edit`. A green "Visit …" badge sits in the request header so it shows while the details are folded.
+- **Client confirmation**: only on the "Send confirmation" click. Email always; a text only when `hasSmConsent()` says yes.
+- **Where it shows**: as its own cards, never as stops (so completion, invoicing and photos never see it): web week, day and phone views (`jobs/schedule.php`, `mwAppointmentCard()`), the offline copy (`offline-schedule.php` → IndexedDB → `schedule-offline.html`), the iPhone day list (`/api/schedule/day` → `appointments`; `AppointmentCardView`, iOS 1.3.41, kept in memory only — not in the offline disk copy). Crew see only the ones assigned to them (same crew filter as stops).
+- **Sam**: a lead with a booked visit says "Quote visit booked …" instead of "call/email to book".
+- Fixed on the way: the week view's purchase-task mini-cards read `$ds`, left over from an earlier loop, so every column showed the week's last day's tasks; now `$dateStr`.

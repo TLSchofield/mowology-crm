@@ -254,12 +254,24 @@
         document.getElementById('btn-next').style.visibility = currentIdx < allDays.length - 1 ? 'visible' : 'hidden';
 
         var container = document.getElementById('stops-container');
+        // Quote visits (not job stops): their own cards first, in time order (2026-10-15)
+        var apptHtml = (entry.appointments || []).map(function (a) {
+            return '<div class="stop-card">' +
+                '<div class="stop-header">' +
+                    '<div class="stop-address">' + escHtml(a.kind_label || 'Appointment') + ' · ' + escHtml(a.time_label || '') + '</div>' +
+                    '<div class="stop-city">' + escHtml((a.contact_name ? a.contact_name + ' — ' : '') + (a.property_address || '')) + '</div>' +
+                    '<div class="stop-meta">' + (a.assigned_name ? '<span class="meta-chip crew">&#128100; ' + escHtml(a.assigned_name) + '</span>' : '') +
+                        '<span class="meta-chip">' + escHtml(String(a.duration_minutes || '')) + ' min</span></div>' +
+                '</div>' +
+                (a.notes ? '<div class="visits"><div class="visit-row"><div class="visit-info"><div class="visit-detail">' + escHtml(a.notes) + '</div></div></div></div>' : '') +
+            '</div>';
+        }).join('');
         if (!entry.stops || !entry.stops.length) {
-            container.innerHTML = '<div class="empty-day"><div class="icon">&#127797;</div><p>No stops scheduled</p><small>Enjoy the day off!</small></div>';
+            container.innerHTML = apptHtml || '<div class="empty-day"><div class="icon">&#127797;</div><p>No stops scheduled</p><small>Enjoy the day off!</small></div>';
             return;
         }
 
-        container.innerHTML = entry.stops.map(function (stop) {
+        container.innerHTML = apptHtml + entry.stops.map(function (stop) {
             var name = stop.property_name || stop.property_address;
             var city = stop.property_city || '';
             var crew = (stop.crew_names || []).join(', ');

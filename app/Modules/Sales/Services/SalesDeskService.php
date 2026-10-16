@@ -418,6 +418,21 @@ class SalesDeskService
             ORDER BY qr.created_at DESC
             LIMIT 60
         ")->fetchAll(PDO::FETCH_ASSOC);
+        // A quote visit already booked (AppointmentService, 2026-10-15): Sam stops asking to book one.
+        if ($rows) {
+            try {
+                $ids = array_map(fn($r) => (int)$r['id'], $rows);
+                $s = $this->db->prepare("SELECT quote_request_id, appt_date, appt_time FROM appointments
+                                         WHERE status = 'booked' AND quote_request_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
+                $s->execute($ids);
+                $visits = [];
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $v) $visits[(int)$v['quote_request_id']] = $v;
+                foreach ($rows as &$r) {
+                    if (isset($visits[(int)$r['id']])) { $r['visit_date'] = $visits[(int)$r['id']]['appt_date']; $r['visit_time'] = $visits[(int)$r['id']]['appt_time']; }
+                }
+                unset($r);
+            } catch (Throwable $e) { /* before migration 1369: no visits */ }
+        }
         return array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s')), 0, max(1, $limit));
     }
 
@@ -726,7 +741,10 @@ class SalesDeskService
             $what = $services ? implode(' & ', array_map(fn($s) => str_replace('_', ' ', $s), array_slice($services, 0, 2))) : 'a quote';
             $hot = ($tier === 'high' || $r['urgency'] === 'asap');
             $phone = trim((string)($r['phone'] ?? ''));
-            if ($ageDays > 3) {
+            $visitAt = !empty($r['visit_date']) ? strtotime($r['visit_date'] . ' ' . ($r['visit_time'] ?? '00:00')) : false;
+            if ($visitAt) {
+                $next = 'Quote visit booked ' . date('D M j, g:i a', $visitAt) . ' — measure there, then send the quote';
+            } elseif ($ageDays > 3) {
                 $next = 'Going cold (' . (int)floor($ageDays) . ' days) — ' . ($phone !== '' ? 'call ' . ($first ?: 'them') . ' today' : 'email ' . ($first ?: 'them') . ' today');
             } elseif ($hot && $phone !== '') {
                 $next = 'Call ' . ($first ?: 'them') . ' today — ' . ($tier === 'high' ? 'high-value ' : '') . $what . ($r['urgency'] === 'asap' ? ', wants it soon' : '');

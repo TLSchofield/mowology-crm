@@ -418,7 +418,8 @@ $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
 $mdtVer    = @filemtime(__DIR__ . '/js/map-draw/map-draw-tool.js') ?: '1';
 $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
-           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initMaps" async defer></script>';
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initMaps" async defer></script>'
+           . '<script src="/crm/js/quote-visit.js?v=' . (@filemtime(__DIR__ . '/js/quote-visit.js') ?: '1') . '" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -481,6 +482,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                                         <span class="text-muted ml-2 small"><?php echo h($fullAddress ?: 'No address'); ?></span>
                                     </div>
                                     <div>
+                                        <span class="mw-qv-badge" id="mwQuoteVisitBadge" hidden></span>
                                         <?php if ($request['email']): ?>
                                             <a href="mailto:<?php echo h($request['email']); ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="event.stopPropagation();" title="<?php echo h($request['email']); ?>">
                                                 <i class="align-middle" data-feather="mail" style="width:12px;height:12px;"></i>
@@ -534,6 +536,49 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                                             <i class="align-middle mr-1" data-feather="x-circle" style="width:12px;height:12px;"></i> Decline
                                         </button>
                                     </form>
+
+                                    <?php if ($requestId > 0): /* Quote visit (AppointmentService, 2026-10-15) — filled by quote-visit.js */ ?>
+                                    <div class="mw-qv" id="mwQuoteVisit" data-request-id="<?php echo (int)$requestId; ?>" data-csrf="<?php echo h($csrfToken); ?>">
+                                        <div class="mw-qv-booked" data-qv-booked hidden></div>
+                                        <button type="button" class="btn btn-sm btn-outline-success mw-qv-open" data-qv-open hidden>
+                                            <i class="align-middle mr-1" data-feather="calendar" style="width:12px;height:12px;"></i> Book quote visit
+                                        </button>
+                                        <div class="mw-qv-form" data-qv-form hidden>
+                                            <div class="mw-qv-row">
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label">Day</label>
+                                                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwQvDate" aria-haspopup="true" aria-expanded="false">
+                                                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                                    </button>
+                                                    <input type="date" id="mwQvDate" class="form-control" hidden value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvTime">Time</label>
+                                                    <select id="mwQvTime" class="form-control form-control-sm" data-qv-time></select>
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvWho">Who goes</label>
+                                                    <select id="mwQvWho" class="form-control form-control-sm" data-qv-who></select>
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvLen">Length</label>
+                                                    <select id="mwQvLen" class="form-control form-control-sm" data-qv-len>
+                                                        <option value="30">30 min</option><option value="45" selected>45 min</option>
+                                                        <option value="60">1 hour</option><option value="90">1½ hours</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <input type="text" class="form-control form-control-sm mw-qv-note" data-qv-note maxlength="500" placeholder="Note for the visit (gate code, what to look at…)">
+                                            <div class="mw-qv-actions">
+                                                <button type="button" class="btn btn-sm btn-success" data-qv-save>Save visit</button>
+                                                <button type="button" class="btn btn-sm btn-link" data-qv-cancel-form>Close</button>
+                                            </div>
+                                        </div>
+                                        <div class="mw-qv-msg" data-qv-msg hidden></div>
+                                    </div>
+                                    <?php endif; ?>
                                 </div>
                             </div>
 

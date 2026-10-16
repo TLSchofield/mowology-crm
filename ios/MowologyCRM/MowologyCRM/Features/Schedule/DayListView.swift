@@ -11,6 +11,8 @@ import CoreLocation
 struct DayListView: View {
 
     let stops: [Stop]
+    /// Quote visits for the day (their own cards, above the stops).
+    var appointments: [Appointment] = []
     let isLoading: Bool
     let errorMessage: String?
     let isOffline: Bool
@@ -38,7 +40,7 @@ struct DayListView: View {
                 loadingSkeleton
             } else if let message = errorMessage, stops.isEmpty {
                 errorBanner(message: message)
-            } else if stops.isEmpty {
+            } else if stops.isEmpty && appointments.isEmpty {
                 emptyState
             } else {
                 stopList
@@ -67,6 +69,13 @@ struct DayListView: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     }
+                }
+
+                ForEach(appointments) { appt in
+                    AppointmentCardView(appointment: appt)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
 
                 ForEach(stops) { stop in

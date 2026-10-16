@@ -175,6 +175,34 @@ $calendarData = getCalendarStops($startDate, $endDate, $crewFilter, $serviceFilt
 // ─── Purchase tasks for schedule ────────────────────────────────────
 $purchaseTasksByDate = getPurchaseTasksForSchedule($db, $startDate, $endDate, $crewFilter);
 
+// ─── Appointments (quote visits) — their own cards, never stops (AppointmentService, 2026-10-15) ──
+// Crew see only their own (CrewViewScope): $crewFilter is the person when they may not see all.
+$appointmentsByDate = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
+    // The phone view shows ?date= (or today), which can sit outside the week being loaded.
+    $_apDay  = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date'] ?? '')) ? (string)$_GET['date'] : date('Y-m-d');
+    $_apFrom = min($startDate, $_apDay);
+    $_apTo   = max($endDate, $_apDay);
+    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ? (int)$crewFilter : null);
+} catch (Throwable $e) {
+    error_log('[schedule] appointments: ' . $e->getMessage());
+}
+/** One appointment card (week, day and phone views). */
+function mwAppointmentCard(array $ap): string
+{
+    $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    $tag = $ap['open_url'] ? 'a href="' . $h($ap['open_url']) . '"' : 'div';
+    $end = $ap['open_url'] ? 'a' : 'div';
+    return '<' . $tag . ' class="mw-appt-card" data-appointment-id="' . (int)$ap['appointment_id'] . '" title="' . $h($ap['kind_label'] . ' — open the quote') . '">'
+         . '<span class="mw-appt-kind">' . $h($ap['kind_label']) . '</span> '
+         . '<span class="mw-appt-time">' . $h($ap['time_label']) . '</span> '
+         . $h($ap['contact_name'] ?? '')
+         . '<span class="mw-appt-addr">' . $h($ap['property_address']) . '</span>'
+         . ($ap['assigned_name'] ? '<span class="mw-appt-who">' . $h($ap['assigned_name']) . ' · ' . (int)$ap['duration_minutes'] . ' min</span>' : '')
+         . '</' . $end . '>';
+}
+
 // ─── Profitability batch data for all plans this week ───────────────
 $allPlanIds = [];
 foreach ($calendarData as $dateStops) {
@@ -1771,8 +1799,10 @@ if ($apiKey) {
                           </div>
                           <?php endif; ?>
 
+                          <?php foreach (($appointmentsByDate[$dateStr] ?? []) as $ap) echo mwAppointmentCard($ap); ?>
+
                           <?php if (empty($dayStops)): ?>
-                              <div class="mw-day-empty">No stops</div>
+                              <?php if (empty($appointmentsByDate[$dateStr])): ?><div class="mw-day-empty">No stops</div><?php endif; ?>
                           <?php else: ?>
                               <?php
                               // Convert to indexed array for distance-to-next calculation
@@ -1957,7 +1987,8 @@ if ($apiKey) {
 
                           <?php
                           // Purchase task mini-cards for this day column (week view)
-                          $dtPurchaseTasks = $purchaseTasksByDate[$ds] ?? [];
+                          // $dateStr, not $ds: $ds is left over from an earlier loop (the week's last day), so every column showed that day's tasks
+                          $dtPurchaseTasks = $purchaseTasksByDate[$dateStr] ?? [];
                           foreach ($dtPurchaseTasks as $ptMini):
                               $_ptMiniStatus = $ptMini['purchase_status'] ?? 'requested';
                               $_ptMiniStatusLabels = ['requested'=>'Requested','assigned'=>'Assigned','en_route'=>'En Route','at_vendor'=>'At Vendor','purchased'=>'Purchased','delivered'=>'Delivered','verified'=>'Verified'];
@@ -2390,6 +2421,16 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
+                  <?php $dvAppointments = $appointmentsByDate[$dayDate] ?? []; if ($dvAppointments): ?>
+                  <div class="mw-dv-section mw-dv-section-appointments">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">Appointments</span>
+                          <span class="mw-dv-section-count"><?php echo count($dvAppointments); ?></span>
+                      </div>
+                      <?php foreach ($dvAppointments as $ap) echo mwAppointmentCard($ap); ?>
+                  </div>
+                  <?php endif; ?>
+
                   <?php
                   // Purchase tasks for this day — desktop day view
                   $dvPurchaseTasks = $purchaseTasksByDate[$dayDate] ?? [];
@@ -2409,7 +2450,7 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
-                  <?php if (empty($assignedStops) && empty($unassignedStops) && empty($dvPurchaseTasks)): ?>
+                  <?php if (empty($assignedStops) && empty($unassignedStops) && empty($dvPurchaseTasks) && empty($dvAppointments)): ?>
                   <div class="mw-dv-empty">
                       <div class="mw-dv-empty-icon">&#128197;</div>
                       <div class="mw-dv-empty-text">No stops scheduled</div>
@@ -2795,6 +2836,11 @@ if ($apiKey) {
 
               <?php endif; // empty mobileStops ?>
               <?php endif; // isClockedIn gate ?>
+
+              <?php $mobileAppointments = $appointmentsByDate[$mobileDate] ?? []; if ($mobileAppointments): ?>
+              <div class="mw-mc-section-label">Appointments</div>
+              <div class="mw-appt-list"><?php foreach ($mobileAppointments as $ap) echo mwAppointmentCard($ap); ?></div>
+              <?php endif; ?>
 
               <?php
               // Purchase tasks — always shown regardless of clock-in status

@@ -121,6 +121,11 @@ class SalesDeskServiceTest extends TestCase
         $this->assertStringStartsWith('Call Bo today', $r[0]['next']);
         $this->assertStringStartsWith('Going cold (15 days) — email Cy', $r[1]['next']);
         $this->assertSame('/crm/quotes/create.php?quote_request_id=1', $r[2]['url']);
+
+        // A booked quote visit replaces "call / email to book one" (2026-10-15)
+        $rows[1]['visit_date'] = '2026-10-16'; $rows[1]['visit_time'] = '08:15:00';
+        $byId = array_column(SalesDeskService::rankLeads($rows, $avg, self::NOW), 'next', 'id');
+        $this->assertSame('Quote visit booked Fri Oct 16, 8:15 am — measure there, then send the quote', $byId[$rows[1]['id']]);
     }
 
     public function test_jobflow_tags_are_read_from_the_description(): void

@@ -21,6 +21,8 @@ private struct DayResponse: Decodable {
     let scope: String?
     let canSwitchScope: Bool?
     let serviceTypes: [ScheduleJobType]?
+    /// Quote visits for the day (2026-10-15); an older server sends none.
+    let appointments: [Appointment]?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -32,6 +34,7 @@ private struct DayResponse: Decodable {
         case scope
         case canSwitchScope = "can_switch_scope"
         case serviceTypes = "service_types"
+        case appointments
     }
 }
 
@@ -63,6 +66,9 @@ final class ScheduleViewModel: ObservableObject {
     /// device first (see `sortedForDisplay`). Falls back to the server's route
     /// order until a location fix arrives.
     @Published private(set) var stops: [Stop] = []
+    /// Quote visits on the selected day — their own cards above the stops, never stops.
+    @Published private(set) var appointments: [Appointment] = []
+    private var apptCache: [String: [Appointment]] = [:]
 
     /// Last known device position used for nearest-first ordering.
     @Published private(set) var userLocation: CLLocation?
@@ -289,6 +295,7 @@ final class ScheduleViewModel: ObservableObject {
             if response.stops != rawStops {
                 rawStops = response.stops
             }
+            applyAppointments(response.appointments, forDate: dateString)
             cacheStops(response.stops, forDate: dateString)
             ScheduleCache.shared.save(response.stops, forDate: diskKey(dateString))
         } catch {
@@ -433,6 +440,7 @@ final class ScheduleViewModel: ObservableObject {
         // when the user swipes back to a date they already loaded this session).
         if let cached = stopCache[dateString] {
             rawStops    = cached
+            appointments = apptCache[dateString] ?? []
             lastFetched = .now
             return
         }
@@ -445,6 +453,7 @@ final class ScheduleViewModel: ObservableObject {
             AppExtrasConfig.shared.update(ratePer5Min: response.extrasRatePer5Min)
             applyScope(response)
             let fetched = response.stops
+            applyAppointments(response.appointments, forDate: dateString)
             cacheStops(fetched, forDate: dateString)
             ScheduleCache.shared.save(fetched, forDate: diskKey(dateString))
             isOffline   = false
@@ -454,6 +463,7 @@ final class ScheduleViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             if case .networkError = err {
                 // Offline — try disk cache before showing an error.
+                appointments = apptCache[dateString] ?? ScheduleCache.shared.loadAppointments(forDate: diskKey(dateString)) ?? []
                 if let diskCached = ScheduleCache.shared.load(forDate: diskKey(dateString)) {
                     cacheStops(diskCached, forDate: dateString)
                     rawStops  = diskCached
@@ -466,11 +476,13 @@ final class ScheduleViewModel: ObservableObject {
             } else {
                 errorMessage = err.errorDescription ?? "Failed to load stops."
                 rawStops     = []
+                appointments = []
             }
         } catch {
             guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
             rawStops     = []
+            appointments = []
         }
     }
 
@@ -581,6 +593,13 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     // MARK: - Cache
+
+    private func applyAppointments(_ fetched: [Appointment]?, forDate dateString: String) {
+        let list = fetched ?? []
+        apptCache[dateString] = list
+        ScheduleCache.shared.saveAppointments(list, forDate: diskKey(dateString))   // kept for offline (Codex)
+        if dateString == isoDateString(from: selectedDate), list != appointments { appointments = list }
+    }
 
     private func cacheStops(_ fetched: [Stop], forDate dateString: String) {
         stopCache[dateString] = fetched
