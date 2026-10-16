@@ -111,7 +111,9 @@ try {
     }
 
     // Monday salt & snow statements ride this already-scheduled cron (once per inbox
-    // per week; a no-op until there are snow route runs). Never fails the visit run.
+    // per week; a no-op until there are snow route runs). Never fails the visit run, but a failure
+    // makes the run a warning so it shows in the cron log (Codex 2026-10-16: it was recorded as success).
+    $sideProblems = [];
     try {
         require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
         require_once APP_ROOT . '/Modules/Contracts/Services/SnowWeeklyStatementService.php';
@@ -120,8 +122,10 @@ try {
             error_log(sprintf('[generate_visits cron] snow statements week %s: sent=%d failed=%d',
                 $snowStmt['week']['start'], $snowStmt['sent'], $snowStmt['failed']));
         }
+        if (!empty($snowStmt['failed'])) $sideProblems[] = $snowStmt['failed'] . ' snow statement(s) not sent';
     } catch (Throwable $e) {
         error_log('[generate_visits cron] snow statements: ' . $e->getMessage());
+        $sideProblems[] = 'snow statements failed: ' . $e->getMessage();
     }
 
     // Approved quotes that no hook caught get Sam's summary + a tray job (QuoteApprovalService).
@@ -135,13 +139,13 @@ try {
         error_log('[generate_visits cron] approved quotes: ' . $e->getMessage());
     }
 
-    $hasErrors = !empty($result['errors']);
+    $hasErrors = !empty($result['errors']) || $sideProblems;
     recordCronRun(
         'generate_visits',
         $hasErrors ? 'warning' : 'success',
-        "{$result['plans_processed']} plans processed, {$result['visits_created']} visits created",
+        "{$result['plans_processed']} plans processed, {$result['visits_created']} visits created" . ($sideProblems ? '; ' . implode('; ', $sideProblems) : ''),
         (int)round($elapsed * 1000),
-        $hasErrors ? implode('; ', array_slice($result['errors'], 0, 3)) : null,
+        $hasErrors ? implode('; ', array_slice(array_merge($result['errors'], $sideProblems), 0, 3)) : null,
         !$isCli
     );
 

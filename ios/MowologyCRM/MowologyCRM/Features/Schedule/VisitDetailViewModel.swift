@@ -232,7 +232,7 @@ final class VisitDetailViewModel: ObservableObject {
     /// when the crew complete without invoicing.
     /// Returns `true` when the server confirmed completion.
     @discardableResult
-    func completeJob(visitId: Int, extrasMinutes: Int = 0, extrasNote: String = "") async -> Bool {
+    func completeJob(visitId: Int, extrasMinutes: Int = 0, extrasNote: String = "", snowChoice: String? = nil) async -> Bool {
         isLoading    = true
         errorMessage = nil
 
@@ -258,8 +258,9 @@ final class VisitDetailViewModel: ObservableObject {
         let trimmedNote = extrasNote.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedNote.isEmpty { body["extras_note"] = trimmedNote }
         // Kept with the queued stop, so a completion sent later still carries its extra work.
-        if extrasMinutes > 0 || !trimmedNote.isEmpty {
-            UserDefaults.standard.set(["minutes": extrasMinutes, "note": trimmedNote],
+        if let s = snowChoice, !s.isEmpty { body["snow_choice"] = s }   // what was done at a route stop, with the completion
+        if extrasMinutes > 0 || !trimmedNote.isEmpty || !(snowChoice ?? "").isEmpty {
+            UserDefaults.standard.set(["minutes": extrasMinutes, "note": trimmedNote, "snow": snowChoice ?? ""],
                                       forKey: Self.stopExtrasKey(visitId: visitId))
         }
         accountability.forEach { body[$0.key] = $0.value }

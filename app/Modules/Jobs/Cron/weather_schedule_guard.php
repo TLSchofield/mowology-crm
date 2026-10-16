@@ -146,6 +146,11 @@ try {
             $servicePackageIds[] = (int)$visit['service_package_id'];
         }
         $visitRule = aggregateVisitRules($servicePackageIds);
+        // The service's rules couldn't be read (database hiccup): decide nothing, try again next run.
+        if (!empty($visitRule['lookup_failed'])) {
+            $results['errors'][] = "Visit {$visit['visit_number']}: weather rules unavailable — will retry next run";
+            continue;
+        }
 
         // Skip evaluation if policy is ANY
         if (($visitRule['weather_policy'] ?? 'ANY') === 'ANY') {

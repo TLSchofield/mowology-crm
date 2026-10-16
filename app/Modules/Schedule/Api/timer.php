@@ -227,6 +227,19 @@ try {
                     error_log('timer.php extras persist failed: ' . $exEx->getMessage());
                 }
             }
+            // What was done at a snow & salt route stop, sent WITH the completion (Codex review 2026-10-16: a
+            // separate call was lost offline, so the run had no billing choice). Recorded once, here; a stop
+            // that isn't a route, or a run already invoiced, is left alone.
+            $snowChoice = (string)($input['snow_choice'] ?? '');
+            if ($completeVisit && $snowChoice !== '') {
+                try {
+                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                    $sc = (new SnowContractService($db ?? getDB()))->recordChoice($visitId, $snowChoice, $userId, 'crew');
+                    if (empty($sc['success'])) error_log("timer.php snow choice for visit {$visitId}: " . ($sc['error'] ?? 'refused'));
+                } catch (Throwable $scEx) {
+                    error_log('timer.php snow choice failed: ' . $scEx->getMessage());
+                }
+            }
             // Special-request extra work goes on top of the sheet's extras (once; never throws).
             if ($completeVisit) {
                 require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';

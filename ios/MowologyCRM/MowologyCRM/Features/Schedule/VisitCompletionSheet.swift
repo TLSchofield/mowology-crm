@@ -71,7 +71,7 @@ struct VisitCompletionSheet: View {
         .background(Color(.systemGroupedBackground))
         .task {
             // Snow & salt route stop? Then the crew record what was done before completing.
-            await vm.loadSnowRoute(visitId: visit.visitId)
+            await vm.loadSnowRoute(visitId: visit.visitId, serviceType: visit.serviceType)
             // Missed work at the same address (e.g. a cut timed on another day, then skipped).
             if visit.isPerVisitBillable { await vm.loadUnbilled(visitId: visit.visitId) }
         }
@@ -166,7 +166,6 @@ struct VisitCompletionSheet: View {
                             .foregroundStyle(vm.snowChoice == option.value ? Color.white : Color.MW.green)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-                    .disabled(vm.snowSaving)
                 }
             }
             if let err = vm.snowError {
@@ -356,7 +355,8 @@ struct VisitCompletionSheet: View {
             let ok = await detailVM.completeJob(
                 visitId: visit.visitId,
                 extrasMinutes: vm.totalMinutes,
-                extrasNote: vm.note
+                extrasNote: vm.note,
+                snowChoice: vm.snowIsRoute ? vm.snowChoice : nil
             )
 
             guard ok else {

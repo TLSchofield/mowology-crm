@@ -21,6 +21,9 @@ final class VisitCompletionViewModel: ObservableObject {
     // MARK: - Extras input state
     @Published var manualMinutes: Int = 0      // accumulated via +5/+10/+15/+30
     @Published var timerSeconds: Int  = 0      // accrued via the live timer
+    /// Counted from the clock, not from ticks: iOS pauses timers while the phone is locked (Codex 2026-10-16).
+    private var timerStartedAt: Date?
+    private var timerBaseSeconds: Int = 0
     @Published var isTimerRunning: Bool = false
     @Published var note: String = ""
 
@@ -75,37 +78,48 @@ final class VisitCompletionViewModel: ObservableObject {
     @Published var snowSaving: Bool = false
     @Published var snowError: String?
 
-    /// Whether this stop needs a choice; failures (offline, older server) leave it hidden.
-    func loadSnowRoute(visitId: Int) async {
+    /// The four things a crew can record at a route stop (SnowContractService::CHOICES), used when the
+    /// route check can't reach the server.
+    static let fallbackSnowChoices: [SnowRouteChoiceOption] = [
+        SnowRouteChoiceOption(value: "salt", label: "Salted"),
+        SnowRouteChoiceOption(value: "arctic", label: "Arctic salt"),
+        SnowRouteChoiceOption(value: "snow", label: "Snow cleared"),
+        SnowRouteChoiceOption(value: "none", label: "Checked – nothing needed"),
+    ]
+
+    /// Whether this stop needs a choice. When the check fails (offline), a snow or salt visit still asks
+    /// (Codex review 2026-10-16: a failure used to mean "not a route", so the stop completed with no choice
+    /// and the run lost its billing). Other visits stay as they were.
+    func loadSnowRoute(visitId: Int, serviceType: String = "") async {
         do {
             let r: SnowRouteChoiceResult = try await apiClient.request(.snowRouteChoice(visitId: visitId))
-            guard r.success else { return }
-            snowIsRoute = r.isRoute
-            snowChoices = r.choices
-            snowChoice  = r.choice
-        } catch {
-            // Not a route stop as far as we can tell — the sheet stays as it was.
+            if r.success {
+                snowIsRoute = r.isRoute
+                snowChoices = r.choices
+                snowChoice  = r.choice
+                return
+            }
+        } catch { }
+        let t = serviceType.lowercased()
+        if t.contains("snow") || t.contains("salt") {
+            snowIsRoute = true
+            if snowChoices.isEmpty { snowChoices = Self.fallbackSnowChoices }
         }
     }
 
+    /// The pick is kept on the phone at once and goes WITH the completion (timer stop `snow_choice`), so
+    /// it can't be lost offline or race the Complete button. Sending it now as well is a courtesy: the
+    /// office sees it sooner; a failure here changes nothing.
     func recordSnowChoice(visitId: Int, choice: String) async -> Bool {
-        snowSaving = true
+        snowChoice = choice
         snowError = nil
-        defer { snowSaving = false }
         do {
-            let r: SnowRouteChoiceResult = try await apiClient.request(
+            let _: SnowRouteChoiceResult = try await apiClient.request(
                 .snowRouteChoiceAction,
                 body: ["visit_id": visitId, "choice": choice]
             )
-            if r.success {
-                snowChoice = choice
-                return true
-            }
-            snowError = r.error ?? "Could not save what was done."
-        } catch {
-            snowError = "No connection — try again."
-        }
-        return false
+        } catch { }
+        return true
     }
 
     // MARK: - Unbilled work
@@ -179,13 +193,22 @@ final class VisitCompletionViewModel: ObservableObject {
 
     private func startTimer() {
         isTimerRunning = true
+        timerBaseSeconds = timerSeconds
+        timerStartedAt = Date()
         ticker = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
-            .sink { [weak self] _ in self?.timerSeconds += 1 }
+            .sink { [weak self] _ in self?.refreshTimer() }
+    }
+
+    private func refreshTimer() {
+        guard let started = timerStartedAt else { return }
+        timerSeconds = timerBaseSeconds + Int(Date().timeIntervalSince(started))
     }
 
     private func stopTimer() {
+        refreshTimer()
         isTimerRunning = false
+        timerStartedAt = nil
         ticker?.cancel()
         ticker = nil
     }

@@ -6,6 +6,8 @@ require_once dirname(__DIR__) . '/modules/weather/seasonal-outlook-card.php';
 
 requireLogin();
 $user = getCurrentUser();
+// Clients' addresses and the crews' days: office access, as the API (Codex 2026-10-15).
+if (!userHasPermission('clients.view')) { header('Location: /crm/dashboard_appstack.php'); exit; }
 
 $pageTitle = 'Weather Actions';
 $activePage = 'weather-ops';
@@ -149,8 +151,10 @@ try {
           <script>
           document.addEventListener('DOMContentLoaded', function() {
             // Set default date range
-            const today = new Date().toISOString().split('T')[0];
-            const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+            // Local dates, not UTC: after 5 pm in Vancouver UTC is already tomorrow (Codex 2026-10-15)
+            const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            const today = ymd(new Date());
+            const nextWeek = ymd(new Date(Date.now() + 7 * 86400000));
             document.getElementById('filterFrom').value = today;
             document.getElementById('filterFrom').dispatchEvent(new Event('input', { bubbles: true }));
             document.getElementById('filterFrom').dispatchEvent(new Event('change', { bubbles: true }));
@@ -189,27 +193,28 @@ try {
                 ? '<span class="badge badge-danger">NOT OK</span>'
                 : '<span class="badge badge-warning">BORDERLINE</span>';
 
+              // Every server value escaped (Codex 2026-10-15: forecast and log fields went in raw)
               const worstHour = v.worst_hour
-                ? (v.worst_hour.hour ? v.worst_hour.hour.substring(11, 16) : '—') +
-                  ' (' + (v.worst_hour.precip_chance_pct || 0) + '% / ' +
-                  (v.worst_hour.wind_kph || 0) + 'km/h / ' +
-                  (v.worst_hour.temp_c || 0) + '°C)'
+                ? escapeHtml(v.worst_hour.hour ? String(v.worst_hour.hour).substring(11, 16) : '—') +
+                  ' (' + escapeHtml(v.worst_hour.precip_chance_pct || 0) + '% / ' +
+                  escapeHtml(v.worst_hour.wind_kph || 0) + 'km/h / ' +
+                  escapeHtml(v.worst_hour.temp_c || 0) + '°C)'
                 : '—';
 
               const crewName = v.crew_name || '—';
 
               return '<tr>' +
                 '<td><strong>' + escapeHtml(v.visit_number) + '</strong><br><small class="text-muted">' + escapeHtml(crewName) + '</small></td>' +
-                '<td>' + v.scheduled_date + '<br><small>' + (v.scheduled_time_start || '') + '</small></td>' +
+                '<td>' + escapeHtml(v.scheduled_date) + '<br><small>' + escapeHtml(v.scheduled_time_start || '') + '</small></td>' +
                 '<td>' + escapeHtml(v.address || '') + '<br><small class="text-muted">' + escapeHtml(v.city || '') + '</small></td>' +
-                '<td>' + escapeHtml(v.service_name || v.service_type || '—') + '<br><small class="text-muted">' + (v.weather_policy || 'ANY') + '</small></td>' +
+                '<td>' + escapeHtml(v.service_name || v.service_type || '—') + '<br><small class="text-muted">' + escapeHtml(v.weather_policy || 'ANY') + '</small></td>' +
                 '<td>' + statusBadge + '</td>' +
                 '<td>' + escapeHtml(v.weather_reason || '—') + '<br><small class="text-muted">' + escapeHtml(v.snapshot_summary || '') + '</small></td>' +
                 '<td><small>' + worstHour + '</small></td>' +
                 '<td>' +
                   '<div class="btn-group-vertical btn-group-sm">' +
-                    '<button class="btn btn-outline-success" onclick="keepVisit(' + v.visit_id + ')" title="Keep as-is"><i data-feather="check"></i> Keep</button>' +
-                    '<button class="btn btn-outline-danger" onclick="dismissVisit(' + v.visit_id + ')" title="Dismiss"><i data-feather="x"></i> Dismiss</button>' +
+                    '<button class="btn btn-outline-success" onclick="keepVisit(' + parseInt(v.visit_id, 10) + ')" title="Keep as-is"><i data-feather="check"></i> Keep</button>' +
+                    '<button class="btn btn-outline-danger" onclick="dismissVisit(' + parseInt(v.visit_id, 10) + ')" title="Dismiss"><i data-feather="x"></i> Dismiss</button>' +
                   '</div>' +
                   (v.weather_card_path ? '<br><a href="/crm/' + escapeHtml(v.weather_card_path) + '" target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i data-feather="image"></i></a>' : '') +
                 '</td>' +
@@ -232,9 +237,9 @@ try {
               if (details && details.length > 80) details = details.substring(0, 77) + '...';
 
               return '<tr>' +
-                '<td><small>' + l.created_at + '</small></td>' +
+                '<td><small>' + escapeHtml(l.created_at) + '</small></td>' +
                 '<td><span class="badge badge-secondary">' + escapeHtml(l.action_type) + '</span></td>' +
-                '<td>' + l.entity_type + ' #' + l.entity_id + '</td>' +
+                '<td>' + escapeHtml(l.entity_type) + ' #' + escapeHtml(l.entity_id) + '</td>' +
                 '<td><small class="text-muted">' + escapeHtml(details || '') + '</small></td>' +
               '</tr>';
             }).join('');
@@ -314,9 +319,9 @@ try {
           }
 
           function escapeHtml(text) {
-            if (!text) return '';
+            if (text === null || text === undefined || text === '') return '';   // 0 stays "0"
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = String(text);
             return div.innerHTML;
           }
           </script>

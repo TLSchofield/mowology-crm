@@ -1238,7 +1238,8 @@ $activePage = 'jobs';
           var d    = document.createElement('div');
           d.className = 'pow-note-item mb-2 p-2 rounded';
           d.style.cssText = 'background:#f5faf7;border-left:3px solid var(--mw-lime);';
-          d.innerHTML = '<div class="small">' + content.replace(/\n/g,'<br>') + '</div>'
+          var esc = function (t) { var x = document.createElement('div'); x.textContent = t; return x.innerHTML; };   // as typed, never as HTML
+          d.innerHTML = '<div class="small">' + esc(content).replace(/\n/g,'<br>') + '</div>'
                        + '<div class="text-muted" style="font-size:10px;margin-top:4px;">You · Just now'
                        + (visible ? '<span class="badge badge-info ml-1" style="font-size:9px;">Client visible</span>' : '') + '</div>';
           list.appendChild(d);

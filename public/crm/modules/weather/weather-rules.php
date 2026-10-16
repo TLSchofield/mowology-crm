@@ -140,6 +140,7 @@ function getServiceWeatherRules(int $servicePackageId): array
         'borderline_precip_chance_high'=> $ops['borderline_precip_chance_high'],
     ];
 
+    $explicit = [];   // thresholds the service sets itself; presets fill only the others (Codex 2026-10-15)
     try {
         $db = getDB();
         $stmt = $db->prepare("
@@ -158,15 +159,18 @@ function getServiceWeatherRules(int $servicePackageId): array
             foreach ($row as $key => $value) {
                 if ($value !== null && $value !== '') {
                     $defaults[$key] = $value;
+                    $explicit[$key] = true;
                 }
             }
         }
     } catch (Throwable $e) {
         error_log("getServiceWeatherRules error: " . $e->getMessage());
+        // The service's rules couldn't be read: say so, rather than pass generic defaults off as its rules.
+        $defaults['lookup_failed'] = true;
     }
 
     // Apply policy presets for common policies
-    $defaults = applyPolicyPresets($defaults);
+    $defaults = applyPolicyPresets($defaults, $explicit);
 
     return $defaults;
 }
@@ -178,9 +182,12 @@ function getServiceWeatherRules(int $servicePackageId): array
  * @param array $rules
  * @return array Rules with presets applied
  */
-function applyPolicyPresets(array $rules): array
+function applyPolicyPresets(array $rules, ?array $explicit = null): array
 {
     $policy = $rules['weather_policy'] ?? 'ANY';
+    // A preset replaces a threshold unless the service set that threshold itself. Without $explicit, only an
+    // empty threshold is filled (the old rule — which never fired, as the ops defaults fill every one first).
+    $free = fn(string $k) => $explicit === null ? ($rules[$k] ?? null) === null : empty($explicit[$k]);
 
     switch ($policy) {
         case 'DRY_ONLY':
@@ -195,24 +202,24 @@ function applyPolicyPresets(array $rules): array
 
         case 'LIGHT_RAIN_OK':
             // Moderate: light rain is fine
-            if ($rules['max_precip_chance_pct'] === null) {
+            if ($free('max_precip_chance_pct')) {
                 $rules['max_precip_chance_pct'] = 70;
             }
-            if ($rules['max_precip_mm_per_hr'] === null) {
+            if ($free('max_precip_mm_per_hr')) {
                 $rules['max_precip_mm_per_hr'] = 5.0;
             }
             break;
 
         case 'TEMP_LIMITED':
             // Temperature is the primary concern
-            if ($rules['min_temp_c'] === null) {
+            if ($free('min_temp_c')) {
                 $rules['min_temp_c'] = 0.0;
             }
             break;
 
         case 'WIND_LIMITED':
             // Wind is the primary concern
-            if ($rules['max_wind_kph'] === null) {
+            if ($free('max_wind_kph')) {
                 $rules['max_wind_kph'] = 30.0;
             }
             break;
@@ -307,6 +314,15 @@ function aggregateVisitRules(array $servicePackageIds): array
                 (int)$r['move_window_hours']
             );
         }
+
+        // The narrowest allowed move timeband: every service's window must allow the new time (Codex 2026-10-15)
+        if (!empty($r['move_timeband_start']) && (empty($combined['move_timeband_start']) || $r['move_timeband_start'] > $combined['move_timeband_start'])) {
+            $combined['move_timeband_start'] = $r['move_timeband_start'];
+        }
+        if (!empty($r['move_timeband_end']) && (empty($combined['move_timeband_end']) || $r['move_timeband_end'] < $combined['move_timeband_end'])) {
+            $combined['move_timeband_end'] = $r['move_timeband_end'];
+        }
+        if (!empty($r['lookup_failed'])) $combined['lookup_failed'] = true;
 
         // If any service requires manual on uncertain, keep it
         if ((int)($r['require_manual_if_uncertain'] ?? 0) === 1) {

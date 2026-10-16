@@ -885,7 +885,9 @@ $activePage = 'jobs';
           var d = document.createElement('div');
           d.className = 'mb-2 p-2 rounded';
           d.style.cssText = 'background:#f5faf7;border-left:3px solid #7FD858;';
-          d.innerHTML = '<div>' + content + '</div><small class="text-muted">Just now</small>';
+          var body = document.createElement('div'); body.textContent = content;   // as typed, never as HTML
+          var when = document.createElement('small'); when.className = 'text-muted'; when.textContent = 'Just now';
+          d.appendChild(body); d.appendChild(when);
           notes.insertBefore(d, notes.firstChild);
           showToast('Note saved', 'success');
         } else showToast(res.error || 'Failed', 'danger');

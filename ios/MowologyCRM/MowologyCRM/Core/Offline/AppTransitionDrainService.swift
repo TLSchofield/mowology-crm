@@ -104,6 +104,7 @@ final class AppTransitionDrainService {
            let extras = UserDefaults.standard.dictionary(forKey: VisitDetailViewModel.stopExtrasKey(visitId: transition.visitId)) {
             if let m = extras["minutes"] as? Int, m > 0 { body["extras_minutes"] = m }
             if let n = extras["note"] as? String, !n.isEmpty { body["extras_note"] = n }
+            if let s = extras["snow"] as? String, !s.isEmpty { body["snow_choice"] = s }   // the route stop's choice
         }
         // When the start was really tapped: the server's special-request gate accepts a queued
         // start (logged) instead of refusing it forever.

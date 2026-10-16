@@ -622,6 +622,22 @@ class InvoiceFromVisitService
     public function send(int $invoiceId, int $userId): array
     {
         if (!$invoiceId) return ['success' => false, 'error' => 'invoice_id required'];
+        // One send per invoice at a time (Codex review 2026-10-16): a phone retry overlapping a desktop click
+        // both found it a draft and both emailed every recipient. The second waits for nothing: it is told.
+        $named = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        $lock = 'mw_invoice_send_' . $invoiceId;
+        if ($named && (int)$this->db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '." . $lock . "'), 0)")->fetchColumn() !== 1) {
+            return ['success' => false, 'error' => 'This invoice is being sent right now.', 'busy' => true];
+        }
+        try {
+            return $this->sendLocked($invoiceId, $userId);
+        } finally {
+            if ($named) { try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '." . $lock . "'))"); } catch (Throwable $e) { /* ends with the connection */ } }
+        }
+    }
+
+    private function sendLocked(int $invoiceId, int $userId): array
+    {
 
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 
@@ -684,7 +700,8 @@ class InvoiceFromVisitService
             $gate->recordBlocked($invoiceId, 'invoice_from_visit');
             return ['success' => false, 'error' => InvoicePdfGate::NOT_SENT_MESSAGE, 'pdf_failed' => true];
         }
-        $pdfVanished = false;
+        $sentTo         = [];
+        $notSent        = [];
 
         // Snow & salt run: the Winter Service Record (weather at the go-decision, GPS
         // track, photos, integrity hash) travels with the invoice — the run's proof.
@@ -771,6 +788,7 @@ class InvoiceFromVisitService
             // delivery must never be counted as "sent".
             if (!$emailOk) {
                 error_log("InvoiceFromVisitService::send: email delivery failed for invoice {$invoiceId} to {$recipient['email_address']}");
+                $notSent[] = $recipient['email_address'];
                 continue;
             }
 
@@ -798,6 +816,7 @@ class InvoiceFromVisitService
             // the caller after other emails have already gone out (that would
             // invite a duplicate manual resend). Log and move on.
             error_log("InvoiceFromVisitService::send: recipient {$recipient['email_address']} errored for invoice {$invoiceId}: " . $e->getMessage());
+            $notSent[] = $recipient['email_address'];
           }
         }
 
@@ -847,10 +866,20 @@ class InvoiceFromVisitService
             }
         }
 
+        // Some addresses failed while others went (Codex 2026-10-16): the invoice is 'sent', so this service
+        // won't send it again — name them, on the invoice's activity too, so the office resends from the invoice.
+        if ($notSent) {
+            try {
+                $this->db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (?, 'Invoice email failed', ?, ?, NOW())")
+                   ->execute([$userId ?: null, 'Not delivered to ' . implode(', ', $notSent) . ' — resend from the invoice', $invoiceId]);
+            } catch (Throwable $e) { error_log('InvoiceFromVisitService::send: activity log: ' . $e->getMessage()); }
+        }
+
         return [
             'success'        => true,
             'invoice_number' => $invoice['invoice_number'],
             'sent_to'        => $sentTo,
+            'not_sent_to'    => $notSent,
         ];
     }
 }
