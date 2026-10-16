@@ -4062,7 +4062,7 @@ async function submitReceiptExport() {
                             if (agree(form)) return '<button type="button" class="mw-action-btn" disabled title="Save the new total first">Save, then attach</button>';
                             return c.vendor_only ? '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\')">Use $' + c.amount.toFixed(2) + '</button>'
                                                  : '<button type="button" class="mw-action-btn" disabled title="The amounts differ">Totals differ</button>';
-                        })()) +
+                        })() +
                     '</div>' +
                 '</div>';
             }).join('') +
