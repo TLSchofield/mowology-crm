@@ -162,6 +162,13 @@ $__team = [
           <div class="mw-v"><?= $ps['right_first_time'] === null ? '—' : (int)$ps['right_first_time'] . '%' ?></div>
           <div class="mw-n">Category, judged on <?= h($ps['right_source']) ?></div>
         </div>
+        <?php if (isset($ps['items_read'])): $__ir = $ps['items_read']; $__irp = $ps['items_read_prev'] ?? ['n' => 0, 'ok' => 0]; ?>
+        <div class="mw-head-stat">
+          <div class="mw-k">Items read</div>
+          <div class="mw-v"><?= $__ir['pct'] === null ? '—' : (int)$__ir['pct'] . '%' ?></div>
+          <div class="mw-n"><?= (int)$__ir['ok'] ?> of <?= (int)$__ir['n'] ?> receipts this week add up<?= $__irp['n'] ? ' · last week ' . (int)$__irp['ok'] . ' of ' . (int)$__irp['n'] : '' ?></div>
+        </div>
+        <?php endif; ?>
         <div class="mw-head-stat is-money">
           <div class="mw-k">Net saving this month</div>
           <div class="mw-v"><?= $ps['net_saving_month'] === null ? '—' : h($__money($ps['net_saving_month'])) ?></div>

@@ -162,7 +162,33 @@ class BookkeeperDeskService
             'gst_confirmed'     => round($gstConfirmed, 2),
             'gst_stuck'         => round($gstStuck, 2),
             'job_costing_pct'   => self::pct($jobWith, $jobAll) ?? 0,
+            'items_read'        => $this->itemsRead(date('Y-m-d', strtotime('-7 days')), date('Y-m-d', strtotime('+1 day'))),
+            'items_read_prev'   => $this->itemsRead(date('Y-m-d', strtotime('-14 days')), date('Y-m-d', strtotime('-7 days'))),
         ];
+    }
+
+    /**
+     * The reader's line items, judged (Tim, 2026-10-15: "is she learning line items?"): photographed receipts
+     * uploaded in [$from, $to) — emailed ones aside — whose items add up to the subtotal or the total.
+     * @return array{n: int, ok: int, pct: ?int}
+     */
+    public function itemsRead(string $from, string $to): array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT COUNT(*) AS n,
+                       SUM(li.n IS NOT NULL AND (ABS(li.s - e.total) <= 0.05 OR (e.amount > 0 AND ABS(li.s - e.amount) <= 0.05))) AS ok
+                FROM expenses e
+                LEFT JOIN (SELECT expense_id, COUNT(*) AS n, SUM(line_total) AS s FROM expense_line_items GROUP BY expense_id) li ON li.expense_id = e.id
+                WHERE e.created_at >= ? AND e.created_at < ? AND e.receipt_media_id IS NOT NULL
+                  AND COALESCE(e.source, '') <> 'email_inbox' AND e.status <> 'rejected'");
+            $s->execute([$from, $to]);
+            $r = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            $r = [];
+        }
+        $n = (int)($r['n'] ?? 0); $ok = (int)($r['ok'] ?? 0);
+        return ['n' => $n, 'ok' => $ok, 'pct' => self::pct($ok, $n)];
     }
 
     private function backtestCategoryPct(): ?int
