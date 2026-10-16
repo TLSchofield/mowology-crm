@@ -157,7 +157,7 @@ RewriteRule ^sitemap\.xml$ /sitemap.php [L]
 
 # mowology.ca/crew → the crew app download (easy to type on a tablet). Point it at the release APK
 # (/crm/downloads/mowology-crew.apk) once 1.7.0 is released to everyone.
-RewriteRule ^crew/?$ /crm/downloads/mowology-crew-1.7.0-test.apk [NC,L,R=302]
+RewriteRule ^crew/?$ /crm/downloads/mowology-crew-1.7.1-test.apk [NC,L,R=302]
 
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]

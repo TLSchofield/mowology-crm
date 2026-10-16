@@ -10,7 +10,8 @@
     "force_update": false,
     "native_camera": false,
     "native_visit": false,
-    "native_receipts": true
+    "native_receipts": true,
+    "native_plants": true
   },
   "ios": {
     "version": "1.0.0",
