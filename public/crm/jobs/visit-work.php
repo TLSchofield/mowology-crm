@@ -90,6 +90,7 @@ try {
 $pageTitle  = 'Work: ' . ($visit['visit_number'] ?? "Visit #{$visitId}");
 $activePage = 'jobs';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- ── Mobile work shell ─────────────────────────────────────────────────── -->
