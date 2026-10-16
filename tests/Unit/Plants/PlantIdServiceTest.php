@@ -79,6 +79,24 @@ class PlantIdServiceTest extends TestCase
         $this->assertStringContainsString('English lavender', $r['message']);
     }
 
+    public function testTheSamePhotosAgainAnswerWithTheSameRecord(): void
+    {
+        $db = $this->db(); $calls = 0;
+        $svc = new PlantIdService($db, $this->transport(self::answer(0.82), $calls), $this->root);
+        $first = $svc->identify(76, [1, 2], [], 7);
+        $again = $svc->identify(76, [1, 2], [], 7);
+        $this->assertSame(1, $calls, 'one Pl@ntNet call');
+        $this->assertTrue($again['ok'] && $again['repeat']);
+        $this->assertSame($first['record']['id'], $again['record']['id']);
+        $this->assertSame(1, (int)$db->query('SELECT COUNT(*) FROM plant_records')->fetchColumn());
+        $this->assertNotSame($first['record']['id'], $svc->identify(76, [2], [], 7)['record']['id'], 'other photos are another plant');
+        $this->assertSame($first['record']['id'], $svc->identify(76, [2, 1], [], 7)['record']['id'], 'the same photos in another order');
+        $this->assertSame(2, $calls, 'only the [2] plant called Pl@ntNet again');
+        $bad = (new PlantIdService($db, $this->transport('<html>proxy</html>', $calls), $this->root))->identify(76, [1], [], 7);
+        $this->assertFalse($bad['ok']);
+        $this->assertTrue($bad['retry'], 'a garbled 200 is try-again, not "not recognised"');
+    }
+
     public function testALowScoreIsNotSure(): void
     {
         $db = $this->db(); $calls = 0;
@@ -94,8 +112,9 @@ class PlantIdServiceTest extends TestCase
         $db = $this->db(); $calls = 0;
         $r = (new PlantIdService($db, $this->transport('{"message":"Species not found"}', $calls, $x, 404), $this->root))->identify(76, [1], [], 7);
         $this->assertSame('unsure', $r['record']['status']);
-        $r = (new PlantIdService($db, $this->transport('', $calls, $x, 500), $this->root))->identify(76, [1], [], 7);
+        $r = (new PlantIdService($db, $this->transport('', $calls, $x, 500), $this->root))->identify(76, [2], [], 7);
         $this->assertFalse($r['ok']);
+        $this->assertTrue($r['retry'], 'Pl@ntNet down is worth another try');
         $this->assertFalse((new PlantIdService($db, $this->transport('', $calls), $this->root))->identify(99, [1], [], 7)['ok'], 'no such property');
         $this->assertFalse((new PlantIdService($db, $this->transport('', $calls), $this->root))->identify(76, [3], [], 7)['ok'], 'GIF only');
     }

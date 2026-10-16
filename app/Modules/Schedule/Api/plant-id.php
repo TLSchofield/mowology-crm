@@ -78,7 +78,8 @@ try {
             @set_time_limit(90);
             $res = $svc->identify((int)$visit['property_id'], (array)($in['media_ids'] ?? []),
                 ['lat' => $in['lat'] ?? null, 'lng' => $in['lng'] ?? null, 'accuracy' => $in['accuracy'] ?? null, 'heading' => $in['heading'] ?? null], $userId);
-            echo json_encode(['ok' => (bool)$res['ok'], 'message' => $res['message'] ?? '', 'record' => $slim($res['record'] ?? null),
+            echo json_encode(['ok' => (bool)$res['ok'], 'retry' => !empty($res['retry']), 'repeat' => !empty($res['repeat']),
+                              'message' => $res['message'] ?? '', 'record' => $slim($res['record'] ?? null),
                               'beds' => array_map(fn($b) => ['id' => $b['id'], 'name' => $b['name']], $svc->beds((int)$visit['property_id'])),
                               'care' => $careOf($res['record'] ?? null)]);
             break;

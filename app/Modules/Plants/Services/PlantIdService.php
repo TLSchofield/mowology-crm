@@ -75,8 +75,23 @@ class PlantIdService
         $mediaIds = $this->ofProperty($propertyId, $mediaIds);
         if (!$mediaIds) return ['ok' => false, 'message' => "Those photos aren't from this property."];
         // One identification at a time, so the daily cap can't be overrun by taps at once.
-        if (!$this->lock()) return ['ok' => false, 'message' => 'Another plant is being identified — try again in a moment.'];
+        if (!$this->lock()) return ['ok' => false, 'retry' => true, 'message' => 'Another plant is being identified — try again in a moment.'];
         try {
+            // A phone sending on its own may send the same photos again after a lost answer (Android 1.7.1, 2026-10-16):
+            // the record already made from them is the answer — no second record, no second Pl@ntNet call.
+            // The same SET of photos, in any order (Codex review 2026-10-16).
+            $want = $mediaIds; sort($want);
+            $again = $this->db->prepare('SELECT id, media_ids FROM plant_records WHERE property_id = ? AND created_at >= ? ORDER BY id DESC LIMIT 200');
+            $again->execute([$propertyId, date('Y-m-d H:i:s', time() - 7 * 86400)]);
+            $had = 0;
+            foreach ($again->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $ids = array_map('intval', array_filter(explode(',', (string)$row['media_ids']), 'strlen')); sort($ids);
+                if ($ids === $want) { $had = (int)$row['id']; break; }
+            }
+            if ($had > 0) {
+                $rec = $this->one($had);
+                return ['ok' => true, 'repeat' => true, 'record' => $rec, 'bed' => $rec['bed'] ?? null, 'message' => 'Already identified.'];
+            }
             return $this->identifyLocked($propertyId, $mediaIds, $where, $userId);
         } finally {
             $this->unlock();
@@ -85,7 +100,7 @@ class PlantIdService
 
     private function identifyLocked(int $propertyId, array $mediaIds, array $where, int $userId): array
     {
-        if ($this->usedToday() >= self::DAILY_CAP) return ['ok' => false, 'message' => "That's today's plant identifications used up — try again tomorrow."];
+        if ($this->usedToday() >= self::DAILY_CAP) return ['ok' => false, 'retry' => true, 'message' => "That's today's plant identifications used up — try again tomorrow."];
 
         $media = $this->media($mediaIds);
         $images = [];
@@ -102,9 +117,15 @@ class PlantIdService
             $matches = [];   // Pl@ntNet: "Species not found" — nothing it recognises
         } elseif ($res['code'] !== 200) {
             error_log('Plant ID: Pl@ntNet HTTP ' . $res['code']);
-            return ['ok' => false, 'message' => "Pl@ntNet didn't answer just now (" . $res['code'] . '). Try again in a minute.'];
+            return ['ok' => false, 'retry' => true, 'message' => "Pl@ntNet didn't answer just now (" . $res['code'] . '). Try again in a minute.'];
         } else {
-            $matches = self::parse(json_decode($res['body'], true) ?: []);
+            $j = json_decode((string)$res['body'], true);
+            // A 200 that isn't Pl@ntNet's JSON (a proxy page, a cut-off answer) is "try again", never "not recognised".
+            if (!is_array($j) || !array_key_exists('results', $j)) {
+                error_log('Plant ID: Pl@ntNet 200 without results');
+                return ['ok' => false, 'retry' => true, 'message' => "Pl@ntNet's answer didn't come through. Try again in a minute."];
+            }
+            $matches = self::parse($j);
         }
 
         $at = self::where($where, $mediaIds, $media);
