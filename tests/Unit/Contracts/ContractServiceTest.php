@@ -466,4 +466,14 @@ class ContractServiceTest extends TestCase
         $this->assertFalse(ContractService::isRunningCopy(['signature_status' => 'signed'] + $c, '2026-10-16'), 'signed shows its signature');
         $this->assertFalse(ContractService::isRunningCopy(['start_date' => null] + $c, '2026-10-16'));
     }
+
+    public function test_a_contract_is_billed_only_in_months_it_is_in_force(): void
+    {
+        $this->assertTrue(ContractService::inForceForMonth('2026-05-01', null, '2026-10-01', '2026-10-31'));
+        $this->assertFalse(ContractService::inForceForMonth('2026-04-01', '2026-06-30', '2026-07-01', '2026-07-31'), 'ended in June: no July bill');
+        $this->assertTrue(ContractService::inForceForMonth('2026-04-01', '2026-07-15', '2026-07-01', '2026-07-31'), 'ends mid-month: that month still billed');
+        $this->assertFalse(ContractService::inForceForMonth('2026-11-01', '2027-03-31', '2026-10-01', '2026-10-31'), 'starts in November: no October bill');
+        $this->assertTrue(ContractService::inForceForMonth('2026-11-01', '2027-03-31', '2026-11-01', '2026-11-30'));
+        $this->assertTrue(ContractService::inForceForMonth(null, null, '2026-10-01', '2026-10-31'));
+    }
 }

@@ -47,7 +47,13 @@ class ContractInvoiceSender
     /** @return array{status: string, invoice_number: string, email: ?string, message: string} */
     public function send(int $invoiceId): array
     {
-        $row = $this->load($invoiceId);
+        try {
+            $row = $this->load($invoiceId);
+        } catch (\Throwable $e) {
+            // Couldn't even read it: held, so the next run retries (Codex re-review 2026-10-16).
+            try { $this->gate->recordBlocked($invoiceId, self::CONTEXT, 'error loading: ' . mb_substr($e->getMessage(), 0, 200)); } catch (\Throwable $e2) {}
+            return ['status' => 'held', 'invoice_number' => '', 'email' => null, 'message' => "invoice {$invoiceId}: not sent yet (could not load) — held, will retry next run"];
+        }
         if (!$row) {
             return ['status' => 'failed', 'invoice_number' => '', 'email' => null, 'message' => "invoice {$invoiceId} not found or not a draft"];
         }
@@ -59,16 +65,24 @@ class ContractInvoiceSender
 
         // The rule: no PDF, no email, and the invoice stays a draft.
         // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
-        require_once dirname(__DIR__, 2) . '/Accounting/Services/ClientCreditService.php';
-        \ClientCreditService::applyOnSend($this->db, $invoiceId);
-        $pdf = $this->gate->ensurePdf($invoiceId);
+        // Anything that throws BEFORE the email goes is held like a missing PDF, so the next run retries it
+        // (it used to be committed, never sent and never retried — Codex contract review 2026-10-16).
+        try {
+            require_once dirname(__DIR__, 2) . '/Accounting/Services/ClientCreditService.php';
+            \ClientCreditService::applyOnSend($this->db, $invoiceId);
+            $pdf = $this->gate->ensurePdf($invoiceId);
+            $mail = $pdf === null ? null : self::buildEmail($row);
+        } catch (\Throwable $e) {
+            error_log("[contract_billing] {$num} not sent (before the email): " . $e->getMessage());
+            $this->gate->recordBlocked($invoiceId, self::CONTEXT, 'error before send: ' . mb_substr($e->getMessage(), 0, 200));
+            return ['status' => 'held', 'invoice_number' => $num, 'email' => $email,
+                    'message' => "{$num}: not sent yet (" . mb_substr($e->getMessage(), 0, 120) . ') — held, will retry next run'];
+        }
         if ($pdf === null) {
             $this->gate->recordBlocked($invoiceId, self::CONTEXT);
             return ['status' => 'held', 'invoice_number' => $num, 'email' => $email,
                     'message' => "{$num}: " . InvoicePdfGate::NOT_SENT_MESSAGE . ' — held, will retry next run'];
         }
-
-        $mail = self::buildEmail($row);
 
         // The file must still be there at the moment of sending (sendEmail drops a missing one silently).
         if (!$this->gate->isUsable($pdf)) {
@@ -86,11 +100,23 @@ class ContractInvoiceSender
                     'message' => "{$row['contract_number']}: invoice {$num} — email failed, held, will retry next run"];
         }
 
-        // sent_at always; status only from draft (an invoice prepaid by credit stays 'paid').
-        $this->db->prepare("UPDATE invoices SET sent_at = COALESCE(sent_at, NOW()), status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END WHERE id = ?")
-                 ->execute([$invoiceId]);
-        $this->db->prepare("UPDATE invoice_contacts SET invoice_sent_at = NOW() WHERE invoice_id = ?")
-                 ->execute([$invoiceId]);
+        // sent_at always; status only from draft (an invoice prepaid by credit stays 'paid'). The email has GONE: saving
+        // that is retried, and a failure never reports it unsent — a retry next run would email it twice (Codex re-review).
+        $marked = false;
+        for ($try = 0; $try < 3 && !$marked; $try++) {
+            try {
+                $this->db->prepare("UPDATE invoices SET sent_at = COALESCE(sent_at, NOW()), status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END WHERE id = ?")
+                         ->execute([$invoiceId]);
+                $marked = true;
+            } catch (\Throwable $e) {
+                error_log("[contract_billing] {$num} emailed but not yet marked sent (try " . ($try + 1) . '): ' . $e->getMessage());
+                usleep(300000);
+            }
+        }
+        if (!$marked) error_log("[contract_billing] URGENT {$num} was EMAILED but could not be marked sent — mark it sent by hand before the next run");
+        try {
+            $this->db->prepare("UPDATE invoice_contacts SET invoice_sent_at = NOW() WHERE invoice_id = ?")->execute([$invoiceId]);
+        } catch (\Throwable $e) { error_log("[contract_billing] {$num} recipients not stamped: " . $e->getMessage()); }
 
         try {
             ($this->afterSent)($invoiceId, $row + ['sent_to' => $email]);
@@ -112,8 +138,9 @@ class ContractInvoiceSender
             FROM invoices i
             JOIN activity_log al ON al.invoice_id = i.id AND al.action = ?
             JOIN contracts ctr ON ctr.id = i.contract_id AND ctr.status = 'active'   -- never retry a cancelled contract
+                 AND (ctr.end_date IS NULL OR ctr.end_date >= DATE_FORMAT(i.invoice_date, '%Y-%m-01'))   -- nor one that has ended (Codex 2026-10-16)
             WHERE i.contract_id IS NOT NULL
-              AND i.status = 'draft'
+              AND i.status IN ('draft', 'paid')   -- a draft, or one prepaid in full by credit that never went (Codex re-review)
               AND i.sent_at IS NULL
               AND i.invoice_date >= ?
               AND al.details LIKE ?
@@ -143,7 +170,7 @@ class ContractInvoiceSender
                                                  WHERE ic2.invoice_id = i.id AND ic2.contact_role = 'primary_recipient'
                                                    AND ic2.email_address IS NOT NULL AND ic2.email_address <> ''
                                                  ORDER BY ic2.id ASC LIMIT 1)
-            WHERE i.id = ? AND i.status = 'draft'
+            WHERE i.id = ? AND i.sent_at IS NULL AND i.status IN ('draft', 'paid')   -- never sent: a draft, or prepaid in full by credit
         ");
         $s->execute([$invoiceId]);
         $r = $s->fetch(PDO::FETCH_ASSOC);
