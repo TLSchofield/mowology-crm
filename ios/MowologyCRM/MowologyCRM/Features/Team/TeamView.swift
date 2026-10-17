@@ -56,6 +56,8 @@ struct TeamView: View {
     /// Every head's brain (team-mobile ?mode=brains): tapping a face flips it to show theirs.
     @State private var brains: [String: HeadBrainSummary] = [:]
     @State private var flipped: String?
+    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
     init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
@@ -80,41 +82,20 @@ struct TeamView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    headsRow
+                    if ittaiDesignEnabled {
+                        ittaiOffice
+                            .ittaiTheme(field: ittaiFieldEnabled)
+                            .id(Self.cardAnchor)
+                    } else {
+                        headsRow
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let head = headVM {
-                            HStack(spacing: 8) {
-                                Text(headTitle).font(.title3.bold())
-                                Spacer()
-                                if head.isLoading && head.hasLoaded { ProgressView() }
-                            }
-                            HeadCardView(vm: head, onBrainTap: { flip(selected) })
-                            if selected == "otto" && showsAccount {
-                                // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
-                                OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
-                            }
-                        } else if selected == "sam" {
-                            HStack(spacing: 8) {
-                                Text("Sam's sales desk").font(.title3.bold())
-                                Spacer()
-                                if sam.isLoading && sam.hasLoaded { ProgressView() }
-                            }
-                            SamCardView(vm: sam)
-                        } else {
-                            HStack(spacing: 8) {
-                                Text("Penny's receipts").font(.title3.bold())
-                                Spacer()
-                                if penny.isLoading && penny.hasLoaded { ProgressView() }
-                            }
-                            PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
-                            PennyChaseAdminSection(vm: chase)
-                            PennyCardView(vm: penny)
+                        VStack(alignment: .leading, spacing: 12) {
+                            cardContent()
                         }
+                        .padding(16)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .id(Self.cardAnchor)
                     }
-                    .padding(16)
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
-                    .id(Self.cardAnchor)
 
                     if showsAccount {
                         VStack(alignment: .leading, spacing: 0) {
@@ -122,6 +103,16 @@ struct TeamView: View {
                                 AccountProfileRow(user: user)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 10)
+                                Divider().padding(.leading, 16)
+                            }
+                            Toggle("Try the new design", isOn: $ittaiDesignEnabled)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                            Divider().padding(.leading, 16)
+                            if ittaiDesignEnabled {
+                                Toggle("Field mode (outdoors)", isOn: $ittaiFieldEnabled)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
                                 Divider().padding(.leading, 16)
                             }
                             SignOutButton(authSession: authSession)
@@ -133,26 +124,42 @@ struct TeamView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background {
+                if ittaiDesignEnabled {
+                    ItPageBackground().ittaiTheme(field: ittaiFieldEnabled)
+                } else {
+                    Color(.systemGroupedBackground)
+                }
+            }
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadBrains() }
+            .task(id: ittaiDesignEnabled) {
+                if ittaiDesignEnabled { await loadAllHeads() }
+            }
             .task(id: selected) {
                 if let head = headVM {
-                    if !head.hasLoaded { await head.load() }
+                    if !head.hasLoaded && !head.isLoading { await head.load() }
                 } else if selected == "sam" {
-                    if !sam.hasLoaded { await sam.load() }
+                    if !sam.hasLoaded && !sam.isLoading { await sam.load() }
                 } else {
-                    if !penny.hasLoaded { await penny.load() }
+                    if !penny.hasLoaded && !penny.isLoading { await penny.load() }
                     if !chase.adminLoaded { await chase.loadAdmin() }
                 }
             }
             .onAppear { consumeHeadRoute() }
             .onChange(of: notificationRouter.pendingHead) { _, _ in consumeHeadRoute() }
             .onChange(of: scrollRequest) { _, _ in
-                withAnimation { proxy.scrollTo(Self.cardAnchor, anchor: .top) }
+                if ittaiDesignEnabled {
+                    let workspaceAnchor = "it-workspace-\(selected)"
+                    DispatchQueue.main.async {
+                        withAnimation { proxy.scrollTo(workspaceAnchor, anchor: .top) }
+                    }
+                } else {
+                    withAnimation { proxy.scrollTo(Self.cardAnchor, anchor: .top) }
+                }
             }
             // A head push while the app is open: refresh that card if it's the one showing.
             .onReceive(NotificationCenter.default.publisher(for: .mwHeadPushReceived)) { note in
@@ -161,6 +168,89 @@ struct TeamView: View {
             }
             }
         }
+    }
+
+    @ViewBuilder
+    private func cardContent() -> some View {
+        if let head = headVM {
+            HStack(spacing: 8) {
+                Text(headTitle).font(.title3.bold())
+                Spacer()
+                if head.isLoading && head.hasLoaded { ProgressView() }
+            }
+            HeadCardView(vm: head, onBrainTap: { flip(selected) })
+            if selected == "otto" && showsAccount {
+                // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
+                OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
+            }
+        } else if selected == "sam" {
+            HStack(spacing: 8) {
+                Text("Sam's sales desk").font(.title3.bold())
+                Spacer()
+                if sam.isLoading && sam.hasLoaded { ProgressView() }
+            }
+            SamCardView(vm: sam)
+        } else {
+            HStack(spacing: 8) {
+                Text("Penny's receipts").font(.title3.bold())
+                Spacer()
+                if penny.isLoading && penny.hasLoaded { ProgressView() }
+            }
+            PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
+            PennyChaseAdminSection(vm: chase)
+            PennyCardView(vm: penny)
+        }
+    }
+
+    private var ittaiOffice: some View {
+        ItAIOfficeView(
+            brief: charlie.card.flatMap { $0.headline.isEmpty ? nil : $0.headline },
+            briefTime: nil,
+            charlie: officeMember("charlie", name: "Charlie", department: "Chief of Staff", vm: charlie),
+            sides: [
+                officeMember("yui", name: "Yui", department: "Communications", vm: yui),
+                officeMember("otto", name: "Otto", department: "Operations", vm: otto),
+                officeMember("mia", name: "Mia", department: "Marketing", vm: mia),
+                ItOfficeMember(id: "penny", name: "Penny", department: "Bookkeeper", state: nil,
+                               topItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" }, count: penny.queue.count,
+                               loaded: penny.hasLoaded, loadFailed: penny.loadError != nil),
+                ItOfficeMember(id: "sam", name: "Sam", department: "Sales", state: nil,
+                               topItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) }, count: sam.queue.count,
+                               loaded: sam.hasLoaded, loadFailed: sam.loadError != nil),
+                ItOfficeMember(id: "ada", name: "Ada", department: "Technology", state: nil, available: false),
+            ],
+            selected: Binding(
+                get: { selected },
+                set: { value in
+                    guard let value, value != "ada" else { return }
+                    selected = value
+                }
+            ),
+            portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL },
+            workspace: { _ in cardContent() }
+        )
+    }
+
+    private func officeMember(_ id: String, name: String, department: String,
+                              vm: HeadCardViewModel) -> ItOfficeMember {
+        ItOfficeMember(id: id, name: name, department: department, state: nil,
+                       topItem: vm.items.first?.text, count: vm.card?.waiting,
+                       loaded: vm.hasLoaded, loadFailed: vm.loadError != nil)
+    }
+
+    private func currency(_ amount: Double) -> String {
+        amount.formatted(.currency(code: "CAD").precision(.fractionLength(amount.rounded() == amount ? 0 : 2)))
+    }
+
+    private func loadAllHeads() async {
+        let selectedAtStart = selected
+        if selectedAtStart != "charlie" && !charlie.hasLoaded && !charlie.isLoading { await charlie.load() }
+        if selectedAtStart != "yui" && !yui.hasLoaded && !yui.isLoading { await yui.load() }
+        if selectedAtStart != "otto" && !otto.hasLoaded && !otto.isLoading { await otto.load() }
+        if selectedAtStart != "mia" && !mia.hasLoaded && !mia.isLoading { await mia.load() }
+        if selectedAtStart != "sam" && !sam.hasLoaded && !sam.isLoading { await sam.load() }
+        if selectedAtStart != "penny" && !penny.hasLoaded && !penny.isLoading { await penny.load() }
+        if selectedAtStart != "penny" && !chase.adminLoaded { await chase.loadAdmin() }
     }
 
     /// Tap a face: it turns over to show that head's brain for a few seconds, then back.
@@ -191,10 +281,24 @@ struct TeamView: View {
     }
 
     private func reload() async {
+        if ittaiDesignEnabled {
+            await reloadAllHeads()
+            return
+        }
         if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else {
             await penny.load()
             await chase.loadAdmin()
         }
+    }
+
+    private func reloadAllHeads() async {
+        if !charlie.isLoading { await charlie.load() }
+        if !yui.isLoading { await yui.load() }
+        if !otto.isLoading { await otto.load() }
+        if !mia.isLoading { await mia.load() }
+        if !sam.isLoading { await sam.load() }
+        if !penny.isLoading { await penny.load() }
+        await chase.loadAdmin()
     }
 
     /// The shared head card's model for the selected face (nil for Penny and Sam).
@@ -232,6 +336,14 @@ struct TeamView: View {
             .padding(.horizontal, 2)
             .padding(.vertical, 2)
         }
+    }
+}
+
+private struct ItPageBackground: View {
+    @Environment(\.it) private var it
+
+    var body: some View {
+        it.page
     }
 }
 

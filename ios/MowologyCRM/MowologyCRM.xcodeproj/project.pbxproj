@@ -131,6 +131,15 @@
 		7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */; };
 		6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */; };
 		81DAE3BC5BFBF521EB8228C0 /* AppointmentCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */; };
+		C0B6EDD39516964FD4FAF717 /* ItTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AC60A63EA3283CD671BA2C8 /* ItTokens.swift */; };
+		1EC889A351C7216FCBE56A60 /* ItTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F960811A8A78D5FBFCE61BB /* ItTheme.swift */; };
+		C620CA5F60BF355EC383AB3B /* ItSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3BE4888F82334A0F58EF53 /* ItSymbol.swift */; };
+		4319415EE1AF51203429B6FE /* ItIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05FCB1C3FEEA4C583B9A6A5 /* ItIcons.swift */; };
+		C89E4DEF0FFE46D09876A3D3 /* ItComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D320CE892C6023CD18A6FE90 /* ItComponents.swift */; };
+		2644F1FCE4BFAE170B2B65DB /* ItHexagonGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE673EE0D042FC0F51E00585 /* ItHexagonGeometry.swift */; };
+		4B0835006C02773D601C1CB0 /* ItHexagon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132ECF1C1280D3FC8C80631F /* ItHexagon.swift */; };
+		1A6F4DB6305825274EDD4B6C /* ItAIOffice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */; };
+		36052CCBE7982701576AF06D /* ItFontRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -260,6 +269,15 @@
 		1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentModels.swift; sourceTree = "<group>"; };
 		6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentAddView.swift; sourceTree = "<group>"; };
 		55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentCardView.swift; sourceTree = "<group>"; };
+		7AC60A63EA3283CD671BA2C8 /* ItTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItTokens.swift; sourceTree = "<group>"; };
+		0F960811A8A78D5FBFCE61BB /* ItTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItTheme.swift; sourceTree = "<group>"; };
+		1D3BE4888F82334A0F58EF53 /* ItSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItSymbol.swift; sourceTree = "<group>"; };
+		E05FCB1C3FEEA4C583B9A6A5 /* ItIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItIcons.swift; sourceTree = "<group>"; };
+		D320CE892C6023CD18A6FE90 /* ItComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItComponents.swift; sourceTree = "<group>"; };
+		EE673EE0D042FC0F51E00585 /* ItHexagonGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItHexagonGeometry.swift; sourceTree = "<group>"; };
+		132ECF1C1280D3FC8C80631F /* ItHexagon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItHexagon.swift; sourceTree = "<group>"; };
+		47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItAIOffice.swift; sourceTree = "<group>"; };
+		89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItFontRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -499,6 +517,7 @@
 			isa = PBXGroup;
 			children = (
 				A3F2C8D14E5B6A7890123456 /* MWTheme.swift */,
+				C38C6534D5E4511D82736968 /* Ittai */,
 			);
 			path = Design;
 			sourceTree = "<group>";
@@ -561,6 +580,22 @@
 				12D75C29B70E89C36594B129 /* CharlieMorningBrief.swift */,
 			);
 			path = Splash;
+			sourceTree = "<group>";
+		};
+		C38C6534D5E4511D82736968 /* Ittai */ = {
+			isa = PBXGroup;
+			children = (
+				7AC60A63EA3283CD671BA2C8 /* ItTokens.swift */,
+				0F960811A8A78D5FBFCE61BB /* ItTheme.swift */,
+				1D3BE4888F82334A0F58EF53 /* ItSymbol.swift */,
+				E05FCB1C3FEEA4C583B9A6A5 /* ItIcons.swift */,
+				D320CE892C6023CD18A6FE90 /* ItComponents.swift */,
+				EE673EE0D042FC0F51E00585 /* ItHexagonGeometry.swift */,
+				132ECF1C1280D3FC8C80631F /* ItHexagon.swift */,
+				47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */,
+				89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */,
+			);
+			path = Ittai;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -752,6 +787,15 @@
 				7BAD0231B78276AB0471DE5E /* EquipmentModels.swift in Sources */,
 				6041DFD34E7ABF37B5699B81 /* EquipmentAddView.swift in Sources */,
 				81DAE3BC5BFBF521EB8228C0 /* AppointmentCardView.swift in Sources */,
+				C0B6EDD39516964FD4FAF717 /* ItTokens.swift in Sources */,
+				1EC889A351C7216FCBE56A60 /* ItTheme.swift in Sources */,
+				C620CA5F60BF355EC383AB3B /* ItSymbol.swift in Sources */,
+				4319415EE1AF51203429B6FE /* ItIcons.swift in Sources */,
+				C89E4DEF0FFE46D09876A3D3 /* ItComponents.swift in Sources */,
+				2644F1FCE4BFAE170B2B65DB /* ItHexagonGeometry.swift in Sources */,
+				4B0835006C02773D601C1CB0 /* ItHexagon.swift in Sources */,
+				1A6F4DB6305825274EDD4B6C /* ItAIOffice.swift in Sources */,
+				36052CCBE7982701576AF06D /* ItFontRegistry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -825,7 +869,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.44;
+				MARKETING_VERSION = 1.3.45;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -911,7 +955,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.44;
+				MARKETING_VERSION = 1.3.45;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

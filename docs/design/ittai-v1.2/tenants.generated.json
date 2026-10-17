@@ -1,0 +1,218 @@
+{
+ "mowology": {
+  "name": "Mowology",
+  "brand": "#2D8659",
+  "light": {
+   "tenant": "#1B5F3C",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#D4F9E2"
+  },
+  "dark": {
+   "tenant": "#5AB080",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#0D2E1D"
+  },
+  "field": {
+   "tenant": "#1B5F3C",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#D4F9E2"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 7.07,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 7.07,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 7,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 6.44,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 4.5,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 3.78,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 15.17,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.54,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ },
+ "brightline": {
+  "name": "Brightline Electric",
+  "brand": "#F2C200",
+  "light": {
+   "tenant": "#6D5601",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#B49001",
+   "tenant-soft": "#FBEEC9"
+  },
+  "dark": {
+   "tenant": "#F2C200",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#F2C200",
+   "tenant-soft": "#302504"
+  },
+  "field": {
+   "tenant": "#6D5601",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#B49001",
+   "tenant-soft": "#FBEEC9"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 7.04,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 7.04,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 10.99,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 10.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 3.03,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 10.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 14.95,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.85,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ },
+ "clearflow": {
+  "name": "Clearflow Plumbing",
+  "brand": "#7EC8E3",
+  "light": {
+   "tenant": "#096179",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#539DB7",
+   "tenant-soft": "#D9F4FE"
+  },
+  "dark": {
+   "tenant": "#7EC8E3",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#7EC8E3",
+   "tenant-soft": "#002B38"
+  },
+  "field": {
+   "tenant": "#096179",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#539DB7",
+   "tenant-soft": "#D9F4FE"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 7.01,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 7.01,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 9.91,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 9.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 3.05,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 9.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 15.07,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.75,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ }
+}

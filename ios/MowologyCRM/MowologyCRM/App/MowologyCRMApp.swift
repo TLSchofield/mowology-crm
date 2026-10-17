@@ -19,6 +19,7 @@ struct MowologyCRMApp: App {
     // MARK: - Init
 
     init() {
+        ItFontRegistry.registerAll()
         registerBackgroundTask()
         requestNotificationPermission()
         // Announce reconnects from launch so every offline queue drains, clocked in or not.
