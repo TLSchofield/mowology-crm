@@ -150,6 +150,8 @@ class HeadBriefReadyService
             // an overdue invoice labelled Penny opened Penny's card, which doesn't hold it).
             'items'    => array_map(static fn($it) => ['head' => TeamCardService::owner($it), 'route' => self::routeOf($it)] + $it, $col['items']),
         ];
+        require_once __DIR__ . '/HeadStateService.php';
+        $out['heads'] = HeadStateService::fromBrief((array)($view['state_items'] ?? []), (array)($view['failed'] ?? []));
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
         $out['ask'] = (new CharlieAskService($db))->status();
         // A line for the foot of the brief (owner, 2026-10-11) — the same for everyone today.

@@ -232,8 +232,12 @@ try {
                 $c = (new CharlieBriefService($db))->collect($name);
                 $ranked = CharlieRankService::rank($c['items'], $desk->prefs(), [], date('Y-m-d'));
                 $heads = [];
-                foreach ($c['heads'] as $slug => $h) $heads[$slug] = ['head' => $slug, 'headline' => $h['headline'], 'waiting' => count($h['items']), 'items' => []];
-                $view = ['one' => null, 'rest' => $ranked, 'heads' => $heads];
+                $stateItems = [];
+                foreach ($c['heads'] as $slug => $h) {
+                    $heads[$slug] = ['head' => $slug, 'headline' => $h['headline'], 'waiting' => count($h['items']), 'items' => []];
+                    $stateItems[$slug] = array_values(array_filter($ranked, static fn($it) => ($it['head'] ?? '') === $slug));
+                }
+                $view = ['one' => null, 'rest' => $ranked, 'heads' => $heads, 'state_items' => $stateItems, 'failed' => $c['failed']];
             }
             $col = TeamCardService::column($view, $head);
             $svc = new TeamCardService($db);
@@ -250,6 +254,8 @@ try {
                 'items'    => $col['items'],
             ];
             if ($head === 'charlie') {
+                require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadStateService.php';
+                $out['heads'] = HeadStateService::fromBrief((array)($view['state_items'] ?? []), (array)($view['failed'] ?? []));
                 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
                 $out['ask'] = (new CharlieAskService($db))->status();
             } elseif ($head === 'otto') {

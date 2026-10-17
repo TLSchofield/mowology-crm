@@ -166,6 +166,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieVoice.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';

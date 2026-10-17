@@ -118,9 +118,11 @@ class CharlieDeskService
         $rankOf = [];
         foreach ($ranked as $i => $r) $rankOf[$r['key']] = $r;
         $heads = [];
+        $stateItems = [];
         foreach ($c['heads'] as $head => $h) {
             $mine = array_values(array_filter(array_map(fn($it) => $rankOf[$it['key']] ?? null, $h['items'])));
             usort($mine, fn($a, $b) => $b['score'] <=> $a['score']);
+            $stateItems[$head] = $mine;
             $h['items'] = array_slice($mine, 0, self::HEAD_ITEMS);
             $h['waiting'] = count($mine);
             $heads[$head] = $h;
@@ -133,6 +135,7 @@ class CharlieDeskService
             'total'     => count($ranked),
             'failed'    => $c['failed'],
             'connected' => $c['ok'],
+            'state_items'=> $stateItems,
             'say'       => CharlieVoice::say($name, $one, max(0, count($ranked) - 1), $withItems),
             'bad'       => self::badNews($c['failed'], $ranked, $extraBad),
         ];
