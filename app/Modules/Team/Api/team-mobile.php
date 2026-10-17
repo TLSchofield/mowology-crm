@@ -169,6 +169,35 @@ try {
     $isOwner = $desk->ready() && $desk->isOwner($user);
 
     switch ($mode) {
+        case 'knowledge':
+        case 'knowledge_items': {
+            if ($method !== 'GET') throw new RuntimeException('GET required');
+            $head = strtolower((string)($_GET['head'] ?? ''));
+            if ($head !== 'penny') {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Unknown head']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyKnowledgeService.php';
+            $knowledge = new PennyKnowledgeService($db);
+            if ($mode === 'knowledge') {
+                $items = $knowledge->vendors();
+                $counts = ['recognized' => 0, 'identified' => 0, 'understood' => 0, 'mastered' => 0];
+                foreach ($items as $item) $counts[$item['stage']]++;
+                echo json_encode(['ok' => true, 'head' => 'penny', 'kind' => 'vendor', 'generated_at' => date('c'),
+                                  'thresholds' => PennyKnowledgeService::thresholds(), 'counts' => $counts, 'items' => $items]);
+                break;
+            }
+            $key = (string)($_GET['key'] ?? '');
+            if (!preg_match('/^vendor:([1-9][0-9]*)$/', $key, $m)) {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Invalid vendor key']);
+                break;
+            }
+            echo json_encode(['ok' => true, 'key' => $key, 'items' => $knowledge->items((int)$m[1])]);
+            break;
+        }
+
         case 'brains': {
             // Every head's brain in one small read — the face row flips to show it (owner, 2026-10-10).
             $svc = new TeamCardService($db);

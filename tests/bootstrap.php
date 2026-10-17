@@ -277,6 +277,7 @@ require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCaptureService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RiskExplainer.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyKnowledgeService.php';
 
 // Sales (Sam) — the reply card the iOS app's sales-head-mobile.php builds
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';
