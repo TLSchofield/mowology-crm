@@ -34,7 +34,36 @@ struct TeamHead: Identifiable, Hashable {
     ]
 }
 
+/// Only the brief fields the office can safely show offline; no client data beyond the existing brief.
+private struct ReadyBriefSnapshot: Codable {
+    struct Item: Codable {
+        let key, head, kind, text: String
+        let url, route: String?
+        var item: HeadItem { HeadItem(key: key, head: head, kind: kind, text: text, url: url, route: route) }
+    }
+    let headline: String
+    let owner: Bool
+    let items: [Item]
+    let savedAt: Date
+    private static let key = "ittai.readyBrief.v1"
+
+    init(response: HeadCardResponse, savedAt: Date) {
+        headline = response.headline; owner = response.owner; self.savedAt = savedAt
+        items = response.items.map { Item(key: $0.key, head: $0.head, kind: $0.kind, text: $0.text, url: $0.url, route: $0.route) }
+    }
+    static func load() -> Self? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
+    }
+    func save() {
+        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
+    }
+}
+
 struct TeamView: View {
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .none; f.timeStyle = .short; return f
+    }()
 
     @ObservedObject var authSession: AuthSession
     @StateObject private var penny: PennyCardViewModel
@@ -47,6 +76,7 @@ struct TeamView: View {
     @StateObject private var charlie: HeadCardViewModel
     /// Whose card is showing under the faces. Penny is the default.
     @State private var selected: String
+    @State private var path: [String] = []
     /// Shows the profile row + Sign Out; off only for the static render (no AuthSession needed there).
     private let showsAccount: Bool
     @ObservedObject private var notificationRouter = NotificationRouter.shared
@@ -60,6 +90,11 @@ struct TeamView: View {
     @State private var readyBrief: HeadCardResponse?
     @State private var readyBriefLoaded = false
     @State private var readyBriefFailed = false
+    @State private var dismissedBriefKeys: Set<String> = []
+    @State private var readyBriefTime: Date?
+    @State private var cachedBrief: ReadyBriefSnapshot?
+    @ObservedObject private var connectivity = ConnectivityMonitor.shared
+    @Environment(\.openURL) private var openURL
     @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
@@ -79,10 +114,11 @@ struct TeamView: View {
         _yui = StateObject(wrappedValue: HeadCardViewModel(head: "yui", api: heads, geocoder: geocoder))
         _charlie = StateObject(wrappedValue: HeadCardViewModel(head: "charlie", api: heads, geocoder: geocoder))
         _selected = State(initialValue: selected)
+        _cachedBrief = State(initialValue: ReadyBriefSnapshot.load())
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -94,7 +130,7 @@ struct TeamView: View {
                         headsRow
 
                         VStack(alignment: .leading, spacing: 12) {
-                            cardContent(showsTitle: true)
+                            cardContent(for: selected, showsTitle: true)
                         }
                         .padding(16)
                         .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
@@ -170,26 +206,45 @@ struct TeamView: View {
                 guard let slug = note.object as? String, slug == selected else { return }
                 Task { await reload() }
             }
+            .navigationDestination(for: String.self) { slug in
+                ItWorkspaceView(
+                    member: officeMemberForWorkspace(slug),
+                    archetype: archetype(slug),
+                    intro: intro(slug),
+                    item: workspaceItem(slug),
+                    recommendation: workspaceItem(slug).map { recommendation(for: $0, head: slug) },
+                    brain: brain(for: slug),
+                    loadState: workspaceLoadState(slug),
+                    onRefresh: { await reload(slug: slug) }
+                ) {
+                    cardContent(for: slug, showsTitle: false)
+                }
+                .ittaiTheme(field: ittaiFieldEnabled)
+                .background(ItPageBackground().ittaiTheme(field: ittaiFieldEnabled))
+                .task { await loadHeadIfNeeded(slug) }
+                .navigationTitle(TeamHead.all.first { $0.slug == slug }?.name ?? slug.capitalized)
+                .navigationBarTitleDisplayMode(.inline)
+            }
             }
         }
     }
 
     @ViewBuilder
-    private func cardContent(showsTitle: Bool) -> some View {
-        if let head = headVM {
+    private func cardContent(for slug: String, showsTitle: Bool) -> some View {
+        if let head = headVM(for: slug) {
             if showsTitle {
                 HStack(spacing: 8) {
-                    Text(headTitle).font(.title3.bold())
+                    Text(headTitle(for: slug)).font(.title3.bold())
                     Spacer()
                     if head.isLoading && head.hasLoaded { ProgressView() }
                 }
             }
-            HeadCardView(vm: head, onBrainTap: { flip(selected) })
-            if selected == "otto" && showsAccount {
+            HeadCardView(vm: head, onBrainTap: { flip(slug) }, showsBrain: !ittaiDesignEnabled)
+            if slug == "otto" && showsAccount {
                 // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
                 OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
             }
-        } else if selected == "sam" {
+        } else if slug == "sam" {
             if showsTitle {
                 HStack(spacing: 8) {
                     Text("Sam's sales desk").font(.title3.bold())
@@ -214,20 +269,24 @@ struct TeamView: View {
 
     private var ittaiOffice: some View {
         ItAIOfficeView(
-            brief: readyBrief.flatMap { $0.headline.isEmpty ? nil : $0.headline },
-            briefTime: nil,
+            brief: liveReadyBrief.flatMap { $0.headline.isEmpty ? nil : $0.headline } ?? cachedBrief?.headline,
+            briefTime: liveReadyBrief != nil
+                ? readyBriefTime.map(Self.timeFormatter.string)
+                : cachedBrief.map { cachedBriefLabel($0.savedAt) },
             charlie: officeMember("charlie", name: "Charlie", department: "Chief of Staff", vm: charlie),
             sides: [
                 officeMember("yui", name: "Yui", department: "Communications", vm: yui),
                 officeMember("otto", name: "Otto", department: "Operations", vm: otto),
                 officeMember("mia", name: "Mia", department: "Marketing", vm: mia),
                 penny.hasLoaded
-                    ? ItOfficeMember(id: "penny", name: "Penny", department: "Bookkeeper", state: nil,
+                    ? ItOfficeMember(id: "penny", name: "Penny", department: "Bookkeeper", state: reportedState("penny"),
+                                     stateReason: readyBrief?.heads?["penny"]?.reason,
                                      topItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" }, count: penny.queue.count,
                                      loaded: true, loadFailed: penny.loadError != nil)
                     : briefMember("penny", name: "Penny", department: "Bookkeeper"),
                 sam.hasLoaded
-                    ? ItOfficeMember(id: "sam", name: "Sam", department: "Sales", state: nil,
+                    ? ItOfficeMember(id: "sam", name: "Sam", department: "Sales", state: reportedState("sam"),
+                                     stateReason: readyBrief?.heads?["sam"]?.reason,
                                      topItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) }, count: sam.queue.count,
                                      loaded: true, loadFailed: sam.loadError != nil)
                     : briefMember("sam", name: "Sam", department: "Sales"),
@@ -240,26 +299,179 @@ struct TeamView: View {
                     selected = value
                 }
             ),
+            briefLoadState: briefLoadState,
+            priorityText: briefTopItem?.text,
+            recommendation: briefTopItem.map { recommendation(for: $0, head: "charlie") },
+            actionLabel: briefTopItem.map { openLabel(for: $0, head: "charlie") },
+            canSnooze: (liveReadyBrief?.owner ?? cachedBrief?.owner) == true && briefTopItem != nil,
+            actionsBusy: charlie.isBusy,
+            actionsDisabled: liveReadyBrief == nil,
+            onAction: openBriefPriority,
+            onSnooze: snoozeBriefPriority,
             portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL },
-            workspace: { _ in cardContent(showsTitle: false) }
+            onOpen: openWorkspace,
+            workspace: { _ in EmptyView() }
         )
     }
 
     private func officeMember(_ id: String, name: String, department: String,
                               vm: HeadCardViewModel) -> ItOfficeMember {
         guard vm.hasLoaded else { return briefMember(id, name: name, department: department) }
-        return ItOfficeMember(id: id, name: name, department: department, state: nil,
+        let reported = readyBrief?.heads?[id]
+        return ItOfficeMember(id: id, name: name, department: department,
+                              state: reported?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                              stateReason: reported?.reason,
                               topItem: vm.items.first?.text, count: vm.card?.waiting,
                               loaded: true, loadFailed: vm.loadError != nil)
     }
 
+    private func reportedState(_ id: String) -> ItEmployeeState? {
+        readyBrief?.heads?[id]?.state.flatMap(ItEmployeeState.init(rawValue:))
+    }
+
     private func briefMember(_ id: String, name: String, department: String) -> ItOfficeMember {
-        let items = readyBrief?.items.filter { ($0.route ?? $0.head) == id } ?? []
+        let items = (liveReadyBrief?.items ?? cachedBrief?.items.map(\.item) ?? []).filter { ($0.route ?? $0.head) == id }
         let isCharlie = id == "charlie"
-        return ItOfficeMember(id: id, name: name, department: department, state: nil,
-                              topItem: isCharlie ? readyBrief?.items.first?.text : items.first?.text,
-                              count: isCharlie ? readyBrief?.items.count : items.count,
-                              loaded: readyBriefLoaded, loadFailed: readyBriefFailed)
+        let reported = liveReadyBrief?.heads?[id]
+        return ItOfficeMember(id: id, name: name, department: department,
+                              state: reported?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                              stateReason: reported?.reason,
+                              topItem: isCharlie ? (liveReadyBrief?.items.first?.text ?? cachedBrief?.items.first?.text) : items.first?.text,
+                              count: reported?.needsYou ?? (isCharlie ? (liveReadyBrief?.items.count ?? cachedBrief?.items.count) : items.count),
+                              loaded: readyBriefLoaded || cachedBrief != nil, loadFailed: readyBriefFailed,
+                              loadState: readyBriefFailed
+                                ? (!connectivity.isOnline && cachedBrief != nil ? .offline(Self.timeFormatter.string(from: cachedBrief!.savedAt)) : .error)
+                                : (!readyBriefLoaded && cachedBrief == nil ? .loading : nil))
+    }
+
+    private var briefTopItem: HeadItem? {
+        (liveReadyBrief?.items ?? cachedBrief?.items.map(\.item) ?? []).first { !dismissedBriefKeys.contains($0.key) }
+    }
+
+    private var liveReadyBrief: HeadCardResponse? {
+        readyBriefLoaded && !readyBriefFailed ? readyBrief : nil
+    }
+
+    private func cachedBriefLabel(_ date: Date) -> String {
+        let time = Self.timeFormatter.string(from: date)
+        if !connectivity.isOnline { return "Saved at \(time) · offline" }
+        return readyBriefLoaded ? "Saved at \(time)" : "Saved at \(time) · updating…"
+    }
+
+    private var briefLoadState: ItLoadState? {
+        if !readyBriefLoaded && cachedBrief == nil { return .loading }
+        guard readyBriefFailed else { return nil }
+        if !connectivity.isOnline, let cachedBrief { return .offline(Self.timeFormatter.string(from: cachedBrief.savedAt)) }
+        return .error
+    }
+
+    private func openWorkspace(_ slug: String) {
+        guard slug != "ada", !path.contains(slug) else { return }
+        selected = slug
+        path.append(slug)
+    }
+
+    private func openBriefPriority() {
+        guard liveReadyBrief != nil, let item = briefTopItem, !charlie.isBusy else { return }
+        Task {
+            if let url = await charlie.open(item, owner: readyBrief?.owner == true) { openURL(url) }
+        }
+    }
+
+    private func snoozeBriefPriority() {
+        guard let item = briefTopItem, liveReadyBrief?.owner == true, !charlie.isBusy else { return }
+        Task {
+            if await charlie.notNowResult(item) { dismissedBriefKeys.insert(item.key) }
+        }
+    }
+
+    private func openLabel(for item: HeadItem, head: String) -> String {
+        if item.kind == "campaign_reply" || item.kind.hasSuffix(":campaign_reply") { return "Start the quote" }
+        if head == "yui" { return "Open client" }
+        return "Open in CRM"
+    }
+
+    private func recommendation(for item: HeadItem, head: String) -> String {
+        switch openLabel(for: item, head: head) {
+        case "Start the quote": return "Start the quote and check the details before you send anything."
+        case "Open client": return "Open the client in the CRM and decide what to do."
+        default:
+            let noun = item.url?.lowercased().contains("invoice") == true ? "invoice" :
+                (item.url?.lowercased().contains("quote") == true ? "quote" : "item")
+            return "Open the \(noun) in the CRM and decide what to do."
+        }
+    }
+
+    private func workspaceItem(_ slug: String) -> HeadItem? {
+        if let vm = headVM(for: slug), vm.hasLoaded { return vm.items.first }
+        return readyBrief?.items.first { ($0.route ?? $0.head) == slug }
+    }
+
+    private func brain(for slug: String) -> HeadBrainSummary? {
+        headVM(for: slug)?.card?.brain ?? brains[slug]
+    }
+
+    private func headVM(for slug: String) -> HeadCardViewModel? {
+        switch slug { case "otto": return otto; case "mia": return mia; case "yui": return yui; case "charlie": return charlie; default: return nil }
+    }
+
+    private func loadHeadIfNeeded(_ slug: String) async {
+        if let vm = headVM(for: slug) {
+            if !vm.hasLoaded && !vm.isLoading { await vm.load() }
+        } else if slug == "sam" {
+            if !sam.hasLoaded && !sam.isLoading { await sam.load() }
+        } else if slug == "penny" {
+            if !penny.hasLoaded && !penny.isLoading { await penny.load() }
+            if !chase.adminLoaded { await chase.loadAdmin() }
+        }
+    }
+
+    private func workspaceLoadState(_ slug: String) -> ItLoadState? {
+        if slug == "ada" { return .unavailable }
+        if let vm = headVM(for: slug) {
+            if !vm.hasLoaded || (vm.isLoading && vm.card == nil) { return .loading }
+            if vm.loadError != nil && vm.card == nil { return offlineOrError }
+        } else if slug == "sam" {
+            if !sam.hasLoaded { return sam.loadError == nil ? .loading : offlineOrError }
+        } else if slug == "penny" {
+            if !penny.hasLoaded { return penny.loadError == nil ? .loading : offlineOrError }
+        }
+        return nil
+    }
+
+    private var offlineOrError: ItLoadState {
+        if !connectivity.isOnline, let cachedBrief { return .offline(Self.timeFormatter.string(from: cachedBrief.savedAt)) }
+        return .error
+    }
+
+    private func officeMemberForWorkspace(_ slug: String) -> ItOfficeMember {
+        let h = TeamHead.all.first { $0.slug == slug }
+        if let vm = headVM(for: slug) {
+            return officeMember(slug, name: h?.name ?? slug.capitalized, department: h?.role ?? "", vm: vm)
+        }
+        let reported = readyBrief?.heads?[slug]
+        let loaded = slug == "sam" ? sam.hasLoaded : penny.hasLoaded
+        return ItOfficeMember(id: slug, name: h?.name ?? slug.capitalized, department: h?.role ?? "",
+                              state: reported?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                              stateReason: reported?.reason, topItem: workspaceItem(slug)?.text,
+                              loaded: loaded, loadFailed: workspaceLoadState(slug) == .error)
+    }
+
+    private func archetype(_ slug: String) -> String {
+        ["charlie": "Kaname · 要 — the linchpin", "yui": "Musubi · 結び — the connector",
+         "sam": "Kaitaku · 開拓 — the pathfinder", "penny": "Kanjō · 勘定 — the steward",
+         "otto": "Dandori · 段取り — the orchestrator", "mia": "Hasshin · 発信 — the voice",
+         "ada": "Kiban · 基盤 — the foundation"][slug] ?? ""
+    }
+
+    private func intro(_ slug: String) -> String {
+        ["charlie": "I keep the office aligned and bring you the decision that matters most. I'll explain each step before you act.",
+         "yui": "I look after customer messages. When a reply needs you, I'll show you what happened and where it will open.",
+         "sam": "I look after your sales work. When an opportunity needs you, I'll walk you through the next step.",
+         "penny": "I look after your receipts and your books. When something needs you, I'll walk you through it one step at a time.",
+         "otto": "I look after the day's operations. When a job needs your decision, I'll explain what will happen next.",
+         "mia": "I look after how the business speaks to customers. When something needs you, I'll help you review it carefully.",
+         "ada": "I look after the systems underneath the office. I'll explain changes before they affect your work."][slug] ?? ""
     }
 
     private func currency(_ amount: Double) -> String {
@@ -275,6 +487,10 @@ struct TeamView: View {
                 .request(.teamHeadBriefReady(head: "charlie"))
             if response.ok {
                 readyBrief = response
+                readyBriefTime = Date()
+                let snapshot = ReadyBriefSnapshot(response: response, savedAt: Date())
+                cachedBrief = snapshot
+                snapshot.save()
             } else {
                 readyBriefFailed = true
             }
@@ -307,6 +523,7 @@ struct TeamView: View {
         notificationRouter.pendingHead = nil
         guard TeamHead.all.contains(where: { $0.slug == route.head && $0.isLive }) else { return }
         selected = route.head
+        if ittaiDesignEnabled { path = [route.head] }
         scrollRequest += 1
         Task { await reload() }
     }
@@ -321,7 +538,11 @@ struct TeamView: View {
     }
 
     private func reloadSelected() async {
-        if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else {
+        await reload(slug: selected)
+    }
+
+    private func reload(slug: String) async {
+        if let head = headVM(for: slug) { await head.load() } else if slug == "sam" { await sam.load() } else {
             await penny.load()
             await chase.loadAdmin()
         }
@@ -338,8 +559,8 @@ struct TeamView: View {
         }
     }
 
-    private var headTitle: String {
-        guard let h = TeamHead.all.first(where: { $0.slug == selected }) else { return "" }
+    private func headTitle(for slug: String) -> String {
+        guard let h = TeamHead.all.first(where: { $0.slug == slug }) else { return "" }
         return "\(h.name) · \(h.role)"
     }
 
@@ -370,6 +591,165 @@ private struct ItPageBackground: View {
 
     var body: some View {
         it.page
+    }
+}
+
+private struct ItWorkspaceView<Content: View>: View {
+    let member: ItOfficeMember
+    let archetype: String
+    let intro: String
+    let item: HeadItem?
+    let recommendation: String?
+    let brain: HeadBrainSummary?
+    let loadState: ItLoadState?
+    let onRefresh: () async -> Void
+    @ViewBuilder let content: Content
+    @Environment(\.it) private var it
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ItSpace.s6) {
+                header
+                if let loadState {
+                    ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s5)
+                } else {
+                    guide
+                    learning
+                    content
+                }
+            }
+            .padding(16)
+        }
+        .refreshable { await onRefresh() }
+    }
+
+    private var header: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s3) {
+                    workspacePortrait
+                    workspaceIdentity
+                }
+            } else {
+                HStack(spacing: ItSpace.s3) {
+                    workspacePortrait
+                    workspaceIdentity
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(it.text)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var workspacePortrait: some View {
+        ItPortrait(name: member.name,
+                   url: TeamHead.all.first { $0.slug == member.id }?.faceURL,
+                   state: member.state, size: 56)
+    }
+
+    private var workspaceIdentity: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(member.name).itText(.title22, weight: 600)
+                    .fixedSize(horizontal: false, vertical: true)
+                ItAITag()
+            }
+            Text(member.department).itText(.meta13).foregroundStyle(it.meta)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(archetype).itText(.meta13).foregroundStyle(it.meta)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var guide: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s4) {
+            Text(intro).itText(.body16).foregroundStyle(it.text)
+            if let item, let recommendation {
+                guideStep(1, "What happened", item.text)
+                guideStep(2, "What I recommend", recommendation)
+                let label = actionLabel(item)
+                guideStep(3, "When you tap \(label)", actionExplanation(label))
+                guideStep(4, "Not ready?", "Not now brings it back tomorrow at 8.")
+            } else {
+                Text("Nothing needs you right now.").itText(.body16).foregroundStyle(it.meta)
+            }
+        }
+        .padding(ItSpace.s4).background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
+    }
+
+    private func guideStep(_ n: Int, _ title: String, _ words: String) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s2) {
+                    guideNumber(n)
+                    guideWords(title, words)
+                }
+            } else {
+                HStack(alignment: .top, spacing: ItSpace.s3) {
+                    guideNumber(n)
+                    guideWords(title, words)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(it.text)
+    }
+
+    private func guideNumber(_ n: Int) -> some View {
+        Text("\(n)").itText(.body14, weight: 600).frame(minWidth: 24, minHeight: 24)
+            .background(it.sunk, in: Circle())
+    }
+
+    private func guideWords(_ title: String, _ words: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).itText(.body14, weight: 600)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(words).itText(.body14).foregroundStyle(it.meta)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var learning: some View {
+        if let brain {
+            let strongest = brain.parts.max { lhs, rhs in
+                (brain.tiers.first { $0.slug == lhs.tier }?.n ?? 0) < (brain.tiers.first { $0.slug == rhs.tier }?.n ?? 0)
+            }?.label.lowercased() ?? "the work you do most"
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: ItSpace.s3) {
+                    BrainView(units: brain.units,
+                              tiers: Dictionary(brain.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
+                              label: "\(member.name)'s brain", onLight: it.mode != .dark)
+                        .frame(height: 150)
+                    Text("Shape \(brain.shape)").itText(.caption12).foregroundStyle(it.meta)
+                    ForEach(brain.tiers, id: \.self) { tier in
+                        Text("\(tier.name): \(tier.n)").itText(.body14).foregroundStyle(it.meta)
+                    }
+                }.padding(.top, ItSpace.s3)
+            } label: {
+                Text("\(member.name) has learned \(brain.units) things about how you work — mostly \(strongest).  See details")
+                    .itText(.body14).foregroundStyle(it.text)
+            }
+        }
+    }
+
+    private func actionLabel(_ item: HeadItem) -> String {
+        if item.kind == "campaign_reply" || item.kind.hasSuffix(":campaign_reply") { return "Start the quote" }
+        if member.id == "yui" { return "Open client" }
+        return "Open in CRM"
+    }
+
+    private func actionExplanation(_ label: String) -> String {
+        switch label {
+        case "Start the quote": return "It opens a quote in the CRM. Nothing is sent to the customer."
+        case "Open client": return "It opens the client's record in the CRM. Nothing is sent to the customer."
+        default:
+            let noun = item?.url?.lowercased().contains("invoice") == true ? "invoice" : "item"
+            return "It opens the \(noun) in the CRM. Nothing is sent to the customer."
+        }
     }
 }
 

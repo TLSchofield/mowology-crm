@@ -15,11 +15,22 @@ struct ItAIOfficeView<Workspace: View>: View {
     let charlie: ItOfficeMember
     let sides: [ItOfficeMember]
     @Binding var selected: String?
+    var briefLoadState: ItLoadState? = nil
+    var priorityText: String? = nil
+    var recommendation: String? = nil
+    var actionLabel: String? = nil
+    var canSnooze = false
+    var actionsBusy = false
+    var actionsDisabled = false
+    var onAction: () -> Void = {}
+    var onSnooze: () -> Void = {}
     var portraitURL: (String) -> URL? = { _ in nil }
     /// Optional line under a head's name in the workspace header (e.g. their archetype).
     var subtitle: (String) -> String? = { _ in nil }
+    var onOpen: (String) -> Void = { _ in }
     @ViewBuilder var workspace: (String) -> Workspace
     @Environment(\.it) private var it
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var rows: [ItOfficeMember] {
         [charlie] + ItHexagonGeometry.order.compactMap { id in sides.first { $0.id == id } }
@@ -28,9 +39,10 @@ struct ItAIOfficeView<Workspace: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ItSpace.s8) {
             briefBlock
+            priorityBlock
             ItSection(title: "AI office", note: "Six specialists, coordinated by Charlie") {
                 VStack(spacing: ItSpace.s4) {
-                    ItHexagon(width: 340, charlie: charlie, sides: sides, selected: $selected)
+                    ItHexagon(width: 340, charlie: charlie, sides: sides, selected: $selected, onOpen: onOpen)
                         .frame(maxWidth: .infinity)
                         .padding(.top, ItSpace.s4)
                     VStack(spacing: 0) {
@@ -39,40 +51,102 @@ struct ItAIOfficeView<Workspace: View>: View {
                     }
                 }
             }
-            if let id = selected, let m = rows.first(where: { $0.id == id }), m.available {
-                VStack(alignment: .leading, spacing: ItSpace.s4) {
-                    workspaceHeader(m)
-                    workspace(id)
+        }
+    }
+
+    @ViewBuilder private var priorityBlock: some View {
+        if charlie.loaded && (!charlie.loadFailed || isOfflineBrief) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: ItSpace.s3) {
+                        ItPortrait(name: charlie.name, url: portraitURL("charlie"), state: charlie.state, size: 44)
+                        priorityContent
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: ItSpace.s3) {
+                        ItPortrait(name: charlie.name, url: portraitURL("charlie"), state: charlie.state, size: 44)
+                        priorityContent
+                    }
                 }
-                .id("it-workspace-\(id)")
             }
+            .padding(ItSpace.s4).background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
+        }
+    }
+
+    private var priorityContent: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
+            Text("Today's priority").itText(.meta13, weight: 600).foregroundStyle(it.meta)
+            if let priorityText {
+                Text(priorityText).itText(.body16).foregroundStyle(it.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let recommendation {
+                    Text("Recommended next step: \(recommendation)").itText(.body14).foregroundStyle(it.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: ItSpace.s2) { priorityButtons }
+                    VStack(alignment: .leading, spacing: ItSpace.s2) { priorityButtons }
+                }
+            } else {
+                Text("Nothing needs you right now.").itText(.body16).foregroundStyle(it.meta)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var isOfflineBrief: Bool {
+        if case .offline = briefLoadState { return true }
+        return false
+    }
+
+    @ViewBuilder private var priorityButtons: some View {
+        if let actionLabel {
+            Button(actionLabel, action: onAction).buttonStyle(.it(.primary)).disabled(actionsBusy || actionsDisabled)
+        }
+        if canSnooze {
+            Button("Not now · back tomorrow", action: onSnooze).buttonStyle(.it(.ghost)).disabled(actionsBusy || actionsDisabled)
         }
     }
 
     private var briefBlock: some View {
-        HStack(alignment: .top, spacing: ItSpace.s3) {
-            ItPortrait(name: charlie.name, url: portraitURL("charlie"), state: charlie.state, size: 44)
-            VStack(alignment: .leading, spacing: ItSpace.s1) {
-                Text(briefTime.map { "Charlie's brief · \($0)" } ?? "Charlie's brief")
-                    .itText(.meta13, weight: 600).foregroundStyle(it.meta)
-                Text(charlieBrief)
-                    .itText(.title22).foregroundStyle(it.text)
-                    .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s3) {
+                    ItPortrait(name: charlie.name, url: portraitURL("charlie"), state: charlie.state, size: 44)
+                    briefContent
+                }
+            } else {
+                HStack(alignment: .top, spacing: ItSpace.s3) {
+                    ItPortrait(name: charlie.name, url: portraitURL("charlie"), state: charlie.state, size: 44)
+                    briefContent
+                }
             }
         }
         .accessibilityElement(children: .combine)
     }
 
+    private var briefContent: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(briefTime.map { "Charlie's brief · \($0)" } ?? "Charlie's brief")
+                .itText(.meta13, weight: 600).foregroundStyle(it.meta)
+            Text(charlieBrief)
+                .itText(.title22).foregroundStyle(it.text)
+                .fixedSize(horizontal: false, vertical: true)
+            if let briefLoadState { ItLoadStateLine(state: briefLoadState) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var charlieBrief: String {
         if !charlie.loaded { return "Charlie is gathering the day." }
-        if charlie.loadFailed { return "Couldn't load Charlie's brief." }
+        if charlie.loadFailed && !isOfflineBrief { return "Couldn't load Charlie's brief." }
         return brief ?? "Charlie is gathering the day."
     }
 
     @ViewBuilder
     private func row(_ m: ItOfficeMember) -> some View {
         if m.available {
-            Button { selected = m.id } label: { rowBody(m) }
+            Button { selected = m.id; onOpen(m.id) } label: { rowBody(m) }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
                 .accessibilityHint("Opens \(m.name)'s workspace")
@@ -85,29 +159,46 @@ struct ItAIOfficeView<Workspace: View>: View {
     }
 
     private func rowBody(_ m: ItOfficeMember) -> some View {
-            ItRow(selected: selected == m.id) {
+        ItRow(selected: selected == m.id) {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s2) {
+                    HStack(alignment: .center, spacing: ItSpace.s3) {
+                        ItPortrait(name: m.name, url: portraitURL(m.id), state: m.available ? m.state : .unavailable, size: 40)
+                        Text(m.name).itText(.body16, weight: 600).foregroundStyle(it.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ItAITag()
+                    }
+                    Text(m.department).itText(.meta13).foregroundStyle(it.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    rowDetails(m)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
                 HStack(alignment: .center, spacing: ItSpace.s3) {
                     ItPortrait(name: m.name, url: portraitURL(m.id), state: m.available ? m.state : .unavailable, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(m.name).itText(.body16, weight: 600).foregroundStyle(it.text)
                             ItAITag()
-                            Text(m.department).itText(.meta13).foregroundStyle(it.meta).lineLimit(1)
+                            Text(m.department).itText(.meta13).foregroundStyle(it.meta)
                         }
                         if !m.available {
-                            ItEmployeeStateLabel(state: .unavailable, detail: "not in the iPhone app yet")
+                            ItLoadStateLine(state: .unavailable)
+                        } else if let state = m.loadState {
+                            ItLoadStateLine(state: state)
                         } else if !m.loaded {
-                            Text("Loading…").itText(.body14).foregroundStyle(it.meta)
+                            ItLoadStateLine(state: .loading)
                         } else if m.loadFailed {
-                            Text("Couldn't load · pull to refresh").itText(.body14).foregroundStyle(it.meta)
+                            ItLoadStateLine(state: .error)
                         } else if let item = m.topItem {
                             Text(item).itText(.body14).foregroundStyle(it.text)
                                 .monospacedDigit()
                                 .fixedSize(horizontal: false, vertical: true)
                         } else {
-                            Text("Nothing waiting").itText(.body14).foregroundStyle(it.meta)
+                            Text("Nothing needs you right now.").itText(.body14).foregroundStyle(it.meta)
                         }
-                        if let st = m.state, m.available { ItEmployeeStateLabel(state: st) }
+                        if let st = m.state, m.available { ItEmployeeStateLabel(state: st, detail: m.stateReason) }
                     }
                     Spacer(minLength: ItSpace.s2)
                     if let c = m.count, c > 0, m.available {
@@ -116,6 +207,38 @@ struct ItAIOfficeView<Workspace: View>: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func rowDetails(_ m: ItOfficeMember) -> some View {
+        if !m.available {
+            ItLoadStateLine(state: .unavailable).frame(maxWidth: .infinity, alignment: .leading)
+        } else if let state = m.loadState {
+            ItLoadStateLine(state: state).frame(maxWidth: .infinity, alignment: .leading)
+        } else if !m.loaded {
+            ItLoadStateLine(state: .loading).frame(maxWidth: .infinity, alignment: .leading)
+        } else if m.loadFailed {
+            ItLoadStateLine(state: .error).frame(maxWidth: .infinity, alignment: .leading)
+        } else if let item = m.topItem {
+            Text(item).itText(.body14).foregroundStyle(it.text).monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text("Nothing needs you right now.").itText(.body14).foregroundStyle(it.meta)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let st = m.state, m.available {
+            ItEmployeeStateLabel(state: st, detail: m.stateReason)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let c = m.count, c > 0, m.available {
+            Text("\(c) waiting").itText(.body14, weight: 600).monospacedDigit().foregroundStyle(it.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("\(c) waiting")
+        }
     }
 
     private func workspaceHeader(_ m: ItOfficeMember) -> some View {
@@ -132,6 +255,33 @@ struct ItAIOfficeView<Workspace: View>: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
+    }
+}
+
+enum ItLoadState: Equatable { case loading, offline(String), error, unavailable }
+
+struct ItLoadStateLine: View {
+    let state: ItLoadState
+    @Environment(\.it) private var it
+    var body: some View {
+        HStack(spacing: 6) {
+            switch state {
+            case .loading:
+                ProgressView().controlSize(.small)
+                Text("Loading…")
+            case .offline(let time):
+                ItIcon(shape: .cloudFailed, size: 14, color: it.meta)
+                Text("You're offline · showing \(time)")
+            case .error:
+                ItIcon(shape: .cloudAlert, size: 14, color: it.meta)
+                Text("Couldn't reach the office · pull to refresh")
+            case .unavailable:
+                ItIcon(shape: .slashedCircle, size: 14, color: it.meta)
+                Text("Not in the iPhone app yet")
+            }
+        }
+        .itText(.body14).foregroundStyle(it.meta)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

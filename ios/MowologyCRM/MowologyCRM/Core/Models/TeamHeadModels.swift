@@ -37,9 +37,11 @@ struct HeadCardResponse: Decodable {
     let post: MiaPostDraft?
     let googleMode: String?
     let canApprove: Bool
+    /// Optional future office roster. A malformed or unknown entry must never break the brief.
+    let heads: [String: HeadOfficeState]?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote
+        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
@@ -63,6 +65,23 @@ struct HeadCardResponse: Decodable {
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
         googleMode = c.bkString(.googleMode)
         canApprove = c.bkBool(.canApprove) ?? false
+        heads = try? c.decodeIfPresent([String: HeadOfficeState].self, forKey: .heads)
+    }
+}
+
+struct HeadOfficeState: Decodable, Equatable {
+    let state: String?
+    let reason: String?
+    let open: Int?
+    let needsYou: Int?
+
+    private enum CodingKeys: String, CodingKey { case state, reason, open; case needsYou = "needs_you" }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        state = c.bkString(.state)
+        reason = c.bkString(.reason)
+        open = c.bkInt(.open)
+        needsYou = c.bkInt(.needsYou)
     }
 }
 

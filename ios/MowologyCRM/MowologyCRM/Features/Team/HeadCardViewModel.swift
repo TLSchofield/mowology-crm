@@ -180,7 +180,15 @@ final class HeadCardViewModel: ObservableObject {
     /// Open: Charlie counts it as "you went to it" (owner only), then the link opens.
     /// A failed save never blocks the link — as the board.
     func open(_ item: HeadItem) async -> URL? {
-        if card?.owner == true {
+        await open(item, owner: card?.owner == true)
+    }
+
+    /// The ready brief is already loaded before Charlie's full card; carry its owner bit through.
+    func open(_ item: HeadItem, owner: Bool) async -> URL? {
+        guard !isBusy else { return nil }
+        isBusy = true
+        defer { isBusy = false }
+        if owner {
             _ = try? await api.send(["mode": "act", "key": item.key, "what": "open"])
         }
         return item.url.flatMap(Self.webURL)
@@ -188,10 +196,16 @@ final class HeadCardViewModel: ObservableObject {
 
     /// Not now: back tomorrow (Charlie's snooze), and the row leaves.
     func notNow(_ item: HeadItem) async {
-        guard !isBusy else { return }
-        guard let r = await perform(["mode": "act", "key": item.key, "what": "snooze"]) else { return }
+        _ = await notNowResult(item)
+    }
+
+    /// Lets the brief remove its own copy only after the server confirms the snooze.
+    func notNowResult(_ item: HeadItem) async -> Bool {
+        guard !isBusy else { return false }
+        guard let r = await perform(["mode": "act", "key": item.key, "what": "snooze"]) else { return false }
         items.removeAll { $0.key == item.key }
         show(r.message ?? "OK — I'll bring it back tomorrow.", error: false)
+        return true
     }
 
     /// "Move to…" on a customer message: it goes to that head, and the sender + topic is learned

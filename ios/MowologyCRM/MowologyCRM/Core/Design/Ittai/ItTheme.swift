@@ -100,33 +100,54 @@ enum ItFont {
         }
     }
 
-    /// A style from the scale, scaling with Dynamic Type relative to the nearest iOS text style.
-    static func style(_ s: ItTextStyle, weight: Int? = nil) -> Font {
-        .custom(name(weight: weight ?? s.weight), size: s.size, relativeTo: s.relative)
-    }
-}
-
-extension ItTextStyle {
-    var relative: Font.TextStyle {
-        switch self {
-        case .display36, .title28: return .largeTitle
-        case .title22:             return .title2
-        case .heading18:           return .title3
-        case .heading16:           return .headline
-        case .body16:              return .body
-        case .body14:              return .subheadline
-        case .meta13:              return .footnote
-        case .caption12:           return .caption
-        case .wordmark:            return .title3
-        }
+    /// The base font. Dynamic Type is applied by `itText`, where the environment is available.
+    static func style(_ s: ItTextStyle, weight: Int? = nil, scale: CGFloat = 1) -> Font {
+        .custom(name(weight: weight ?? s.weight), fixedSize: s.size * scale)
     }
 }
 
 extension View {
     /// Apply an Ittai text style: font plus the line height from the scale.
     func itText(_ s: ItTextStyle, weight: Int? = nil) -> some View {
-        font(ItFont.style(s, weight: weight))
-            .lineSpacing(max(0, s.lineHeight - s.size * 1.21))
+        modifier(ItTextModifier(style: s, weight: weight))
+    }
+}
+
+private struct ItTextModifier: ViewModifier {
+    let style: ItTextStyle
+    let weight: Int?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var scale: CGFloat {
+        let bodySize: CGFloat
+        switch dynamicTypeSize {
+        case .xSmall: bodySize = 14
+        case .small: bodySize = 15
+        case .medium: bodySize = 16
+        case .large: bodySize = 17
+        case .xLarge: bodySize = 19
+        case .xxLarge: bodySize = 21
+        case .xxxLarge: bodySize = 23
+        case .accessibility1: bodySize = 28
+        case .accessibility2: bodySize = 33
+        case .accessibility3: bodySize = 40
+        case .accessibility4: bodySize = 47
+        case .accessibility5: bodySize = 53
+        @unknown default: bodySize = 17
+        }
+        let ratio = bodySize / 17
+        // Display faces track Apple's large text styles: they still grow with Dynamic Type, but
+        // less steeply than body copy so a heading does not consume the whole phone width.
+        if style.size >= 20 {
+            return 1 + (ratio - 1) * 0.55
+        }
+        return ratio
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .font(ItFont.style(style, weight: weight, scale: scale))
+            .lineSpacing(max(0, (style.lineHeight - style.size * 1.21) * scale))
     }
 }
 

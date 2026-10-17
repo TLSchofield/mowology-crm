@@ -16,6 +16,8 @@ struct HeadCardView: View {
     @ObservedObject var vm: HeadCardViewModel
     /// Tapping the brain line turns the head's face over to show the brain (TeamView).
     var onBrainTap: (() -> Void)? = nil
+    /// Ittai explains learning once in ordinary language above this card.
+    var showsBrain = true
     @Environment(\.openURL) private var openURL
     @FocusState private var askFocused: Bool
     @State private var confirmPublish = false
@@ -84,7 +86,7 @@ struct HeadCardView: View {
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let b = card.brain { brainRow(b, name: card.name) }
+            if showsBrain, let b = card.brain { brainRow(b, name: card.name) }
         }
     }
 
@@ -251,7 +253,7 @@ struct HeadCardView: View {
     }
 
     /// As action-board.js label(), plus Yui's "Open client".
-    private func openLabel(_ it: HeadItem) -> String {
+    func openLabel(_ it: HeadItem) -> String {
         if it.kind == "campaign_reply" || it.kind.hasSuffix(":campaign_reply") { return "Start the quote" }
         if vm.head == "yui" { return "Open client" }
         return "Open in CRM"

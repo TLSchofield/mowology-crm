@@ -14,11 +14,13 @@ struct ItOfficeMember: Identifiable, Equatable {
     let name: String
     let department: String
     var state: ItEmployeeState? = nil
+    var stateReason: String? = nil
     /// Their single most important item, e.g. "INV-2026-0233 · $546".
     var topItem: String? = nil
     var count: Int? = nil
     var loaded: Bool = true
     var loadFailed: Bool = false
+    var loadState: ItLoadState? = nil
     /// False = not reachable from this app (e.g. Ada on the iPhone).
     var available = true
 }
@@ -106,6 +108,8 @@ struct ItHexagon: View {
             }
         }
         .frame(width: width, height: ItHexagonGeometry.height * s, alignment: .topLeading)
+        // Labels share fixed symbol geometry, so cap only this diagram's type size.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .contentShape(Rectangle())
         .gesture(SpatialTapGesture().onEnded { tap in
             guard let id = ItHexagonGeometry.ownerID(of: tap.location, scale: s) else { return }

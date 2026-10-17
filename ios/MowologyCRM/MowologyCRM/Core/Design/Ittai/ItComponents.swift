@@ -23,7 +23,7 @@ struct ItButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .itText(.body16, weight: kind == .ghost ? 500 : 600)
-            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, ItSpace.s4)
             .frame(minHeight: ItSize.targetPhone)
             .frame(maxWidth: fullWidth ? .infinity : nil)
@@ -190,14 +190,25 @@ struct ItSection<Content: View>: View {
     var note: String? = nil
     @ViewBuilder var content: Content
     @Environment(\.it) private var it
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: ItSpace.s3) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).itText(.heading18).foregroundStyle(it.text)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: ItSpace.s2)
-                if let note { Text(note).itText(.meta13).foregroundStyle(it.meta) }
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s1) {
+                    sectionTitle
+                    if let note {
+                        Text(note).itText(.meta13).foregroundStyle(it.meta)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(alignment: .firstTextBaseline) {
+                    sectionTitle
+                    Spacer(minLength: ItSpace.s2)
+                    if let note { Text(note).itText(.meta13).foregroundStyle(it.meta) }
+                }
             }
             VStack(spacing: 0) {
                 Rectangle().fill(it.line).frame(height: 1)
@@ -205,6 +216,11 @@ struct ItSection<Content: View>: View {
             }
             .background(it.surface)
         }
+    }
+
+    private var sectionTitle: some View {
+        Text(title).itText(.heading18).foregroundStyle(it.text)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 

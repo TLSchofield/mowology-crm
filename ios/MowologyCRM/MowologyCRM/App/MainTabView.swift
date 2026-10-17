@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
 
@@ -53,7 +54,7 @@ struct MainTabView: View {
             if authSession.user?.isAdmin == true {
                 TeamView(authSession: authSession)
                     .tabItem {
-                        Label("AI Office", systemImage: "person.3.fill")
+                        Label("AI Office", uiImage: AI_OfficeTabIcon.image)
                     }
                     .tag(Tab.account)
             } else {
@@ -160,6 +161,23 @@ struct MainTabView: View {
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+@MainActor
+private enum AI_OfficeTabIcon {
+    /// Render once: the tab bar then applies its normal selected/unselected tint.
+    static let image: UIImage = {
+        let renderer = ImageRenderer(content: ItSymbol(size: 24).environment(\.it, ItPalette(.light)))
+        renderer.scale = UIScreen.main.scale
+        return (renderer.uiImage ?? UIImage(systemName: "person.3.fill")!)
+            .withRenderingMode(.alwaysTemplate)
+    }()
+}
+
+private extension Label where Title == Text, Icon == Image {
+    init(_ title: String, uiImage: UIImage) {
+        self.init { Text(title) } icon: { Image(uiImage: uiImage) }
     }
 }
 
