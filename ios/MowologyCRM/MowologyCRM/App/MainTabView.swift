@@ -53,7 +53,7 @@ struct MainTabView: View {
             if authSession.user?.isAdmin == true {
                 TeamView(authSession: authSession)
                     .tabItem {
-                        Label("Team", systemImage: "person.3.fill")
+                        Label("AI Office", systemImage: "person.3.fill")
                     }
                     .tag(Tab.account)
             } else {

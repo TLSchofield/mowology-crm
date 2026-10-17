@@ -69,10 +69,22 @@ struct ItAIOfficeView<Workspace: View>: View {
         return brief ?? "Charlie is gathering the day."
     }
 
+    @ViewBuilder
     private func row(_ m: ItOfficeMember) -> some View {
-        Button {
-            if m.available { selected = m.id }
-        } label: {
+        if m.available {
+            Button { selected = m.id } label: { rowBody(m) }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityHint("Opens \(m.name)'s workspace")
+                .accessibilityAddTraits(selected == m.id ? .isSelected : [])
+        } else {
+            // An unavailable head is information, not a control: no button, so VoiceOver never offers an
+            // action that does nothing (Codex review 2026-10-17). Not .disabled either — that greys the text.
+            rowBody(m).accessibilityElement(children: .combine)
+        }
+    }
+
+    private func rowBody(_ m: ItOfficeMember) -> some View {
             ItRow(selected: selected == m.id) {
                 HStack(alignment: .center, spacing: ItSpace.s3) {
                     ItPortrait(name: m.name, url: portraitURL(m.id), state: m.available ? m.state : .unavailable, size: 40)
@@ -104,13 +116,6 @@ struct ItAIOfficeView<Workspace: View>: View {
                     }
                 }
             }
-        }
-        .buttonStyle(.plain)
-        // Not .disabled: that greys the text below readable contrast. An unavailable head is information.
-        .allowsHitTesting(m.available)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(m.available ? "Opens \(m.name)'s workspace" : "")
-        .accessibilityAddTraits(selected == m.id ? .isSelected : [])
     }
 
     private func workspaceHeader(_ m: ItOfficeMember) -> some View {
