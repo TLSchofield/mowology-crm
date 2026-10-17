@@ -721,8 +721,12 @@ async function fetchAndShowExpenseCandidates(txId, contentEl) {
         const r = await fetch('/crm/api/accounting-reconciliation.php?action=transaction_expense_candidates&transaction_id=' + txId);
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || 'Search failed');
+        // Always offer several receipts: two tickets rung through on one swipe match no single receipt (Champion, 2026-10-16).
+        const groupHtml = `<div class="mw-rgroup" id="rgroup-${txId}">
+                <button type="button" class="btn btn-link btn-sm p-0" onclick="event.stopPropagation();showReceiptGroup(${txId})">Paid with several receipts? Match them together</button>
+            </div>`;
         if (!d.candidates.length) {
-            contentEl.innerHTML = '<span class="text-muted">No matching receipts found.</span>';
+            contentEl.innerHTML = '<span class="text-muted">No single receipt matches.</span>' + groupHtml;
             return;
         }
         contentEl.innerHTML = d.candidates.map(c => {
@@ -741,9 +745,75 @@ async function fetchAndShowExpenseCandidates(txId, contentEl) {
                     <button type="button" class="mw-action-btn mw-action-btn-paid" onclick="event.stopPropagation();attachTxToExpense(${txId}, ${c.expense_id})">Attach</button>
                 </div>
             </div>`;
-        }).join('');
+        }).join('') + groupHtml;
     } catch (e) {
         contentEl.innerHTML = '<span class="text-danger">Error: ' + esc(e.message) + '</span>';
+    }
+}
+
+// ── Several receipts, one bank line (BankLineReceipts, migration 1372) ─────────
+// Tick the receipts; the total must equal the line exactly. A gap means a receipt is wrong
+// (e.g. tax a shop didn't charge) — fix that receipt, never book the gap.
+async function showReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    if (!box) return;
+    box.innerHTML = '<span class="text-muted">Looking for receipts…</span>';
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php?action=transaction_receipt_group_candidates&transaction_id=' + txId);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Search failed');
+        if (d.candidates.length < 2) {
+            box.innerHTML = '<span class="text-muted">Fewer than two unmatched receipts within a week of this line.</span>';
+            return;
+        }
+        box.dataset.line = d.line_amount;
+        box.innerHTML = `<div class="mw-rgroup-head">Tick the receipts this one payment covered</div>`
+            + d.candidates.map(c => `<label class="mw-rgroup-item" onclick="event.stopPropagation()">
+                    <input type="checkbox" value="${c.expense_id}" data-total="${c.total}" onchange="updateReceiptGroup(${txId})">
+                    <span class="mw-rgroup-vendor">#${c.expense_id} ${esc(c.vendor)}${c.status !== 'approved' ? ' <span class="badge bg-light text-dark border">' + esc(c.status) + '</span>' : ''}</span>
+                    <span class="mw-rgroup-meta">${esc(c.date)}${c.description ? ' · ' + esc(c.description) : ''}${c.gst > 0 ? ' · GST ' + fmtMoney(c.gst) : ''}</span>
+                    <span class="mw-rgroup-amt">${fmtMoney(c.total)}</span>
+                </label>`).join('')
+            + `<div class="mw-rgroup-foot">
+                    <span class="mw-rgroup-sum" id="rgroup-sum-${txId}"></span>
+                    <button type="button" class="mw-action-btn mw-action-btn-paid" id="rgroup-btn-${txId}" disabled
+                            onclick="event.stopPropagation();attachReceiptGroup(${txId})">Match these</button>
+               </div>`;
+        updateReceiptGroup(txId);
+    } catch (e) {
+        box.innerHTML = '<span class="text-danger">Error: ' + esc(e.message) + '</span>';
+    }
+}
+
+function updateReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    const ticked = [...box.querySelectorAll('input[type=checkbox]:checked')];
+    const sum = Math.round(ticked.reduce((a, i) => a + parseFloat(i.dataset.total), 0) * 100) / 100;
+    const line = Math.round(parseFloat(box.dataset.line) * 100) / 100;
+    const gap = Math.round((sum - line) * 100) / 100;
+    const ok = ticked.length >= 2 && Math.abs(gap) < 0.005;
+    const el = document.getElementById('rgroup-sum-' + txId);
+    el.className = 'mw-rgroup-sum ' + (ok ? 'mw-rgroup-ok' : (ticked.length ? 'mw-rgroup-off' : ''));
+    el.textContent = !ticked.length ? 'Bank line ' + fmtMoney(line)
+        : fmtMoney(sum) + ' of ' + fmtMoney(line) + (ok ? ' — matches' : ' — ' + fmtMoney(Math.abs(gap)) + (gap > 0 ? ' over' : ' short')
+          + (gap > 0 && ticked.length >= 2 ? '. Is a receipt wrong (tax not charged, misread)? Fix it and save it first.' : ''));
+    document.getElementById('rgroup-btn-' + txId).disabled = !ok;
+}
+
+async function attachReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    const ids = [...box.querySelectorAll('input[type=checkbox]:checked')].map(i => parseInt(i.value, 10));
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: 'attach_expense_group', csrf_token: CSRF, transaction_id: txId, expense_ids: ids }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Match failed');
+        loadTransactions(currentPage);
+    } catch (e) {
+        alert('Match error: ' + e.message);
     }
 }
 

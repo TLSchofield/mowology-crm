@@ -17,6 +17,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/StatementCloseService.php';
+require_once __DIR__ . '/BankLineReceipts.php';
 require_once __DIR__ . '/BankBalanceCheckService.php';
 require_once __DIR__ . '/LedgerService.php';
 
@@ -65,7 +66,7 @@ class MonthCloseService
         // unmatched = no bank or card line carries it, nor one of the same amount within 5 days: paid personally,
         // cash, or the statement isn't imported yet.
         foreach ($this->db->query("SELECT DATE_FORMAT(e.expense_date, '%Y-%m') ym, COUNT(*) n, COALESCE(SUM(e.total), 0) amt,
-                                          SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.matched_expense_id = e.id)
+                                          SUM(CASE WHEN NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "
                                                 AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.reference_type = 'bank_import'
                                                                 AND ABS(ABS(t.amount) - e.total) < 0.005
                                                                 AND t.transaction_date BETWEEN e.expense_date - INTERVAL 5 DAY AND e.expense_date + INTERVAL 5 DAY)

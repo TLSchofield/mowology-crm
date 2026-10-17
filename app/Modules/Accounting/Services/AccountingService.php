@@ -37,9 +37,22 @@ class AccountingService
      */
     public static function countedSql(string $a = 't'): string
     {
-        return "NOT ({$a}.reference_type = 'bank_import' AND {$a}.matched_expense_id IS NOT NULL AND EXISTS (
+        // A line paid by several receipts (BankLineReceipts, migration 1372): left out once ANY of them has its row —
+        // the receipt rows carry the money. While one is still unapproved the report shows the approved ones only
+        // (as for any unapproved receipt); never the line AND a receipt (Codex re-review 2026-10-16: $318.80 for
+        // a $184.40 debit). A yes/no on the line can't show a part of it; the journal (settleGroupLine) is exact.
+        $group = '';
+        try {
+            require_once __DIR__ . '/BankLineReceipts.php';
+            if (function_exists('getDB') && BankLineReceipts::tableExists(getDB())) {
+                $group = " OR EXISTS (SELECT 1 FROM bank_line_receipts gx JOIN accounting_transactions gm ON gm.reference_type = 'expense'
+                               AND gm.reference_id = gx.expense_id AND gm.type = 'expense' AND gm.status IN ('cleared', 'reconciled')
+                           WHERE gx.transaction_id = {$a}.id)";
+            }
+        } catch (Throwable $e) { /* no database here (unit tests): the single-receipt rule */ }
+        return "NOT ({$a}.reference_type = 'bank_import' AND {$a}.matched_expense_id IS NOT NULL AND (EXISTS (
                     SELECT 1 FROM accounting_transactions mx WHERE mx.reference_type = 'expense'
-                      AND mx.reference_id = {$a}.matched_expense_id AND mx.type = 'expense' AND mx.status IN ('cleared', 'reconciled')))";
+                      AND mx.reference_id = {$a}.matched_expense_id AND mx.type = 'expense' AND mx.status IN ('cleared', 'reconciled'))" . $group . "))";
     }
 
     // ══════════════════════════════════════════════════════════════════════════

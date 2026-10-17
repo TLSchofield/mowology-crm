@@ -368,6 +368,16 @@ class BookkeeperDeskService
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $out[(int)$r['matched_expense_id']] = ['date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['amount']];
             }
+            // One of several receipts on a line (migration 1372) is matched too.
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+            if (BankLineReceipts::tableExists($this->db)) {
+                $s = $this->db->prepare("SELECT b.expense_id, t.transaction_date, t.description, t.amount FROM bank_line_receipts b
+                                         JOIN accounting_transactions t ON t.id = b.transaction_id WHERE b.expense_id IN ({$in})");
+                $s->execute($expenseIds);
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $out[(int)$r['expense_id']] = ['date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['amount']];
+                }
+            }
             return $out;
         } catch (Throwable $e) {
             return [];

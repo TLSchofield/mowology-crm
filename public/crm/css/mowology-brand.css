@@ -36219,6 +36219,23 @@ span.mw-icon-box--missing {
 }
 .mw-match-item + .mw-match-item { margin-top: .5rem; }
 
+/* Several receipts, one bank line (transactions page; BankLineReceipts 2026-10-16) */
+.mw-rgroup { margin-top: .6rem; }
+.mw-rgroup-head { font-size: .78rem; font-weight: 600; color: var(--mw-dark); margin-bottom: .4rem; }
+.mw-rgroup-item {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--mw-card); border: 1px solid var(--mw-st-off-line);
+  border-radius: 8px; padding: .45rem .7rem; margin: 0 0 .35rem; cursor: pointer;
+}
+.mw-rgroup-item input { flex: none; }
+.mw-rgroup-vendor { font-size: .82rem; font-weight: 600; }
+.mw-rgroup-meta { font-size: .74rem; color: var(--mw-st-off); flex: 1 1 12rem; min-width: 0; }
+.mw-rgroup-amt { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mw-rgroup-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: .4rem; }
+.mw-rgroup-sum { font-size: .8rem; font-weight: 600; color: var(--mw-st-off); flex: 1 1 14rem; }
+.mw-rgroup-ok  { color: var(--mw-st-ok); }
+.mw-rgroup-off { color: var(--mw-st-bad); }
+
 .mw-conf-badge {
   flex: none;
   min-width: 44px;

@@ -206,6 +206,9 @@ class LedgerService
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         try {
+            // A receipt that shares a bank line: lock the line before writing the entry, the same order as the
+            // settlement that follows (no deadlock with the nightly sweep; Codex third pass 2026-10-16).
+            if ($sourceType === 'expense' && $sourceId !== null) $this->lockGroupLineFor((int)$sourceId);
             // A deposit booked by the Jobber / bank-balance workflow ('bank_deposit') replaces whatever its
             // bank line already posted — after the holding switch a customer deposit posts DR bank / CR 1016 as
             // 'bank_import', and both live would count the cash twice (Codex review 2026-10-14).
@@ -574,16 +577,26 @@ class LedgerService
      */
     public function retireLinkedBankEntries(int $expenseId, ?int $userId = null): int
     {
-        $expEntry = $this->findEntryIdBySource('expense', $expenseId);
-        if ($expEntry === null) return 0;
-        $c = $this->db->prepare("SELECT account_id, SUM(credit) - SUM(debit) AS paid FROM journal_lines WHERE entry_id = ? GROUP BY account_id");
-        $c->execute([$expEntry]);
+        // One line paid by several receipts (BankLineReceipts, migration 1372): the line is matched to the group's
+        // main receipt, and retired only once EVERY receipt of the group is booked and together they paid it.
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $group = (new BankLineReceipts($this->db))->group($expenseId);
+        if ($group !== null) return $this->settleGroupLine($group['line'], $userId);
+        $main = $expenseId;
+        $members = [$expenseId];
         $paid = [];
-        foreach ($c->fetchAll(PDO::FETCH_ASSOC) as $r) $paid[(int)$r['account_id']] = round((float)$r['paid'], 2);
+        $c = $this->db->prepare("SELECT account_id, SUM(credit) - SUM(debit) AS paid FROM journal_lines WHERE entry_id = ? GROUP BY account_id");
+        foreach ($members as $m) {
+            $expEntry = $this->findEntryIdBySource('expense', (int)$m);
+            if ($expEntry === null) return 0;   // a receipt of the group isn't booked yet — the line still stands in for it
+            $c->execute([$expEntry]);
+            foreach ($c->fetchAll(PDO::FETCH_ASSOC) as $r) $paid[(int)$r['account_id']] = round(($paid[(int)$r['account_id']] ?? 0) + (float)$r['paid'], 2);
+        }
+        $who = count($members) > 1 ? 'receipts #' . implode(' + #', $members) : 'receipt #' . $expenseId;
         try {
             $t = $this->db->prepare("SELECT id, bank_account_id, amount FROM accounting_transactions
                                      WHERE matched_expense_id = ? AND reference_type = 'bank_import' AND transaction_date >= ?");
-            $t->execute([$expenseId, self::FY_START]);   // a filed, closed year is never touched
+            $t->execute([$main, self::FY_START]);   // a filed, closed year is never touched
         } catch (PDOException $e) {
             // Only a schema without the receipt↔bank-line link columns is quiet; any other failure rolls the receipt back.
             if ($e->getCode() === '42S22' || stripos($e->getMessage(), 'no such column') !== false) return 0;
@@ -612,11 +625,152 @@ class LedgerService
         foreach ($groups as $acct => $g) {
             if ($g === false || empty($g['ids']) || abs(($paid[$acct] ?? 0) - $g['sum']) >= 0.01) continue;
             foreach ($g['ids'] as $id) {
-                $this->reverseEntry($id, $userId, 'booked by receipt #' . $expenseId, 'system');
+                $this->reverseEntry($id, $userId, 'booked by ' . $who, 'system');
                 $n++;
             }
         }
         return $n;
+    }
+
+    /**
+     * A bank line paid by several receipts (BankLineReceipts): its own posting is always the part the BOOKED
+     * receipts don't cover — line − what they paid from the line's account. Both booked → nothing; one booked
+     * → the rest; one later rejected, re-opened or edited → the posting follows (Codex review 2026-10-16:
+     * a retired line never came back, leaving the books short). The live postings are made to equal that:
+     * reversed, and one remainder posted when there is one. A refund-shaped posting, or receipts paying more
+     * than the line, is left for a person (the statement check shows it). Joins the caller's transaction.
+     * @return int postings reversed + posted
+     */
+    public function settleGroupLine(int $lineId, ?int $userId = null): int
+    {
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            // The line is locked first and everything after is read with locking reads: two settlements of one
+            // line (nightly sweep + an approval) run one after the other, never both posting a remainder.
+            $s = $this->db->prepare("SELECT id, transaction_date, amount, description, account_id, bank_account_id, matched_expense_id
+                                     FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import' AND transaction_date >= ?" . $lock);
+            $s->execute([$lineId, self::FY_START]);
+            $line = $s->fetch(PDO::FETCH_ASSOC);
+            $n = ($line && !empty($line['matched_expense_id'])) ? $this->settleLockedLine($line, $userId, $lock) : 0;
+            if ($own) $this->db->commit();
+            return $n;
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function settleLockedLine(array $line, ?int $userId, string $lock): int
+    {
+        $lineId = (int)$line['id'];
+        $acct = !empty($line['bank_account_id']) ? (int)$line['bank_account_id'] : $this->accountId(self::ACC_BANK);
+        $members = array_values(array_unique(array_merge([(int)$line['matched_expense_id']], (new BankLineReceipts($this->db))->extras($lineId))));
+
+        $entryOf = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'expense' AND source_id = ? AND reversed_by_entry_id IS NULL LIMIT 1" . $lock);
+        $paidFrom = $this->db->prepare("SELECT SUM(credit) - SUM(debit) FROM journal_lines WHERE entry_id = ? AND account_id = ?");
+        $covered = 0.0;
+        $booked = [];
+        foreach ($members as $m) {
+            $entryOf->execute([$m]);
+            $e = $entryOf->fetchColumn();
+            if ($e === false) continue;
+            $paidFrom->execute([(int)$e, $acct]);
+            $covered += (float)$paidFrom->fetchColumn();
+            $booked[] = $m;
+        }
+        $lineAmount = round(abs((float)$line['amount']), 2);
+        $want = round($lineAmount - $covered, 2);
+        if ($want < -0.005) return 0;                                   // receipts pay more than the line: a person looks
+        $want = max(0.0, $want);
+
+        $live = $this->db->prepare("SELECT je.id, (SELECT SUM(jl.credit) - SUM(jl.debit) FROM journal_lines jl WHERE jl.entry_id = je.id AND jl.account_id = ?) AS out_
+                                    FROM journal_entries je
+                                    WHERE je.source_type = 'bank_import' AND je.source_id = ? AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL" . $lock);
+        $live->execute([$acct, $lineId]);
+        $entries = $live->fetchAll(PDO::FETCH_ASSOC);
+        $have = 0.0;
+        foreach ($entries as $x) {
+            if ((float)$x['out_'] <= 0) return 0;                       // money back in, or another account: a person looks
+            $have += (float)$x['out_'];
+        }
+        if (abs(round($have, 2) - $want) < 0.01) return 0;
+
+        // The remainder keeps the line's own split (category, GST, job / vendor / cost type) in proportion —
+        // taken from its first posting (Codex re-review 2026-10-16: it all went to one account).
+        $first = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ? ORDER BY id LIMIT 1");
+        $first->execute([$lineId]);
+        $firstId = (int)$first->fetchColumn();
+        $tpl = [];
+        if ($firstId) {
+            $l = $this->db->prepare("SELECT account_id, debit, credit, gst_amount, pst_amount, description, job_id, contact_id, vendor_id, crew_user_id, cost_type_id, service_type
+                                     FROM journal_lines WHERE entry_id = ? AND account_id <> ?");
+            $l->execute([$firstId, $acct]);
+            $tpl = $l->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $base = array_sum(array_map(fn($r) => (float)$r['debit'] - (float)$r['credit'], $tpl));
+        if (!$tpl || $base <= 0.005) $tpl = [['account_id' => (int)$line['account_id'], 'debit' => $lineAmount, 'credit' => 0]];
+        $base = $base > 0.005 ? $base : $lineAmount;
+        $who = $booked ? 'receipts #' . implode(' + #', $booked) : 'no receipt yet';
+
+        $n = 0;
+        foreach ($entries as $x) {
+            $this->reverseEntry((int)$x['id'], $userId, 'booked by ' . $who, 'system');
+            $n++;
+        }
+        if ($want >= 0.01) {
+            $lines = [];
+            $sum = 0.0;
+            foreach ($tpl as $r) {
+                $net = round(((float)$r['debit'] - (float)$r['credit']) * $want / $base, 2);
+                $lines[] = ['account_id' => (int)$r['account_id'], 'debit' => max(0, $net), 'credit' => max(0, -$net),
+                            'gst_amount' => round((float)($r['gst_amount'] ?? 0) * $want / $base, 2), 'pst_amount' => round((float)($r['pst_amount'] ?? 0) * $want / $base, 2),
+                            'description' => $r['description'] ?? 'Not yet covered by its receipts', 'job_id' => $r['job_id'] ?? null,
+                            'contact_id' => $r['contact_id'] ?? null, 'vendor_id' => $r['vendor_id'] ?? null, 'crew_user_id' => $r['crew_user_id'] ?? null,
+                            'cost_type_id' => $r['cost_type_id'] ?? null, 'service_type' => $r['service_type'] ?? null];
+                $sum += $net;
+            }
+            // Rounding goes on the largest line, so the entry pays out exactly the remainder.
+            $big = 0;
+            foreach ($lines as $i => $ln) if (abs($ln['debit'] - $ln['credit']) > abs($lines[$big]['debit'] - $lines[$big]['credit'])) $big = $i;
+            $fix = round($want - $sum, 2);
+            if (abs($fix) >= 0.005) {
+                $net = round($lines[$big]['debit'] - $lines[$big]['credit'] + $fix, 2);
+                $lines[$big]['debit'] = max(0, $net); $lines[$big]['credit'] = max(0, -$net);
+            }
+            $lines[] = ['account_id' => $acct, 'debit' => 0, 'credit' => $want];
+            $this->postEntry([
+                'entry_date' => (string)$line['transaction_date'],
+                'memo' => trim((string)$line['description']) . ' — the part not covered by ' . $who . ' ($' . number_format($want, 2) . ')',
+                'source_type' => 'bank_import', 'source_id' => $lineId,
+                'created_by' => $userId, 'proposed_by' => 'system', 'lines' => $lines,
+            ]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
+     * Lock the bank line a grouped receipt shares, BEFORE touching the receipt's entry: every path then locks
+     * line → entries in the same order as settleGroupLine(), so a delete/edit and the nightly settlement can't
+     * deadlock (Codex third pass 2026-10-16). No-op outside MySQL, outside a transaction, or for a receipt alone.
+     */
+    public function lockGroupLineFor(int $expenseId): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql' || !$this->db->inTransaction()) return;
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $g = (new BankLineReceipts($this->db))->group($expenseId);
+        if ($g !== null) $this->db->prepare("SELECT id FROM accounting_transactions WHERE id = ? FOR UPDATE")->execute([$g['line']]);
+    }
+
+    /** The line a receipt shares with others, settled (no-op for a receipt alone on its line, or none). */
+    public function settleGroupFor(int $expenseId, ?int $userId = null): int
+    {
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $g = (new BankLineReceipts($this->db))->group($expenseId);
+        return $g === null ? 0 : $this->settleGroupLine($g['line'], $userId);
     }
 
     /** Existing (not reversed) entry id for a source, or null. */

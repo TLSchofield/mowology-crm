@@ -270,6 +270,7 @@ class ExpenseGateHooks
             $own = !$this->db->inTransaction();
             if ($own) $this->db->beginTransaction();
             try {
+                $ledger->lockGroupLineFor($expenseId);   // line before entries (see LedgerService::lockGroupLineFor)
                 $ledger->reverseEntry($entryId, $userId, $why);
                 if ($row && (float)$row['total'] > 0) {
                     $args = (new LedgerSyncService($this->db, $ledger))->expenseArgs($row);
@@ -278,6 +279,8 @@ class ExpenseGateHooks
                     $args['proposed_by'] = 'owner';
                     $ledger->postExpense($args);
                 }
+                // One of several receipts on a bank line: the line follows the new amount (or the receipt's absence).
+                $ledger->settleGroupFor($expenseId, $userId);
                 if ($own) $this->db->commit();
             } catch (Throwable $e) {
                 if ($own && $this->db->inTransaction()) $this->db->rollBack();
@@ -304,7 +307,19 @@ class ExpenseGateHooks
             $ledger = new LedgerService($this->db);
             $entryId = $ledger->findEntryIdBySource('expense', $expenseId);
             if (!$entryId) return false;
-            $ledger->reverseEntry($entryId, $userId, $why);
+            // One of several receipts on a bank line: the line is locked first (same order as the settlement),
+            // then takes back the part this one paid — all one change.
+            $own = !$this->db->inTransaction();
+            if ($own) $this->db->beginTransaction();
+            try {
+                $ledger->lockGroupLineFor($expenseId);
+                $ledger->reverseEntry($entryId, $userId, $why);
+                $ledger->settleGroupFor($expenseId, $userId);
+                if ($own) $this->db->commit();
+            } catch (Throwable $e) {
+                if ($own && $this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
+            }
             return true;
         } catch (Throwable $e) {
             if ($strict) throw $e instanceof RuntimeException ? $e : new RuntimeException($e->getMessage(), 0, $e);

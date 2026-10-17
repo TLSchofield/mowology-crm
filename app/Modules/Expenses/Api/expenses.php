@@ -547,6 +547,20 @@ function handleGet(PDO $db): void
     ");
     $matchStmt->execute([$id]);
     $expense['matched_transaction'] = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    // One of several receipts paid by one line (migration 1372): the line, and the other receipts on it.
+    require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+    $blr = new BankLineReceipts($db);
+    $lineId = $blr->lineFor((int)$id);
+    if ($lineId !== null && !$expense['matched_transaction']) {
+        $m = $db->prepare("SELECT id AS transaction_id, transaction_date, description, amount, bank_account, matched_at, matched_by
+                           FROM accounting_transactions WHERE id = ?");
+        $m->execute([$lineId]);
+        $expense['matched_transaction'] = $m->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if ($lineId !== null && $expense['matched_transaction']) {
+        $g = $blr->group((int)$id);
+        $expense['matched_transaction']['shared_with'] = $g ? array_values(array_filter($g['receipts'], fn($r) => $r !== (int)$id)) : [];
+    }
 
     // Load stored line items (with product details)
     $liStmt = $db->prepare("

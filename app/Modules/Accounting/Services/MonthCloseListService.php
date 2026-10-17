@@ -17,6 +17,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/MonthCloseService.php';
+require_once __DIR__ . '/BankLineReceipts.php';
 
 class MonthCloseListService
 {
@@ -61,7 +62,7 @@ class MonthCloseListService
         try {
             $s = $this->db->prepare("
                 SELECT e.id, e.expense_date, e.total, COALESCE(NULLIF(v.name, ''), e.vendor_name_raw, 'Receipt') AS vendor, e.payment_method,
-                       (SELECT COUNT(*) FROM accounting_transactions t WHERE t.matched_expense_id = e.id) AS linked
+                       (CASE WHEN " . BankLineReceipts::linkedSql($this->db, 'e.id') . " THEN 1 ELSE 0 END) AS linked
                 FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
                 WHERE e.status IN ('draft', 'pending_approval') AND DATE_FORMAT(e.expense_date, '%Y-%m') = ?
                 ORDER BY e.expense_date, e.id");

@@ -806,6 +806,7 @@ class MissingReceiptService
     {
         $item = $this->item($itemId);
         if (!$item || !$this->canTouch($item, $user)) return [];
+        require_once dirname(__DIR__, 2) . '/Accounting/Services/BankLineReceipts.php';
         $mine = self::isManager($user) ? '' : ' AND e.created_by = ?';
         $s = $this->db->prepare("
             SELECT e.id, e.expense_date, e.total, COALESCE(v.name, e.vendor_name_raw) AS vendor, e.status, e.created_by
@@ -814,7 +815,7 @@ class MissingReceiptService
             LEFT JOIN accounting_transactions bt ON bt.matched_expense_id = e.id
             LEFT JOIN penny_missing_receipts pm ON pm.expense_id = e.id AND pm.status = 'received'
             WHERE e.status NOT IN ('rejected', 'cancelled')
-              AND bt.id IS NULL AND pm.id IS NULL
+              AND bt.id IS NULL AND pm.id IS NULL AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "
               AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL 10 DAY) AND DATE_ADD(?, INTERVAL 10 DAY)" . $mine . "
             ORDER BY ABS(e.total - ?) ASC, ABS(DATEDIFF(e.expense_date, ?)) ASC
             LIMIT " . max(1, min(30, $limit)));

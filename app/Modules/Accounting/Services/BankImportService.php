@@ -25,6 +25,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/BankLineReceipts.php';
+
 class BankImportService
 {
     private PDO $db;
@@ -3961,6 +3963,7 @@ class BankImportService
                                     AND DATE_ADD(?, INTERVAL 3 DAY)
               AND e.status IN ('approved','forwarded')
               AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "   -- one of several on another line (migration 1372)
               -- already joined to a statement line at an earlier import: one receipt, one charge (2026-10-13)
               AND NOT EXISTS (SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
                                WHERE x.reference_type = 'expense' AND x.reference_id = e.id)
@@ -4278,6 +4281,7 @@ class BankImportService
             LEFT JOIN accounting_transactions bt ON bt.matched_expense_id = e.id
             WHERE e.status IN ('draft','pending_approval','approved','forwarded')
               AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "
               AND ABS(e.total - ?) <= GREATEST(0.5, ? * 0.02)
               AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
                                      AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
@@ -4353,9 +4357,7 @@ class BankImportService
                 . number_format((float)$transaction['amount'], 2) . ' — correct the receipt total and save it first.');
         }
 
-        $stmt = $this->db->prepare("SELECT id FROM accounting_transactions WHERE matched_expense_id = ?");
-        $stmt->execute([$expenseId]);
-        if ($stmt->fetch()) throw new RuntimeException('This expense is already matched to another transaction.');
+        if ((new BankLineReceipts($this->db))->lineFor($expenseId) !== null) throw new RuntimeException('This expense is already matched to another transaction.');
 
         // Recorded for reporting even though the user picked it manually — falls
         // back to 0 if the pair is outside the normal scoring window (a deliberate
@@ -4411,6 +4413,11 @@ class BankImportService
         if (!$transaction || !$transaction['matched_expense_id']) {
             throw new RuntimeException('Transaction is not currently matched.');
         }
+        // Several receipts on this line (migration 1372): unmatching the line unmatches them all — in one change.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+        $extras = (new BankLineReceipts($this->db))->detachExtras($transactionId);
 
         $this->db->prepare("
             UPDATE accounting_transactions SET
@@ -4421,8 +4428,13 @@ class BankImportService
               matched_by         = NULL
             WHERE id = ?
         ")->execute([$transactionId]);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
 
-        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id']];
+        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id'], 'also_unmatched' => $extras];
     }
 
     /**

@@ -198,6 +198,13 @@ class ExpenseGate
                 }
                 $id = (int)$expenseId;
                 $action = 'delete';
+                // One of several receipts on a bank line: off the line, which then books what's left (Codex re-review 2026-10-16).
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+                $was = (new BankLineReceipts($this->db))->forget($id);
+                if ($was !== null) {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+                    (new LedgerService($this->db))->settleGroupLine($was, $actor['id'] ?? null);
+                }
                 if (function_exists('reverseLineItemInventory')) reverseLineItemInventory($this->db, $id);
                 if ($this->split->ready()) $this->split->clear($id);
                 $this->db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$id]);
