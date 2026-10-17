@@ -94,7 +94,7 @@ class VisitLifecycleService
                     }
                 }
 
-                // Completion notifications: fertilizer (prepaid bundles) or general job complete
+                // Completion notification: fertilizer / prepaid bundles only (Tim: helpful when prepaid)
                 $completedVisit = self::getVisitWithPlan($visitId);
                 if ($completedVisit && !empty($completedVisit['is_prepaid_bundle'])) {
                     // Fertilizer / prepaid-bundle — rich custom email with photos, materials, progress
@@ -109,16 +109,10 @@ class VisitLifecycleService
                     } catch (Throwable $e) {
                         error_log("Fertilizer notification failed for visit {$visitId}: " . $e->getMessage());
                     }
-                } else {
-                    // General service completion — branded template email
-                    try {
-                        if (function_exists('sendJobCompleteNotification')) {
-                            sendJobCompleteNotification($visitId);
-                        }
-                    } catch (Throwable $e) {
-                        error_log("Job complete notification failed for visit {$visitId}: " . $e->getMessage());
-                    }
                 }
+                // No general "job complete" email: the invoice is the completion email (Tim 2026-10-16).
+                // The old sendJobCompleteNotification() call never sent once (it read a column that
+                // doesn't exist); it was removed so a schema change can't start emailing clients.
 
                 // Push-notify admins/other crew that the job is done — see
                 // notifyCompletion() doc comment for why this is one shared

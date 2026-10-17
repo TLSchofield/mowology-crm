@@ -82,7 +82,34 @@ class RouteProofService
         return array_values($out);
     }
 
+    /**
+     * onSite() for points keyed lat/lng (visit_gps_points, the proof-of-work PDF and its map):
+     * the original rows that are on the property, in order. PURE.
+     */
+    public static function onSiteLatLng(array $points, array $site, int $radiusM): array
+    {
+        $fixes = [];
+        foreach (array_values($points) as $i => $p) {
+            $fixes[] = ['latitude' => $p['lat'] ?? null, 'longitude' => $p['lng'] ?? null, 'is_mock' => $p['is_mock'] ?? 0, '_i' => $i];
+        }
+        $rows = array_values($points);
+        return array_map(fn($f) => $rows[$f['_i']], self::onSite($fixes, $site, $radiusM));
+    }
+
     // ── DB ──────────────────────────────────────────────────────────────────
+
+    /** A visit's property as onSite() measures it: ['lat', 'lng', 'polygon'], or [] when unknown. */
+    public function siteForVisit(int $visitId): array
+    {
+        $s = $this->db->prepare("
+            SELECT p.id AS property_id, p.latitude, p.longitude
+            FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id JOIN properties p ON p.id = jp.property_id
+            WHERE jv.id = ?
+        ");
+        $s->execute([$visitId]);
+        $r = $s->fetch(PDO::FETCH_ASSOC);
+        return $r ? ['lat' => $r['latitude'], 'lng' => $r['longitude'], 'polygon' => $this->border((int)$r['property_id'])] : [];
+    }
 
     public function radiusM(): int
     {

@@ -168,6 +168,11 @@ class PowPdfGenerator
         ");
         $stmt->execute([$visitId]);
         $gpsPoints = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        // Only the points ON the property reach the client's map and distance — never the drive
+        // there, the fuel stop or the next client (same rule as the portal; Codex 2026-10-15).
+        require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+        $proof     = new \RouteProofService($this->db);
+        $gpsPoints = \RouteProofService::onSiteLatLng($gpsPoints, $proof->siteForVisit($visitId), $proof->radiusM());
 
         // Photos
         $stmt = $this->db->prepare("
