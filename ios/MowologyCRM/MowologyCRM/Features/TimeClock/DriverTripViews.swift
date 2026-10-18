@@ -18,43 +18,53 @@ struct DriverDeclarationSheet: View {
     @ObservedObject var viewModel: DriverTripViewModel
 
     var body: some View {
-        Group {
-            if appStyle.isEnabled {
-                ScrollView { declarationContent }
-            } else {
-                declarationContent
+        ScrollView {
+            VStack(spacing: 12) {
+                Image(systemName: "steeringwheel")
+                    .font(appStyle.font(size: 28))
+                    .foregroundStyle(appStyle.tenant)
+                    .accessibilityHidden(true)
+
+                Text("Are you driving a company vehicle this shift?")
+                    .font(appStyle.font(.title3, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Drivers must inspect the vehicle before moving and log the trip. Passengers don't need to. You can change this later if you take over driving.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            declarationActions
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .background(appStyle.surface)
+        }
+        .background(appStyle.surface)
         .itAppScreen()
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .interactiveDismissDisabled()
     }
 
-    private var declarationContent: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "steeringwheel")
-                .font(appStyle.font(size: 52))
-                .foregroundStyle(appStyle.tenant)
-                .padding(.top, 28)
-
-            Text("Are you driving a company vehicle this shift?")
-                .font(appStyle.font(.title3, weight: .bold))
-                .multilineTextAlignment(.center)
-
-            Text("The driver has to inspect the vehicle before it moves and log the trip — it's a legal requirement. If you're riding along, you don't. You can change this later if you take over the wheel.")
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.meta)
-                .multilineTextAlignment(.center)
-
-            Spacer(minLength: 0)
-
+    private var declarationActions: some View {
+        VStack(spacing: 10) {
             Button {
                 viewModel.declareDriving()
             } label: {
                 Label("Yes, I'm driving", systemImage: "steeringwheel")
                     .font(appStyle.font(.headline))
-                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : nil)
-                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                     .background(appStyle.tenant)
                     .foregroundStyle(appStyle.onTenant)
                     .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
@@ -65,13 +75,14 @@ struct DriverDeclarationSheet: View {
             } label: {
                 Text("No, I'm not driving")
                     .font(appStyle.font(.headline))
-                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : nil)
-                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                     .overlay(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999).stroke(appStyle.line, lineWidth: 1))
             }
             .tint(appStyle.text)
         }
-        .padding(24)
+        .buttonStyle(.plain)
     }
 }
 

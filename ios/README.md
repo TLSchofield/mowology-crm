@@ -109,3 +109,7 @@ Registry confirmation requires `search/topic?q=<registration>&latest=true&inacti
 inactive companies rather than including both statuses. Always retain the exact
 returned source-ID check. The provider lookup is covered by PHPUnit and verified
 against the public registry before deployment.
+
+Driver declaration drawers keep both answers in a bottom safe-area inset, outside
+the scrolling explanation. Do not put required choices after a large illustration
+inside the scroll content: the default medium drawer can hide the second answer.
