@@ -4,8 +4,9 @@
 set -eu
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/ios/MowologyCRM/MowologyCRM"
-OUT="${TMPDIR:-/tmp}/mowology-ios-logic-tests"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/mowology-ios-logic-tests.XXXXXX")"
 mkdir -p "$OUT"
+export CLANG_MODULE_CACHE_PATH="$OUT/module-cache"
 
 run() {
   local name="$1"; shift
@@ -19,6 +20,14 @@ run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 
 # Ittai v1.2 design layer: contrast in light/dark/field, precedence, frozen symbol ladder, hexagon tap areas.
 cp "$ROOT/ios/LogicTests/IttaiDesignTests.swift" "$OUT/main.swift"
-run ittaidesign "$SRC/Core/Design/Ittai/ItTokens.swift" "$SRC/Core/Design/Ittai/ItTheme.swift" \
+run ittaidesign -DKNOWLEDGE_GEOMETRY_ONLY "$SRC/Core/Design/Ittai/ItTokens.swift" "$SRC/Core/Design/Ittai/ItTheme.swift" \
   "$SRC/Core/Design/Ittai/ItSymbol.swift" "$SRC/Core/Design/Ittai/ItHexagonGeometry.swift" \
+  "$SRC/Features/Splash/CharlieBrainSplash.swift" \
+  "$SRC/Core/Design/Ittai/ItKnowledgeGeometry.swift" \
   "$SRC/Core/Design/Ittai/ItIcons.swift" "$SRC/Core/Design/Ittai/ItComponents.swift" "$OUT/main.swift"
+
+# Business setup: real models, URLs and view model against a fake transport, in TestFlight Release mode.
+run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swift" \
+  "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" \
+  "$SRC/Core/Network/APIError.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
+  "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"

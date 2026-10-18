@@ -27,6 +27,14 @@ func registerFonts() {
     print("wrote \(name).png \(Int(img.size.width))×\(Int(img.size.height))")
 }
 
+func applyCVD(_ name:String, matrix:[[Double]]) {
+    let url=URL(fileURLWithPath:"\(outDir)/\(name).png")
+    guard let image=NSImage(contentsOf:url),let data=image.tiffRepresentation,let bitmap=NSBitmapImageRep(data:data) else{return}
+    guard bitmap.bitsPerSample == 8,bitmap.samplesPerPixel >= 3,let bytes=bitmap.bitmapData else{return}
+    for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide { let i=y*bitmap.bytesPerRow+x*bitmap.samplesPerPixel;let v=[Double(bytes[i])/255,Double(bytes[i+1])/255,Double(bytes[i+2])/255];let o=matrix.map{row in max(0,min(1,zip(row,v).map{$0.0*$0.1}.reduce(0,+)))};bytes[i]=UInt8(o[0]*255);bytes[i+1]=UInt8(o[1]*255);bytes[i+2]=UInt8(o[2]*255) } }
+    if let png=bitmap.representation(using:.png,properties:[:]){try! png.write(to:url)}
+}
+
 // MARK: sample data (synthetic)
 
 func sampleSides(withStates: Bool) -> [ItOfficeMember] {
@@ -39,6 +47,54 @@ func sampleSides(withStates: Bool) -> [ItOfficeMember] {
         ItOfficeMember(id: "ada", name: "Ada", department: "Technology", available: false),
     ]
 }
+
+func sampleKnowledge(_ count:Int = 40) -> KnowledgeResponse {
+    let vendors: [[String:Any]] = (0..<count).map { i in
+        let stage = i % 7 == 0 ? "mastered" : (i % 5 == 0 ? "understood" : (i % 3 == 0 ? "identified" : "recognized"))
+        return ["key":"vendor:\(i)","slot":i,"label":"Sample Vendor \(i+1)","stage":stage,
+                "evidence":["receipts_approved":i+1,"transactions_matched":i/2,"items_recognized":i+3,"items_new":i%4,
+                            "classification_accuracy":0.92,"classification_decided":12,"unchanged_streak":3,
+                            "last_verified":"Oct 12, 2026","exceptions":i==5 ? [["kind":"question","text":"Which category should this receipt use?"]] : []],
+                "next":[stage == "recognized" ? "Approve 1 receipt from this vendor" : "Approve and match one receipt from this vendor."]]
+    }
+    let root:[String:Any] = ["ok":true,"head":"penny","kind":"vendor","generated_at":"2026-10-17T12:00:00Z",
+       "counts":["recognized":21,"identified":7,"understood":6,"mastered":6],"items":vendors]
+    return try! JSONDecoder().decode(KnowledgeResponse.self,from:JSONSerialization.data(withJSONObject:root))
+}
+
+struct KnowledgeRender: View { let response:KnowledgeResponse; var body:some View { ItKnowledgeBrain(response:response) } }
+struct RecognizedTriangleRender: View {
+    var body: some View { ItKnowledgeMark(stage:.recognized,size:96,key:"business-onboarding")
+        .frame(maxWidth:.infinity,minHeight:130) }
+}
+struct OfficeBarRender: View {
+    let members = [
+        ItOfficeMember(id:"ada",name:"Ada",department:"",state:.working),
+        ItOfficeMember(id:"mia",name:"Mia",department:"",state:.idle),
+        ItOfficeMember(id:"otto",name:"Otto",department:"",state:.blocked),
+        ItOfficeMember(id:"charlie",name:"Charlie",department:"",state:.working),
+        ItOfficeMember(id:"penny",name:"Penny",department:"",state:.approval),
+        ItOfficeMember(id:"sam",name:"Sam",department:"",state:.idle),
+        ItOfficeMember(id:"yui",name:"Yui",department:"",state:.working),
+    ]
+    var body: some View { ItOfficeBar(members:members,onSelect:{_ in}) }
+}
+func registryMatch(_ id:String, _ legal:String, operating:[String] = []) -> BusinessRegistryMatch {
+    let o:[String:Any] = ["record_id":id,"legal_name":legal,"operating_names":operating,
+                          "registration_number":"BC1234567","registration_type":"bc_registration",
+                          "legal_structure":"BC Company","status":"Active","jurisdiction":"British Columbia"]
+    return try! JSONDecoder().decode(BusinessRegistryMatch.self,from:JSONSerialization.data(withJSONObject:o))
+}
+struct OnboardingRender:View {
+    let state:ItPennyOnboardingState
+    var busy = false
+    var error:String? = nil
+    var contacts:BusinessContactsState = .idle
+    var body:some View { ItPennyOnboarding(state:state,stage:stage,attribution:"Contains information licensed under the Open Government Licence – British Columbia.",isBusy:busy || state == .searching,canEdit:true,initialName:"Harbour Lawn Care",showsOtherMatches:state.hasSeveral,error:error,contactsState:contacts) }
+    private var stage:KnowledgeStage { if case .confirmed = state { return .identified }; return .recognized }
+}
+private extension ItPennyOnboardingState { var hasSeveral:Bool { if case .several(let matches,_) = self { return matches.count > 1 }; return false } }
+struct KnowledgeDetailRender:View {let vendor:KnowledgeVendor;@Environment(\.it)private var it;var body:some View{VStack(alignment:.leading,spacing:20){HStack{ItKnowledgeMark(stage:vendor.stage,size:40,key:vendor.key);VStack(alignment:.leading){Text(vendor.label).itText(.title22,weight:600);Text(vendor.stage.title).itText(.body14).foregroundStyle(it.meta)}};Group{Text("Receipts processed: \(vendor.evidence.receiptsApproved)");Text("Transactions matched: \(vendor.evidence.transactionsMatched)");Text("Items recognised: \(vendor.evidence.itemsRecognized)");Text("\(vendor.evidence.itemsNew) items new to Penny");Text("92% · 12 decided");Text("Last verified: \(vendor.evidence.lastVerified ?? "Not verified yet")")}.itText(.body14);Text("Open questions").itText(.heading16);Text("No open questions").itText(.body14);if let next=vendor.stage.nextTitle{Text("To reach \(next)").itText(.heading16);ForEach(vendor.next,id:\.self){Text($0).itText(.body14)}};Text("Items").itText(.heading16);item(.mastered,"Fuel · seen 8, confirmed 4");item(.understood,"Blade oil · seen 3, confirmed 1");item(.recognized,"Work gloves · seen 1, confirmed 0")}.padding(16).frame(maxWidth:.infinity,alignment:.leading).background(it.surface,in:RoundedRectangle(cornerRadius:14)).foregroundStyle(it.text)};private func item(_ stage:KnowledgeStage,_ text:String)->some View{HStack{ItKnowledgeMark(stage:stage,size:22,key:text);Text(text).itText(.body14)}}}
 let sampleCharlie = { (withStates: Bool) in
     ItOfficeMember(id: "charlie", name: "Charlie", department: "Chief of Staff", state: withStates ? .working : nil,
                    topItem: "3 decisions held for you", count: 27)
@@ -177,6 +233,22 @@ struct BriefStateCard: View {
 
 @MainActor func run() {
     registerFonts()
+    let one=registryMatch("one","HARBOUR LANDSCAPING LTD.",operating:["Harbour Lawn Care"])
+    let several=[one,registryMatch("two","HARBOUR GARDENS INC."),registryMatch("three","HARBOUR YARD SERVICES LTD.")]
+    let onboarding:[(String,ItPennyOnboardingState)]=[("opening",.opening),("searching",.searching),("one-match-single",.oneMatch(one)),("several",.several(several,selected:nil)),("none-manual",.none(manual:true)),("unavailable",.unavailable)]
+    for (name,state) in onboarding { save(Screen(mode:.light,width:393){OnboardingRender(state:state)},"penny-onboarding-\(name)-393-light") }
+    save(Screen(mode:.light,width:393){OnboardingRender(state:.confirmed(one.legalName),contacts:.loading)},"penny-onboarding-confirm-success-393-light")
+    save(Screen(mode:.light,width:393){OnboardingRender(state:.oneMatch(one),error:"I couldn't save those business details.")},"penny-onboarding-confirm-failure-393-light")
+    let contacts:[BusinessContactSuggestion] = [
+        BusinessContactSuggestion(field:.website,value:"harbourlawn.ca",source:.yourSettings,status:"suggested"),
+        BusinessContactSuggestion(field:.phone,value:"604-555-0142",source:.yourSettings,status:"suggested"),
+        BusinessContactSuggestion(field:.address,value:"42 Harbour Way, Victoria, BC",source:.googlePlaces,status:"suggested")]
+    save(Screen(mode:.light,width:393){OnboardingRender(state:.confirmed(one.legalName),contacts:.available(contacts))},"penny-onboarding-contacts-step-393-light")
+    save(Screen(mode:.dark,width:393){OnboardingRender(state:.oneMatch(one))},"penny-onboarding-one-match-single-393-dark")
+    save(Screen(mode:.light,width:393){RecognizedTriangleRender()},"onboarding-recognized-triangle")
+    for mode in [ItMode.light,.dark] { for width in [375,430] {
+        save(Screen(mode:mode,width:CGFloat(width)){OfficeBarRender()},"office-bar-\(width)-\(mode.rawValue)-mixed")
+    } }
     for m in ItMode.allCases {
         save(Screen(mode: m) { ComponentsSheet() }, "components-\(m.rawValue)")
         for width in [375, 393, 430] {
@@ -189,6 +261,15 @@ struct BriefStateCard: View {
             save(Screen(mode: m, width: CGFloat(width)) { HeadScreen() }
                 .environment(\.dynamicTypeSize, .accessibility3), "head-penny-\(width)-ax3-\(m.rawValue)")
         }
+        if m == .dark { save(Screen(mode:m,width:393){KnowledgeRender(response:sampleKnowledge(40))},"knowledge-brain-40-393-dark") }
+    }
+    for count in [1,6,20,40] { save(Screen(mode:.light,width:393){KnowledgeRender(response:sampleKnowledge(count))},"knowledge-brain-\(count)-393-light") }
+    let detail=sampleKnowledge().items[3]
+    save(Screen(mode:.light,width:393){KnowledgeDetailRender(vendor:detail)},"knowledge-detail-393-light")
+    // Machado 2009, severity 1.0, applied pixel-by-pixel to the light brain.
+    let cvd:[String:[[Double]]]=["protanopia":[[0.152286,1.052583,-0.204868],[0.114503,0.786281,0.099216],[-0.003882,-0.048116,1.051998]],"deuteranopia":[[0.367322,0.860646,-0.227968],[0.280085,0.672501,0.047413],[-0.011820,0.042940,0.968881]],"tritanopia":[[1.255528,-0.076749,-0.178779],[-0.078411,0.930809,0.147602],[0.004733,0.691367,0.303900]]]
+    for (kind,matrix) in cvd {
+        let name="knowledge-brain-40-393-light-\(kind)";save(Screen(mode:.light,width:393){KnowledgeRender(response:sampleKnowledge(40))},name);applyCVD(name,matrix:matrix)
     }
     save(Screen(mode: .light) { OfficeScreen(withStates: true) }, "office-light-with-states")
     let states: [(String, ItLoadState)] = [("loading", .loading), ("offline", .offline("8:42 AM")),

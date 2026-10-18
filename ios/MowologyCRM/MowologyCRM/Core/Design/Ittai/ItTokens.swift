@@ -18,6 +18,9 @@ enum ItTokenHex {
         .tenant: 0x1B5F3C,
         .onTenant: 0xFFFFFF,
         .brand: 0x233A5E,
+        .knowledgeDiscovered: 0x233A5E,
+        .knowledgeUnderstood: 0x3B5BC4,
+        .knowledgeMastered: 0xA8843A,
         .statusComplete: 0x1B5F3C,
         .statusAttention: 0x84530F,
         .statusBlocked: 0xA12C1F,
@@ -47,6 +50,9 @@ enum ItTokenHex {
         .tenant: 0x5AB080,
         .onTenant: 0x0F1512,
         .brand: 0xA9B9DA,
+        .knowledgeDiscovered: 0xA9B9DA,
+        .knowledgeUnderstood: 0x8FA8F0,
+        .knowledgeMastered: 0xC9A65A,
         .statusComplete: 0x5AB080,
         .statusAttention: 0xDDA853,
         .statusBlocked: 0xEC8B7D,
@@ -76,6 +82,9 @@ enum ItTokenHex {
         .tenant: 0x1B5F3C,
         .onTenant: 0xFFFFFF,
         .brand: 0x233A5E,
+        .knowledgeDiscovered: 0x233A5E,
+        .knowledgeUnderstood: 0x3B5BC4,
+        .knowledgeMastered: 0xA8843A,
         .statusComplete: 0x1B5F3C,
         .statusAttention: 0x6E4500,
         .statusBlocked: 0x8A2418,
@@ -118,6 +127,12 @@ enum ItColorToken: String, CaseIterable {
     case onTenant = "on-tenant"
     /// Ittai indigo. Brand moments only: wordmark, symbol, sign-in, marketing. Never inside working screens.
     case brand = "brand"
+    /// Knowledge brain only. Discovered triangle outline; never an operational status colour.
+    case knowledgeDiscovered = "knowledge-discovered"
+    /// Knowledge brain only. Understood triangle fill; never an operational status colour.
+    case knowledgeUnderstood = "knowledge-understood"
+    /// Knowledge brain only. Mastered triangle fill with an inner page-colour keyline; never an operational status colour.
+    case knowledgeMastered = "knowledge-mastered"
     /// Work status: complete. Paired with the solid check icon.
     case statusComplete = "status-complete"
     /// Work status: needs attention. Paired with the triangle icon. 6.5:1 (light), 7.9:1 (dark).

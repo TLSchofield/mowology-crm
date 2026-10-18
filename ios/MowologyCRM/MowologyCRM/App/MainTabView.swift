@@ -8,6 +8,33 @@
 import SwiftUI
 import UIKit
 
+@MainActor
+final class ReadyBriefStore: ObservableObject {
+    @Published private(set) var response: HeadCardResponse?
+    @Published private(set) var loaded = false
+    @Published private(set) var failed = false
+    @Published private(set) var updatedAt: Date?
+    private var refreshTask: Task<Void, Never>?
+
+    func refresh(authSession: AuthSession, force: Bool = false) async {
+        if let refreshTask { await refreshTask.value; return }
+        guard force || !loaded || failed else { return }
+        let task = Task { @MainActor in
+            failed = false
+            do {
+                let value: HeadCardResponse = try await APIClient(authSession: authSession)
+                    .request(.teamHeadBriefReady(head: "charlie"))
+                if value.ok { response = value; updatedAt = Date() }
+                else { failed = true }
+            } catch { failed = true }
+            loaded = true
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+}
+
 struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
@@ -15,6 +42,9 @@ struct MainTabView: View {
     /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var readyBriefStore = ReadyBriefStore()
+    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
     /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
     /// thumb reaches it, then the occasional Receipts, and Account last by convention.
@@ -52,7 +82,7 @@ struct MainTabView: View {
             // Admins: Team (department heads + Penny's receipt card, with the profile
             // row and Sign Out moved in). Everyone else: the Account tab, unchanged.
             if authSession.user?.isAdmin == true {
-                TeamView(authSession: authSession)
+                TeamView(authSession: authSession, readyBriefStore: readyBriefStore)
                     .tabItem {
                         Label("AI Office", uiImage: AI_OfficeTabIcon.image)
                     }
@@ -66,6 +96,23 @@ struct MainTabView: View {
             }
         }
         .tint(Color.MW.green)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if authSession.user?.isAdmin == true && ittaiDesignEnabled {
+                ItOfficeBar(members: officeBarMembers,
+                            connectionUnavailable: readyBriefStore.failed,
+                            portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
+                                ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
+                    selectedTab = .account
+                    notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
+                }
+                .ittaiTheme(field: ittaiFieldEnabled)
+            }
+        }
+        .task {
+            if authSession.user?.isAdmin == true && ittaiDesignEnabled {
+                await readyBriefStore.refresh(authSession: authSession)
+            }
+        }
         .sheet(item: $pullForward.offer, onDismiss: { pullForward.sheetDismissed() }) { offer in
             PullForwardSheet(coordinator: pullForward, offer: offer)
         }
@@ -96,6 +143,21 @@ struct MainTabView: View {
         // TeamView consumes the route and shows that head's card. Admins only have Team.
         .onChange(of: notificationRouter.pendingHead) { _, head in
             if head != nil { openTeamForHead() }
+        }
+        .onChange(of: ittaiDesignEnabled) { _, enabled in
+            if enabled { Task { await readyBriefStore.refresh(authSession: authSession, force: true) } }
+        }
+    }
+
+    private var officeBarMembers: [ItOfficeMember] {
+        let order = [("ada", "Ada"), ("mia", "Mia"), ("otto", "Otto"), ("charlie", "Charlie"),
+                     ("penny", "Penny"), ("sam", "Sam"), ("yui", "Yui")]
+        return order.map { slug, name in
+            let report = readyBriefStore.response?.heads?[slug]
+            return ItOfficeMember(id: slug, name: name, department: "",
+                                  state: report?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                                  stateReason: report?.reason, loaded: readyBriefStore.loaded,
+                                  loadFailed: readyBriefStore.failed, available: slug != "ada")
         }
     }
 

@@ -1,80 +1,62 @@
-# Mowology iOS App
+# Mowology iOS app
 
-Native SwiftUI app for field staff and admin. v1 covers schedule/calendar only.
+Native SwiftUI iPhone app for iOS 17+, with schedule and job work, photos, time clock,
+receipts, search, and an admin-only AI Office. The API uses Bearer authentication
+against `https://mowology.ca/api`.
 
-## Requirements
+## Source and project
 
-- Xcode 15+
-- iOS 17+ simulator or device
-- Apple Developer account (for device testing / App Store)
+The app is in `ios/MowologyCRM/MowologyCRM/`. `Core/` contains networking, models,
+authentication, location, offline queues, and shared design components; `Features/`
+contains screens and their view models.
 
-## Setup
+The committed Xcode project is what CI builds. `project.yml` describes its settings,
+but CI does not regenerate the project. Register a new Swift file with:
 
-### Option A — XcodeGen (recommended, keeps `.xcodeproj` out of git)
-
-```bash
-brew install xcodegen
-cd ios/MowologyCRM
-xcodegen generate
-open MowologyCRM.xcodeproj
+```sh
+python3 ios/add_swift_file.py ios/MowologyCRM/MowologyCRM/path/NewFile.swift
 ```
 
-### Option B — Manual Xcode project
+Keep the marketing version in both `project.yml` and the Xcode project consistent.
+Do not edit generated `Core/Design/Ittai/ItTokens.swift` directly; regenerate it with
+`node scripts/ittai-swift-tokens.mjs` after editing the source design tokens.
 
-1. Open Xcode → File → New → Project → iOS → App
-2. Product Name: `MowologyCRM`, Bundle ID: `ca.mowology.crm-field`
-3. Interface: SwiftUI, Language: Swift, minimum iOS 17
-4. Replace the generated source files with the files in `MowologyCRM/`
-5. Add all Swift files from the directory structure below
+## Checks
 
-## Project Structure
+Run from the repository/worktree root:
 
-```
-MowologyCRM/
-├── App/
-│   ├── MowologyCRMApp.swift      @main entry point
-│   └── RootView.swift             Login ↔ Schedule gate
-├── Core/
-│   ├── Models/
-│   │   ├── User.swift
-│   │   ├── ScheduleDay.swift      Week strip model
-│   │   ├── Stop.swift             Calendar stop + visits
-│   │   └── Visit.swift            Job visit
-│   ├── Auth/
-│   │   ├── KeychainStore.swift    JWT token storage
-│   │   └── AuthSession.swift      Login state (ObservableObject)
-│   └── Network/
-│       ├── APIClient.swift        URLSession + Bearer auth
-│       ├── APIEndpoints.swift     Endpoint definitions
-│       └── APIError.swift         Error types
-├── Features/
-│   ├── Auth/
-│   │   ├── LoginView.swift
-│   │   └── LoginViewModel.swift
-│   └── Schedule/
-│       ├── ScheduleView.swift     Root (week strip + day list)
-│       ├── WeekStripView.swift    7-day date chip strip
-│       ├── DayListView.swift      Scrollable stop list
-│       ├── StopCardView.swift     Individual stop card
-│       ├── VisitDetailView.swift  Full stop + map detail
-│       └── ScheduleViewModel.swift
-└── Resources/
-    ├── Info.plist
-    └── Assets.xcassets/           (create in Xcode — add AppIcon)
+```sh
+bash ios/LogicTests/run.sh
+bash ios/DesignRender/run.sh /tmp/ittai-ios-render
+vendor/bin/phpunit
 ```
 
-## API Endpoints (production)
+The Swift checks cover camera logic, Ittai contrast and geometry, and business setup
+using a fake transport. The renderer compiles the actual shared views on the Mac
+and produces PNGs, including large-text samples. These checks do not replace an
+iOS build or testing the app on a phone.
 
-| Endpoint | Auth | Purpose |
-|----------|------|---------|
-| `POST /api/auth/token.php` | None | Get JWT token |
-| `GET /api/schedule/day?date=YYYY-MM-DD` | Bearer | Day's stops |
-| `GET /api/schedule/week?start=YYYY-MM-DD` | Bearer | Week summary |
+## TestFlight release
 
-## Next Steps (v2)
+As verified on 2026-10-17, the active pipeline is **Xcode Cloud**. Builds 268–270
+successfully built the Ittai commits pushed to `feature/language`. The older manual
+GitHub Actions workflow remains in the repository but is not the active route.
 
-- Job check-in / check-out (time clock)
-- Photo capture + upload on visit completion
-- Push notifications (APNs) for new job assignments
-- Offline persistence with SwiftData
-- Refresh token support
+1. Review and check the release in its worktree. Confirm backend dependencies are
+   deployed before enabling new API features. Business setup requires the deployed
+   business-identity endpoint and migration 1373; if unavailable, the app shows an
+   unavailable state and does not offer writes. Contact suggestions are read-only.
+2. Commit the reviewed files and fetch `origin/feature/language`. Reconcile any new
+   commits without overwriting them. Push explicitly with
+   `git push origin HEAD:feature/language` (the local branch name may differ).
+3. Check Xcode Cloud. Use the existing `~/.claude/scripts/appstore-cloud.py` with the
+   project's gitignored `.appstore-cloud.json` configuration; never copy credentials
+   into a tracked file. Its `builds`, `show`, and `testflight` commands are read-only.
+4. If no build starts, use `trigger --branch feature/language`. Do not also launch
+   the GitHub Actions workflow for the same release.
+5. Confirm the run's commit matches the release, archive/distribution succeed, and
+   the uploaded build finishes TestFlight processing. A successful archive alone is
+   not proof of TestFlight availability. Xcode Cloud supplies its own build number.
+
+In the app, **AI Office → Try the new design** enables the Ittai screens for admins.
+The design remains off by default. Field mode selects the outdoor palette.

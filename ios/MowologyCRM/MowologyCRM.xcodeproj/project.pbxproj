@@ -140,6 +140,13 @@
 		4B0835006C02773D601C1CB0 /* ItHexagon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132ECF1C1280D3FC8C80631F /* ItHexagon.swift */; };
 		1A6F4DB6305825274EDD4B6C /* ItAIOffice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */; };
 		36052CCBE7982701576AF06D /* ItFontRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */; };
+		6E74C863A58D217719E2618F /* KnowledgeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5177F1C8674CC7A5FEEDCBA /* KnowledgeModels.swift */; };
+		39179B91041828FB2A84EB1C /* KnowledgeAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8E36570080B9C5C39E87B6 /* KnowledgeAPI.swift */; };
+		5AC27DE76FA99EDF13D98387 /* ItKnowledgeGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5588C5DCBE6D32EB5F4A6DFF /* ItKnowledgeGeometry.swift */; };
+		54F8E23780A760B5B97D7577 /* ItKnowledgeBrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A8299D43BF00A43B91CB36 /* ItKnowledgeBrain.swift */; };
+		3D8FD989977B486AC9DEE6B9 /* BusinessIdentityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */; };
+		1F026EAD7B0D1581BE102C7C /* ItPennyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */; };
+		11C338527154C87158D3B049 /* BusinessIdentityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -278,6 +285,13 @@
 		132ECF1C1280D3FC8C80631F /* ItHexagon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItHexagon.swift; sourceTree = "<group>"; };
 		47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItAIOffice.swift; sourceTree = "<group>"; };
 		89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItFontRegistry.swift; sourceTree = "<group>"; };
+		B5177F1C8674CC7A5FEEDCBA /* KnowledgeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeModels.swift; sourceTree = "<group>"; };
+		5F8E36570080B9C5C39E87B6 /* KnowledgeAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeAPI.swift; sourceTree = "<group>"; };
+		5588C5DCBE6D32EB5F4A6DFF /* ItKnowledgeGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItKnowledgeGeometry.swift; sourceTree = "<group>"; };
+		49A8299D43BF00A43B91CB36 /* ItKnowledgeBrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItKnowledgeBrain.swift; sourceTree = "<group>"; };
+		6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusinessIdentityModels.swift; sourceTree = "<group>"; };
+		E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItPennyOnboarding.swift; sourceTree = "<group>"; };
+		061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusinessIdentityViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -318,6 +332,7 @@
 				A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */,
 				6D504DC78E053FE292176721 /* DeviceTokenService.swift */,
 				BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */,
+				5F8E36570080B9C5C39E87B6 /* KnowledgeAPI.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -500,6 +515,8 @@
 				03342870F9E7D7D62276A2FF /* LabelCaptureResponse.swift */,
 				5176DEFAC3397210A09818BD /* UnbilledWorkModels.swift */,
 				1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */,
+				B5177F1C8674CC7A5FEEDCBA /* KnowledgeModels.swift */,
+				6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -557,6 +574,7 @@
 				877447E5D708DFC06B44A06C /* OttoSuggestionViews.swift */,
 				8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */,
 				6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */,
+				061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -594,6 +612,9 @@
 				132ECF1C1280D3FC8C80631F /* ItHexagon.swift */,
 				47B01FBEF01794D461E2FD49 /* ItAIOffice.swift */,
 				89CC4B85DDAF324DCF37057F /* ItFontRegistry.swift */,
+				5588C5DCBE6D32EB5F4A6DFF /* ItKnowledgeGeometry.swift */,
+				49A8299D43BF00A43B91CB36 /* ItKnowledgeBrain.swift */,
+				E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */,
 			);
 			path = Ittai;
 			sourceTree = "<group>";
@@ -796,6 +817,13 @@
 				4B0835006C02773D601C1CB0 /* ItHexagon.swift in Sources */,
 				1A6F4DB6305825274EDD4B6C /* ItAIOffice.swift in Sources */,
 				36052CCBE7982701576AF06D /* ItFontRegistry.swift in Sources */,
+				6E74C863A58D217719E2618F /* KnowledgeModels.swift in Sources */,
+				39179B91041828FB2A84EB1C /* KnowledgeAPI.swift in Sources */,
+				5AC27DE76FA99EDF13D98387 /* ItKnowledgeGeometry.swift in Sources */,
+				54F8E23780A760B5B97D7577 /* ItKnowledgeBrain.swift in Sources */,
+				3D8FD989977B486AC9DEE6B9 /* BusinessIdentityModels.swift in Sources */,
+				1F026EAD7B0D1581BE102C7C /* ItPennyOnboarding.swift in Sources */,
+				11C338527154C87158D3B049 /* BusinessIdentityViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -869,7 +897,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.47;
+				MARKETING_VERSION = 1.3.48;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -955,7 +983,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.47;
+				MARKETING_VERSION = 1.3.48;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

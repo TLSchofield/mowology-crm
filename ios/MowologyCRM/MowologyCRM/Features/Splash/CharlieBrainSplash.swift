@@ -156,6 +156,8 @@ struct BrainShape {
     }
 }
 
+#if !KNOWLEDGE_GEOMETRY_ONLY
+
 // MARK: - Tier materials (head-brain.js TIERS)
 
 private struct BrainTier {
@@ -351,3 +353,4 @@ struct CharlieBrainSplash: View {
         }
     }
 }
+#endif

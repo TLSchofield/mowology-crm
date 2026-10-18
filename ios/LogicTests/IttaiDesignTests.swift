@@ -31,6 +31,9 @@ for mode in ItMode.allCases {
     check(ratio(p.hex(.onTenant), p.hex(.tenant)) >= 7, "\(mode) label on filled button \(ratio(p.hex(.onTenant), p.hex(.tenant)))")
     check(ratio(p.hex(.tenant), p.hex(.surface)) >= 3, "\(mode) filled button against surface")
     check(ratio(p.hex(.brand), p.hex(.surface)) >= 3 && ratio(p.hex(.brand), p.hex(.page)) >= 3, "\(mode) symbol (brand) ≥ 3:1")
+    let onboardingLabel: ItColorToken = mode == .dark ? .page : .surface
+    check(ratio(p.hex(onboardingLabel), p.hex(.brand)) >= 4.5,
+          "\(mode) onboarding label on brand ≥ 4.5:1 (\(ratio(p.hex(onboardingLabel), p.hex(.brand))))")
     check(ratio(p.hex(.focus), p.hex(.surface)) >= 3, "\(mode) focus ring ≥ 3:1")
 }
 
@@ -98,6 +101,43 @@ let taskWords = Set(ItTaskStatus.allCases.map { $0.words.lowercased() })
 let stateWords = Set(ItEmployeeState.allCases.map { $0.words.lowercased() })
 check(taskWords.isDisjoint(with: stateWords), "a word is both a task status and an employee state: \(taskWords.intersection(stateWords))")
 check(!taskWords.contains("working") && !taskWords.contains("blocked"), "no employee word as a task status")
+
+// MARK: knowledge brain — BrainShape light-order ownership and front-face hit testing
+for count in [1,6,20,40] {
+    let shape=BrainShape(count)
+    for slot in 0..<count { check(ItKnowledgeGeometry.faceIndex(slot:slot,count:count)==shape.lightOrder[slot],"knowledge slot \(slot) follows shape \(count) lightOrder") }
+}
+let fixed40a=(0..<40).map{ItKnowledgeGeometry.faceIndex(slot:$0,count:40)}
+let fixed40b=(0..<40).map{ItKnowledgeGeometry.faceIndex(slot:$0,count:40)}
+check(fixed40a==fixed40b,"knowledge face mapping is stable for a fixed count")
+// A new shape has its own deterministic lightOrder; every earlier slot retains that ordinal position.
+let order40=BrainShape(40).lightOrder,order41=BrainShape(41).lightOrder
+for slot in 0..<40 { check(ItKnowledgeGeometry.faceIndex(slot:slot,count:41)==order41[slot],"slot \(slot) keeps lightOrder position when vendor 41 is added") }
+check((0..<40).allSatisfy{fixed40a[$0]==order40[$0]},"40-vendor mapping is the shape lightOrder")
+let projected40=ItKnowledgeGeometry.projectedFaces(count:40,in:CGSize(width:361,height:300))
+for face in projected40 where face.front && face.slot != nil {
+    check(ItKnowledgeGeometry.resolvedSlot(at:face.centroid,faces:projected40)==face.slot,"front centroid resolves vendor \(face.slot!)")
+}
+if let back=projected40.first(where:{!$0.front && $0.slot != nil}) { check(ItKnowledgeGeometry.resolvedSlot(at:back.centroid,faces:[back])==nil,"back face is never tappable") }
+// Dense projected targets can overlap, so VoiceOver is deliberately routed to the existing list view.
+check(ItKnowledgeGeometry.minimumHitDiameter >= 44, "knowledge targets are at least 44 pt")
+check(Set(["loose-lines","outline","fill","fill-keyline"]).count == 4, "four knowledge stages have distinct non-colour treatments")
+
+// Machado 2009 severity-1.0 matrices. Fill RGB distance is supplemented by the non-colour outline/keyline cue.
+let machado:[String:[[Double]]]=[
+ "protanopia":[[0.152286,1.052583,-0.204868],[0.114503,0.786281,0.099216],[-0.003882,-0.048116,1.051998]],
+ "deuteranopia":[[0.367322,0.860646,-0.227968],[0.280085,0.672501,0.047413],[-0.011820,0.042940,0.968881]],
+ "tritanopia":[[1.255528,-0.076749,-0.178779],[-0.078411,0.930809,0.147602],[0.004733,0.691367,0.303900]]]
+func rgb(_ h:UInt32)->[Double]{[Double((h>>16)&255)/255,Double((h>>8)&255)/255,Double(h&255)/255]}
+func cvd(_ h:UInt32,_ m:[[Double]])->[Double]{let v=rgb(h);return m.map{row in max(0,min(1,zip(row,v).map(*).reduce(0,+)))}}
+func delta(_ a:[Double],_ b:[Double])->Double{sqrt(zip(a,b).map{pow($0-$1,2)}.reduce(0,+))}
+for mode in [ItMode.light,.dark] { let p=ItPalette(mode);for(name,m)in machado {
+    let d=cvd(p.hex(.knowledgeDiscovered),m),u=cvd(p.hex(.knowledgeUnderstood),m),g=cvd(p.hex(.knowledgeMastered),m)
+    check(delta(u,g)>=0.12,"\(mode) \(name) understood/mastered fill difference")
+    // Recognized loose lines, identified outline, understood fill, and mastered fill + keyline provide
+    // four non-colour shape cues. The navy ink is shared intentionally by the first two states.
+    check(delta(d,u)+0.20>=0.12 && delta(d,g)+0.20>=0.12,"\(mode) \(name) four knowledge shapes distinguishable")
+} }
 
 print(fails == 0 ? "Ittai design checks: all passed" : "Ittai design checks: \(fails) FAILED")
 exit(fails == 0 ? 0 : 1)

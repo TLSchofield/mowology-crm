@@ -66,9 +66,11 @@ struct TeamView: View {
     }()
 
     @ObservedObject var authSession: AuthSession
+    @ObservedObject var readyBriefStore: ReadyBriefStore
     @StateObject private var penny: PennyCardViewModel
     /// Penny's missing-receipt chaser — everyone's open items + Reassign (penny-chase-mobile).
     @StateObject private var chase: PennyChaseViewModel
+    @StateObject private var businessIdentity: BusinessIdentityViewModel
     @StateObject private var sam: SamCardViewModel
     @StateObject private var otto: HeadCardViewModel
     @StateObject private var mia: HeadCardViewModel
@@ -98,15 +100,17 @@ struct TeamView: View {
     @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
-    init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
+    init(authSession: AuthSession, readyBriefStore: ReadyBriefStore, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
          showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
+        self.readyBriefStore = readyBriefStore
         self.showsAccount = showsAccount
         let client = APIClient(authSession: authSession)
         let deskAPI = api ?? LiveBookkeeperDeskAPI(client: client)
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
         _chase = StateObject(wrappedValue: PennyChaseViewModel(api: chaseAPI ?? LivePennyChaseAPI(client: client)))
+        _businessIdentity = StateObject(wrappedValue: BusinessIdentityViewModel(api: LiveBusinessIdentityAPI(client: client)))
         _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
         let heads = teamAPI ?? LiveTeamHeadAPI(client: client)
         _otto = StateObject(wrappedValue: HeadCardViewModel(head: "otto", api: heads, geocoder: geocoder))
@@ -208,6 +212,8 @@ struct TeamView: View {
             }
             .navigationDestination(for: String.self) { slug in
                 ItWorkspaceView(
+                    authSession: authSession,
+                    businessIdentity: businessIdentity,
                     member: officeMemberForWorkspace(slug),
                     archetype: archetype(slug),
                     intro: intro(slug),
@@ -482,21 +488,15 @@ struct TeamView: View {
         guard showsAccount else { return }
         readyBriefLoaded = false
         readyBriefFailed = false
-        do {
-            let response: HeadCardResponse = try await APIClient(authSession: authSession)
-                .request(.teamHeadBriefReady(head: "charlie"))
-            if response.ok {
+        await readyBriefStore.refresh(authSession: authSession)
+        if let response = readyBriefStore.response {
                 readyBrief = response
-                readyBriefTime = Date()
-                let snapshot = ReadyBriefSnapshot(response: response, savedAt: Date())
+                readyBriefTime = readyBriefStore.updatedAt
+                let snapshot = ReadyBriefSnapshot(response: response, savedAt: readyBriefStore.updatedAt ?? Date())
                 cachedBrief = snapshot
                 snapshot.save()
-            } else {
-                readyBriefFailed = true
-            }
-        } catch {
-            readyBriefFailed = true
         }
+        readyBriefFailed = readyBriefStore.failed
         readyBriefLoaded = true
     }
 
@@ -530,6 +530,7 @@ struct TeamView: View {
 
     private func reload() async {
         if ittaiDesignEnabled {
+            await readyBriefStore.refresh(authSession: authSession, force: true)
             await loadReadyBrief()
             await reloadSelected()
             return
@@ -595,6 +596,8 @@ private struct ItPageBackground: View {
 }
 
 private struct ItWorkspaceView<Content: View>: View {
+    let authSession: AuthSession
+    @ObservedObject var businessIdentity: BusinessIdentityViewModel
     let member: ItOfficeMember
     let archetype: String
     let intro: String
@@ -606,6 +609,7 @@ private struct ItWorkspaceView<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.it) private var it
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var knowledgeReloadID = 0
 
     var body: some View {
         ScrollView {
@@ -615,13 +619,80 @@ private struct ItWorkspaceView<Content: View>: View {
                     ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s5)
                 } else {
                     guide
-                    learning
+                    if member.id == "penny" { PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession)))
+                            .id(knowledgeReloadID) }
+                    else { learning }
                     content
+                    onboardingSection
                 }
             }
             .padding(16)
         }
-        .refreshable { await onRefresh() }
+        .refreshable {
+            await onRefresh()
+            if member.id == "penny" {
+                knowledgeReloadID += 1
+                await businessIdentity.load()
+            }
+        }
+        .task { if member.id == "penny" { await businessIdentity.load() } }
+    }
+
+    @ViewBuilder private var onboardingSection: some View {
+        if member.id == "penny" {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
+            Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
+            businessIdentitySection
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var businessIdentitySection: some View {
+        let stage = businessIdentity.current?.knowledge.stage
+        if businessIdentity.current == nil {
+            if businessIdentity.isBusy {
+                ProgressView("Loading business details")
+            } else {
+                Text("Business setup is unavailable right now. Please try again.")
+                    .itText(.body14).foregroundStyle(it.meta)
+                Button("Try again") { Task { await businessIdentity.load() } }
+                    .buttonStyle(.it(.ghost))
+            }
+        } else if businessIdentity.isEditing {
+            onboarding
+        } else if case .confirmed = businessIdentity.state {
+            onboarding
+        } else if businessIdentity.current?.identity == nil || stage == .recognized || businessIdentity.current == nil {
+            onboarding
+        } else if let identity = businessIdentity.current?.identity {
+            ItBusinessIdentityRow(identity: identity,
+                                  canEdit: businessIdentity.current?.canEdit == true,
+                                  onChange: businessIdentity.restart)
+        }
+    }
+
+    private var onboarding: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            ItPennyOnboarding(state: businessIdentity.state,
+                              stage: businessIdentity.current?.knowledge.stage,
+                              attribution: businessIdentity.attribution,
+                              isBusy: businessIdentity.isBusy,
+                              canEdit: businessIdentity.current?.canEdit == true,
+                              initialName: businessIdentity.enteredName,
+                              showsOtherMatches: businessIdentity.hasOtherMatches,
+                              error: businessIdentity.error,
+                              contactsState: businessIdentity.contactsState,
+                              onStart: { value in Task { await businessIdentity.start(value) } },
+                              onRetry: { Task { await businessIdentity.searchAgain() } },
+                              onShowOtherMatches: businessIdentity.showOtherMatches,
+                              onSelect: businessIdentity.select,
+                              onConfirm: { match in Task { await businessIdentity.confirm(match) } },
+                              onManual: { legal, operating, structure, jurisdiction in
+                                  Task { await businessIdentity.manual(legalName: legal, operatingName: operating,
+                                                                       legalStructure: structure, jurisdiction: jurisdiction) }
+                              })
+        }
     }
 
     private var header: some View {
@@ -749,6 +820,42 @@ private struct ItWorkspaceView<Content: View>: View {
         default:
             let noun = item?.url?.lowercased().contains("invoice") == true ? "invoice" : "item"
             return "It opens the \(noun) in the CRM. Nothing is sent to the customer."
+        }
+    }
+}
+
+private struct PennyKnowledgeLiveView: View {
+    let api: KnowledgeAPI
+    @ObservedObject private var connectivity = ConnectivityMonitor.shared
+    @State private var response: KnowledgeResponse?
+    @State private var loading = true
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let response {
+                if response.items.isEmpty {
+                    Text("Penny hasn't met any vendors yet.").itText(.body14)
+                } else {
+                    ItKnowledgeBrain(response: response) { key in
+                        try await api.items(key: key).items
+                    }
+                }
+            } else if loading {
+                ItLoadStateLine(state: .loading)
+            } else if !connectivity.isOnline {
+                Text("You're offline. Penny's knowledge is not saved on this phone.").itText(.body14)
+            } else if failed {
+                ItLoadStateLine(state: .error)
+            }
+        }
+        .task {
+            guard response == nil else { return }
+            loading = true
+            failed = false
+            do { response = try await api.knowledge() }
+            catch { failed = true }
+            loading = false
         }
     }
 }

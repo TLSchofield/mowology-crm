@@ -9,6 +9,83 @@
 
 import SwiftUI
 
+/// Persistent, compact navigation for the seven AI workspaces.
+struct ItOfficeBar: View {
+    let members: [ItOfficeMember]
+    var connectionUnavailable = false
+    var portraitURL: (String) -> URL? = { _ in nil }
+    let onSelect: (String) -> Void
+    @Environment(\.it) private var it
+
+    private let order = ["ada", "mia", "otto", "charlie", "penny", "sam", "yui"]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(order, id: \.self) { slug in
+                if let member = members.first(where: { $0.id == slug }) {
+                    Button { onSelect(slug) } label: { portrait(member) }
+                        .disabled(!member.available)
+                        .buttonStyle(ItOfficeBarButtonStyle(selected: slug == "charlie", selectedColor: it.selected))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel(accessibilityLabel(member))
+                        .accessibilityHint("Opens \(member.name)'s workspace in AI Office")
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+        .frame(height: 52)
+        .background(it.surface)
+        .overlay(alignment: .bottom) { Rectangle().fill(it.line).frame(height: 1) }
+    }
+
+    private func portrait(_ member: ItOfficeMember) -> some View {
+        let state: ItEmployeeState? = connectionUnavailable || !member.available ? .unavailable : member.state
+        let visual: CGFloat = member.id == "charlie" ? 36 : 31
+        return ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                Circle().fill(it.sunk)
+                Text(String(member.name.prefix(1))).itText(.caption12, weight: 600).foregroundStyle(it.meta)
+                if let url = portraitURL(member.id) {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() } else { Color.clear }
+                    }
+                }
+            }
+            .frame(width: visual, height: visual).clipShape(Circle())
+            .overlay {
+                Circle().strokeBorder(member.id == "charlie" ? it.color(.brand) : state.map { it.color($0.token) } ?? it.line,
+                    style: StrokeStyle(lineWidth: member.id == "charlie" ? 2.5 : 1.5,
+                                       dash: state == .idle ? [2.5, 2.5] : (state == .unavailable ? [1, 2] : [])))
+            }
+            if let state {
+                ItIcon(shape: state.icon, size: 9, color: it.color(state.token))
+                    .padding(2).background(it.surface, in: Circle()).offset(x: 2, y: 2)
+            }
+        }
+        .frame(width: 42, height: 42)
+    }
+
+    private func accessibilityLabel(_ member: ItOfficeMember) -> String {
+        if connectionUnavailable { return "\(member.name), connection unavailable" }
+        if !member.available { return "\(member.name), not available on iPhone yet" }
+        if !member.loaded { return "\(member.name), loading" }
+        guard let state = member.state else { return "\(member.name), status not reported" }
+        let words = state == .approval ? "waiting for your approval" : state.words.lowercased()
+        return member.stateReason.map { "\(member.name), \(words), \($0)" } ?? "\(member.name), \(words)"
+    }
+}
+
+private struct ItOfficeBarButtonStyle: ButtonStyle {
+    let selected: Bool
+    let selectedColor: Color
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background((configuration.isPressed || selected) ? selectedColor.opacity(configuration.isPressed ? 0.8 : 0.45) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 struct ItAIOfficeView<Workspace: View>: View {
     let brief: String?
     let briefTime: String?
