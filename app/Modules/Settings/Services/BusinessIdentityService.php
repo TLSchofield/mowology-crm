@@ -27,6 +27,31 @@ final class BusinessIdentityService
     }
     public function search(string $name): array
     { $r=$this->provider->search($name); return ['ok'=>true,'status'=>$r->status,'matches'=>$r->matches,'source'=>'orgbook_bc','attribution'=>self::ATTRIBUTION]; }
+    /** Read tenant-owned contact suggestions only; unavailable settings are an empty list. */
+    public function contacts(): array
+    {
+        try {
+            $s=$this->db->prepare('SELECT company_website, company_phone, company_address FROM business_settings WHERE id = ?');
+            $s->execute([1]);
+            $row=$s->fetch(PDO::FETCH_ASSOC);
+            return self::mapContacts($row?:[]);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+    /** Pure business_settings row-to-contact mapping. */
+    public static function mapContacts(array $row): array
+    {
+        $contacts=[];
+        foreach(['website'=>'company_website','phone'=>'company_phone'] as $field=>$column){
+            $value=trim((string)($row[$column]??''));
+            if($value!=='')$contacts[]=['field'=>$field,'value'=>$value,'source'=>'your_settings','status'=>'suggested'];
+        }
+        $parts=preg_split('/\R/u',(string)($row['company_address']??''))?:[];
+        $parts=array_values(array_filter(array_map('trim',$parts),static function(string $part): bool{return $part!=='';}));
+        if($parts)$contacts[]=['field'=>'address','value'=>implode(', ',$parts),'source'=>'your_settings','status'=>'suggested'];
+        return $contacts;
+    }
     public function start(string $name,bool $canEdit=true): array
     { try{$this->upsert(['entered_name'=>$name,'entered_name_provenance'=>'owner_provided']);}catch(Throwable $e){return $this->databaseFailure($e);} return $this->current($canEdit); }
     public function confirm(string $recordId,bool $canEdit=true): array

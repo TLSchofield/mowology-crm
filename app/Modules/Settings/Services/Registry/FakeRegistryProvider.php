@@ -8,6 +8,7 @@ final class FakeRegistryProvider implements BusinessRegistryProvider
     public RegistrySearch $searchResult;
     /** @var array<string,RegistryRecord> */
     public array $records;
+    public int $searchCount = 0;
     public int $fetchCount = 0;
 
     public function __construct(?RegistrySearch $searchResult = null, array $records = [])
@@ -16,7 +17,7 @@ final class FakeRegistryProvider implements BusinessRegistryProvider
         $this->records = $records;
     }
 
-    public function search(string $name): RegistrySearch { return $this->searchResult; }
+    public function search(string $name): RegistrySearch { $this->searchCount++; return $this->searchResult; }
 
     public function fetch(string $recordId): ?RegistryRecord
     {

@@ -16,6 +16,7 @@ try{
     $db=getDB();$tenantStatement=$db->prepare('SELECT DATABASE()');$tenantStatement->execute();$tenant=(string)$tenantStatement->fetchColumn();$service=new BusinessIdentityService($db,new OrgBookBcProvider($tenant),(int)($user['id']??0));
     $canEdit=$isJwt?jwtUserHasPermission($user,'settings.edit'):userHasPermission('settings.edit');
     if($method==='GET'&&$mode==='current')$result=$service->current($canEdit);
+    elseif($method==='GET'&&$mode==='contacts')$result=['ok'=>true,'contacts'=>$service->contacts(),'google'=>'not_configured'];
     elseif($method==='GET'&&$mode==='search'){$name=trim((string)($_GET['q']??''));validateIdentityText($name,'q',2,120,true);$result=$service->search($name);}
     elseif($method==='POST'&&$mode==='start'){$name=trim((string)($body['name']??''));validateIdentityText($name,'name',2,120,true);$result=$service->start($name,$canEdit);}
     elseif($method==='POST'&&$mode==='confirm'){$id=(string)($body['record_id']??'');if(!preg_match('/^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,119}$/',$id))throw new InvalidArgumentException('Invalid record_id');$result=$service->confirm($id,$canEdit);}

@@ -9,291 +9,226 @@
   var workspace = document.getElementById('itObWorkspace');
   var error = document.getElementById('itObError');
   var knowledge = document.getElementById('itObKnowledge');
-  var stageLabel = document.getElementById('itObStageLabel');
-  var triangle = root.querySelector('.it-ob-triangle');
-  var sides = Array.prototype.slice.call(triangle.querySelectorAll('line'));
   var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   var identity = null;
-  var currentStage = null;
   var enteredName = '';
   var matches = [];
-  var animationFrame = 0;
-  var locked = false;
-  var endpoints = [
-    [36, 10, 63, 57],
-    [63, 57, 9, 57],
-    [9, 57, 36, 10]
-  ];
-  var chaos = [
-    [29, 24, -12, 1.1, .2],
-    [40, 52, 8, .8, 2.3],
-    [26, 43, -9, 1.25, 4.4]
-  ];
 
-  function esc(value) {
-    var node = document.createElement('div');
-    node.textContent = value == null ? '' : String(value);
-    return node.innerHTML;
+  function KnowledgeGlyph(element, options) {
+    options = options || {};
+    this.element = element;
+    this.reducedMotion = !!options.reducedMotion;
+    this.state = null;
+    this.previousState = null;
+    this.frame = 0;
+    this.endpoints = [[36, 10, 63, 57], [63, 57, 9, 57], [9, 57, 36, 10]];
+    // Recognized = three separate pieces of the triangle: each side shortened to 70%, pushed out from the centre and turned a
+    // little, so they never cross or meet (owner, 2026-10-17). [outward push, tangential shift, degrees, drift amplitude, phase]
+    this.chaos = [[0.38, 2.5, -12, 1.1, .2], [0.42, -3, 9, .8, 2.3], [0.36, 2, -10, 1.25, 4.4]];
+    element.innerHTML = '<svg class="it-ob-triangle" viewBox="0 0 72 72" role="img"><title></title><path class="it-ob-triangle-fill" d="M36 10 L63 57 L9 57 Z"></path><line x1="36" y1="10" x2="63" y2="57"></line><line x1="63" y1="57" x2="9" y2="57"></line><line x1="9" y1="57" x2="36" y2="10"></line></svg>';
+    this.svg = element.querySelector('svg');
+    this.title = element.querySelector('title');
+    this.sides = Array.prototype.slice.call(element.querySelectorAll('line'));
   }
-  function escAttr(value) {
-    return esc(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
+  KnowledgeGlyph.prototype.coords = function (side, values) {
+    side.setAttribute('x1', values[0]); side.setAttribute('y1', values[1]);
+    side.setAttribute('x2', values[2]); side.setAttribute('y2', values[3]);
+  };
+  KnowledgeGlyph.prototype.loose = function (i, time) {
+    var c = this.chaos[i]; var e = this.endpoints[i];
+    var cx = 36, cy = 41.33;                                   // the triangle's centroid
+    var mx = (e[0] + e[2]) / 2, my = (e[1] + e[3]) / 2;        // this side's midpoint
+    var dx = e[2] - e[0], dy = e[3] - e[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+    var x = mx + (mx - cx) * c[0] + ux * c[1] + Math.sin(time * .0007 + c[4]) * c[3] * 0.5;
+    var y = my + (my - cy) * c[0] + uy * c[1] + Math.cos(time * .0009 + c[4]) * c[3] * 0.5;
+    var angle = Math.atan2(dy, dx) + c[2] * Math.PI / 180 + Math.sin(time * .0005 + c[4]) * .02;
+    var half = len * 0.35;
+    return [x - Math.cos(angle) * half, y - Math.sin(angle) * half, x + Math.cos(angle) * half, y + Math.sin(angle) * half];
+  };
+  KnowledgeGlyph.prototype.drift = function () {
+    var glyph = this;
+    window.cancelAnimationFrame(this.frame);
+    function draw(time) {
+      if (glyph.state !== 'recognized' || glyph.reducedMotion) return;
+      glyph.sides.forEach(function (side, i) { glyph.coords(side, glyph.loose(i, time)); });
+      glyph.frame = window.requestAnimationFrame(draw);
+    }
+    if (this.reducedMotion) this.sides.forEach(function (side, i) { glyph.coords(side, glyph.loose(i, 0)); });
+    else this.frame = window.requestAnimationFrame(draw);
+  };
+  KnowledgeGlyph.prototype.setState = function (state, animate) {
+    var glyph = this;
+    var descriptions = { recognized: 'Business identity recognized.', identified: 'Business identity identified.', understood: 'Business identity understood.', mastered: 'Business identity mastered.' };
+    window.cancelAnimationFrame(this.frame);
+    this.previousState = this.state;
+    this.state = state || null;
+    this.element.hidden = !descriptions[state];
+    if (!descriptions[state]) return Promise.resolve();
+    this.title.textContent = descriptions[state];
+    this.svg.setAttribute('aria-label', descriptions[state]);
+    this.svg.classList.toggle('it-ob-understood', state === 'understood' || state === 'mastered');
+    if (state === 'recognized') { this.drift(); return Promise.resolve(); }
+    var starts = this.sides.map(function (side) { return ['x1', 'y1', 'x2', 'y2'].map(function (a) { return parseFloat(side.getAttribute(a)); }); });
+    if (!animate || this.reducedMotion || this.previousState === state) {
+      this.sides.forEach(function (side, i) { glyph.coords(side, glyph.endpoints[i]); });
+      return Promise.resolve();
+    }
+    return new Promise(function (resolve) {
+      var begun;
+      function draw(now) {
+        if (!begun) begun = now;
+        var progress = Math.min(1, (now - begun) / 1200);
+        var eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        glyph.sides.forEach(function (side, i) { glyph.coords(side, starts[i].map(function (v, j) { return v + (glyph.endpoints[i][j] - v) * eased; })); });
+        if (progress < 1) glyph.frame = window.requestAnimationFrame(draw);
+        else resolve();
+      }
+      glyph.frame = window.requestAnimationFrame(draw);
+    });
+  };
 
+  var glyph = new KnowledgeGlyph(knowledge, { reducedMotion: reduced });
+
+  function esc(value) { var node = document.createElement('div'); node.textContent = value == null ? '' : String(value); return node.innerHTML; }
+  function escAttr(value) { return esc(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   function setLine(message) { line.textContent = message; }
-  function setError(message) {
-    error.textContent = message || '';
-    error.hidden = !message;
-  }
-  function focusFirst() {
-    var target = workspace.querySelector('input, select, button');
-    if (target) target.focus();
-  }
-  function busy(on) {
-    Array.prototype.forEach.call(workspace.querySelectorAll('button, input, select'), function (el) { el.disabled = on; });
-  }
+  function setError(message) { error.textContent = message || ''; error.hidden = !message; }
+  function focusFirst() { var target = workspace.querySelector('input, select, button'); if (target) target.focus(); }
+  function busy(on) { Array.prototype.forEach.call(workspace.querySelectorAll('button, input, select'), function (el) { el.disabled = on; }); }
   function calmError(err) {
     if (err && err.status === 403) return 'You do not have permission to change this business identity.';
     if (err && err.status === 401) return 'Your session has ended. Please sign in again.';
-    if (err && err.message) return err.message;
-    return 'Something interrupted that request. Please try again.';
+    return 'I couldn\'t save that just now.';
   }
   function api(mode, options) {
-    options = options || {};
-    var method = options.method || 'GET';
-    var url = API + '?mode=' + encodeURIComponent(mode);
+    options = options || {}; var method = options.method || 'GET'; var url = API + '?mode=' + encodeURIComponent(mode);
     if (options.query) url += '&' + new URLSearchParams(options.query).toString();
     var headers = { Accept: 'application/json' };
-    if (method === 'POST') {
-      headers['Content-Type'] = 'application/json';
-      headers['X-CSRF-Token'] = csrf;
-    }
-    return fetch(url, { method: method, credentials: 'same-origin', headers: headers, body: options.body ? JSON.stringify(options.body) : undefined })
-      .then(function (response) {
-        return response.json().catch(function () { return {}; }).then(function (data) {
-          if (!response.ok || data.ok === false) {
-            var requestError = new Error(data.message || data.error || 'I could not save that just now. Please try again.');
-            requestError.status = response.status;
-            throw requestError;
-          }
-          return data;
-        });
+    if (method === 'POST') { headers['Content-Type'] = 'application/json'; headers['X-CSRF-Token'] = csrf; }
+    return fetch(url, { method: method, credentials: 'same-origin', headers: headers, body: options.body ? JSON.stringify(options.body) : undefined }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (!response.ok || data.ok === false) { var requestError = new Error(data.message || data.error || 'Request failed'); requestError.status = response.status; throw requestError; }
+        return data;
       });
-  }
-
-  function setLineCoords(side, values) {
-    side.setAttribute('x1', values[0]); side.setAttribute('y1', values[1]);
-    side.setAttribute('x2', values[2]); side.setAttribute('y2', values[3]);
-  }
-  function looseCoords(i, time) {
-    var c = chaos[i];
-    var e = endpoints[i];
-    var length = Math.hypot(e[2] - e[0], e[3] - e[1]);
-    var baseAngle = Math.atan2(e[3] - e[1], e[2] - e[0]);
-    var x = c[0] + Math.sin(time * .0007 + c[4]) * c[3];
-    var y = c[1] + Math.cos(time * .0009 + c[4]) * c[3];
-    var angle = baseAngle + c[2] * Math.PI / 180 + Math.sin(time * .0005 + c[4]) * .025;
-    var dx = Math.cos(angle) * length / 2;
-    var dy = Math.sin(angle) * length / 2;
-    return [x - dx, y - dy, x + dx, y + dy];
-  }
-  function drift(time) {
-    if (locked || reduced) return;
-    sides.forEach(function (side, i) { setLineCoords(side, looseCoords(i, time)); });
-    animationFrame = window.requestAnimationFrame(drift);
-  }
-  function beginDrift() {
-    locked = false;
-    triangle.classList.remove('it-ob-understood');
-    window.cancelAnimationFrame(animationFrame);
-    if (reduced) {
-      sides.forEach(function (side, i) { setLineCoords(side, looseCoords(i, 0)); });
-      return;
-    }
-    animationFrame = window.requestAnimationFrame(drift);
-  }
-  function lockTriangle(fill, animate) {
-    locked = true;
-    window.cancelAnimationFrame(animationFrame);
-    var starts = sides.map(function (side) {
-      return ['x1', 'y1', 'x2', 'y2'].map(function (attr) { return parseFloat(side.getAttribute(attr)); });
     });
-    if (!animate || reduced) {
-      sides.forEach(function (side, i) { setLineCoords(side, endpoints[i]); });
-      triangle.classList.toggle('it-ob-understood', fill);
-      return;
-    }
-    var started;
-    function frame(now) {
-      if (!started) started = now;
-      var p = Math.min(1, (now - started) / 1200);
-      var eased = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-      sides.forEach(function (side, i) {
-        setLineCoords(side, starts[i].map(function (v, j) { return v + (endpoints[i][j] - v) * eased; }));
-      });
-      if (p < 1) window.requestAnimationFrame(frame);
-      else triangle.classList.toggle('it-ob-understood', fill);
-    }
-    window.requestAnimationFrame(frame);
   }
-  function updateStage(stage, animate) {
-    var labels = { recognized: 'Recognized', identified: 'Identified', understood: 'Understood', mastered: 'Mastered' };
-    if (!stage || !labels[stage]) { knowledge.hidden = true; currentStage = stage || null; return; }
-    knowledge.hidden = false;
-    stageLabel.textContent = labels[stage];
-    triangle.setAttribute('aria-label', 'Knowledge stage: ' + labels[stage]);
-    if (stage === 'recognized') beginDrift();
-    else lockTriangle(stage === 'understood', animate && currentStage !== stage);
-    currentStage = stage;
-  }
-
-  function field(label, value, provenance) {
-    if (value === undefined || value === null || value === '') return '';
-    var provenanceLabels = { registry_verified: 'Registry verified', owner_confirmed: 'You confirmed', owner_provided: 'You provided' };
-    return '<div class="it-ob-detail"><dt>' + esc(label) + '</dt><dd>' + esc(value) +
-      (provenance && provenanceLabels[provenance] ? '<span class="it-ob-provenance">' + provenanceLabels[provenance] + '</span>' : '') + '</dd></div>';
-  }
-  function operatingName(record) {
-    if (record.operating_name) return record.operating_name;
-    return record.operating_names && record.operating_names.length ? record.operating_names[0] : '';
-  }
-  function namePresentation(record) {
+  function sameName(a, b) { return !!a && !!b && String(a).trim().toLocaleLowerCase() === String(b).trim().toLocaleLowerCase(); }
+  function operatingName(record) { return record.operating_name || (record.operating_names && record.operating_names[0]) || ''; }
+  function displayName(record) {
+    var registryOperating = operatingName(record);
     var typed = enteredName || (identity && identity.entered_name) || '';
-    if (typed && record.legal_name && typed.toLocaleLowerCase() !== record.legal_name.toLocaleLowerCase()) {
-      return 'Operating as ' + typed + ' · Registered as ' + record.legal_name;
-    }
+    if (registryOperating && !sameName(registryOperating, record.legal_name)) return registryOperating;
+    if (typed && !sameName(typed, record.legal_name)) return typed;
     return record.legal_name || typed;
   }
+  function field(label, value, extraClass) {
+    if (value === undefined || value === null || value === '') return '';
+    return '<div class="it-ob-detail' + (extraClass ? ' ' + extraClass : '') + '"><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>';
+  }
+  function statusField(record) {
+    var status = record.status || record.registration_status;
+    if (!status) return '';
+    return '<div class="it-ob-detail"><dt>Status</dt><dd><span class="it-ob-status"><span class="it-ob-status-dot" aria-hidden="true"></span>' + esc(status) + '</span></dd></div>';
+  }
+  function sourceAttribution() {
+    return '<div class="it-ob-source"><span>Source: BC Registries via OrgBook BC</span><details class="it-ob-source-info"><summary aria-label="About this source">i</summary><p>Contains information licensed under the <a href="https://www2.gov.bc.ca/gov/content/data/policy-standards/open-data/open-government-licence-bc" target="_blank" rel="noopener">Open Government Licence – British Columbia</a>.</p></details></div>';
+  }
   function registryCard(record, withActions) {
-    var html = '<article class="it-ob-card"><h2 class="it-ob-card-title">' + esc(namePresentation(record)) + '</h2><dl class="it-ob-details">';
-    html += field('Registered legal name', record.legal_name);
-    html += field('Operating name', operatingName(record));
-    html += field('BC registration number', record.registration_number);
-    html += field('Legal structure', record.legal_structure);
-    html += field('Status', record.status || record.registration_status);
-    html += field('Jurisdiction', record.jurisdiction);
-    html += '</dl><p class="it-ob-attribution">Contains information licensed under the Open Government Licence – British Columbia.</p>';
-    if (withActions) html += '<div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="button" data-action="confirm">Yes, that\'s my business</button><button class="it-ob-button" type="button" data-action="others">No, show other matches</button><button class="it-ob-button it-ob-button-link" type="button" data-action="manual">Enter details manually</button></div>';
-    return html + '</article>';
+    var extras = field('Legal structure', record.legal_structure) + field('Registered on', record.registered_on);
+    var html = '<div class="it-ob-match-heading"><h2>' + esc(displayName(record)) + '</h2><p><span>Registered as</span> ' + esc(record.legal_name) + '</p></div>';
+    html += '<article class="it-ob-card"><dl class="it-ob-details">' + field('Registration', record.registration_number) + statusField(record) + field('Jurisdiction', record.jurisdiction) + '</dl>';
+    if (extras) html += '<details class="it-ob-more"><summary>More details</summary><dl class="it-ob-details">' + extras + '</dl></details>';
+    html += '</article>' + sourceAttribution();
+    if (withActions) {
+      html += '<div class="it-ob-actions it-ob-confirm-actions"><button class="it-ob-button it-ob-button-primary" type="button" data-action="confirm">Yes, that\'s my business</button>';
+      if (matches.length > 1) html += '<button class="it-ob-button it-ob-button-link" type="button" data-action="others">Show other matches</button>';
+      html += '<button class="it-ob-button it-ob-button-link" type="button" data-action="manual">Enter details manually</button></div><div class="it-ob-confirm-error" role="alert" hidden></div>';
+    }
+    return html;
   }
 
   function showNameQuestion() {
-    identity = null; enteredName = ''; matches = []; setError(''); updateStage(null, false);
+    identity = null; enteredName = ''; matches = []; setError(''); glyph.setState(null, false);
     setLine("Hello! I'm Penny. I'll be looking after your books and helping you keep your business finances organized. Let's start with something simple. What's your business called?");
     workspace.innerHTML = '<form class="it-ob-form" id="itObNameForm"><div class="it-ob-field"><label for="itObBusinessName">Business name</label><input class="it-ob-input" id="itObBusinessName" name="name" type="text" maxlength="255" autocomplete="organization" required></div><div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="submit">Continue</button></div></form>';
-    document.getElementById('itObNameForm').addEventListener('submit', start);
-    focusFirst();
+    document.getElementById('itObNameForm').addEventListener('submit', start); focusFirst();
   }
   function start(event) {
-    event.preventDefault(); setError('');
-    var input = document.getElementById('itObBusinessName');
-    enteredName = input.value.trim();
+    event.preventDefault(); setError(''); var input = document.getElementById('itObBusinessName'); enteredName = input.value.trim();
     if (!enteredName) { setError('Please enter the name you use for your business.'); input.focus(); return; }
-    busy(true);
-    api('start', { method: 'POST', body: { name: enteredName } }).then(function (data) {
-      identity = data.identity || { entered_name: enteredName };
-      updateStage(data.knowledge && data.knowledge.stage || 'recognized', true);
-      search();
-    }).catch(function (err) { busy(false); setError(calmError(err)); });
+    busy(true); api('start', { method: 'POST', body: { name: enteredName } }).then(function (data) { identity = data.identity || { entered_name: enteredName }; glyph.setState(data.knowledge && data.knowledge.stage || 'recognized', true); search(); }).catch(function (err) { busy(false); setError(calmError(err)); });
   }
   function search() {
-    setError(''); setLine('Looking this up in the BC Registry…');
-    workspace.innerHTML = '<p class="it-ob-progress" role="status">Looking this up in the BC Registry…</p>';
+    setError(''); setLine('Looking this up in the BC Registry…'); workspace.innerHTML = '<p class="it-ob-progress" role="status">Looking this up in the BC Registry…</p>';
     api('search', { query: { q: enteredName } }).then(renderSearch).catch(function () { renderSearch({ status: 'unavailable', matches: [] }); });
   }
   function renderSearch(data) {
     matches = (data.matches || []).slice(0, 5);
     if (data.status === 'matches' && matches.length === 1) return showMatch(matches[0]);
     if (data.status === 'matches' && matches.length > 1) return showMatches();
-    if (data.status === 'none' || (data.status === 'matches' && !matches.length)) {
-      setLine("I couldn't find a confident match. That's okay. We can enter your business details ourselves.");
-      return showManual();
-    }
-    setLine("I can't reach the BC Registry right now.");
-    workspace.innerHTML = '<div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="button" data-action="retry">Try again</button><button class="it-ob-button" type="button" data-action="manual">Enter details manually</button></div>';
-    bindActions(); focusFirst();
+    if (data.status === 'none' || (data.status === 'matches' && !matches.length)) { setLine("I couldn't find a confident match. That's okay. We can enter your business details ourselves."); return showManual(); }
+    setLine("I can't reach the BC Registry right now."); workspace.innerHTML = '<div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="button" data-action="retry">Try again</button><button class="it-ob-button it-ob-button-link" type="button" data-action="manual">Enter details manually</button></div>'; bindActions(); focusFirst();
   }
   function showMatches() {
     setLine('I found a few businesses that may be yours. Choose one to check the details.');
-    workspace.innerHTML = '<div class="it-ob-match-list" role="list">' + matches.map(function (match, i) {
-      var secondary = match.registration_number || match.jurisdiction || match.legal_structure || '';
-      return '<button type="button" class="it-ob-match-row" data-match="' + i + '" role="listitem"><span><span>' + esc(match.legal_name || operatingName(match)) + '</span>' + (secondary ? '<small>' + esc(secondary) + '</small>' : '') + '</span></button>';
-    }).join('') + '</div><div class="it-ob-actions"><button class="it-ob-button it-ob-button-link" type="button" data-action="manual">Enter details manually</button></div>';
-    Array.prototype.forEach.call(workspace.querySelectorAll('[data-match]'), function (button) {
-      button.addEventListener('click', function () { showMatch(matches[Number(button.getAttribute('data-match'))]); });
-    });
-    bindActions(); focusFirst();
+    workspace.innerHTML = '<div class="it-ob-match-list" role="list">' + matches.map(function (match, i) { var secondary = match.registration_number || match.jurisdiction || ''; return '<button type="button" class="it-ob-match-row" data-match="' + i + '" role="listitem"><span><span>' + esc(match.legal_name || operatingName(match)) + '</span>' + (secondary ? '<small>' + esc(secondary) + '</small>' : '') + '</span></button>'; }).join('') + '</div><div class="it-ob-actions"><button class="it-ob-button it-ob-button-link" type="button" data-action="manual">Enter details manually</button></div>';
+    Array.prototype.forEach.call(workspace.querySelectorAll('[data-match]'), function (button) { button.addEventListener('click', function () { showMatch(matches[Number(button.getAttribute('data-match'))]); }); }); bindActions(); focusFirst();
   }
   function showMatch(record) {
-    setLine('I found a business that looks like yours. Is this the right one?');
-    workspace.innerHTML = registryCard(record, true);
-    workspace.querySelector('[data-action="confirm"]').addEventListener('click', function () { confirmMatch(record); });
-    bindActions(); focusFirst();
+    setLine('I found a possible match. Is this your business?'); workspace.innerHTML = registryCard(record, true);
+    workspace.querySelector('[data-action="confirm"]').addEventListener('click', function () { confirmMatch(record); }); bindActions(); focusFirst();
   }
   function bindActions() {
     var retry = workspace.querySelector('[data-action="retry"]'); if (retry) retry.addEventListener('click', search);
     var manual = workspace.querySelector('[data-action="manual"]'); if (manual) manual.addEventListener('click', showManual);
-    var others = workspace.querySelector('[data-action="others"]'); if (others) others.addEventListener('click', function () { matches.length > 1 ? showMatches() : search(); });
+    var others = workspace.querySelector('[data-action="others"]'); if (others) others.addEventListener('click', showMatches);
   }
   function confirmMatch(record) {
-    setError(''); busy(true);
+    setError(''); var button = workspace.querySelector('[data-action="confirm"]'); var failure = workspace.querySelector('.it-ob-confirm-error');
+    failure.hidden = true; busy(true); button.textContent = 'Confirming…'; button.setAttribute('aria-busy', 'true');
     api('confirm', { method: 'POST', body: { record_id: record.record_id } }).then(function (data) {
-      identity = data.identity; updateStage(data.knowledge && data.knowledge.stage || 'identified', true); showComplete();
-    }).catch(function (err) { busy(false); setError(calmError(err)); });
+      identity = data.identity; var persistedStage = data.knowledge && data.knowledge.stage || 'identified';
+      return glyph.setState(persistedStage, true).then(showContactsStart);
+    }).catch(function (err) {
+      busy(false); button.textContent = "Yes, that's my business"; button.removeAttribute('aria-busy');
+      failure.innerHTML = '<span>' + esc(calmError(err)) + '</span><button class="it-ob-button it-ob-button-link" type="button">Retry</button>'; failure.hidden = false;
+      failure.querySelector('button').addEventListener('click', function () { confirmMatch(record); }); failure.querySelector('button').focus();
+    });
   }
+  function showContactsStart() {
+    setLine("Perfect — I've identified your registered business. Let me see if I can find your website and contact details.");
+    workspace.innerHTML = '<section class="it-ob-next-card" aria-labelledby="itObContactsTitle"><h2 id="itObContactsTitle">Website and contact details</h2><p class="it-ob-progress" role="status">Looking for contact details…</p></section>';
+    return api('contacts').then(renderContacts).catch(renderContactsFallback);
+  }
+  function renderContacts(data) {
+    var contacts = data.contacts || [];
+    if (!contacts.length) return renderContactsFallback();
+    var labels = { website: 'Website', phone: 'Phone', address: 'Address' };
+    workspace.innerHTML = '<section class="it-ob-next-card" aria-labelledby="itObContactsTitle"><h2 id="itObContactsTitle">Website and contact details</h2><div class="it-ob-contact-list">' + contacts.map(function (contact) {
+      return '<div class="it-ob-contact-row"><div><span class="it-ob-contact-label">' + esc(labels[contact.field] || contact.field) + '</span><strong>' + esc(contact.value) + '</strong><small>From your settings</small></div><div class="it-ob-contact-actions"><button class="it-ob-button it-ob-button-link" type="button">Looks right</button><button class="it-ob-button it-ob-button-link" type="button">Change</button></div></div>';
+    }).join('') + '</div></section>';
+  }
+  function renderContactsFallback() { workspace.innerHTML = '<section class="it-ob-next-card" aria-labelledby="itObContactsTitle"><h2 id="itObContactsTitle">Website and contact details</h2><p>I\'ll look for your website and contact details next.</p></section>'; }
   function showManual() {
     setLine("We'll enter the details you know. You can update them later.");
     workspace.innerHTML = '<form class="it-ob-form" id="itObManualForm"><div class="it-ob-field"><label for="itObLegalName">Legal name</label><input class="it-ob-input" id="itObLegalName" name="legal_name" type="text" maxlength="255" required value="' + escAttr(enteredName) + '"></div><div class="it-ob-field"><label for="itObOperatingName">Operating name <span class="it-ob-muted">(optional)</span></label><input class="it-ob-input" id="itObOperatingName" name="operating_name" type="text" maxlength="255"></div><div class="it-ob-form-grid"><div class="it-ob-field"><label for="itObStructure">Legal structure</label><select class="it-ob-select" id="itObStructure" name="legal_structure"><option value="">Select if known</option><option>Sole proprietorship</option><option>Partnership</option><option>Corporation</option><option>Society</option><option>Cooperative</option><option>Other</option></select></div><div class="it-ob-field"><label for="itObJurisdiction">Jurisdiction</label><select class="it-ob-select" id="itObJurisdiction" name="jurisdiction"><option value="">Select if known</option><option value="BC">British Columbia</option><option value="Federal">Federal</option><option value="AB">Alberta</option><option value="Other">Other</option></select></div></div><div class="it-ob-field"><label for="itObRegistration">BC registration number <span class="it-ob-muted">(optional)</span></label><input class="it-ob-input" id="itObRegistration" name="registration_number" type="text" maxlength="100"><small>This is not your CRA Business Number.</small></div><div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="submit">Save business details</button></div></form>';
     document.getElementById('itObManualForm').addEventListener('submit', saveManual); focusFirst();
   }
   function saveManual(event) {
-    event.preventDefault(); setError('');
-    var form = event.currentTarget;
-    var body = {};
-    ['legal_name', 'operating_name', 'legal_structure', 'jurisdiction', 'registration_number'].forEach(function (key) {
-      var value = form.elements[key].value.trim();
-      if (value || key === 'legal_name') body[key] = value;
-    });
-    busy(true);
-    api('manual', { method: 'POST', body: body }).then(function (data) {
-      identity = data.identity; updateStage(data.knowledge && data.knowledge.stage || 'identified', true); showComplete();
-    }).catch(function (err) { busy(false); setError(calmError(err)); });
-  }
-  function showComplete() {
-    var legal = identity.legal_name || identity.entered_name || 'your business';
-    setLine("Thank you — I've noted your business as " + legal + '.');
-    workspace.innerHTML = '<p class="it-ob-summary-lead">Business identity saved</p><p class="it-ob-muted">Next, I\'ll ask a couple of questions about how you run your books.</p>';
+    event.preventDefault(); setError(''); var form = event.currentTarget; var body = {};
+    ['legal_name', 'operating_name', 'legal_structure', 'jurisdiction', 'registration_number'].forEach(function (key) { var value = form.elements[key].value.trim(); if (value || key === 'legal_name') body[key] = value; });
+    busy(true); api('manual', { method: 'POST', body: body }).then(function (data) { identity = data.identity; return glyph.setState(data.knowledge && data.knowledge.stage || 'identified', true).then(showContactsStart); }).catch(function (err) { busy(false); setError(calmError(err)); });
   }
   function showReturning(data) {
-    identity = data.identity; enteredName = identity.entered_name || '';
-    updateStage(data.knowledge && data.knowledge.stage, false);
+    identity = data.identity; enteredName = identity.entered_name || ''; glyph.setState(data.knowledge && data.knowledge.stage, false);
     setLine("Welcome back. Here's the business identity I have saved.");
-    var p = identity.provenance || {};
-    var html = '<article class="it-ob-card"><h2 class="it-ob-card-title">' + esc(namePresentation(identity)) + '</h2><dl class="it-ob-details">';
-    html += field('Name you entered', identity.entered_name, p.entered_name);
-    html += field('Registered legal name', identity.legal_name, p.legal_name);
-    html += field('Operating name', identity.operating_name, p.operating_name);
-    html += field('BC registration number', identity.registration_number, p.registration_number);
-    html += field('Legal structure', identity.legal_structure, p.legal_structure);
-    html += field('Status', identity.registration_status, p.registration_status);
-    html += field('Jurisdiction', identity.jurisdiction, p.jurisdiction);
-    html += '</dl>' + (identity.source === 'orgbook_bc' ? '<p class="it-ob-attribution">' + esc(data.attribution || 'Contains information licensed under the Open Government Licence – British Columbia.') + '</p>' : '') + '</article>';
-    html += data.can_edit ? '<button class="it-ob-change" type="button" data-action="change">Change</button>' : '';
-    workspace.innerHTML = html;
+    var html = '<article class="it-ob-card"><h2 class="it-ob-card-title">Your business</h2><dl class="it-ob-details">';
+    html += field('Name', displayName(identity)) + field('Registered as', identity.legal_name) + field('Registration', identity.registration_number) + statusField(identity) + field('Jurisdiction', identity.jurisdiction) + field('Legal structure', identity.legal_structure) + '</dl></article>';
+    html += data.can_edit ? '<button class="it-ob-change" type="button" data-action="change">Change</button>' : ''; workspace.innerHTML = html;
     var change = workspace.querySelector('[data-action="change"]'); if (change) change.addEventListener('click', showNameQuestion);
   }
 
-  setLine('Let me check what I already know about your business.');
-  workspace.innerHTML = '<p class="it-ob-progress" role="status">Loading your business identity…</p>';
-  api('current').then(function (data) {
-    if (data.identity) showReturning(data);
-    else if (data.can_edit === false) {
-      setLine('No business identity has been added yet. An administrator with edit access can complete this step.');
-      workspace.innerHTML = '';
-    } else showNameQuestion();
-  }).catch(function (err) {
-    setLine('I could not load your business identity just now.');
-    workspace.innerHTML = '<div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="button" id="itObReload">Try again</button></div>';
-    setError(calmError(err)); document.getElementById('itObReload').addEventListener('click', function () { window.location.reload(); });
-  });
+  setLine('Let me check what I already know about your business.'); workspace.innerHTML = '<p class="it-ob-progress" role="status">Loading your business identity…</p>';
+  api('current').then(function (data) { if (data.identity) showReturning(data); else if (data.can_edit === false) { setLine('No business identity has been added yet. An administrator with edit access can complete this step.'); workspace.innerHTML = ''; } else showNameQuestion(); }).catch(function (err) { setLine('I could not load your business identity just now.'); workspace.innerHTML = '<div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary" type="button" id="itObReload">Try again</button></div>'; setError(calmError(err)); document.getElementById('itObReload').addEventListener('click', function () { window.location.reload(); }); });
 }());
