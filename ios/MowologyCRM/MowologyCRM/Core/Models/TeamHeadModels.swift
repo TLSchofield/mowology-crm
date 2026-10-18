@@ -41,14 +41,14 @@ struct HeadCardResponse: Decodable {
     let heads: [String: HeadOfficeState]?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads
+        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         ok = c.bkBool(.ok) ?? false
-        error = c.bkString(.error)
+        error = c.bkString(.error) ?? c.bkString(.message)
         head = c.bkString(.head) ?? ""
         name = c.bkString(.name) ?? ""
         role = c.bkString(.role) ?? ""
@@ -406,6 +406,13 @@ struct OttoDesk: Decodable, Equatable {
     let total: Int
     let autolog: OttoAutoLog?
     let reviewURL: String
+
+    /// Only recorded, pending decisions with a readable reason warrant interrupting Schedule.
+    /// Completed auto-logs and aggregate counts alone are informational.
+    var scheduleAttention: OttoSuggestion? {
+        items.filter { $0.id > 0 && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.priority < $1.priority }.first
+    }
 
     private enum CodingKeys: String, CodingKey { case items, total, autolog, reviewURL = "review_url" }
 

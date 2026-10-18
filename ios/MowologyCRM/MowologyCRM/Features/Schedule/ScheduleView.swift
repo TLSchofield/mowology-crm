@@ -14,6 +14,7 @@ struct ScheduleView: View {
     @StateObject private var viewModel: ScheduleViewModel
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var ottoSuggestion: OttoSuggestion?
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
     @State private var viewMode       = ViewMode.list
@@ -31,6 +32,29 @@ struct ScheduleView: View {
 
     private enum ViewMode { case list, map }
 
+    /// Kept inside the navigation content so the calendar toolbar owns its safe area.
+    private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
+        Button {
+            notificationRouter.pendingHead = HeadRoute(head: "otto", quoteId: nil)
+        } label: {
+            HStack(spacing: 12) {
+                HeadFaceView(slug: "otto", name: "Otto", size: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Otto needs your attention").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(suggestion.text).font(appStyle.font(.subheadline)).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").accessibilityHidden(true)
+            }
+            .foregroundStyle(appStyle.text)
+            .padding(12)
+            .frame(minHeight: 48)
+            .background(appStyle.surface)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open Otto’s desk to review and act")
+    }
+
     // MARK: - Init
 
     init(authSession: AuthSession? = nil) {
@@ -44,6 +68,10 @@ struct ScheduleView: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
+
+                if let suggestion = ottoSuggestion, appStyle.isEnabled, authSession.user?.isAdmin == true {
+                    ottoPrompt(suggestion)
+                }
 
                 // MARK: Week Strip
                 WeekStripView(
@@ -111,6 +139,27 @@ struct ScheduleView: View {
             // Cold start from a notification tap: the route is already waiting.
             await follow(notificationRouter.pendingRoute)
         }
+        .task(id: "\(scenePhase)-\(appStyle.isEnabled)") {
+            guard scenePhase == .active, authSession.user?.isAdmin == true, appStyle.isEnabled else {
+                ottoSuggestion = nil
+                return
+            }
+            ottoSuggestion = nil
+            do {
+                let response: HeadCardResponse = try await APIClient(authSession: authSession)
+                    .request(.teamHeadBrief(head: "otto"))
+                try Task.checkCancellation()
+                if response.ok {
+                    ottoSuggestion = response.otto?.scheduleAttention
+                } else {
+                    AppDiagnostics.shared.record(category: "schedule.otto", message: response.error ?? "team-mobile brief head=otto returned ok=false without an error field")
+                }
+            } catch is CancellationError {
+                // Leaving Schedule cancels the request; no stale prompt survives the next appearance.
+            } catch {
+                AppDiagnostics.shared.record(category: "schedule.otto", message: ErrorDetails.describe(error))
+            }
+        }
         .onChange(of: notificationRouter.pendingRoute) { _, route in
             Task { await follow(route) }
         }
@@ -124,6 +173,7 @@ struct ScheduleView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+            ottoSuggestion = nil
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {

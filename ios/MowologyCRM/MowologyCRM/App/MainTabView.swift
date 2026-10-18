@@ -99,7 +99,7 @@ struct MainTabView: View {
         .tint(appStyle.tenant)
         .itAppScreen()
         .safeAreaInset(edge: .top, spacing: 0) {
-            if authSession.user?.isAdmin == true && ittaiDesignEnabled {
+            if selectedTab != .schedule && authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 ItOfficeBar(members: officeBarMembers,
                             connectionUnavailable: readyBriefStore.failed,
                             portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL

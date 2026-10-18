@@ -41,3 +41,7 @@ run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swif
 run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
   "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/APIError.swift" \
   "$ROOT/ios/LogicTests/DiagnosticsTests.swift"
+
+# Schedule interrupts only for a recorded, readable pending Otto decision.
+run ottoattention -parse-as-library "$SRC/Core/Models/BookkeeperModels.swift" \
+  "$SRC/Core/Models/TeamHeadModels.swift" "$ROOT/ios/LogicTests/OttoAttentionTests.swift"
