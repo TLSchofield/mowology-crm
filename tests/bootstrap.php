@@ -425,3 +425,9 @@ require_once __DIR__ . '/../app/Modules/Plants/Services/PlantIdService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantCareService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/SitePlantQuizService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';
+// Penny onboarding step 1 (global namespace; production has no autoloader)
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/BusinessRegistryProvider.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/OrgBookBcProvider.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/FakeRegistryProvider.php';
+require_once __DIR__ . '/../app/Modules/Settings/Api/BusinessIdentityRequest.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/BusinessIdentityService.php';
