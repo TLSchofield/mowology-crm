@@ -23,6 +23,10 @@ Do not edit generated `Core/Design/Ittai/ItTokens.swift` directly; regenerate it
 
 ## Checks
 
+`bash ios/typecheck.sh` checks every app source against the installed iPhone SDK
+without requiring a simulator or connected device. It does not perform signing or
+replace the Xcode Cloud archive check.
+
 Run from the repository/worktree root:
 
 ```sh
@@ -58,5 +62,17 @@ GitHub Actions workflow remains in the repository but is not the active route.
    the uploaded build finishes TestFlight processing. A successful archive alone is
    not proof of TestFlight availability. Xcode Cloud supplies its own build number.
 
-In the app, **AI Office → Try the new design** enables the Ittai screens for admins.
-The design remains off by default. Field mode selects the outdoor palette.
+In the app, **AI Office → Try the new design** enables Ittai for admins; crew use
+**Account → Appearance → Try the new design**. Schedule, Time Clock, Search,
+Receipts and their detail/forms inherit the same Inter typography and semantic
+light/dark palette. The design remains off by default. Field mode selects the
+outdoor palette and takes precedence over system dark mode.
+
+The root `.itAppTheme` adapter preserves the view subtree while preferences change.
+Use the shared `ItAppStyle` environment instead of adding screen-specific colours.
+`bash ios/DesignRender/run.sh /tmp/ittai-schedule schedule-only` renders the actual
+week strip and stop rows with synthetic data at three phone widths and accessibility
+text sizes. The Mac ImageRenderer omits horizontal ScrollView content, so the accessibility
+week strip cannot be visually verified by these PNGs. Stop rows and regular-size
+chips render directly from their production views. Xcode Cloud verifies the device
+archive; native scrolling and touch interaction still require an iPhone check.

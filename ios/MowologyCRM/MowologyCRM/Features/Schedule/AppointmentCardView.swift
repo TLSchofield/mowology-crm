@@ -45,6 +45,7 @@ struct Appointment: Codable, Identifiable, Hashable {
 }
 
 struct AppointmentCardView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let appointment: Appointment
     @Environment(\.openURL) private var openURL
 
@@ -52,57 +53,57 @@ struct AppointmentCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(appointment.kindLabel.uppercased())
-                    .font(.caption2.weight(.heavy))
+                    .font(appStyle.font(.caption2, weight: .heavy))
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
                     .clipShape(Capsule())
                 Text(appointment.timeLabel)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Color.MW.forest)
+                    .font(appStyle.font(.subheadline, weight: .bold))
+                    .foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
                 Spacer()
                 Text("\(appointment.durationMinutes) min")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
             if let name = appointment.contactName, !name.isEmpty {
-                Text(name).font(.headline).foregroundStyle(Color.MW.forest)
+                Text(name).font(appStyle.font(.headline)).foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
             }
             Text(addressLine)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
             if let who = appointment.assignedName {
                 Label(who, systemImage: "person")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
             if let notes = appointment.notes, !notes.isEmpty {
-                Text(notes).font(.caption).foregroundStyle(.secondary)
+                Text(notes).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             HStack(spacing: 10) {
                 Button { openDirections() } label: {
-                    Label("Directions", systemImage: "car.fill").font(.subheadline.weight(.semibold))
+                    Label("Directions", systemImage: "car.fill").font(appStyle.font(.subheadline, weight: .semibold))
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
                 if let phone = appointment.contactPhone, !phone.isEmpty {
                     Button { call(phone) } label: {
-                        Label("Call", systemImage: "phone.fill").font(.subheadline.weight(.semibold))
+                        Label("Call", systemImage: "phone.fill").font(appStyle.font(.subheadline, weight: .semibold))
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
                 }
             }
             .padding(.top, 2)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.MW.green.opacity(0.08))
+        .background(appStyle.tenant.opacity(0.08))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.MW.green, style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(12))
+                .strokeBorder(appStyle.tenant, style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
     }
 
     private var addressLine: String {

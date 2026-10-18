@@ -56,6 +56,7 @@ private struct HistoryPhotoRef: Identifiable {
 // MARK: - Section
 
 struct PhotoHistorySection: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     /// Any visit on the stop — the server resolves the property from it.
     let visitId: Int
@@ -91,11 +92,11 @@ struct PhotoHistorySection: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Label("Photo History", systemImage: "photo.on.rectangle.angled")
-                            .font(.subheadline.weight(.semibold))
+                            .font(appStyle.font(.subheadline, weight: .semibold))
                         Spacer()
                         Text("\(photoCount) photo\(photoCount == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
                     }
 
                     ForEach(isExpanded ? history : Array(history.prefix(Self.collapsedCount))) { visit in
@@ -107,14 +108,14 @@ struct PhotoHistorySection: View {
                             withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
                         } label: {
                             Text(isExpanded ? "Show less" : "Show all \(history.count) visits")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Color.MW.green)
+                                .font(appStyle.font(.footnote, weight: .semibold))
+                                .foregroundStyle(appStyle.tenant)
                         }
                     }
                 }
                 .padding(14)
-                .background(Color(.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(appStyle.surface)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
         }
         .task {
@@ -133,24 +134,24 @@ struct PhotoHistorySection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(Self.dateLabel(visit.date))
-                    .font(.caption.weight(.semibold))
-                Text("·").foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption, weight: .semibold))
+                Text("·").foregroundStyle(appStyle.meta)
                 Text(visit.service)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
                     .lineLimit(1)
                 Spacer()
                 if let ago = Self.agoLabel(visit.date) {
                     Text(ago)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
             if let crewLine = visit.crewLine {
                 Label(crewLine, systemImage: "person.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
                     .lineLimit(1)
             }
 
@@ -175,15 +176,15 @@ struct PhotoHistorySection: View {
             if let img = phase.image {
                 img.resizable().scaledToFill()
             } else {
-                Color(.systemGray6)
+                appStyle.sunk
             }
         }
         .frame(width: 76, height: 76)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
         .overlay(alignment: .bottomLeading) {
             if photo.photoType == "before" || photo.photoType == "after" {
                 Text(photo.photoType.capitalized)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(appStyle.font(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
@@ -242,6 +243,7 @@ struct PhotoHistorySection: View {
 
 /// Swipe through every history photo for the property; pinch to zoom.
 private struct PhotoHistoryViewer: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let photos: [HistoryPhotoRef]
     let startId: Int
@@ -265,10 +267,10 @@ private struct PhotoHistoryViewer: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(photos.first { $0.id == currentId }?.caption ?? "")
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                     if let index = photos.firstIndex(where: { $0.id == currentId }) {
                         Text("\(index + 1) of \(photos.count)")
-                            .font(.caption)
+                            .font(appStyle.font(.caption))
                             .opacity(0.8)
                     }
                 }
@@ -278,9 +280,9 @@ private struct PhotoHistoryViewer: View {
 
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.body.weight(.bold))
+                        .font(appStyle.font(.body, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 48, height: 48)
                         .background(.white.opacity(0.18), in: Circle())
                 }
                 .accessibilityLabel("Close")

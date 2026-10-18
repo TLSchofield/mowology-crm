@@ -436,3 +436,10 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 vendor's other waiting receipts she'll redo, and her record there. Data: `expenses.php?action=approve_preview`
 (BookkeeperDeskService::approvalPreview). The caller still does the approval; falls back to `confirm()`.
 Use it for any approve-a-receipt button instead of a bare `confirm()`.
+
+
+## iOS shared appearance — `ItAppStyle` (2026-10-18)
+
+`ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItAppStyle.swift` adapts the existing field screens to the frozen Ittai tokens. Apply `.itAppTheme(enabled:field:)` above the tabs; consume `@Environment(\.itAppStyle)` for semantic colours, Dynamic Type Inter fonts, corners and shadow suppression. `.itAppScreen()` styles native bars; `.itAppForm()` styles form backgrounds. Keep media/camera overlays readable on their actual imagery.
+
+`ItDesignSettingsRows` shares the existing opt-in and field-mode preferences between crew Account and admin AI Office. The root modifier keeps the view subtree stable when toggled so active shifts, receipt edits and navigation state survive. Status colours are display-only: retain the server status and its visible label, and keep locally saved records distinct from server-confirmed records.

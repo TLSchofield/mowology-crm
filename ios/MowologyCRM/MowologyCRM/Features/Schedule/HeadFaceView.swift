@@ -58,30 +58,31 @@ final class HeadFaceCache {
 }
 
 struct HeadFaceView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let slug: String
     let name: String
     let size: CGFloat
     /// The ring round the face (orange where crews see it; lime on the opening brief).
-    var ring: Color = Color.MW.orange
+    var ring: Color? = nil
 
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            Circle().fill(Color.MW.forest)
+            Circle().fill(appStyle.color(.tenant, legacy: Color.MW.forest))
             if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
                 Text(String(name.prefix(1)).uppercased())
-                    .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(appStyle.font(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(appStyle.onTenant)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(ring, lineWidth: size > 60 ? 4 : 2))
+        .overlay(Circle().strokeBorder(ring ?? appStyle.attention, lineWidth: size > 60 ? 4 : 2))
         .accessibilityLabel(Text(name))
         .task(id: slug) {
             image = HeadFaceCache.shared.cached(slug)

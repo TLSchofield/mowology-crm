@@ -21,10 +21,20 @@ func registerFonts() {
 
 @MainActor func save<V: View>(_ view: V, _ name: String, scale: CGFloat = 2) {
     let r = ImageRenderer(content: view); r.scale = scale
-    guard let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-          let png = rep.representation(using: .png, properties: [:]) else { print("render FAIL", name); return }
+    guard let img = r.cgImage else { print("render FAIL", name); return }
+    let bitmap = NSBitmapImageRep(cgImage: img)
+    // macOS ImageRenderer exposes bottom-up scanlines; PNG rows are top-down.
+    guard let bytes = bitmap.bitmapData else { print("render FAIL", name); return }
+    for y in 0..<(bitmap.pixelsHigh / 2) {
+        let top = bytes.advanced(by: y * bitmap.bytesPerRow)
+        let bottom = bytes.advanced(by: (bitmap.pixelsHigh - y - 1) * bitmap.bytesPerRow)
+        let row = Array(UnsafeBufferPointer(start: top, count: bitmap.bytesPerRow))
+        top.update(from: bottom, count: bitmap.bytesPerRow)
+        row.withUnsafeBufferPointer { bottom.update(from: $0.baseAddress!, count: bitmap.bytesPerRow) }
+    }
+    guard let png = bitmap.representation(using: .png, properties: [:]) else { print("render FAIL", name); return }
     try! png.write(to: URL(fileURLWithPath: "\(outDir)/\(name).png"))
-    print("wrote \(name).png \(Int(img.size.width))×\(Int(img.size.height))")
+    print("wrote \(name).png \(Int(CGFloat(img.width) / scale))×\(Int(CGFloat(img.height) / scale))")
 }
 
 func applyCVD(_ name:String, matrix:[[Double]]) {
@@ -231,8 +241,60 @@ struct BriefStateCard: View {
     }
 }
 
+// Actual production Schedule components with synthetic fixtures. No duplicate card markup.
+struct ScheduleComponentsRender: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.it) private var palette
+    private let days = (19...25).enumerated().map { index, day in
+        ScheduleDay(date: "2026-10-\(day)", dayName: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+                    dayNumber: day, isToday: day == 20, stopCount: index % 3, visitCount: index % 3,
+                    hasIncomplete: index % 2 == 0)
+    }
+    private var selected: Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: 2026, month: 10, day: 20, hour: 12))!
+    }
+    private func stop(_ status: String, id: Int) -> Stop {
+        Stop(stopId: id, stopDate: "2026-10-20", stopStatus: status, routeOrder: id,
+             estimatedArrival: "10:45", propertyId: id,
+             propertyAddress: "123 Harbour Gardens Boulevard", propertyCity: "Vancouver",
+             propertyName: "Harbour Gardens Community Centre", latitude: nil, longitude: nil,
+             contactId: id, contactName: "Morgan Example", contactPhone: nil, contactEmail: nil,
+             onsiteContact: nil, companyName: "Harbour Community Association", lawnSqft: nil,
+             crewIds: [1, 2], crewNames: ["Alex Example", "Taylor Sample"], visitCount: 2,
+             visits: [Visit(visitId: id * 10, serviceType: "lawn_care", planTitle: "Weekly Lawn Care", visitStatus: status),
+                      Visit(visitId: id * 10 + 1, serviceType: "hedge_trimming", planTitle: "Hedge Trimming", visitStatus: status)],
+             propertyNotes: nil, stopNotes: nil)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Schedule · actual components").font(ItAppStyle(isEnabled: true, palette: palette).font(.title2))
+            WeekStripView(selectedDate: .constant(selected), weekDays: days)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? 150 : nil)
+            ForEach(Array(["scheduled", "in_progress", "completed"].enumerated()), id: \.offset) { index, status in
+                StopCardView(stop: stop(status, id: index + 1), isAdmin: true, distanceMeters: 1250)
+            }
+        }
+        .environment(\.itAppStyle, ItAppStyle(isEnabled: true, palette: palette))
+        .foregroundStyle(palette.text)
+    }
+}
+
 @MainActor func run() {
     registerFonts()
+    for mode in ItMode.allCases {
+        for width in [375, 393, 430] {
+            for (name, size) in [("large", DynamicTypeSize.large), ("ax3", DynamicTypeSize.accessibility3)] {
+                save(Screen(mode: mode, width: CGFloat(width)) { ScheduleComponentsRender() }
+                    .environment(\.dynamicTypeSize, size)
+                    .environment(\.locale, Locale(identifier: "en_CA"))
+                    .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!),
+                    "schedule-components-\(width)-\(name)-\(mode.rawValue)")
+            }
+        }
+    }
+    if CommandLine.arguments.count > 3 && CommandLine.arguments[3] == "schedule-only" { return }
     let one=registryMatch("one","HARBOUR LANDSCAPING LTD.",operating:["Harbour Lawn Care"])
     let several=[one,registryMatch("two","HARBOUR GARDENS INC."),registryMatch("three","HARBOUR YARD SERVICES LTD.")]
     let onboarding:[(String,ItPennyOnboardingState)]=[("opening",.opening),("searching",.searching),("one-match-single",.oneMatch(one)),("several",.several(several,selected:nil)),("none-manual",.none(manual:true)),("unavailable",.unavailable)]

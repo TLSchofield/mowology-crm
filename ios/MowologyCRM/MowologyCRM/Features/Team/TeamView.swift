@@ -149,16 +149,10 @@ struct TeamView: View {
                                     .padding(.vertical, 10)
                                 Divider().padding(.leading, 16)
                             }
-                            Toggle("Try the new design", isOn: $ittaiDesignEnabled)
+                            ItDesignSettingsRows()
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
                             Divider().padding(.leading, 16)
-                            if ittaiDesignEnabled {
-                                Toggle("Field mode (outdoors)", isOn: $ittaiFieldEnabled)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                Divider().padding(.leading, 16)
-                            }
                             SignOutButton(authSession: authSession)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 14)

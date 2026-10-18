@@ -14,6 +14,7 @@ import SwiftUI
 // MARK: - Disclosure
 
 struct TrackingDisclosureSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let disclosure: TrackingDisclosure
     let required: Bool
@@ -27,20 +28,20 @@ struct TrackingDisclosureSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Image(systemName: "location.circle.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(size: 44))
+                        .foregroundStyle(appStyle.tenant)
 
                     Text(disclosure.summary)
-                        .font(.title3.weight(.semibold))
+                        .font(appStyle.font(.title3, weight: .semibold))
 
                     ForEach(disclosure.sections) { section in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(section.heading.uppercased())
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.MW.green)
+                                .font(appStyle.font(.caption, weight: .bold))
+                                .foregroundStyle(appStyle.tenant)
                             Text(section.body)
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
+                                .font(appStyle.font(.subheadline))
+                                .foregroundStyle(appStyle.text)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -54,28 +55,30 @@ struct TrackingDisclosureSheet: View {
                         Task { await onAgree(); isWorking = false }
                     } label: {
                         Group {
-                            if isWorking { ProgressView().tint(.white) }
-                            else { Text(disclosure.agreeLabel).font(.headline) }
+                            if isWorking { ProgressView().tint(appStyle.onTenant) }
+                            else { Text(disclosure.agreeLabel).font(appStyle.font(.headline)) }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color.MW.green)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
+                        .background(appStyle.tenant)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
                     }
                     .disabled(isWorking)
 
                     Button(required ? "Cancel clock-in" : "Not now") {
                         Task { await onDecline() }
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     .disabled(isWorking)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
                 .background(.bar)
             }
+            .itAppScreen()
             .navigationTitle(disclosure.title)
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled()
@@ -86,6 +89,7 @@ struct TrackingDisclosureSheet: View {
 // MARK: - Status card
 
 struct TrackingStatusCard: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject private var tracking = GPSTrackingService.shared
     @Environment(\.openURL) private var openURL
@@ -95,34 +99,36 @@ struct TrackingStatusCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: tracking.problem == nil ? "location.fill" : "location.slash.fill")
-                    .foregroundStyle(tracking.problem == nil ? Color.MW.green : Color.MW.orange)
+                    .foregroundStyle(tracking.problem == nil ? appStyle.tenant : appStyle.attention)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(headline).font(.subheadline.weight(.semibold))
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(headline).font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(detail).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
                 Spacer(minLength: 0)
                 Button {
                     withAnimation { showDiagnostics.toggle() }
                 } label: {
                     Image(systemName: showDiagnostics ? "chevron.up" : "info.circle")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(appStyle.meta)
+                        .frame(minWidth: appStyle.isEnabled ? 48 : nil, minHeight: appStyle.isEnabled ? 48 : nil)
                 }
             }
 
             if let problem = tracking.problem {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(problem.message)
-                        .font(.footnote)
-                        .foregroundStyle(Color.MW.orange)
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.attention)
                         .fixedSize(horizontal: false, vertical: true)
                     Button {
                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                     } label: {
                         Label("Open Settings", systemImage: "gear")
-                            .font(.footnote.weight(.semibold))
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     }
-                    .tint(Color.MW.orange)
+                    .tint(appStyle.attention)
                 }
             }
 
@@ -149,11 +155,11 @@ struct TrackingStatusCard: View {
             }
         }
         .padding(14)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(tracking.problem == nil ? Color.clear : Color.MW.orange.opacity(0.4), lineWidth: 1)
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(12))
+                .stroke(tracking.problem == nil ? Color.clear : appStyle.attention.opacity(0.4), lineWidth: 1)
         )
     }
 
@@ -174,9 +180,9 @@ struct TrackingStatusCard: View {
 
     private func diagnosticRow(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             Spacer()
-            Text(value).font(.caption.monospacedDigit())
+            Text(value).font(appStyle.font(.caption).monospacedDigit())
         }
     }
 

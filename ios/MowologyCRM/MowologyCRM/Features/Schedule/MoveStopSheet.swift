@@ -48,6 +48,8 @@ extension Stop {
 // MARK: - Sheet
 
 struct MoveStopSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let stop: Stop
     let apiClient: APIClient
@@ -106,8 +108,9 @@ struct MoveStopSheet: View {
                     } label: {
                         Label(isShowingCalendar ? "Hide calendar" : "Further out…",
                               systemImage: "calendar")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
+                            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     }
 
                     if isShowingCalendar {
@@ -116,7 +119,7 @@ struct MoveStopSheet: View {
                                    in: Date()...,
                                    displayedComponents: .date)
                             .datePickerStyle(.graphical)
-                            .tint(Color.MW.green)
+                            .tint(appStyle.tenant)
                             .onChange(of: calendarDate) { _, picked in
                                 select(Self.isoFormatter.string(from: picked))
                             }
@@ -125,12 +128,13 @@ struct MoveStopSheet: View {
                 .padding(16)
             }
             .safeAreaInset(edge: .bottom) { confirmBar }
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
+            .itAppScreen()
             .navigationTitle("Move Stop")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(Color.MW.green)
+                    Button("Cancel") { dismiss() }.foregroundStyle(appStyle.tenant)
                 }
             }
             .task { await loadStopCounts() }
@@ -144,14 +148,14 @@ struct MoveStopSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(stop.headline ?? stop.propertyAddress)
-                .font(.headline)
+                .font(appStyle.font(.headline))
             Text(stop.fullAddress)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
             if let from = stop.stopDate {
                 Text("Currently \(Self.longLabel(from))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.footnote))
+                    .foregroundStyle(appStyle.meta)
             }
         }
     }
@@ -171,7 +175,7 @@ struct MoveStopSheet: View {
     }
 
     private var dayGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? 2 : 4), spacing: 8) {
             ForEach(upcomingDays, id: \.self) { iso in
                 dayChip(iso)
             }
@@ -186,18 +190,18 @@ struct MoveStopSheet: View {
         } label: {
             VStack(spacing: 2) {
                 Text(Self.weekdayLabel(iso))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : .secondary)
+                    .font(appStyle.font(.caption2, weight: .semibold))
+                    .foregroundStyle(isSelected ? appStyle.onTenant.opacity(0.85) : appStyle.meta)
                 Text(Self.dayNumber(iso))
-                    .font(.title3.bold())
-                    .foregroundStyle(isSelected ? .white : .primary)
+                    .font(appStyle.font(.title3, weight: .bold))
+                    .foregroundStyle(isSelected ? appStyle.onTenant : appStyle.text)
                 Text(count.map { $0 == 0 ? "free" : "\($0) stop\($0 == 1 ? "" : "s")" } ?? " ")
-                    .font(.caption2)
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : .secondary)
+                    .font(appStyle.font(.caption2))
+                    .foregroundStyle(isSelected ? appStyle.onTenant.opacity(0.85) : appStyle.meta)
             }
             .frame(maxWidth: .infinity, minHeight: 72)
-            .background(isSelected ? Color.MW.green : Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(isSelected ? appStyle.tenant : appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(Self.longLabel(iso)), \(count ?? 0) stops")
@@ -210,14 +214,14 @@ struct MoveStopSheet: View {
             Task { await move() }
         } label: {
             HStack {
-                if isMoving { ProgressView().tint(.white) }
+                if isMoving { ProgressView().tint(appStyle.onTenant) }
                 Text(confirmTitle)
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
             }
             .frame(maxWidth: .infinity, minHeight: 52)
-            .foregroundStyle(.white)
-            .background(selectedISO == nil ? Color(.systemGray3) : Color.MW.green)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .foregroundStyle(appStyle.onTenant)
+            .background(selectedISO == nil ? (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray3)) : appStyle.tenant)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
         }
         .disabled(selectedISO == nil || isMoving)
         .padding(.horizontal, 16)
@@ -237,11 +241,11 @@ struct MoveStopSheet: View {
             Text(message).fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
-        .font(.subheadline)
-        .foregroundStyle(.orange)
+        .font(appStyle.font(.subheadline))
+        .foregroundStyle(appStyle.isEnabled ? appStyle.attention : .orange)
         .padding(12)
-        .background(Color.orange.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background((appStyle.isEnabled ? appStyle.attention : Color.orange).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     // MARK: - Actions

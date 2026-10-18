@@ -347,14 +347,15 @@ final class PullForwardCoordinator: ObservableObject {
 // MARK: - Sheet
 
 struct PullForwardSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var coordinator: PullForwardCoordinator
     let offer: PullForwardOffer
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("You're at \(offer.place)", systemImage: "mappin.circle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(.subheadline, weight: .semibold))
+                .foregroundStyle(appStyle.tenant)
             switch coordinator.phase {
             case .ask:              ask
             case .different:        different
@@ -379,30 +380,30 @@ struct PullForwardSheet: View {
     private var ask: some View {
         if let v = offer.primary {
             Text("\(v.what) for \(offer.place) \(v.whenLabel).")
-                .font(.title3.bold())
+                .font(appStyle.font(.title3, weight: .bold))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Text("Doing it now?").font(.headline)
+                Text("Doing it now?").font(appStyle.font(.headline))
                 Spacer()
                 Text(v.overdue ? "Overdue" : (v.title.isEmpty ? v.planNumber : v.title))
-                    .font(.caption.weight(.semibold))
+                    .font(appStyle.font(.caption, weight: .semibold))
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background((v.overdue ? Color.orange : Color.MW.green).opacity(0.15), in: Capsule())
-                    .foregroundStyle(v.overdue ? Color.orange : Color.MW.green)
+                    .background((v.overdue ? appStyle.color(.statusAttention, legacy: Color.orange) : appStyle.tenant).opacity(0.15), in: Capsule())
+                    .foregroundStyle(v.overdue ? appStyle.color(.statusAttention, legacy: Color.orange) : appStyle.tenant)
             }
             VStack(spacing: 10) {
                 Button {
                     Task { await coordinator.start(visitId: v.visitId) }
                 } label: {
                     VStack(spacing: 2) {
-                        Text("Start").font(.headline)
-                        Text("moves it to today").font(.caption)
+                        Text("Start").font(appStyle.font(.headline))
+                        Text("moves it to today").font(appStyle.font(.caption))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
 
                 if !offer.others.isEmpty || !offer.plansWithoutVisit.isEmpty {
                     Button {
@@ -429,14 +430,14 @@ struct PullForwardSheet: View {
 
     private var different: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Which job are you doing?").font(.title3.bold())
+            Text("Which job are you doing?").font(appStyle.font(.title3, weight: .bold))
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(offer.others) { v in
                         row(title: v.what, sub: v.whenLabel + (v.overdue ? " · overdue" : "")) {
                             Button("Start") { Task { await coordinator.start(visitId: v.visitId) } }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.MW.green)
+                                .tint(appStyle.tenant)
                         }
                     }
                     ForEach(offer.plansWithoutVisit) { p in
@@ -455,20 +456,20 @@ struct PullForwardSheet: View {
     private func row<B: View>(title: String, sub: String, @ViewBuilder button: () -> B) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(sub).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(appStyle.font(.subheadline, weight: .semibold))
+                Text(sub).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             Spacer(minLength: 4)
             button().controlSize(.small)
         }
         .padding(10)
-        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+        .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     private func working(_ m: String) -> some View {
         HStack(spacing: 10) {
             ProgressView()
-            Text(m).font(.subheadline)
+            Text(m).font(appStyle.font(.subheadline))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
@@ -477,10 +478,10 @@ struct PullForwardSheet: View {
     private func result(_ m: String, ok: Bool) -> some View {
         VStack(spacing: 14) {
             Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(ok ? Color.MW.green : .orange)
+                .font(appStyle.font(size: 40))
+                .foregroundStyle(ok ? appStyle.tenant : .orange)
             Text(m)
-                .font(.headline)
+                .font(appStyle.font(.headline))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
@@ -489,7 +490,7 @@ struct PullForwardSheet: View {
                 }
                 Button(ok ? "Done" : "Close") { coordinator.close() }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
             }
         }
         .frame(maxWidth: .infinity)

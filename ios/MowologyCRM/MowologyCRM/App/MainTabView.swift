@@ -36,6 +36,7 @@ final class ReadyBriefStore: ObservableObject {
 }
 
 struct MainTabView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
@@ -95,7 +96,8 @@ struct MainTabView: View {
                     .tag(Tab.account)
             }
         }
-        .tint(Color.MW.green)
+        .tint(appStyle.tenant)
+        .itAppScreen()
         .safeAreaInset(edge: .top, spacing: 0) {
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 ItOfficeBar(members: officeBarMembers,
@@ -186,19 +188,19 @@ struct MainTabView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color(.systemGray3))
+                    .font(appStyle.font(size: 48))
+                    .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
 
                 Text(title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
+                    .font(appStyle.font(.title2, weight: .bold))
+                    .foregroundStyle(appStyle.text)
 
                 Text("Coming soon in v2")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -213,13 +215,22 @@ struct MainTabView: View {
                     Section {
                         AccountProfileRow(user: user)
                             .padding(.vertical, 4)
+                            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                     }
                 }
+
+                Section("Appearance") {
+                    ItDesignSettingsRows()
+                }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
 
                 Section {
                     SignOutButton(authSession: authSession)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -247,20 +258,21 @@ private extension Label where Title == Text, Icon == Image {
 
 /// The signed-in user's name and email — on Account, and on Team for admins.
 struct AccountProfileRow: View {
+    @Environment(\.itAppStyle) private var appStyle
     let user: User
 
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "person.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(size: 44))
+                .foregroundStyle(appStyle.tenant)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.name)
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                 Text(user.email)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
         }
     }
@@ -271,6 +283,7 @@ struct AccountProfileRow: View {
 /// Sign Out — asks first when a shift is still open (see SignOutViewModel).
 /// On Account, and on Team for admins.
 struct SignOutButton: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var vm: SignOutViewModel
 

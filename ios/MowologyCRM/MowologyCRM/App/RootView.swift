@@ -3,6 +3,8 @@ import SwiftUI
 struct RootView: View {
 
     @EnvironmentObject private var authSession: AuthSession
+    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
     @State private var updateResult: VersionCheckResult? = nil
     /// Charlie's brain on the opening screen, then (admins, first open of the day) his morning
     /// brief landing in the app — OpeningOverlay / CharlieMorningBrief.swift.
@@ -23,6 +25,7 @@ struct RootView: View {
             } else if authSession.isAuthenticated {
                 MainTabView()
                     .environmentObject(authSession)
+                    .itAppTheme(enabled: ittaiDesignEnabled, field: ittaiFieldEnabled)
             } else {
                 LoginView(authSession: authSession)
             }
