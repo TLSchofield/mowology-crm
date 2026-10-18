@@ -123,6 +123,31 @@ if let back=projected40.first(where:{!$0.front && $0.slot != nil}) { check(ItKno
 check(ItKnowledgeGeometry.minimumHitDiameter >= 44, "knowledge targets are at least 44 pt")
 check(Set(["loose-lines","outline","fill","fill-keyline"]).count == 4, "four knowledge stages have distinct non-colour treatments")
 
+// A solid cannot exist before learning. Empty state is three independent moving strokes.
+check(ItKnowledgeGeometry.projectedFaces(count:0,in:CGSize(width:300,height:300)).isEmpty,"zero knowledge has no mesh")
+let chaos0=BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:0)
+let chaos10=BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:10)
+check(chaos0.count == 3 && chaos0.allSatisfy{$0.count == 2},"chaos is exactly three lines")
+check(chaos0 != chaos10,"chaos moves with time")
+check(chaos0 == BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:0),"reduced motion freezes chaos")
+var motion=BrainMotion()
+check(abs(motion.yaw(at:90)-motion.yaw(at:0)-2 * .pi)<0.000001,"one slow turn takes90 seconds")
+motion.drag(CGSize(width:40,height:20),at:10)
+let held=motion.yaw(at:10)
+check(motion.yaw(at:15)==held,"drag suspends auto rotation")
+motion.endDrag(at:15)
+check(abs(motion.yaw(at:15)-held)<0.000001,"release has no rotation jump")
+check(motion.yaw(at:16)>held,"auto rotation resumes after release")
+// All repeated vertices must project to identical screen coordinates; face shrinking breaks joins.
+let mesh=ItKnowledgeGeometry.projectedFaces(count:20,in:CGSize(width:300,height:300))
+let points=mesh.flatMap(\.points)
+check(Set(points.map{"\($0.x),\($0.y)"}).count < points.count,"adjoining faces share projected vertices")
+for count in [1,2,3,4,89,90,91,499,500] {
+    let shape=BrainShape(count)
+    check(shape.k==count && !shape.tris.isEmpty,"shape pathway boundary \(count) is preserved")
+    check(shape.tris==BrainShape(count).tris,"shape \(count) is deterministic")
+}
+
 // Machado 2009 severity-1.0 matrices. Fill RGB distance is supplemented by the non-colour outline/keyline cue.
 let machado:[String:[[Double]]]=[
  "protanopia":[[0.152286,1.052583,-0.204868],[0.114503,0.786281,0.099216],[-0.003882,-0.048116,1.051998]],

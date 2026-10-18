@@ -799,7 +799,7 @@ private struct ItWorkspaceView<Content: View>: View {
                               tiers: Dictionary(brain.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
                               label: "\(member.name)'s brain", onLight: it.mode != .dark)
                         .frame(height: 150)
-                    Text("Shape \(brain.shape)").itText(.caption12).foregroundStyle(it.meta)
+                    Text(brain.units == 0 ? "Nothing learned yet" : "Shape \(brain.shape)").itText(.caption12).foregroundStyle(it.meta)
                     ForEach(brain.tiers, id: \.self) { tier in
                         Text("\(tier.name): \(tier.n)").itText(.body14).foregroundStyle(it.meta)
                     }

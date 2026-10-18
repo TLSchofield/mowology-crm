@@ -52,13 +52,12 @@ struct ItKnowledgeBrain: View {
     @State private var selected: KnowledgeVendor?
     @State private var showList=false
     @State private var visibleStages:[String:KnowledgeStage]=[:]
-    @State private var yaw=ItKnowledgeGeometry.restingYaw
-    @State private var pitch=ItKnowledgeGeometry.restingPitch
-    @State private var dragStart:(yaw:Double,pitch:Double)?
+    @State private var motion = BrainMotion()
+    @State private var startedAt = Date()
     @State private var previousCount:Int?
     @State private var displayedCount:Int?
     @State private var shapeBlend=1.0
-    private var vendorCount:Int { max(1,response.items.count) }
+    private var vendorCount:Int { response.items.count }
     private var summary:String { "Penny has met \(response.items.count) vendors — she knows \(response.items.count-response.counts.recognized), understands \(response.counts.understood+response.counts.mastered) and has mastered \(response.counts.mastered)." }
     var body: some View { VStack(alignment:.leading,spacing:ItSpace.s4) {
         Text(summary).itText(.body16).foregroundStyle(it.text)
@@ -77,30 +76,47 @@ struct ItKnowledgeBrain: View {
         else { withAnimation(.easeInOut(duration:0.9)){shapeBlend=1};Task{@MainActor in try? await Task.sleep(for:.seconds(0.9));previousCount=nil} }
     }
     }
-    private var brain:some View { GeometryReader { proxy in
-        let faces=ItKnowledgeGeometry.projectedFaces(count:vendorCount,in:proxy.size,yaw:yaw,pitch:pitch)
-        Canvas { context,_ in
-            if let previousCount,shapeBlend<1 {
-                let old=ItKnowledgeGeometry.projectedFaces(count:max(1,previousCount),in:proxy.size,yaw:yaw,pitch:pitch)
-                context.opacity=1-shapeBlend;draw(faces:old,context:&context)
-                context.opacity=shapeBlend
+    private var elapsed: Double { reduceMotion ? 0 : Date().timeIntervalSince(startedAt) }
+    private var brain: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSince(startedAt)
+            GeometryReader { proxy in
+                let faces = ItKnowledgeGeometry.projectedFaces(count: vendorCount, in: proxy.size,
+                                                               yaw: motion.yaw(at: time), pitch: motion.pitch)
+                Group {
+                    if vendorCount == 0 {
+                        BrainChaos(time: time, color: it.color(.knowledgeDiscovered))
+                    } else {
+                        Canvas { context, _ in
+                            if let previousCount, shapeBlend < 1 {
+                                let old = ItKnowledgeGeometry.projectedFaces(count: previousCount, in: proxy.size,
+                                                                             yaw: motion.yaw(at: time), pitch: motion.pitch)
+                                context.opacity = 1 - shapeBlend
+                                draw(faces: old, context: &context)
+                                context.opacity = shapeBlend
+                            }
+                            draw(faces: faces, context: &context)
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                    motion.drag(value.translation, at: elapsed)
+                }.onEnded { value in
+                    // Resolve the tap against the orientation on screen at release, not an old frame.
+                    let tappedFaces = ItKnowledgeGeometry.projectedFaces(count: vendorCount, in: proxy.size,
+                                                                         yaw: motion.yaw(at: elapsed), pitch: motion.pitch)
+                    motion.endDrag(at: elapsed)
+                    if hypot(value.translation.width, value.translation.height) < 8,
+                       let slot = ItKnowledgeGeometry.resolvedSlot(at: value.location, faces: tappedFaces),
+                       let vendor = response.items.first(where: { $0.slot == slot }) { selected = vendor }
+                })
+                .accessibilityElement(children: .ignore).accessibilityLabel(summary)
+                .accessibilityAction(named: "Show as list") { showList = true }
             }
-            draw(faces:faces,context:&context)
         }
-        .contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged { value in
-            if dragStart == nil { dragStart=(yaw,pitch) }
-            guard let start=dragStart else{return}
-            yaw=start.yaw+Double(value.translation.width)*0.012
-            pitch=max(-1.15,min(1.15,start.pitch-Double(value.translation.height)*0.012))
-        }.onEnded { value in
-            dragStart=nil
-            if hypot(value.translation.width,value.translation.height)<8,
-               let slot=ItKnowledgeGeometry.resolvedSlot(at:value.location,faces:faces),
-               let vendor=response.items.first(where:{$0.slot==slot}) { selected=vendor }
-        })
-        .accessibilityElement(children:.ignore).accessibilityLabel(summary)
-        .accessibilityAction(named:"Show as list") { showList=true }
-    }.frame(height:300).background(it.surface,in:RoundedRectangle(cornerRadius:ItRadius.lg)) }
+        .frame(height: 300).background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
+    }
     private var list:some View { VStack(alignment:.leading,spacing:ItSpace.s4){
         Button("Show brain") { showList=false }.buttonStyle(.plain).itText(.body14).foregroundStyle(it.tenant)
         ForEach(KnowledgeStage.allCases.reversed(),id:\.self){stage in let vendors=response.items.filter{$0.stage==stage};if !vendors.isEmpty { VStack(alignment:.leading,spacing:ItSpace.s2){Text(stage.title).itText(.heading16);ForEach(vendors){v in Button{selected=v}label:{HStack{ItKnowledgeMark(stage:v.stage,size:22);Text("\(v.label), \(v.stage.rawValue), \(v.evidence.receiptsApproved) receipts, \(v.evidence.transactionsMatched) matched").itText(.body14).multilineTextAlignment(.leading)}}.buttonStyle(.plain).accessibilityLabel("\(v.label), \(v.stage.rawValue), \(v.evidence.receiptsApproved) receipts, \(v.evidence.transactionsMatched) matched")}}}}

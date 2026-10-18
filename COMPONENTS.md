@@ -455,3 +455,15 @@ secrets, rotates bounded files and exposes disk failures. `DiagnosticsView` guar
 view/export by the current admin role. `AppCrashReports` imports Apple-supplied
 MetricKit crashes/hangs; availability depends on iOS delivery. See `ios/README.md`
 for storage, limits, access and test commands.
+
+
+## iOS learning-shape motion — `BrainMotion`, `BrainChaos` (2026-10-18)
+
+Shared by `BrainView` and `ItKnowledgeBrain`, in `Features/Splash/CharlieBrainSplash.swift`.
+`BrainMotion` provides a 90-second turn, drag suspension and continuous release; pass time 0
+with Reduce Motion. `BrainChaos` draws exactly three independent drifting strokes at zero
+learning. Keep positive-learning meshes on the existing deterministic `BrainShape` pathway.
+`ItKnowledgeGeometry.projectedFaces` preserves shared projected vertices; do not inset mesh
+faces to make legend-sized triangles. Knowledge stage colours and standalone legend marks
+remain in the Ittai layer. `bash ios/DesignRender/run.sh <output> knowledge-only` renders
+zero/early/later learning fixtures and two chaos frames; these are Mac renders, not device tests.

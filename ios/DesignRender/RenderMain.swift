@@ -68,7 +68,7 @@ func sampleKnowledge(_ count:Int = 40) -> KnowledgeResponse {
                 "next":[stage == "recognized" ? "Approve 1 receipt from this vendor" : "Approve and match one receipt from this vendor."]]
     }
     let root:[String:Any] = ["ok":true,"head":"penny","kind":"vendor","generated_at":"2026-10-17T12:00:00Z",
-       "counts":["recognized":21,"identified":7,"understood":6,"mastered":6],"items":vendors]
+       "counts":Dictionary(grouping: vendors, by: { $0["stage"] as! String }).mapValues { $0.count },"items":vendors]
     return try! JSONDecoder().decode(KnowledgeResponse.self,from:JSONSerialization.data(withJSONObject:root))
 }
 
@@ -301,6 +301,16 @@ struct ScheduleComponentsRender: View {
 @MainActor func run() {
     registerFonts()
     let renderSelection = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "all"
+    if renderSelection == "knowledge-only" {
+        for count in [0,1,2,3,6,20,40,45] {
+            save(Screen(mode: .light, width: 393) { KnowledgeRender(response: sampleKnowledge(count)) }, "knowledge-\(count)-light")
+        }
+        save(Screen(mode: .dark, width: 393) { KnowledgeRender(response: sampleKnowledge(45)) }, "knowledge-45-dark")
+        for time in [0.0,10.0] {
+            save(Screen(mode: .light, width: 393) { BrainChaos(time: time, color: ItPalette(.light).color(.knowledgeDiscovered)).frame(height: 300) }, "chaos-\(Int(time))")
+        }
+        return
+    }
     if renderSelection != "schedule-only" { renderOnboardingChecks() }
     if renderSelection == "onboarding-only" { return }
     for mode in ItMode.allCases {

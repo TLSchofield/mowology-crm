@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run.sh — render the Ittai design layer (Core/Design/Ittai) to PNGs on the Mac, light/dark/field.
 # This iMac has no iOS simulator, so this is how the design views are reviewed before a TestFlight build.
-# usage: bash ios/DesignRender/run.sh [out-dir] [schedule-only|onboarding-only]   (default: $TMPDIR/ittai-ios-render)
+# usage: bash ios/DesignRender/run.sh [out-dir] [schedule-only|onboarding-only|knowledge-only]   (default: $TMPDIR/ittai-ios-render)
 set -eu
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/ios/MowologyCRM/MowologyCRM"

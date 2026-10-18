@@ -24,7 +24,8 @@ enum ItKnowledgeGeometry {
     }
 
     static func projectedFaces(count: Int, in size: CGSize, yaw: Double = restingYaw, pitch: Double = restingPitch) -> [ItKnowledgeProjectedFace] {
-        let shape = BrainShape(max(1, count))
+        guard count > 0 else { return [] }
+        let shape = BrainShape(count)
         let slots = Dictionary(uniqueKeysWithValues: shape.lightOrder.prefix(max(0, count)).enumerated().map { ($0.element, $0.offset) })
         let radius = Double(min(size.width, size.height)) * 0.36
         let cy = cos(yaw), sy = sin(yaw), cp = cos(pitch), sp = sin(pitch)
@@ -39,7 +40,7 @@ enum ItKnowledgeGeometry {
         return shape.tris.enumerated().map { faceIndex, triangle in
             let raw = triangle.map(project)
             let centroid = CGPoint(x: raw.map(\.point.x).reduce(0, +) / 3, y: raw.map(\.point.y).reduce(0, +) / 3)
-            let points = raw.map { p in CGPoint(x: p.point.x + (centroid.x - p.point.x) * triangleInset, y: p.point.y + (centroid.y - p.point.y) * triangleInset) }
+            let points = raw.map(\.point) // Shared vertices must meet; only standalone legend marks are inset.
             let cross = (raw[1].point.x - raw[0].point.x) * (raw[2].point.y - raw[0].point.y) - (raw[1].point.y - raw[0].point.y) * (raw[2].point.x - raw[0].point.x)
             return ItKnowledgeProjectedFace(faceIndex: faceIndex, slot: slots[faceIndex], centroid: centroid, points: points, depth: raw.map(\.depth).reduce(0, +) / 3, front: cross < 0)
         }.sorted { $0.depth < $1.depth }
