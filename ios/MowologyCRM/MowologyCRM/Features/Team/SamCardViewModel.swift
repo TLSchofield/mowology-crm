@@ -119,14 +119,15 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.loadDesk()
             if !r.ok {
-                loadError = r.error ?? "Sam isn't set up yet."
+                loadError = r.error ?? "Sam card response ok=false; server returned no error field."
             } else {
                 apply(r)
             }
         } catch let err as APIError {
             loadError = err.errorDescription
         } catch {
-            loadError = "Couldn't load Sam's list — pull to try again."
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            loadError = ErrorDetails.describe(error)
         }
         isLoading = false
         hasLoaded = true
@@ -343,9 +344,10 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.loadThread(contactId: contactId)
             if r.ok { threadMessages = r.messages.reversed() }       // oldest first, like a chat
-            else { threadError = r.error ?? "Couldn't load the conversation." }
+            else { threadError = r.error ?? "Conversation response ok=false; server returned no error field." }
         } catch {
-            threadError = "Couldn't load the conversation."
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            threadError = ErrorDetails.describe(error)
         }
     }
 
@@ -369,11 +371,12 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.send(body)
             if r.ok { return r }
-            onError(r.message ?? r.error ?? "That didn't work — try again.")
+            onError(r.message ?? r.error ?? "Sam action response ok=false; server returned no message/error field.")
         } catch let err as APIError {
-            onError(err.errorDescription ?? "That didn't work — try again.")
+            onError(ErrorDetails.describe(err))
         } catch {
-            onError("Network error — nothing was sent. Try again.")
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            onError(ErrorDetails.describe(error))
         }
         return nil
     }

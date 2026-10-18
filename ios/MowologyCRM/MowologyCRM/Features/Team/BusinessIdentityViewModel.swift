@@ -29,7 +29,11 @@ final class BusinessIdentityViewModel: ObservableObject {
     @Published private(set) var state: ItPennyOnboardingState = .opening
     @Published private(set) var isBusy = false
     @Published private(set) var isEditing = false
-    @Published private(set) var error: String?
+    @Published private(set) var error: String? {
+        didSet {
+            if let error { AppDiagnostics.shared.record(category: "business.identity", message: error) }
+        }
+    }
     @Published private(set) var attribution: String?
     @Published private(set) var contactsState: BusinessContactsState = .idle
     private let api: BusinessIdentityAPI
@@ -43,14 +47,14 @@ final class BusinessIdentityViewModel: ObservableObject {
         isBusy = true; error = nil
         do {
             let response = try await api.current()
-            guard response.ok else { error = response.error ?? "I couldn't load your business details."; isBusy = false; return }
+            guard response.ok else { error = response.error ?? "GET business identity: response ok=false; server supplied no error message."; isBusy = false; return }
             apply(response)
             isBusy = false
             if response.knowledge.stage == .recognized, let name = response.identity?.enteredName {
                 enteredName = name
                 await search(name)
             }
-        } catch { self.error = friendly(error); isBusy = false }
+        } catch { self.error = failure(error); isBusy = false }
     }
 
     func start(_ name: String) async {
@@ -58,10 +62,10 @@ final class BusinessIdentityViewModel: ObservableObject {
         enteredName = name; isBusy = true; error = nil
         do {
             let response = try await api.send(["mode": "start", "name": name])
-            guard response.ok else { error = response.error ?? "I couldn't save that name."; isBusy = false; return }
+            guard response.ok else { error = response.error ?? "POST business identity start: response ok=false; server supplied no error message."; isBusy = false; return }
             apply(response); isBusy = false
             await search(name)
-        } catch { self.error = friendly(error); isBusy = false }
+        } catch { self.error = failure(error); isBusy = false }
     }
 
     func searchAgain() async { await search(enteredName) }
@@ -82,8 +86,8 @@ final class BusinessIdentityViewModel: ObservableObject {
             case .none: state = .none(manual: false)
             case .unavailable, .rateLimited: state = .unavailable
             }
-            if !response.ok, response.status == .matches { error = response.error ?? "The registry response couldn't be read."; state = .unavailable }
-        } catch { self.error = friendly(error); state = .unavailable }
+            if !response.ok, response.status == .matches { error = response.error ?? "Business registry search: response ok=false with status=matches; server supplied no error message."; state = .unavailable }
+        } catch { self.error = failure(error); state = .unavailable }
         isBusy = false
     }
 
@@ -125,16 +129,16 @@ final class BusinessIdentityViewModel: ObservableObject {
         isBusy = true; error = nil; defer { isBusy = false }
         do {
             let response = try await api.send(body)
-            guard response.ok else { error = response.error ?? "I couldn't save those business details."; return false }
+            guard response.ok else { error = response.error ?? "POST business identity: response ok=false; server supplied no error message."; return false }
             apply(response)
             guard response.knowledge.stage.map({ $0 >= .identified }) == true else {
-                error = "I couldn't confirm that business. Please try again."
+                error = "POST business identity returned ok=true but knowledge.stage=\(response.knowledge.stage?.rawValue ?? "null"); expected identified or higher."
                 return false
             }
             isEditing = false
             state = .confirmed(response.identity?.legalName ?? enteredName)
             return true
-        } catch { self.error = friendly(error); return false }
+        } catch { self.error = failure(error); return false }
     }
 
     func loadContacts() async {
@@ -143,12 +147,13 @@ final class BusinessIdentityViewModel: ObservableObject {
             let response = try await api.contacts()
             contactsState = response.ok ? .available(response.contacts) : .missing
         } catch let apiError as APIError {
+            self.error = failure(apiError)
             switch apiError {
             case .serverError, .decodingError:
                 contactsState = .missing
             default: contactsState = .failed
             }
-        } catch { contactsState = .failed }
+        } catch { self.error = failure(error); contactsState = .failed }
     }
 
     private func apply(_ response: BusinessIdentityCurrentResponse) {
@@ -156,5 +161,8 @@ final class BusinessIdentityViewModel: ObservableObject {
         if let name = response.identity?.enteredName { enteredName = name }
     }
 
-    private func friendly(_ error: Error) -> String { "I couldn't reach the server. Please try again." }
+    private func failure(_ error: Error) -> String {
+        let detail = ErrorDetails.describe(error)
+        return detail
+    }
 }

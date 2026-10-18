@@ -7,6 +7,10 @@ require_once __DIR__ . '/../vendor/autoload.php';
 // Load service classes under test
 // No namespace — plain PHP classes, loaded directly
 
+// Settings — public business registry lookup (no live HTTP in unit tests)
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/BusinessRegistryProvider.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/OrgBookBcProvider.php';
+
 // Accounting
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReportingService.php';

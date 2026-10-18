@@ -262,11 +262,11 @@ final class PullForwardCoordinator: ObservableObject {
                 .visitPullForward(mode: "accept"),
                 body: ["visit_id": visitId, "property_id": o.propertyId, "request_key": UUID().uuidString])
             guard moved.success else {
-                phase = .failed(moved.error ?? "Could not move the visit.")
+                phase = .failed(moved.error ?? "Move visit response success=false; server returned no error field.")
                 return
             }
         } catch {
-            phase = .failed(Self.message(error, fallback: "No connection — nothing was moved. Try again in a moment."))
+            phase = .failed(Self.message(error))
             return
         }
         NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
@@ -282,11 +282,11 @@ final class PullForwardCoordinator: ObservableObject {
             added = try await client.request(.fieldJobAction,
                                              body: ["action": "add_visit", "plan_id": planId, "client_request_id": UUID().uuidString])
         } catch {
-            phase = .failed(Self.message(error, fallback: "No connection — nothing was added. Try again in a moment."))
+            phase = .failed(Self.message(error))
             return
         }
         guard added.success else {
-            phase = .failed(added.error ?? "Could not add the visit.")
+            phase = .failed(added.error ?? "Add visit response success=false; server returned no error field.")
             return
         }
         NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
@@ -309,7 +309,7 @@ final class PullForwardCoordinator: ObservableObject {
             let r: TimerStartResponse = try await client.request(.scheduleTimer, body: body,
                                                                  extraHeaders: ["Idempotency-Key": UUID().uuidString])
             guard r.success else {
-                phase = .failed(r.message ?? "The visit is on today's schedule, but the timer didn't start. Start it from the schedule.")
+                phase = .failed(r.message ?? "Visit added; timer response success=false; server returned no message field. Start it from the schedule.")
                 return
             }
             GPSTrackingService.shared.setActiveVisit(visitId)
@@ -317,7 +317,8 @@ final class PullForwardCoordinator: ObservableObject {
             NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
             phase = .done(done)
         } catch {
-            phase = .failed("The visit is on today's schedule, but the timer didn't start — start it from the schedule.")
+            AppDiagnostics.shared.record(category: "PullForwardSheet", message: ErrorDetails.describe(error))
+            phase = .failed("Visit added; timer start failed: " + ErrorDetails.describe(error))
         }
     }
 
@@ -338,9 +339,8 @@ final class PullForwardCoordinator: ObservableObject {
         UserDefaults.standard.set(true, forKey: dismissKey(propertyId))
     }
 
-    private static func message(_ error: Error, fallback: String) -> String {
-        if let e = error as? APIError, case .serverError(let m) = e { return m }
-        return fallback
+    private static func message(_ error: Error) -> String {
+        ErrorDetails.describe(error)
     }
 }
 

@@ -14,6 +14,8 @@ run() {
   "$OUT/$name"
 }
 
+python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
+
 # swiftc treats the file named main.swift as the entry point — copy the checks to that name.
 cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
@@ -24,10 +26,18 @@ run ittaidesign -DKNOWLEDGE_GEOMETRY_ONLY "$SRC/Core/Design/Ittai/ItTokens.swift
   "$SRC/Core/Design/Ittai/ItSymbol.swift" "$SRC/Core/Design/Ittai/ItHexagonGeometry.swift" \
   "$SRC/Features/Splash/CharlieBrainSplash.swift" \
   "$SRC/Core/Design/Ittai/ItKnowledgeGeometry.swift" \
-  "$SRC/Core/Design/Ittai/ItIcons.swift" "$SRC/Core/Design/Ittai/ItComponents.swift" "$OUT/main.swift"
+  "$SRC/Core/Design/Ittai/ItIcons.swift" "$SRC/Core/Design/Ittai/ItComponents.swift" \
+  "$SRC/Core/Models/KnowledgeModels.swift" "$SRC/Core/Models/BusinessIdentityModels.swift" \
+  "$SRC/Core/Design/Ittai/ItKnowledgeBrain.swift" "$SRC/Core/Design/Ittai/ItPennyOnboarding.swift" "$OUT/main.swift"
 
 # Business setup: real models, URLs and view model against a fake transport, in TestFlight Release mode.
 run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swift" \
   "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" \
-  "$SRC/Core/Network/APIError.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
+  "$SRC/Core/Network/APIError.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
+  "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
   "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
+
+# Persisted diagnostics, rotation/redaction and exact HTTP/transport/decoding errors.
+run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
+  "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/APIError.swift" \
+  "$ROOT/ios/LogicTests/DiagnosticsTests.swift"

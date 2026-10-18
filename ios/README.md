@@ -76,3 +76,36 @@ text sizes. The Mac ImageRenderer omits horizontal ScrollView content, so the ac
 week strip cannot be visually verified by these PNGs. Stop rows and regular-size
 chips render directly from their production views. Xcode Cloud verifies the device
 archive; native scrolling and touch interaction still require an iPhone check.
+
+## Precise errors and admin diagnostics
+
+Show the actual failure, never replace a caught exception with an assumed cause
+such as “no connection”. `ErrorDetails.describe` retains Foundation domain/code,
+JSON decoding kind/key path, and server messages. A failed server response without
+an error/message field must identify the failed response flag and absent field.
+Validation and saved-offline states remain separate from failures.
+
+`APIClient` records failed HTTP responses, transport errors and decoding failures.
+It keeps HTTP method, endpoint (only mode/action query selectors), status, response
+size and the precise reason. It never records request headers, request bodies,
+photos or GPS coordinates. Secret-bearing fields are redacted; bounded response
+snippets explicitly identify truncation.
+
+Admins open **AI Office → Diagnostic log** below the appearance settings, then
+Refresh or Export log. Role access is checked both in navigation and the viewer.
+Logs remain in Application Support/Diagnostics on this phone: one 1 MiB active log,
+two rotated archives and a current export. They are excluded from backups and use
+iOS file protection. Logging runs on a serial utility queue; disk failures reach
+the system console and are displayed by the viewer.
+
+`AppCrashReports` subscribes to Apple's MetricKit diagnostic reports and imports
+available past reports, deduplicated by payload hash. Crashes/hangs are included
+when iOS delivers them, not guaranteed synchronously at the instant of a crash.
+The app deliberately does not install unsafe signal handlers or mislabel a
+forced termination as a crash. No third-party telemetry or automatic log upload.
+
+Registry confirmation requires `search/topic?q=<registration>&latest=true&inactive=any`.
+`topic_source_id` is not the query filter on that endpoint; `inactive=true` selects
+inactive companies rather than including both statuses. Always retain the exact
+returned source-ID check. The provider lookup is covered by PHPUnit and verified
+against the public registry before deployment.

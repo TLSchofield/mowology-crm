@@ -29,6 +29,7 @@ struct ItPennyOnboarding: View {
     @State private var showsLicence = false
     @Environment(\.it) private var it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let structures = ["", "Sole proprietorship", "Partnership", "Corporation", "Society", "Other"]
     private let jurisdictions = ["British Columbia", "Federal", "Alberta", "Other"]
@@ -42,8 +43,11 @@ struct ItPennyOnboarding: View {
                                animate: state.isConfirmed,
                                reducedMotion: reduceMotion)
                     .frame(width: 64, height: 64)
-                conversation.frame(maxWidth: .infinity, alignment: .leading)
+                Text(spokenLine).itText(.body16).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            conversation.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(ItSpace.s4)
         .background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
@@ -54,8 +58,6 @@ struct ItPennyOnboarding: View {
 
     @ViewBuilder private var conversation: some View {
         VStack(alignment: .leading, spacing: ItSpace.s4) {
-            Text(spokenLine).itText(.body16).fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
             switch state {
             case .opening:
                 field("Business name", text: $name)
@@ -141,39 +143,40 @@ struct ItPennyOnboarding: View {
     private func registryCard(_ match: BusinessRegistryMatch) -> some View {
         let primary = registryRows(match)
         let more = moreRows(match)
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(primary.enumerated()), id: \.offset) { index, row in
-                compactRow(row.0, row.1, status: row.0 == "Status")
-                if index < primary.count - 1 { Divider().overlay(it.line) }
+        return VStack(alignment: .leading, spacing: ItSpace.s2) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(primary.enumerated()), id: \.offset) { index, row in
+                    compactRow(row.0, row.1, status: row.0 == "Status")
+                    if index < primary.count - 1 { Divider().overlay(it.line) }
+                }
+                if !more.isEmpty {
+                    Divider().overlay(it.line)
+                    DisclosureGroup("More details") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(more.enumerated()), id: \.offset) { index, row in
+                                compactRow(row.0, row.1)
+                                if index < more.count - 1 { Divider().overlay(it.line) }
+                            }
+                        }.padding(.top, ItSpace.s1)
+                    }.itText(.body14, weight: 600).padding(.vertical, ItSpace.s2)
+                }
             }
-            if !more.isEmpty {
-                Divider().overlay(it.line)
-                DisclosureGroup("More details") {
-                    VStack(spacing: 0) {
-                        ForEach(Array(more.enumerated()), id: \.offset) { index, row in
-                            compactRow(row.0, row.1)
-                            if index < more.count - 1 { Divider().overlay(it.line) }
-                        }
-                    }.padding(.top, ItSpace.s1)
-                }.itText(.body14, weight: 600).padding(.vertical, ItSpace.s2)
-            }
+            .padding(.horizontal, ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
+            attributionLine
         }
-        .padding(.horizontal, ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
-        .overlay(alignment: .bottomLeading) { attributionLine.padding(.top, ItSpace.s2).offset(y: 42) }
-        .padding(.bottom, showsLicence ? 96 : 42)
     }
 
     private var attributionLine: some View {
         VStack(alignment: .leading, spacing: ItSpace.s1) {
             HStack(spacing: ItSpace.s1) {
                 Text("Source: BC Registries via OrgBook BC").itText(.caption12).foregroundStyle(it.meta)
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button { showsLicence.toggle() } label: {
                     Image(systemName: "info.circle").frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
                 }.buttonStyle(.plain).foregroundStyle(it.brand).accessibilityLabel("About the registry information licence")
             }
             if showsLicence {
-                HStack(spacing: 3) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Contains information licensed under the")
                     Link("Open Government Licence – British Columbia.", destination: Self.licenceURL)
                 }.itText(.caption12).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
@@ -182,13 +185,43 @@ struct ItPennyOnboarding: View {
     }
 
     private func compactRow(_ label: String, _ value: String, status: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
-            Text(label).itText(.caption12).foregroundStyle(it.meta)
-            Spacer(minLength: ItSpace.s2)
-            if status { Circle().fill(it.color(value.lowercased() == "active" ? .statusComplete : .statusAttention))
-                .frame(width: 7, height: 7).accessibilityHidden(true).accessibilityHidden(true) }
-            Text(value).itText(.body14, weight: 600).multilineTextAlignment(.trailing)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                stackedRow(label, value, status: status)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
+                        Text(label).itText(.caption12).foregroundStyle(it.meta).fixedSize()
+                        Spacer(minLength: ItSpace.s2)
+                        registryValue(value, status: status).fixedSize()
+                    }
+                    stackedRow(label, value, status: status)
+                }
+            }
         }.padding(.vertical, ItSpace.s2)
+    }
+
+    private func stackedRow(_ label: String, _ value: String, status: Bool) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(label).itText(.caption12).foregroundStyle(it.meta)
+            if label == "Registration" {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    registryValue(value, status: status).fixedSize()
+                }
+            } else {
+                registryValue(value, status: status).fixedSize(horizontal: false, vertical: true)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func registryValue(_ value: String, status: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: ItSpace.s2) {
+            if status {
+                Circle().fill(it.color(value.lowercased() == "active" ? .statusComplete : .statusAttention))
+                    .frame(width: 7, height: 7).accessibilityHidden(true)
+            }
+            Text(value).itText(.body14, weight: 600)
+        }
     }
 
     private func registryRows(_ match: BusinessRegistryMatch) -> [(String, String)] {
@@ -199,7 +232,10 @@ struct ItPennyOnboarding: View {
 
     private func moreRows(_ match: BusinessRegistryMatch) -> [(String, String)] {
         [("Legal structure", match.legalStructure), ("Registration type", match.registrationType), ("Registered on", match.registeredOn)].compactMap { label, value in
-            value?.trimmed.nilIfEmpty.map { (label, $0) }
+            value?.trimmed.nilIfEmpty.map {
+                (label, label == "Registration type" ? ItRegistryDisplay.registrationType($0)
+                    : label == "Registered on" ? ItRegistryDisplay.registeredDate($0) : $0)
+            }
         }
     }
 
@@ -374,4 +410,40 @@ private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
     var nilIfEmpty: String? { isEmpty ? nil : self }
     func matches(_ other: String) -> Bool { trimmed.caseInsensitiveCompare(other.trimmed) == .orderedSame }
+}
+
+/// Registry presentation only: preserve unknown dates and keep source model values intact.
+enum ItRegistryDisplay {
+    static func registrationType(_ raw: String) -> String {
+        if raw.lowercased() == "bc_registration" { return "BC registration" }
+        guard raw.contains("_") else { return raw }
+        let words = raw.split(separator: "_").joined(separator: " ")
+        guard let first = words.first else { return raw }
+        return first.uppercased() + words.dropFirst()
+    }
+
+    static func registeredDate(_ raw: String) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = iso.date(from: raw)
+        if date == nil {
+            iso.formatOptions = [.withInternetDateTime]
+            date = iso.date(from: raw)
+        }
+        if date == nil {
+            let day = DateFormatter()
+            day.locale = Locale(identifier: "en_US_POSIX")
+            day.timeZone = TimeZone(secondsFromGMT: 0)
+            day.dateFormat = "yyyy-MM-dd"
+            day.isLenient = false
+            if let parsed = day.date(from: raw), day.string(from: parsed) == raw { date = parsed }
+        }
+        guard let date else { return raw }
+        let display = DateFormatter()
+        display.locale = Locale(identifier: "en_CA")
+        display.timeZone = TimeZone(secondsFromGMT: 0)
+        display.dateStyle = .medium
+        display.timeStyle = .none
+        return display.string(from: date)
+    }
 }

@@ -304,9 +304,9 @@ struct MoveStopSheet: View {
                 dismiss()
             } else if response.warning == true {
                 notify.notificationOccurred(.warning)
-                capacityWarning = response.message ?? "That day is over capacity."
+                capacityWarning = response.message ?? "Move stop response warning=true; server returned no message field."
             } else {
-                errorMessage = response.message ?? "Could not move this stop."
+                errorMessage = response.message ?? "Move stop response success=false; server returned no message field."
             }
         } catch {
             notify.notificationOccurred(.error)

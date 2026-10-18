@@ -153,6 +153,16 @@ struct TeamView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
                             Divider().padding(.leading, 16)
+                            if authSession.user?.isAdmin == true {
+                                NavigationLink {
+                                    DiagnosticsView().environmentObject(authSession)
+                                } label: {
+                                    Label("Diagnostic log", systemImage: "doc.text.magnifyingglass")
+                                        .frame(minHeight: 48)
+                                }
+                                .padding(.horizontal, 16)
+                                Divider().padding(.leading, 16)
+                            }
                             SignOutButton(authSession: authSession)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 14)
@@ -648,7 +658,7 @@ private struct ItWorkspaceView<Content: View>: View {
             if businessIdentity.isBusy {
                 ProgressView("Loading business details")
             } else {
-                Text("Business setup is unavailable right now. Please try again.")
+                Text(businessIdentity.error ?? "No business-identity response has been loaded.")
                     .itText(.body14).foregroundStyle(it.meta)
                 Button("Try again") { Task { await businessIdentity.load() } }
                     .buttonStyle(.it(.ghost))

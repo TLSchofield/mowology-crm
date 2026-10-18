@@ -24,6 +24,7 @@ final class SearchViewModel: ObservableObject {
     @Published private(set) var recents: [SearchProperty] = []
     @Published private(set) var isSearching = false
     @Published private(set) var searchFailed = false
+    @Published private(set) var searchErrorDetails: String?
     @Published private(set) var hasSearched = false
 
     private(set) var fix: CLLocation?
@@ -87,6 +88,8 @@ final class SearchViewModel: ObservableObject {
             // Say so — an empty list would read as "no such client".
             results      = []
             searchFailed = true
+            searchErrorDetails = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "Search", message: ErrorDetails.describe(error))
         }
         hasSearched = true
         isSearching = false
@@ -170,7 +173,7 @@ struct SearchView: View {
             }
         } else if vm.searchFailed {
             Section {
-                Label("Couldn't search — check your signal and try again.", systemImage: "wifi.exclamationmark")
+                Label(vm.searchErrorDetails ?? "Search failed without error details.", systemImage: "wifi.exclamationmark")
                     .font(appStyle.font(.subheadline))
                     .foregroundStyle(appStyle.attention)
             }
@@ -324,6 +327,7 @@ struct PropertyDetailView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var detail: SearchProperty?
     @State private var loadFailed = false
+    @State private var loadErrorDetails: String?
     @State private var confirmingPlan: SearchPlan?
     @State private var creatingJob = false
     @State private var toast: String?
@@ -374,7 +378,7 @@ struct PropertyDetailView: View {
 
             if loadFailed {
                 Section {
-                    Label("Couldn't load the full details — showing what search returned.", systemImage: "wifi.exclamationmark")
+                    Label(loadErrorDetails ?? "Property details failed without error details.", systemImage: "wifi.exclamationmark")
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.attention)
                 }
@@ -592,6 +596,8 @@ struct PropertyDetailView: View {
                 loadFailed = false
             }
         } catch {
+            loadErrorDetails = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "PropertyDetail", message: ErrorDetails.describe(error))
             loadFailed = detail == nil
         }
     }

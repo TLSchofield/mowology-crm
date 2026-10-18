@@ -72,7 +72,8 @@ final class FieldJobViewModel: ObservableObject {
         } catch let err as APIError {
             phase = .failed(err.localizedDescription)
         } catch {
-            phase = .failed("Couldn't get your location. Check that location access is on, then try again.")
+            AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
+            phase = .failed(ErrorDetails.describe(error))
         }
     }
 
@@ -133,7 +134,7 @@ final class FieldJobViewModel: ObservableObject {
         do {
             let response: FieldJobActionResponse = try await apiClient.request(.fieldJobAction, body: body)
             guard response.success else {
-                errorMessage = response.error ?? "Couldn't save. Try again."
+                errorMessage = response.error ?? "Field job response success=false; server returned no error field."
                 return false
             }
             requestId      = UUID().uuidString
@@ -147,7 +148,8 @@ final class FieldJobViewModel: ObservableObject {
             }
             return false
         } catch {
-            errorMessage = "Couldn't save. Try again."
+            AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
             return false
         }
     }

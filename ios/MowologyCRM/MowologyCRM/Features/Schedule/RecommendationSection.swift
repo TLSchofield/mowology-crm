@@ -164,7 +164,8 @@ final class RecommendationViewModel: ObservableObject {
             errorMessage = message
 
         } catch {
-            errorMessage = "Could not send that recommendation"
+            AppDiagnostics.shared.record(category: "RecommendationSection", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
     }
 
@@ -189,12 +190,13 @@ final class RecommendationViewModel: ObservableObject {
                 successMessage = r.message
                 askDraft = nil
             } else {
-                askError = r.message.isEmpty ? "It didn't send — it's still saved" : r.message
+                askError = r.message.isEmpty ? "Ask-send response success=false; server returned an empty message field. The draft is still saved." : r.message
             }
         } catch APIError.serverError(let message) {
             askError = message
         } catch {
-            askError = "No signal — it's still saved. Send it later from the office."
+            AppDiagnostics.shared.record(category: "RecommendationSection", message: ErrorDetails.describe(error))
+            askError = ErrorDetails.describe(error) + " The draft is still saved; send it later from the office."
         }
     }
 

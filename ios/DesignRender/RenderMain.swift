@@ -281,8 +281,28 @@ struct ScheduleComponentsRender: View {
     }
 }
 
+@MainActor func renderOnboardingChecks() {
+    let match = registryMatch("synthetic-one", "HARBOUR LANDSCAPING LTD.", operating: ["Harbour Lawn Care"])
+    let contacts = [BusinessContactSuggestion(field: .website, value: "harbour.example", source: .yourSettings, status: "suggested"),
+                    BusinessContactSuggestion(field: .phone, value: "604-555-0142", source: .yourSettings, status: "suggested"),
+                    BusinessContactSuggestion(field: .address, value: "42 Harbour Way, Victoria, BC", source: .yourSettings, status: "suggested")]
+    for mode in ItMode.allCases {
+        for (sizeName, size) in [("large", DynamicTypeSize.large), ("ax3", DynamicTypeSize.accessibility3)] {
+            for (name, state) in [("opening", ItPennyOnboardingState.opening), ("match", .oneMatch(match)), ("manual", .none(manual: true))] {
+                save(Screen(mode: mode, width: 375) { OnboardingRender(state: state) }
+                    .environment(\.dynamicTypeSize, size), "onboarding-375-\(sizeName)-\(name)-\(mode.rawValue)")
+            }
+            save(Screen(mode: mode, width: 375) { OnboardingRender(state: .confirmed(match.legalName), contacts: .available(contacts)) }
+                .environment(\.dynamicTypeSize, size), "onboarding-375-\(sizeName)-contacts-\(mode.rawValue)")
+        }
+    }
+}
+
 @MainActor func run() {
     registerFonts()
+    let renderSelection = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "all"
+    if renderSelection != "schedule-only" { renderOnboardingChecks() }
+    if renderSelection == "onboarding-only" { return }
     for mode in ItMode.allCases {
         for width in [375, 393, 430] {
             for (name, size) in [("large", DynamicTypeSize.large), ("ax3", DynamicTypeSize.accessibility3)] {

@@ -111,7 +111,7 @@ final class OttoMissedReviewModel: ObservableObject {
         defer { isLoading = false }
         do {
             let r = try await api.ottoMissedLoad()
-            if r.ok { data = r; loadError = nil } else { loadError = r.error ?? "Otto's review isn't set up yet." }
+            if r.ok { data = r; loadError = nil } else { loadError = r.error ?? "Otto review response ok=false; server returned no error field." }
         } catch let e as APIError {
             loadError = e.errorDescription
         } catch {
@@ -128,10 +128,11 @@ final class OttoMissedReviewModel: ObservableObject {
         defer { busyId = nil }
         do {
             let r = try await api.ottoMissedSend(body)
-            notes[item.id] = .init(text: r.ok ? (r.message ?? "Done") : (r.error ?? r.message ?? "Could not apply that."), isError: !r.ok)
+            notes[item.id] = .init(text: r.ok ? (r.message ?? "Done") : (r.error ?? r.message ?? "Otto action response ok=false; server returned no error/message field."), isError: !r.ok)
             if r.ok { await load() }
         } catch {
-            notes[item.id] = .init(text: "Network error — nothing was changed.", isError: true)
+            AppDiagnostics.shared.record(category: "OttoMissedReviewViews", message: ErrorDetails.describe(error))
+            notes[item.id] = .init(text: ErrorDetails.describe(error), isError: true)
         }
     }
 
@@ -140,10 +141,11 @@ final class OttoMissedReviewModel: ObservableObject {
         defer { busyId = nil }
         do {
             let r = try await api.ottoMissedSend(["mode": "accept_all"])
-            notes[0] = .init(text: r.message ?? (r.ok ? "Done" : "Some could not be applied."), isError: !r.ok)
+            notes[0] = .init(text: r.message ?? (r.ok ? "Done" : "Otto batch response ok=false; server returned no message field."), isError: !r.ok)
             await load()
         } catch {
-            notes[0] = .init(text: "Network error — nothing was changed.", isError: true)
+            AppDiagnostics.shared.record(category: "OttoMissedReviewViews", message: ErrorDetails.describe(error))
+            notes[0] = .init(text: ErrorDetails.describe(error), isError: true)
         }
     }
 

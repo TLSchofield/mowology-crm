@@ -220,12 +220,11 @@ final class JobPhotoViewModel: ObservableObject {
                                              userId: apiClient.currentUserId)
                 refreshPendingState()
             } else {
-                errorMessage = slot.isSingleSlot
-                    ? "Upload failed — retake the photo to try again."
-                    : "A photo failed to upload — take it again."
+                errorMessage = ErrorDetails.describe(err)
             }
         } catch {
-            errorMessage = "Upload failed — retake the photo to try again."
+            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
     }
 }
@@ -993,12 +992,13 @@ struct PlantIdView: View {
                 result = res
                 status = nil
             } else {
-                status = res.message ?? "Couldn't identify it — try again."
+                status = res.message ?? "Plant identification response ok=\(res.ok), record=\(res.record == nil ? "missing" : "present"); server returned no message field."
                 await retake()
             }
         } catch {
+            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
             // Keep the photos: Try again sends what is left (or it carries on by itself when the app comes back).
-            status = "Couldn't send — your photos are kept. Tap Try again."
+            status = ErrorDetails.describe(error) + " Your photos are kept. Tap Try again."
             sendFailed = true
         }
     }
@@ -1069,9 +1069,10 @@ struct PlantIdView: View {
         if pick.isEmpty { body["common_name"] = other.trimmingCharacters(in: .whitespaces) } else { body["scientific_name"] = pick }
         do {
             let res: PlantIdResponse = try await APIClient(authSession: authSession).request(.plantId, body: body)
-            if res.ok { saved = res } else { status = res.message ?? "Couldn't save it." }
+            if res.ok { saved = res } else { status = res.message ?? "Plant save response ok=false; server returned no message field." }
         } catch {
-            status = "Couldn't save it — check the signal."
+            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
+            status = ErrorDetails.describe(error)
         }
     }
 

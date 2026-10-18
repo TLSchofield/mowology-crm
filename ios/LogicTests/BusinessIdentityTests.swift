@@ -21,6 +21,7 @@ final class IdentityFixtureAPI: BusinessIdentityAPI {
     var canEdit = true
     var failRead = false
     var failSave = false
+    var saveError: APIError?
     var sends = 0
     var contactReads = 0
     var match: BusinessRegistryMatch {
@@ -45,6 +46,7 @@ final class IdentityFixtureAPI: BusinessIdentityAPI {
     }
     func send(_ body: [String: Any]) async throws -> BusinessIdentityCurrentResponse {
         sends += 1
+        if let saveError { throw saveError }
         return try response(stage: body["mode"] as? String == "start" ? "recognized" : "identified")
     }
 }
@@ -97,6 +99,11 @@ struct BusinessIdentityChecks {
         if case .confirmed = vm.state { check(false, "failed save never claims confirmation") }
         check(vm.error != nil && api.contactReads == 0, "failed save shows an error without fetching contacts")
         api.failSave = false
+        api.saveError = .serverError("HTTP 503: Registry record BC0944284 is unavailable")
+        await vm.confirm(api.match)
+        check(vm.error == "HTTP 503: Registry record BC0944284 is unavailable", "confirmation preserves exact server failure instead of inventing a network cause")
+        check(api.contactReads == 0, "failed transport confirmation never starts contact lookup")
+        api.saveError = nil
         await vm.confirm(api.match)
         if case .confirmed = vm.state {} else { check(false, "successful confirmation reaches saved state") }
         if case .available(let contacts) = vm.contactsState { check(contacts.count == 1, "contact suggestions load after confirmation") }

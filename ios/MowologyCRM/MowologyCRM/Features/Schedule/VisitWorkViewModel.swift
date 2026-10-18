@@ -129,7 +129,7 @@ final class VisitWorkViewModel: ObservableObject {
         do {
             let state: VisitWorkState = try await apiClient.request(.visitWorkAction, body: body)
             guard state.success else {
-                fail(state.message ?? "Could not save.")
+                fail(state.message ?? "Visit work response success=false; server returned no message field.")
                 return false
             }
             apply(state, keepLocalEdits: true)

@@ -139,5 +139,17 @@ for mode in [ItMode.light,.dark] { let p=ItPalette(mode);for(name,m)in machado {
     check(delta(d,u)+0.20>=0.12 && delta(d,g)+0.20>=0.12,"\(mode) \(name) four knowledge shapes distinguishable")
 } }
 
+// MARK: registry presentation — actual formatter, source values remain unchanged
+check(ItRegistryDisplay.registrationType("bc_registration") == "BC registration", "BC registry source code has a readable label")
+check(ItRegistryDisplay.registrationType("BC_REGISTRATION") == "BC registration", "BC registry label is case-insensitive")
+check(ItRegistryDisplay.registrationType("limited_liability_company") == "Limited liability company", "Unknown registration codes remain legible")
+check(ItRegistryDisplay.registrationType("Cooperative") == "Cooperative", "Existing display labels are preserved")
+check(ItRegistryDisplay.registeredDate("2026-10-18T12:34:56.123Z") == ItRegistryDisplay.registeredDate("2026-10-18"), "Fractional timestamps display as the same registry date")
+check(ItRegistryDisplay.registeredDate("2026-10-18T00:00:01Z") == ItRegistryDisplay.registeredDate("2026-10-18"), "Registry date uses UTC consistently rather than device timezone")
+check(ItRegistryDisplay.registeredDate("2026-10-18") != "2026-10-18", "ISO registry date is formatted for people")
+for unknown in ["not recorded", "2026-02-30", "2026-13-18", "", "2026-1-8"] {
+    check(ItRegistryDisplay.registeredDate(unknown) == unknown, "Unknown or invalid registry date is preserved: \(unknown)")
+}
+
 print(fails == 0 ? "Ittai design checks: all passed" : "Ittai design checks: \(fails) FAILED")
 exit(fails == 0 ? 0 : 1)

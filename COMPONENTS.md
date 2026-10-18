@@ -443,3 +443,15 @@ Use it for any approve-a-receipt button instead of a bare `confirm()`.
 `ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItAppStyle.swift` adapts the existing field screens to the frozen Ittai tokens. Apply `.itAppTheme(enabled:field:)` above the tabs; consume `@Environment(\.itAppStyle)` for semantic colours, Dynamic Type Inter fonts, corners and shadow suppression. `.itAppScreen()` styles native bars; `.itAppForm()` styles form backgrounds. Keep media/camera overlays readable on their actual imagery.
 
 `ItDesignSettingsRows` shares the existing opt-in and field-mode preferences between crew Account and admin AI Office. The root modifier keeps the view subtree stable when toggled so active shifts, receipt edits and navigation state survive. Status colours are display-only: retain the server status and its visible label, and keep locally saved records distinct from server-confirmed records.
+
+## iOS diagnostics — `AppDiagnostics`, `ErrorDetails`, `DiagnosticsView` (2026-10-18)
+
+`Core/Diagnostics/` contains the shared persisted logger and exact error formatter.
+Use `AppDiagnostics.shared.record(category:message:)` for local failures and
+`ErrorDetails.describe(error)` for error text. Retain actual HTTP status/server
+messages and decoding paths; do not infer “offline” from an arbitrary failure.
+Never pass request headers/bodies, photos or coordinates. The logger redacts
+secrets, rotates bounded files and exposes disk failures. `DiagnosticsView` guards
+view/export by the current admin role. `AppCrashReports` imports Apple-supplied
+MetricKit crashes/hangs; availability depends on iOS delivery. See `ios/README.md`
+for storage, limits, access and test commands.

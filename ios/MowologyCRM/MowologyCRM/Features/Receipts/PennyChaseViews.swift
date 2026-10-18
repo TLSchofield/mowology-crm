@@ -257,10 +257,11 @@ final class PennyChaseViewModel: ObservableObject {
         defer { busy = nil }
         do {
             let r = try await api.send(["mode": "reassign", "id": item.id, "user_id": person.id])
-            show(r.ok ? (r.message ?? "Penny will ask \(person.name).") : (r.message ?? r.error ?? "That didn't work."), error: !r.ok)
+            show(r.ok ? (r.message ?? "Penny will ask \(person.name).") : (r.message ?? r.error ?? "Receipt chase response ok=false; server returned no message/error field."), error: !r.ok)
             if r.ok { await loadAdmin() }
         } catch {
-            show("No connection — nothing was changed.", error: true)
+            AppDiagnostics.shared.record(category: "PennyChaseViews", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
     }
 
@@ -276,10 +277,11 @@ final class PennyChaseViewModel: ObservableObject {
                 total = items.reduce(0) { $0 + $1.amount }
                 show(r.message ?? "Thanks!", error: false)
             } else {
-                show(r.message ?? r.error ?? "That didn't work — try again.", error: true)
+                show(r.message ?? r.error ?? "Receipt chase response ok=false; server returned no message/error field.", error: true)
             }
         } catch {
-            show("No connection — nothing was changed. Try again when you have signal.", error: true)
+            AppDiagnostics.shared.record(category: "PennyChaseViews", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
     }
 

@@ -19,6 +19,7 @@ struct MowologyCRMApp: App {
     // MARK: - Init
 
     init() {
+        AppCrashReports.shared.start()
         ItFontRegistry.registerAll()
         registerBackgroundTask()
         requestNotificationPermission()

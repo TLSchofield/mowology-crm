@@ -166,7 +166,7 @@ final class DriverTripViewModel: ObservableObject {
         live["performed_at"] = performedAt
         do {
             let result: TripReportStatus = try await apiClient.request(.tripReportAction, body: live)
-            guard result.success else { return .rejected(result.message ?? "The server did not accept this entry.") }
+            guard result.success else { return .rejected(result.message ?? "Driver trip response success=false; server returned no message field.") }
             status = result
             return .filed(result)
         } catch let error as APIError {
@@ -311,7 +311,7 @@ final class DriverTripViewModel: ObservableObject {
                     queue.remove(item.id)
                     status = result
                 } else {
-                    queue.markRejected(item.id, message: result.message ?? "The server did not accept this entry.")
+                    queue.markRejected(item.id, message: result.message ?? "Driver trip response success=false; server returned no message field.")
                     break
                 }
             } catch let error as APIError {

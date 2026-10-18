@@ -145,14 +145,15 @@ final class HeadCardViewModel: ObservableObject {
         do {
             let r = try await api.loadCard(head: head)
             if !r.ok {
-                loadError = r.error ?? "\(head.capitalized) isn't set up yet."
+                loadError = r.error ?? "\(head.capitalized) card response ok=false; server returned no error field."
             } else {
                 apply(r)
             }
         } catch let err as APIError {
             loadError = err.errorDescription
         } catch {
-            loadError = "Couldn't load the list — pull to try again."
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            loadError = ErrorDetails.describe(error)
         }
         isLoading = false
         hasLoaded = true
@@ -247,12 +248,13 @@ final class HeadCardViewModel: ObservableObject {
                 question = ""
                 message = nil
             } else {
-                show(r.message ?? r.error ?? "Charlie couldn't answer that — try again.", error: true)
+                show(r.message ?? r.error ?? "Charlie response ok=false; server returned no message/error field.", error: true)
             }
         } catch let err as APIError {
-            show(err.errorDescription ?? "Charlie couldn't answer that — try again.", error: true)
+            show(ErrorDetails.describe(err), error: true)
         } catch {
-            show("Network error — try again.", error: true)
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
     }
 
@@ -267,7 +269,8 @@ final class HeadCardViewModel: ObservableObject {
         do {
             coord = try await geocoder.coordinate(for: address)
         } catch {
-            show("I couldn't find \(p.address) on the map. Check the address in the CRM.", error: true)
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
             return
         }
         guard let r = await perform(["mode": "geocode", "property_id": p.id, "lat": coord.latitude, "lng": coord.longitude]) else { return }
@@ -296,11 +299,12 @@ final class HeadCardViewModel: ObservableObject {
                 show(r.message ?? "Done.", error: false)
                 return r.redirect.flatMap(Self.webURL)
             }
-            ottoNotes[s.id] = OttoNote(text: r.message ?? r.error ?? "That didn't work.", isError: true)
+            ottoNotes[s.id] = OttoNote(text: r.message ?? r.error ?? "Action response ok=false; server returned no message/error field.", isError: true)
         } catch let err as APIError {
-            ottoNotes[s.id] = OttoNote(text: err.errorDescription ?? "That didn't work.", isError: true)
+            ottoNotes[s.id] = OttoNote(text: ErrorDetails.describe(err), isError: true)
         } catch {
-            ottoNotes[s.id] = OttoNote(text: "No connection. Nothing was changed, try again.", isError: true)
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            ottoNotes[s.id] = OttoNote(text: ErrorDetails.describe(error), isError: true)
         }
         return nil
     }
@@ -317,10 +321,11 @@ final class HeadCardViewModel: ObservableObject {
         defer { ottoBusy = nil }
         do {
             let r = try await api.ottoSend(["mode": "otto_undo_auto", "id": row.id])
-            ottoNotes[-row.id] = OttoNote(text: r.message ?? r.error ?? (r.ok ? "Undone." : "That didn't work."), isError: !r.ok)
+            ottoNotes[-row.id] = OttoNote(text: r.message ?? r.error ?? (r.ok ? "Undone." : "Action response ok=false; server returned no message/error field."), isError: !r.ok)
             if r.ok { undoneAuto.insert(row.id) }
         } catch {
-            ottoNotes[-row.id] = OttoNote(text: "No connection. Nothing was changed.", isError: true)
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            ottoNotes[-row.id] = OttoNote(text: ErrorDetails.describe(error), isError: true)
         }
     }
 
@@ -348,11 +353,12 @@ final class HeadCardViewModel: ObservableObject {
         do {
             let r = try await api.send(body)
             if r.ok { return r }
-            show(r.message ?? r.error ?? "That didn't work — try again.", error: true)
+            show(r.message ?? r.error ?? "Action response ok=false; server returned no message/error field.", error: true)
         } catch let err as APIError {
-            show(err.errorDescription ?? "That didn't work — try again.", error: true)
+            show(ErrorDetails.describe(err), error: true)
         } catch {
-            show("Network error — nothing was changed. Try again.", error: true)
+            AppDiagnostics.shared.record(category: "HeadCardViewModel", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
         return nil
     }
