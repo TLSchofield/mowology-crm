@@ -20,17 +20,9 @@ body.it-shell.it-shell .sidebar-brand {
   font-weight: 600;
   padding: var(--it-space-5) var(--it-space-5) var(--it-space-3);
 }
-body.it-shell.it-shell .sidebar-brand::before {
-  /* the tenant's own mark: its colour, never the Ittai indigo inside working screens */
-  content: "";
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: var(--it-space-2);
-  border-radius: 3px;
-  background: var(--it-tenant-mark);
-  vertical-align: 1px;
-}
+/* Ittai's symbol (frozen v1.2 asset, 24 px) beside the tenant's name — product mark + whose CRM it is (2026-10-19) */
+body.it-shell.it-shell .sidebar-brand { display: flex; align-items: center; gap: var(--it-space-2); }
+body.it-shell.it-shell .it-sb-symbol { width: 24px; height: 24px; flex: none; }
 
 body.it-shell.it-shell .it-sb-nav { padding: 0 var(--it-space-2) var(--it-space-8); }
 

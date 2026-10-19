@@ -54,7 +54,8 @@ if (!empty($itShell)):
 ?>
 <nav id="sidebar" class="sidebar it-sidebar" aria-label="Main menu">
     <div class="sidebar-content js-simplebar">
-        <a class="sidebar-brand it-sb-brand" href="/crm/dashboard_appstack.php"><span class="align-middle">Mowology</span></a>
+        <?php /* Product mark + the tenant's name, as Jobber does (owner, 2026-10-19). The symbol is the frozen v1.2 24 px asset. */ ?>
+        <a class="sidebar-brand it-sb-brand" href="/crm/dashboard_appstack.php"><img class="it-sb-symbol" src="/crm/img/ittai/ittai-symbol-24.svg" alt="Ittai" width="24" height="24"><span class="align-middle"><?php echo htmlspecialchars(defined('SITE_NAME') ? (string)SITE_NAME : 'Mowology'); ?></span></a>
         <ul class="sidebar-nav it-sb-nav">
         <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'kanji' => $__kanji, 'means' => $__means, 'here' => $__here, 'items' => $__items]): ?>
             <li class="it-sb-strip<?php echo $__here ? ' is-here' : ''; ?>" data-head="<?php echo $__slug; ?>">
