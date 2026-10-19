@@ -1,0 +1,271 @@
+/* =============================================================================
+   ittai-dashboard.css — the Ittai v1.2 design on the CRM dashboard (opt-in).
+   Applies only inside .it-design (dashboard_appstack.php adds it when the viewer
+   chose "Try the new design"). Colours, type and spacing come from ittai-tokens.css
+   (generated from docs/design/ittai-v1.2) — no hex values here.
+   Kanso rules: hairlines, not shadows; sentence case; figures in tabular numerals;
+   tenant green for actions; amber only where something needs the owner.
+   Step 1 (2026-10-18): page, header, e-Transfer notice, 7-day operations, number cards.
+   ============================================================================= */
+
+/* ── Page ─────────────────────────────────────────────────────────────────── */
+body:has(.it-design),
+body:has(.it-design) .main,
+body:has(.it-design) main.content {
+  background: var(--it-page);
+}
+
+.it-design {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+}
+
+.it-design a:focus-visible,
+.it-design button:focus-visible {
+  outline: var(--it-stroke-focus) solid var(--it-focus);
+  outline-offset: 2px;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.it-design .mw-page-header {
+  align-items: flex-end;
+  border-bottom: 0;
+  margin-bottom: var(--it-space-6);
+  padding-bottom: 0;
+}
+
+.it-design .mw-page-title {
+  color: var(--it-text);
+  font-size: var(--it-title-28-size);
+  font-weight: var(--it-title-28-weight);
+  letter-spacing: -0.02em;
+  line-height: var(--it-title-28-line);
+}
+
+.it-design .mw-page-subtitle {
+  color: var(--it-meta);
+  font-size: var(--it-body-16-size);
+  line-height: var(--it-body-16-line);
+  margin-top: var(--it-space-1);
+}
+
+/* The switch itself (shown in both designs; styled quietly in each). */
+.it-switch-link {
+  align-items: center;
+  display: inline-flex;
+  font-size: 13px;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.it-design .it-switch-link {
+  color: var(--it-meta);
+  font-size: var(--it-meta-13-size);
+  font-weight: 500;
+}
+
+@media (max-width: 600px) {
+  .it-design .mw-page-header { align-items: flex-start; flex-wrap: wrap; gap: 0; }
+  .it-design .mw-page-header-left { flex-basis: 100%; }
+  .it-design .mw-page-title { font-size: var(--it-title-22-size); line-height: var(--it-title-22-line); }
+}
+
+.it-design .it-switch-link:hover {
+  color: var(--it-tenant);
+  text-decoration: none;
+}
+
+/* ── e-Transfer notice: an attention row, not a coloured banner ──────────── */
+.it-design .mw-et-dash-alert {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 3px solid var(--it-status-attention);
+  border-radius: 0;
+  color: var(--it-text);
+  margin-bottom: var(--it-space-6);
+}
+
+.it-design .mw-et-dash-alert:hover {
+  background: var(--it-selected);
+  color: var(--it-text);
+}
+
+.it-design .mw-et-dash-alert svg { color: var(--it-status-attention); }
+
+/* ── 7-day operations ─────────────────────────────────────────────────────── */
+.it-design .mw-daily-ops {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-6);
+}
+
+.it-design .mw-daily-ops-header {
+  align-items: flex-end;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-4) var(--it-space-5);
+}
+
+.it-design .mw-daily-ops-title {
+  color: var(--it-text);
+  font-size: var(--it-heading-16-size);
+  font-weight: var(--it-heading-16-weight);
+  letter-spacing: 0;
+  line-height: var(--it-heading-16-line);
+  text-transform: none;
+}
+
+.it-design .mw-daily-ops-summary { gap: var(--it-space-8); }
+
+.it-design .mw-daily-ops-stat-val {
+  color: var(--it-text);
+  font-size: var(--it-heading-18-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: var(--it-heading-18-line);
+}
+
+.it-design .mw-daily-ops-stat-lbl {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  line-height: var(--it-caption-12-line);
+}
+
+.it-design .mw-daily-ops-day {
+  border-right: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-3) var(--it-space-2);
+}
+
+.it-design .mw-daily-ops-today {
+  background: var(--it-selected);
+  box-shadow: inset 0 3px 0 var(--it-tenant-mark);
+}
+
+/* Past days: quieter text, not a faded block (opacity drops contrast below AA). */
+.it-design .mw-daily-ops-past { opacity: 1; }
+.it-design .mw-daily-ops-past .mw-daily-ops-revenue,
+.it-design .mw-daily-ops-past .mw-daily-ops-net { color: var(--it-meta); }
+.it-design .mw-daily-ops-future .mw-daily-ops-profit { opacity: 1; }
+
+.it-design .mw-daily-ops-date {
+  color: var(--it-text);
+  font-size: var(--it-caption-12-size);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-daily-ops-dayname {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+}
+
+.it-design .mw-daily-ops-today .mw-daily-ops-dayname { color: var(--it-tenant); }
+
+.it-design .mw-daily-ops-wicon { font-size: 16px; }
+
+.it-design .mw-daily-ops-wtemps {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.it-design .mw-daily-ops-wprecip {
+  color: var(--it-status-progress);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-divider {
+  background: var(--it-line);
+  margin: var(--it-space-2) var(--it-space-2);
+}
+
+.it-design .mw-daily-ops-profit { font-variant-numeric: tabular-nums; }
+
+.it-design .mw-daily-ops-visits {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-visits.mw-daily-ops-scheduled {
+  color: var(--it-status-progress);
+  font-style: normal;
+}
+
+.it-design .mw-daily-ops-revenue,
+.it-design .mw-daily-ops-est {
+  color: var(--it-text);
+  font-size: var(--it-body-14-size);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.it-design .mw-daily-ops-cost {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+}
+
+.it-design .mw-daily-ops-net {
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  font-size: var(--it-body-14-size);
+  font-weight: 600;
+}
+
+.it-design .mw-daily-ops-margin {
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+
+.it-design .mw-daily-ops-empty { color: var(--it-meta); }
+
+/* Margin words: healthy = complete green, thin = plain text, low = amber (worth a look). */
+.it-design .mw-margin-good { color: var(--it-status-complete); }
+.it-design .mw-margin-ok   { color: var(--it-text); }
+.it-design .mw-margin-low  { color: var(--it-status-attention); }
+.it-design .mw-margin-none { color: var(--it-meta); }
+
+/* ── Number cards: one calm figure each, no coloured tops ─────────────────── */
+.it-design .mw-stat-link { color: inherit; text-decoration: none; }
+
+.it-design .card.stat-card {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-4);
+  transition: background 120ms ease;
+}
+
+.it-design .mw-stat-link:hover .card.stat-card { background: var(--it-selected); }
+
+.it-design .card.stat-card .card-body { padding: var(--it-space-5); }
+
+.it-design .card.stat-card h5.card-title {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  letter-spacing: 0;
+  line-height: var(--it-caption-12-line);
+  margin-bottom: var(--it-space-2) !important; /* beats Bootstrap's .mb-4 utility (!important) */
+  text-transform: none;
+}
+
+.it-design .card.stat-card h1 {
+  color: var(--it-text);
+  font-size: var(--it-title-28-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--it-title-28-weight);
+  line-height: var(--it-title-28-line);
+  margin: 0 0 var(--it-space-1) !important; /* beats .mt-1 .mb-3 utilities */
+}
+
+.it-design .card.stat-card .text-muted {
+  color: var(--it-meta) !important; /* Bootstrap .text-muted is !important */
+  font-size: var(--it-meta-13-size);
+}
