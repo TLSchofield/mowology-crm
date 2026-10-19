@@ -24,10 +24,11 @@ ALTER TABLE cms_form_submissions
     ADD COLUMN site_id INT NOT NULL DEFAULT 1 AFTER id,
     ADD KEY idx_cfs_site_created (site_id, created_at);
 
--- Pilot tenant: talkinghands.ca (hobby school; alerts to the collective's inbox).
+-- Pilot tenant: talkinghands (hobby school; alerts to the collective's inbox). Two sites: talkinghands.ca and
+-- wingchunvancouver.ca (the main marketing site) — one tenant, two allowed origins.
 UPDATE cms_sites
 SET embed_key = SUBSTRING(MD5(CONCAT(RAND(), id, NOW())), 1, 24),
-    embed_origins = 'https://talkinghands.ca,https://www.talkinghands.ca',
+    embed_origins = 'https://talkinghands.ca,https://www.talkinghands.ca,https://wingchunvancouver.ca,https://www.wingchunvancouver.ca',
     lead_notify_email = 'talkinghandscollective@gmail.com',
     embed_enabled = 1
 WHERE slug = 'talkinghands' AND embed_key IS NULL;
