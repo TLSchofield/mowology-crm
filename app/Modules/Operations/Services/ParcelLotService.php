@@ -34,11 +34,6 @@ class ParcelLotService
     /** Strata pieces further than this from the client's lot are another part of town, not this complex. */
     public const PLAN_RADIUS_M = 150.0;
     public const PLAN_MAX_FEATURES = 500;
-    /** Street pins: the nearest lot within this, and clearly nearer than the next one. */
-    public const NEAR_MAX_M = 15.0;
-    public const NEAR_MARGIN_M = 10.0;
-    /** Wider box for a street pin (~28 m north–south, ~18 m east–west at Vancouver's latitude). */
-    public const NEAR_BOX_DEG = 0.00025;
     /** A merged hull this much bigger than its pieces bridges gaps that are not the client's: keep the one lot. */
     public const HULL_MAX_GROWTH = 1.3;
 
@@ -73,14 +68,9 @@ class ParcelLotService
         $features = $this->get(['bbox' => $box, 'count' => '50']);
         if ($features === null) return ['ok' => false, 'reason' => 'unavailable'];
         $lot = self::chooseLot($features, $lat, $lng);
-        if (!$lot['ok'] && $lot['reason'] === 'no_lot') {
-            // The pin is in the street: look a little wider and take the one lot that is clearly nearest.
-            $wide = sprintf('%.6F,%.6F,%.6F,%.6F,urn:ogc:def:crs:EPSG::4326',
-                $lat - self::NEAR_BOX_DEG, $lng - self::NEAR_BOX_DEG, $lat + self::NEAR_BOX_DEG, $lng + self::NEAR_BOX_DEG);
-            $around = $this->get(['bbox' => $wide, 'count' => '200']);
-            if ($around === null) return ['ok' => false, 'reason' => 'unavailable'];
-            $lot = self::nearestLot($around, $lat, $lng);
-        }
+        // No "nearest lot" guess for a pin that is on no lot: Vancouver's streets are gaps in the fabric,
+        // and so are some lots that are missing from it — 8655 Laurel St got the house next door
+        // (owner: "border looks off", 2026-10-18). Only the building from the address may fix a street pin.
         if (!$lot['ok']) return $lot;
         if (in_array(strtolower($lot['class']), self::STRATA, true) && $lot['plan'] !== '') {
             $plan = $this->get(['CQL_FILTER' => "PLAN_NUMBER='" . $lot['plan'] . "'", 'count' => (string)self::PLAN_MAX_FEATURES]);
@@ -156,28 +146,6 @@ class ParcelLotService
         $plan = preg_match('/^[A-Z0-9]{2,20}$/', $best['plan']) ? $best['plan'] : '';
         return ['ok' => true, 'ring' => $best['ring'], 'pid' => $best['pid'], 'plan' => $plan, 'class' => $best['class'],
                 'municipality' => $best['municipality'], 'area_sqm' => (int)round($best['area'])];
-    }
-
-    /**
-     * A pin in the street (the old Geocode button puts many there): the nearest lot, only when it is
-     * within NEAR_MAX_M and every other lot is at least NEAR_MARGIN_M further — a pin on the centre
-     * line, with lots on both sides about as near, is never guessed.
-     */
-    public static function nearestLot(array $parsed, float $lat, float $lng): array
-    {
-        $byDist = [];
-        foreach ($parsed as $f) {
-            if (in_array(strtolower(trim($f['class'])), self::NOT_A_LOT, true)) continue;
-            $byDist[] = [self::edgeDistance([$lat, $lng], $f['ring']), $f];
-        }
-        usort($byDist, fn($a, $b) => $a[0] <=> $b[0]);
-        if (!$byDist || $byDist[0][0] > self::NEAR_MAX_M) return ['ok' => false, 'reason' => 'no_lot'];
-        if (isset($byDist[1]) && $byDist[1][0] - $byDist[0][0] < self::NEAR_MARGIN_M) return ['ok' => false, 'reason' => 'ambiguous'];
-        $f = $byDist[0][1];
-        $plan = preg_match('/^[A-Z0-9]{2,20}$/', $f['plan']) ? $f['plan'] : '';
-        return ['ok' => true, 'ring' => $f['ring'], 'pid' => $f['pid'], 'plan' => $plan, 'class' => $f['class'],
-                'municipality' => $f['municipality'], 'area_sqm' => (int)round(PropertyBorderRules::area($f['ring'])),
-                'nearest_m' => round($byDist[0][0], 1)];
     }
 
     /**

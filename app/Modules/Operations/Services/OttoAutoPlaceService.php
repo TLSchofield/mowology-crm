@@ -80,6 +80,7 @@ class OttoAutoPlaceService
     private function runLocked(int $limit, array $r): array
     {
         $r['ran'] = true;
+        $removed = $this->removeNearestLotGuesses();   // one-off clean-up; finds nothing once done
         $state = $this->prune($this->state());
         $props = $this->candidates();
 
@@ -111,7 +112,7 @@ class OttoAutoPlaceService
             $pin = PropertyBorderRules::pinOf($p);
             if (!$pin) continue;
             $mode = self::borderMode($borders[$pid]['sources'] ?? null);
-            if ($mode === null || self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today)) continue;
+            if ($mode === null || isset($state['border_refused'][$pid]) || self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today)) continue;
             $n++;
             $lot = $this->findLot($p, $pin);
             if (!$lot['ok']) {
@@ -129,7 +130,8 @@ class OttoAutoPlaceService
         }
 
         $this->saveState($state);
-        $r['message'] = "{$r['pinned']} pinned ({$r['approximate']} only approximate, {$r['not_found']} not found), "
+        if ($removed) $r['removed_guesses'] = $removed;
+        $r['message'] = ($removed ? count($removed) . ' guessed border(s) removed; ' : '') . "{$r['pinned']} pinned ({$r['approximate']} only approximate, {$r['not_found']} not found), "
                       . "{$r['bordered']} lot border(s) ({$r['no_lot']} with no usable lot)";
         return $r;
     }
@@ -168,7 +170,7 @@ class OttoAutoPlaceService
      * The owner's "Let Otto draw it" on one property (Otto's property card). Ignores the switch and
      * the retry wait — a person asked — but keeps every other rule: a pin is needed, a drawn, kept or
      * crew-GPS border is never replaced. Not locked: one property, and the INSERT re-checks.
-     * @return array{ok: bool, message: string, area_sqm?: int}
+     * @return array{ok: bool, message: string, area_sqm?: int, ring?: array}
      */
     public function borderOne(int $propertyId): array
     {
@@ -187,17 +189,48 @@ class OttoAutoPlaceService
         $state = $this->state();
         unset($state['border_tried'][$propertyId], $state['border_reason'][$propertyId]);
         $this->saveState($state);
-        return ['ok' => true, 'area_sqm' => (int)$lot['area_sqm'],
+        return ['ok' => true, 'area_sqm' => (int)$lot['area_sqm'], 'ring' => array_slice(self::borderRing($lot['ring']), 0, -1),
                 'message' => 'Drawn from the city lot map: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ', '
-                           . number_format((int)$lot['area_sqm']) . ' m²' . (isset($lot['nearest_m']) ? ' (the pin is ' . $lot['nearest_m'] . ' m out in the street)' : '') . ' — check it on the map.'];
+                           . number_format((int)$lot['area_sqm']) . ' m²' . ' — check it on the map.'];
+    }
+
+    /**
+     * "Not right? Remove it": deletes Otto's lot border for one property (never a drawn, kept or crew-GPS
+     * one) and Otto never draws that property again — the owner draws it.
+     */
+    public function removeLotBorder(int $propertyId): bool
+    {
+        $s = $this->db->prepare("DELETE FROM job_geofences WHERE property_id = ? AND zone_type = 'arrival_border' AND border_source = 'parcel'");
+        $s->execute([$propertyId]);
+        $state = $this->state();
+        $state['border_refused'][$propertyId] = $this->today;
+        $this->saveState($state);
+        return $s->rowCount() > 0;
+    }
+
+    /**
+     * One-off clean-up (2026-10-18): the lot borders the withdrawn "nearest lot" rule drew — their notes
+     * say "m outside". They may be the neighbour's lot. Returns the property ids; each goes back to
+     * "no border" (retried only through the building from its address).
+     * @return int[]
+     */
+    public function removeNearestLotGuesses(): array
+    {
+        $s = $this->db->query("SELECT property_id FROM job_geofences WHERE zone_type = 'arrival_border' AND border_source = 'parcel' AND notes LIKE '%m outside%'");
+        $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        if (!$ids) return [];
+        $this->db->exec("DELETE FROM job_geofences WHERE zone_type = 'arrival_border' AND border_source = 'parcel' AND notes LIKE '%m outside%'");
+        $state = $this->state();
+        foreach ($ids as $id) unset($state['border_tried'][$id]);
+        $this->saveState($state);
+        return $ids;
     }
 
     public static function reasonText(string $reason): string
     {
         return [
             'unavailable' => "The province's lot map isn't answering right now — try again in a few minutes.",
-            'no_lot'      => 'No lot is close enough to the pin to be sure which is this one — draw it, or move the pin onto the building.',
-            'ambiguous'   => 'Two lots are about as close to the pin — draw it, or move the pin onto the building.',
+            'no_lot'      => "The pin isn't on a lot, and the address didn't lead to one — draw it, or move the pin onto the building.",
             'near_edge'   => 'The pin sits on a lot line — draw it, or move the pin onto the building.',
             'too_big'     => 'The lot is over 20,000 m² — too big to use as an arrival border; draw it.',
             'too_small'   => 'The lot is unusually small — draw it.',
@@ -208,7 +241,7 @@ class OttoAutoPlaceService
     private function findLot(array $p, array $pin): array
     {
         $lot = $this->lots->lotAt($pin[0], $pin[1]);
-        if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge', 'ambiguous'], true)) {
+        if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge'], true)) {
             $at = self::buildingPoint(($this->geocode)(PropertyReadinessService::geocodeAddress($p)), $pin);
             if ($at) {
                 $byBuilding = $this->lots->lotAt($at[0], $at[1]);
@@ -323,7 +356,7 @@ class OttoAutoPlaceService
         [$a, $b, $c, $d] = PropertyBorderRules::bbox($open);
         $area = round(PropertyBorderRules::area($open), 2);
         $label = 'Lot border (city lot map)';
-        $notes = 'Otto: ' . (isset($lot['nearest_m']) ? 'pin is ' . $lot['nearest_m'] . ' m outside — nearest lot, ' : '') . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ($lot['pid'] ? ', PID ' . $lot['pid'] : '')
+        $notes = 'Otto: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ($lot['pid'] ? ', PID ' . $lot['pid'] : '')
                . ', ' . (int)$lot['area_sqm'] . ' m², +' . self::BUFFER_M . ' m. ' . ParcelLotService::ATTRIBUTION;
         if ($mode === 'replace') {
             $s = $this->db->prepare("
@@ -346,10 +379,10 @@ class OttoAutoPlaceService
         return $s->rowCount() > 0;
     }
 
-    /** @return array{pins: array, pin_tried: array, border_tried: array, border_reason: array} */
+    /** @return array{pins: array, pin_tried: array, border_tried: array, border_reason: array, border_refused: array} */
     private function state(): array
     {
-        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => []];
+        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => []];
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::STATE_KEY]);

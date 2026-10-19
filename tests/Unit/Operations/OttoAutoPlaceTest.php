@@ -201,18 +201,23 @@ class OttoAutoPlaceTest extends TestCase
         $this->assertEqualsWithDelta(49.2299, (float)$db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn(), 1e-9, 'pin not moved');
     }
 
-    public function test_a_street_pin_takes_the_clearly_nearest_lot_only(): void
+    public function test_a_pin_on_no_lot_is_never_given_the_nearest_lot(): void
     {
-        $lot = ParcelLotService::parseFeatures([self::lotFeature()]);           // lot 49.22950–49.22970
-        $pinSouth = 49.22950 - 6 / 111320;                                        // 6 m south of it, in the street
-        $near = ParcelLotService::nearestLot($lot, $pinSouth, -123.1549);
-        $this->assertTrue($near['ok']);
-        $this->assertEqualsWithDelta(6.0, $near['nearest_m'], 0.3);
-        $this->assertSame('no_lot', ParcelLotService::nearestLot($lot, 49.22950 - 40 / 111320, -123.1549)['reason'], '40 m away: too far');
-        // A lot across the street whose edge is 12 m from the pin: 6 m vs 12 m is not clearly nearer.
-        $acrossTop = $pinSouth - 12 / 111320;
-        $across = ParcelLotService::parseFeatures([self::lotFeature(), self::lotFeature('Subdivision', 'VAP9', $acrossTop - 49.22970)]);
-        $this->assertSame('ambiguous', ParcelLotService::nearestLot($across, $pinSouth, -123.1549)['reason']);
+        // 8655 Laurel St (2026-10-18): the pin sat in a gap of the fabric; the nearest lot 3 m away was the house next door.
+        $svc = new ParcelLotService(self::fetcher([self::lotFeature()]));
+        $this->assertSame('no_lot', $svc->lotAt(49.22950 - 3 / 111320, -123.1549)['reason']);
+    }
+
+    public function test_a_removed_border_is_never_redrawn(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, 'A St', 'Vancouver', 'BC', 49.2296, -123.1549)");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([self::lotFeature()])), '2026-10-18');
+        $this->assertSame(1, $svc->run()['bordered']);
+        $this->assertTrue($svc->removeLotBorder(1));
+        $this->assertSame(0, $svc->run()['bordered'], 'the owner said no');
+        $this->assertSame('0', (string)$db->query("SELECT COUNT(*) FROM job_geofences")->fetchColumn());
     }
 
     public function test_the_lot_map_being_down_is_retried_the_next_night(): void

@@ -38795,6 +38795,15 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-otto-gaps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .mw-otto-gap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-orange); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
 .mw-otto-gap.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }
+/* The map under Otto's card: the pin and the arrival border (2026-10-18). */
+.mw-otto-map-wrap { margin-top: 12px; }
+.mw-otto-map { height: 220px; border-radius: var(--mw-radius-md); overflow: hidden; background: var(--mw-ink-100); }
+.mw-otto-map.is-empty { display: flex; align-items: center; justify-content: center; font-size: .8rem; color: var(--mw-ink-500); }
+.mw-otto-map-cap { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: .78rem; color: var(--mw-ink-500); }
+.mw-otto-map-cap a { color: var(--mw-green); font-weight: 600; white-space: nowrap; }
+.mw-otto-map-acts { display: inline-flex; gap: 12px; align-items: baseline; }
+.mw-otto-map-remove { border: 0; background: none; padding: 0; font-size: .78rem; color: var(--mw-ink-500); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+.mw-otto-map-remove:hover, .mw-otto-map-remove:focus { color: var(--mw-forest); }
 .mw-otto-gap-text { min-width: 0; display: flex; flex-direction: column; }
 .mw-otto-gap-text strong { font-size: .86rem; color: var(--mw-forest); }
 .mw-otto-gap.is-done .mw-otto-gap-text strong::after { content: " \2713"; color: var(--mw-green); }

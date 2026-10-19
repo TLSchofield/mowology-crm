@@ -20,7 +20,8 @@ try {
         return;
     }
     $__pg = (new PropertyReadinessService(getDB()))->gaps((int)$ottoPropertyId);
-    if (empty($__pg['property']) || empty($__pg['missing'])) {
+    // Nothing missing still shows the card when there is a pin: the map of the pin and arrival border.
+    if (empty($__pg['property']) || (empty($__pg['missing']) && !$__pg['pin'])) {
         return;
     }
     $__pgId      = (int)$__pg['property']['id'];
@@ -30,6 +31,32 @@ try {
     $__pgAddress = PropertyReadinessService::geocodeAddress($__pg['property']);
     $__pgReturn  = (string)($_SERVER['REQUEST_URI'] ?? ('/crm/properties/view.php?id=' . $__pgId));
     $__pgKey     = defined('GOOGLE_MAPS_API_KEY') ? (string)GOOGLE_MAPS_API_KEY : '';
+    // The map under the card (owner, 2026-10-18): the pin and the arrival border, so a border can be
+    // checked at a glance. Read-only; the zone editor is still where a border is changed.
+    $__pgMap = null;
+    if ($__pg['pin']) {
+        $__pgMap = ['lat' => null, 'lng' => null, 'ring' => [], 'source' => null];
+        try {
+            $__pgPin = getDB()->prepare('SELECT latitude, longitude FROM properties WHERE id = ?');
+            $__pgPin->execute([$__pgId]);
+            $__pgRow = $__pgPin->fetch(PDO::FETCH_ASSOC) ?: [];
+            $__pgMap['lat'] = (float)($__pgRow['latitude'] ?? 0);
+            $__pgMap['lng'] = (float)($__pgRow['longitude'] ?? 0);
+            require_once APP_ROOT . '/Modules/Operations/Services/PropertyBorderService.php';
+            $__pgB = getDB()->prepare("SELECT polygon_json, border_source FROM job_geofences WHERE property_id = ? AND zone_type = 'arrival_border' ORDER BY id LIMIT 1");
+            $__pgB->execute([$__pgId]);
+            if ($__pgBr = $__pgB->fetch(PDO::FETCH_ASSOC)) {
+                $__pgMap['ring'] = PropertyBorderService::ring((string)$__pgBr['polygon_json']);
+                $__pgMap['source'] = $__pgBr['border_source'] ?? null;
+            }
+        } catch (Throwable $__e) { /* border_source not migrated: the map shows the pin only */ }
+    }
+    $__pgMapCaption = [
+        'parcel'         => 'Arrival border from the city lot map',
+        'default_square' => "Otto's placeholder square — draw the real border",
+        'default_hull'   => 'Arrival border from where crews worked',
+        'kept'           => 'Arrival border (kept)',
+    ];
     // Otto pins it himself when the page opens (owner, 2026-10-18): Google's browser geocoder,
     // rooftop matches only — same switch as his nightly run, same permission as the Geocode save.
     $__pgAuto = false;
@@ -74,12 +101,14 @@ try {
                               <div>
                                   <div class="mw-otto-gaps-name">Otto</div>
                                   <span class="mw-otto-gaps-who">Operations</span>
-                                  <h5 class="card-title mb-0 mt-1">Before I can route here</h5>
+                                  <h5 class="card-title mb-0 mt-1"><?= $__pgMissing ? 'Before I can route here' : 'I can route here' ?></h5>
                               </div>
                           </div>
                       </div>
                       <div class="card-body">
+                          <?php if ($__pgMissing): ?>
                           <p class="mw-otto-gaps-say" data-otto-say><?= h($__pgSay) ?></p>
+                          <?php endif; ?>
                           <ul class="mw-otto-gaps-list">
                               <?php if (in_array('pin', $__pgMissing, true)): ?>
                               <li class="mw-otto-gap" data-gap="pin">
@@ -119,6 +148,25 @@ try {
                               </li>
                               <?php endif; ?>
                           </ul>
+                          <?php if ($__pgMap !== null && $__pgKey !== ''): ?>
+                          <div class="mw-otto-map-wrap">
+                              <div class="mw-otto-map" data-otto-map role="img"
+                                   aria-label="Map of the property pin<?= $__pgMap['ring'] ? ' and its arrival border' : '' ?>"
+                                   data-lat="<?= h((string)$__pgMap['lat']) ?>" data-lng="<?= h((string)$__pgMap['lng']) ?>"
+                                   data-ring="<?= h((string)json_encode($__pgMap['ring'])) ?>"></div>
+                              <div class="mw-otto-map-cap">
+                                  <span data-otto-map-cap><?= $__pgMap['ring']
+                                      ? h($__pgMapCaption[$__pgMap['source'] ?? ''] ?? 'Arrival border (drawn)')
+                                      : 'No arrival border yet' ?></span>
+                                  <span class="mw-otto-map-acts">
+                                      <?php if (($__pgMap['source'] ?? '') === 'parcel'): ?>
+                                      <button type="button" class="mw-otto-map-remove" data-otto-lot-remove data-property-id="<?= $__pgId ?>">Not right? Remove it</button>
+                                      <?php endif; ?>
+                                      <a href="/crm/jobs/zone-editor.php?property_id=<?= $__pgId ?>&amp;return_to=<?= h(urlencode($__pgReturn)) ?>"><?= $__pgMap['ring'] ? 'Edit border' : 'Draw it' ?></a>
+                                  </span>
+                              </div>
+                          </div>
+                          <?php endif; ?>
                       </div>
                   </div>
                   <script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
