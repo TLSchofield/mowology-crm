@@ -9,7 +9,6 @@ import SwiftUI
 import CoreLocation
 
 struct DayListView: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     let stops: [Stop]
     /// Quote visits for the day (their own cards, above the stops).
@@ -84,12 +83,11 @@ struct DayListView: View {
                         StopCardView(stop: stop,
                                      isAdmin: isAdmin,
                                      distanceMeters: distance(to: stop))
-                            .padding(.vertical, appStyle.isEnabled ? 0 : 4)
+                            .padding(.vertical, 4)
                     }
-                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : Color.clear)
-                    .listRowSeparator(appStyle.isEnabled ? .visible : .hidden)
-                    .listRowSeparatorTint(appStyle.line)
-                    .listRowInsets(EdgeInsets(top: appStyle.isEnabled ? 0 : 4, leading: 16, bottom: appStyle.isEnabled ? 0 : 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     .id(stop.id)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if isAdmin, stop.canBeMoved, let onMove {
@@ -98,7 +96,7 @@ struct DayListView: View {
                             } label: {
                                 Label("Move", systemImage: "calendar.badge.clock")
                             }
-                            .tint(appStyle.tenant)
+                            .tint(Color.MW.green)
                         }
                     }
                     .contextMenu {
@@ -114,7 +112,7 @@ struct DayListView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(appStyle.page)
+            .background(Color(.systemGroupedBackground))
             .refreshable { await onRefresh() }
             .onChange(of: stops) { _, newStops in
                 guard !hasAutoScrolled, !newStops.isEmpty else { return }
@@ -146,7 +144,7 @@ struct DayListView: View {
             Spacer()
         }
         .padding(.top, 8)
-        .background(appStyle.page)
+        .background(Color(.systemGroupedBackground))
     }
 
     // MARK: - Empty State
@@ -156,23 +154,23 @@ struct DayListView: View {
             Spacer()
 
             Image(systemName: "calendar.badge.clock")
-                .font(appStyle.font(size: 52))
-                .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
+                .font(.system(size: 52))
+                .foregroundStyle(Color(.systemGray3))
 
             Text("No Stops Scheduled")
-                .font(appStyle.font(.title3, weight: .bold))
-                .foregroundStyle(appStyle.text)
+                .font(.title3.bold())
+                .foregroundStyle(.primary)
 
             Text("There are no stops on this day.")
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.meta)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Spacer()
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-        .background(appStyle.page)
+        .background(Color(.systemGroupedBackground))
         // Allow pull-to-refresh on empty state.
         .refreshable { await onRefresh() }
     }
@@ -182,18 +180,18 @@ struct DayListView: View {
     private var offlineBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "wifi.slash")
-                .foregroundStyle(appStyle.meta)
-                .font(appStyle.font(.subheadline))
+                .foregroundStyle(.secondary)
+                .font(.subheadline)
 
             Text("No signal — showing last synced schedule")
-                .font(appStyle.font(.caption))
-                .foregroundStyle(appStyle.meta)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Spacer()
         }
         .padding(10)
-        .background(appStyle.sunk)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
@@ -203,22 +201,22 @@ struct DayListView: View {
     private func errorBanner(message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "wifi.exclamationmark")
-                .foregroundStyle(appStyle.color(.statusAttention, legacy: .orange))
-                .font(appStyle.font(.subheadline))
+                .foregroundStyle(.orange)
+                .font(.subheadline)
 
             Text(message)
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.color(.statusAttention, legacy: .orange))
+                .font(.subheadline)
+                .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
         }
         .padding(12)
-        .background(appStyle.color(.statusAttention, legacy: Color.orange).opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                .stroke(appStyle.color(.statusAttention, legacy: Color.orange).opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.25), lineWidth: 1)
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -228,7 +226,6 @@ struct DayListView: View {
 // MARK: - Skeleton Card
 
 private struct SkeletonCard: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     @State private var isAnimating = false
 
@@ -257,15 +254,15 @@ private struct SkeletonCard: View {
             }
         }
         .padding(16)
-        .background(appStyle.surface)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
-        .shadow(color: appStyle.shadow(0.04), radius: 6, x: 0, y: 2)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
         .onAppear { isAnimating = true }
     }
 
     private func skeletonBar(width: CGFloat, height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: height / 2)
-            .fill(appStyle.color(.line, legacy: Color(.systemGray5)))
+            .fill(Color(.systemGray5))
             .frame(width: width, height: height)
             .opacity(isAnimating ? 0.5 : 1.0)
             .animation(

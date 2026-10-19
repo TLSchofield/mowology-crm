@@ -149,18 +149,14 @@ struct TeamView: View {
                                     .padding(.vertical, 10)
                                 Divider().padding(.leading, 16)
                             }
-                            ItDesignSettingsRows()
+                            Toggle("Try the new design", isOn: $ittaiDesignEnabled)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
                             Divider().padding(.leading, 16)
-                            if authSession.user?.isAdmin == true {
-                                NavigationLink {
-                                    DiagnosticsView().environmentObject(authSession)
-                                } label: {
-                                    Label("Diagnostic log", systemImage: "doc.text.magnifyingglass")
-                                        .frame(minHeight: 48)
-                                }
-                                .padding(.horizontal, 16)
+                            if ittaiDesignEnabled {
+                                Toggle("Field mode (outdoors)", isOn: $ittaiFieldEnabled)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
                                 Divider().padding(.leading, 16)
                             }
                             SignOutButton(authSession: authSession)
@@ -198,6 +194,10 @@ struct TeamView: View {
                 }
             }
             .onAppear { consumeHeadRoute() }
+            .onReceive(NotificationCenter.default.publisher(for: .mwOfficeBarHeadSelected)) { note in
+                guard let slug = note.object as? String else { return }
+                selected = slug; path = [slug]; scrollRequest += 1
+            }
             .onChange(of: notificationRouter.pendingHead) { _, _ in consumeHeadRoute() }
             .onChange(of: scrollRequest) { _, _ in
                 if ittaiDesignEnabled {
@@ -289,16 +289,16 @@ struct TeamView: View {
                 officeMember("otto", name: "Otto", department: "Operations", vm: otto),
                 officeMember("mia", name: "Mia", department: "Marketing", vm: mia),
                 penny.hasLoaded
-                    ? ItOfficeMember(id: "penny", name: "Penny", department: "Bookkeeper", state: reportedState("penny"),
-                                     stateReason: readyBrief?.heads?["penny"]?.reason,
-                                     topItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" }, count: penny.queue.count,
-                                     loaded: true, loadFailed: penny.loadError != nil)
+                    ? deskMember("penny", name: "Penny", department: "Bookkeeper",
+                                 ownItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" },
+                                 ownCount: penny.queue.count, ownProduced: penny.loadError == nil || !penny.queue.isEmpty,
+                                 loadFailed: penny.loadError != nil)
                     : briefMember("penny", name: "Penny", department: "Bookkeeper"),
                 sam.hasLoaded
-                    ? ItOfficeMember(id: "sam", name: "Sam", department: "Sales", state: reportedState("sam"),
-                                     stateReason: readyBrief?.heads?["sam"]?.reason,
-                                     topItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) }, count: sam.queue.count,
-                                     loaded: true, loadFailed: sam.loadError != nil)
+                    ? deskMember("sam", name: "Sam", department: "Sales",
+                                 ownItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) },
+                                 ownCount: sam.queue.count, ownProduced: sam.loadError == nil || !sam.queue.isEmpty,
+                                 loadFailed: sam.loadError != nil)
                     : briefMember("sam", name: "Sam", department: "Sales"),
                 ItOfficeMember(id: "ada", name: "Ada", department: "Technology", state: nil, available: false),
             ],
@@ -327,16 +327,28 @@ struct TeamView: View {
     private func officeMember(_ id: String, name: String, department: String,
                               vm: HeadCardViewModel) -> ItOfficeMember {
         guard vm.hasLoaded else { return briefMember(id, name: name, department: department) }
+        return deskMember(id, name: name, department: department, ownItem: vm.items.first?.text,
+                          ownCount: vm.card?.waiting, ownProduced: vm.card != nil,
+                          loadFailed: vm.loadError != nil)
+    }
+
+    /// The ready brief is the row's authoritative snapshot. A card response only fills fields the
+    /// brief omitted; its failure is visible only when neither source produced row data.
+    private func deskMember(_ id: String, name: String, department: String, ownItem: String?,
+                            ownCount: Int?, ownProduced: Bool, loadFailed: Bool) -> ItOfficeMember {
         let reported = readyBrief?.heads?[id]
+        let briefItem = readyBriefItem(id)
+        let briefProduced = reported != nil || briefItem != nil
         return ItOfficeMember(id: id, name: name, department: department,
                               state: reported?.state.flatMap(ItEmployeeState.init(rawValue:)),
                               stateReason: reported?.reason,
-                              topItem: vm.items.first?.text, count: vm.card?.waiting,
-                              loaded: true, loadFailed: vm.loadError != nil)
+                              topItem: briefItem?.text ?? ownItem,
+                              count: reported?.needsYou ?? ownCount,
+                              loaded: true, loadFailed: loadFailed && !briefProduced && !ownProduced)
     }
 
-    private func reportedState(_ id: String) -> ItEmployeeState? {
-        readyBrief?.heads?[id]?.state.flatMap(ItEmployeeState.init(rawValue:))
+    private func readyBriefItem(_ id: String) -> HeadItem? {
+        readyBrief?.items.first { ($0.route ?? $0.head) == id }
     }
 
     private func briefMember(_ id: String, name: String, department: String) -> ItOfficeMember {
@@ -613,7 +625,6 @@ private struct ItWorkspaceView<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.it) private var it
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var knowledgeReloadID = 0
 
     var body: some View {
         ScrollView {
@@ -623,8 +634,7 @@ private struct ItWorkspaceView<Content: View>: View {
                     ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s5)
                 } else {
                     guide
-                    if member.id == "penny" { PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession)))
-                            .id(knowledgeReloadID) }
+                    if member.id == "penny" { PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession))) }
                     else { learning }
                     content
                     onboardingSection
@@ -632,40 +642,29 @@ private struct ItWorkspaceView<Content: View>: View {
             }
             .padding(16)
         }
-        .refreshable {
-            await onRefresh()
-            if member.id == "penny" {
-                knowledgeReloadID += 1
-                await businessIdentity.load()
-            }
-        }
+        .refreshable { await onRefresh() }
         .task { if member.id == "penny" { await businessIdentity.load() } }
     }
 
-    @ViewBuilder private var onboardingSection: some View {
-        if member.id == "penny" {
+    private var onboardingSection: some View {
         VStack(alignment: .leading, spacing: ItSpace.s3) {
             Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
-            businessIdentitySection
+            if member.id == "penny" {
+                businessIdentitySection
+                Button("Run again (testing)", action: businessIdentity.restart)
+                    .buttonStyle(.plain).itText(.body14).foregroundStyle(it.meta)
+                    .disabled(businessIdentity.isBusy)
+            } else {
+                Text("\(member.name)'s onboarding questions aren't built yet.")
+                    .itText(.body14).foregroundStyle(it.meta)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 
     @ViewBuilder private var businessIdentitySection: some View {
         let stage = businessIdentity.current?.knowledge.stage
-        if businessIdentity.current == nil {
-            if businessIdentity.isBusy {
-                ProgressView("Loading business details")
-            } else {
-                Text(businessIdentity.error ?? "No business-identity response has been loaded.")
-                    .itText(.body14).foregroundStyle(it.meta)
-                Button("Try again") { Task { await businessIdentity.load() } }
-                    .buttonStyle(.it(.ghost))
-            }
-        } else if businessIdentity.isEditing {
-            onboarding
-        } else if case .confirmed = businessIdentity.state {
+        if case .confirmed = businessIdentity.state {
             onboarding
         } else if businessIdentity.current?.identity == nil || stage == .recognized || businessIdentity.current == nil {
             onboarding
@@ -682,13 +681,13 @@ private struct ItWorkspaceView<Content: View>: View {
                               stage: businessIdentity.current?.knowledge.stage,
                               attribution: businessIdentity.attribution,
                               isBusy: businessIdentity.isBusy,
-                              canEdit: businessIdentity.current?.canEdit == true,
+                              canEdit: businessIdentity.canEdit,
                               initialName: businessIdentity.enteredName,
                               showsOtherMatches: businessIdentity.hasOtherMatches,
                               error: businessIdentity.error,
                               contactsState: businessIdentity.contactsState,
                               onStart: { value in Task { await businessIdentity.start(value) } },
-                              onRetry: { Task { await businessIdentity.searchAgain() } },
+                              onRetry: { Task { await businessIdentity.retry() } },
                               onShowOtherMatches: businessIdentity.showOtherMatches,
                               onSelect: businessIdentity.select,
                               onConfirm: { match in Task { await businessIdentity.confirm(match) } },
@@ -716,6 +715,8 @@ private struct ItWorkspaceView<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(it.text)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(member.available == false ? "Ada, not in the iPhone app yet" :
+                            (member.state == nil ? "\(member.name), status not loaded yet" : "\(member.name), \(member.state!.words)"))
     }
 
     private var workspacePortrait: some View {
@@ -799,7 +800,7 @@ private struct ItWorkspaceView<Content: View>: View {
                               tiers: Dictionary(brain.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
                               label: "\(member.name)'s brain", onLight: it.mode != .dark)
                         .frame(height: 150)
-                    Text(brain.units == 0 ? "Nothing learned yet" : "Shape \(brain.shape)").itText(.caption12).foregroundStyle(it.meta)
+                    Text("Shape \(brain.shape)").itText(.caption12).foregroundStyle(it.meta)
                     ForEach(brain.tiers, id: \.self) { tier in
                         Text("\(tier.name): \(tier.n)").itText(.body14).foregroundStyle(it.meta)
                     }
@@ -834,33 +835,14 @@ private struct PennyKnowledgeLiveView: View {
     @State private var response: KnowledgeResponse?
     @State private var loading = true
     @State private var failed = false
-
     var body: some View {
         Group {
-            if let response {
-                if response.items.isEmpty {
-                    Text("Penny hasn't met any vendors yet.").itText(.body14)
-                } else {
-                    ItKnowledgeBrain(response: response) { key in
-                        try await api.items(key: key).items
-                    }
-                }
-            } else if loading {
-                ItLoadStateLine(state: .loading)
-            } else if !connectivity.isOnline {
-                Text("You're offline. Penny's knowledge is not saved on this phone.").itText(.body14)
-            } else if failed {
-                ItLoadStateLine(state: .error)
-            }
-        }
-        .task {
-            guard response == nil else { return }
-            loading = true
-            failed = false
-            do { response = try await api.knowledge() }
-            catch { failed = true }
-            loading = false
-        }
+            if let response, !response.items.isEmpty { ItKnowledgeBrain(response: response) { key in (try? await api.items(key: key).items) ?? [] } }
+            else if let response, response.items.isEmpty { ItLoadStateLine(state: .unavailable) }
+            else if loading { ItLoadStateLine(state: .loading) }
+            else if !connectivity.isOnline { ItLoadStateLine(state: .offline("Not saved on this phone")) }
+            else if failed { ItLoadStateLine(state: .error) }
+        }.task { guard response == nil else{return};loading=true;do{response=try await api.knowledge()}catch{failed=true};loading=false }
     }
 }
 

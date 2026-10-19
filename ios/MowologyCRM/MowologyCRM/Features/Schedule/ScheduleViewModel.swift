@@ -424,7 +424,7 @@ final class ScheduleViewModel: ObservableObject {
             if case .networkError = err {
                 isOffline = true   // week strip is decorative — fail silently
             } else {
-                errorMessage = ErrorDetails.describe(err)
+                errorMessage = err.errorDescription ?? "Failed to load week schedule."
             }
         } catch {
             guard !Task.isCancelled else { return }
@@ -474,7 +474,7 @@ final class ScheduleViewModel: ObservableObject {
                     rawStops     = []
                 }
             } else {
-                errorMessage = ErrorDetails.describe(err)
+                errorMessage = err.errorDescription ?? "Failed to load stops."
                 rawStops     = []
                 appointments = []
             }

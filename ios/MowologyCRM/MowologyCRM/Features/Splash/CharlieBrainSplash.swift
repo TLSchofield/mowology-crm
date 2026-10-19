@@ -156,60 +156,6 @@ struct BrainShape {
     }
 }
 
-// Shared interaction clock for the head and vendor brains. Dragging suspends the automatic
-// turn and rebases it on release, so there is no jump back to the timed orientation.
-struct BrainMotion {
-    static let radiansPerSecond = 2 * Double.pi / 90
-    private(set) var baseYaw = -0.42
-    private(set) var pitch = 0.38
-    private var start: (yaw: Double, pitch: Double)?
-    private var draggedYaw: Double?
-
-    func yaw(at time: Double) -> Double {
-        draggedYaw ?? (baseYaw + time * Self.radiansPerSecond)
-    }
-
-    mutating func drag(_ translation: CGSize, at time: Double) {
-        if start == nil { start = (yaw(at: time), pitch) }
-        guard let start else { return }
-        draggedYaw = start.yaw + Double(translation.width) * 0.012
-        pitch = max(-1.15, min(1.15, start.pitch - Double(translation.height) * 0.012))
-    }
-
-    mutating func endDrag(at time: Double) {
-        if let draggedYaw { baseYaw = draggedYaw - time * Self.radiansPerSecond }
-        draggedYaw = nil
-        start = nil
-    }
-
-    /// Exactly three independent strokes: no triangle, scaffold or learned face at zero.
-    static func chaosSegments(in size: CGSize, time: Double) -> [[CGPoint]] {
-        let scale = min(size.width, size.height)
-        return (0..<3).map { i in
-            let phase = Double(i) * 2.1
-            let x = size.width / 2 + scale * 0.20 * sin(time * 0.13 + phase)
-            let y = size.height / 2 + scale * 0.19 * cos(time * 0.11 + phase * 1.4)
-            let angle = phase + time * (0.07 + Double(i) * 0.015)
-            let dx = scale * 0.12 * cos(angle), dy = scale * 0.12 * sin(angle)
-            return [CGPoint(x: x - dx, y: y - dy), CGPoint(x: x + dx, y: y + dy)]
-        }
-    }
-}
-
-struct BrainChaos: View {
-    let time: Double
-    let color: Color
-    var body: some View {
-        Canvas { context, size in
-            for segment in BrainMotion.chaosSegments(in: size, time: time) {
-                var path = Path()
-                path.move(to: segment[0]); path.addLine(to: segment[1])
-                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.25, lineCap: .round))
-            }
-        }
-    }
-}
-
 #if !KNOWLEDGE_GEOMETRY_ONLY
 
 // MARK: - Tier materials (head-brain.js TIERS)
@@ -302,9 +248,6 @@ struct BrainView: View {
         let newest: Int
     }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var motion = BrainMotion()
-    @State private var startedAt = Date()
     private let prepared: Prepared
 
     init(units: Int, tiers: [String: Int], label: String = "Charlie's brain", onLight: Bool = false) {
@@ -312,7 +255,7 @@ struct BrainView: View {
         self.tiers = tiers
         self.label = label
         self.onLight = onLight
-        // Preserve the established positive-learning shape pathway; zero is drawn as chaos.
+        // Shape = things learned; shape 1 is one triangle (nothing learned = its outline, the seed).
         let shape = BrainShape(max(1, units))
         var owner = [BrainTier?](repeating: nil, count: shape.tris.count)
         // Best tiers first along the web's sweep order; the rest of the units as Bronze.
@@ -330,29 +273,18 @@ struct BrainView: View {
         prepared = Prepared(shape: shape, owner: owner, newest: newest)
     }
 
-    private var elapsed: Double { reduceMotion ? 0 : Date().timeIntervalSince(startedAt) }
-
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { tl in
-            let time = reduceMotion ? 0 : tl.date.timeIntervalSince(startedAt)
-            Group {
-                if units <= 0 {
-                    BrainChaos(time: time, color: onLight ? Color.MW.forest : Color.MW.light)
-                } else {
-                    Canvas { g, size in draw(g, size: size, time: time) }
-                }
+        TimelineView(.animation) { tl in
+            Canvas { g, size in
+                draw(g, size: size, time: tl.date.timeIntervalSinceReferenceDate)
             }
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 8)
-                .onChanged { motion.drag($0.translation, at: elapsed) }
-                .onEnded { _ in motion.endDrag(at: elapsed) })
         }
-        .accessibilityLabel(units <= 0 ? "\(label). Nothing learned yet; three drifting lines." : label)
+        .accessibilityLabel(label)
     }
 
     private func draw(_ g: GraphicsContext, size: CGSize, time: Double) {
         let W = size.width, H = size.height, R = min(W, H) * 0.36
-        let a = motion.yaw(at: time), tilt = motion.pitch
+        let a = time / 11 * 2 * .pi, tilt = 0.45
         let ca = cos(a), sa = sin(a), ct = cos(tilt), st = sin(tilt)
         func P(_ v: BrainShape.V) -> (x: Double, y: Double, z: Double, vx: Double, vy: Double) {
             let x = v.x * ca + v.z * sa, z = -v.x * sa + v.z * ca, y = v.y

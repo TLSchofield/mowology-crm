@@ -72,8 +72,7 @@ final class FieldJobViewModel: ObservableObject {
         } catch let err as APIError {
             phase = .failed(err.localizedDescription)
         } catch {
-            AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
-            phase = .failed(ErrorDetails.describe(error))
+            phase = .failed("Couldn't get your location. Check that location access is on, then try again.")
         }
     }
 
@@ -134,7 +133,7 @@ final class FieldJobViewModel: ObservableObject {
         do {
             let response: FieldJobActionResponse = try await apiClient.request(.fieldJobAction, body: body)
             guard response.success else {
-                errorMessage = response.error ?? "Field job response success=false; server returned no error field."
+                errorMessage = response.error ?? "Couldn't save. Try again."
                 return false
             }
             requestId      = UUID().uuidString
@@ -148,8 +147,7 @@ final class FieldJobViewModel: ObservableObject {
             }
             return false
         } catch {
-            AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "Couldn't save. Try again."
             return false
         }
     }
@@ -198,8 +196,6 @@ struct FieldClientDraft {
 // MARK: - Root sheet
 
 struct FieldJobView: View {
-    @Environment(\.itAppStyle) private var appStyle
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm: FieldJobViewModel
@@ -218,26 +214,25 @@ struct FieldJobView: View {
                 switch vm.phase {
                 case .locating:
                     VStack(spacing: 14) {
-                        ProgressView().tint(appStyle.tenant)
+                        ProgressView().tint(Color.MW.green)
                         Text("Finding where you are…")
-                            .font(appStyle.font(.subheadline))
-                            .foregroundStyle(appStyle.meta)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .failed(let message):
                     VStack(spacing: 14) {
                         Image(systemName: "location.slash.fill")
-                            .font(appStyle.font(.largeTitle))
-                            .foregroundStyle(appStyle.attention)
+                            .font(.largeTitle)
+                            .foregroundStyle(Color.MW.orange)
                         Text(message)
-                            .font(appStyle.font(.subheadline))
+                            .font(.subheadline)
                             .multilineTextAlignment(.center)
-                            .foregroundStyle(appStyle.meta)
+                            .foregroundStyle(.secondary)
                         Button("Try again") { Task { await vm.load() } }
-                            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                             .buttonStyle(.borderedProminent)
-                            .tint(appStyle.tenant)
+                            .tint(Color.MW.green)
                     }
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -246,9 +241,7 @@ struct FieldJobView: View {
                     nearbyList
                 }
             }
-            .background(appStyle.page)
-            .itAppForm()
-            .itAppScreen()
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Add a job")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -284,8 +277,8 @@ struct FieldJobView: View {
                     NavigationLink(value: here) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("You're at")
-                                .font(appStyle.font(.caption, weight: .semibold))
-                                .foregroundStyle(appStyle.tenant)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.MW.green)
                                 .textCase(.uppercase)
                             propertyLabel(here)
                         }
@@ -310,8 +303,8 @@ struct FieldJobView: View {
             if vm.nearby.isEmpty {
                 Section {
                     Text("No client properties within 250 m of you.")
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.meta)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -320,7 +313,7 @@ struct FieldJobView: View {
                     FieldJobNewClientView(vm: vm, finish: finish)
                 } label: {
                     Label("New client at this location", systemImage: "person.crop.circle.badge.plus")
-                        .foregroundStyle(appStyle.tenant)
+                        .foregroundStyle(Color.MW.green)
                 }
             } footer: {
                 Text("Creates the client, pins the property where you're standing, and adds the job. The office reviews it afterwards.")
@@ -329,26 +322,26 @@ struct FieldJobView: View {
     }
 
     private func propertyLabel(_ property: FieldJobProperty) -> some View {
-        AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))) {
+        HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(property.contactName ?? property.address)
-                    .font(appStyle.font(.body, weight: .semibold))
-                    .lineLimit(appStyle.isEnabled ? nil : 1)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
                 Text(property.contactName == nil ? (property.city ?? "") : property.address)
-                    .font(appStyle.font(.subheadline))
-                    .foregroundStyle(appStyle.meta)
-                    .lineLimit(appStyle.isEnabled ? nil : 1)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text(property.plans.isEmpty
                      ? "No active plan"
                      : property.plans.count == 1 ? property.plans[0].title : "\(property.plans.count) active plans")
-                    .font(appStyle.font(.caption))
-                    .foregroundStyle(appStyle.meta)
-                    .lineLimit(appStyle.isEnabled ? nil : 1)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
             Spacer()
             Text(property.distanceText)
-                .font(appStyle.font(.caption).monospacedDigit())
-                .foregroundStyle(appStyle.meta)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -357,7 +350,6 @@ struct FieldJobView: View {
 
 /// Also pushed from the Search tab's property page ("Create a new job here").
 struct FieldJobPropertyView: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: FieldJobViewModel
     let property: FieldJobProperty
@@ -371,11 +363,11 @@ struct FieldJobPropertyView: View {
             Section {
                 VStack(alignment: .leading, spacing: 2) {
                     if let name = property.contactName {
-                        Text(name).font(appStyle.font(.headline))
+                        Text(name).font(.headline)
                     }
                     Text([property.address, property.city].compactMap { $0 }.joined(separator: ", "))
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.meta)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -388,18 +380,18 @@ struct FieldJobPropertyView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(plan.title)
-                                        .font(appStyle.font(.body, weight: .semibold))
-                                        .foregroundStyle(appStyle.text)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.primary)
                                     Text(plan.hasVisitToday
                                          ? "Already has a visit today — add another"
                                          : "Add a visit for today")
-                                        .font(appStyle.font(.caption))
-                                        .foregroundStyle(plan.hasVisitToday ? appStyle.attention : appStyle.meta)
+                                        .font(.caption)
+                                        .foregroundStyle(plan.hasVisitToday ? Color.MW.orange : .secondary)
                                 }
                                 Spacer()
                                 Image(systemName: "plus.circle.fill")
-                                    .font(appStyle.font(.title2))
-                                    .foregroundStyle(appStyle.tenant)
+                                    .font(.title2)
+                                    .foregroundStyle(Color.MW.green)
                             }
                             .padding(.vertical, 4)
                         }
@@ -419,14 +411,12 @@ struct FieldJobPropertyView: View {
                 Button {
                     Task { if await vm.createJob(propertyId: property.id, job: draft) { finish() } }
                 } label: {
-                    saveLabel("Create job", saving: vm.isSaving, appStyle: appStyle)
+                    saveLabel("Create job", saving: vm.isSaving)
                 }
                 .disabled(!draft.isValid || vm.isSaving)
-                .listRowBackground(draft.isValid ? appStyle.tenant : (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray4)))
+                .listRowBackground(draft.isValid ? Color.MW.green : Color(.systemGray4))
             }
         }
-        .itAppForm()
-        .itAppScreen()
         .navigationTitle("This property")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(confirmingPlan.map { "Add a visit to “\($0.title)” for today?" } ?? "",
@@ -445,7 +435,6 @@ struct FieldJobPropertyView: View {
 // MARK: - New client + job
 
 private struct FieldJobNewClientView: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: FieldJobViewModel
     let finish: () -> Void
@@ -484,14 +473,12 @@ private struct FieldJobNewClientView: View {
                 Button {
                     Task { if await vm.createClientJob(client: client, job: draft) { finish() } }
                 } label: {
-                    saveLabel("Create client and job", saving: vm.isSaving, appStyle: appStyle)
+                    saveLabel("Create client and job", saving: vm.isSaving)
                 }
                 .disabled(!(client.isValid && draft.isValid) || vm.isSaving)
-                .listRowBackground(client.isValid && draft.isValid ? appStyle.tenant : (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray4)))
+                .listRowBackground(client.isValid && draft.isValid ? Color.MW.green : Color(.systemGray4))
             }
         }
-        .itAppForm()
-        .itAppScreen()
         .navigationTitle("New client")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -507,7 +494,6 @@ private struct FieldJobNewClientView: View {
 // MARK: - Shared job form
 
 private struct FieldJobFormSections: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     @Binding var draft: FieldJobDraft
     let serviceTypes: [String]
@@ -528,7 +514,7 @@ private struct FieldJobFormSections: View {
 
         Section {
             Toggle("Repeats", isOn: $draft.recurring)
-                .tint(appStyle.tenant)
+                .tint(Color.MW.green)
             if draft.recurring {
                 Picker("Every", selection: $draft.frequency) {
                     Text("Week").tag("weekly")
@@ -545,15 +531,14 @@ private struct FieldJobFormSections: View {
     }
 }
 
-private func saveLabel(_ title: String, saving: Bool, appStyle: ItAppStyle) -> some View {
+private func saveLabel(_ title: String, saving: Bool) -> some View {
     HStack {
         Spacer()
-        if saving { ProgressView().tint(appStyle.onTenant) }
+        if saving { ProgressView().tint(.white) }
         Text(saving ? "Saving…" : title)
-            .font(appStyle.font(.headline))
-            .foregroundStyle(appStyle.onTenant)
+            .font(.headline)
+            .foregroundStyle(.white)
         Spacer()
     }
-    .frame(minHeight: appStyle.isEnabled ? 48 : nil)
     .padding(.vertical, 6)
 }

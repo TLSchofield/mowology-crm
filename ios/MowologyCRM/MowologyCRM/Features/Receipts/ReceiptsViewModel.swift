@@ -50,8 +50,7 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             listError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            listError = ErrorDetails.describe(error)
+            listError = "Failed to load expenses."
         }
         isLoadingList = false
     }
@@ -231,12 +230,11 @@ final class ReceiptsViewModel: ObservableObject {
             if r.ok {
                 await loadExpenses()
             } else {
-                actionError = r.message ?? r.error ?? "Bookkeeper action response ok=false; server returned no message/error field."
+                actionError = r.message ?? r.error ?? "Not saved."
             }
             return r
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = (error as? APIError)?.errorDescription ?? "Not saved."
             return nil
         }
     }
@@ -259,7 +257,7 @@ final class ReceiptsViewModel: ObservableObject {
                                                                         body: ["op": "rescan", "expense_id": expenseId],
                                                                         timeout: 75)
             if r.success { return .success(r) }
-            return .failure(APIError.serverError(r.error ?? "Receipt rescan response success=false; server returned no error field."))
+            return .failure(APIError.serverError(r.error ?? "The rescan failed."))
         } catch {
             return .failure(error)
         }
@@ -270,12 +268,11 @@ final class ReceiptsViewModel: ObservableObject {
         do {
             let r: LineItemMutationResponse = try await apiClient.request(.expenseLineItemAction, body: body)
             if r.success { return r }
-            actionError = r.error ?? "Line item update response success=false; server returned no error field."
+            actionError = r.error ?? "Line item update failed."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = "Line item update failed."
         }
         return nil
     }
@@ -323,12 +320,11 @@ final class ReceiptsViewModel: ObservableObject {
                 expenses.removeAll { $0.id == id }
                 return true
             }
-            actionError = r.error ?? r.message ?? "Expense delete response success=false; server returned no error/message field."
+            actionError = r.error ?? r.message ?? "Delete failed."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = "Delete failed."
         }
         return false
     }
@@ -364,8 +360,7 @@ final class ReceiptsViewModel: ObservableObject {
                 uploadError = err.errorDescription
             }
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            uploadError = ErrorDetails.describe(error)
+            uploadError = "Upload failed."
         }
         isUploading = false
     }
@@ -382,11 +377,10 @@ final class ReceiptsViewModel: ObservableObject {
             if case .networkError = err {
                 uploadError = "No connection — the label photo wasn't sent. Try again when you have signal."
             } else {
-                uploadError = ErrorDetails.describe(err)
+                uploadError = err.errorDescription ?? "Label upload failed."
             }
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            uploadError = ErrorDetails.describe(error)
+            uploadError = "Label upload failed."
         }
         isUploading = false
     }
@@ -475,8 +469,7 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             saveError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            saveError = ErrorDetails.describe(error)
+            saveError = "Failed to save expense."
         }
         isSaving = false
         return nil
@@ -489,7 +482,7 @@ final class ReceiptsViewModel: ObservableObject {
     func updateExpense(
         expenseId: Int,
         vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
+        amount: Double, gst: Double, pst: Double, total: Double,
         category: String, paymentMethod: String, description: String
     ) async -> Bool {
         isSaving  = true
@@ -500,6 +493,7 @@ final class ReceiptsViewModel: ObservableObject {
             "vendor_name_raw":     vendorName,
             "amount":              amount,
             "gst_amount":          gst,
+            "pst_amount":          pst,
             "total":               total,
             "accounting_category": category,
             "payment_method":      paymentMethod,
@@ -513,8 +507,7 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             saveError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            saveError = ErrorDetails.describe(error)
+            saveError = "Failed to update expense."
         }
         isSaving = false
         return false
@@ -569,12 +562,11 @@ final class ReceiptsViewModel: ObservableObject {
                 }
                 return true
             }
-            actionError = response.error ?? "Receipt bulk action response success=false; server returned no error field."
+            actionError = response.error ?? "Bulk action failed."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = "Bulk action failed."
         }
         isPerformingAction = false
         return false
@@ -595,13 +587,12 @@ final class ReceiptsViewModel: ObservableObject {
                 await loadExpenses()
                 return true
             }
-            actionError = response.error ?? "Receipt archive response success=false; server returned no error field."
+            actionError = response.error ?? "Archive failed."
         } catch let err as APIError {
             actionError = err.errorDescription
             isPerformingAction = false
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = "Archive failed."
             isPerformingAction = false
         }
         return false
@@ -642,7 +633,7 @@ final class ReceiptsViewModel: ObservableObject {
                 isPerformingAction = false
                 return true
             }
-            actionError = response.error ?? response.message ?? "Receipt action response success=false; server returned no error/message field."
+            actionError = response.error ?? response.message ?? "Action failed."
         } catch let err as APIError {
             // Same policy as uploadImage(): queue only when the server didn't decide, so the tap
             // isn't lost; a 4xx refusal is shown, never queued (it would block the queue).
@@ -660,8 +651,7 @@ final class ReceiptsViewModel: ObservableObject {
                 actionError = err.errorDescription
             }
         } catch {
-            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
-            actionError = ErrorDetails.describe(error)
+            actionError = "Action failed."
         }
         isPerformingAction = false
         return false

@@ -13,8 +13,6 @@
 import SwiftUI
 
 struct VisitCompletionSheet: View {
-    @Environment(\.itAppStyle) private var appStyle
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let visit: Visit
     @ObservedObject var detailVM: VisitDetailViewModel
@@ -37,7 +35,6 @@ struct VisitCompletionSheet: View {
                 case .failed:  resultView(success: false)
                 }
             }
-            .itAppScreen()
             .navigationTitle("Complete Visit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -71,7 +68,7 @@ struct VisitCompletionSheet: View {
             }
             .padding(16)
         }
-        .background(appStyle.page)
+        .background(Color(.systemGroupedBackground))
         .task {
             // Snow & salt route stop? Then the crew record what was done before completing.
             await vm.loadSnowRoute(visitId: visit.visitId, serviceType: visit.serviceType)
@@ -86,40 +83,38 @@ struct VisitCompletionSheet: View {
 
             VStack(spacing: 16) {
                 // Live timer + start/stop
-                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())) {
+                HStack {
                     Text(vm.timerDisplay)
-                        .font(appStyle.font(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(appStyle.text)
+                        .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.primary)
                     Spacer()
                     Button {
                         vm.toggleTimer()
                     } label: {
                         Label(vm.isTimerRunning ? "Stop" : "Start",
                               systemImage: vm.isTimerRunning ? "stop.fill" : "play.fill")
-                            .font(appStyle.font(.subheadline, weight: .bold))
+                            .font(.subheadline.bold())
                             .padding(.horizontal, 16)
-                            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                             .padding(.vertical, 9)
-                            .background(vm.isTimerRunning ? appStyle.attention : appStyle.tenant)
-                            .foregroundStyle(appStyle.onTenant)
-                            .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                            .background(vm.isTimerRunning ? Color.MW.orange : Color.MW.green)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
                     }
                 }
 
                 // Quick-add blocks
-                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                HStack(spacing: 8) {
                     ForEach([5, 10, 15, 30], id: \.self) { mins in
                         Button {
                             vm.addMinutes(mins)
                         } label: {
                             Text("+\(mins)")
-                                .font(appStyle.font(.subheadline, weight: .bold))
+                                .font(.subheadline.bold())
                                 .frame(maxWidth: .infinity)
-                                .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                                 .padding(.vertical, 10)
-                                .background(appStyle.tenant.opacity(0.12))
-                                .foregroundStyle(appStyle.tenant)
-                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                                .background(Color.MW.green.opacity(0.12))
+                                .foregroundStyle(Color.MW.green)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
@@ -127,59 +122,58 @@ struct VisitCompletionSheet: View {
                 Divider()
 
                 // Running total + live dollar preview
-                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())) {
+                HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(vm.totalMinutes) min")
-                            .font(appStyle.font(.headline))
+                            .font(.headline)
                         if vm.hasExtras {
                             Text("\(vm.billableBlocks) × 5-min block\(vm.billableBlocks == 1 ? "" : "s")")
-                                .font(appStyle.font(.caption))
-                                .foregroundStyle(appStyle.meta)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
                     Text(currency(vm.extrasAmount))
-                        .font(appStyle.font(.title3, weight: .bold))
-                        .foregroundStyle(vm.hasExtras ? appStyle.tenant : appStyle.meta)
+                        .font(.title3.bold())
+                        .foregroundStyle(vm.hasExtras ? Color.MW.green : .secondary)
                 }
 
                 if vm.hasExtras {
                     Button("Reset extras", role: .destructive) { vm.resetExtras() }
-                        .font(appStyle.font(.caption))
-                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+                        .font(.caption)
                 }
             }
             .padding(16)
-            .background(appStyle.surface)
-            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
     private var snowChoiceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader("What was done here?", icon: "snowflake")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 8) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(vm.snowChoices, id: \.self) { option in
                     Button {
                         Task { _ = await vm.recordSnowChoice(visitId: visit.visitId, choice: option.value) }
                     } label: {
                         Text(option.label)
-                            .font(appStyle.font(.subheadline, weight: .bold))
+                            .font(.subheadline.bold())
                             .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 44)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                             .padding(.vertical, 4)
-                            .background(vm.snowChoice == option.value ? appStyle.tenant : appStyle.tenant.opacity(0.12))
-                            .foregroundStyle(vm.snowChoice == option.value ? appStyle.onTenant : appStyle.tenant)
-                            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                            .background(vm.snowChoice == option.value ? Color.MW.green : Color.MW.green.opacity(0.12))
+                            .foregroundStyle(vm.snowChoice == option.value ? Color.white : Color.MW.green)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                 }
             }
             if let err = vm.snowError {
-                Text(err).font(appStyle.font(.footnote)).foregroundStyle(appStyle.attention)
+                Text(err).font(.footnote).foregroundStyle(Color.MW.orange)
             } else if vm.snowChoice == nil {
                 Text("Pick one to complete the stop. The invoice bills only what you pick.")
-                    .font(appStyle.font(.footnote))
-                    .foregroundStyle(appStyle.meta)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -191,8 +185,8 @@ struct VisitCompletionSheet: View {
                       text: $vm.note, axis: .vertical)
                 .lineLimit(2...4)
                 .padding(12)
-                .background(appStyle.surface)
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 
@@ -204,12 +198,12 @@ struct VisitCompletionSheet: View {
                     complete(withInvoice: false)
                 } label: {
                     Label("Complete — Nothing Needed", systemImage: "checkmark.circle.fill")
-                        .font(appStyle.font(.subheadline, weight: .bold))
+                        .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(appStyle.tenant)
-                        .foregroundStyle(appStyle.onTenant)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
                 }
             } else if visit.isPerVisitBillable {
                 Button {
@@ -218,24 +212,24 @@ struct VisitCompletionSheet: View {
                     Label(vm.tickedUnbilled.isEmpty ? "Complete & Invoice"
                                                     : "Complete & Invoice (+\(vm.tickedUnbilled.count))",
                           systemImage: "paperplane.fill")
-                        .font(appStyle.font(.subheadline, weight: .bold))
+                        .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(appStyle.tenant)
-                        .foregroundStyle(appStyle.onTenant)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
                 }
 
                 Button {
                     complete(withInvoice: false)
                 } label: {
                     Text(vm.hasExtras ? "Complete — Save Extras, No Invoice" : "Complete — No Invoice")
-                        .font(appStyle.font(.subheadline, weight: .bold))
+                        .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(appStyle.tenant.opacity(0.12))
-                        .foregroundStyle(appStyle.tenant)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                        .background(Color.MW.green.opacity(0.12))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(Capsule())
                 }
             } else {
                 // Contract / monthly-flat work: the contract bills it, so a visit never raises
@@ -244,18 +238,18 @@ struct VisitCompletionSheet: View {
                     complete(withInvoice: false)
                 } label: {
                     Label(vm.hasExtras ? "Complete & Save Extras" : "Complete Visit", systemImage: "checkmark.circle.fill")
-                        .font(appStyle.font(.subheadline, weight: .bold))
+                        .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(appStyle.tenant)
-                        .foregroundStyle(appStyle.onTenant)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
                 }
                 Label(visit.isContractBilled ? "Billed under the contract — no invoice from this visit."
                                              : "Billed monthly — no invoice from this visit.",
                       systemImage: "doc.text")
-                    .font(appStyle.font(.caption))
-                    .foregroundStyle(appStyle.meta)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -268,11 +262,11 @@ struct VisitCompletionSheet: View {
         VStack(spacing: 16) {
             ProgressView()
             Text("Completing visit…")
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.meta)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(appStyle.page)
+        .background(Color(.systemGroupedBackground))
     }
 
     // MARK: - Result
@@ -281,20 +275,20 @@ struct VisitCompletionSheet: View {
         ScrollView {
             VStack(spacing: 16) {
                 Image(systemName: success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(appStyle.font(size: 52))
-                    .foregroundStyle(success ? appStyle.tenant : appStyle.attention)
+                    .font(.system(size: 52))
+                    .foregroundStyle(success ? Color.MW.green : Color.MW.orange)
 
                 Text(vm.statusMessage)
-                    .font(appStyle.font(.headline))
+                    .font(.headline)
                     .multilineTextAlignment(.center)
 
                 if success, !vm.sentTo.isEmpty {
                     VStack(spacing: 2) {
                         Text("Emailed to")
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.meta)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         ForEach(vm.sentTo, id: \.self) { addr in
-                            Text(addr).font(appStyle.font(.subheadline))
+                            Text(addr).font(.subheadline)
                         }
                     }
                 }
@@ -307,29 +301,29 @@ struct VisitCompletionSheet: View {
                     dismiss()
                 } label: {
                     Text("Done")
-                        .font(appStyle.font(.subheadline, weight: .bold))
+                        .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(appStyle.tenant)
-                        .foregroundStyle(appStyle.onTenant)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
                 }
                 .padding(.top, 8)
             }
             .padding(24)
         }
-        .background(appStyle.page)
+        .background(Color(.systemGroupedBackground))
     }
 
     private func invoiceSummary(_ inv: InvoiceCreateResult) -> some View {
         VStack(spacing: 8) {
             ForEach(inv.lineItems) { item in
-                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())) {
+                HStack {
                     Text(item.description)
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(item.isExtras ? appStyle.tenant : appStyle.text)
+                        .font(.subheadline)
+                        .foregroundStyle(item.isExtras ? Color.MW.green : .primary)
                     Spacer()
-                    Text(currency(item.amount)).font(appStyle.font(.subheadline).monospacedDigit())
+                    Text(currency(item.amount)).font(.subheadline.monospacedDigit())
                 }
             }
             Divider()
@@ -341,15 +335,15 @@ struct VisitCompletionSheet: View {
             }
         }
         .padding(16)
-        .background(appStyle.surface)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func summaryRow(_ label: String, _ value: String, bold: Bool = false) -> some View {
         HStack {
-            Text(label).font(appStyle.font(.subheadline, weight: bold ? .bold : .regular))
+            Text(label).font(bold ? .subheadline.bold() : .subheadline)
             Spacer()
-            Text(value).font(appStyle.font(.subheadline, weight: bold ? .bold : .regular).monospacedDigit())
+            Text(value).font((bold ? Font.subheadline.bold() : Font.subheadline).monospacedDigit())
         }
     }
 
@@ -387,8 +381,8 @@ struct VisitCompletionSheet: View {
 
     private func sectionHeader(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(appStyle.font(.footnote, weight: .semibold))
-            .foregroundStyle(appStyle.meta)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
             .textCase(.uppercase)
             .padding(.leading, 4)
     }

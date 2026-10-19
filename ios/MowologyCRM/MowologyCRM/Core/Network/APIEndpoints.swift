@@ -188,7 +188,7 @@ enum APIEndpoint {
     case businessIdentityCurrent
     case businessIdentitySearch(name: String)
     case businessIdentityContacts
-    case businessIdentityAction(mode: String)
+    case businessIdentityAction
 
     /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
     /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
@@ -510,10 +510,8 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
             components?.queryItems = [URLQueryItem(name: "mode", value: "contacts")]
             return components?.url
-        case .businessIdentityAction(let mode):
-            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
-            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
-            return components?.url
+        case .businessIdentityAction:
+            return URL(string: "\(baseURLString)/settings/business-identity")
 
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")

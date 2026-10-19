@@ -14,10 +14,6 @@
 import SwiftUI
 
 struct ReceiptReviewView: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    private var usesAccessibleAmounts: Bool { appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize }
-    @Environment(\.itAppStyle) private var appStyle
 
     /// What the user chose after a successful save.
     enum SaveFollowUp { case snapAnother, done }
@@ -141,29 +137,26 @@ struct ReceiptReviewView: View {
 
                 if let err = viewModel.saveError {
                     Section {
-                        Text(err).foregroundStyle(appStyle.blocked).font(appStyle.font(.subheadline))
+                        Text(err).foregroundStyle(.red).font(.subheadline)
                     }
-                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
-            .itAppForm()
-            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
-                        .foregroundStyle(appStyle.tenant)
+                        .foregroundStyle(Color.MW.green)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await attemptSave(andSend: false) }
                     } label: {
                         if viewModel.isSaving {
-                            ProgressView().tint(appStyle.tenant)
+                            ProgressView().tint(Color.MW.green)
                         } else {
-                            Text("Submit").font(appStyle.font(.subheadline, weight: .semibold))
-                                .foregroundStyle(canSave ? appStyle.tenant : appStyle.meta)
+                            Text("Submit").font(.subheadline.weight(.semibold))
+                                .foregroundStyle(canSave ? Color.MW.green : .secondary)
                         }
                     }
                     .disabled(!canSave)
@@ -239,10 +232,10 @@ struct ReceiptReviewView: View {
                     Image(uiImage: ui)
                         .resizable().scaledToFit()
                         .frame(maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(appStyle.font(.caption, weight: .bold))
+                                .font(.caption.weight(.bold))
                                 .foregroundStyle(.white)
                                 .padding(6)
                                 .background(.black.opacity(0.55), in: Circle())
@@ -251,10 +244,10 @@ struct ReceiptReviewView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { showImageFull = true }
                 } else {
-                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                        .fill(appStyle.sunk)
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(.systemGray5))
                         .frame(height: 120)
-                        .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
+                        .overlay { Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary) }
                 }
                 Spacer()
             }
@@ -262,25 +255,24 @@ struct ReceiptReviewView: View {
                 ocrBadge
                 if intake.gstValidation?.valid == false {
                     Label(intake.gstValidation?.message ?? "Tax math doesn't add up — check the amounts", systemImage: "exclamationmark.triangle.fill")
-                        .font(appStyle.font(.caption2))
-                        .foregroundStyle(appStyle.attention)
+                        .font(.caption2)
+                        .foregroundStyle(Color.MW.orange)
                 }
             }
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     @ViewBuilder
     private var ocrBadge: some View {
         if intake.ocrAvailable && !(intake.ocrText ?? "").isEmpty {
             Label("AI detected\(intake.ocrSource == "vision" ? " (AI)" : intake.ocrSource == "tesseract" ? " (local)" : "")", systemImage: "text.viewfinder")
-                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                .font(.caption2).foregroundStyle(Color.MW.green)
         } else if intake.ocrAvailable {
             Label("No text found", systemImage: "questionmark.circle")
-                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
+                .font(.caption2).foregroundStyle(Color.MW.orange)
         } else {
             Label("Manual entry", systemImage: "pencil")
-                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                .font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -290,44 +282,40 @@ struct ReceiptReviewView: View {
             Section {
                 Label {
                     Text("This exact receipt image was already uploaded. You may be about to create a duplicate expense — please verify before saving.")
-                        .font(appStyle.font(.caption))
+                        .font(.caption)
                 } icon: {
-                    Image(systemName: "doc.on.doc.fill").foregroundStyle(appStyle.attention)
+                    Image(systemName: "doc.on.doc.fill").foregroundStyle(Color.MW.orange)
                 }
             }
-            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
         } else if !duplicates.isEmpty {
             Section("Possible duplicate\(duplicates.count == 1 ? "" : "s")") {
                 ForEach(duplicates) { d in
                     HStack {
-                        Image(systemName: "doc.on.doc").foregroundStyle(appStyle.attention)
+                        Image(systemName: "doc.on.doc").foregroundStyle(Color.MW.orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(d.displayVendor).font(appStyle.font(.subheadline, weight: .semibold))
+                            Text(d.displayVendor).font(.subheadline.weight(.semibold))
                             Text("$\(d.total, specifier: "%.2f") on \(d.expenseDate) · \(d.status.replacingOccurrences(of: "_", with: " "))")
-                                .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
             }
-            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
         }
     }
 
     private var totalSection: some View {
         Section {
-            (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
-                Text("Total").font(appStyle.font(.title3, weight: .semibold))
-                if !usesAccessibleAmounts { Spacer() }
-                HStack {
-                    Text("$").foregroundStyle(appStyle.meta)
-                    TextField("0.00", text: $total)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .font(appStyle.font(.title3, weight: .semibold))
-                        .frame(width: usesAccessibleAmounts ? nil : 110)
-                        .focused($focus, equals: .total)
-                    if let c = intake.parsed?.total, !c.isEmpty { confidenceDot(70) }
-                }
+            HStack {
+                Text("Total").font(.title3.weight(.semibold))
+                Spacer()
+                Text("$").foregroundStyle(.secondary)
+                TextField("0.00", text: $total)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 110)
+                    .focused($focus, equals: .total)
+                if let c = intake.parsed?.total, !c.isEmpty { confidenceDot(70) }
             }
             amountRow(label: "Subtotal", value: $amount, field: .amount)
             amountRow(label: "GST",      value: $gst,    field: .gst)
@@ -335,7 +323,6 @@ struct ReceiptReviewView: View {
         } footer: {
             Text("Editing subtotal or tax recalculates the total; editing the total recalculates the subtotal.")
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var vendorSection: some View {
@@ -345,7 +332,7 @@ struct ReceiptReviewView: View {
                     .focused($focus, equals: .vendor)
                     .autocorrectionDisabled()
                 if vendorId != nil {
-                    Image(systemName: "link").font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+                    Image(systemName: "link").font(.caption).foregroundStyle(Color.MW.green)
                 } else if let conf = intake.suggestions?.vendorConfidence, conf > 0, !vendorName.isEmpty {
                     confidenceDot(conf)
                 }
@@ -356,19 +343,18 @@ struct ReceiptReviewView: View {
                         pickVendor(v)
                     } label: {
                         HStack {
-                            Text(v.name).foregroundStyle(appStyle.text)
+                            Text(v.name).foregroundStyle(.primary)
                             Spacer()
                             if let cat = v.defaultAccountingCategory {
-                                Text(cat).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                                Text(cat).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
             }
             DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                .tint(appStyle.tenant)
+                .tint(Color.MW.green)
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var jobSection: some View {
@@ -387,7 +373,7 @@ struct ReceiptReviewView: View {
                 .padding(.vertical, 2)
             }
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search jobs by client, address or job #", text: $jobSearch)
                     .focused($focus, equals: .jobSearch)
                     .autocorrectionDisabled()
@@ -401,28 +387,26 @@ struct ReceiptReviewView: View {
                         focus = nil
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(JobPick(search: j).title).foregroundStyle(appStyle.text)
-                            if let a = j.address { Text(a).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+                            Text(JobPick(search: j).title).foregroundStyle(.primary)
+                            if let a = j.address { Text(a).font(.caption).foregroundStyle(.secondary) }
                         }
                     }
                 }
             }
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func jobPill(title: String, subtitle: String?, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(appStyle.font(.caption, weight: .semibold)).lineLimit(appStyle.isEnabled ? nil : 1)
+                Text(title).font(.caption.weight(.semibold)).lineLimit(1)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(appStyle.font(.caption2)).lineLimit(appStyle.isEnabled ? nil : 1).opacity(0.8)
+                    Text(subtitle).font(.caption2).lineLimit(1).opacity(0.8)
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
-            .background(selected ? appStyle.tenant : appStyle.sunk)
-            .foregroundStyle(selected ? appStyle.onTenant : appStyle.text)
+            .background(selected ? Color.MW.green : Color(.systemGray5))
+            .foregroundStyle(selected ? .white : .primary)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -438,7 +422,6 @@ struct ReceiptReviewView: View {
                 ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
             }
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     /// Detected line items — editable pre-save on both platforms: tap to rename, swipe
@@ -462,19 +445,19 @@ struct ReceiptReviewView: View {
         let source = intake.parsed?.lineItemsSource
         if source == "llm" {
             Label("AI extracted — please verify each line", systemImage: "sparkles")
-                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.progress)
+                .font(.caption2).foregroundStyle(.blue)
         } else if source == "vision" && intake.parsed?.escalationReason != nil {
             Label("Re-read with Vision for better item detail", systemImage: "eye")
-                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                .font(.caption2).foregroundStyle(.secondary)
         }
         if activeItemCount > 0, let ref = subtotalReference {
             let tol = max(0.05, ref * 0.01)
             if abs(itemsSum - ref) > tol {
                 Label(String(format: "Items total $%.2f ≠ subtotal $%.2f — a line may be missing or mis-read", itemsSum, ref), systemImage: "exclamationmark.triangle.fill")
-                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
+                    .font(.caption2).foregroundStyle(Color.MW.orange)
             } else {
                 Label("Items add up to the subtotal", systemImage: "checkmark.circle.fill")
-                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                    .font(.caption2).foregroundStyle(Color.MW.green)
             }
         }
     }
@@ -488,32 +471,32 @@ struct ReceiptReviewView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(item.name ?? "Unknown Item")
-                                    .font(appStyle.font(.subheadline))
+                                    .font(.subheadline)
                                     .strikethrough(item.removed)
-                                    .foregroundStyle(item.removed ? appStyle.meta : appStyle.text)
+                                    .foregroundStyle(item.removed ? .secondary : .primary)
                                 if item.productId != nil {
-                                    Image(systemName: "link").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                                    Image(systemName: "link").font(.caption2).foregroundStyle(Color.MW.green)
                                 }
                                 if item.manual {
-                                    Text("added").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                    Text("added").font(.caption2).foregroundStyle(.secondary)
                                 } else if item.nameSource == "learned" {
-                                    Text("learned").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                                    Text("learned").font(.caption2).foregroundStyle(Color.MW.green)
                                 }
                             }
                             if let sku = item.skuRaw, !sku.isEmpty {
-                                Text(sku).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                Text(sku).font(.caption2).foregroundStyle(.secondary)
                             }
                         }
                         if let qty = item.quantity, qty > 1 {
                             Text("×\(qty, specifier: "%g")")
-                                .font(appStyle.font(.caption))
-                                .foregroundStyle(appStyle.meta)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Text(item.amount.map { "$\($0)" } ?? "—")
-                            .font(appStyle.font(.subheadline))
+                            .font(.subheadline)
                             .strikethrough(item.removed)
-                            .foregroundStyle(item.removed ? appStyle.meta : ((item.amountDouble ?? 0) < 0 ? appStyle.blocked : appStyle.text))
+                            .foregroundStyle(item.removed ? Color.secondary : ((item.amountDouble ?? 0) < 0 ? Color.red : Color.primary))
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -526,7 +509,7 @@ struct ReceiptReviewView: View {
                             Button(role: .destructive) { items.remove(at: idx) } label: { Label("Remove", systemImage: "trash") }
                         } else if item.removed {
                             Button { items[idx].removed = false } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
-                                .tint(appStyle.tenant)
+                                .tint(Color.MW.green)
                         } else {
                             Button(role: .destructive) { items[idx].removed = true } label: { Label("Not an item", systemImage: "xmark") }
                         }
@@ -536,14 +519,13 @@ struct ReceiptReviewView: View {
                     showAddItem = true
                 } label: {
                     Label("Add missed item", systemImage: "plus.circle")
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.tenant)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.green)
                 }
             }
         } footer: {
             Text("Tap an item to rename it, swipe left to mark it as not an item. Corrections teach the parser for this vendor.")
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var descriptionSection: some View {
@@ -552,26 +534,23 @@ struct ReceiptReviewView: View {
                 .lineLimit(2, reservesSpace: true)
                 .focused($focus, equals: .description)
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func amountRow(label: String, value: Binding<String>, field: Field) -> some View {
-        (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
-            Text(label).foregroundStyle(appStyle.meta)
-            if !usesAccessibleAmounts { Spacer() }
-            HStack {
-                Text("$").foregroundStyle(appStyle.meta)
-                TextField("0.00", text: value)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: usesAccessibleAmounts ? nil : 90)
-                    .focused($focus, equals: field)
-            }
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text("$").foregroundStyle(.secondary)
+            TextField("0.00", text: value)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 90)
+                .focused($focus, equals: field)
         }
     }
 
     private func confidenceDot(_ confidence: Int) -> some View {
-        let color: Color = confidence >= 70 ? appStyle.tenant : confidence >= 40 ? appStyle.attention : .red
+        let color: Color = confidence >= 70 ? Color.MW.green : confidence >= 40 ? Color.MW.orange : .red
         return Circle().fill(color).frame(width: 8, height: 8)
     }
 
@@ -748,7 +727,6 @@ struct ReceiptReviewView: View {
 /// Pinch/pan viewer for the just-captured photo (a local UIImage, not a URL —
 /// ReceiptDetailView's ZoomableReceiptView handles the server-hosted case).
 private struct ZoomableCapturedImageView: View {
-    @Environment(\.itAppStyle) private var appStyle
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
     @State private var scale: CGFloat = 1
@@ -775,7 +753,7 @@ private struct ZoomableCapturedImageView: View {
             }
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(appStyle.font(.title))
+                    .font(.title)
                     .foregroundStyle(.white.opacity(0.9))
                     .padding()
             }

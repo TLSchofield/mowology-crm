@@ -79,8 +79,7 @@ final class QuizViewModel: ObservableObject {
             currentNum     = 1
             await loadQuestion(num: 1)
         } catch {
-            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "Could not start quiz. Check your connection."
             isLoading    = false
             phase        = .error   // FIX: was left as .loading, trapping the user forever
         }
@@ -113,8 +112,7 @@ final class QuizViewModel: ObservableObject {
             )
             phase = .feedback
         } catch {
-            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "Could not submit answer. Try again."
         }
 
         isLoading = false
@@ -147,8 +145,7 @@ final class QuizViewModel: ObservableObject {
             questionStartTime = .now
             phase             = .question(num: num, of: totalQuestions)
         } catch {
-            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "Could not load question. Try again."
             phase        = .error
         }
 
@@ -173,8 +170,7 @@ final class QuizViewModel: ObservableObject {
 
             phase = .finished(passed: response.passed)
         } catch {
-            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error) + " Your answers are saved."
+            errorMessage = "Could not finalize quiz. Your answers are saved."
             phase        = .finished(passed: false)
         }
 

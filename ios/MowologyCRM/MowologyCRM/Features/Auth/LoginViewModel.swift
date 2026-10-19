@@ -61,8 +61,7 @@ final class LoginViewModel: ObservableObject {
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "LoginViewModel", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "An unexpected error occurred. Please try again."
         }
 
         isLoading = false

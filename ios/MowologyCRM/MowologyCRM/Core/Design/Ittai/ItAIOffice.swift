@@ -23,13 +23,17 @@ struct ItOfficeBar: View {
         HStack(spacing: 0) {
             ForEach(order, id: \.self) { slug in
                 if let member = members.first(where: { $0.id == slug }) {
-                    Button { onSelect(slug) } label: { portrait(member) }
-                        .disabled(!member.available)
+                    if member.available {
+                        Button { onSelect(slug) } label: { portrait(member) }
                         .buttonStyle(ItOfficeBarButtonStyle(selected: slug == "charlie", selectedColor: it.selected))
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .contentShape(Rectangle())
                         .accessibilityLabel(accessibilityLabel(member))
                         .accessibilityHint("Opens \(member.name)'s workspace in AI Office")
+                    } else {
+                        portrait(member).frame(maxWidth: .infinity, minHeight: 48)
+                            .accessibilityElement().accessibilityLabel("Ada, not in the iPhone app yet")
+                    }
                 }
             }
         }
@@ -40,7 +44,7 @@ struct ItOfficeBar: View {
     }
 
     private func portrait(_ member: ItOfficeMember) -> some View {
-        let state: ItEmployeeState? = connectionUnavailable || !member.available ? .unavailable : member.state
+        let state = member.state
         let visual: CGFloat = member.id == "charlie" ? 36 : 31
         return ZStack(alignment: .bottomTrailing) {
             ZStack {
@@ -54,8 +58,8 @@ struct ItOfficeBar: View {
             }
             .frame(width: visual, height: visual).clipShape(Circle())
             .overlay {
-                Circle().strokeBorder(member.id == "charlie" ? it.color(.brand) : state.map { it.color($0.token) } ?? it.line,
-                    style: StrokeStyle(lineWidth: member.id == "charlie" ? 2.5 : 1.5,
+                Circle().strokeBorder(state == nil ? it.line : (member.id == "charlie" ? it.color(.brand) : it.color(state!.token)),
+                    style: StrokeStyle(lineWidth: state == nil ? 1.5 : (member.id == "charlie" ? 2.5 : 1.5),
                                        dash: state == .idle ? [2.5, 2.5] : (state == .unavailable ? [1, 2] : [])))
             }
             if let state {
@@ -67,10 +71,8 @@ struct ItOfficeBar: View {
     }
 
     private func accessibilityLabel(_ member: ItOfficeMember) -> String {
-        if connectionUnavailable { return "\(member.name), connection unavailable" }
-        if !member.available { return "\(member.name), not available on iPhone yet" }
-        if !member.loaded { return "\(member.name), loading" }
-        guard let state = member.state else { return "\(member.name), status not reported" }
+        if !member.available { return "Ada, not in the iPhone app yet" }
+        guard let state = member.state else { return "\(member.name), status not loaded yet" }
         let words = state == .approval ? "waiting for your approval" : state.words.lowercased()
         return member.stateReason.map { "\(member.name), \(words), \($0)" } ?? "\(member.name), \(words)"
     }
@@ -341,19 +343,22 @@ struct ItLoadStateLine: View {
     let state: ItLoadState
     @Environment(\.it) private var it
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             switch state {
             case .loading:
                 ProgressView().controlSize(.small)
                 Text("Loading…")
             case .offline(let time):
                 ItIcon(shape: .cloudFailed, size: 14, color: it.meta)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                 Text("You're offline · showing \(time)")
             case .error:
                 ItIcon(shape: .cloudAlert, size: 14, color: it.meta)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                 Text("Couldn't reach the office · pull to refresh")
             case .unavailable:
                 ItIcon(shape: .slashedCircle, size: 14, color: it.meta)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                 Text("Not in the iPhone app yet")
             }
         }

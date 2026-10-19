@@ -9,8 +9,6 @@
 import SwiftUI
 
 struct TimesheetView: View {
-    @Environment(\.itAppStyle) private var appStyle
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @StateObject private var viewModel: TimesheetViewModel
 
@@ -25,12 +23,12 @@ struct TimesheetView: View {
 
                 if let error = viewModel.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.attention)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.orange)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
-                        .background(appStyle.attention.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                        .background(Color.MW.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
                 if let week = viewModel.week {
@@ -48,8 +46,7 @@ struct TimesheetView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
         }
-        .background(appStyle.page)
-        .itAppScreen()
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("My Timesheet")
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.load() }
@@ -63,14 +60,14 @@ struct TimesheetView: View {
             Button {
                 Task { await viewModel.shiftWeek(by: -1) }
             } label: {
-                Image(systemName: "chevron.left").font(appStyle.font(.headline)).frame(width: appStyle.isEnabled ? 48 : 44, height: appStyle.isEnabled ? 48 : 44)
+                Image(systemName: "chevron.left").font(.headline).frame(width: 44, height: 44)
             }
 
             Spacer()
             VStack(spacing: 2) {
-                Text(viewModel.weekLabel).font(appStyle.font(.headline))
+                Text(viewModel.weekLabel).font(.headline)
                 if viewModel.isCurrentWeek {
-                    Text("This week").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    Text("This week").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -78,36 +75,36 @@ struct TimesheetView: View {
             Button {
                 Task { await viewModel.shiftWeek(by: 1) }
             } label: {
-                Image(systemName: "chevron.right").font(appStyle.font(.headline)).frame(width: appStyle.isEnabled ? 48 : 44, height: appStyle.isEnabled ? 48 : 44)
+                Image(systemName: "chevron.right").font(.headline).frame(width: 44, height: 44)
             }
             .disabled(viewModel.isCurrentWeek)
         }
-        .tint(appStyle.tenant)
+        .tint(Color.MW.green)
         .disabled(viewModel.isLoading)
     }
 
     // MARK: - Totals
 
     private func totalsCard(_ week: TimesheetWeekResponse) -> some View {
-        AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 0))) {
-            totalColumn(title: "Clocked", value: TimesheetViewModel.duration(week.totalSeconds), tint: appStyle.tenant)
-            Divider().frame(height: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? 1 : 36)
-            totalColumn(title: "On jobs", value: TimesheetViewModel.duration(week.jobTotalSeconds), tint: appStyle.text)
+        HStack(spacing: 0) {
+            totalColumn(title: "Clocked", value: TimesheetViewModel.duration(week.totalSeconds), tint: Color.MW.green)
+            Divider().frame(height: 36)
+            totalColumn(title: "On jobs", value: TimesheetViewModel.duration(week.jobTotalSeconds), tint: .primary)
             if let brk = week.breakSeconds, brk > 0 {
-                Divider().frame(height: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? 1 : 36)
+                Divider().frame(height: 36)
                 totalColumn(title: (week.breaksPaid ?? true) ? "Breaks (paid)" : "Breaks (unpaid)",
-                            value: TimesheetViewModel.duration(brk), tint: appStyle.attention)
+                            value: TimesheetViewModel.duration(brk), tint: Color.MW.orange)
             }
         }
         .padding(.vertical, 16)
-        .background(appStyle.surface)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func totalColumn(title: String, value: String, tint: Color) -> some View {
         VStack(spacing: 4) {
-            Text(value).font(appStyle.font(.title2, weight: .bold)).foregroundStyle(tint)
-            Text(title).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            Text(value).font(.title2.bold()).foregroundStyle(tint)
+            Text(title).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -117,48 +114,48 @@ struct TimesheetView: View {
     private func dayCard(_ day: TimesheetDay) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(TimesheetViewModel.dayLabel(day.date)).font(appStyle.font(.subheadline, weight: .bold))
+                Text(TimesheetViewModel.dayLabel(day.date)).font(.subheadline.bold())
                 Spacer()
                 Text(TimesheetViewModel.duration(day.totalSeconds))
-                    .font(appStyle.font(.subheadline, weight: .bold))
-                    .foregroundStyle(appStyle.tenant)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(Color.MW.green)
             }
 
             ForEach(day.entries) { entry in
-                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                HStack(spacing: 8) {
                     Image(systemName: entry.isOpen ? "clock.badge.checkmark.fill" : "clock")
-                        .foregroundStyle(entry.isOpen ? appStyle.tenant : appStyle.meta)
+                        .foregroundStyle(entry.isOpen ? Color.MW.green : .secondary)
                     Text("\(TimesheetViewModel.time(entry.clockIn)) – \(TimesheetViewModel.time(entry.clockOut))")
-                        .font(appStyle.font(.subheadline))
+                        .font(.subheadline)
                     if entry.edited {
                         Text("Edited")
-                            .font(appStyle.font(.caption2, weight: .bold))
+                            .font(.caption2.bold())
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(appStyle.attention.opacity(0.12))
-                            .foregroundStyle(appStyle.attention)
-                            .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
+                            .background(Color.MW.orange.opacity(0.12))
+                            .foregroundStyle(Color.MW.orange)
+                            .clipShape(Capsule())
                     }
                     Spacer()
                     Text(TimesheetViewModel.duration(entry.durationSeconds))
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.meta)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 if let notes = entry.notes {
-                    Text(notes).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta).padding(.leading, 28)
+                    Text(notes).font(.caption).foregroundStyle(.secondary).padding(.leading, 28)
                 }
                 ForEach(entry.breaks ?? []) { brk in
-                    AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                    HStack(spacing: 8) {
                         Image(systemName: "cup.and.saucer")
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.attention)
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.orange)
                         Text("Break \(TimesheetViewModel.time(brk.start)) – \(TimesheetViewModel.time(brk.end))"
                              + (brk.tapped ? "" : " (found by GPS)"))
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.meta)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text(TimesheetViewModel.duration(brk.minutes * 60))
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.meta)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.leading, 28)
                 }
@@ -169,35 +166,35 @@ struct TimesheetView: View {
                 ForEach(day.jobs) { job in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "leaf.fill")
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.tenant)
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.green)
                             .padding(.top, 3)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(job.propertyAddress ?? job.jobTitle ?? "Visit #\(job.visitId)")
-                                .font(appStyle.font(.footnote))
+                                .font(.footnote)
                             if job.propertyAddress != nil, let title = job.jobTitle {
-                                Text(title).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                Text(title).font(.caption2).foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
                         Text(TimesheetViewModel.duration(job.durationSeconds))
-                            .font(appStyle.font(.footnote))
-                            .foregroundStyle(appStyle.meta)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
         }
         .padding(14)
-        .background(appStyle.surface)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "calendar.badge.clock")
-                .font(appStyle.font(size: 40))
-                .foregroundStyle((appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
-            Text("No hours recorded this week").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                .font(.system(size: 40))
+                .foregroundStyle(Color(.systemGray3))
+            Text("No hours recorded this week").font(.subheadline).foregroundStyle(.secondary)
         }
         .padding(.top, 40)
     }

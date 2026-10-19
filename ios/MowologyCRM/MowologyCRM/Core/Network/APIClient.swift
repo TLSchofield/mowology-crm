@@ -98,12 +98,10 @@ final class APIClient: ObservableObject {
 
         // Serialise the body dictionary, if provided.
         if let body = body {
-            do { urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body) }
-            catch {
-                let detail = "\(ErrorDetails.request(urlRequest)): request encoding failed: \(ErrorDetails.describe(error))"
-                AppDiagnostics.shared.record(category: "request.encode", message: detail)
-                throw APIError.serverError(detail)
+            guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+                throw APIError.serverError("Failed to encode request body.")
             }
+            urlRequest.httpBody = bodyData
         }
 
         // Execute the network request.
@@ -111,7 +109,7 @@ final class APIClient: ObservableObject {
         let response: URLResponse
 
         do {
-            (data, response) = try await execute(urlRequest)
+            (data, response) = try await session.data(for: urlRequest)
         } catch {
             throw APIError.networkError(error)
         }
@@ -125,7 +123,8 @@ final class APIClient: ObservableObject {
             }
 
             if !(200..<300).contains(httpResponse.statusCode) {
-                let message = ErrorDetails.response(data, status: httpResponse.statusCode)
+                let message = extractErrorMessage(from: data)
+                    ?? "Server returned status \(httpResponse.statusCode)."
                 if faultsAreTransient, UploadFault.isTransient(httpResponse.statusCode) {
                     throw APIError.networkError(UploadFault(status: httpResponse.statusCode, detail: message))
                 }
@@ -139,10 +138,9 @@ final class APIClient: ObservableObject {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            logDecode(error, data: data, response: response, request: urlRequest)
             if faultsAreTransient {
                 // A PHP fatal truncates the body with HTTP 200 — not an answer, try again later.
-                throw APIError.networkError(UploadFault(status: 200, detail: ErrorDetails.describe(error)))
+                throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
             }
             throw APIError.decodingError(error)
         }
@@ -178,13 +176,13 @@ final class APIClient: ObservableObject {
 
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await execute(request) }
+        do { (data, response) = try await session.data(for: request) }
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
-                let msg = ErrorDetails.response(data, status: http.statusCode)
+                let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
                 // 5xx / timeout / rate limit: the server didn't decide — retry later (queued).
                 // Any other 4xx is the server's answer about this photo — retrying won't help.
                 if UploadFault.isTransient(http.statusCode) {
@@ -196,9 +194,13 @@ final class APIClient: ObservableObject {
 
         do { return try decoder.decode(ReceiptIntakeResponse.self, from: data) }
         catch {
-            logDecode(error, data: data, response: response, request: request)
+            #if DEBUG
+            // Raw server bodies only in debug builds — never in the App Store log.
+            let raw = String(data: data.prefix(600), encoding: .utf8) ?? "non-utf8 \(data.count)b"
+            print("\u{1F4F8} UPLOAD DECODE FAIL — raw: \(raw) — error: \(error)")
+            #endif
             // A PHP fatal truncates the body with HTTP 200 — not an answer, try again later.
-            throw APIError.networkError(UploadFault(status: 200, detail: ErrorDetails.describe(error)))
+            throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
         }
     }
 
@@ -227,18 +229,17 @@ final class APIClient: ObservableObject {
 
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await execute(request) }
+        do { (data, response) = try await session.data(for: request) }
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
-                throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
+                throw APIError.serverError(extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))")
             }
         }
         do { return try decoder.decode(LabelCaptureResponse.self, from: data) }
-        catch { logDecode(error, data: data, response: response, request: request)
-            throw APIError.decodingError(error) }
+        catch { throw APIError.decodingError(error) }
     }
 
     // MARK: - Equipment plate (Otto → Add equipment)
@@ -269,18 +270,17 @@ final class APIClient: ObservableObject {
 
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await execute(request) }
+        do { (data, response) = try await session.data(for: request) }
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
-                throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
+                throw APIError.serverError(extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))")
             }
         }
         do { return try decoder.decode(PlateReadResponse.self, from: data) }
-        catch { logDecode(error, data: data, response: response, request: request)
-            throw APIError.decodingError(error) }
+        catch { throw APIError.decodingError(error) }
     }
 
     // MARK: - Job Photo Upload
@@ -326,13 +326,13 @@ final class APIClient: ObservableObject {
 
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await execute(request) }
+        do { (data, response) = try await session.data(for: request) }
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
-                let msg = ErrorDetails.response(data, status: http.statusCode)
+                let msg = extractErrorMessage(from: data) ?? "Photo upload failed (\(http.statusCode))"
                 // 5xx / timeout / rate limit: the server did not say no — keep the photo and retry.
                 if UploadFault.isTransient(http.statusCode) {
                     throw APIError.networkError(UploadFault(status: http.statusCode, detail: msg))
@@ -344,55 +344,27 @@ final class APIClient: ObservableObject {
 
         // A PHP fatal on production is a truncated body with HTTP 200. Only a readable
         // {"success": true} counts as stored; anything else is retried, never counted uploaded.
-        let json: [String: Any]
-        do {
-            let value = try JSONSerialization.jsonObject(with: data)
-            guard let object = value as? [String: Any] else {
-                throw NSError(domain: "ca.mowology.response", code: 200,
-                              userInfo: [NSLocalizedDescriptionKey: "Visit photo response expected a JSON object; received \(type(of: value))."])
-            }
-            json = object
-        } catch {
-            logDecode(error, data: data, response: response, request: request)
-            throw APIError.networkError(UploadFault(status: 200, detail: ErrorDetails.describe(error)))
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.networkError(UploadFault(status: 200, detail: "unreadable response"))
         }
         if let ok = json["success"] as? Bool, ok == false {
-            throw APIError.serverError(ErrorDetails.response(data, status: 200))
+            throw APIError.serverError(extractErrorMessage(from: data) ?? "Photo upload refused")
         }
         guard json["success"] as? Bool == true else {
-            throw APIError.networkError(UploadFault(status: 200, detail: "Visit photo response did not contain success=true; received keys: \(json.keys.sorted().joined(separator: ", "))."))
+            throw APIError.networkError(UploadFault(status: 200, detail: "no success flag"))
         }
         return json
     }
 
     // MARK: - Private Helpers
 
-    /// One instrumented transport for generic requests and every multipart upload.
-    /// Log failures only; never headers, request bodies, photos, or GPS coordinates.
-    private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        let label = ErrorDetails.request(request)
-        do {
-            let result = try await session.data(for: request)
-            if let http = result.1 as? HTTPURLResponse {
-                let json = (try? JSONSerialization.jsonObject(with: result.0)) as? [String: Any]
-                let rejected = (json?["ok"] as? Bool == false) || (json?["success"] as? Bool == false)
-                if !(200..<300).contains(http.statusCode) || rejected {
-                    AppDiagnostics.shared.record(category: "http.error", message: "\(label) — \(ErrorDetails.response(result.0, status: http.statusCode))")
-                }
-            }
-            return result
-        } catch {
-            AppDiagnostics.shared.record(category: "transport.error", message: "\(label) — \(ErrorDetails.describe(error))")
-            throw error
+    private func extractErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
         }
+        return json["message"] as? String
+            ?? json["error"] as? String
     }
-
-    private func logDecode(_ error: Error, data: Data, response: URLResponse, request: URLRequest) {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let detail = "\(ErrorDetails.request(request)) — content-type=\(response.mimeType ?? "absent"), bytes=\(data.count); \(ErrorDetails.describe(error)); \(ErrorDetails.response(data, status: status))"
-        AppDiagnostics.shared.record(category: "response.decode", message: detail)
-    }
-
 }
 
 // MARK: - Upload fault

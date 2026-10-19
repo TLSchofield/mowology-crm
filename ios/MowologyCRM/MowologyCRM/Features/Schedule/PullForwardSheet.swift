@@ -262,11 +262,11 @@ final class PullForwardCoordinator: ObservableObject {
                 .visitPullForward(mode: "accept"),
                 body: ["visit_id": visitId, "property_id": o.propertyId, "request_key": UUID().uuidString])
             guard moved.success else {
-                phase = .failed(moved.error ?? "Move visit response success=false; server returned no error field.")
+                phase = .failed(moved.error ?? "Could not move the visit.")
                 return
             }
         } catch {
-            phase = .failed(Self.message(error))
+            phase = .failed(Self.message(error, fallback: "No connection — nothing was moved. Try again in a moment."))
             return
         }
         NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
@@ -282,11 +282,11 @@ final class PullForwardCoordinator: ObservableObject {
             added = try await client.request(.fieldJobAction,
                                              body: ["action": "add_visit", "plan_id": planId, "client_request_id": UUID().uuidString])
         } catch {
-            phase = .failed(Self.message(error))
+            phase = .failed(Self.message(error, fallback: "No connection — nothing was added. Try again in a moment."))
             return
         }
         guard added.success else {
-            phase = .failed(added.error ?? "Add visit response success=false; server returned no error field.")
+            phase = .failed(added.error ?? "Could not add the visit.")
             return
         }
         NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
@@ -309,7 +309,7 @@ final class PullForwardCoordinator: ObservableObject {
             let r: TimerStartResponse = try await client.request(.scheduleTimer, body: body,
                                                                  extraHeaders: ["Idempotency-Key": UUID().uuidString])
             guard r.success else {
-                phase = .failed(r.message ?? "Visit added; timer response success=false; server returned no message field. Start it from the schedule.")
+                phase = .failed(r.message ?? "The visit is on today's schedule, but the timer didn't start. Start it from the schedule.")
                 return
             }
             GPSTrackingService.shared.setActiveVisit(visitId)
@@ -317,8 +317,7 @@ final class PullForwardCoordinator: ObservableObject {
             NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
             phase = .done(done)
         } catch {
-            AppDiagnostics.shared.record(category: "PullForwardSheet", message: ErrorDetails.describe(error))
-            phase = .failed("Visit added; timer start failed: " + ErrorDetails.describe(error))
+            phase = .failed("The visit is on today's schedule, but the timer didn't start — start it from the schedule.")
         }
     }
 
@@ -339,23 +338,23 @@ final class PullForwardCoordinator: ObservableObject {
         UserDefaults.standard.set(true, forKey: dismissKey(propertyId))
     }
 
-    private static func message(_ error: Error) -> String {
-        ErrorDetails.describe(error)
+    private static func message(_ error: Error, fallback: String) -> String {
+        if let e = error as? APIError, case .serverError(let m) = e { return m }
+        return fallback
     }
 }
 
 // MARK: - Sheet
 
 struct PullForwardSheet: View {
-    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var coordinator: PullForwardCoordinator
     let offer: PullForwardOffer
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("You're at \(offer.place)", systemImage: "mappin.circle.fill")
-                .font(appStyle.font(.subheadline, weight: .semibold))
-                .foregroundStyle(appStyle.tenant)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.MW.green)
             switch coordinator.phase {
             case .ask:              ask
             case .different:        different
@@ -380,30 +379,30 @@ struct PullForwardSheet: View {
     private var ask: some View {
         if let v = offer.primary {
             Text("\(v.what) for \(offer.place) \(v.whenLabel).")
-                .font(appStyle.font(.title3, weight: .bold))
+                .font(.title3.bold())
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Text("Doing it now?").font(appStyle.font(.headline))
+                Text("Doing it now?").font(.headline)
                 Spacer()
                 Text(v.overdue ? "Overdue" : (v.title.isEmpty ? v.planNumber : v.title))
-                    .font(appStyle.font(.caption, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background((v.overdue ? appStyle.color(.statusAttention, legacy: Color.orange) : appStyle.tenant).opacity(0.15), in: Capsule())
-                    .foregroundStyle(v.overdue ? appStyle.color(.statusAttention, legacy: Color.orange) : appStyle.tenant)
+                    .background((v.overdue ? Color.orange : Color.MW.green).opacity(0.15), in: Capsule())
+                    .foregroundStyle(v.overdue ? Color.orange : Color.MW.green)
             }
             VStack(spacing: 10) {
                 Button {
                     Task { await coordinator.start(visitId: v.visitId) }
                 } label: {
                     VStack(spacing: 2) {
-                        Text("Start").font(appStyle.font(.headline))
-                        Text("moves it to today").font(appStyle.font(.caption))
+                        Text("Start").font(.headline)
+                        Text("moves it to today").font(.caption)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(appStyle.tenant)
+                .tint(Color.MW.green)
 
                 if !offer.others.isEmpty || !offer.plansWithoutVisit.isEmpty {
                     Button {
@@ -430,14 +429,14 @@ struct PullForwardSheet: View {
 
     private var different: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Which job are you doing?").font(appStyle.font(.title3, weight: .bold))
+            Text("Which job are you doing?").font(.title3.bold())
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(offer.others) { v in
                         row(title: v.what, sub: v.whenLabel + (v.overdue ? " · overdue" : "")) {
                             Button("Start") { Task { await coordinator.start(visitId: v.visitId) } }
                                 .buttonStyle(.borderedProminent)
-                                .tint(appStyle.tenant)
+                                .tint(Color.MW.green)
                         }
                     }
                     ForEach(offer.plansWithoutVisit) { p in
@@ -456,20 +455,20 @@ struct PullForwardSheet: View {
     private func row<B: View>(title: String, sub: String, @ViewBuilder button: () -> B) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(appStyle.font(.subheadline, weight: .semibold))
-                Text(sub).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(sub).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             button().controlSize(.small)
         }
         .padding(10)
-        .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func working(_ m: String) -> some View {
         HStack(spacing: 10) {
             ProgressView()
-            Text(m).font(appStyle.font(.subheadline))
+            Text(m).font(.subheadline)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
@@ -478,10 +477,10 @@ struct PullForwardSheet: View {
     private func result(_ m: String, ok: Bool) -> some View {
         VStack(spacing: 14) {
             Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(appStyle.font(size: 40))
-                .foregroundStyle(ok ? appStyle.tenant : .orange)
+                .font(.system(size: 40))
+                .foregroundStyle(ok ? Color.MW.green : .orange)
             Text(m)
-                .font(appStyle.font(.headline))
+                .font(.headline)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
@@ -490,7 +489,7 @@ struct PullForwardSheet: View {
                 }
                 Button(ok ? "Done" : "Close") { coordinator.close() }
                     .buttonStyle(.borderedProminent)
-                    .tint(appStyle.tenant)
+                    .tint(Color.MW.green)
             }
         }
         .frame(maxWidth: .infinity)

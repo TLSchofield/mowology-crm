@@ -1,16 +1,5 @@
 import Foundation
 
-enum ItPennyOnboardingState: Equatable {
-    case opening
-    case searching
-    case oneMatch(BusinessRegistryMatch)
-    case several([BusinessRegistryMatch], selected: BusinessRegistryMatch?)
-    case none(manual: Bool)
-    case unavailable
-    case confirmed(String)
-}
-
-
 enum BusinessIdentityProvenance: String, Decodable, Equatable {
     case registryVerified = "registry_verified"
     case ownerConfirmed = "owner_confirmed"
@@ -95,13 +84,13 @@ struct BusinessRegistryMatch: Decodable, Identifiable, Equatable {
     let operatingNames: [String]
     let registrationNumber, registrationType, legalStructure, status, jurisdiction, registeredOn: String?
     let match: String?
+    let source: String?
     var id: String { recordId }
-    static let manualID = "__manual__"
 
     enum CodingKeys: String, CodingKey {
         case recordId = "record_id", legalName = "legal_name", operatingNames = "operating_names"
         case registrationNumber = "registration_number", registrationType = "registration_type"
-        case legalStructure = "legal_structure", status, jurisdiction, registeredOn = "registered_on", match
+        case legalStructure, status, jurisdiction, registeredOn = "registered_on", match, source
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -115,6 +104,7 @@ struct BusinessRegistryMatch: Decodable, Identifiable, Equatable {
         jurisdiction = try? c.decodeIfPresent(String.self, forKey: .jurisdiction)
         registeredOn = try? c.decodeIfPresent(String.self, forKey: .registeredOn)
         match = try? c.decodeIfPresent(String.self, forKey: .match)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 
@@ -145,6 +135,28 @@ struct BusinessContactSuggestion: Decodable, Identifiable, Equatable {
     let source: BusinessContactSource
     let status: String
     var id: BusinessContactField { field }
+
+    init(field: BusinessContactField, value: String, source: BusinessContactSource, status: String) {
+        self.field = field; self.value = value; self.source = source; self.status = status
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        field = try c.decode(BusinessContactField.self, forKey: .field)
+        value = try c.decode(String.self, forKey: .value)
+        source = try c.decode(BusinessContactSource.self, forKey: .source)
+        status = try c.decode(String.self, forKey: .status)
+        guard status == "suggested" else {
+            throw DecodingError.dataCorruptedError(forKey: .status, in: c, debugDescription: "Unknown contact status")
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case field, value, source, status }
+}
+
+private struct LossyBusinessContact: Decodable {
+    let value: BusinessContactSuggestion?
+    init(from decoder: Decoder) throws { value = try? BusinessContactSuggestion(from: decoder) }
 }
 
 enum BusinessContactsGoogleStatus: String, Decodable { case notConfigured = "not_configured", ok, unavailable }
@@ -156,8 +168,8 @@ struct BusinessContactsResponse: Decodable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        ok = (try? c.decode(Bool.self, forKey: .ok)) ?? false
-        contacts = (try? c.decode([BusinessContactSuggestion].self, forKey: .contacts)) ?? []
+        ok = try c.decode(Bool.self, forKey: .ok)
+        contacts = try c.decode([LossyBusinessContact].self, forKey: .contacts).compactMap(\.value)
         google = (try? c.decode(BusinessContactsGoogleStatus.self, forKey: .google)) ?? .notConfigured
     }
     enum CodingKeys: String, CodingKey { case ok, contacts, google }

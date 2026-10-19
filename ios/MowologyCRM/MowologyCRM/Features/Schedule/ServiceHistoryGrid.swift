@@ -9,9 +9,7 @@
 import SwiftUI
 
 struct ServiceHistoryGrid: View {
-    @Environment(\.itAppStyle) private var appStyle
 
-    @ScaledMetric(relativeTo: .caption2) private var cellHeight = 26.0
     let history: ServiceHistory
 
     private let weekdays = ["M", "T", "W", "T", "F", "S", "S"]
@@ -20,11 +18,11 @@ struct ServiceHistoryGrid: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "calendar.badge.clock")
-                    .font(appStyle.font(.caption))
-                    .foregroundStyle(history.summaryIsWarning ? appStyle.attention : appStyle.meta)
+                    .font(.caption)
+                    .foregroundStyle(history.summaryIsWarning ? Color.MW.orange : .secondary)
                 Text(history.summary ?? "Service history")
-                    .font(appStyle.font(.caption, weight: .semibold))
-                    .foregroundStyle(history.summaryIsWarning ? appStyle.attention : appStyle.meta)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(history.summaryIsWarning ? Color.MW.orange : .secondary)
             }
 
             VStack(spacing: 5) {
@@ -32,16 +30,16 @@ struct ServiceHistoryGrid: View {
                     Text("").frame(width: 34)
                     ForEach(Array(weekdays.enumerated()), id: \.offset) { _, letter in
                         Text(letter)
-                            .font(appStyle.font(.caption2, weight: .medium))
-                            .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity)
                     }
                 }
                 ForEach(Array(history.weeks.enumerated()), id: \.offset) { index, week in
                     HStack(spacing: 5) {
                         Text(index == 0 ? "Last" : "This")
-                            .font(appStyle.font(.caption2))
-                            .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                             .frame(width: 34, alignment: .leading)
                         ForEach(week) { day in
                             cell(day)
@@ -51,14 +49,14 @@ struct ServiceHistoryGrid: View {
             }
 
             HStack(spacing: 12) {
-                legend(color: appStyle.tenant, filled: true, label: "Done")
-                legend(color: appStyle.attention, filled: true, label: "Skipped")
-                legend(color: (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)), filled: false, label: "Scheduled")
+                legend(color: Color.MW.green, filled: true, label: "Done")
+                legend(color: Color.MW.orange, filled: true, label: "Skipped")
+                legend(color: Color(.systemGray3), filled: false, label: "Scheduled")
             }
         }
         .padding(10)
-        .background(appStyle.sunk.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .background(Color(.systemGray6).opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(history.summary ?? "Service history")
     }
@@ -68,52 +66,52 @@ struct ServiceHistoryGrid: View {
         let fill: Color
         let text: Color
         switch day.state {
-        case "completed":   fill = appStyle.tenant;               text = appStyle.onTenant
-        case "in_progress": fill = appStyle.tenant.opacity(0.35); text = appStyle.text
-        case "skipped":     fill = appStyle.attention;              text = appStyle.onTenant
-        default:            fill = .clear;                       text = (appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
+        case "completed":   fill = Color.MW.green;               text = .white
+        case "in_progress": fill = Color.MW.green.opacity(0.35); text = .primary
+        case "skipped":     fill = Color.MW.orange;              text = .white
+        default:            fill = .clear;                       text = Color(.tertiaryLabel)
         }
 
         return ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: appStyle.cornerRadius(6))
+            RoundedRectangle(cornerRadius: 6)
                 .fill(fill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(6))
-                        .stroke(day.state == "scheduled" ? (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)) : .clear,
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(day.state == "scheduled" ? Color(.systemGray3) : .clear,
                                 style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(6))
-                        .stroke(isToday ? appStyle.text : .clear, lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isToday ? Color.primary : .clear, lineWidth: 1.5)
                 )
             Text(day.dayOfMonth)
-                .font(appStyle.font(.caption2, weight: isToday ? .bold : .regular).monospacedDigit())
-                .foregroundStyle(day.state == "scheduled" ? (appStyle.isEnabled ? appStyle.meta : Color(.secondaryLabel)) : text)
+                .font(.caption2.monospacedDigit().weight(isToday ? .bold : .regular))
+                .foregroundStyle(day.state == "scheduled" ? Color(.secondaryLabel) : text)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             // A storm day: the same site done more than once.
             if day.count > 1 {
                 Text("\(day.count)")
-                    .font(appStyle.font(size: 8, weight: .bold))
-                    .foregroundStyle(appStyle.tenant)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.MW.green)
                     .padding(2)
-                    .background(Circle().fill(appStyle.surface))
+                    .background(Circle().fill(.white))
                     .offset(x: 3, y: -3)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: cellHeight)
+        .frame(height: 26)
     }
 
     private func legend(color: Color, filled: Bool, label: String) -> some View {
         HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: appStyle.cornerRadius(3))
+            RoundedRectangle(cornerRadius: 3)
                 .fill(filled ? color : .clear)
-                .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(3))
+                .overlay(RoundedRectangle(cornerRadius: 3)
                     .stroke(filled ? .clear : color, style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
                 .frame(width: 10, height: 10)
             Text(label)
-                .font(appStyle.font(.caption2))
-                .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 }

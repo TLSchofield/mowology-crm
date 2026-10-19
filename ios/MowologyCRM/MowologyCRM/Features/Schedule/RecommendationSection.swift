@@ -164,8 +164,7 @@ final class RecommendationViewModel: ObservableObject {
             errorMessage = message
 
         } catch {
-            AppDiagnostics.shared.record(category: "RecommendationSection", message: ErrorDetails.describe(error))
-            errorMessage = ErrorDetails.describe(error)
+            errorMessage = "Could not send that recommendation"
         }
     }
 
@@ -190,13 +189,12 @@ final class RecommendationViewModel: ObservableObject {
                 successMessage = r.message
                 askDraft = nil
             } else {
-                askError = r.message.isEmpty ? "Ask-send response success=false; server returned an empty message field. The draft is still saved." : r.message
+                askError = r.message.isEmpty ? "It didn't send — it's still saved" : r.message
             }
         } catch APIError.serverError(let message) {
             askError = message
         } catch {
-            AppDiagnostics.shared.record(category: "RecommendationSection", message: ErrorDetails.describe(error))
-            askError = ErrorDetails.describe(error) + " The draft is still saved; send it later from the office."
+            askError = "No signal — it's still saved. Send it later from the office."
         }
     }
 
@@ -218,7 +216,6 @@ final class RecommendationViewModel: ObservableObject {
 /// The Ask-first email, editable, for an admin/manager on site. Nothing is sent until
 /// they press Send. Kept in this file so no new Xcode file registration is needed.
 struct AskDraftSheet: View {
-    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: RecommendationViewModel
     let draft: AskDraft
 
@@ -227,14 +224,14 @@ struct AskDraftSheet: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(draft.to?.name ?? "—").font(appStyle.font(.subheadline, weight: .semibold))
-                        Text(draft.to?.email ?? "No email").font(appStyle.font(.caption)).foregroundColor(appStyle.meta)
-                        Text(draft.to?.roleLabel ?? "").font(appStyle.font(.caption2)).foregroundColor(appStyle.meta)
+                        Text(draft.to?.name ?? "—").font(.subheadline.weight(.semibold))
+                        Text(draft.to?.email ?? "No email").font(.caption).foregroundColor(.secondary)
+                        Text(draft.to?.roleLabel ?? "").font(.caption2).foregroundColor(.secondary)
                     }
                     if let consent = draft.consent {
                         Label(consent.reason, systemImage: consent.ok ? "checkmark.seal" : "exclamationmark.triangle")
-                            .font(appStyle.font(.caption))
-                            .foregroundColor(consent.ok ? appStyle.tenant : appStyle.attention)
+                            .font(.caption)
+                            .foregroundColor(consent.ok ? Color.MW.green : .orange)
                     }
                 } header: { Text("To") }
 
@@ -246,10 +243,10 @@ struct AskDraftSheet: View {
                                     AsyncImage(url: URL(string: photo.url.hasPrefix("http") ? photo.url : "https://mowology.ca" + photo.url)) { img in
                                         img.resizable().scaledToFill()
                                     } placeholder: {
-                                        (appStyle.isEnabled ? appStyle.line : Color(.systemGray5))
+                                        Color(.systemGray5)
                                     }
                                     .frame(width: 64, height: 64)
-                                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
                             }
                         }
@@ -263,7 +260,7 @@ struct AskDraftSheet: View {
                 Section {
                     TextEditor(text: $viewModel.draftBody)
                         .frame(minHeight: 260)
-                        .font(appStyle.font(.body))
+                        .font(.body)
                 } header: {
                     Text(draft.draftedBy == "learned" ? "Email · written your way" : "Email")
                 } footer: {
@@ -273,13 +270,11 @@ struct AskDraftSheet: View {
                 if let error = viewModel.askError {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(appStyle.font(.caption))
-                            .foregroundColor(appStyle.attention)
+                            .font(.caption)
+                            .foregroundColor(.orange)
                     }
                 }
             }
-            .itAppForm()
-            .itAppScreen()
             .navigationTitle("Ask first")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -302,8 +297,6 @@ struct AskDraftSheet: View {
 // MARK: - RecommendationSection
 
 struct RecommendationSection: View {
-    @Environment(\.itAppStyle) private var appStyle
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let visitId: Int
     let authSession: AuthSession
@@ -330,8 +323,8 @@ struct RecommendationSection: View {
                     Text(viewModel.isLoading
                          ? "Loading services…"
                          : "No services published to the field yet.")
-                        .font(appStyle.font(.caption))
-                        .foregroundColor(appStyle.meta)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 } else {
                     chips
                     photoRow
@@ -342,10 +335,10 @@ struct RecommendationSection: View {
             }
 
             if let success = viewModel.successMessage {
-                banner(success, color: appStyle.tenant, icon: "checkmark.circle.fill")
+                banner(success, color: Color.MW.green, icon: "checkmark.circle.fill")
             }
             if let error = viewModel.errorMessage {
-                banner(error, color: appStyle.attention, icon: "exclamationmark.triangle.fill")
+                banner(error, color: .orange, icon: "exclamationmark.triangle.fill")
             }
         }
         .task {
@@ -374,16 +367,15 @@ struct RecommendationSection: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "star.circle.fill")
-                    .foregroundColor(appStyle.tenant)
+                    .foregroundColor(Color.MW.green)
                 Text("Recommend a Service")
-                    .font(appStyle.font(.subheadline, weight: .semibold))
-                    .foregroundColor(appStyle.text)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(appStyle.font(.caption))
-                    .foregroundColor(appStyle.meta)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .frame(minHeight: 48)
         }
         .buttonStyle(.plain)
     }
@@ -397,18 +389,17 @@ struct RecommendationSection: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(option.label)
-                                .font(appStyle.font(.caption, weight: .semibold))
-                                .foregroundColor(appStyle.text)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.primary)
                             Text(option.formattedPrice)
-                                .font(appStyle.font(.caption2))
-                                .foregroundColor(appStyle.tenant)
+                                .font(.caption2)
+                                .foregroundColor(Color.MW.green)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .frame(minHeight: 48)
                         .background(
-                            RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                                .stroke(viewModel.selected == option ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)),
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(viewModel.selected == option ? Color.MW.green : Color(.systemGray4),
                                         lineWidth: 2)
                         )
                     }
@@ -421,8 +412,8 @@ struct RecommendationSection: View {
     private var photoRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Photos")
-                .font(appStyle.font(.caption, weight: .semibold))
-                .foregroundColor(appStyle.meta)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -432,7 +423,7 @@ struct RecommendationSection: View {
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 72, height: 72)
-                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                             Button {
                                 viewModel.removeImage(at: index)
@@ -440,8 +431,6 @@ struct RecommendationSection: View {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(.white)
                                     .background(Circle().fill(Color.black.opacity(0.5)))
-                                    .frame(width: 48, height: 48)
-                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .padding(2)
@@ -453,13 +442,13 @@ struct RecommendationSection: View {
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "camera.fill")
-                            Text("Add").font(appStyle.font(.caption2))
+                            Text("Add").font(.caption2)
                         }
                         .frame(width: 72, height: 72)
-                        .foregroundColor(appStyle.tenant)
+                        .foregroundColor(Color.MW.green)
                         .background(
-                            RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
-                                .stroke((appStyle.isEnabled ? appStyle.line : Color(.systemGray4)), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(.systemGray4), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -471,8 +460,8 @@ struct RecommendationSection: View {
     private var noteField: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("What you saw (optional)")
-                .font(appStyle.font(.caption, weight: .semibold))
-                .foregroundColor(appStyle.meta)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
 
             TextField("e.g. Beds along the front are overgrown",
                       text: $viewModel.note, axis: .vertical)
@@ -500,35 +489,28 @@ struct RecommendationSection: View {
     private func pathLine(_ key: String, _ text: String, muted: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(key)
-                .font(appStyle.font(.caption2, weight: .bold))
-                .foregroundColor(appStyle.meta)
-                .frame(width: dynamicTypeSize.isAccessibilitySize ? nil : 78, alignment: .leading)
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.secondary)
+                .frame(width: 78, alignment: .leading)
             Text(text)
-                .font(appStyle.font(.caption))
-                .foregroundColor(muted ? appStyle.meta : appStyle.text)
+                .font(.caption)
+                .foregroundColor(muted ? .secondary : .primary)
         }
     }
 
-    private var submitLayout: AnyLayout {
-        dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
-    }
-
     private var submitButtons: some View {
-        submitLayout {
+        HStack(spacing: 10) {
             Button {
                 Task { await viewModel.submit(intent: "ask") }
             } label: {
                 Text("Ask first")
-                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                .frame(minHeight: 48)
-                    .foregroundColor(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
+                    .foregroundColor(viewModel.canAsk ? Color.MW.green : Color(.systemGray3))
                     .background(
-                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                            .stroke(viewModel.canAsk ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)), lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(viewModel.canAsk ? Color.MW.green : Color(.systemGray4), lineWidth: 2)
                     )
             }
             .buttonStyle(.plain)
@@ -539,18 +521,18 @@ struct RecommendationSection: View {
             } label: {
                 HStack {
                     if viewModel.isSubmitting {
-                        ProgressView().tint(appStyle.onTenant)
+                        ProgressView().tint(.white)
                     }
                     Text(viewModel.isSubmitting ? "Sending…" : viewModel.quoteButtonTitle)
-                        .font(appStyle.font(.subheadline, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .frame(minHeight: 48)
-                .background(viewModel.canSubmit ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray4)))
-                .foregroundColor(appStyle.onTenant)
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .background(viewModel.canSubmit ? Color.MW.green : Color(.systemGray4))
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.canSubmit)
@@ -560,11 +542,11 @@ struct RecommendationSection: View {
     private func banner(_ text: String, color: Color, icon: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon).foregroundColor(color)
-            Text(text).font(appStyle.font(.caption)).foregroundColor(appStyle.text)
+            Text(text).font(.caption).foregroundColor(.primary)
             Spacer()
         }
         .padding(10)
         .background(color.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

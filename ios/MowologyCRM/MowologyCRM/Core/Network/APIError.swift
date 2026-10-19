@@ -30,11 +30,11 @@ enum APIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unauthorized:
-            return "HTTP 401 Unauthorized. Sign in again; the server response is recorded in the diagnostic log."
+            return "Your session has expired. Please sign in again."
         case .networkError(let underlying):
-            return "Network error: \(ErrorDetails.describe(underlying))"
+            return "Network error: \(underlying.localizedDescription)"
         case .decodingError(let underlying):
-            return "Failed to read server response: \(ErrorDetails.describe(underlying))"
+            return "Failed to read server response: \(underlying.localizedDescription)"
         case .serverError(let message):
             return message
         case .invalidURL:

@@ -13,7 +13,6 @@
 import SwiftUI
 
 struct SpecialRequestCard: View {
-    @Environment(\.itAppStyle) private var appStyle
 
     let request: SpecialRequest
     let isSaving: Bool
@@ -32,50 +31,50 @@ struct SpecialRequestCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(request.headLine)
-                            .font(appStyle.font(.subheadline, weight: .semibold))
-                            .foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.MW.forest)
                         Text("SPECIAL REQUEST")
-                            .font(appStyle.font(.caption2, weight: .heavy))
+                            .font(.caption2.weight(.heavy))
                             .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(request.isOpen ? appStyle.attention : Color.secondary)
-                            .foregroundStyle(appStyle.onTenant)
+                            .background(request.isOpen ? Color.MW.orange : Color.secondary)
+                            .foregroundStyle(.white)
                             .clipShape(Capsule())
                     }
                     Text(request.fromLine)
-                        .font(appStyle.font(.caption2))
-                        .foregroundStyle(appStyle.meta)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
             }
 
             if !request.clientWords.isEmpty {
                 Text("“\(request.clientWords)”")
-                    .font(appStyle.font(.footnote).italic())
+                    .font(.footnote.italic())
                     .lineLimit(6)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(appStyle.surface)
-                    .overlay(Rectangle().frame(width: 3).foregroundStyle(appStyle.attention), alignment: .leading)
+                    .background(Color(.systemBackground))
+                    .overlay(Rectangle().frame(width: 3).foregroundStyle(Color.MW.orange), alignment: .leading)
             }
 
             SpecialRequestItems(request: request)
 
             Text(request.acks.isEmpty ? "Not read yet" : "Read by " + request.acks.map(\.name).joined(separator: ", "))
-                .font(appStyle.font(.caption2))
-                .foregroundStyle(appStyle.meta)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
             if request.isOpen {
                 actions
             } else if let o = request.outcome {
                 Text(outcomeLine(o))
-                    .font(appStyle.font(.footnote, weight: .semibold))
-                    .foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.MW.forest)
             }
         }
         .padding(12)
-        .background(request.isOpen ? appStyle.attention.opacity(0.10) : appStyle.sunk)
-        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(request.isOpen ? appStyle.attention : Color(.separator), lineWidth: request.isOpen ? 2 : 1))
+        .background(request.isOpen ? Color.MW.orange.opacity(0.10) : Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(request.isOpen ? Color.MW.orange : Color(.separator), lineWidth: request.isOpen ? 2 : 1))
     }
 
     @ViewBuilder
@@ -102,7 +101,7 @@ struct SpecialRequestCard: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(appStyle.tenant)
+                    .tint(Color.MW.green)
                     .disabled(isSaving)
                 }
             }
@@ -119,7 +118,7 @@ struct SpecialRequestCard: View {
         if request.needsMyAck {
             Button("Read it", action: onRead)
                 .buttonStyle(.borderedProminent)
-                .tint(appStyle.tenant)
+                .tint(Color.MW.green)
         }
         Button("Done") { Task { _ = await onAnswer("done", "", "", 0) } }
             .buttonStyle(.bordered)
@@ -132,7 +131,7 @@ struct SpecialRequestCard: View {
                 form = "extra_done"
             }
             .buttonStyle(.bordered)
-            .tint(appStyle.attention)
+            .tint(Color.MW.orange)
         }
     }
 
@@ -148,25 +147,23 @@ struct SpecialRequestCard: View {
 
 /// "Part of today's work" vs "Extra — decide on site".
 struct SpecialRequestItems: View {
-    @Environment(\.itAppStyle) private var appStyle
     let request: SpecialRequest
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if !request.included.isEmpty {
-                Text("PART OF TODAY'S WORK").font(appStyle.font(.caption2, weight: .bold)).foregroundStyle(appStyle.tenant)
-                ForEach(request.included, id: \.self) { Label($0, systemImage: "checkmark.circle").font(appStyle.font(.footnote)) }
+                Text("PART OF TODAY'S WORK").font(.caption2.weight(.bold)).foregroundStyle(Color.MW.green)
+                ForEach(request.included, id: \.self) { Label($0, systemImage: "checkmark.circle").font(.footnote) }
             }
             if !request.extra.isEmpty {
-                Text("EXTRA — DECIDE ON SITE").font(appStyle.font(.caption2, weight: .bold)).foregroundStyle(appStyle.attention)
-                ForEach(request.extra, id: \.self) { Label($0, systemImage: "plus.circle").font(appStyle.font(.footnote)) }
+                Text("EXTRA — DECIDE ON SITE").font(.caption2.weight(.bold)).foregroundStyle(Color.MW.orange)
+                ForEach(request.extra, id: \.self) { Label($0, systemImage: "plus.circle").font(.footnote) }
             }
         }
     }
 }
 
 struct SpecialRequestGateView: View {
-    @Environment(\.itAppStyle) private var appStyle
     let request: SpecialRequest
     let isSaving: Bool
     let onGotIt: () -> Void
@@ -178,42 +175,42 @@ struct SpecialRequestGateView: View {
                 // The head who raised it, face first — the way the heads appear on the Team tab.
                 VStack(spacing: 6) {
                     HeadFaceView(slug: request.headSlug, name: request.headName, size: 112)
-                    Text(request.headLine).font(appStyle.font(.title3, weight: .semibold)).foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
-                    Text("SPECIAL REQUEST").font(appStyle.font(.caption, weight: .heavy)).foregroundStyle(appStyle.attention)
+                    Text(request.headLine).font(.title3.weight(.semibold)).foregroundStyle(Color.MW.forest)
+                    Text("SPECIAL REQUEST").font(.caption.weight(.heavy)).foregroundStyle(Color.MW.orange)
                 }
                 .frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(request.address).font(appStyle.font(.title3, weight: .bold)).foregroundStyle(appStyle.color(.text, legacy: Color.MW.forest))
-                    Text(request.fromLine).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    Text(request.address).font(.title3.bold()).foregroundStyle(Color.MW.forest)
+                    Text(request.fromLine).font(.caption).foregroundStyle(.secondary)
                 }
                 if !request.clientWords.isEmpty {
                     Text("“\(request.clientWords)”")
-                        .font(appStyle.font(.body).italic())
+                        .font(.body.italic())
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(appStyle.sunk)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 SpecialRequestItems(request: request)
                 Text("Read it before you start. After Got it, tap Start or the camera again.")
-                    .font(appStyle.font(.footnote))
-                    .foregroundStyle(appStyle.meta)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Button(action: onBack) {
                         Text("Back").frame(maxWidth: .infinity).frame(height: 52)
                     }
                     .buttonStyle(.bordered)
                     Button(action: onGotIt) {
-                        Text(isSaving ? "Saving…" : "Got it").font(appStyle.font(.headline)).frame(maxWidth: .infinity).frame(height: 52)
+                        Text(isSaving ? "Saving…" : "Got it").font(.headline).frame(maxWidth: .infinity).frame(height: 52)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(appStyle.tenant)
+                    .tint(Color.MW.green)
                     .disabled(isSaving)
                 }
             }
             .padding(20)
         }
-        .background(appStyle.surface)
+        .background(Color(.systemBackground))
         .interactiveDismissDisabled()
     }
 }

@@ -82,15 +82,14 @@ final class PennyCardViewModel: ObservableObject {
         do {
             let r = try await api.loadQueue()
             if !r.ok {
-                loadError = r.error ?? "Penny queue response ok=false; server returned no error field."
+                loadError = r.error ?? "Couldn't load Penny's receipts."
             } else {
                 apply(r)
             }
         } catch let err as APIError {
             loadError = err.errorDescription
         } catch {
-            AppDiagnostics.shared.record(category: "PennyCardViewModel", message: ErrorDetails.describe(error))
-            loadError = ErrorDetails.describe(error)
+            loadError = "Couldn't load Penny's receipts."
         }
         isLoading = false
         hasLoaded = true
@@ -238,7 +237,7 @@ final class PennyCardViewModel: ObservableObject {
         if r.blocked == true {
             // Stays put, so the reason is read on this receipt.
             queue[i].savedDraft = draft
-            show(r.message ?? "Approval response blocked=true; server returned no message field. Your edits are saved.", error: true)
+            show(r.message ?? "Not approved — your edits are saved", error: true)
         } else if r.savedDraft == true {
             // Come back to it last.
             var item = queue.remove(at: i)
@@ -276,12 +275,11 @@ final class PennyCardViewModel: ObservableObject {
                 mailNote = r.message ?? done
                 mailNoteIsError = false
             } else {
-                mailNote = r.message ?? r.error ?? "Penny action response ok=false; server returned no message/error field."
+                mailNote = r.message ?? r.error ?? "That didn't work — try again."
                 mailNoteIsError = true
             }
         } catch {
-            AppDiagnostics.shared.record(category: "PennyCardViewModel", message: ErrorDetails.describe(error))
-            mailNote = ErrorDetails.describe(error)
+            mailNote = "Network error — nothing was changed. Try again."
             mailNoteIsError = true
         }
     }
@@ -294,12 +292,11 @@ final class PennyCardViewModel: ObservableObject {
         do {
             let r = try await api.send(body)
             if r.ok { return r }
-            show(r.message ?? r.error ?? "Penny save response ok=false; server returned no message/error field.", error: true)
+            show(r.message ?? r.error ?? "Couldn't save — try again.", error: true)
         } catch let err as APIError {
-            show(ErrorDetails.describe(err), error: true)
+            show(err.errorDescription ?? "Couldn't save — try again.", error: true)
         } catch {
-            AppDiagnostics.shared.record(category: "PennyCardViewModel", message: ErrorDetails.describe(error))
-            show(ErrorDetails.describe(error), error: true)
+            show("Network error — try again.", error: true)
         }
         return nil
     }

@@ -46,76 +46,65 @@ struct ItKnowledgeLooseLines: Shape {
 
 struct ItKnowledgeBrain: View {
     let response: KnowledgeResponse
-    var loadItems: ((String) async throws -> [KnowledgeItem])? = nil
+    var loadItems: ((String) async -> [KnowledgeItem])? = nil
+    var staticYaw: Double? = nil
     @Environment(\.it) private var it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selected: KnowledgeVendor?
     @State private var showList=false
     @State private var visibleStages:[String:KnowledgeStage]=[:]
-    @State private var motion = BrainMotion()
-    @State private var startedAt = Date()
+    @State private var yaw=ItKnowledgeGeometry.restingYaw
+    @State private var rotationStart=Date.now
+    @State private var dragStart:Double?
     @State private var previousCount:Int?
     @State private var displayedCount:Int?
     @State private var shapeBlend=1.0
-    private var vendorCount:Int { response.items.count }
-    private var summary:String { "Penny has met \(response.items.count) vendors — she knows \(response.items.count-response.counts.recognized), understands \(response.counts.understood+response.counts.mastered) and has mastered \(response.counts.mastered)." }
+    private var vendorCount:Int { max(1,response.items.count) }
+    private var summary:String { ItKnowledgeGeometry.summary(response.items) }
     var body: some View { VStack(alignment:.leading,spacing:ItSpace.s4) {
         Text(summary).itText(.body16).foregroundStyle(it.text)
         LazyVGrid(columns:[GridItem(.flexible(),alignment:.leading),GridItem(.flexible(),alignment:.leading)],alignment:.leading,spacing:ItSpace.s2){ForEach(KnowledgeStage.allCases,id:\.self){s in HStack(spacing:6){ItKnowledgeMark(stage:s,size:22);Text(s.title).itText(.caption12).foregroundStyle(it.text)}}}
-        if showList { list } else {
-            Button("Show as list") { showList = true }
-                .buttonStyle(.plain).itText(.body14).foregroundStyle(it.tenant)
-            brain
-        }
+        if showList { list } else { brain }
     }
     .sheet(item:$selected){ vendor in ItKnowledgeVendorSheet(vendor:vendor,loadItems:loadItems).environment(\.it,it) }
-    .onAppear{displayedCount=vendorCount;revealStages()}
+    .onAppear{displayedCount=vendorCount;rotationStart = .now;revealStages()}
+    .onChange(of:selected != nil) { _ in rotationStart = .now }
     .onChange(of:vendorCount) { newCount in
         previousCount=displayedCount;displayedCount=newCount;shapeBlend=0
         if reduceMotion { shapeBlend=1;previousCount=nil }
         else { withAnimation(.easeInOut(duration:0.9)){shapeBlend=1};Task{@MainActor in try? await Task.sleep(for:.seconds(0.9));previousCount=nil} }
     }
     }
-    private var elapsed: Double { reduceMotion ? 0 : Date().timeIntervalSince(startedAt) }
-    private var brain: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
-            let time = reduceMotion ? 0 : timeline.date.timeIntervalSince(startedAt)
-            GeometryReader { proxy in
-                let faces = ItKnowledgeGeometry.projectedFaces(count: vendorCount, in: proxy.size,
-                                                               yaw: motion.yaw(at: time), pitch: motion.pitch)
-                Group {
-                    if vendorCount == 0 {
-                        BrainChaos(time: time, color: it.color(.knowledgeDiscovered))
-                    } else {
-                        Canvas { context, _ in
-                            if let previousCount, shapeBlend < 1 {
-                                let old = ItKnowledgeGeometry.projectedFaces(count: previousCount, in: proxy.size,
-                                                                             yaw: motion.yaw(at: time), pitch: motion.pitch)
-                                context.opacity = 1 - shapeBlend
-                                draw(faces: old, context: &context)
-                                context.opacity = shapeBlend
-                            }
-                            draw(faces: faces, context: &context)
-                        }
-                    }
-                }
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                    motion.drag(value.translation, at: elapsed)
-                }.onEnded { value in
-                    // Resolve the tap against the orientation on screen at release, not an old frame.
-                    let tappedFaces = ItKnowledgeGeometry.projectedFaces(count: vendorCount, in: proxy.size,
-                                                                         yaw: motion.yaw(at: elapsed), pitch: motion.pitch)
-                    motion.endDrag(at: elapsed)
-                    if hypot(value.translation.width, value.translation.height) < 8,
-                       let slot = ItKnowledgeGeometry.resolvedSlot(at: value.location, faces: tappedFaces),
-                       let vendor = response.items.first(where: { $0.slot == slot }) { selected = vendor }
-                })
-                .accessibilityElement(children: .ignore).accessibilityLabel(summary)
-                .accessibilityAction(named: "Show as list") { showList = true }
+    private var brain:some View { TimelineView(.animation) { timeline in GeometryReader { proxy in
+        let liveYaw=displayedYaw(at:timeline.date)
+        let faces=ItKnowledgeGeometry.projectedFaces(count:vendorCount,in:proxy.size,yaw:liveYaw)
+        Canvas { context,_ in
+            if let previousCount,shapeBlend<1 {
+                let old=ItKnowledgeGeometry.projectedFaces(count:max(1,previousCount),in:proxy.size,yaw:liveYaw)
+                context.opacity=1-shapeBlend;draw(faces:old,context:&context)
+                context.opacity=shapeBlend
             }
+            draw(faces:faces,context:&context)
         }
-        .frame(height: 300).background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
+        .contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged { value in
+            if dragStart == nil { yaw=liveYaw;dragStart=yaw }
+            guard let start=dragStart else{return}
+            yaw=start+Double(value.translation.width)*0.012
+        }.onEnded { value in
+            dragStart=nil
+            rotationStart = .now
+            if hypot(value.translation.width,value.translation.height)<8,
+               let slot=ItKnowledgeGeometry.resolvedSlot(at:value.location,faces:faces),
+               let vendor=response.items.first(where:{$0.slot==slot}) { selected=vendor }
+        })
+        .accessibilityElement(children:.ignore).accessibilityLabel(summary)
+        .accessibilityAction(named:"Show as list") { showList=true }
+    }}.frame(height:300).background(it.surface,in:RoundedRectangle(cornerRadius:ItRadius.lg)) }
+    private func displayedYaw(at date:Date)->Double {
+        if let staticYaw { return staticYaw }
+        if reduceMotion,dragStart == nil { return ItKnowledgeGeometry.mostFrontYaw(count:vendorCount) }
+        guard dragStart == nil,selected == nil else { return yaw }
+        return yaw+date.timeIntervalSince(rotationStart)/ItKnowledgeGeometry.turnDuration*2*Double.pi
     }
     private var list:some View { VStack(alignment:.leading,spacing:ItSpace.s4){
         Button("Show brain") { showList=false }.buttonStyle(.plain).itText(.body14).foregroundStyle(it.tenant)
@@ -144,17 +133,17 @@ struct ItKnowledgeBrain: View {
         else { context.fill(triangle,with:.color(it.color(shown == .understood ? .knowledgeUnderstood:.knowledgeMastered).opacity(alpha))) }
         if shown == .mastered { context.stroke(path(face.points,inset:0.18),with:.color(it.page.opacity(alpha)),lineWidth:0.75) }
     }
-    private func revealStages(){var start:[String:KnowledgeStage]=[:];var upgrades=false;for v in response.items{let key="ittai.knowledge.penny.\(v.key)";let saved=UserDefaults.standard.string(forKey:key) ?? "";let old=(saved == "discovered" ? .recognized : KnowledgeStage(rawValue:saved)) ?? v.stage;start[v.key]=min(old,v.stage);if v.stage>old{upgrades=true};UserDefaults.standard.set(v.stage.rawValue,forKey:key)};visibleStages=start;guard upgrades,!reduceMotion else{visibleStages=Dictionary(uniqueKeysWithValues:response.items.map{($0.key,$0.stage)});return};Task{@MainActor in for step in [KnowledgeStage.identified,.understood,.mastered]{let duration=step == .identified ? 1.2 : (step == .understood ? 0.6 : 0.8);withAnimation(.easeInOut(duration:duration)){for v in response.items where v.stage >= step && (visibleStages[v.key] ?? v.stage) < step{visibleStages[v.key]=step}};try? await Task.sleep(for:.seconds(duration))}}}
+    private func revealStages(){var start:[String:KnowledgeStage]=[:];var upgrades=false;for v in response.items{let key="ittai.knowledge.penny.\(v.key)";let saved=UserDefaults.standard.string(forKey:key) ?? "";let old=(saved == "discovered" ? .recognized : KnowledgeStage(rawValue:saved)) ?? v.stage;start[v.key]=old;if v.stage>old{upgrades=true};UserDefaults.standard.set(v.stage.rawValue,forKey:key)};visibleStages=start;guard upgrades,!reduceMotion else{visibleStages=Dictionary(uniqueKeysWithValues:response.items.map{($0.key,$0.stage)});return};Task{@MainActor in for step in [KnowledgeStage.identified,.understood,.mastered]{let duration=step == .identified ? 1.2 : (step == .understood ? 0.6 : 0.8);withAnimation(.easeInOut(duration:duration)){for v in response.items where v.stage >= step && (visibleStages[v.key] ?? v.stage) < step{visibleStages[v.key]=step}};try? await Task.sleep(for:.seconds(duration))}}}
 }
 
 struct ItKnowledgeVendorSheet:View {
-    let vendor:KnowledgeVendor;let loadItems:((String)async throws->[KnowledgeItem])?;@Environment(\.it)private var it;@Environment(\.dismiss)private var dismiss;@State private var items:[KnowledgeItem]=[];@State private var loading=false;@State private var loadFailed=false
+    let vendor:KnowledgeVendor;let loadItems:((String)async->[KnowledgeItem])?;@Environment(\.it)private var it;@Environment(\.dismiss)private var dismiss;@State private var items:[KnowledgeItem]=[];@State private var loading=false
     var body:some View{NavigationStack{ScrollView{VStack(alignment:.leading,spacing:ItSpace.s5){HStack{ItKnowledgeMark(stage:vendor.stage,size:40);VStack(alignment:.leading){Text(vendor.label).itText(.title22,weight:600);Text(vendor.stage.title).itText(.body14).foregroundStyle(it.meta)}}
         metrics
         section("Open questions"){if vendor.evidence.exceptions.isEmpty{Text("No open questions")}else{ForEach(vendor.evidence.exceptions,id:\.self){Text($0.text)}}}
         if let next=vendor.stage.nextTitle,!vendor.next.isEmpty{section("To reach \(next)"){ForEach(vendor.next,id:\.self){Text($0)}}}
-        section("Items"){if loading{ProgressView()}else if loadFailed{Text("Couldn't load item details. Close and reopen to try again.").foregroundStyle(it.meta)}else if items.isEmpty{Text("No item details yet").foregroundStyle(it.meta)}else{ForEach(KnowledgeItemStage.allCases.reversed(),id:\.self){stage in let group=items.filter{$0.stage==stage};if !group.isEmpty{Text(stage.title).itText(.heading16);ForEach(group){item in HStack{ItKnowledgeMark(stage:vendorStage(item.stage),size:22,key:"\(vendor.key):\(item.label)");Text("\(item.label) · seen \(item.timesSeen), confirmed \(item.timesConfirmed)")}.accessibilityElement(children:.combine).accessibilityLabel("\(item.label), \(item.stage.rawValue), seen \(item.timesSeen), confirmed \(item.timesConfirmed)")}}}}}
-    }.itText(.body14).foregroundStyle(it.text).padding(ItSpace.s4)}}.background(it.page).navigationTitle("Penny's knowledge").toolbar{ToolbarItem(placement:.confirmationAction){Button("Done"){dismiss()}}}.task{guard let loadItems else{return};loading=true;loadFailed=false;do{items=try await loadItems(vendor.key)}catch{loadFailed=true};loading=false}}
+        section("Items"){if loading{ProgressView()}else if items.isEmpty{Text("No item details yet").foregroundStyle(it.meta)}else{ForEach(KnowledgeItemStage.allCases.reversed(),id:\.self){stage in let group=items.filter{$0.stage==stage};if !group.isEmpty{Text(stage.title).itText(.heading16);ForEach(group){item in HStack{ItKnowledgeMark(stage:vendorStage(item.stage),size:22,key:"\(vendor.key):\(item.label)");Text("\(item.label) · seen \(item.timesSeen), confirmed \(item.timesConfirmed)")}.accessibilityElement(children:.combine).accessibilityLabel("\(item.label), \(item.stage.rawValue), seen \(item.timesSeen), confirmed \(item.timesConfirmed)")}}}}}
+    }.itText(.body14).foregroundStyle(it.text).padding(ItSpace.s4)}}.background(it.page).navigationTitle("Penny's knowledge").toolbar{ToolbarItem(placement:.confirmationAction){Button("Done"){dismiss()}}}.task{guard let loadItems else{return};loading=true;items=await loadItems(vendor.key);loading=false}}
     private var metrics:some View{VStack(alignment:.leading,spacing:8){row("Receipts processed",vendor.evidence.receiptsApproved);row("Transactions matched",vendor.evidence.transactionsMatched);row("Items recognised",vendor.evidence.itemsRecognized);Text("\(vendor.evidence.itemsNew) items new to Penny");Text(vendor.evidence.classificationAccuracy.map{"\(Int($0*100))% · \(vendor.evidence.classificationDecided) decided"} ?? "Not enough decisions yet");Text("Last verified: \(vendor.evidence.lastVerified ?? "Not verified yet")")}}
     private func row(_ label:String,_ n:Int)->some View{Text("\(label): \(n)")}
     private func section<Content:View>(_ title:String,@ViewBuilder content:()->Content)->some View{VStack(alignment:.leading,spacing:8){Text(title).itText(.heading16);content()}.frame(maxWidth:.infinity,alignment:.leading)}

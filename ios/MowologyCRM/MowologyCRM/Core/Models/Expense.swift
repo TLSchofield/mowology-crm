@@ -13,6 +13,8 @@ struct Expense: Decodable, Identifiable {
     let description: String?
     let amount: Double?
     let gstAmount: Double?
+    /// PST (BC). A default so hand-built Expenses still compile; decoded from pst_amount (owner, 2026-10-18).
+    var pstAmount: Double? = nil
     let total: Double
     let accountingCategory: String?
     let paymentMethod: String?
@@ -34,6 +36,7 @@ struct Expense: Decodable, Identifiable {
         case vendorNameRaw          = "vendor_name_raw"
         case amount
         case gstAmount              = "gst_amount"
+        case pstAmount              = "pst_amount"
         case total
         case accountingCategory     = "accounting_category"
         case paymentMethod          = "payment_method"
