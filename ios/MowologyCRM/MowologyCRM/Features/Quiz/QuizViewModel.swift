@@ -182,8 +182,6 @@ final class QuizViewModel: ObservableObject {
     }
 
     private static func todayISO() -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withFullDate]
-        return f.string(from: .now)
+        VancouverDay.string()   // the Vancouver day, not GMT's (the gate reopened every evening)
     }
 }

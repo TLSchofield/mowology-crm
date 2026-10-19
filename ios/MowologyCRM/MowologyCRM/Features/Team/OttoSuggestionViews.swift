@@ -22,6 +22,7 @@ import MapKit
 
 @MainActor
 struct OttoDeskSection: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: HeadCardViewModel
     @Environment(\.openURL) private var openURL
 
@@ -31,11 +32,11 @@ struct OttoDeskSection: View {
                 if let log = vm.autolog, !log.line.isEmpty { autologSection(log) }
                 if !vm.ottoItems.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Otto suggests").font(.headline)
+                        Text("Otto suggests").font(appStyle.font(.headline))
                         Text(vm.ottoTotal > vm.ottoItems.count
                              ? "\(vm.ottoItems.count) of \(vm.ottoTotal) — the rest on the review page"
                              : "Nothing changes until you tap")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                     ForEach(vm.ottoItems) { s in
                         OttoSuggestionRow(vm: vm, s: s)
@@ -45,7 +46,7 @@ struct OttoDeskSection: View {
                 Button("Review work, lengths and borders on the web →") {
                     if let u = HeadCardViewModel.webURL(vm.ottoReviewURL) { openURL(u) }
                 }
-                .font(.caption)
+                .font(appStyle.font(.caption))
             }
         }
     }
@@ -55,15 +56,15 @@ struct OttoDeskSection: View {
     private func autologSection(_ log: OttoAutoLog) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(log.line, systemImage: "checkmark.seal")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.MW.dark)
+                .font(appStyle.font(.subheadline, weight: .semibold))
+                .foregroundStyle(appStyle.color(.tenant, legacy: Color.MW.dark))
             ForEach(log.rows) { row in
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(row.address.isEmpty ? "Property" : row.address).font(.caption.weight(.semibold))
-                        Text(Self.rowLine(row)).font(.caption2).foregroundStyle(.secondary)
+                        Text(row.address.isEmpty ? "Property" : row.address).font(appStyle.font(.caption, weight: .semibold))
+                        Text(Self.rowLine(row)).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         if let n = vm.ottoNotes[-row.id] {
-                            Text(n.text).font(.caption2).foregroundStyle(n.isError ? .red : Color.MW.green)
+                            Text(n.text).font(appStyle.font(.caption)).foregroundStyle(n.isError ? appStyle.blocked : appStyle.tenant)
                         }
                     }
                     Spacer(minLength: 4)
@@ -73,7 +74,7 @@ struct OttoDeskSection: View {
                         } label: {
                             if vm.ottoBusy == -row.id { ProgressView().controlSize(.small) } else { Text("Undo") }
                         }
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(vm.ottoBusy != nil)
@@ -83,7 +84,7 @@ struct OttoDeskSection: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+        .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     private static func rowLine(_ r: OttoAutoLogRow) -> String {
@@ -103,6 +104,7 @@ struct OttoDeskSection: View {
 
 @MainActor
 struct OttoSuggestionRow: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: HeadCardViewModel
     let s: OttoSuggestion
     @Environment(\.openURL) private var openURL
@@ -124,15 +126,15 @@ struct OttoSuggestionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(s.text)
-                .font(s.priority <= 1 ? .subheadline.weight(.semibold) : .subheadline)
+                .font(s.priority <= 1 ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.subheadline))
                 .fixedSize(horizontal: false, vertical: true)
             if !s.detail.isEmpty {
-                Text(s.detail).font(.caption).foregroundStyle(.secondary)
+                Text(s.detail).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     .fixedSize(horizontal: false, vertical: true)
             }
             controls
             if let n = vm.ottoNotes[s.id] {
-                Text(n.text).font(.caption).foregroundStyle(n.isError ? .red : Color.MW.green)
+                Text(n.text).font(appStyle.font(.caption)).foregroundStyle(n.isError ? appStyle.blocked : appStyle.tenant)
             }
             if vm.ottoBusy == s.id { ProgressView().controlSize(.small) }
         }
@@ -151,10 +153,10 @@ struct OttoSuggestionRow: View {
         case "duration":
             HStack(spacing: 8) {
                 minutesField(label: "Plan length")
-                Button("Update the plan") { applyMinutes() }.buttonStyle(.borderedProminent).tint(Color.MW.green)
+                Button("Update the plan") { applyMinutes() }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 Button("Keep \(s.int("planned").map { "\($0) min" } ?? "it")") { decide(["choice": "keep"]) }.buttonStyle(.bordered)
             }
-            .font(.caption.weight(.semibold)).controlSize(.small).disabled(busy)
+            .font(appStyle.font(.caption, weight: .semibold)).controlSize(.small).disabled(busy)
         case "pin_off":
             pinMap
             buttons([("Move the pin there", "move_pin", true), ("The pin is right", "dismiss", false)])
@@ -172,10 +174,10 @@ struct OttoSuggestionRow: View {
             HStack(spacing: 8) {
                 minutesField(label: nil)
                 Button(s.kind == "job_timer" ? "Fix the timer" : "Save the time") { applyMinutes() }
-                    .buttonStyle(.borderedProminent).tint(Color.MW.green)
+                    .buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 Button("Leave it") { decide(["choice": "dismiss"]) }.buttonStyle(.bordered)
             }
-            .font(.caption.weight(.semibold)).controlSize(.small).disabled(busy)
+            .font(appStyle.font(.caption, weight: .semibold)).controlSize(.small).disabled(busy)
         case "bylaw":
             if s.bool("blower") {
                 buttons([("Rake/vac instead — tell the crew", "note", s.text("problem") == "ban"), ("Leave it", "dismiss", false)])
@@ -205,7 +207,7 @@ struct OttoSuggestionRow: View {
                     if !lines.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-                                Text(l).font(.caption2).foregroundStyle(.secondary)
+                                Text(l).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                             }
                         }
                     }
@@ -221,13 +223,13 @@ struct OttoSuggestionRow: View {
         FlowButtons {
             ForEach(Array(list.enumerated()), id: \.offset) { _, b in
                 if b.2 {
-                    Button(b.0) { choose(b.1) }.buttonStyle(.borderedProminent).tint(Color.MW.green)
+                    Button(b.0) { choose(b.1) }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 } else {
                     Button(b.0) { choose(b.1) }.buttonStyle(.bordered)
                 }
             }
         }
-        .font(.caption.weight(.semibold))
+        .font(appStyle.font(.caption, weight: .semibold))
         .controlSize(.small)
         .disabled(busy)
     }
@@ -237,32 +239,32 @@ struct OttoSuggestionRow: View {
         FlowButtons {
             if let path = s.url, let u = HeadCardViewModel.webURL(path) {
                 if linkFirst {
-                    Button(link) { openURL(u) }.buttonStyle(.borderedProminent).tint(Color.MW.green)
+                    Button(link) { openURL(u) }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 } else {
                     Button(link) { openURL(u) }.buttonStyle(.bordered)
                 }
             }
             ForEach(Array(list.enumerated()), id: \.offset) { i, b in
                 if !linkFirst && i == 0 {
-                    Button(b.0) { choose(b.1) }.buttonStyle(.borderedProminent).tint(Color.MW.green)
+                    Button(b.0) { choose(b.1) }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 } else {
                     Button(b.0) { choose(b.1) }.buttonStyle(.bordered)
                 }
             }
         }
-        .font(.caption.weight(.semibold))
+        .font(appStyle.font(.caption, weight: .semibold))
         .controlSize(.small)
         .disabled(busy)
     }
 
     private func minutesField(label: String?) -> some View {
         HStack(spacing: 4) {
-            if let label { Text(label).font(.caption2).foregroundStyle(.secondary) }
+            if let label { Text(label).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
             TextField("min", text: $minutes)
                 .keyboardType(.numberPad)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 56)
-            Text("min").font(.caption2).foregroundStyle(.secondary)
+            Text("min").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
         }
     }
 
@@ -278,7 +280,7 @@ struct OttoSuggestionRow: View {
                 DatePicker("From", selection: $start, displayedComponents: .hourAndMinute)
                 DatePicker("to", selection: $end, displayedComponents: .hourAndMinute)
             }
-            .font(.caption)
+            .font(appStyle.font(.caption))
             Picker("On", selection: $planChoice) {
                 ForEach(Array(plans.enumerated()), id: \.offset) { _, pl in
                     let id = pl["id"]?.int ?? 0
@@ -289,20 +291,20 @@ struct OttoSuggestionRow: View {
                 Text("A one-off job").tag("oneoff")
             }
             .pickerStyle(.menu)
-            .font(.caption)
+            .font(appStyle.font(.caption))
             if planChoice == "oneoff" {
                 Picker("Service", selection: $service) {
                     ForEach(Self.oneOffServices, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.menu)
-                .font(.caption)
+                .font(appStyle.font(.caption))
                 TextField("What was done (e.g. yew hedge reduction)", text: $title)
                     .textFieldStyle(.roundedBorder)
-                    .font(.caption)
+                    .font(appStyle.font(.caption))
             }
             FlowButtons {
                 Button(extra ? "Add the extra work as a visit" : "Add the visit") { addVisit(then: "none") }
-                    .buttonStyle(.borderedProminent).tint(Color.MW.green)
+                    .buttonStyle(.borderedProminent).tint(appStyle.tenant)
                 Button("Add + create invoice") { addVisit(then: "invoice") }
                     .buttonStyle(.bordered)
                 if !invoices.isEmpty {
@@ -323,7 +325,7 @@ struct OttoSuggestionRow: View {
                         .buttonStyle(.bordered)
                 }
             }
-            .font(.caption.weight(.semibold))
+            .font(appStyle.font(.caption, weight: .semibold))
             .controlSize(.small)
         }
         .disabled(busy)
@@ -356,12 +358,12 @@ struct OttoSuggestionRow: View {
             let pin = s.pinLat.flatMap { lat in s.pinLng.map { CLLocationCoordinate2D(latitude: lat, longitude: $0) } }
             Map(initialPosition: .region(Self.region(work, pin))) {
                 if let pin {
-                    Marker("Pin now", systemImage: "mappin", coordinate: pin).tint(.red)
+                    Marker("Pin now", systemImage: "mappin", coordinate: pin).tint(appStyle.blocked)
                 }
-                Marker("Where crews work", systemImage: "figure.walk", coordinate: work).tint(Color.MW.green)
+                Marker("Where crews work", systemImage: "figure.walk", coordinate: work).tint(appStyle.tenant)
             }
             .frame(height: 170)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             .allowsHitTesting(true)
         }
     }

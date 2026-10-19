@@ -3,7 +3,7 @@ import SwiftUI
 struct RootView: View {
 
     @EnvironmentObject private var authSession: AuthSession
-    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
     @State private var updateResult: VersionCheckResult? = nil
     /// Charlie's brain on the opening screen, then (admins, first open of the day) his morning

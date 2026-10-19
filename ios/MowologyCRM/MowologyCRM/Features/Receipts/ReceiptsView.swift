@@ -354,7 +354,7 @@ struct ReceiptsView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 170)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             .accessibilityHint("Label: photo of a product bag or a machine's nameplate. It is never an expense.")
 
             Button {
@@ -642,7 +642,7 @@ private struct ExpenseRow: View {
     @ViewBuilder
     private var confidenceDot: some View {
         if let tier = expense.confidenceTier {
-            let color: Color = tier == "high" ? appStyle.tenant : (tier == "medium" ? appStyle.attention : .red)
+            let color: Color = tier == "high" ? appStyle.tenant : (tier == "medium" ? appStyle.attention : appStyle.blocked)
             Circle().fill(color).frame(width: 6, height: 6)
         }
     }
@@ -653,7 +653,7 @@ private struct ExpenseRow: View {
         if let tier = expense.anomalyTier {
             Image(systemName: tier == "high" ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
                 .font(appStyle.font(.caption2))
-                .foregroundStyle(tier == "high" ? .red : appStyle.attention)
+                .foregroundStyle(tier == "high" ? appStyle.blocked : appStyle.attention)
         }
     }
 
@@ -666,9 +666,9 @@ private struct ExpenseRow: View {
                     appStyle.sunk
                 }
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             } else {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
                     .fill(appStyle.sunk)
                     .frame(width: 44, height: 44)
                     .overlay { Image(systemName: "doc.text").foregroundStyle(appStyle.meta) }
@@ -678,9 +678,9 @@ private struct ExpenseRow: View {
 
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
-        case "forwarded":        ("Sent", .blue)
+        case "forwarded":        ("Sent", appStyle.progress)
         case "approved":         ("Approved", appStyle.tenant)
-        case "rejected":         ("Rejected", .red)
+        case "rejected":         ("Rejected", appStyle.blocked)
         case "pending_approval": ("Pending", appStyle.attention)
         default:                 ("Draft", appStyle.attention)
         }
@@ -693,9 +693,9 @@ private struct ExpenseRow: View {
     }
 
     private var formattedDate: String {
-        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withFullDate]
-        guard let date = iso.date(from: expense.expenseDate) else { return expense.expenseDate }
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none
+        // A receipt's date is a Vancouver calendar day; read and shown in that zone (GMT showed it a day early).
+        guard let date = VancouverDay.date(from: expense.expenseDate) else { return expense.expenseDate }
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; f.timeZone = VancouverDay.zone
         return f.string(from: date)
     }
 }

@@ -44,7 +44,7 @@ struct MainTabView: View {
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var readyBriefStore = ReadyBriefStore()
-    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
     /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
@@ -145,9 +145,6 @@ struct MainTabView: View {
         // TeamView consumes the route and shows that head's card. Admins only have Team.
         .onChange(of: notificationRouter.pendingHead) { _, head in
             if head != nil { openTeamForHead() }
-        }
-        .onChange(of: ittaiDesignEnabled) { _, enabled in
-            if enabled { Task { await readyBriefStore.refresh(authSession: authSession, force: true) } }
         }
     }
 

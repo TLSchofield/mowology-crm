@@ -12,6 +12,7 @@ import SwiftUI
 import UIKit
 
 struct HeadCardView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: HeadCardViewModel
     /// Tapping the brain line turns the head's face over to show the brain (TeamView).
@@ -49,12 +50,12 @@ struct HeadCardView: View {
     private func errorState(_ err: String) -> some View {
         VStack(spacing: 10) {
             Label(err, systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline)
-                .foregroundStyle(.red)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.blocked)
                 .multilineTextAlignment(.center)
             Button("Try again") { Task { await vm.load() } }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -62,8 +63,8 @@ struct HeadCardView: View {
 
     private func sectionHead(_ title: String, _ sub: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.headline)
-            if let sub { Text(sub).font(.caption).foregroundStyle(.secondary) }
+            Text(title).font(appStyle.font(.headline))
+            if let sub { Text(sub).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
         }
     }
 
@@ -71,8 +72,8 @@ struct HeadCardView: View {
     private var note: some View {
         if let text = vm.message, !text.isEmpty {
             Text(text)
-                .font(.footnote)
-                .foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
+                .font(appStyle.font(.footnote))
+                .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -83,7 +84,7 @@ struct HeadCardView: View {
         VStack(alignment: .leading, spacing: 10) {
             if !card.headline.isEmpty {
                 Text(card.headline)
-                    .font(.subheadline)
+                    .font(appStyle.font(.subheadline))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if showsBrain, let b = card.brain { brainRow(b, name: card.name) }
@@ -99,29 +100,29 @@ struct HeadCardView: View {
             HStack(alignment: .top, spacing: 8) {
                 brainText(b, name: name)
                 if onBrainTap != nil {
-                    Image(systemName: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(Color.MW.green)
+                    Image(systemName: "arrow.triangle.2.circlepath").font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
                 }
             }
         }
         .buttonStyle(.plain)
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+        .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     private func brainText(_ b: HeadBrainSummary, name: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(b.units == 0 ? "\(name)'s brain: just starting" : "\(name)'s brain: \(b.units) thing\(b.units == 1 ? "" : "s") learned")
-                    .font(.caption.weight(.semibold))
+                    .font(appStyle.font(.caption, weight: .semibold))
                 Spacer(minLength: 0)
-                Text("shape \(b.shape)").font(.caption2).foregroundStyle(.secondary)
+                Text("shape \(b.shape)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             if !b.tiers.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(b.tiers, id: \.self) { t in
                         Text("\(t.n) \(t.name)")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(appStyle.font(size: 12, weight: .semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Self.tierColor(t.slug).opacity(0.18), in: Capsule())
                             .foregroundStyle(Self.tierColor(t.slug))
@@ -130,8 +131,8 @@ struct HeadCardView: View {
             }
             ForEach(b.parts, id: \.self) { p in
                 Text("· " + p.label + (p.tier.map { " (\($0))" } ?? ""))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
                     .lineLimit(1)
             }
         }
@@ -167,28 +168,28 @@ struct HeadCardView: View {
                     askFocused = false
                     Task { await vm.submitQuestion() }
                 } label: {
-                    if vm.isAsking { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                    if vm.isAsking { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(appStyle.font(.title2)) }
                 }
                 .disabled(!vm.canAsk)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
                 .accessibilityLabel("Ask Charlie")
             }
             if let left = vm.askLeftText {
-                Text(left).font(.caption2).foregroundStyle(.secondary)
+                Text(left).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             if let a = vm.answer {
                 VStack(alignment: .leading, spacing: 4) {
                     if let q = vm.askedQuestion {
-                        Text(q).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(q).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                     }
                     Text(a)
-                        .font(.subheadline)
+                        .font(appStyle.font(.subheadline))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+                .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             }
         }
     }
@@ -201,8 +202,8 @@ struct HeadCardView: View {
             sectionHead("Needs you now", more > 0 ? "+\(more) more on the dashboard" : nil)
             if vm.items.isEmpty {
                 Text("Nothing from \(card.name) needs you right now.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             ForEach(vm.items) { it in
                 itemRow(it, first: it.id == vm.items.first?.id)
@@ -216,37 +217,37 @@ struct HeadCardView: View {
             HStack(alignment: .top, spacing: 6) {
                 if it.yes {
                     Text("YES")
-                        .font(.caption2.weight(.heavy))
+                        .font(appStyle.font(.caption, weight: .heavy))
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color.MW.green, in: Capsule())
-                        .foregroundStyle(.white)
+                        .background(appStyle.tenant, in: Capsule())
+                        .foregroundStyle(appStyle.onTenant)
                 }
                 Text(it.text)
-                    .font(first ? .subheadline.weight(.semibold) : .subheadline)
+                    .font(first ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.subheadline))
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 let w = HeadCardViewModel.waited(it)
-                if !w.isEmpty { Text(w).font(.caption).foregroundStyle(.secondary) }
+                if !w.isEmpty { Text(w).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                 Spacer(minLength: 0)
                 if MoveToMenu.isMovable(it.key) {
                     MoveToMenu(current: vm.head, disabled: vm.isBusy) { to in Task { await vm.move(it, to: to) } }
                 }
                 if vm.card?.owner == true {
                     Button("Not now") { Task { await vm.notNow(it) } }
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                         .buttonStyle(.borderless)
-                        .tint(.secondary)
+                        .tint(appStyle.meta)
                         .disabled(vm.isBusy)
                 }
                 if it.url != nil {
                     Button(openLabel(it)) {
                         Task { if let u = await vm.open(it) { openURL(u) } }
                     }
-                    .font(.caption.weight(.semibold))
+                    .font(appStyle.font(.caption, weight: .semibold))
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
                 }
             }
         }
@@ -269,10 +270,10 @@ struct HeadCardView: View {
                 ForEach(vm.unpinned) { p in
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(p.address).font(.subheadline.weight(.semibold))
+                            Text(p.address).font(appStyle.font(.subheadline, weight: .semibold))
                             Text([p.city, "visit " + HeadCardViewModel.shortDate(p.nextVisit)].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
                         }
                         Spacer(minLength: 0)
                         Button {
@@ -282,7 +283,7 @@ struct HeadCardView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .tint(Color.MW.green)
+                        .tint(appStyle.tenant)
                         .disabled(vm.geocoding != nil || vm.isBusy)
                     }
                     if p.id != vm.unpinned.last?.id { Divider() }
@@ -300,43 +301,43 @@ struct HeadCardView: View {
                 sectionHead("This week's Google post", p.title.isEmpty ? nil : p.title)
                 if let photo = p.photoURL, let url = HeadCardViewModel.webURL(photo) {
                     AsyncImage(url: url) { phase in
-                        if let img = phase.image { img.resizable().scaledToFill() } else { Color.MW.light }
+                        if let img = phase.image { img.resizable().scaledToFill() } else { appStyle.color(.tenantSoft, legacy: Color.MW.light) }
                     }
                     .frame(height: 160)
                     .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                 }
                 Text(p.body)
-                    .font(.subheadline)
+                    .font(appStyle.font(.subheadline))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 10))
+                    .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                 if vm.card?.canApprove == true {
                     HStack(spacing: 8) {
                         if vm.canPublishToGoogle {
                             Button("Post to Google") { confirmPublish = true }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.MW.green)
+                                .tint(appStyle.tenant)
                         } else {
                             Button("Copy") { UIPasteboard.general.string = p.body }
                                 .buttonStyle(.bordered)
                             Button("I posted it") { Task { await vm.decidePost("copied") } }
                                 .buttonStyle(.bordered)
-                                .tint(Color.MW.green)
+                                .tint(appStyle.tenant)
                         }
                         Spacer(minLength: 0)
                         Button("Skip this week") { Task { await vm.decidePost("dismiss") } }
                             .buttonStyle(.borderless)
-                            .tint(.secondary)
+                            .tint(appStyle.meta)
                     }
-                    .font(.subheadline)
+                    .font(appStyle.font(.subheadline))
                     .disabled(vm.isBusy)
                     if !vm.canPublishToGoogle {
                         Text("Google isn't connected for posting — copy it and paste it into Google.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
                     }
                 }
             }
@@ -355,6 +356,7 @@ struct HeadCardView: View {
 /// Shared by the head cards, Sam's card and Penny's card (kept in this file so the Xcode
 /// project needs no new entry).
 struct MoveToMenu: View {
+    @Environment(\.itAppStyle) private var appStyle
     let current: String
     var disabled = false
     let onMove: (String) -> Void
@@ -386,7 +388,7 @@ struct MoveToMenu: View {
             Label("Move to…", systemImage: "arrowshape.turn.up.right")
                 .labelStyle(.titleAndIcon)
         }
-        .font(.caption)
+        .font(appStyle.font(.caption))
         .disabled(disabled)
     }
 }

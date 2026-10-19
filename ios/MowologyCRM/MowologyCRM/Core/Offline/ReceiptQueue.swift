@@ -138,7 +138,8 @@ final class ReceiptQueue: ObservableObject {
 
     // MARK: - Monitor & Drain
 
-    typealias Upload = (Data, Double?, Double?, Int?) async throws -> OwedDraft
+    /// The last Date is when the receipt was taken (queuedAt): the fallback when the scan finds no date.
+    typealias Upload = (Data, Double?, Double?, Int?, Date) async throws -> OwedDraft
     typealias Save   = (OwedDraft, Double?, Double?, Int?) async throws -> Void
 
     func startMonitoring(upload: @escaping Upload, save: @escaping Save) {
@@ -172,7 +173,7 @@ final class ReceiptQueue: ObservableObject {
                             remove(item)
                             continue
                         }
-                        owed = try await upload(data, item.lat, item.lng, item.jobId)
+                        owed = try await upload(data, item.lat, item.lng, item.jobId, item.queuedAt)
                         items = items.map { $0.id == item.id ? { var c = $0; c.owed = owed; return c }($0) : $0 }
                     }
                     if let owed {

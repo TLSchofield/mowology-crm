@@ -37,7 +37,7 @@ struct SpecialRequestCard: View {
                         Text("SPECIAL REQUEST")
                             .font(appStyle.font(.caption2, weight: .heavy))
                             .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(request.isOpen ? appStyle.attention : Color.secondary)
+                            .background(request.isOpen ? appStyle.attention : appStyle.meta)
                             .foregroundStyle(appStyle.onTenant)
                             .clipShape(Capsule())
                     }
@@ -75,7 +75,7 @@ struct SpecialRequestCard: View {
         .padding(12)
         .background(request.isOpen ? appStyle.attention.opacity(0.10) : appStyle.sunk)
         .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(request.isOpen ? appStyle.attention : Color(.separator), lineWidth: request.isOpen ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(request.isOpen ? appStyle.attention : appStyle.line, lineWidth: request.isOpen ? 2 : 1))
     }
 
     @ViewBuilder

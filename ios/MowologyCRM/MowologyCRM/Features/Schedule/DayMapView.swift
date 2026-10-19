@@ -328,7 +328,7 @@ private struct CrewPin: View {
                     .foregroundStyle(.white)
             } else {
                 Text(initials)
-                    .font(appStyle.font(size: 11, weight: .bold, design: .rounded))
+                    .font(appStyle.font(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             }
         }
@@ -476,7 +476,7 @@ private struct StopCarouselCard: View {
                               systemImage: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
                             .font(appStyle.font(.caption))
                             .lineLimit(1)
-                            .foregroundStyle(line.warning ? appStyle.attention : .secondary)
+                            .foregroundStyle(line.warning ? appStyle.attention : appStyle.meta)
                     } else if let first = stop.visits.first {
                         Text(first.serviceTypeLabel + (stop.visits.count > 1 ? " +\(stop.visits.count - 1)" : ""))
                             .font(appStyle.font(.caption))

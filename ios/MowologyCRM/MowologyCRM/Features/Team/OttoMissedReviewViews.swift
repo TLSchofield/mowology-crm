@@ -163,6 +163,7 @@ final class OttoMissedReviewModel: ObservableObject {
 /// "3 visits not done — review" on Otto's card; opens the review sheet. Also opens itself when
 /// Otto's missed-visit push is tapped.
 struct OttoMissedEntry: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var model: OttoMissedReviewModel
     @ObservedObject private var router = NotificationRouter.shared
     @State private var showing = false
@@ -173,20 +174,20 @@ struct OttoMissedEntry: View {
                 Button { showing = true } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "calendar.badge.exclamationmark")
-                            .font(.title3)
-                            .foregroundStyle(Color.MW.orange)
+                            .font(appStyle.font(.title3))
+                            .foregroundStyle(appStyle.attention)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(model.waiting) visit\(model.waiting == 1 ? "" : "s") not done")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
+                                .font(appStyle.font(.subheadline, weight: .semibold))
+                                .foregroundStyle(appStyle.text)
                             Text("Otto has a pick for each. Tap to decide.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                     .padding(12)
-                    .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 12))
+                    .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                 }
                 .buttonStyle(.plain)
             }
@@ -210,6 +211,7 @@ struct OttoMissedEntry: View {
 // MARK: - The review screen
 
 struct OttoMissedReviewSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var model: OttoMissedReviewModel
     @Environment(\.dismiss) private var dismiss
     @State private var dateFor: OttoMissedItem?
@@ -222,7 +224,7 @@ struct OttoMissedReviewSheet: View {
             List {
                 header
                 if model.items.isEmpty && !model.isLoading {
-                    Text("No missed visits in the last week.").foregroundStyle(.secondary)
+                    Text("No missed visits in the last week.").foregroundStyle(appStyle.meta)
                 }
                 ForEach(model.items) { item in
                     row(item)
@@ -256,19 +258,19 @@ struct OttoMissedReviewSheet: View {
                     AsyncImage(url: URL(string: "https://mowology.ca/crm/img/heads/otto.jpg")) { img in
                         img.resizable().scaledToFill()
                     } placeholder: {
-                        Circle().fill(Color.MW.light)
+                        Circle().fill(appStyle.color(.tenantSoft, legacy: Color.MW.light))
                     }
                     .frame(width: 40, height: 40).clipShape(Circle())
                     VStack(alignment: .leading, spacing: 2) {
                         Text(model.waiting > 0 ? "\(model.waiting) visit\(model.waiting == 1 ? "" : "s") not done" : "Nothing waiting")
-                            .font(.headline)
-                        if let r = model.data?.review { Text("Review for \(r.label)").font(.caption).foregroundStyle(.secondary) }
+                            .font(appStyle.font(.headline))
+                        if let r = model.data?.review { Text("Review for \(r.label)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                     }
                 }
                 Text("Undecided visits roll on tonight as before; contract visits stay open for the next review. Nothing is sent to clients.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 if let n = model.notes[0] {
-                    Text(n.text).font(.caption).foregroundStyle(n.isError ? .red : Color.MW.green)
+                    Text(n.text).font(appStyle.font(.caption)).foregroundStyle(n.isError ? appStyle.blocked : appStyle.tenant)
                 }
                 if let k = model.data?.withPick, k > 0 {
                     Button {
@@ -280,7 +282,7 @@ struct OttoMissedReviewSheet: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
                     .disabled(model.busyId != nil)
                 }
             }
@@ -292,30 +294,30 @@ struct OttoMissedReviewSheet: View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(item.property.isEmpty ? "Property" : item.property).font(.subheadline.weight(.semibold))
+                    Text(item.property.isEmpty ? "Property" : item.property).font(appStyle.font(.subheadline, weight: .semibold))
                     Spacer()
-                    Text(item.missedLabel).font(.caption).foregroundStyle(.secondary)
+                    Text(item.missedLabel).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
-                Text(item.plan + (item.crew.isEmpty ? "" : " · \(item.crew)")).font(.caption).foregroundStyle(.secondary)
-                if !item.why.isEmpty { Text("Why: \(item.why)").font(.caption).foregroundStyle(.secondary) }
+                Text(item.plan + (item.crew.isEmpty ? "" : " · \(item.crew)")).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                if !item.why.isEmpty { Text("Why: \(item.why)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                 if item.canDecide {
                     VStack(alignment: .leading, spacing: 2) {
-                        (Text("Otto: \(item.pickLabel) ").bold() + Text(item.pickReason)).font(.caption)
+                        (Text("Otto: \(item.pickLabel) ").bold() + Text(item.pickReason)).font(appStyle.font(.caption))
                         if !item.skipAllowed, let b = item.skipBlock {
-                            Text("Never skipped by Otto: \(b)").font(.caption2).foregroundStyle(.secondary)
+                            Text("Never skipped by Otto: \(b)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                     }
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 8))
+                    .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                     buttons(item)
                 } else {
-                    Text(item.decisionText ?? "Done").font(.caption.weight(.semibold)).foregroundStyle(Color.MW.dark)
+                    Text(item.decisionText ?? "Done").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(Color.MW.dark)
                 }
                 if let n = model.notes[item.id] {
-                    Text(n.text).font(.caption).foregroundStyle(n.isError ? .red : Color.MW.green)
+                    Text(n.text).font(appStyle.font(.caption)).foregroundStyle(n.isError ? appStyle.blocked : appStyle.tenant)
                 } else if let e = item.applyError, item.canDecide {
-                    Text("Last try: \(e)").font(.caption).foregroundStyle(.red)
+                    Text("Last try: \(e)").font(appStyle.font(.caption)).foregroundStyle(appStyle.blocked)
                 }
             }
             .padding(.vertical, 2)
@@ -334,18 +336,18 @@ struct OttoMissedReviewSheet: View {
                         Text("Do Otto's pick").frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.borderedProminent).tint(Color.MW.green)
+                .buttonStyle(.borderedProminent).tint(appStyle.tenant)
             }
             HStack(spacing: 8) {
                 Button("Tomorrow") { Task { await model.decide(item, choice: "tomorrow") } }
                 Button("Pick a date") { dateFor = item }
                 Button("Skip") { reasonFor = ReasonTarget(item: item, choice: "skip") }
                 Button("Cancel") { reasonFor = ReasonTarget(item: item, choice: "cancel") }
-                    .tint(.red)
+                    .tint(appStyle.blocked)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .font(.caption)
+            .font(appStyle.font(.caption))
         }
         .disabled(busy)
     }
@@ -358,6 +360,7 @@ struct OttoMissedReviewSheet: View {
 
 /// Pick a day for the visit (graphical calendar, as Move Stop does).
 struct OttoMissedDateSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     let item: OttoMissedItem
     let earliest: Date
     let onPick: (Date) -> Void
@@ -375,10 +378,10 @@ struct OttoMissedDateSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text(item.property).font(.subheadline.weight(.semibold))
+                Text(item.property).font(appStyle.font(.subheadline, weight: .semibold))
                 DatePicker("Move to", selection: $date, in: earliest..., displayedComponents: .date)
                     .datePickerStyle(.graphical)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
                 Spacer()
             }
             .padding()
@@ -397,6 +400,7 @@ struct OttoMissedDateSheet: View {
 
 /// Skip or cancel: why (weather, client asked, no access, other) + an optional note.
 struct OttoMissedReasonSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     let target: OttoMissedReviewSheet.ReasonTarget
     let reasons: [OttoMissedReason]
     let onConfirm: (String, String) -> Void
@@ -408,12 +412,12 @@ struct OttoMissedReasonSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(target.item.property).font(.subheadline.weight(.semibold))
+                    Text(target.item.property).font(appStyle.font(.subheadline, weight: .semibold))
                     if target.choice == "skip", !target.item.skipAllowed, let b = target.item.skipBlock {
-                        Text("Otto never would: \(b)").font(.caption).foregroundStyle(.secondary)
+                        Text("Otto never would: \(b)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                     if target.choice == "cancel" {
-                        Text("It will not be done or billed.").font(.caption).foregroundStyle(.secondary)
+                        Text("It will not be done or billed.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                 }
                 Section("Why?") {
@@ -422,9 +426,9 @@ struct OttoMissedReasonSheet: View {
                             reason = r.key
                         } label: {
                             HStack {
-                                Text(r.label).foregroundStyle(.primary)
+                                Text(r.label).foregroundStyle(appStyle.text)
                                 Spacer()
-                                if reason == r.key { Image(systemName: "checkmark").foregroundStyle(Color.MW.green) }
+                                if reason == r.key { Image(systemName: "checkmark").foregroundStyle(appStyle.tenant) }
                             }
                         }
                     }

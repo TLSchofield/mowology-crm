@@ -497,9 +497,9 @@ struct ReceiptDetailView: View {
 
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
-        case "forwarded":        ("Sent", .blue)
+        case "forwarded":        ("Sent", appStyle.progress)
         case "approved":         ("Approved", appStyle.tenant)
-        case "rejected":         ("Rejected", .red)
+        case "rejected":         ("Rejected", appStyle.blocked)
         case "pending_approval": ("Pending Approval", appStyle.attention)
         default:                 ("Draft", appStyle.attention)
         }
@@ -872,7 +872,7 @@ private struct EditExpenseView: View {
         (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
             Text(label)
                 .font(bold ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.body))
-                .foregroundStyle(bold ? .primary : .secondary)
+                .foregroundStyle(bold ? appStyle.text : appStyle.meta)
             if !usesAccessibleAmounts { Spacer() }
             TextField("0.00", text: value)
                 .keyboardType(.decimalPad)

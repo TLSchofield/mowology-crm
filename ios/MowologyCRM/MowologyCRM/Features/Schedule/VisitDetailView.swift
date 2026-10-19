@@ -380,7 +380,7 @@ struct VisitDetailView: View {
                     .tracking(0.5)
                 Text(text)
                     .font(appStyle.font(.subheadline))
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(appStyle.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -513,7 +513,7 @@ struct VisitDetailView: View {
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
                 }
-                .tint(.primary)
+                .tint(appStyle.text)
             }
 
             // MARK: Crew Service Recommendations
@@ -623,7 +623,7 @@ struct VisitDetailView: View {
                         .foregroundStyle(appStyle.meta)
                         .background(appStyle.sunk)
                         .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-                        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(Color(.separator), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(appStyle.line, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .disabled(isThisLoading)
@@ -641,7 +641,7 @@ struct VisitDetailView: View {
                     } label: {
                         VStack(spacing: 6) {
                             if isThisLoading {
-                                ProgressView().tint(.white)
+                                ProgressView().tint(appStyle.onTenant)
                                 Text("Starting…").font(appStyle.font(.headline))
                             } else {
                                 Image(systemName: "play.fill")
@@ -785,11 +785,11 @@ struct VisitDetailView: View {
     private func statusColorFor(_ status: String) -> Color {
         let legacy: Color
         switch status.lowercased() {
-        case "completed":   legacy = .green
-        case "in_progress": legacy = Color.MW.green
-        case "scheduled":   legacy = .blue
-        case "cancelled":   legacy = .red
-        case "skipped":     legacy = .orange
+        case "completed":   legacy = appStyle.complete
+        case "in_progress": legacy = appStyle.tenant
+        case "scheduled":   legacy = appStyle.progress
+        case "cancelled":   legacy = appStyle.blocked
+        case "skipped":     legacy = appStyle.attention
         default:            legacy = .gray
         }
         return appStyle.statusColor(status, legacy: legacy)

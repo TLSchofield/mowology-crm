@@ -15,6 +15,7 @@
 import SwiftUI
 
 struct QuizView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var viewModel: QuizViewModel
     let onPass: () -> Void
@@ -27,7 +28,7 @@ struct QuizView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground).ignoresSafeArea()
+                appStyle.page.ignoresSafeArea()
 
                 switch viewModel.phase {
                 case .loading:
@@ -73,8 +74,8 @@ struct QuizView: View {
             ProgressView()
                 .scaleEffect(1.4)
             Text("Loading your pre-shift quiz…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
         }
     }
 
@@ -85,16 +86,16 @@ struct QuizView: View {
             Spacer()
 
             Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.orange)
+                .font(appStyle.font(size: 56))
+                .foregroundStyle(appStyle.attention)
 
             VStack(spacing: 8) {
                 Text("Could Not Load Quiz")
-                    .font(.title2.bold())
+                    .font(appStyle.font(.title2, weight: .bold))
 
                 Text("Check your connection and try again.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                     .multilineTextAlignment(.center)
             }
 
@@ -102,12 +103,12 @@ struct QuizView: View {
                 Task { await viewModel.start() }
             } label: {
                 Label("Try Again", systemImage: "arrow.clockwise")
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .padding(.horizontal)
             .disabled(viewModel.isLoading)
@@ -137,15 +138,15 @@ struct QuizView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Question \(num) of \(total)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.tenant)
                 Spacer()
                 Text("\(Int(Double(num - 1) / Double(total) * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
             ProgressView(value: Double(num - 1), total: Double(total))
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
         }
     }
 
@@ -153,11 +154,11 @@ struct QuizView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let colour = q.question.categoryColour {
                 Text(q.question.categoryName)
-                    .font(.caption.weight(.semibold))
+                    .font(appStyle.font(.caption, weight: .semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color(hex: colour)?.opacity(0.15) ?? Color.MW.green.opacity(0.15))
-                    .foregroundStyle(Color(hex: colour) ?? Color.MW.green)
+                    .background(Color(hex: colour)?.opacity(0.15) ?? appStyle.tenant.opacity(0.15))
+                    .foregroundStyle(Color(hex: colour) ?? appStyle.tenant)
                     .clipShape(Capsule())
             }
 
@@ -166,12 +167,12 @@ struct QuizView: View {
             }
 
             Text(q.question.text)
-                .font(.title3.weight(.semibold))
+                .font(appStyle.font(.title3, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
     }
 
     private func optionsStack(q: QuizQuestionResponse) -> some View {
@@ -182,17 +183,17 @@ struct QuizView: View {
                 } label: {
                     HStack {
                         Text(option.optionText)
-                            .font(.body)
+                            .font(appStyle.font(.body))
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                     }
                     .padding()
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .background(appStyle.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.MW.green.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                            .stroke(appStyle.tenant.opacity(0.3), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -214,12 +215,12 @@ struct QuizView: View {
                     Task { await viewModel.advance() }
                 } label: {
                     Label("Next Question", systemImage: "arrow.right")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.MW.green)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .background(appStyle.tenant)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                 }
                 .disabled(viewModel.isLoading)
             }
@@ -230,15 +231,15 @@ struct QuizView: View {
     private func feedbackBanner(correct: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.title2)
+                .font(appStyle.font(.title2))
             Text(correct ? "Correct!" : "Not quite — see below")
-                .font(.headline)
+                .font(appStyle.font(.headline))
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background((correct ? Color.MW.green : Color.red).opacity(0.15))
-        .foregroundStyle(correct ? Color.MW.green : Color.red)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background((correct ? appStyle.complete : appStyle.blocked).opacity(0.15))
+        .foregroundStyle(correct ? appStyle.complete : appStyle.blocked)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     private func answeredOptionsStack(q: QuizQuestionResponse, state: QuizAnswerState) -> some View {
@@ -249,33 +250,33 @@ struct QuizView: View {
 
                 HStack {
                     Text(option.optionText)
-                        .font(.body)
+                        .font(appStyle.font(.body))
                         .multilineTextAlignment(.leading)
                     Spacer()
                     if isCorrect {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.MW.green)
+                            .foregroundStyle(appStyle.tenant)
                     } else if isSelected {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(appStyle.blocked)
                     }
                 }
                 .padding()
                 .background(
-                    isCorrect ? Color.MW.green.opacity(0.12) :
-                    isSelected ? Color.red.opacity(0.10) :
-                    Color(.secondarySystemGroupedBackground)
+                    isCorrect ? appStyle.complete.opacity(0.12) :
+                    isSelected ? appStyle.blocked.opacity(0.10) :
+                    appStyle.surface
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .stroke(
-                            isCorrect ? Color.MW.green :
-                            isSelected ? Color.red :
+                            isCorrect ? appStyle.complete :
+                            isSelected ? appStyle.blocked :
                             Color.clear,
                             lineWidth: 1.5
                         )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             }
         }
     }
@@ -287,17 +288,17 @@ struct QuizView: View {
             Spacer()
 
             Image(systemName: passed ? "rosette" : "arrow.clockwise.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(passed ? Color.MW.green : Color.orange)
+                .font(appStyle.font(size: 72))
+                .foregroundStyle(passed ? appStyle.complete : appStyle.attention)
 
             VStack(spacing: 8) {
                 Text(passed ? "Quiz Passed!" : "Not Quite")
-                    .font(.largeTitle.bold())
+                    .font(appStyle.font(.largeTitle, weight: .bold))
 
                 if let r = viewModel.result {
                     Text("\(r.correct) of \(r.total) correct (\(r.passMark) needed to pass)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -306,12 +307,12 @@ struct QuizView: View {
                     onPass()
                 } label: {
                     Label("Start My Day", systemImage: "calendar")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.MW.green)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .background(appStyle.tenant)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
                 }
                 .padding(.horizontal)
             } else {
@@ -319,17 +320,17 @@ struct QuizView: View {
                     Task { await viewModel.start() }
                 } label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.orange)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .background(appStyle.attention)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
                 }
                 .padding(.horizontal)
                 Button("Continue to Schedule", action: onPass)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                     .padding(.top, 4)
             }
 
@@ -357,6 +358,7 @@ private extension Color {
 
 /// The question's pictures: swipe between them; a site photo says where it grows (2026-10-16).
 private struct QuizImagePager: View {
+    @Environment(\.itAppStyle) private var appStyle
     let images: [QuizQuestionImage]
     @State private var page = 0
 
@@ -367,7 +369,7 @@ private struct QuizImagePager: View {
                     AsyncImage(url: img.url) { phase in
                         switch phase {
                         case .success(let image): image.resizable().scaledToFit()
-                        case .failure: Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+                        case .failure: Image(systemName: "photo").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta)
                         default: ProgressView()
                         }
                     }
@@ -377,12 +379,12 @@ private struct QuizImagePager: View {
             }
             .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .automatic : .never))
             .frame(height: 240)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
 
             if let cap = images[min(page, images.count - 1)].caption, !cap.isEmpty {
                 Label(cap, systemImage: "mappin.and.ellipse")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.tenant)
             }
         }
     }

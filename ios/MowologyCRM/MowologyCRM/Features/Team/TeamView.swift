@@ -60,6 +60,7 @@ private struct ReadyBriefSnapshot: Codable {
 }
 
 struct TeamView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateStyle = .none; f.timeStyle = .short; return f
@@ -97,7 +98,7 @@ struct TeamView: View {
     @State private var cachedBrief: ReadyBriefSnapshot?
     @ObservedObject private var connectivity = ConnectivityMonitor.shared
     @Environment(\.openURL) private var openURL
-    @AppStorage("ittai.design.enabled") private var ittaiDesignEnabled = false
+    private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
     init(authSession: AuthSession, readyBriefStore: ReadyBriefStore, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
@@ -137,7 +138,7 @@ struct TeamView: View {
                             cardContent(for: selected, showsTitle: true)
                         }
                         .padding(16)
-                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
                         .id(Self.cardAnchor)
                     }
 
@@ -167,7 +168,7 @@ struct TeamView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 14)
                         }
-                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
                     }
                 }
                 .padding(16)
@@ -176,7 +177,7 @@ struct TeamView: View {
                 if ittaiDesignEnabled {
                     ItPageBackground().ittaiTheme(field: ittaiFieldEnabled)
                 } else {
-                    Color(.systemGroupedBackground)
+                    appStyle.page
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -244,7 +245,7 @@ struct TeamView: View {
         if let head = headVM(for: slug) {
             if showsTitle {
                 HStack(spacing: 8) {
-                    Text(headTitle(for: slug)).font(.title3.bold())
+                    Text(headTitle(for: slug)).font(appStyle.font(.title3, weight: .bold))
                     Spacer()
                     if head.isLoading && head.hasLoaded { ProgressView() }
                 }
@@ -257,7 +258,7 @@ struct TeamView: View {
         } else if slug == "sam" {
             if showsTitle {
                 HStack(spacing: 8) {
-                    Text("Sam's sales desk").font(.title3.bold())
+                    Text("Sam's sales desk").font(appStyle.font(.title3, weight: .bold))
                     Spacer()
                     if sam.isLoading && sam.hasLoaded { ProgressView() }
                 }
@@ -266,7 +267,7 @@ struct TeamView: View {
         } else {
             if showsTitle {
                 HStack(spacing: 8) {
-                    Text("Penny's receipts").font(.title3.bold())
+                    Text("Penny's receipts").font(appStyle.font(.title3, weight: .bold))
                     Spacer()
                     if penny.isLoading && penny.hasLoaded { ProgressView() }
                 }
@@ -875,6 +876,7 @@ private struct PennyKnowledgeLiveView: View {
 }
 
 private struct HeadFace: View {
+    @Environment(\.itAppStyle) private var appStyle
     let head: TeamHead
     var isSelected = false
     var brain: HeadBrainSummary? = nil
@@ -889,7 +891,7 @@ private struct HeadFace: View {
                         img.resizable().scaledToFill()
                     } else {
                         Text(String(head.name.prefix(1)))
-                            .font(.title2.bold())
+                            .font(appStyle.font(.title2, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(Color.MW.dark)
@@ -904,7 +906,7 @@ private struct HeadFace: View {
                     .opacity(flipped ? 0 : 1)
                 // The back of the face: their brain (nothing learned yet = the seed triangle).
                 ZStack {
-                    Circle().fill(Color.MW.light)
+                    Circle().fill(appStyle.color(.tenantSoft, legacy: Color.MW.light))
                     if flipped {
                         BrainView(units: brain?.units ?? 0,
                                   tiers: Dictionary((brain?.tiers ?? []).map { ($0.slug, $0.n) }, uniquingKeysWith: +),
@@ -923,13 +925,13 @@ private struct HeadFace: View {
             .opacity(head.isLive ? 1 : 0.45)
 
             Text(head.name)
-                .font(.caption.weight(head.isLive ? .bold : .regular))
-                .foregroundStyle(head.isLive ? .primary : .secondary)
+                .font(appStyle.font(.caption, weight: head.isLive ? .bold : .regular))
+                .foregroundStyle(head.isLive ? appStyle.text : appStyle.meta)
             Text(head.isLive ? head.role : "Coming soon")
-                .font(.system(size: 10))
+                .font(appStyle.font(size: 12))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .foregroundStyle(head.isLive ? Color.MW.green : .secondary)
+                .foregroundStyle(head.isLive ? appStyle.tenant : appStyle.meta)
         }
         .frame(width: 76)
         .accessibilityElement(children: .combine)

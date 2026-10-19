@@ -176,18 +176,13 @@ extension View {
 
 /// Shared by crew Account and the admin AI Office, using the existing preferences.
 struct ItDesignSettingsRows: View {
-    @AppStorage("ittai.design.enabled") private var enabled = false
+    // Ittai is the only design from 1.3.56; what's left to choose is field mode (high contrast, always light).
     @AppStorage("ittai.design.field") private var field = false
     @Environment(\.itAppStyle) private var style
 
     var body: some View {
-        Toggle("Try the new design", isOn: $enabled)
+        Toggle("Field mode (outdoors)", isOn: $field)
             .font(style.font(.body)).tint(style.tenant)
-            .frame(minHeight: style.isEnabled ? ItSize.targetPhone : nil)
-        if enabled {
-            Toggle("Field mode (outdoors)", isOn: $field)
-                .font(style.font(.body)).tint(style.tenant)
-                .frame(minHeight: ItSize.targetPhone)
-        }
+            .frame(minHeight: ItSize.targetPhone)
     }
 }

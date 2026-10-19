@@ -187,7 +187,9 @@ final class JobPhotoViewModel: ObservableObject {
     func addFromLibrary(_ images: [UIImage]) {
         for image in images {
             localExtras.append(LocalExtraPhoto(image: image))
-            guard let data = image.jpegData(compressionQuality: 0.78) else { continue }
+            // 1920 px / ~0.2-1.5 MB (same as receipts): full-size library photos timed out on weak signal.
+            let data = ReceiptsView.resizeAndCompress(image)
+            guard !data.isEmpty else { continue }
             Task { await upload(data: data, slot: .additional) }
         }
     }

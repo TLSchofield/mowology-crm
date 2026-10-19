@@ -200,6 +200,9 @@ final class TimeClockViewModel: ObservableObject {
         var (lat, lng) = (lat, lng)
         if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
+        // One key per tap, sent live and kept if it has to wait for signal: a punch that reached the
+        // server before the phone timed out is never recorded twice (cold review 2026-10-19).
+        let punchKey = UUID().uuidString
         var body: [String: Any] = ["action": "clock_in", "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
@@ -207,7 +210,8 @@ final class TimeClockViewModel: ObservableObject {
         do {
             let response: ClockActionResponse = try await apiClient.request(
                 .scheduleClock,
-                body: body
+                body: body,
+                extraHeaders: ["Idempotency-Key": punchKey]
             )
             clockedIn      = response.clockedIn
             entryId        = response.entryId
@@ -225,7 +229,7 @@ final class TimeClockViewModel: ObservableObject {
                 // Offline — accept locally and queue for sync.
                 clockedIn     = true
                 isPendingSync = true
-                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id)
+                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id, id: punchKey)
                 persistClockState()
                 startTicking()
                 GPSTrackingService.shared.start(authSession: authSession)
@@ -247,6 +251,9 @@ final class TimeClockViewModel: ObservableObject {
         var (lat, lng) = (lat, lng)
         if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
+        // One key per tap, sent live and kept if it has to wait for signal: a punch that reached the
+        // server before the phone timed out is never recorded twice (cold review 2026-10-19).
+        let punchKey = UUID().uuidString
         var body: [String: Any] = ["action": "clock_out", "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
@@ -254,7 +261,8 @@ final class TimeClockViewModel: ObservableObject {
         do {
             let response: ClockActionResponse = try await apiClient.request(
                 .scheduleClock,
-                body: body
+                body: body,
+                extraHeaders: ["Idempotency-Key": punchKey]
             )
             clockedIn      = false
             entryId        = nil
@@ -276,7 +284,7 @@ final class TimeClockViewModel: ObservableObject {
                 elapsedSeconds = 0
                 activeJob      = nil
                 isPendingSync  = true
-                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id)
+                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng, at: tappedAt, userId: authSession.user?.id, id: punchKey)
                 persistClockState()
                 stopTicking()
                 BreakController.shared.clockedOut()
@@ -395,10 +403,12 @@ final class TimeClockViewModel: ObservableObject {
 
     private func startTicking() {
         stopTicking()
+        // Counting ticks fell behind whenever iOS paused the timer (phone locked): read the time instead.
+        let base = Date().addingTimeInterval(-Double(elapsedSeconds))
         tickTimer = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
-            .sink { [weak self] _ in
-                self?.elapsedSeconds += 1
+            .sink { [weak self] now in
+                self?.elapsedSeconds = max(0, Int(now.timeIntervalSince(base)))
             }
     }
 
@@ -524,18 +534,19 @@ final class BreakController: ObservableObject {
         isBusy = true; defer { isBusy = false }
         message = nil
         let tappedAt = Date()
+        let punchKey = UUID().uuidString   // sent live, kept if queued (never punches twice)
         let api = APIClient(authSession: authSession)
         do {
             let r: ClockActionResponse = try await api.request(.scheduleClock, body: [
                 "action": "break_start", "client_time": tappedAt.mwClientTime,
-            ])
+            ], extraHeaders: ["Idempotency-Key": punchKey])
             guard r.recorded != false else { message = r.message ?? "Break response recorded=false; server returned no message field."; return }
             guard let b = r.onBreak else { await refreshFromServer(authSession: authSession); return }
             startedAt    = Self.parse(b.startedAt) ?? tappedAt
             savedLocally = false
         } catch let err as APIError {
             if case .networkError = err {
-                ClockQueue.shared.enqueue(action: "break_start", lat: nil, lng: nil, at: tappedAt, userId: authSession.user?.id)
+                ClockQueue.shared.enqueue(action: "break_start", lat: nil, lng: nil, at: tappedAt, userId: authSession.user?.id, id: punchKey)
                 UserDefaults.standard.set(tappedAt, forKey: kLocal)
                 startedAt    = tappedAt
                 savedLocally = true
@@ -558,15 +569,16 @@ final class BreakController: ObservableObject {
         isBusy = true; defer { isBusy = false }
         message = nil
         let tappedAt = Date()
+        let punchKey = UUID().uuidString   // sent live, kept if queued (never punches twice)
         let api = APIClient(authSession: authSession)
         do {
             let r: ClockActionResponse = try await api.request(.scheduleClock, body: [
                 "action": "break_end", "client_time": tappedAt.mwClientTime,
-            ])
+            ], extraHeaders: ["Idempotency-Key": punchKey])
             if r.recorded == false { message = r.message }
         } catch let err as APIError {
             if case .networkError = err {
-                ClockQueue.shared.enqueue(action: "break_end", lat: nil, lng: nil, at: tappedAt, userId: authSession.user?.id)
+                ClockQueue.shared.enqueue(action: "break_end", lat: nil, lng: nil, at: tappedAt, userId: authSession.user?.id, id: punchKey)
                 message = "Break end saved on this phone — it will file itself when signal returns."
             } else {
                 message = err.localizedDescription

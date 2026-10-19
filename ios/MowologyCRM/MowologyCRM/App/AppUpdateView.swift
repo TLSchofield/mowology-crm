@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AppUpdateView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let result: VersionCheckResult
 
     var body: some View {
@@ -10,18 +11,18 @@ struct AppUpdateView: View {
 
             VStack(spacing: 0) {
                 Image(systemName: "arrow.down.app.fill")
-                    .font(.system(size: 64))
+                    .font(appStyle.font(size: 64))
                     .foregroundColor(Color.MW.lime)
                     .padding(.bottom, 20)
 
                 Text("Update Required")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(appStyle.font(size: 26, weight: .bold))
                     .foregroundColor(Color.MW.lime)
                     .padding(.bottom, 8)
 
                 if !result.latestVersion.isEmpty {
                     Text("Mowology CRM v\(result.latestVersion) is now available.")
-                        .font(.system(size: 16))
+                        .font(appStyle.font(size: 16))
                         .foregroundColor(Color(red: 0.784, green: 0.910, blue: 0.867))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -30,7 +31,7 @@ struct AppUpdateView: View {
 
                 if let notes = result.releaseNotes, !notes.isEmpty {
                     Text(notes)
-                        .font(.system(size: 14))
+                        .font(appStyle.font(size: 14))
                         .foregroundColor(Color(red: 0.576, green: 0.788, blue: 0.722))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
@@ -42,28 +43,28 @@ struct AppUpdateView: View {
                 if let storeUrl = result.storeUrl, !storeUrl.isEmpty,
                    let url = URL(string: storeUrl) {
                     Link("Update on App Store", destination: url)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(appStyle.font(size: 17, weight: .semibold))
                         .frame(minWidth: 220)
                         .padding(.vertical, 14)
                         .padding(.horizontal, 36)
                         .background(Color.MW.lime)
                         .foregroundColor(Color.MW.forest)
-                        .cornerRadius(12)
+                        .cornerRadius(appStyle.cornerRadius(12))
                 } else {
                     VStack(spacing: 6) {
                         Text("Contact Tim to get the latest build.")
-                            .font(.system(size: 15))
+                            .font(appStyle.font(size: 15))
                             .foregroundColor(Color(red: 0.576, green: 0.788, blue: 0.722))
                             .multilineTextAlignment(.center)
                         Text("(778) 846-9273")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(appStyle.font(size: 17, weight: .semibold))
                             .foregroundColor(Color.MW.lime)
                     }
                     .padding(.horizontal, 40)
                 }
 
                 Text("You must update to continue.")
-                    .font(.system(size: 12))
+                    .font(appStyle.font(size: 12))
                     .foregroundColor(Color(red: 0.353, green: 0.533, blue: 0.431))
                     .padding(.top, 24)
             }

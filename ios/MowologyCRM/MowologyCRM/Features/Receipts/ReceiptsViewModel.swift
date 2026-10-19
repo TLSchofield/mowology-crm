@@ -69,9 +69,9 @@ final class ReceiptsViewModel: ObservableObject {
         ReceiptQueue.shared.activeUserId = apiClient.currentUserId
         ReceiptQueue.shared.userProvider = { [weak apiClient] in apiClient?.currentUserId }
         ReceiptQueue.shared.startMonitoring(
-            upload: { [weak self] data, lat, lng, jobId in
+            upload: { [weak self] data, lat, lng, jobId, takenAt in
                 guard let self else { throw APIError.invalidURL }
-                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId, takenAt: takenAt)
             },
             save: { [weak self] owed, lat, lng, _ in
                 guard let self else { throw APIError.invalidURL }
@@ -86,9 +86,9 @@ final class ReceiptsViewModel: ObservableObject {
         ReceiptQueue.shared.activeUserId = apiClient.currentUserId
         let before = ReceiptQueue.shared.pendingCount
         await ReceiptQueue.shared.drain(
-            upload: { [weak self] data, lat, lng, jobId in
+            upload: { [weak self] data, lat, lng, jobId, takenAt in
                 guard let self else { throw APIError.invalidURL }
-                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId, takenAt: takenAt)
             },
             save: { [weak self] owed, lat, lng, _ in
                 guard let self else { throw APIError.invalidURL }
@@ -102,11 +102,10 @@ final class ReceiptsViewModel: ObservableObject {
     /// Replays one queued receipt, step 1: upload + OCR. What it returns is kept on the queue
     /// item (OwedDraft) so a failed save is retried without uploading the photo again — the
     /// item used to be removed and its photo deleted when the save failed (review round 2).
-    private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptQueue.OwedDraft {
+    private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?, takenAt: Date) async throws -> ReceiptQueue.OwedDraft {
         let intake = try await apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
         let p = intake.parsed
         let s = intake.suggestions
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let total = p?.totalDouble ?? 0
         let gst   = p?.gstDouble ?? 0
         let pst   = p?.pst.flatMap { ReceiptNumber.parse($0) } ?? 0
@@ -114,7 +113,8 @@ final class ReceiptsViewModel: ObservableObject {
             mediaId:       intake.mediaId,
             vendorId:      s?.vendorId,
             vendorName:    s?.vendorName ?? p?.vendorHint ?? "",
-            date:          Self.normalizeDate(p?.date) ?? fmt.string(from: .now),
+            // No readable date: the day it was taken, not the day it synced (GST period).
+            date:          Self.normalizeDate(p?.date) ?? VancouverDay.string(from: takenAt),
             amount:        p?.subtotal.flatMap { ReceiptNumber.parse($0) } ?? max(0, total - gst - pst),
             gst:           gst,
             pst:           pst,

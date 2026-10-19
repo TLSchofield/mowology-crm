@@ -216,9 +216,11 @@ final class VisitDetailViewModel: ObservableObject {
                 return
             }
             let message = apiErrorMessage(error)
-            // Special-request gate (409): the server answered — this start must not sit in the
-            // transition queue and replay later (it would start the timer past the request).
-            if message.hasPrefix("Special request") {
+            // The server answered and refused (not assigned, special request, clock in first…): the
+            // person sees why right here, so this start must not sit in the queue and replay later
+            // with the old tap time, or block every later job action (cold review 2026-10-19).
+            // An expired login keeps it: it is sent once they sign back in.
+            if case APIError.unauthorized = error {} else {
                 transitionQueue.confirm(visitId: visitId, action: "start")
             }
             setError(message)
@@ -365,10 +367,11 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Exponential Backoff
 
-    /// Retry up to 4 times with delays 2 s → 4 s → 8 s → 30 s (cap).
+    /// One retry after 2 s, then the caller's offline path (saved, sent when signal returns).
+    /// Four tries at up to 30 s each kept a spinner up for ~2 minutes on weak signal (review 2026-10-19).
     /// Only retries on network errors; server errors (4xx/5xx) surface immediately.
     private func withExponentialBackoff<T>(
-        maxAttempts: Int = 4,
+        maxAttempts: Int = 2,
         _ operation: () async throws -> T
     ) async throws -> T {
         var delay: TimeInterval = 2

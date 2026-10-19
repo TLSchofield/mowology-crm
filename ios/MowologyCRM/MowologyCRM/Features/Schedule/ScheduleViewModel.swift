@@ -292,6 +292,8 @@ final class ScheduleViewModel: ObservableObject {
         do {
             let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType))
             guard !Task.isCancelled else { return }
+            // The day may have changed while this poll was out: never show Monday's stops under Tuesday.
+            guard dateString == isoDateString(from: selectedDate) else { return }
             if response.stops != rawStops {
                 rawStops = response.stops
             }
