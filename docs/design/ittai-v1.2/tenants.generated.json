@@ -3,19 +3,19 @@
   "name": "Mowology",
   "brand": "#2D8659",
   "light": {
-   "tenant": "#1B5F3C",
+   "tenant": "#1A5A39",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#2D8659",
    "tenant-soft": "#D4F9E2"
   },
   "dark": {
-   "tenant": "#5AB080",
+   "tenant": "#72C897",
    "on-tenant": "#0F1512",
    "tenant-mark": "#2D8659",
    "tenant-soft": "#0D2E1D"
   },
   "field": {
-   "tenant": "#1B5F3C",
+   "tenant": "#1A5A39",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#2D8659",
    "tenant-soft": "#D4F9E2"
@@ -23,26 +23,38 @@
   "checks": [
    {
     "name": "light/field: white on primary",
-    "ratio": 7.07,
+    "ratio": 8,
     "need": 7,
     "ok": true
    },
    {
     "name": "light/field: primary vs page",
-    "ratio": 7.07,
+    "ratio": 8,
     "need": 3,
     "ok": true
    },
    {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.03,
+    "need": 7,
+    "ok": true
+   },
+   {
     "name": "dark: ink on primary",
-    "ratio": 7,
+    "ratio": 9.17,
     "need": 7,
     "ok": true
    },
    {
     "name": "dark: primary vs surface",
-    "ratio": 6.44,
+    "ratio": 8.44,
     "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 7.08,
+    "need": 7,
     "ok": true
    },
    {
@@ -75,7 +87,7 @@
   "name": "Brightline Electric",
   "brand": "#F2C200",
   "light": {
-   "tenant": "#6D5601",
+   "tenant": "#634E01",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#B49001",
    "tenant-soft": "#FBEEC9"
@@ -87,7 +99,7 @@
    "tenant-soft": "#302504"
   },
   "field": {
-   "tenant": "#6D5601",
+   "tenant": "#634E01",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#B49001",
    "tenant-soft": "#FBEEC9"
@@ -95,14 +107,20 @@
   "checks": [
    {
     "name": "light/field: white on primary",
-    "ratio": 7.04,
+    "ratio": 8.01,
     "need": 7,
     "ok": true
    },
    {
     "name": "light/field: primary vs page",
-    "ratio": 7.04,
+    "ratio": 8.01,
     "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.04,
+    "need": 7,
     "ok": true
    },
    {
@@ -115,6 +133,12 @@
     "name": "dark: primary vs surface",
     "ratio": 10.12,
     "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 8.48,
+    "need": 7,
     "ok": true
    },
    {
@@ -147,7 +171,7 @@
   "name": "Clearflow Plumbing",
   "brand": "#7EC8E3",
   "light": {
-   "tenant": "#096179",
+   "tenant": "#03586F",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#539DB7",
    "tenant-soft": "#D9F4FE"
@@ -159,7 +183,7 @@
    "tenant-soft": "#002B38"
   },
   "field": {
-   "tenant": "#096179",
+   "tenant": "#03586F",
    "on-tenant": "#FFFFFF",
    "tenant-mark": "#539DB7",
    "tenant-soft": "#D9F4FE"
@@ -167,14 +191,20 @@
   "checks": [
    {
     "name": "light/field: white on primary",
-    "ratio": 7.01,
+    "ratio": 7.99,
     "need": 7,
     "ok": true
    },
    {
     "name": "light/field: primary vs page",
-    "ratio": 7.01,
+    "ratio": 7.99,
     "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.02,
+    "need": 7,
     "ok": true
    },
    {
@@ -187,6 +217,12 @@
     "name": "dark: primary vs surface",
     "ratio": 9.12,
     "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 7.64,
+    "need": 7,
     "ok": true
    },
    {
