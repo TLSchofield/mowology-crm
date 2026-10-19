@@ -27,6 +27,7 @@ require_once __DIR__ . '/PropertyBorderRules.php';
 require_once __DIR__ . '/PropertyReadinessService.php';
 require_once __DIR__ . '/PropertyBorderService.php';
 require_once __DIR__ . '/ParcelLotService.php';
+require_once __DIR__ . '/CityParcelService.php';
 require_once __DIR__ . '/SupplierDirectoryService.php';
 
 class OttoAutoPlaceService
@@ -40,10 +41,14 @@ class OttoAutoPlaceService
     /** @var callable(string): ?array */
     private $geocode;
     private ParcelLotService $lots;
+    private CityParcelService $city;
     private string $today;
 
-    public function __construct(PDO $db, ?callable $geocode = null, ?ParcelLotService $lots = null, ?string $today = null)
+    public function __construct(PDO $db, ?callable $geocode = null, ?ParcelLotService $lots = null, ?string $today = null,
+                                ?CityParcelService $city = null)
     {
+        // A caller that supplies its own province map (tests) gets no live city map unless it supplies one too.
+        $this->city = $city ?? new CityParcelService($lots !== null ? static fn(string $url): ?string => null : null);
         $this->db = $db;
         $this->geocode = $geocode ?? static fn(string $address): ?array => SupplierDirectoryService::googleGeocode($address);
         $this->lots = $lots ?? new ParcelLotService();
@@ -112,9 +117,12 @@ class OttoAutoPlaceService
             $pin = PropertyBorderRules::pinOf($p);
             if (!$pin) continue;
             $mode = self::borderMode($borders[$pid]['sources'] ?? null);
-            if ($mode === null || isset($state['border_refused'][$pid]) || self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today)) continue;
+            $cityNew = CityParcelService::sourceFor($p) !== null && !isset($state['city_tried'][$pid]);
+            if ($mode === null || isset($state['border_refused'][$pid])
+                || (!$cityNew && self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today))) continue;
             $n++;
             $lot = $this->findLot($p, $pin);
+            if (CityParcelService::sourceFor($p) !== null) $state['city_tried'][$pid] = $this->today;
             if (!$lot['ok']) {
                 $r['no_lot']++;
                 // The province's server being down says nothing about the lot: try again next run.
@@ -190,7 +198,7 @@ class OttoAutoPlaceService
         unset($state['border_tried'][$propertyId], $state['border_reason'][$propertyId]);
         $this->saveState($state);
         return ['ok' => true, 'area_sqm' => (int)$lot['area_sqm'], 'ring' => array_slice(self::borderRing($lot['ring']), 0, -1),
-                'message' => 'Drawn from the city lot map: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ', '
+                'message' => 'Drawn from the ' . ($lot['map_name'] ?? 'city lot map') . ': ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ', '
                            . number_format((int)$lot['area_sqm']) . ' m²' . ' — check it on the map.'];
     }
 
@@ -240,6 +248,10 @@ class OttoAutoPlaceService
     /** The lot under the pin; for a street pin, under the address's building (if near), the pin staying put. */
     private function findLot(array $p, array $pin): array
     {
+        // A city's own lot map first, by address (CityParcelService): the province's map has gaps in
+        // Vancouver — 3 of 4 Vancouver Management buildings had no lot in it at all (2026-10-19).
+        $byCity = $this->city->lotFor($p, $pin);
+        if ($byCity !== null && $byCity['ok']) return $byCity;
         $lot = $this->lots->lotAt($pin[0], $pin[1]);
         if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge'], true)) {
             $at = self::buildingPoint(($this->geocode)(PropertyReadinessService::geocodeAddress($p)), $pin);
@@ -356,8 +368,10 @@ class OttoAutoPlaceService
         [$a, $b, $c, $d] = PropertyBorderRules::bbox($open);
         $area = round(PropertyBorderRules::area($open), 2);
         $label = 'Lot border (city lot map)';
-        $notes = 'Otto: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ($lot['pid'] ? ', PID ' . $lot['pid'] : '')
-               . ', ' . (int)$lot['area_sqm'] . ' m², +' . self::BUFFER_M . ' m. ' . ParcelLotService::ATTRIBUTION;
+        $city = !empty($lot['source']);
+        $notes = 'Otto: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '')
+               . ($lot['pid'] ? ($city ? ', site ' : ', PID ') . $lot['pid'] : '')
+               . ', ' . (int)$lot['area_sqm'] . ' m², +' . self::BUFFER_M . ' m. ' . ($lot['attribution'] ?? ParcelLotService::ATTRIBUTION);
         if ($mode === 'replace') {
             $s = $this->db->prepare("
                 UPDATE job_geofences SET border_source = 'parcel', polygon_json = ?, vertex_count = ?, bbox_lat_min = ?, bbox_lat_max = ?,
@@ -382,7 +396,9 @@ class OttoAutoPlaceService
     /** @return array{pins: array, pin_tried: array, border_tried: array, border_reason: array, border_refused: array} */
     private function state(): array
     {
-        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => []];
+        // city_tried: properties already looked up in a city's own lot map (once each, so a property the
+        // province map gave up on is retried as soon as a city map covers it — 2026-10-19).
+        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => [], 'city_tried' => []];
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::STATE_KEY]);

@@ -247,4 +247,32 @@ class OttoAutoPlaceTest extends TestCase
         $this->assertFalse($svc->borderOne(1)['ok'], 'already has one now');
         $this->assertSame('It needs a map pin first.', $svc->borderOne(2)['message']);
     }
+
+    public function test_a_vancouver_address_uses_the_city_lot_map_before_the_province(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, '1535 West 16th Avenue', 'Vancouver', 'BC', 49.2573302, -123.1397768)");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $provinceUrls = [];
+        $city = new CityParcelService(fn() => (string)file_get_contents(__DIR__ . '/../../fixtures/city-parcels/1535.json'));
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([], $provinceUrls)), '2026-10-19', $city);
+        $this->assertSame(1, $svc->run()['bordered'], 'the province map has no lot here; the City does');
+        $this->assertSame([], $provinceUrls, 'the province is not asked when the City answered');
+        $notes = (string)$db->query("SELECT notes FROM job_geofences WHERE property_id = 1")->fetchColumn();
+        $this->assertStringContainsString('Open Government Licence – Vancouver', $notes);
+        $this->assertStringContainsString('site ', $notes);
+    }
+
+    public function test_a_property_the_province_gave_up_on_is_retried_once_with_the_city_map(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, '1535 West 16th Avenue', 'Vancouver', 'BC', 49.2573302, -123.1397768)");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('otto_auto_place_state', '" . json_encode(['border_tried' => [1 => '2026-10-19'], 'border_reason' => [1 => 'no_lot']]) . "')");
+        $calls = 0;
+        $city = new CityParcelService(function () use (&$calls) { $calls++; return (string)file_get_contents(__DIR__ . '/../../fixtures/city-parcels/1535.json'); });
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([])), '2026-10-19', $city);
+        $this->assertSame(1, $svc->run()['bordered'], 'tried today by the province, but never by the City');
+        $this->assertSame(1, $calls);
+    }
 }
