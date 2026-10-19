@@ -140,6 +140,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php'
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php';      // lot borders from ParcelMap BC (2026-10-18)
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';  // Otto's own pins + lot borders
+require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';

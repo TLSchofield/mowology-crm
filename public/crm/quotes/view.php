@@ -11,6 +11,7 @@ require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+require_once APP_ROOT . '/Modules/Comms/Services/BuildingManagerService.php';   // Yui: who manages the building
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -240,6 +241,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if ($action === 'building_manager') {
+        // Yui asked "Is X the property manager for this building?" — the owner's Yes / No.
+        if (!empty($quote['property_id']) && function_exists('userHasAnyPermission') && userHasAnyPermission(['clients.edit'])) {
+            $bm = new BuildingManagerService($db);
+            $bmContact = (int)($_POST['contact_id'] ?? 0);
+            if (($_POST['answer'] ?? '') === 'yes') $bm->confirm((int)$quote['property_id'], $bmContact);
+            elseif (($_POST['answer'] ?? '') === 'no') $bm->decline((int)$quote['property_id'], $bmContact);
+        }
+        header("Location: view.php?id={$quoteId}&recipient=1");
+        exit;
+    }
+
     if ($action === 'set_cc') {
         $recipientSvc->setCcEnabled($quoteId, !empty($_POST['cc_property_manager']), (int)$user['id']);
         header("Location: view.php?id={$quoteId}&recipient=1");
@@ -371,6 +384,20 @@ $recipientCurrentId = (int)($recipientResolved['contact_id'] ?? 0);
 $recipientCc        = !empty($quote['property_id'])
     ? $recipientSvc->ccForProperty((int)$quote['property_id'], $recipientCurrentId ?: null, $recipientResolved['email'])
     : null;
+// Yui: the building's manager on file, or her guess to confirm (BuildingManagerService). Never breaks the page.
+$bmOnFile = null;
+$bmSuggest = null;
+if (!empty($quote['property_id']) && !$recipientCc) {
+    try {
+        $bmSvc = new BuildingManagerService($db);
+        $bmOnFile = $bmSvc->onFile((int)$quote['property_id']);
+        if (!$bmOnFile && function_exists('userHasAnyPermission') && userHasAnyPermission(['clients.edit'])) {
+            $bmSuggest = $bmSvc->suggest((int)$quote['property_id']);
+        }
+    } catch (Throwable $e) {
+        error_log('Building manager (Yui): ' . get_class($e));
+    }
+}
 $recipientCcOn      = !array_key_exists('cc_property_manager', $quote) || (int)$quote['cc_property_manager'] === 1;
 $recipientCanToggle = array_key_exists('cc_property_manager', $quote);
 
@@ -810,6 +837,18 @@ $activePage = 'quotes';
                                               <?php echo htmlspecialchars($recipientCc['name'] . ' · ' . $recipientCc['email']); ?>
                                               <span class="text-muted">(<?php echo htmlspecialchars($recipientCc['why']); ?>)</span>
                                           </label>
+                                      </form>
+                                  <?php elseif ($bmOnFile && (int)$bmOnFile['contact_id'] === $recipientCurrentId): ?>
+                                      <span class="text-muted"><?php echo htmlspecialchars($bmOnFile['name']); ?> is this building's manager — already the one it's sent to.</span>
+                                  <?php elseif ($bmSuggest): ?>
+                                      <form method="POST" class="mw-quote-recipient-row">
+                                          <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                          <input type="hidden" name="action" value="building_manager">
+                                          <input type="hidden" name="contact_id" value="<?php echo (int)$bmSuggest['contact_id']; ?>">
+                                          <span>Yui: is <strong><?php echo htmlspecialchars($bmSuggest['name']); ?></strong> the property manager for this building?
+                                              <span class="text-muted">(<?php echo htmlspecialchars($bmSuggest['why']); ?>)</span></span>
+                                          <button type="submit" name="answer" value="yes" class="btn btn-sm btn-primary">Yes</button>
+                                          <button type="submit" name="answer" value="no" class="btn btn-sm btn-outline-secondary">No</button>
                                       </form>
                                   <?php else: ?>
                                       <span class="text-muted">No property manager on file for this building.</span>
