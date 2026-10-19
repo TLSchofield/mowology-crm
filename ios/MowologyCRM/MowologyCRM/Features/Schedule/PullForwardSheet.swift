@@ -43,7 +43,7 @@ struct PullForwardVisit: Decodable, Identifiable, Equatable {
     let overdue: Bool
 
     var id: Int { visitId }
-    var what: String { !serviceType.isEmpty ? serviceType : (!title.isEmpty ? title : "The visit") }
+    var what: String { !serviceType.isEmpty ? Visit.serviceTypeLabel(serviceType) : (!title.isEmpty ? title : "The visit") }
 
     private enum CodingKeys: String, CodingKey {
         case title, overdue
@@ -70,7 +70,7 @@ struct PullForwardPlan: Decodable, Identifiable, Equatable {
     let serviceType: String
 
     var id: Int { planId }
-    var what: String { !serviceType.isEmpty ? serviceType : title }
+    var what: String { !serviceType.isEmpty ? Visit.serviceTypeLabel(serviceType) : title }
 
     private enum CodingKeys: String, CodingKey { case title, planId = "plan_id", serviceType = "service_type" }
 

@@ -132,6 +132,11 @@ struct ItAppThemeModifier: ViewModifier {
             .font(enabled ? style.font(.body) : nil)
             .foregroundStyle(style.text)
             .tint(style.tenant)
+            // Field mode is always light. Sheets take their background and button fills from the
+            // window, not from the colorScheme above, so a phone in dark mode drew dark sheets with
+            // the field palette's dark ink (unreadable, 2026-10-19). preferredColorScheme reaches the
+            // window and every presentation; nil hands control back to the phone when field is off.
+            .preferredColorScheme(enabled && palette.mode == .field ? palette.colorScheme : nil)
         .environment(\.itAppStyle, style)
         .environment(\.it, palette)
     }

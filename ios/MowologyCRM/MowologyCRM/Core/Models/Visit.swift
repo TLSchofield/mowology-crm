@@ -113,7 +113,10 @@ struct Visit: Codable, Identifiable, Hashable {
     }
 
     /// Human-readable label derived from the snake_case service_type key.
-    var serviceTypeLabel: String {
+    var serviceTypeLabel: String { Self.serviceTypeLabel(serviceType) }
+
+    /// The same label for any service_type key (the pull-forward sheet has no Visit to ask).
+    static func serviceTypeLabel(_ serviceType: String) -> String {
         switch serviceType.lowercased() {
         case "lawn_care":           return "Lawn Care"
         case "hedge_trimming":      return "Hedge Trimming"
