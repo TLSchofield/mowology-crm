@@ -67,6 +67,11 @@ const CANADIAN_SMS_GATEWAYS = [
  * @param array       $cc             Optional Cc addresses (email only — never SMS). Invalid
  *                                    addresses and the To address are dropped. Callers that
  *                                    pass nothing use the original path below, unchanged.
+ * @param string|null $replyTo        Optional Reply-To address (e.g. a website visitor's email, so Reply
+ *                                    goes straight to them). Replaces the default office@mowology.ca.
+ *                                    Invalid or injection-shaped values are ignored. Applies to the
+ *                                    plain/single-attachment path only — NOT when $attachments or $cc
+ *                                    are given (those keep the default Reply-To).
  * @return array      ['success' => bool, 'method' => string, 'error' => string|null]
  */
 function sendEmail(
@@ -76,7 +81,8 @@ function sendEmail(
     ?string $attachmentPath = null,
     string $fromName = 'Mowology',
     array $attachments = [],
-    array $cc = []
+    array $cc = [],
+    ?string $replyTo = null
 ): array {
     // Validate email
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
@@ -84,6 +90,7 @@ function sendEmail(
     }
 
     $cc = _normaliseCcList($cc, $to);
+    $replyTo = _normaliseReplyTo($replyTo);
 
     if ($attachments || $cc) {
         return _sendEmailMultiAttach($to, trim($subject), trim($htmlBody),
@@ -100,7 +107,7 @@ function sendEmail(
     $htmlBody = trim($htmlBody);
 
     // Try PHPMailer SMTP first
-    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName);
+    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName, $replyTo);
 
     if ($phpMailerResult !== null) {
         // PHPMailer was available and attempted the send
@@ -117,7 +124,7 @@ function sendEmail(
     if ($attachmentPath) {
         $result = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
     } else {
-        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
     }
 
     return [
@@ -125,6 +132,19 @@ function sendEmail(
         'method'  => 'native mail()',
         'error'   => $result ? null : 'mail() returned false',
     ];
+}
+
+/**
+ * A safe Reply-To address, or null (= keep the default). Header-injection safe: anything that is
+ * not one plain valid email address is dropped.
+ */
+function _normaliseReplyTo(?string $replyTo): ?string
+{
+    $replyTo = trim((string)$replyTo);
+    if ($replyTo === '' || preg_match('/[\r\n,;<>]/', $replyTo) || !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+        return null;
+    }
+    return $replyTo;
 }
 
 /**
@@ -1174,7 +1194,8 @@ function _sendViaPhpMailer(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath,
-    string $fromName
+    string $fromName,
+    ?string $replyTo = null
 ): ?array {
     $mail = _createMailer();
     if (!$mail) {
@@ -1183,6 +1204,10 @@ function _sendViaPhpMailer(
 
     try {
         $mail->setFrom('no-reply@mowology.ca', $fromName);
+        if ($replyTo !== null) {
+            $mail->clearReplyTos(); // _createMailer() adds office@mowology.ca by default
+            $mail->addReplyTo($replyTo);
+        }
         $mail->addAddress($to);
         $mail->Subject = $subject;
         $mail->isHTML(true);
@@ -1213,7 +1238,7 @@ function _sendViaPhpMailer(
         if ($attachmentPath) {
             $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
         }
 
         return [
@@ -1228,7 +1253,7 @@ function _sendViaPhpMailer(
         if ($attachmentPath) {
             $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
         }
 
         return [
@@ -1261,7 +1286,8 @@ function _sendSimpleHtmlEmail(
     string $to,
     string $subject,
     string $htmlBody,
-    string $fromName = 'Mowology'
+    string $fromName = 'Mowology',
+    ?string $replyTo = null
 ): bool {
     try {
         $fromEmail = 'no-reply@mowology.ca';
@@ -1269,7 +1295,7 @@ function _sendSimpleHtmlEmail(
         $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= 'Reply-To: ' . ($replyTo ?? 'office@mowology.ca') . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";

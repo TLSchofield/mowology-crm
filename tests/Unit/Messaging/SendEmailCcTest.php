@@ -17,7 +17,7 @@ class SendEmailCcTest extends TestCase
     public function test_cc_is_a_trailing_optional_parameter(): void
     {
         $params = (new ReflectionFunction('sendEmail'))->getParameters();
-        $this->assertSame(['to', 'subject', 'htmlBody', 'attachmentPath', 'fromName', 'attachments', 'cc'], array_map(fn($p) => $p->getName(), $params));
+        $this->assertSame(['to', 'subject', 'htmlBody', 'attachmentPath', 'fromName', 'attachments', 'cc', 'replyTo'], array_map(fn($p) => $p->getName(), $params));
         $this->assertTrue($params[6]->isOptional());
         $this->assertSame([], $params[6]->getDefaultValue());
     }

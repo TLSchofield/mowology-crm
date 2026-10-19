@@ -91,13 +91,17 @@ try {
     $to = EmbedLeadRules::notifyAddress($site);
     if ($to !== '') {
         require_once CRM_INCLUDES . '/messaging.php';
-        if (function_exists('sendCrmEmail')) {
-            @sendCrmEmail(
+        if (function_exists('sendEmail')) {
+            // Reply-To = the visitor, so "Reply" in the tenant's inbox goes straight to them.
+            @sendEmail(
                 $to,
                 'New website enquiry — ' . $site['name'],
                 EmbedLeadRules::notificationHtml($f, $id, (string)$site['name']),
                 null,
-                (string)$site['name']
+                (string)$site['name'],
+                [],
+                [],
+                $f['email']
             );
         }
     }
