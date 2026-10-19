@@ -8,13 +8,29 @@
 import SwiftUI
 
 struct WeekStripView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Binding var selectedDate: Date
     let weekDays: [ScheduleDay]
     @Namespace private var chipNamespace
 
     var body: some View {
-        HStack(spacing: 4) {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                ScrollView(.horizontal, showsIndicators: false) { dayChips }
+            } else {
+                dayChips
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, appStyle.isEnabled ? 8 : 12)
+        .padding(.vertical, 12)
+        .background(appStyle.surface)
+    }
+
+    private var dayChips: some View {
+        HStack(spacing: appStyle.isEnabled ? 2 : 4) {
             ForEach(weekDays) { day in
                 DayChip(day: day, isSelected: isSelected(day), ns: chipNamespace) {
                     selectDay(day)
@@ -22,9 +38,6 @@ struct WeekStripView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(Color(.systemBackground))
     }
 
     // MARK: - Helpers
@@ -58,6 +71,8 @@ struct WeekStripView: View {
 // MARK: - DayChip
 
 private struct DayChip: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let day: ScheduleDay
     let isSelected: Bool
@@ -70,49 +85,51 @@ private struct DayChip: View {
 
                 // Day name (e.g. "Mon")
                 Text(day.dayName.prefix(3).uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .font(appStyle.font(size: appStyle.isEnabled ? 12 : 10, weight: .semibold))
+                    .foregroundStyle(isSelected ? appStyle.onTenant : appStyle.meta)
 
                 // Day number (e.g. "3")
                 Text("\(day.dayNumber)")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(isSelected ? .white : (day.isToday ? Color.MW.green : .primary))
+                    .font(appStyle.font(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(isSelected ? appStyle.onTenant : (day.isToday ? appStyle.tenant : appStyle.text))
 
                 // Activity dot
                 Circle()
                     .fill(
                         day.stopCount > 0
-                            ? (day.hasIncomplete ? Color.MW.orange : Color.MW.green)
+                            ? ((isSelected && appStyle.isEnabled) ? appStyle.onTenant : (day.hasIncomplete ? appStyle.attention : appStyle.tenant))
                             : Color.clear
                     )
                     .frame(width: 6, height: 6)
             }
-            .frame(maxWidth: .infinity, minHeight: 72)
+            .frame(minWidth: dynamicTypeSize.isAccessibilitySize ? 72 : nil, maxWidth: .infinity, minHeight: 72)
             .background {
                 ZStack {
                     // Base layer — fades out when selected
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(day.isToday ? Color.MW.green.opacity(0.08) : Color(.systemGray6))
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(14))
+                        .fill(day.isToday ? appStyle.tenant.opacity(0.08) : appStyle.sunk)
                         .opacity(isSelected ? 0 : 1)
 
                     // Selected pill — matchedGeometryEffect makes it slide
                     // between chips rather than cross-fade in place.
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.MW.green)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(14))
+                            .fill(appStyle.tenant)
                             .matchedGeometryEffect(id: "chip", in: ns)
                     }
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(14))
                     .stroke(
-                        day.isToday && !isSelected ? Color.MW.green.opacity(0.4) : Color.clear,
+                        day.isToday && !isSelected ? appStyle.tenant.opacity(0.4) : Color.clear,
                         lineWidth: 1.5
                     )
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(day.dayName), \(day.dayNumber), \(day.stopCount) stops")
+        .accessibilityValue(isSelected ? "Selected" : (day.hasIncomplete ? "Work remaining" : ""))
     }
 }
 

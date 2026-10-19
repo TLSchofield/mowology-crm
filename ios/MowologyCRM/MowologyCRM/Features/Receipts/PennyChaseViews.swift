@@ -257,10 +257,11 @@ final class PennyChaseViewModel: ObservableObject {
         defer { busy = nil }
         do {
             let r = try await api.send(["mode": "reassign", "id": item.id, "user_id": person.id])
-            show(r.ok ? (r.message ?? "Penny will ask \(person.name).") : (r.message ?? r.error ?? "That didn't work."), error: !r.ok)
+            show(r.ok ? (r.message ?? "Penny will ask \(person.name).") : (r.message ?? r.error ?? "Receipt chase response ok=false; server returned no message/error field."), error: !r.ok)
             if r.ok { await loadAdmin() }
         } catch {
-            show("No connection — nothing was changed.", error: true)
+            AppDiagnostics.shared.record(category: "PennyChaseViews", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
     }
 
@@ -276,10 +277,11 @@ final class PennyChaseViewModel: ObservableObject {
                 total = items.reduce(0) { $0 + $1.amount }
                 show(r.message ?? "Thanks!", error: false)
             } else {
-                show(r.message ?? r.error ?? "That didn't work — try again.", error: true)
+                show(r.message ?? r.error ?? "Receipt chase response ok=false; server returned no message/error field.", error: true)
             }
         } catch {
-            show("No connection — nothing was changed. Try again when you have signal.", error: true)
+            AppDiagnostics.shared.record(category: "PennyChaseViews", message: ErrorDetails.describe(error))
+            show(ErrorDetails.describe(error), error: true)
         }
     }
 
@@ -299,6 +301,8 @@ final class PennyChaseViewModel: ObservableObject {
 
 /// "Penny needs 2 receipts ($84.10)". Hidden when nothing is missing.
 struct PennyCrewChaseCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyChaseViewModel
     /// Opens the receipt camera (the Receipts tab's own capture).
     let onSnap: @MainActor () -> Void
@@ -311,28 +315,28 @@ struct PennyCrewChaseCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     AsyncImage(url: URL(string: "https://mowology.ca/crm/img/heads/penny.jpg")) { phase in
-                        if let img = phase.image { img.resizable().scaledToFill() } else { Color.MW.light }
+                        if let img = phase.image { img.resizable().scaledToFill() } else { appStyle.sunk }
                     }
                     .frame(width: 36, height: 36)
                     .clipShape(Circle())
                     VStack(alignment: .leading, spacing: 1) {
                         Text(vm.items.isEmpty ? "Penny" : "Penny needs \(vm.items.count) receipt\(vm.items.count == 1 ? "" : "s")")
-                            .font(.subheadline.weight(.semibold))
+                            .font(appStyle.font(.subheadline, weight: .semibold))
                         if !vm.items.isEmpty {
                             Text("Card charges with no receipt yet · \(PennyChaseViewModel.money(vm.total))")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                     }
                 }
                 ForEach(vm.items) { item in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
-                            .font(.subheadline)
+                            .font(appStyle.font(.subheadline))
                             .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
+                        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
                             Button("Snap it") { onSnap() }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.MW.green)
+                                .tint(appStyle.tenant)
                             Button("It's already in") {
                                 alreadyFor = item
                                 Task { await vm.loadRecent(for: item) }
@@ -340,16 +344,16 @@ struct PennyCrewChaseCard: View {
                             .buttonStyle(.bordered)
                             Button("No receipt") { noReceiptFor = item }
                                 .buttonStyle(.borderless)
-                                .tint(.secondary)
+                                .tint(appStyle.meta)
                         }
-                        .font(.caption.weight(.semibold))
-                        .controlSize(.small)
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .controlSize(appStyle.isEnabled ? .large : .small)
                         .disabled(vm.busy != nil)
                     }
                     if item.id != vm.items.last?.id { Divider() }
                 }
                 if let m = vm.message {
-                    Text(m).font(.footnote).foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
+                    Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)
                 }
             }
             .padding(.vertical, 4)
@@ -372,6 +376,7 @@ struct PennyCrewChaseCard: View {
 
 /// "It's already in": your receipts from around the charge date, same amount first.
 struct PennyAlreadyInSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyChaseViewModel
     let item: PennyChaseItem
     let done: () -> Void
@@ -381,15 +386,16 @@ struct PennyAlreadyInSheet: View {
             List {
                 Section {
                     Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
-                        .font(.subheadline)
+                        .font(appStyle.font(.subheadline))
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 Section("Which receipt is it?") {
                     if vm.recentLoading {
                         HStack { Spacer(); ProgressView(); Spacer() }
                     } else if vm.recent.isEmpty {
                         Text("I can't see a receipt of yours from around then. If you have the paper one, snap it — or tell me it's gone.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.subheadline))
+                            .foregroundStyle(appStyle.meta)
                     }
                     ForEach(vm.recent) { rc in
                         Button {
@@ -400,24 +406,27 @@ struct PennyAlreadyInSheet: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(rc.vendor).font(.subheadline.weight(.semibold))
-                                    Text(PennyChaseViewModel.shortDate(rc.date)).font(.caption).foregroundStyle(.secondary)
+                                    Text(rc.vendor).font(appStyle.font(.subheadline, weight: .semibold))
+                                    Text(PennyChaseViewModel.shortDate(rc.date)).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                                 }
                                 Spacer()
                                 Text(PennyChaseViewModel.money(rc.total))
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(rc.sameAmount ? Color.MW.green : .primary)
+                                    .font(appStyle.font(.subheadline).monospacedDigit())
+                                    .foregroundStyle(rc.sameAmount ? appStyle.tenant : .primary)
                                 if rc.sameAmount {
-                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.MW.green)
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(appStyle.tenant)
                                 }
                             }
                         }
                         .disabled(vm.busy != nil)
                     }
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
             .navigationTitle("It's already in")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { done() } }
             }
@@ -430,6 +439,7 @@ struct PennyAlreadyInSheet: View {
 
 /// Everyone's missing receipts: who Penny is asking, and Reassign. Hidden when there are none.
 struct PennyChaseAdminSection: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyChaseViewModel
     @Environment(\.openURL) private var openURL
     @State private var expanded = false
@@ -443,10 +453,10 @@ struct PennyChaseAdminSection: View {
                     HStack {
                         Label(vm.adminSummary.isEmpty ? "\(vm.adminItems.count) receipts missing" : vm.adminSummary,
                               systemImage: "doc.badge.clock")
-                            .font(.subheadline.weight(.semibold))
+                            .font(appStyle.font(.subheadline, weight: .semibold))
                             .multilineTextAlignment(.leading)
                         Spacer(minLength: 4)
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption)
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down").font(appStyle.font(.caption))
                     }
                 }
                 .buttonStyle(.plain)
@@ -455,12 +465,12 @@ struct PennyChaseAdminSection: View {
                         HStack(alignment: .top, spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(item.vendor) · \(PennyChaseViewModel.money(item.amount))")
-                                    .font(.subheadline)
+                                    .font(appStyle.font(.subheadline))
                                 Text([PennyChaseViewModel.shortDate(item.date),
                                       item.who.isEmpty ? "nobody yet" : "asking \(item.who)",
                                       item.nudges > 0 ? "\(item.nudges) nudge\(item.nudges == 1 ? "" : "s")" : ""]
                                         .filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                             }
                             Spacer(minLength: 4)
                             Menu {
@@ -468,30 +478,31 @@ struct PennyChaseAdminSection: View {
                                     Button(p.name) { Task { await vm.reassign(item, to: p) } }
                                 }
                             } label: {
-                                if vm.busy == item.id { ProgressView().controlSize(.small) } else { Text("Reassign") }
+                                if vm.busy == item.id { ProgressView().controlSize(appStyle.isEnabled ? .large : .small) } else { Text("Reassign") }
                             }
-                            .font(.caption)
+                            .font(appStyle.font(.caption))
                             .disabled(vm.busy != nil || vm.people.isEmpty)
                         }
                     }
                     Button("Rules, cards and everything else on the web →") {
                         if let u = HeadCardViewModel.webURL("/crm/dashboard_appstack.php#mw-penny") { openURL(u) }
                     }
-                    .font(.caption)
+                    .font(appStyle.font(.caption))
                 }
                 if let m = vm.message {
-                    Text(m).font(.footnote).foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
+                    Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)
                 }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.MW.light, in: RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 }
 
 /// Penny's read-only lines from the web card: look-back, payments ↔ invoices, missing receipts.
 struct PennyLinesView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let lines: PennyLines?
     /// The missing-receipt line is shown by PennyChaseAdminSection when it has the list.
     var hideMissing = false
@@ -521,10 +532,10 @@ struct PennyLinesView: View {
             if let u = HeadCardViewModel.webURL(path) { openURL(u) }
         } label: {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: icon).foregroundStyle(Color.MW.green).frame(width: 18)
-                Text(text).font(.caption).multilineTextAlignment(.leading).foregroundStyle(.primary)
+                Image(systemName: icon).foregroundStyle(appStyle.tenant).frame(width: 18)
+                Text(text).font(appStyle.font(.caption)).multilineTextAlignment(.leading).foregroundStyle(appStyle.text)
                 Spacer(minLength: 4)
-                Image(systemName: "arrow.up.right.square").font(.caption).foregroundStyle(.secondary)
+                Image(systemName: "arrow.up.right.square").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
         }
         .buttonStyle(.plain)

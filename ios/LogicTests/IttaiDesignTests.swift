@@ -103,23 +103,6 @@ check(taskWords.isDisjoint(with: stateWords), "a word is both a task status and 
 check(!taskWords.contains("working") && !taskWords.contains("blocked"), "no employee word as a task status")
 
 // MARK: knowledge brain — BrainShape light-order ownership and front-face hit testing
-let evidence=KnowledgeEvidence(receiptsApproved:0,transactionsMatched:0,itemsRecognized:0,itemsNew:0,classificationDecided:0,unchangedStreak:0,classificationAccuracy:nil,lastVerified:nil,exceptions:[])
-let summaryItems:[KnowledgeVendor]=KnowledgeStage.allCases.enumerated().flatMap { index,stage in
-    (0...index).map { KnowledgeVendor(key:"\(stage.rawValue):\($0)",slot:index*10+$0,label:"Vendor",stage:stage,evidence:evidence) }
-}
-let summaryTallies=ItKnowledgeGeometry.stageTallies(summaryItems)
-let summaryActual:[KnowledgeStage:Int]=[.recognized:summaryTallies.recognized,.identified:summaryTallies.identified,.understood:summaryTallies.understood,.mastered:summaryTallies.mastered]
-for stage in KnowledgeStage.allCases {
-    check(summaryActual[stage]==summaryItems.filter{$0.stage==stage}.count,"summary \(stage.rawValue) count equals item stage tally")
-    check((summaryActual[stage] ?? -1)>=0,"summary \(stage.rawValue) count is non-negative")
-}
-check(summaryTallies.total==summaryItems.count && summaryTallies.known>=0 && summaryTallies.understoodOrBetter>=0,"all derived summary counts are item-based and non-negative")
-for count in [6,40] {
-    let best=ItKnowledgeGeometry.mostFrontYaw(count:count)
-    let shown=ItKnowledgeGeometry.projectedFaces(count:count,in:CGSize(width:300,height:300),yaw:best).filter{$0.front && $0.slot != nil}.count
-    let sampledMax=(0..<72).map { yaw in ItKnowledgeGeometry.projectedFaces(count:count,in:CGSize(width:300,height:300),yaw:Double(yaw)*2*Double.pi/72).filter{$0.front && $0.slot != nil}.count }.max()
-    check(shown==sampledMax,"reduced-motion yaw shows the most front vendor faces for \(count) vendors")
-}
 for count in [1,6,20,40] {
     let shape=BrainShape(count)
     for slot in 0..<count { check(ItKnowledgeGeometry.faceIndex(slot:slot,count:count)==shape.lightOrder[slot],"knowledge slot \(slot) follows shape \(count) lightOrder") }
@@ -140,6 +123,31 @@ if let back=projected40.first(where:{!$0.front && $0.slot != nil}) { check(ItKno
 check(ItKnowledgeGeometry.minimumHitDiameter >= 44, "knowledge targets are at least 44 pt")
 check(Set(["loose-lines","outline","fill","fill-keyline"]).count == 4, "four knowledge stages have distinct non-colour treatments")
 
+// A solid cannot exist before learning. Empty state is three independent moving strokes.
+check(ItKnowledgeGeometry.projectedFaces(count:0,in:CGSize(width:300,height:300)).isEmpty,"zero knowledge has no mesh")
+let chaos0=BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:0)
+let chaos10=BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:10)
+check(chaos0.count == 3 && chaos0.allSatisfy{$0.count == 2},"chaos is exactly three lines")
+check(chaos0 != chaos10,"chaos moves with time")
+check(chaos0 == BrainMotion.chaosSegments(in:CGSize(width:300,height:300),time:0),"reduced motion freezes chaos")
+var motion=BrainMotion()
+check(abs(motion.yaw(at:90)-motion.yaw(at:0)-2 * .pi)<0.000001,"one slow turn takes90 seconds")
+motion.drag(CGSize(width:40,height:20),at:10)
+let held=motion.yaw(at:10)
+check(motion.yaw(at:15)==held,"drag suspends auto rotation")
+motion.endDrag(at:15)
+check(abs(motion.yaw(at:15)-held)<0.000001,"release has no rotation jump")
+check(motion.yaw(at:16)>held,"auto rotation resumes after release")
+// All repeated vertices must project to identical screen coordinates; face shrinking breaks joins.
+let mesh=ItKnowledgeGeometry.projectedFaces(count:20,in:CGSize(width:300,height:300))
+let points=mesh.flatMap(\.points)
+check(Set(points.map{"\($0.x),\($0.y)"}).count < points.count,"adjoining faces share projected vertices")
+for count in [1,2,3,4,89,90,91,499,500] {
+    let shape=BrainShape(count)
+    check(shape.k==count && !shape.tris.isEmpty,"shape pathway boundary \(count) is preserved")
+    check(shape.tris==BrainShape(count).tris,"shape \(count) is deterministic")
+}
+
 // Machado 2009 severity-1.0 matrices. Fill RGB distance is supplemented by the non-colour outline/keyline cue.
 let machado:[String:[[Double]]]=[
  "protanopia":[[0.152286,1.052583,-0.204868],[0.114503,0.786281,0.099216],[-0.003882,-0.048116,1.051998]],
@@ -155,6 +163,18 @@ for mode in [ItMode.light,.dark] { let p=ItPalette(mode);for(name,m)in machado {
     // four non-colour shape cues. The navy ink is shared intentionally by the first two states.
     check(delta(d,u)+0.20>=0.12 && delta(d,g)+0.20>=0.12,"\(mode) \(name) four knowledge shapes distinguishable")
 } }
+
+// MARK: registry presentation — actual formatter, source values remain unchanged
+check(ItRegistryDisplay.registrationType("bc_registration") == "BC registration", "BC registry source code has a readable label")
+check(ItRegistryDisplay.registrationType("BC_REGISTRATION") == "BC registration", "BC registry label is case-insensitive")
+check(ItRegistryDisplay.registrationType("limited_liability_company") == "Limited liability company", "Unknown registration codes remain legible")
+check(ItRegistryDisplay.registrationType("Cooperative") == "Cooperative", "Existing display labels are preserved")
+check(ItRegistryDisplay.registeredDate("2026-10-18T12:34:56.123Z") == ItRegistryDisplay.registeredDate("2026-10-18"), "Fractional timestamps display as the same registry date")
+check(ItRegistryDisplay.registeredDate("2026-10-18T00:00:01Z") == ItRegistryDisplay.registeredDate("2026-10-18"), "Registry date uses UTC consistently rather than device timezone")
+check(ItRegistryDisplay.registeredDate("2026-10-18") != "2026-10-18", "ISO registry date is formatted for people")
+for unknown in ["not recorded", "2026-02-30", "2026-13-18", "", "2026-1-8"] {
+    check(ItRegistryDisplay.registeredDate(unknown) == unknown, "Unknown or invalid registry date is preserved: \(unknown)")
+}
 
 print(fails == 0 ? "Ittai design checks: all passed" : "Ittai design checks: \(fails) FAILED")
 exit(fails == 0 ? 0 : 1)

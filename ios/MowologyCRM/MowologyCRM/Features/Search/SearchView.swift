@@ -24,6 +24,7 @@ final class SearchViewModel: ObservableObject {
     @Published private(set) var recents: [SearchProperty] = []
     @Published private(set) var isSearching = false
     @Published private(set) var searchFailed = false
+    @Published private(set) var searchErrorDetails: String?
     @Published private(set) var hasSearched = false
 
     private(set) var fix: CLLocation?
@@ -87,6 +88,8 @@ final class SearchViewModel: ObservableObject {
             // Say so — an empty list would read as "no such client".
             results      = []
             searchFailed = true
+            searchErrorDetails = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "Search", message: ErrorDetails.describe(error))
         }
         hasSearched = true
         isSearching = false
@@ -119,6 +122,8 @@ final class SearchViewModel: ObservableObject {
 
 struct SearchView: View {
 
+    @Environment(\.itAppStyle) private var appStyle
+
     @StateObject private var vm: SearchViewModel
     private let authSession: AuthSession
 
@@ -137,6 +142,9 @@ struct SearchView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .itAppForm()
+            .itAppScreen()
+            .foregroundStyle(appStyle.text)
             .navigationTitle("Search")
             .searchable(text: $vm.query,
                         placement: .navigationBarDrawer(displayMode: .always),
@@ -160,23 +168,23 @@ struct SearchView: View {
             Section {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Searching…").foregroundStyle(.secondary)
+                    Text("Searching…").foregroundStyle(appStyle.meta)
                 }
             }
         } else if vm.searchFailed {
             Section {
-                Label("Couldn't search — check your signal and try again.", systemImage: "wifi.exclamationmark")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.MW.orange)
+                Label(vm.searchErrorDetails ?? "Search failed without error details.", systemImage: "wifi.exclamationmark")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.attention)
             }
         } else if vm.hasSearched && vm.results.isEmpty {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Nothing found for “\(vm.trimmedQuery)”")
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                     Text("Try part of the street name, the client's surname, or a phone number.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
                 .padding(.vertical, 4)
             }
@@ -184,6 +192,7 @@ struct SearchView: View {
             Section {
                 ForEach(vm.results) { property in
                     NavigationLink(value: property) { SearchResultRow(property: property) }
+                        .listRowBackground(appStyle.surface)
                 }
             } footer: {
                 if !vm.results.isEmpty {
@@ -201,6 +210,7 @@ struct SearchView: View {
             Section("Near you") {
                 ForEach(vm.nearby) { property in
                     NavigationLink(value: property) { SearchResultRow(property: property) }
+                        .listRowBackground(appStyle.surface)
                 }
             }
         }
@@ -209,14 +219,16 @@ struct SearchView: View {
             Section {
                 ForEach(vm.recents) { property in
                     NavigationLink(value: property) { SearchResultRow(property: property, showDistance: false) }
+                        .listRowBackground(appStyle.surface)
                 }
             } header: {
                 HStack {
                     Text("Recent")
                     Spacer()
                     Button("Clear") { vm.clearRecents() }
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                         .textCase(nil)
+                        .frame(minWidth: 48, minHeight: 48)
                 }
             }
         }
@@ -225,12 +237,12 @@ struct SearchView: View {
             Section {
                 VStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .font(.largeTitle)
-                        .foregroundStyle(Color(.systemGray3))
+                        .font(appStyle.font(.largeTitle))
+                        .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.systemGray3))
                     Text("Find a client, address, building or phone number")
-                        .font(.subheadline)
+                        .font(appStyle.font(.subheadline))
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(appStyle.meta)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 28)
@@ -244,6 +256,8 @@ struct SearchView: View {
 
 struct SearchResultRow: View {
 
+    @Environment(\.itAppStyle) private var appStyle
+
     let property: SearchProperty
     var showDistance = true
 
@@ -252,46 +266,46 @@ struct SearchResultRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(property.label)
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
+                        .font(appStyle.font(.body, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
                     if property.onToday {
                         Text("TODAY")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(appStyle.font(size: 9, weight: .bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(Color.MW.green)
-                            .foregroundStyle(.white)
+                            .background(appStyle.tenant)
+                            .foregroundStyle(appStyle.onTenant)
                             .clipShape(Capsule())
                     }
                 }
                 if !property.subtitle.isEmpty {
                     Text(property.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let client = property.clientLine {
                     Label(client, systemImage: "person.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let lastDone = property.lastDone {
                     Label(lastDone, systemImage: "clock.arrow.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else if property.plans.isEmpty {
                     Text("No active plan")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
             Spacer(minLength: 4)
             if showDistance, let distance = property.distanceText {
                 Text(distance)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption).monospacedDigit())
+                    .foregroundStyle(appStyle.meta)
             }
         }
         .padding(.vertical, 2)
@@ -302,14 +316,18 @@ struct SearchResultRow: View {
 
 struct PropertyDetailView: View {
 
+    @Environment(\.itAppStyle) private var appStyle
+
     /// What the result row already knew — shown instantly while the full page loads.
     let summary: SearchProperty
     @ObservedObject var searchVM: SearchViewModel
     let authSession: AuthSession
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var detail: SearchProperty?
     @State private var loadFailed = false
+    @State private var loadErrorDetails: String?
     @State private var confirmingPlan: SearchPlan?
     @State private var creatingJob = false
     @State private var toast: String?
@@ -327,42 +345,49 @@ struct PropertyDetailView: View {
     var body: some View {
         List {
             headerSection
+                .listRowBackground(appStyle.surface)
             actionsSection
 
             if let notes = property.notes {
                 Section("Site notes") {
-                    Text(notes).font(.subheadline)
+                    Text(notes).font(appStyle.font(.subheadline))
+                        .listRowBackground(appStyle.surface)
                 }
             }
 
             plansSection
+                .listRowBackground(appStyle.surface)
 
             if let upcoming = property.upcoming, !upcoming.isEmpty {
                 Section("Coming up") {
                     ForEach(upcoming) { visit in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(visit.planTitle).font(.subheadline.weight(.medium))
-                                Text(visit.visitNumber).font(.caption).foregroundStyle(.tertiary)
+                                Text(visit.planTitle).font(appStyle.font(.subheadline, weight: .medium))
+                                Text(visit.visitNumber).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                             }
                             Spacer()
                             Text(Self.friendlyDate(visit.scheduledDate))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption).monospacedDigit())
+                                .foregroundStyle(appStyle.meta)
                         }
+                        .listRowBackground(appStyle.surface)
                     }
                 }
             }
 
             if loadFailed {
                 Section {
-                    Label("Couldn't load the full details — showing what search returned.", systemImage: "wifi.exclamationmark")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.orange)
+                    Label(loadErrorDetails ?? "Property details failed without error details.", systemImage: "wifi.exclamationmark")
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.attention)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .itAppForm()
+        .itAppScreen()
+        .foregroundStyle(appStyle.text)
         .navigationTitle(property.label)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -411,11 +436,11 @@ struct PropertyDetailView: View {
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)
-                    .font(.subheadline.weight(.semibold))
+                    .font(appStyle.font(.subheadline, weight: .semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
                     .clipShape(Capsule())
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -433,14 +458,14 @@ struct PropertyDetailView: View {
     private var headerSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
-                Text(property.label).font(.title3.bold())
+                Text(property.label).font(appStyle.font(.title3, weight: .bold))
                 Text(property.fullAddress)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                 if let client = property.clientLine {
                     Label(client, systemImage: "person.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
                 }
                 HStack(spacing: 10) {
                     if let distance = property.distanceText {
@@ -450,8 +475,8 @@ struct PropertyDetailView: View {
                         Label("\(sqft.formatted()) sq ft lawn", systemImage: "square.dashed")
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
             }
             .padding(.vertical, 4)
         }
@@ -460,7 +485,7 @@ struct PropertyDetailView: View {
     /// Big tiles, like Start / Skip on the visit screen — these get pressed with gloves on.
     private var actionsSection: some View {
         Section {
-            HStack(spacing: 10) {
+            actionLayout {
                 actionTile("Navigate", icon: "arrow.triangle.turn.up.right.diamond.fill", enabled: true) {
                     openInMaps()
                 }
@@ -479,20 +504,33 @@ struct PropertyDetailView: View {
         }
     }
 
+    private var actionLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+    }
+
     private func actionTile(_ title: String, icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: icon).font(.title2)
-                Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                Image(systemName: icon).font(appStyle.font(.title2))
+                Text(title).font(appStyle.font(.caption, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 78)
-            .foregroundStyle(enabled ? Color.MW.green : Color(.systemGray3))
-            .background(enabled ? Color.MW.green.opacity(0.10) : Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(minHeight: 78)
+            .padding(.vertical, 8)
+            .foregroundStyle(enabled ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
+            .background(appStyle.isEnabled ? appStyle.surface : (enabled ? appStyle.tenant.opacity(0.10) : Color(.systemGray6)))
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    private var planLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
     }
 
     @ViewBuilder
@@ -500,27 +538,28 @@ struct PropertyDetailView: View {
         Section {
             if property.plans.isEmpty {
                 Text("No active plan at this property.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             ForEach(property.plans) { plan in
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
+                    planLayout {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(plan.title).font(.body.weight(.semibold))
+                            Text(plan.title).font(appStyle.font(.body, weight: .semibold))
                             if plan.history == nil, let summary = plan.summary {
-                                Text(summary).font(.caption).foregroundStyle(.secondary)
+                                Text(summary).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                             }
                         }
-                        Spacer()
+                        if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                         Button {
                             confirmingPlan = plan
                         } label: {
                             Label(plan.hasVisitToday ? "Add another" : "Add visit", systemImage: "plus.circle.fill")
-                                .font(.caption.weight(.semibold))
+                                .font(appStyle.font(.caption, weight: .semibold))
+                                .frame(minHeight: 48)
                         }
                         .buttonStyle(.bordered)
-                        .tint(Color.MW.green)
+                        .tint(appStyle.tenant)
                         .disabled(fieldJob.isSaving)
                     }
                     if let history = plan.history, !history.weeks.isEmpty {
@@ -534,7 +573,9 @@ struct PropertyDetailView: View {
                 creatingJob = true
             } label: {
                 Label("Create a new job here", systemImage: "plus.square.on.square")
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.body))
+                    .frame(minHeight: 48)
+                    .foregroundStyle(appStyle.tenant)
             }
         } header: {
             Text("Plans")
@@ -555,6 +596,8 @@ struct PropertyDetailView: View {
                 loadFailed = false
             }
         } catch {
+            loadErrorDetails = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "PropertyDetail", message: ErrorDetails.describe(error))
             loadFailed = detail == nil
         }
     }

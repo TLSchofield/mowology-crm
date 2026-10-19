@@ -21,10 +21,20 @@ func registerFonts() {
 
 @MainActor func save<V: View>(_ view: V, _ name: String, scale: CGFloat = 2) {
     let r = ImageRenderer(content: view); r.scale = scale
-    guard let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-          let png = rep.representation(using: .png, properties: [:]) else { print("render FAIL", name); return }
+    guard let img = r.cgImage else { print("render FAIL", name); return }
+    let bitmap = NSBitmapImageRep(cgImage: img)
+    // macOS ImageRenderer exposes bottom-up scanlines; PNG rows are top-down.
+    guard let bytes = bitmap.bitmapData else { print("render FAIL", name); return }
+    for y in 0..<(bitmap.pixelsHigh / 2) {
+        let top = bytes.advanced(by: y * bitmap.bytesPerRow)
+        let bottom = bytes.advanced(by: (bitmap.pixelsHigh - y - 1) * bitmap.bytesPerRow)
+        let row = Array(UnsafeBufferPointer(start: top, count: bitmap.bytesPerRow))
+        top.update(from: bottom, count: bitmap.bytesPerRow)
+        row.withUnsafeBufferPointer { bottom.update(from: $0.baseAddress!, count: bitmap.bytesPerRow) }
+    }
+    guard let png = bitmap.representation(using: .png, properties: [:]) else { print("render FAIL", name); return }
     try! png.write(to: URL(fileURLWithPath: "\(outDir)/\(name).png"))
-    print("wrote \(name).png \(Int(img.size.width))×\(Int(img.size.height))")
+    print("wrote \(name).png \(Int(CGFloat(img.width) / scale))×\(Int(CGFloat(img.height) / scale))")
 }
 
 func applyCVD(_ name:String, matrix:[[Double]]) {
@@ -57,13 +67,12 @@ func sampleKnowledge(_ count:Int = 40) -> KnowledgeResponse {
                             "last_verified":"Oct 12, 2026","exceptions":i==5 ? [["kind":"question","text":"Which category should this receipt use?"]] : []],
                 "next":[stage == "recognized" ? "Approve 1 receipt from this vendor" : "Approve and match one receipt from this vendor."]]
     }
-    let counts=Dictionary(grouping:vendors,by:{$0["stage"] as! String}).mapValues(\.count)
     let root:[String:Any] = ["ok":true,"head":"penny","kind":"vendor","generated_at":"2026-10-17T12:00:00Z",
-       "counts":["recognized":counts["recognized",default:0],"identified":counts["identified",default:0],"understood":counts["understood",default:0],"mastered":counts["mastered",default:0]],"items":vendors]
+       "counts":Dictionary(grouping: vendors, by: { $0["stage"] as! String }).mapValues { $0.count },"items":vendors]
     return try! JSONDecoder().decode(KnowledgeResponse.self,from:JSONSerialization.data(withJSONObject:root))
 }
 
-struct KnowledgeRender: View { let response:KnowledgeResponse;var yaw=ItKnowledgeGeometry.restingYaw;var body:some View { ItKnowledgeBrain(response:response,staticYaw:yaw) } }
+struct KnowledgeRender: View { let response:KnowledgeResponse; var body:some View { ItKnowledgeBrain(response:response) } }
 struct RecognizedTriangleRender: View {
     var body: some View { ItKnowledgeMark(stage:.recognized,size:96,key:"business-onboarding")
         .frame(maxWidth:.infinity,minHeight:130) }
@@ -163,23 +172,6 @@ struct OfficeScreen: View {
     }
 }
 
-/// Regression fixture: each head card failed, but Charlie's ready brief already supplied the row.
-struct OfficeBriefWinsRender: View {
-    @State private var selected: String? = "penny"
-    var body: some View {
-        let failedWithBrief = sampleSides(withStates: true).map { resolve($0, cardLoadFailed: true) }
-        ItAIOfficeView(brief: "The office is ready.", briefTime: "9:18 AM",
-                       charlie: sampleCharlie(true), sides: failedWithBrief, selected: $selected) { _ in EmptyView() }
-    }
-
-    private func resolve(_ brief: ItOfficeMember, cardLoadFailed: Bool) -> ItOfficeMember {
-        var row = brief
-        let briefProduced = brief.state != nil || brief.topItem != nil || brief.count != nil
-        row.loadFailed = cardLoadFailed && !briefProduced
-        return row
-    }
-}
-
 struct HeadScreen: View {
     @Environment(\.it) private var it
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -249,8 +241,90 @@ struct BriefStateCard: View {
     }
 }
 
+// Actual production Schedule components with synthetic fixtures. No duplicate card markup.
+struct ScheduleComponentsRender: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.it) private var palette
+    private let days = (19...25).enumerated().map { index, day in
+        ScheduleDay(date: "2026-10-\(day)", dayName: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+                    dayNumber: day, isToday: day == 20, stopCount: index % 3, visitCount: index % 3,
+                    hasIncomplete: index % 2 == 0)
+    }
+    private var selected: Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: 2026, month: 10, day: 20, hour: 12))!
+    }
+    private func stop(_ status: String, id: Int) -> Stop {
+        Stop(stopId: id, stopDate: "2026-10-20", stopStatus: status, routeOrder: id,
+             estimatedArrival: "10:45", propertyId: id,
+             propertyAddress: "123 Harbour Gardens Boulevard", propertyCity: "Vancouver",
+             propertyName: "Harbour Gardens Community Centre", latitude: nil, longitude: nil,
+             contactId: id, contactName: "Morgan Example", contactPhone: nil, contactEmail: nil,
+             onsiteContact: nil, companyName: "Harbour Community Association", lawnSqft: nil,
+             crewIds: [1, 2], crewNames: ["Alex Example", "Taylor Sample"], visitCount: 2,
+             visits: [Visit(visitId: id * 10, serviceType: "lawn_care", planTitle: "Weekly Lawn Care", visitStatus: status),
+                      Visit(visitId: id * 10 + 1, serviceType: "hedge_trimming", planTitle: "Hedge Trimming", visitStatus: status)],
+             propertyNotes: nil, stopNotes: nil)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Schedule · actual components").font(ItAppStyle(isEnabled: true, palette: palette).font(.title2))
+            WeekStripView(selectedDate: .constant(selected), weekDays: days)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? 150 : nil)
+            ForEach(Array(["scheduled", "in_progress", "completed"].enumerated()), id: \.offset) { index, status in
+                StopCardView(stop: stop(status, id: index + 1), isAdmin: true, distanceMeters: 1250)
+            }
+        }
+        .environment(\.itAppStyle, ItAppStyle(isEnabled: true, palette: palette))
+        .foregroundStyle(palette.text)
+    }
+}
+
+@MainActor func renderOnboardingChecks() {
+    let match = registryMatch("synthetic-one", "HARBOUR LANDSCAPING LTD.", operating: ["Harbour Lawn Care"])
+    let contacts = [BusinessContactSuggestion(field: .website, value: "harbour.example", source: .yourSettings, status: "suggested"),
+                    BusinessContactSuggestion(field: .phone, value: "604-555-0142", source: .yourSettings, status: "suggested"),
+                    BusinessContactSuggestion(field: .address, value: "42 Harbour Way, Victoria, BC", source: .yourSettings, status: "suggested")]
+    for mode in ItMode.allCases {
+        for (sizeName, size) in [("large", DynamicTypeSize.large), ("ax3", DynamicTypeSize.accessibility3)] {
+            for (name, state) in [("opening", ItPennyOnboardingState.opening), ("match", .oneMatch(match)), ("manual", .none(manual: true))] {
+                save(Screen(mode: mode, width: 375) { OnboardingRender(state: state) }
+                    .environment(\.dynamicTypeSize, size), "onboarding-375-\(sizeName)-\(name)-\(mode.rawValue)")
+            }
+            save(Screen(mode: mode, width: 375) { OnboardingRender(state: .confirmed(match.legalName), contacts: .available(contacts)) }
+                .environment(\.dynamicTypeSize, size), "onboarding-375-\(sizeName)-contacts-\(mode.rawValue)")
+        }
+    }
+}
+
 @MainActor func run() {
     registerFonts()
+    let renderSelection = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "all"
+    if renderSelection == "knowledge-only" {
+        for count in [0,1,2,3,6,20,40,45] {
+            save(Screen(mode: .light, width: 393) { KnowledgeRender(response: sampleKnowledge(count)) }, "knowledge-\(count)-light")
+        }
+        save(Screen(mode: .dark, width: 393) { KnowledgeRender(response: sampleKnowledge(45)) }, "knowledge-45-dark")
+        for time in [0.0,10.0] {
+            save(Screen(mode: .light, width: 393) { BrainChaos(time: time, color: ItPalette(.light).color(.knowledgeDiscovered)).frame(height: 300) }, "chaos-\(Int(time))")
+        }
+        return
+    }
+    if renderSelection != "schedule-only" { renderOnboardingChecks() }
+    if renderSelection == "onboarding-only" { return }
+    for mode in ItMode.allCases {
+        for width in [375, 393, 430] {
+            for (name, size) in [("large", DynamicTypeSize.large), ("ax3", DynamicTypeSize.accessibility3)] {
+                save(Screen(mode: mode, width: CGFloat(width)) { ScheduleComponentsRender() }
+                    .environment(\.dynamicTypeSize, size)
+                    .environment(\.locale, Locale(identifier: "en_CA"))
+                    .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!),
+                    "schedule-components-\(width)-\(name)-\(mode.rawValue)")
+            }
+        }
+    }
+    if CommandLine.arguments.count > 3 && CommandLine.arguments[3] == "schedule-only" { return }
     let one=registryMatch("one","HARBOUR LANDSCAPING LTD.",operating:["Harbour Lawn Care"])
     let several=[one,registryMatch("two","HARBOUR GARDENS INC."),registryMatch("three","HARBOUR YARD SERVICES LTD.")]
     let onboarding:[(String,ItPennyOnboardingState)]=[("opening",.opening),("searching",.searching),("one-match-single",.oneMatch(one)),("several",.several(several,selected:nil)),("none-manual",.none(manual:true)),("unavailable",.unavailable)]
@@ -290,7 +364,6 @@ struct BriefStateCard: View {
         let name="knowledge-brain-40-393-light-\(kind)";save(Screen(mode:.light,width:393){KnowledgeRender(response:sampleKnowledge(40))},name);applyCVD(name,matrix:matrix)
     }
     save(Screen(mode: .light) { OfficeScreen(withStates: true) }, "office-light-with-states")
-    save(Screen(mode: .light, width: 393) { OfficeBriefWinsRender() }, "office-rows-card-failed-brief-ready-393-light")
     let states: [(String, ItLoadState)] = [("loading", .loading), ("offline", .offline("8:42 AM")),
                                             ("error", .error), ("unavailable", .unavailable)]
     for (name, state) in states { save(Screen(mode: .light) { BriefStateCard(state: state) }, "brief-\(name)") }

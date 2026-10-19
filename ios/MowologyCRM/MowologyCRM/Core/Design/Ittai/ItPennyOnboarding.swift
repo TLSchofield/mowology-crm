@@ -3,15 +3,6 @@ import SwiftUI
 import UIKit
 #endif
 
-enum ItPennyOnboardingState: Equatable {
-    case opening
-    case searching
-    case oneMatch(BusinessRegistryMatch)
-    case several([BusinessRegistryMatch], selected: BusinessRegistryMatch?)
-    case none(manual: Bool)
-    case unavailable
-    case confirmed(String)
-}
 
 struct ItPennyOnboarding: View {
     let state: ItPennyOnboardingState
@@ -38,6 +29,7 @@ struct ItPennyOnboarding: View {
     @State private var showsLicence = false
     @Environment(\.it) private var it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let structures = ["", "Sole proprietorship", "Partnership", "Corporation", "Society", "Other"]
     private let jurisdictions = ["British Columbia", "Federal", "Alberta", "Other"]
@@ -51,8 +43,11 @@ struct ItPennyOnboarding: View {
                                animate: state.isConfirmed,
                                reducedMotion: reduceMotion)
                     .frame(width: 64, height: 64)
-                conversation.frame(maxWidth: .infinity, alignment: .leading)
+                Text(spokenLine).itText(.body16).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            conversation.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(ItSpace.s4)
         .background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg))
@@ -63,19 +58,11 @@ struct ItPennyOnboarding: View {
 
     @ViewBuilder private var conversation: some View {
         VStack(alignment: .leading, spacing: ItSpace.s4) {
-            Text(spokenLine).itText(.body16).fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
             switch state {
             case .opening:
-                if let error {
-                    Text(error).itText(.body14).foregroundStyle(it.color(.statusBlocked)).accessibilityLabel("Error: \(error)")
-                    Button("Retry", action: onRetry).buttonStyle(.plain).itText(.body14, weight: 600)
-                        .foregroundStyle(it.brand).frame(minHeight: ItSize.targetPhone)
-                } else {
-                    field("Business name", text: $name)
-                    Button("Continue") { onStart(name.trimmed) }
-                        .buttonStyle(ItOnboardingPrimaryButtonStyle()).disabled(name.trimmed.isEmpty || isBusy || !canEdit)
-                }
+                field("Business name", text: $name)
+                Button("Continue") { onStart(name.trimmed) }
+                    .buttonStyle(ItOnboardingPrimaryButtonStyle()).disabled(name.trimmed.isEmpty || isBusy || !canEdit)
             case .searching:
                 ProgressView().tint(it.brand).accessibilityLabel("Looking this up in the BC Registry")
             case .oneMatch(let match): matchActions(match)
@@ -90,6 +77,10 @@ struct ItPennyOnboarding: View {
             case .confirmed:
                 contactsCard
             }
+            if let error, !state.hasMatch {
+                Text(error).itText(.body14).foregroundStyle(it.color(.statusBlocked))
+                    .accessibilityLabel("Error: \(error)")
+            }
         }
     }
 
@@ -101,7 +92,7 @@ struct ItPennyOnboarding: View {
         case .several(_, nil): return "I found a few possible matches. Which one is yours?"
         case .none: return "I couldn't find a confident match. That's okay. We can enter your business details ourselves."
         case .unavailable: return "I can't reach the BC Registry right now."
-        case .confirmed: return "Perfect — I've identified your registered business. Let me see if I can find your website and contact details."
+        case .confirmed: return "Your business details are saved. Here are the contact details from your settings."
         }
     }
 
@@ -123,6 +114,7 @@ struct ItPennyOnboarding: View {
                 Text(error).itText(.body14).foregroundStyle(it.color(.statusBlocked)).accessibilityLabel("Error: \(error)")
                 Button("Retry") { onConfirm(match) }
                     .buttonStyle(.plain).itText(.body14, weight: 600).foregroundStyle(it.brand).frame(minHeight: ItSize.targetPhone)
+                    .disabled(isBusy || !canEdit)
             }
         }
         if showsOtherMatches { secondaryButton("Show other matches", action: onShowOtherMatches).disabled(isBusy) }
@@ -151,54 +143,85 @@ struct ItPennyOnboarding: View {
     private func registryCard(_ match: BusinessRegistryMatch) -> some View {
         let primary = registryRows(match)
         let more = moreRows(match)
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(primary.enumerated()), id: \.offset) { index, row in
-                compactRow(row.0, row.1, status: row.0 == "Status")
-                if index < primary.count - 1 { Divider().overlay(it.line) }
+        return VStack(alignment: .leading, spacing: ItSpace.s2) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(primary.enumerated()), id: \.offset) { index, row in
+                    compactRow(row.0, row.1, status: row.0 == "Status")
+                    if index < primary.count - 1 { Divider().overlay(it.line) }
+                }
+                if !more.isEmpty {
+                    Divider().overlay(it.line)
+                    DisclosureGroup("More details") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(more.enumerated()), id: \.offset) { index, row in
+                                compactRow(row.0, row.1)
+                                if index < more.count - 1 { Divider().overlay(it.line) }
+                            }
+                        }.padding(.top, ItSpace.s1)
+                    }.itText(.body14, weight: 600).padding(.vertical, ItSpace.s2)
+                }
             }
-            if !more.isEmpty {
-                Divider().overlay(it.line)
-                DisclosureGroup("More details") {
-                    VStack(spacing: 0) {
-                        ForEach(Array(more.enumerated()), id: \.offset) { index, row in
-                            compactRow(row.0, row.1)
-                            if index < more.count - 1 { Divider().overlay(it.line) }
-                        }
-                    }.padding(.top, ItSpace.s1)
-                }.itText(.body14, weight: 600).padding(.vertical, ItSpace.s2)
-            }
+            .padding(.horizontal, ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
+            attributionLine
         }
-        .padding(.horizontal, ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
-        .overlay(alignment: .bottomLeading) {
-            if match.source == "orgbook_bc" { attributionLine.padding(.top, ItSpace.s2).offset(y: 42) }
-        }
-        .padding(.bottom, match.source == "orgbook_bc" ? (showsLicence ? 96 : 42) : 0)
     }
 
     private var attributionLine: some View {
         VStack(alignment: .leading, spacing: ItSpace.s1) {
             HStack(spacing: ItSpace.s1) {
                 Text("Source: BC Registries via OrgBook BC").itText(.caption12).foregroundStyle(it.meta)
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button { showsLicence.toggle() } label: {
                     Image(systemName: "info.circle").frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
                 }.buttonStyle(.plain).foregroundStyle(it.brand).accessibilityLabel("About the registry information licence")
             }
             if showsLicence {
-                Text(attribution?.trimmed.nilIfEmpty
-                     ?? "Contains information licensed under the Open Government Licence – British Columbia.")
-                    .itText(.caption12).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Contains information licensed under the")
+                    Link("Open Government Licence – British Columbia.", destination: Self.licenceURL)
+                }.itText(.caption12).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     private func compactRow(_ label: String, _ value: String, status: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
-            Text(label).itText(.caption12).foregroundStyle(it.meta)
-            Spacer(minLength: ItSpace.s2)
-            if status { Circle().fill(it.color(.statusComplete)).frame(width: 7, height: 7).accessibilityHidden(true) }
-            Text(value).itText(.body14, weight: 600).multilineTextAlignment(.trailing)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                stackedRow(label, value, status: status)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
+                        Text(label).itText(.caption12).foregroundStyle(it.meta).fixedSize()
+                        Spacer(minLength: ItSpace.s2)
+                        registryValue(value, status: status).fixedSize()
+                    }
+                    stackedRow(label, value, status: status)
+                }
+            }
         }.padding(.vertical, ItSpace.s2)
+    }
+
+    private func stackedRow(_ label: String, _ value: String, status: Bool) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(label).itText(.caption12).foregroundStyle(it.meta)
+            if label == "Registration" {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    registryValue(value, status: status).fixedSize()
+                }
+            } else {
+                registryValue(value, status: status).fixedSize(horizontal: false, vertical: true)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func registryValue(_ value: String, status: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: ItSpace.s2) {
+            if status {
+                Circle().fill(it.color(value.lowercased() == "active" ? .statusComplete : .statusAttention))
+                    .frame(width: 7, height: 7).accessibilityHidden(true)
+            }
+            Text(value).itText(.body14, weight: 600)
+        }
     }
 
     private func registryRows(_ match: BusinessRegistryMatch) -> [(String, String)] {
@@ -209,7 +232,10 @@ struct ItPennyOnboarding: View {
 
     private func moreRows(_ match: BusinessRegistryMatch) -> [(String, String)] {
         [("Legal structure", match.legalStructure), ("Registration type", match.registrationType), ("Registered on", match.registeredOn)].compactMap { label, value in
-            value?.trimmed.nilIfEmpty.map { (label, $0) }
+            value?.trimmed.nilIfEmpty.map {
+                (label, label == "Registration type" ? ItRegistryDisplay.registrationType($0)
+                    : label == "Registered on" ? ItRegistryDisplay.registeredDate($0) : $0)
+            }
         }
     }
 
@@ -223,7 +249,9 @@ struct ItPennyOnboarding: View {
         VStack(alignment: .leading, spacing: ItSpace.s3) {
             Text("Contact details").itText(.heading16)
             switch contactsState {
-            case .idle, .loading:
+            case .idle:
+                Text("Contact details have not been checked yet.").itText(.body14).foregroundStyle(it.meta)
+            case .loading:
                 ProgressView().tint(it.brand).accessibilityLabel("Looking for website and contact details")
             case .missing:
                 Text("I'll look for your website and contact details next.").itText(.body14).foregroundStyle(it.meta)
@@ -232,9 +260,6 @@ struct ItPennyOnboarding: View {
             case .available(let contacts):
                 if contacts.isEmpty { Text("I'll look for your website and contact details next.").itText(.body14).foregroundStyle(it.meta) }
                 ForEach(contacts) { contact in contactRow(contact) }
-                if !contacts.isEmpty {
-                    Text("I'll go through these with you in the next step.").itText(.body14).foregroundStyle(it.meta)
-                }
             }
         }.padding(ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
     }
@@ -243,7 +268,8 @@ struct ItPennyOnboarding: View {
         VStack(alignment: .leading, spacing: ItSpace.s2) {
             Text(contact.field.label).itText(.caption12).foregroundStyle(it.meta)
             Text(contact.value).itText(.body14, weight: 600).fixedSize(horizontal: false, vertical: true)
-            Text("From your settings").itText(.caption12).foregroundStyle(it.meta)
+            Text(contact.source == .yourSettings ? "From your settings" : "From Google Places")
+                .itText(.caption12).foregroundStyle(it.meta)
         }.padding(.vertical, ItSpace.s1)
     }
 
@@ -269,7 +295,7 @@ struct ItPennyOnboarding: View {
     }
 
     private func prepareManual() { legalName = legalName.isEmpty ? name : legalName; onSelect(Self.manualSentinel) }
-    static let manualSentinel: BusinessRegistryMatch = decodeMatch(["record_id":"__manual__", "legal_name":"Manual entry"])
+    static let manualSentinel: BusinessRegistryMatch = decodeMatch(["record_id":BusinessRegistryMatch.manualID, "legal_name":"Manual entry"])
     static let licenceURL = URL(string: "https://www2.gov.bc.ca/gov/content/data/policy-standards/open-data/open-government-licence-bc")!
 
     private func announce(_ line: String) {
@@ -328,7 +354,7 @@ struct KnowledgeGlyph: View {
         }
         .padding(6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Business identity \(state.rawValue).")
+        .accessibilityLabel(state == .recognized ? "Business identity recognized." : "Business identity identified.")
         .onAppear { move(to: state) }
         .onChange(of: state) { move(to: $0) }
     }
@@ -370,6 +396,9 @@ private func decodeMatch(_ object: [String: Any]) -> BusinessRegistryMatch {
 }
 
 private extension ItPennyOnboardingState {
+    var hasMatch: Bool {
+        switch self { case .oneMatch, .several(_, .some): return true; default: return false }
+    }
     var isConfirmed: Bool { if case .confirmed = self { return true }; return false }
 }
 
@@ -381,4 +410,40 @@ private extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
     var nilIfEmpty: String? { isEmpty ? nil : self }
     func matches(_ other: String) -> Bool { trimmed.caseInsensitiveCompare(other.trimmed) == .orderedSame }
+}
+
+/// Registry presentation only: preserve unknown dates and keep source model values intact.
+enum ItRegistryDisplay {
+    static func registrationType(_ raw: String) -> String {
+        if raw.lowercased() == "bc_registration" { return "BC registration" }
+        guard raw.contains("_") else { return raw }
+        let words = raw.split(separator: "_").joined(separator: " ")
+        guard let first = words.first else { return raw }
+        return first.uppercased() + words.dropFirst()
+    }
+
+    static func registeredDate(_ raw: String) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = iso.date(from: raw)
+        if date == nil {
+            iso.formatOptions = [.withInternetDateTime]
+            date = iso.date(from: raw)
+        }
+        if date == nil {
+            let day = DateFormatter()
+            day.locale = Locale(identifier: "en_US_POSIX")
+            day.timeZone = TimeZone(secondsFromGMT: 0)
+            day.dateFormat = "yyyy-MM-dd"
+            day.isLenient = false
+            if let parsed = day.date(from: raw), day.string(from: parsed) == raw { date = parsed }
+        }
+        guard let date else { return raw }
+        let display = DateFormatter()
+        display.locale = Locale(identifier: "en_CA")
+        display.timeZone = TimeZone(secondsFromGMT: 0)
+        display.dateStyle = .medium
+        display.timeStyle = .none
+        return display.string(from: date)
+    }
 }

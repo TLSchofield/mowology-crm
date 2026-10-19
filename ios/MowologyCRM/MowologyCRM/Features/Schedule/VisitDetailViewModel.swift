@@ -199,7 +199,7 @@ final class VisitDetailViewModel: ObservableObject {
                     NotificationCenter.default.post(name: .mwShiftMayHaveStarted, object: nil)
                 }
             } else {
-                setError(response.message ?? "Failed to start job.")
+                setError(response.message ?? "Timer start response success=false; server returned no message field.")
             }
         } catch {
             if case APIError.networkError = error {
@@ -288,7 +288,7 @@ final class VisitDetailViewModel: ObservableObject {
                 }
                 gps.setActiveVisit(nil)
             } else {
-                setError(response.message ?? "Failed to complete job.")
+                setError(response.message ?? "Visit completion response success=false; server returned no message field.")
             }
         } catch {
             if case APIError.networkError = error {
@@ -343,7 +343,7 @@ final class VisitDetailViewModel: ObservableObject {
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "skipped"
             } else {
-                setError(response.message ?? "Failed to skip visit.")
+                setError(response.message ?? "Skip visit response success=false; server returned no message field.")
             }
         } catch let err as APIError {
             if case .networkError = err {

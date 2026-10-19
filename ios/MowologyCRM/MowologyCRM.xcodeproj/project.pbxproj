@@ -147,6 +147,11 @@
 		3D8FD989977B486AC9DEE6B9 /* BusinessIdentityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */; };
 		1F026EAD7B0D1581BE102C7C /* ItPennyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */; };
 		11C338527154C87158D3B049 /* BusinessIdentityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */; };
+		C748D31AC433D8161BB02062 /* ItAppStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB82E928047F3B941ED2F3A /* ItAppStyle.swift */; };
+		9E6F5D0BD6E0BC422A676535 /* AppDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA016765BFEB4FB08CA2DCE4 /* AppDiagnostics.swift */; };
+		1409F8F8BB74C1789E085540 /* AppCrashReports.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94E862D98908010B52CBA1B /* AppCrashReports.swift */; };
+		00DAF9A7A5E7A32129E224BF /* ErrorDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228A6AD1198D9525E9C288E1 /* ErrorDetails.swift */; };
+		FBE48893F616DE83AFF278BD /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95F2DB5E0EE0C3D1513983D /* DiagnosticsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -292,6 +297,11 @@
 		6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusinessIdentityModels.swift; sourceTree = "<group>"; };
 		E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItPennyOnboarding.swift; sourceTree = "<group>"; };
 		061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusinessIdentityViewModel.swift; sourceTree = "<group>"; };
+		8CB82E928047F3B941ED2F3A /* ItAppStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItAppStyle.swift; sourceTree = "<group>"; };
+		CA016765BFEB4FB08CA2DCE4 /* AppDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDiagnostics.swift; sourceTree = "<group>"; };
+		D94E862D98908010B52CBA1B /* AppCrashReports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCrashReports.swift; sourceTree = "<group>"; };
+		228A6AD1198D9525E9C288E1 /* ErrorDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorDetails.swift; sourceTree = "<group>"; };
+		C95F2DB5E0EE0C3D1513983D /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -390,6 +400,7 @@
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 				146DA49BE70A00338AC2B82B /* Offline */,
 							C6D4E0B37F8C9A0B12345678 /* Design */,
+				D79E2D6DC73D55246D8D2EEF /* Diagnostics */,
 );
 			path = Core;
 			sourceTree = "<group>";
@@ -615,8 +626,20 @@
 				5588C5DCBE6D32EB5F4A6DFF /* ItKnowledgeGeometry.swift */,
 				49A8299D43BF00A43B91CB36 /* ItKnowledgeBrain.swift */,
 				E9849C8ACFFEAB07A266D2DD /* ItPennyOnboarding.swift */,
+				8CB82E928047F3B941ED2F3A /* ItAppStyle.swift */,
 			);
 			path = Ittai;
+			sourceTree = "<group>";
+		};
+		D79E2D6DC73D55246D8D2EEF /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				CA016765BFEB4FB08CA2DCE4 /* AppDiagnostics.swift */,
+				D94E862D98908010B52CBA1B /* AppCrashReports.swift */,
+				228A6AD1198D9525E9C288E1 /* ErrorDetails.swift */,
+				C95F2DB5E0EE0C3D1513983D /* DiagnosticsView.swift */,
+			);
+			path = Diagnostics;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -824,6 +847,11 @@
 				3D8FD989977B486AC9DEE6B9 /* BusinessIdentityModels.swift in Sources */,
 				1F026EAD7B0D1581BE102C7C /* ItPennyOnboarding.swift in Sources */,
 				11C338527154C87158D3B049 /* BusinessIdentityViewModel.swift in Sources */,
+				C748D31AC433D8161BB02062 /* ItAppStyle.swift in Sources */,
+				9E6F5D0BD6E0BC422A676535 /* AppDiagnostics.swift in Sources */,
+				1409F8F8BB74C1789E085540 /* AppCrashReports.swift in Sources */,
+				00DAF9A7A5E7A32129E224BF /* ErrorDetails.swift in Sources */,
+				FBE48893F616DE83AFF278BD /* DiagnosticsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -897,7 +925,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.48;
+				MARKETING_VERSION = 1.3.53;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -983,7 +1011,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.48;
+				MARKETING_VERSION = 1.3.53;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

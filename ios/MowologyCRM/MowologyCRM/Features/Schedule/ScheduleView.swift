@@ -8,11 +8,13 @@
 import SwiftUI
 
 struct ScheduleView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ScheduleViewModel
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var ottoSuggestion: OttoSuggestion?
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
     @State private var viewMode       = ViewMode.list
@@ -30,6 +32,29 @@ struct ScheduleView: View {
 
     private enum ViewMode { case list, map }
 
+    /// Kept inside the navigation content so the calendar toolbar owns its safe area.
+    private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
+        Button {
+            notificationRouter.pendingHead = HeadRoute(head: "otto", quoteId: nil)
+        } label: {
+            HStack(spacing: 12) {
+                HeadFaceView(slug: "otto", name: "Otto", size: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Otto needs your attention").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(suggestion.text).font(appStyle.font(.subheadline)).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").accessibilityHidden(true)
+            }
+            .foregroundStyle(appStyle.text)
+            .padding(12)
+            .frame(minHeight: 48)
+            .background(appStyle.surface)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open Otto’s desk to review and act")
+    }
+
     // MARK: - Init
 
     init(authSession: AuthSession? = nil) {
@@ -43,6 +68,10 @@ struct ScheduleView: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
+
+                if let suggestion = ottoSuggestion, appStyle.isEnabled, authSession.user?.isAdmin == true {
+                    ottoPrompt(suggestion)
+                }
 
                 // MARK: Week Strip
                 WeekStripView(
@@ -101,13 +130,35 @@ struct ScheduleView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
+            .itAppScreen()
         }
         .task {
             await viewModel.refresh()
             viewModel.startPolling()
             // Cold start from a notification tap: the route is already waiting.
             await follow(notificationRouter.pendingRoute)
+        }
+        .task(id: "\(scenePhase)-\(appStyle.isEnabled)") {
+            guard scenePhase == .active, authSession.user?.isAdmin == true, appStyle.isEnabled else {
+                ottoSuggestion = nil
+                return
+            }
+            ottoSuggestion = nil
+            do {
+                let response: HeadCardResponse = try await APIClient(authSession: authSession)
+                    .request(.teamHeadBrief(head: "otto"))
+                try Task.checkCancellation()
+                if response.ok {
+                    ottoSuggestion = response.otto?.scheduleAttention
+                } else {
+                    AppDiagnostics.shared.record(category: "schedule.otto", message: response.error ?? "team-mobile brief head=otto returned ok=false without an error field")
+                }
+            } catch is CancellationError {
+                // Leaving Schedule cancels the request; no stale prompt survives the next appearance.
+            } catch {
+                AppDiagnostics.shared.record(category: "schedule.otto", message: ErrorDetails.describe(error))
+            }
         }
         .onChange(of: notificationRouter.pendingRoute) { _, route in
             Task { await follow(route) }
@@ -122,6 +173,7 @@ struct ScheduleView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+            ottoSuggestion = nil
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -180,14 +232,14 @@ struct ScheduleView: View {
                 displayedComponents: .date
             )
             .datePickerStyle(.graphical)
-            .tint(Color.MW.green)
+            .tint(appStyle.tenant)
             .padding(.horizontal)
             .navigationTitle("Jump to Date")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showDatePicker = false }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Go") {
@@ -195,8 +247,8 @@ struct ScheduleView: View {
                         showDatePicker = false
                         Task { await viewModel.selectDate(pickerDate) }
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.tenant)
                 }
             }
         }
@@ -230,9 +282,9 @@ struct ScheduleView: View {
                     HStack(spacing: 4) {
                         Text(viewModel.jobTypes.first(where: { $0.value == viewModel.jobType })?.label ?? "All job types")
                             .lineLimit(1)
-                        Image(systemName: "chevron.down").font(.caption2)
+                        Image(systemName: "chevron.down").font(appStyle.font(.caption2))
                     }
-                    .font(.subheadline)
+                    .font(appStyle.font(.subheadline))
                     .frame(minHeight: 44)
                 }
             }
@@ -262,8 +314,8 @@ struct ScheduleView: View {
                 Task { await viewModel.selectDate(.now) }
             } label: {
                 Text("Today")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.subheadline, weight: .medium))
+                    .foregroundStyle(appStyle.tenant)
             }
         }
 
@@ -273,8 +325,8 @@ struct ScheduleView: View {
                 showDatePicker = true
             } label: {
                 Text(viewModel.selectedDate.formatted(.dateTime.month(.wide)))
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(appStyle.font(.headline, weight: .semibold))
+                    .foregroundStyle(appStyle.text)
             }
             .buttonStyle(.plain)
         }
@@ -285,7 +337,7 @@ struct ScheduleView: View {
                 showingFieldJob = true
             } label: {
                 Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
             }
             .accessibilityLabel("Add a job")
         }
@@ -296,7 +348,7 @@ struct ScheduleView: View {
                 viewMode = viewMode == .list ? .map : .list
             } label: {
                 Image(systemName: viewMode == .list ? "map" : "list.bullet")
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
             }
         }
 
@@ -305,7 +357,7 @@ struct ScheduleView: View {
                 Task { await viewModel.invalidateAndRefresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
             }
             .disabled(viewModel.isLoading)
         }

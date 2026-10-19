@@ -157,22 +157,15 @@ struct ItEmployeeStateLabel: View {
     var detail: String? = nil
     @Environment(\.it) private var it
 
-    private var words: String {
-        guard let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines), !detail.isEmpty else {
-            return state.words
-        }
-        return "\(state.words) · \(detail)"
-    }
-
     var body: some View {
         HStack(spacing: 4) {
             ItIcon(shape: state.icon, size: 12, color: it.color(state.token))
-            Text(words)
+            Text(detail.map { "\(state.words) · \($0)" } ?? state.words)
         }
         .itText(.caption12)
         .foregroundStyle(it.color(state.token))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Employee state: " + words.replacingOccurrences(of: " · ", with: ", "))
+        .accessibilityLabel("Employee state: " + (detail.map { "\(state.words), \($0)" } ?? state.words))
     }
 }
 

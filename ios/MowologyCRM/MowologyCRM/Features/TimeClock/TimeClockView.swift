@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct TimeClockView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: TimeClockViewModel
@@ -38,16 +40,17 @@ struct TimeClockView: View {
 
                     if let notice = viewModel.serverStopNotice {
                         HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "info.circle.fill").foregroundStyle(Color.MW.orange)
-                            Text(notice).font(.footnote)
+                            Image(systemName: "info.circle.fill").foregroundStyle(appStyle.attention)
+                            Text(notice).font(appStyle.font(.footnote))
                             Spacer(minLength: 0)
                             Button { viewModel.serverStopNotice = nil } label: {
-                                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                                Image(systemName: "xmark").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                                    .frame(minWidth: appStyle.isEnabled ? 48 : nil, minHeight: appStyle.isEnabled ? 48 : nil)
                             }
                         }
                         .padding(12)
-                        .background(Color.MW.orange.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .background(appStyle.attention.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                         .padding(.horizontal, 16)
                     }
 
@@ -76,24 +79,25 @@ struct TimeClockView: View {
                     } label: {
                         HStack {
                             Label("My Timesheet", systemImage: "calendar.badge.clock")
-                                .font(.subheadline.weight(.semibold))
+                                .font(appStyle.font(.subheadline, weight: .semibold))
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                                .font(appStyle.font(.footnote, weight: .semibold))
+                                .foregroundStyle(appStyle.meta)
                         }
                         .padding(16)
-                        .background(Color(.systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .background(appStyle.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                     }
-                    .tint(.primary)
+                    .tint(appStyle.text)
                     .padding(.horizontal, 16)
 
                     Spacer(minLength: 32)
                 }
                 .padding(.top, 24)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
+            .itAppScreen()
             .navigationTitle("Time Clock")
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadStatus() }
@@ -139,46 +143,46 @@ struct TimeClockView: View {
             // Status icon
             ZStack {
                 Circle()
-                    .fill(viewModel.clockedIn ? Color.MW.green.opacity(0.12) : Color(.systemGray5))
+                    .fill(viewModel.clockedIn ? appStyle.tenant.opacity(0.12) : (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray5)))
                     .frame(width: 100, height: 100)
 
                 Image(systemName: viewModel.clockedIn ? "clock.fill" : "clock")
-                    .font(.system(size: 44))
-                    .foregroundStyle(viewModel.clockedIn ? Color.MW.green : Color(.systemGray2))
+                    .font(appStyle.font(size: 44))
+                    .foregroundStyle(viewModel.clockedIn ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
             }
 
             // Status label
             Text(viewModel.clockedIn ? "Clocked In" : "Clocked Out")
-                .font(.title2.bold())
-                .foregroundStyle(viewModel.clockedIn ? Color.MW.green : .primary)
+                .font(appStyle.font(.title2, weight: .bold))
+                .foregroundStyle(viewModel.clockedIn ? appStyle.tenant : appStyle.text)
 
             // Pending sync indicator (action was accepted locally, waiting for signal)
             if viewModel.isPendingSync {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                     Text("Saved — will sync when signal returns")
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                 }
-                .foregroundStyle(Color.MW.green)
+                .foregroundStyle(appStyle.isEnabled ? appStyle.saved : appStyle.tenant)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Color.MW.green.opacity(0.10))
-                .clipShape(Capsule())
+                .background((appStyle.isEnabled ? appStyle.saved : appStyle.tenant).opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
             }
 
             // A punch the server refused — kept on the phone, never counted as sent (2026-10-12).
             if let refused = viewModel.rejectedPunch {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("A punch could not be filed: \(refused)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.orange)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.attention)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("It is still saved on this phone. Tell the office so your time can be corrected.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                     Button("I've dealt with it — remove") { viewModel.discardRejectedPunches() }
-                        .font(.caption.weight(.semibold))
-                        .tint(Color.MW.orange)
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .tint(appStyle.attention)
                 }
                 .padding(.horizontal, 12)
             }
@@ -186,13 +190,13 @@ struct TimeClockView: View {
             // Elapsed time (only when clocked in)
             if viewModel.clockedIn {
                 Text(viewModel.elapsedFormatted)
-                    .font(.system(size: 44, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(size: 44, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(appStyle.tenant)
 
                 if let clockIn = viewModel.clockInTime {
                     Text("Since \(formattedClockIn(clockIn))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -217,26 +221,26 @@ struct TimeClockView: View {
                 HStack(spacing: 8) {
                     if viewModel.isLoading {
                         ProgressView()
-                            .tint(.white)
+                            .tint(appStyle.onTenant)
                             .scaleEffect(0.8)
                     } else {
                         Image(systemName: viewModel.clockedIn ? "stop.fill" : "play.fill")
                     }
                     Text(viewModel.clockedIn ? "Clock Out" : "Clock In")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(viewModel.clockedIn ? Color.red : Color.MW.green)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(viewModel.clockedIn ? appStyle.blocked : appStyle.tenant)
+                .foregroundStyle(appStyle.onTenant)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .disabled(viewModel.isLoading)
         }
         .padding(24)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
+        .shadow(color: appStyle.shadow(0.05), radius: 8, x: 0, y: 2)
     }
 
     // MARK: - Break Card
@@ -247,15 +251,15 @@ struct TimeClockView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "cup.and.saucer.fill")
                     Text("On break since \(breaks.sinceLabel)")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                 }
-                .foregroundStyle(Color.MW.orange)
+                .foregroundStyle(appStyle.attention)
 
                 Text(breaks.savedLocally
                      ? "Location sharing is paused. Saved on this phone — it will file when signal returns."
                      : "Location sharing is paused until you end your break.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
                     .multilineTextAlignment(.center)
             }
 
@@ -267,39 +271,39 @@ struct TimeClockView: View {
             } label: {
                 HStack(spacing: 8) {
                     if breaks.isBusy {
-                        ProgressView().tint(.white).scaleEffect(0.8)
+                        ProgressView().tint(appStyle.onTenant).scaleEffect(0.8)
                     } else {
                         Image(systemName: breaks.isOnBreak ? "play.fill" : "cup.and.saucer.fill")
                     }
                     Text(breaks.isOnBreak ? "End break" : "Start break")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(breaks.isOnBreak ? Color.MW.orange : Color.MW.green)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(breaks.isOnBreak ? appStyle.attention : appStyle.tenant)
+                .foregroundStyle(appStyle.onTenant)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .disabled(breaks.isBusy)
 
             if let msg = breaks.message {
                 Text(msg)
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.attention)
                     .multilineTextAlignment(.center)
             }
 
             Text(breaks.isOnBreak
                  ? (breaks.paid ? "Breaks are paid." : "Breaks are unpaid — this time comes off your paid hours.")
                  : "Location sharing pauses during your break. " + (breaks.paid ? "Breaks are paid." : "Breaks are unpaid."))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption2))
+                .foregroundStyle(appStyle.meta)
                 .multilineTextAlignment(.center)
         }
         .padding(16)
         .frame(maxWidth: .infinity)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
     }
 
     // MARK: - Active Job Card
@@ -307,19 +311,19 @@ struct TimeClockView: View {
     private func activeJobCard(_ job: ActiveJobTimer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Active Job", systemImage: "briefcase.fill")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.footnote, weight: .semibold))
+                .foregroundStyle(appStyle.meta)
                 .textCase(.uppercase)
 
-            HStack {
+            AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(job.jobTitle ?? "Job in Progress")
-                        .font(.subheadline.bold())
+                        .font(appStyle.font(.subheadline, weight: .bold))
 
                     if let address = job.propertyAddress {
                         Text(address)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
                     }
                 }
 
@@ -327,18 +331,18 @@ struct TimeClockView: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(formattedElapsed(job.elapsedSeconds))
-                        .font(.subheadline.monospacedDigit().bold())
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                        .foregroundStyle(appStyle.tenant)
                     Text("elapsed")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
         }
         .padding(16)
-        .background(Color.MW.green.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.MW.green.opacity(0.2), lineWidth: 1))
+        .background(appStyle.tenant.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(appStyle.tenant.opacity(0.2), lineWidth: 1))
     }
 
     // MARK: - Error Banner
@@ -346,21 +350,22 @@ struct TimeClockView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.MW.orange)
+                .foregroundStyle(appStyle.attention)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(Color.MW.orange)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.attention)
             Spacer()
             Button { viewModel.errorMessage = nil } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption, weight: .bold))
+                    .foregroundStyle(appStyle.attention)
+                    .frame(minWidth: appStyle.isEnabled ? 48 : nil, minHeight: appStyle.isEnabled ? 48 : nil)
             }
         }
         .padding(12)
-        .background(Color.MW.orange.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.orange.opacity(0.25), lineWidth: 1))
+        .background(appStyle.attention.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.attention.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Helpers

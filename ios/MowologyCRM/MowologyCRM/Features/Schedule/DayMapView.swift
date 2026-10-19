@@ -9,6 +9,7 @@ import SwiftUI
 import MapKit
 
 struct DayMapView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stops: [Stop]
     let isLoading: Bool
@@ -40,7 +41,7 @@ struct DayMapView: View {
     ]
 
     private func color(forUserId userId: Int) -> Color {
-        if let me = currentUserId, userId == me { return Color.MW.green }
+        if let me = currentUserId, userId == me { return appStyle.tenant }
         return Self.trailPalette[abs(userId) % Self.trailPalette.count]
     }
 
@@ -92,9 +93,9 @@ struct DayMapView: View {
                     }
                 } label: {
                     Image(systemName: isCarouselCollapsed ? "chevron.up" : "chevron.down")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(Color.MW.green)
-                        .frame(width: 56, height: 30)
+                        .font(appStyle.font(.footnote, weight: .bold))
+                        .foregroundStyle(appStyle.tenant)
+                        .frame(width: 56, height: appStyle.isEnabled ? 48 : 30)
                         .background(.regularMaterial, in: Capsule())
                 }
                 .accessibilityLabel(isCarouselCollapsed ? "Show stops" : "Hide stops")
@@ -105,10 +106,10 @@ struct DayMapView: View {
                         fitCameraToAll()
                     } label: {
                         Label("All stops", systemImage: "arrow.up.left.and.arrow.down.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.caption, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
                             .padding(.horizontal, 12)
-                            .frame(height: 30)
+                            .frame(height: appStyle.isEnabled ? 48 : 30)
                             .background(.regularMaterial, in: Capsule())
                     }
                     .transition(.opacity)
@@ -216,7 +217,7 @@ struct DayMapView: View {
             MapUserLocationButton()
             MapCompass()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
     }
 
     // MARK: - Empty State
@@ -225,18 +226,18 @@ struct DayMapView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "map")
-                .font(.system(size: 52))
-                .foregroundStyle(Color(.systemGray3))
+                .font(appStyle.font(size: 52))
+                .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
             Text("No Stops Scheduled")
-                .font(.title3.bold())
+                .font(appStyle.font(.title3, weight: .bold))
             Text("There are no stops on this day.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
                 .multilineTextAlignment(.center)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
     }
 
     // MARK: - Camera
@@ -293,6 +294,7 @@ struct DayMapView: View {
 // MARK: - Crew Pin
 
 private struct CrewPin: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let crew: CrewLiveLocation
     let color: Color
@@ -318,15 +320,15 @@ private struct CrewPin: View {
                 .fill(isStale ? color.opacity(0.45) : color)
                 .frame(width: 30, height: 30)
                 .overlay(Circle().stroke(.white, lineWidth: 2))
-                .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+                .shadow(color: appStyle.shadow(0.22), radius: 3, y: 2)
 
             if crew.isTruck {
                 Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(appStyle.font(size: 13, weight: .bold))
                     .foregroundStyle(.white)
             } else {
                 Text(initials)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(appStyle.font(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             }
         }
@@ -336,18 +338,19 @@ private struct CrewPin: View {
 // MARK: - Stop Pin
 
 private struct StopPin: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stop: Stop
     let isSelected: Bool
     let routeOrder: Int
 
     private var pinColor: Color {
-        if stop.isComplete   { return Color(.systemGray) }
-        if stop.isInProgress { return Color.MW.green }
-        return Color.MW.green
+        if stop.isComplete   { return appStyle.color(.meta, legacy: Color(.systemGray)) }
+        if stop.isInProgress { return appStyle.tenant }
+        return appStyle.tenant
     }
 
-    private var selectedColor: Color { Color.MW.dark }
+    private var selectedColor: Color { appStyle.color(.tenant, legacy: Color.MW.dark) }
 
     private var iconName: String {
         if stop.isComplete   { return "checkmark" }
@@ -364,20 +367,20 @@ private struct StopPin: View {
                     .overlay(
                         Circle().stroke(.white, lineWidth: isSelected ? 3 : 2)
                     )
-                    .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+                    .shadow(color: appStyle.shadow(0.22), radius: 3, y: 2)
 
                 if stop.isComplete {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 13, weight: .bold))
+                        .foregroundStyle(appStyle.onTenant)
                 } else if stop.isInProgress {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 10, weight: .bold))
+                        .foregroundStyle(appStyle.onTenant)
                 } else {
                     Text("\(routeOrder)")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(appStyle.onTenant)
                 }
             }
 
@@ -407,6 +410,7 @@ private struct PinTail: Shape {
 /// One stop in the map carousel. The whole card opens the stop; Directions and
 /// Move are reachable without leaving the map.
 private struct StopCarouselCard: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     static let height: CGFloat = 148
 
@@ -418,7 +422,7 @@ private struct StopCarouselCard: View {
     let onMove: () -> Void
 
     private var statusColor: Color {
-        stop.isComplete ? Color(.systemGray) : Color.MW.green
+        stop.isComplete ? Color(.systemGray) : appStyle.tenant
     }
 
     private var distanceText: String? {
@@ -432,51 +436,51 @@ private struct StopCarouselCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(stop.estimatedArrival ?? "Anytime")
-                            .font(.subheadline.monospacedDigit().bold())
+                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
                             .foregroundStyle(statusColor)
 
                         if stop.isComplete {
                             Label("Done", systemImage: "checkmark.circle.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption, weight: .semibold))
+                                .foregroundStyle(appStyle.meta)
                         } else if stop.isInProgress {
                             Label("In progress", systemImage: "play.circle.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.MW.green)
+                                .font(appStyle.font(.caption, weight: .semibold))
+                                .foregroundStyle(appStyle.tenant)
                         }
 
                         Spacer()
 
                         if let distanceText {
                             Label(distanceText, systemImage: "location.fill")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption).monospacedDigit())
+                                .foregroundStyle(appStyle.meta)
                         }
                         Text("\(routeOrder)/\(total)")
-                            .font(.caption.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(appStyle.meta)
                     }
 
                     Text(stop.headline ?? stop.propertyAddress)
-                        .font(.body.bold())
-                        .foregroundStyle(.primary)
+                        .font(appStyle.font(.body, weight: .bold))
+                        .foregroundStyle(appStyle.text)
                         .lineLimit(1)
 
                     Text(stop.headline == nil ? stop.propertyCity : stop.fullAddress)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
                         .lineLimit(1)
 
                     if let line = stop.historyLine {
                         Label(line.service.map { "\($0): \(line.text)" } ?? line.text,
                               systemImage: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
-                            .font(.caption)
+                            .font(appStyle.font(.caption))
                             .lineLimit(1)
-                            .foregroundStyle(line.warning ? Color.MW.orange : .secondary)
+                            .foregroundStyle(line.warning ? appStyle.attention : .secondary)
                     } else if let first = stop.visits.first {
                         Text(first.serviceTypeLabel + (stop.visits.count > 1 ? " +\(stop.visits.count - 1)" : ""))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
                             .lineLimit(1)
                     }
                 }
@@ -490,19 +494,19 @@ private struct StopCarouselCard: View {
             HStack(spacing: 8) {
                 Button(action: openDirections) {
                     Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                        .font(.caption.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 34)
-                        .foregroundStyle(.white)
-                        .background(Color.MW.green, in: RoundedRectangle(cornerRadius: 9))
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 34)
+                        .foregroundStyle(appStyle.onTenant)
+                        .background(appStyle.tenant, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(9)))
                 }
 
                 if canMove {
                     Button(action: onMove) {
                         Label("Move", systemImage: "calendar.badge.clock")
-                            .font(.caption.weight(.semibold))
+                            .font(appStyle.font(.caption, weight: .semibold))
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .foregroundStyle(Color.MW.green)
-                            .background(Color.MW.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                            .foregroundStyle(appStyle.tenant)
+                            .background(appStyle.tenant.opacity(0.10), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(9)))
                     }
                 }
             }
@@ -510,9 +514,9 @@ private struct StopCarouselCard: View {
         }
         .padding(14)
         .frame(height: Self.height)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.14), radius: 12, x: 0, y: 3)
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(16), style: .continuous))
+        .shadow(color: appStyle.shadow(0.14), radius: 12, x: 0, y: 3)
     }
 
     private func openDirections() {

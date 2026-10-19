@@ -14,22 +14,29 @@ final class ReadyBriefStore: ObservableObject {
     @Published private(set) var loaded = false
     @Published private(set) var failed = false
     @Published private(set) var updatedAt: Date?
-    private var loading = false
+    private var refreshTask: Task<Void, Never>?
 
     func refresh(authSession: AuthSession, force: Bool = false) async {
-        guard !loading, force || !loaded else { return }
-        loading = true; failed = false
-        defer { loading = false; loaded = true }
-        do {
-            let value: HeadCardResponse = try await APIClient(authSession: authSession)
-                .request(.teamHeadBriefReady(head: "charlie"))
-            guard value.ok else { failed = true; return }
-            response = value; updatedAt = Date()
-        } catch { failed = true }
+        if let refreshTask { await refreshTask.value; return }
+        guard force || !loaded || failed else { return }
+        let task = Task { @MainActor in
+            failed = false
+            do {
+                let value: HeadCardResponse = try await APIClient(authSession: authSession)
+                    .request(.teamHeadBriefReady(head: "charlie"))
+                if value.ok { response = value; updatedAt = Date() }
+                else { failed = true }
+            } catch { failed = true }
+            loaded = true
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
     }
 }
 
 struct MainTabView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
@@ -89,15 +96,16 @@ struct MainTabView: View {
                     .tag(Tab.account)
             }
         }
-        .tint(Color.MW.green)
+        .tint(appStyle.tenant)
+        .itAppScreen()
         .safeAreaInset(edge: .top, spacing: 0) {
-            if authSession.user?.isAdmin == true && ittaiDesignEnabled {
+            if selectedTab != .schedule && authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 ItOfficeBar(members: officeBarMembers,
-                            connectionUnavailable: readyBriefStore.failed && readyBriefStore.response == nil,
+                            connectionUnavailable: readyBriefStore.failed,
                             portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
                                 ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
                     selectedTab = .account
-                    NotificationCenter.default.post(name: .mwOfficeBarHeadSelected, object: slug)
+                    notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
                 }
                 .ittaiTheme(field: ittaiFieldEnabled)
             }
@@ -149,7 +157,7 @@ struct MainTabView: View {
         return order.map { slug, name in
             let report = readyBriefStore.response?.heads?[slug]
             return ItOfficeMember(id: slug, name: name, department: "",
-                                  state: slug == "ada" ? .unavailable : report?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                                  state: report?.state.flatMap(ItEmployeeState.init(rawValue:)),
                                   stateReason: report?.reason, loaded: readyBriefStore.loaded,
                                   loadFailed: readyBriefStore.failed, available: slug != "ada")
         }
@@ -180,19 +188,19 @@ struct MainTabView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color(.systemGray3))
+                    .font(appStyle.font(size: 48))
+                    .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
 
                 Text(title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
+                    .font(appStyle.font(.title2, weight: .bold))
+                    .foregroundStyle(appStyle.text)
 
                 Text("Coming soon in v2")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -207,13 +215,22 @@ struct MainTabView: View {
                     Section {
                         AccountProfileRow(user: user)
                             .padding(.vertical, 4)
+                            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                     }
                 }
+
+                Section("Appearance") {
+                    ItDesignSettingsRows()
+                }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
 
                 Section {
                     SignOutButton(authSession: authSession)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -224,9 +241,7 @@ struct MainTabView: View {
 private enum AI_OfficeTabIcon {
     /// Render once: the tab bar then applies its normal selected/unselected tint.
     static let image: UIImage = {
-        // UITabBar's neighbouring SF Symbols occupy roughly a 28 pt template canvas. Render the
-        // approved 24...31 pt ladder row on that same canvas so its perceived weight matches.
-        let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
+        let renderer = ImageRenderer(content: ItSymbol(size: 24).environment(\.it, ItPalette(.light)))
         renderer.scale = UIScreen.main.scale
         return (renderer.uiImage ?? UIImage(systemName: "person.3.fill")!)
             .withRenderingMode(.alwaysTemplate)
@@ -243,20 +258,21 @@ private extension Label where Title == Text, Icon == Image {
 
 /// The signed-in user's name and email — on Account, and on Team for admins.
 struct AccountProfileRow: View {
+    @Environment(\.itAppStyle) private var appStyle
     let user: User
 
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "person.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(size: 44))
+                .foregroundStyle(appStyle.tenant)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.name)
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                 Text(user.email)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
         }
     }
@@ -267,6 +283,7 @@ struct AccountProfileRow: View {
 /// Sign Out — asks first when a shift is still open (see SignOutViewModel).
 /// On Account, and on Team for admins.
 struct SignOutButton: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var vm: SignOutViewModel
 

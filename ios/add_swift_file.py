@@ -38,7 +38,7 @@ def add_group_child(content: str, group_name: str, child: str) -> str:
     pattern = (
         rf'(/\* {name} \*/ = \{{\s*isa = PBXGroup;\s*children = \()'
         rf'((?:(?!\);).)*?)'
-        rf'(\n\t\t\t\);\s*(?:name = [^;]+;\s*)?path = {name};)'
+        rf'(\n[ \t]*\);\s*(?:name = [^;]+;\s*)?path = {name};)'
     )
     new_content, n = re.subn(
         pattern,

@@ -40,7 +40,6 @@ extension Notification.Name {
     /// Posted when a department-head push arrives while the app is in the foreground —
     /// the Team tab reloads that head's card. `object` is the head slug.
     static let mwHeadPushReceived = Notification.Name("ca.mowology.headPushReceived")
-    static let mwOfficeBarHeadSelected = Notification.Name("ca.mowology.officeBarHeadSelected")
 
     /// Posted when a schedule-affecting push arrives while the app is in the
     /// foreground — lets the schedule refresh instead of waiting for its poll tick.

@@ -408,10 +408,7 @@ final class TimeClockViewModel: ObservableObject {
     }
 
     private func friendlyError(_ error: Error) -> String {
-        if let apiError = error as? APIError {
-            return apiError.localizedDescription
-        }
-        return error.localizedDescription
+        ErrorDetails.describe(error)
     }
 }
 
@@ -532,7 +529,7 @@ final class BreakController: ObservableObject {
             let r: ClockActionResponse = try await api.request(.scheduleClock, body: [
                 "action": "break_start", "client_time": tappedAt.mwClientTime,
             ])
-            guard r.recorded != false else { message = r.message ?? "Break not recorded."; return }
+            guard r.recorded != false else { message = r.message ?? "Break response recorded=false; server returned no message field."; return }
             guard let b = r.onBreak else { await refreshFromServer(authSession: authSession); return }
             startedAt    = Self.parse(b.startedAt) ?? tappedAt
             savedLocally = false

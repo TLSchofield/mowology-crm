@@ -10,6 +10,8 @@
 import SwiftUI
 
 struct VisitWorkView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @StateObject private var viewModel: VisitWorkViewModel
 
@@ -39,10 +41,10 @@ struct VisitWorkView: View {
             .padding(.vertical, 10)
 
             if viewModel.isLocked {
-                banner("Locked by the office — view only.", icon: "lock.fill", tint: .secondary)
+                banner("Locked by the office — view only.", icon: "lock.fill", tint: appStyle.meta)
             }
             if let error = viewModel.errorMessage {
-                banner(error, icon: "exclamationmark.triangle.fill", tint: Color.MW.orange)
+                banner(error, icon: "exclamationmark.triangle.fill", tint: appStyle.attention)
             }
 
             List {
@@ -53,9 +55,11 @@ struct VisitWorkView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .itAppForm()
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
+        .itAppScreen()
         .navigationTitle("Work Record")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -69,7 +73,7 @@ struct VisitWorkView: View {
                             if viewModel.hasUnsavedMaterials { await viewModel.saveMaterials() }
                         }
                     }
-                    .tint(Color.MW.orange)
+                    .tint(appStyle.attention)
                 }
             }
         }
@@ -83,8 +87,8 @@ struct VisitWorkView: View {
         Section {
             if viewModel.checklist.isEmpty && !viewModel.isLoading {
                 Text("No checklist for this job. Add your own items below.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             ForEach(viewModel.checklist) { item in
                 Button {
@@ -92,13 +96,14 @@ struct VisitWorkView: View {
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(item.checked ? Color.MW.green : Color(.systemGray3))
+                            .font(appStyle.font(.title3))
+                            .foregroundStyle(item.checked ? appStyle.tenant : (appStyle.isEnabled ? appStyle.line : Color(.systemGray3)))
                         Text(item.item)
-                            .foregroundStyle(item.checked ? .secondary : .primary)
-                            .strikethrough(item.checked, color: .secondary)
+                            .foregroundStyle(item.checked ? .secondary : appStyle.text)
+                            .strikethrough(item.checked, color: appStyle.meta)
                         Spacer(minLength: 0)
                     }
+                    .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -112,13 +117,14 @@ struct VisitWorkView: View {
 
         if !viewModel.isLocked {
             Section {
-                HStack {
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
                     TextField("Add checklist item", text: $newChecklistItem)
                         .submitLabel(.done)
                         .onSubmit(addChecklistItem)
                     Button("Add", action: addChecklistItem)
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                         .disabled(newChecklistItem.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .tint(Color.MW.green)
+                        .tint(appStyle.tenant)
                 }
             }
         }
@@ -136,14 +142,14 @@ struct VisitWorkView: View {
         Section {
             if viewModel.materials.isEmpty && !viewModel.isLoading {
                 Text("Nothing logged yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             ForEach(viewModel.materials) { material in
-                HStack {
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
                     Text(material.name)
                     Spacer()
-                    Text(material.quantityLabel).foregroundStyle(.secondary)
+                    Text(material.quantityLabel).foregroundStyle(appStyle.meta)
                 }
             }
             .onDelete { offsets in
@@ -157,10 +163,10 @@ struct VisitWorkView: View {
         if !viewModel.isLocked {
             Section {
                 TextField("Material (e.g. Fertilizer 20-5-10)", text: $materialName)
-                HStack {
+                AnyLayout(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
                     TextField("Qty", text: $materialQty)
                         .keyboardType(.decimalPad)
-                        .frame(maxWidth: 90)
+                        .frame(maxWidth: appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? .infinity : 90)
                     Divider()
                     TextField("Unit (kg, bags, yd)", text: $materialUnit)
                         .textInputAutocapitalization(.never)
@@ -172,9 +178,10 @@ struct VisitWorkView: View {
                     Task { await viewModel.addMaterial(name: name, qty: qty, unit: unit) }
                 } label: {
                     Label("Add material", systemImage: "plus.circle.fill")
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                 }
                 .disabled(materialName.trimmingCharacters(in: .whitespaces).isEmpty)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
             } header: {
                 Text("Log a material")
             }
@@ -193,7 +200,7 @@ struct VisitWorkView: View {
                     ForEach(VisitNoteType.allCases) { Text($0.label).tag($0) }
                 }
                 Toggle("Client can see this", isOn: $noteVisible)
-                    .tint(Color.MW.green)
+                    .tint(appStyle.tenant)
                 Button {
                     Task {
                         if await viewModel.addNote(noteText, type: noteType, visibleToCustomer: noteVisible) {
@@ -202,9 +209,10 @@ struct VisitWorkView: View {
                     }
                 } label: {
                     Label("Save note", systemImage: "square.and.pencil")
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                 }
                 .disabled(noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSaving)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
             } header: {
                 Text("New note")
             }
@@ -213,24 +221,24 @@ struct VisitWorkView: View {
         Section {
             if viewModel.notes.isEmpty && !viewModel.isLoading {
                 Text("No notes on this visit.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             ForEach(viewModel.notes) { note in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(VisitNoteType.label(for: note.noteType))
-                            .font(.caption.bold())
-                            .foregroundStyle(note.noteType == "issue" ? Color.MW.orange : Color.MW.green)
+                            .font(appStyle.font(.caption, weight: .bold))
+                            .foregroundStyle(note.noteType == "issue" ? appStyle.attention : appStyle.tenant)
                         if note.visibleToCustomer {
                             Label("Client", systemImage: "eye.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption2))
+                                .foregroundStyle(appStyle.meta)
                         }
                         Spacer()
-                        Text(note.author ?? "").font(.caption2).foregroundStyle(.secondary)
+                        Text(note.author ?? "").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                     }
-                    Text(note.content).font(.subheadline)
+                    Text(note.content).font(appStyle.font(.subheadline))
                 }
                 .padding(.vertical, 2)
             }
@@ -243,7 +251,7 @@ struct VisitWorkView: View {
 
     private func banner(_ text: String, icon: String, tint: Color) -> some View {
         Label(text, systemImage: icon)
-            .font(.footnote)
+            .font(appStyle.font(.footnote))
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)

@@ -13,6 +13,7 @@
 import SwiftUI
 
 struct ReceiptDetailView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var viewModel: ReceiptsViewModel
     let expense: Expense
@@ -65,24 +66,27 @@ struct ReceiptDetailView: View {
                 if expense.isArchived {
                     Section {
                         Label("Archived — original photo removed from the server; a thumbnail is shown here. The full-size image was emailed before removal.", systemImage: "archivebox")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
                     }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
             }
             // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
             .refreshable { await refreshAll() }
             .navigationTitle("Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                 }
                 if isEditable {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Edit") { showEditSheet = true }
-                            .foregroundStyle(Color.MW.green)
+                            .foregroundStyle(appStyle.tenant)
                     }
                 }
             }
@@ -176,76 +180,76 @@ struct ReceiptDetailView: View {
         Section {
             if !read.differs {
                 Label("Using Penny's version — waiting for the office to approve.", systemImage: "checkmark.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             } else {
                 ForEach(read.fields) { f in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text(f.label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(f.label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                             Spacer()
-                            Text(f.penny ?? "—").font(.subheadline.weight(.semibold)).foregroundStyle(Color.MW.green)
+                            Text(f.penny ?? "—").font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
                                 .multilineTextAlignment(.trailing)
                         }
-                        Text("Receipt says: \(f.receipt ?? "—")").font(.caption2).foregroundStyle(.secondary)
+                        Text("Receipt says: \(f.receipt ?? "—")").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                         if !f.reason.isEmpty {
                             Text(f.reason + (f.confidence == "low" ? " (she's unsure)" : ""))
-                                .font(.caption).foregroundStyle(f.confidence == "low" ? Color.MW.orange : Color.secondary)
+                                .font(appStyle.font(.caption)).foregroundStyle(f.confidence == "low" ? appStyle.attention : appStyle.meta)
                         }
                     }
                 }
                 if let items = read.items {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Penny's items").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Penny's items").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                             Spacer()
-                            Text(String(format: "$%.2f", items.pennySum)).font(.caption.weight(.semibold))
+                            Text(String(format: "$%.2f", items.pennySum)).font(appStyle.font(.caption, weight: .semibold))
                         }
                         ForEach(Array(items.penny.enumerated()), id: \.offset) { _, i in
                             HStack(alignment: .firstTextBaseline) {
-                                Text(i.name).font(.subheadline)
+                                Text(i.name).font(appStyle.font(.subheadline))
                                 Spacer()
-                                Text(String(format: "$%.2f", i.amount)).font(.subheadline)
+                                Text(String(format: "$%.2f", i.amount)).font(appStyle.font(.subheadline))
                             }
                         }
                         Text(items.receipt.isEmpty
                              ? "The receipt has no items."
                              : "The receipt has \(items.receipt.count) item\(items.receipt.count == 1 ? "" : "s") for " + String(format: "$%.2f", items.receiptSum) + ": "
                                + items.receipt.map { $0.name }.joined(separator: ", "))
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                     }
                 }
                 if !read.notes.isEmpty {
-                    Text(read.notes).font(.caption).italic().foregroundStyle(.secondary)
+                    Text(read.notes).font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
                 }
                 if read.canApply || read.canKeep {
                     HStack(spacing: 10) {
                         if read.canApply {
                             Button { Task { await decidePenny(useHers: true) } } label: {
-                                Text("Use Penny's version").font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(Color.MW.green).foregroundStyle(.white)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                Text("Use Penny's version").font(appStyle.font(.subheadline, weight: .semibold))
+                                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 40)
+                                    .background(appStyle.tenant).foregroundStyle(appStyle.onTenant)
+                                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                             }
                             .buttonStyle(.borderless)
                         }
                         if read.canKeep {
                             Button { Task { await decidePenny(useHers: false) } } label: {
-                                Text("Keep mine").font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity, minHeight: 40)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.4)))
-                                    .foregroundStyle(Color.primary)
+                                Text("Keep mine").font(appStyle.font(.subheadline, weight: .semibold))
+                                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 40)
+                                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.meta.opacity(0.4)))
+                                    .foregroundStyle(appStyle.text)
                             }
                             .buttonStyle(.borderless)
                         }
                     }
                     .disabled(viewModel.isPerformingAction)
                     if read.canApply {
-                        Text(read.applyNote).font(.caption2).foregroundStyle(.secondary)
+                        Text(read.applyNote).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                     }
                 }
             }
             if let note = pennyNote {
-                Text(note).font(.caption).foregroundStyle(Color.MW.green)
+                Text(note).font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
             }
         } header: {
             Label("Penny's read", systemImage: "sparkles")
@@ -254,6 +258,7 @@ struct ReceiptDetailView: View {
                 Text("Penny read this receipt differently. Using her version replaces the items and teaches the receipt reader this store's layout.")
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func decidePenny(useHers: Bool) async {
@@ -309,42 +314,42 @@ struct ReceiptDetailView: View {
             } else if let err = lineItemsError {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Couldn't load the items: \(err)", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(Color.MW.orange)
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
                     Button("Try again") { Task { lineItemsLoaded = false; await loadLineItems() } }
-                        .font(.caption.weight(.semibold)).buttonStyle(.borderless)
+                        .font(appStyle.font(.caption, weight: .semibold)).buttonStyle(.borderless)
                 }
             } else if lineItems.isEmpty {
-                Text("No line items recorded").font(.caption).foregroundStyle(.secondary)
+                Text("No line items recorded").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             if lineItemsSource == "llm" {
                 Label("AI extracted — please verify each line", systemImage: "sparkles")
-                    .font(.caption2).foregroundStyle(.blue)
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.progress)
             }
             ForEach(lineItems) { item in
                 HStack(spacing: 6) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(item.name).font(.subheadline)
+                        Text(item.name).font(appStyle.font(.subheadline))
                         HStack(spacing: 6) {
                             if let sku = item.skuRaw, !sku.isEmpty {
-                                Text(sku).font(.caption2).foregroundStyle(.secondary)
+                                Text(sku).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                             }
                             if let pn = item.productName {
-                                Label(pn, systemImage: "link").font(.caption2).foregroundStyle(Color.MW.green)
+                                Label(pn, systemImage: "link").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
                             } else if isEditable && !item.isAdjustment {
                                 Button("Link product") { linkItem = item }
-                                    .font(.caption2)
+                                    .font(appStyle.font(.caption2))
                                     .buttonStyle(.borderless)
-                                    .foregroundStyle(Color.MW.green)
+                                    .foregroundStyle(appStyle.tenant)
                             }
                         }
                     }
                     if item.quantity > 1 {
-                        Text("×\(item.quantity, specifier: "%g")").font(.caption).foregroundStyle(.secondary)
+                        Text("×\(item.quantity, specifier: "%g")").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                     Spacer()
                     Text(String(format: "$%.2f", item.lineTotal))
-                        .font(.subheadline)
-                        .foregroundStyle(item.lineTotal < 0 ? .red : .primary)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(item.lineTotal < 0 ? appStyle.blocked : appStyle.text)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -369,7 +374,7 @@ struct ReceiptDetailView: View {
                                     }
                                 }
                             } label: { Label("Unlink", systemImage: "link.badge.minus") }
-                            .tint(Color.MW.orange)
+                            .tint(appStyle.attention)
                         }
                     }
                 }
@@ -379,8 +384,8 @@ struct ReceiptDetailView: View {
                     showAddItem = true
                 } label: {
                     Label("Add missed item", systemImage: "plus.circle")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.tenant)
                 }
                 if receiptURL != nil {
                     Button {
@@ -390,13 +395,13 @@ struct ReceiptDetailView: View {
                             if rescanning { ProgressView().controlSize(.small) }
                             Label(rescanning ? "Reading the photo…" : (lineItems.isEmpty ? "Read the items from the photo" : "Rescan the photo"),
                                   systemImage: "doc.text.viewfinder")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.MW.green)
+                                .font(appStyle.font(.subheadline))
+                                .foregroundStyle(appStyle.tenant)
                         }
                     }
                     .disabled(rescanning)
                     if let note = rescanNote {
-                        Text(note).font(.caption).foregroundStyle(.secondary)
+                        Text(note).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                 }
             }
@@ -407,6 +412,7 @@ struct ReceiptDetailView: View {
                 Text("Tap to rename, swipe left to remove or unlink. Linking an item to a CRM product teaches the vendor catalog and SKU memory for next time.")
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var receiptURL: URL? {
@@ -435,10 +441,10 @@ struct ReceiptDetailView: View {
                     AsyncImage(url: url) { img in
                         img.resizable().scaledToFit()
                             .frame(maxHeight: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                             .overlay(alignment: .bottomTrailing) {
                                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.caption.weight(.bold))
+                                    .font(appStyle.font(.caption, weight: .bold))
                                     .foregroundStyle(.white)
                                     .padding(6)
                                     .background(.black.opacity(0.55), in: Circle())
@@ -450,14 +456,15 @@ struct ReceiptDetailView: View {
                         ProgressView().frame(height: 160)
                     }
                 } else {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(.systemGray5))
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                        .fill(appStyle.sunk)
                         .frame(height: 120)
-                        .overlay { Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary) }
+                        .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
                 }
                 Spacer()
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var statusSection: some View {
@@ -476,6 +483,7 @@ struct ReceiptDetailView: View {
                 }
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func loadRisk() async {
@@ -490,16 +498,16 @@ struct ReceiptDetailView: View {
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
         case "forwarded":        ("Sent", .blue)
-        case "approved":         ("Approved", Color.MW.green)
+        case "approved":         ("Approved", appStyle.tenant)
         case "rejected":         ("Rejected", .red)
-        case "pending_approval": ("Pending Approval", Color.MW.orange)
-        default:                 ("Draft", Color.MW.orange)
+        case "pending_approval": ("Pending Approval", appStyle.attention)
+        default:                 ("Draft", appStyle.attention)
         }
         return Text(label)
-            .font(.caption.weight(.semibold))
+            .font(appStyle.font(.caption, weight: .semibold))
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(color.opacity(0.12))
-            .foregroundStyle(color)
+            .background(appStyle.statusColor(expense.status, legacy: color).opacity(0.12))
+            .foregroundStyle(appStyle.statusColor(expense.status, legacy: color))
             .clipShape(Capsule())
     }
 
@@ -518,11 +526,12 @@ struct ReceiptDetailView: View {
                 detailRow("Description", description)
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(appStyle.meta)
             Spacer()
             Text(value).multilineTextAlignment(.trailing)
         }
@@ -538,11 +547,11 @@ struct ReceiptDetailView: View {
             if viewModel.isPerformingAction {
                 ProgressView().frame(maxWidth: .infinity)
             } else {
-                actionButton(title: "Reject", systemImage: "xmark", color: .red) {
+                actionButton(title: "Reject", systemImage: "xmark", color: appStyle.blocked) {
                     rejectReason = ""
                     showRejectSheet = true
                 }
-                actionButton(title: "Approve", systemImage: "checkmark", color: Color.MW.green) {
+                actionButton(title: "Approve", systemImage: "checkmark", color: appStyle.tenant) {
                     Task { await performApprove() }
                 }
             }
@@ -555,11 +564,11 @@ struct ReceiptDetailView: View {
     private func actionButton(title: String, systemImage: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .font(appStyle.font(.subheadline, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 44)
                 .background(color)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(appStyle.isEnabled && color == appStyle.tenant ? appStyle.onTenant : .white)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
         }
     }
 
@@ -570,9 +579,12 @@ struct ReceiptDetailView: View {
                     TextField("Explain why this expense is being rejected…", text: $rejectReason, axis: .vertical)
                         .lineLimit(3...6)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
             .navigationTitle("Reject Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showRejectSheet = false }
@@ -581,7 +593,7 @@ struct ReceiptDetailView: View {
                     Button("Reject") {
                         Task { await performReject() }
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(appStyle.blocked)
                     .disabled(rejectReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -612,6 +624,7 @@ struct ReceiptDetailView: View {
 /// Bands match the rest of the system (AnomalyDetector.php, web/Android anomaly icon,
 /// Expense.anomalyTier): >30 high, 16–30 medium, 1–15 low.
 private struct RiskRingView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let score: Int
     var status: String = ""
 
@@ -625,9 +638,9 @@ private struct RiskRingView: View {
 
     private var tier: (label: String, hint: String, color: Color) {
         switch score {
-        case 31...:   return ("High risk",   "Verify before approving", .red)
-        case 16...30: return ("Medium risk", "Review before approving", Color.MW.orange)
-        default:      return ("Low risk",    "Looks routine",           Color.MW.green)
+        case 31...:   return ("High risk",   "Verify before approving", appStyle.blocked)
+        case 16...30: return ("Medium risk", "Review before approving", appStyle.attention)
+        default:      return ("Low risk",    "Looks routine",           appStyle.tenant)
         }
     }
 
@@ -635,24 +648,24 @@ private struct RiskRingView: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .stroke(Color(.systemGray5), lineWidth: 6)
+                    .stroke(appStyle.sunk, lineWidth: 6)
                 Circle()
                     .trim(from: 0, to: fraction)
                     .stroke(tier.color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 Text("\(score)")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(appStyle.font(.callout, weight: .semibold))
+                    .foregroundStyle(appStyle.text)
             }
             .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(tier.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(appStyle.font(.subheadline, weight: .semibold))
                     .foregroundStyle(tier.color)
                 Text(isDone ? "Checked" : tier.hint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
             Spacer(minLength: 0)
         }
@@ -668,6 +681,7 @@ private struct RiskRingView: View {
 /// desktop "Link" popover. Server-side this trains the vendor catalog alias and the
 /// SKU → product memory, so the next receipt from this vendor auto-links.
 private struct ProductLinkSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: ReceiptsViewModel
     let lineItem: StoredLineItem
     let onPick: (Int) -> Void
@@ -681,11 +695,12 @@ private struct ProductLinkSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text(lineItem.name).font(.subheadline.weight(.semibold))
+                    Text(lineItem.name).font(appStyle.font(.subheadline, weight: .semibold))
                     if let sku = lineItem.skuRaw, !sku.isEmpty {
-                        Text("SKU \(sku)").font(.caption).foregroundStyle(.secondary)
+                        Text("SKU \(sku)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                 } header: { Text("Receipt line") }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 Section {
                     ForEach(results) { p in
                         Button {
@@ -693,17 +708,18 @@ private struct ProductLinkSheet: View {
                             dismiss()
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).foregroundStyle(.primary)
+                                Text(p.name).foregroundStyle(appStyle.text)
                                 if let sku = p.sku, !sku.isEmpty {
-                                    Text(sku).font(.caption).foregroundStyle(.secondary)
+                                    Text(sku).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                                 }
                             }
                         }
                     }
                     if results.isEmpty && query.count >= 2 {
-                        Text("No products match").font(.caption).foregroundStyle(.secondary)
+                        Text("No products match").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                 } header: { Text("CRM product") }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search products by name or SKU")
             .onChange(of: query) { _, q in
@@ -720,9 +736,11 @@ private struct ProductLinkSheet: View {
             }
             .navigationTitle("Link Product")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(Color.MW.green)
+                    Button("Cancel") { dismiss() }.foregroundStyle(appStyle.tenant)
                 }
             }
             .task {
@@ -742,6 +760,10 @@ private struct ProductLinkSheet: View {
 /// web app. Mirrors the OCR-review form; saves via ExpenseService::update() server-side,
 /// which is ownership- and status-guarded (blocked once sent to accounting).
 private struct EditExpenseView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var usesAccessibleAmounts: Bool { appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize }
+    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var viewModel: ReceiptsViewModel
     let expense: Expense
@@ -752,7 +774,6 @@ private struct EditExpenseView: View {
     @State private var expenseDate:    Date
     @State private var amount:         String
     @State private var gst:            String
-    @State private var pst:            String
     @State private var total:          String
     @State private var category:       String
     @State private var paymentMethod:  String
@@ -773,7 +794,6 @@ private struct EditExpenseView: View {
         _expenseDate     = State(initialValue: Self.parseDate(expense.expenseDate))
         _amount          = State(initialValue: expense.amount.map { String(format: "%.2f", $0) } ?? "")
         _gst             = State(initialValue: expense.gstAmount.map { String(format: "%.2f", $0) } ?? "")
-        _pst             = State(initialValue: expense.pstAmount.map { String(format: "%.2f", $0) } ?? "")
         _total           = State(initialValue: String(format: "%.2f", expense.total))
         _category        = State(initialValue: expense.accountingCategory ?? "")
         _paymentMethod   = State(initialValue: expense.paymentMethod ?? "credit_card")
@@ -786,15 +806,16 @@ private struct EditExpenseView: View {
                 Section("Vendor") {
                     TextField("Vendor name", text: $vendorName)
                     DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                        .tint(Color.MW.green)
+                        .tint(appStyle.tenant)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 Section("Amounts") {
                     amountRow("Subtotal", $amount)
                     amountRow("GST", $gst)
-                    // PST was missing here: a blank Divider row sat in its place (owner screenshot, 2026-10-18).
-                    amountRow("PST", $pst)
+                    Divider()
                     amountRow("Total", $total, bold: true)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 Section("Category") {
                     Picker("Category", selection: $category) {
                         Text("—").tag("")
@@ -807,30 +828,35 @@ private struct EditExpenseView: View {
                         ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
                     }
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 Section("Description") {
                     TextField("Optional note", text: $descriptionText, axis: .vertical)
                         .lineLimit(2...4)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 if let err = viewModel.saveError {
-                    Section { Text(err).foregroundStyle(.red).font(.subheadline) }
+                    Section { Text(err).foregroundStyle(appStyle.blocked).font(appStyle.font(.subheadline)) }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
             }
             .navigationTitle("Edit Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await save() }
                     } label: {
                         if viewModel.isSaving {
-                            ProgressView().tint(Color.MW.green)
+                            ProgressView().tint(appStyle.tenant)
                         } else {
-                            Text("Save").font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.MW.green)
+                            Text("Save").font(appStyle.font(.subheadline, weight: .semibold))
+                                .foregroundStyle(appStyle.tenant)
                         }
                     }
                     .disabled(viewModel.isSaving || total.isEmpty)
@@ -841,16 +867,16 @@ private struct EditExpenseView: View {
     }
 
     private func amountRow(_ label: String, _ value: Binding<String>, bold: Bool = false) -> some View {
-        HStack {
+        (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
             Text(label)
-                .font(bold ? .subheadline.weight(.semibold) : .body)
+                .font(bold ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.body))
                 .foregroundStyle(bold ? .primary : .secondary)
-            Spacer()
+            if !usesAccessibleAmounts { Spacer() }
             TextField("0.00", text: value)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .font(bold ? .subheadline.weight(.semibold) : .body)
-                .frame(width: 100)
+                .font(bold ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.body))
+                .frame(width: usesAccessibleAmounts ? nil : 100)
         }
     }
 
@@ -871,7 +897,6 @@ private struct EditExpenseView: View {
             date:          Self.isoFormatter.string(from: expenseDate),
             amount:        ReceiptNumber.parse(amount) ?? 0,
             gst:           ReceiptNumber.parse(gst)    ?? 0,
-            pst:           ReceiptNumber.parse(pst)    ?? 0,
             total:         ReceiptNumber.parse(total)  ?? 0,
             category:      category,
             paymentMethod: paymentMethod,
@@ -901,6 +926,7 @@ private struct EditExpenseView: View {
 /// double-tap to toggle zoom, and drag-to-pan while zoomed — for reading faint
 /// handwritten totals/GST that are illegible at thumbnail size.
 struct ZoomableReceiptView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let url: URL
     @Environment(\.dismiss) private var dismiss
 
@@ -944,8 +970,8 @@ struct ZoomableReceiptView: View {
                         }
                 } else if phase.error != nil {
                     VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle").font(.largeTitle)
-                        Text("Couldn't load image").font(.footnote)
+                        Image(systemName: "exclamationmark.triangle").font(appStyle.font(.largeTitle))
+                        Text("Couldn't load image").font(appStyle.font(.footnote))
                     }
                     .foregroundStyle(.white.opacity(0.8))
                 } else {
@@ -958,7 +984,7 @@ struct ZoomableReceiptView: View {
                     Spacer()
                     Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
+                            .font(appStyle.font(size: 30))
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, .black.opacity(0.4))
                             .padding()
