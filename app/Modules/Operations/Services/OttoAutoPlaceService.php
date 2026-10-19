@@ -113,13 +113,7 @@ class OttoAutoPlaceService
             $mode = self::borderMode($borders[$pid]['sources'] ?? null);
             if ($mode === null || self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today)) continue;
             $n++;
-            $lot = $this->lots->lotAt($pin[0], $pin[1]);
-            if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge', 'ambiguous'], true)) {
-                // Pins from the old Geocode button often sit on the street in front of the house:
-                // find the building from the address and use the lot under it — the pin stays put.
-                $at = self::buildingPoint(($this->geocode)(PropertyReadinessService::geocodeAddress($p)), $pin);
-                if ($at) $lot = $this->lots->lotAt($at[0], $at[1]);
-            }
+            $lot = $this->findLot($p, $pin);
             if (!$lot['ok']) {
                 $r['no_lot']++;
                 // The province's server being down says nothing about the lot: try again next run.
@@ -168,6 +162,60 @@ class OttoAutoPlaceService
             }
         }
         return $state;
+    }
+
+    /**
+     * The owner's "Let Otto draw it" on one property (Otto's property card). Ignores the switch and
+     * the retry wait — a person asked — but keeps every other rule: a pin is needed, a drawn, kept or
+     * crew-GPS border is never replaced. Not locked: one property, and the INSERT re-checks.
+     * @return array{ok: bool, message: string, area_sqm?: int}
+     */
+    public function borderOne(int $propertyId): array
+    {
+        $s = $this->db->prepare('SELECT id, address, city, province, postal_code, latitude, longitude FROM properties WHERE id = ?');
+        $s->execute([$propertyId]);
+        $p = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$p) return ['ok' => false, 'message' => 'That property no longer exists.'];
+        $pin = PropertyBorderRules::pinOf($p);
+        if (!$pin) return ['ok' => false, 'message' => 'It needs a map pin first.'];
+        $borders = (new PropertyBorderService($this->db, $this->today))->borders();
+        $mode = self::borderMode($borders[$propertyId]['sources'] ?? null);
+        if ($mode === null) return ['ok' => false, 'message' => 'It already has a border — open the zone editor to change it.'];
+        $lot = $this->findLot($p, $pin);
+        if (!$lot['ok']) return ['ok' => false, 'message' => self::reasonText((string)$lot['reason'])];
+        if (!$this->writeBorder($propertyId, $mode, $lot)) return ['ok' => false, 'message' => 'A border was added meanwhile — reload the page.'];
+        $state = $this->state();
+        unset($state['border_tried'][$propertyId], $state['border_reason'][$propertyId]);
+        $this->saveState($state);
+        return ['ok' => true, 'area_sqm' => (int)$lot['area_sqm'],
+                'message' => 'Drawn from the city lot map: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ', '
+                           . number_format((int)$lot['area_sqm']) . ' m²' . (isset($lot['nearest_m']) ? ' (the pin is ' . $lot['nearest_m'] . ' m out in the street)' : '') . ' — check it on the map.'];
+    }
+
+    public static function reasonText(string $reason): string
+    {
+        return [
+            'unavailable' => "The province's lot map isn't answering right now — try again in a few minutes.",
+            'no_lot'      => 'No lot is close enough to the pin to be sure which is this one — draw it, or move the pin onto the building.',
+            'ambiguous'   => 'Two lots are about as close to the pin — draw it, or move the pin onto the building.',
+            'near_edge'   => 'The pin sits on a lot line — draw it, or move the pin onto the building.',
+            'too_big'     => 'The lot is over 20,000 m² — too big to use as an arrival border; draw it.',
+            'too_small'   => 'The lot is unusually small — draw it.',
+        ][$reason] ?? 'Otto could not find the lot — draw it.';
+    }
+
+    /** The lot under the pin; for a street pin, under the address's building (if near), the pin staying put. */
+    private function findLot(array $p, array $pin): array
+    {
+        $lot = $this->lots->lotAt($pin[0], $pin[1]);
+        if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge', 'ambiguous'], true)) {
+            $at = self::buildingPoint(($this->geocode)(PropertyReadinessService::geocodeAddress($p)), $pin);
+            if ($at) {
+                $byBuilding = $this->lots->lotAt($at[0], $at[1]);
+                if ($byBuilding['ok']) return $byBuilding;
+            }
+        }
+        return $lot;
     }
 
     /** Did Otto place this property's pin? ['by' => 'google'|'osm', 'at' => Y-m-d] or null. */

@@ -228,4 +228,18 @@ class OttoAutoPlaceTest extends TestCase
         $svc->run();
         $this->assertGreaterThan($first, $calls, 'asked again, not parked for 30 days');
     }
+
+    public function test_let_otto_draw_one_property_on_request(): void
+    {
+        $db = $this->db();
+        $db->exec("UPDATE ops_settings SET setting_value = '0'");   // a person asked: the switch does not matter
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, 'A St', 'Vancouver', 'BC', 49.2296, -123.1549)");
+        $db->exec("INSERT INTO properties (id, address, city, province) VALUES (2, 'B St', 'Vancouver', 'BC')");
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([self::lotFeature()])), '2026-10-18');
+        $r = $svc->borderOne(1);
+        $this->assertTrue($r['ok']);
+        $this->assertStringContainsString('city lot map', $r['message']);
+        $this->assertFalse($svc->borderOne(1)['ok'], 'already has one now');
+        $this->assertSame('It needs a map pin first.', $svc->borderOne(2)['message']);
+    }
 }

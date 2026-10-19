@@ -94,6 +94,39 @@
             }
         }
 
+        // "Let Otto draw it": the arrival border from the city lot map (one property, on request).
+        card.querySelectorAll('[data-otto-lot]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var row = btn.closest('.mw-otto-gap');
+                var note = row && row.querySelector('[data-otto-note]');
+                btn.disabled = true;
+                btn.textContent = 'Finding the lot…';
+                if (note) note.classList.remove('is-bad');
+                fetch('/crm/api/otto-lot-border.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ property_id: parseInt(btn.getAttribute('data-property-id'), 10), csrf_token: window.MW_CSRF_TOKEN || '' })
+                }).then(function (r) {
+                    return r.json().catch(function () { return { ok: false, message: 'The server answered ' + r.status + '.' }; });
+                }).then(function (data) {
+                    if (!data || !data.ok) throw new Error((data && data.message) || 'That did not work.');
+                    row.classList.add('is-done');
+                    if (note) note.textContent = data.message;
+                    row.querySelectorAll('.mw-otto-gap-btn').forEach(function (b) { if (b !== btn) b.textContent = 'Edit border'; });
+                    btn.remove();
+                    refresh();
+                }).catch(function (err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Let Otto draw it';
+                    if (note) {
+                        note.textContent = err && err.message ? err.message : 'That did not work.';
+                        note.classList.add('is-bad');
+                    }
+                });
+            });
+        });
+
         card.querySelectorAll('[data-otto-geocode]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var row = btn.closest('.mw-otto-gap');

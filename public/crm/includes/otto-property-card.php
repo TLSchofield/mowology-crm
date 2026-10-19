@@ -3,7 +3,8 @@
  * Otto (operations head, "The Dispatcher") — what a property still needs before he can
  * route to it: a map pin, an arrival border, a lawn measurement. One row per gap with the
  * fix: "Geocode" (in place, public/crm/js/otto-property-card.js → /crm/api/geocode-save.php),
- * "Draw arrival border" (zone editor) and "Measure" (area measurement tool).
+ * "Let Otto draw it" (the city lot, /crm/api/otto-lot-border.php), "Draw arrival border" (zone editor)
+ * and "Measure" (area measurement tool).
  *
  * Included by quotes/view.php and properties/view.php. Expects $ottoPropertyId (int).
  * Renders nothing for users without jobs.edit, before Otto's migrations have run, when
@@ -97,8 +98,12 @@ try {
                               <li class="mw-otto-gap" data-gap="border">
                                   <div class="mw-otto-gap-text">
                                       <strong>Arrival border</strong>
-                                      <span class="mw-otto-gap-note">Where the crew's arrival is counted.<?= $__pg['pin'] ? '' : ' Needs the pin first.' ?></span>
+                                      <span class="mw-otto-gap-note" data-otto-note>Where the crew's arrival is counted.<?= $__pg['pin'] ? '' : ' Needs the pin first.' ?></span>
                                   </div>
+                                  <?php if ($__pg['pin']): ?>
+                                  <button type="button" class="btn btn-sm btn-primary mw-otto-gap-btn" data-otto-lot
+                                          data-property-id="<?= $__pgId ?>">Let Otto draw it</button>
+                                  <?php endif; ?>
                                   <a class="btn btn-sm btn-outline-primary mw-otto-gap-btn"
                                      href="/crm/jobs/zone-editor.php?property_id=<?= $__pgId ?>&amp;return_to=<?= h(urlencode($__pgReturn)) ?>">Draw arrival border</a>
                               </li>
