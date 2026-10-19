@@ -161,3 +161,53 @@ body.it-shell.it-shell .navbar-bg {
   box-shadow: none;
 }
 body.it-shell.it-shell .main { background: var(--it-page); }
+
+/* ── Phone (≤ 991 px): top bar, bottom bar and the slide-up menu's head blocks ── */
+body.it-shell.it-shell .mw-mobile-topbar {
+  background: var(--it-surface);
+  color: var(--it-text);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+}
+body.it-shell.it-shell .mw-mobile-topbar-title { color: var(--it-text); font-family: var(--it-font-sans); font-weight: 600; }
+body.it-shell.it-shell .mw-mobile-search-btn { color: var(--it-meta); }
+body.it-shell.it-shell .mw-mobile-search-btn:active { background: var(--it-selected); color: var(--it-text); }
+
+body.it-shell.it-shell .mw-mobile-bottombar { background: var(--it-surface); border-top: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-shell .mw-mobile-nav-btn { color: var(--it-meta); font-family: var(--it-font-sans); }
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active,
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active svg { color: var(--it-tenant); }
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active::before { background: var(--it-selected); }
+
+body.it-shell .it-mb-block { margin: 0; }
+body.it-shell .it-mb-block .it-sb-toggle { min-height: 64px; }
+body.it-shell .it-mb-items { list-style: none; margin: 0 0 var(--it-space-2); padding: 0 0 0 52px; }
+body.it-shell .it-mb-items[hidden] { display: none; }
+body.it-shell .it-mb-link {
+  display: flex; align-items: center; gap: var(--it-space-3);
+  min-height: 48px;                                   /* phone touch target */
+  padding: 0 var(--it-space-3);
+  border-radius: var(--it-radius-sm);
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-16-size);
+  text-decoration: none;
+}
+body.it-shell .it-mb-link svg { width: 18px; height: 18px; color: var(--it-meta); stroke-width: 1.5; flex: none; }
+body.it-shell .it-mb-link:active,
+body.it-shell .it-mb-link:hover { background: var(--it-selected); color: var(--it-text); text-decoration: none; }
+body.it-shell .it-mb-link.is-active { background: var(--it-selected); box-shadow: inset 3px 0 var(--it-tenant-mark); font-weight: 600; }
+body.it-shell .it-mb-badge {
+  margin-left: auto;
+  min-width: 24px; padding: 0 6px;
+  border: var(--it-stroke-hairline) solid var(--it-status-attention);
+  border-radius: var(--it-radius-full);
+  color: var(--it-status-attention);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* The clock banner in the phone menu: a quiet panel, one green action */
+body.it-shell.it-shell .mw-mobile-clock-banner { background: var(--it-sunk); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); }
+body.it-shell.it-shell .mw-mobile-clock-label { color: var(--it-meta); letter-spacing: 0; text-transform: none; font-size: var(--it-meta-13-size); font-weight: 500; }
+body.it-shell.it-shell .mw-mobile-clock-btn { background: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }

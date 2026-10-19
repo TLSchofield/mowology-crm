@@ -74,6 +74,6 @@ final class LowAuthGatesTest extends TestCase
         $cp = $this->src('public/crm/reports/crew-profitability.php');
         $this->assertStringContainsString("requirePermission('billing.view');", $cp);
         $this->assertStringContainsString("requirePermission('team.edit');", $cp);
-        $this->assertStringContainsString("'href' => '/crm/reports_appstack.php',           'perm' => 'billing.view'", $this->src('public/crm/includes/appstack_sidebar.php'));
+        $this->assertStringContainsString("'href' => '/crm/reports_appstack.php',           'perm' => 'billing.view'", $this->src('public/crm/includes/nav-items.php'));
     }
 }

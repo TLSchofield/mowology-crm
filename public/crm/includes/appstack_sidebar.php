@@ -41,107 +41,7 @@ if (!empty($mwLedgerOnly)): ?>
 </nav>
 <?php return; endif;
 
-// Unread message count for badge (silent fail if messages table not yet created)
-$_mwUnreadMessages = 0;
-try {
-    if (isset($user['id'])) {
-        $__msgStmt = getDB()->prepare("SELECT COUNT(*) FROM messages WHERE to_user_id = ? AND is_read = 0");
-        $__msgStmt->execute([(int)$user['id']]);
-        $_mwUnreadMessages = (int)$__msgStmt->fetchColumn();
-    }
-} catch (Throwable $__e) { /* table may not exist yet */ }
-
-// Overdue task count + pending purchase count for badge (silent fail if tasks table not yet created)
-$_mwOverdueTasks = 0;
-$_mwPendingPurchases = 0;
-try {
-    if (isset($user['id'])) {
-        $__taskStmt = getDB()->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
-        $__taskStmt->execute([(int)$user['id']]);
-        $_mwOverdueTasks = (int)$__taskStmt->fetchColumn();
-
-        $__purStmt = getDB()->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
-        $_mwPendingPurchases = (int)$__purStmt->fetchColumn();
-    }
-} catch (Throwable $__e) { /* table may not exist yet */ }
-$_mwTaskBadge = $_mwOverdueTasks + $_mwPendingPurchases;
-
-$navItems = [
-
-    // ── Overview ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Overview', 'head' => 'charlie'],
-    ['key' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'sliders', 'href' => '/crm/dashboard_appstack.php'],
-
-    // ── Clients ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Clients', 'head' => 'sam'],
-    ['key' => 'clients',   'label' => 'Contacts',  'icon' => 'users',   'href' => '/crm/clients_appstack.php',    'perm' => 'clients.view'],
-    ['key' => 'companies', 'label' => 'Companies', 'icon' => 'home',    'href' => '/crm/companies/index.php',     'perm' => 'clients.view'],
-
-    // ── Pipeline ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Pipeline', 'head' => 'sam'],
-    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwTaskBadge],
-    ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
-    ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
-    ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
-    ['key' => 'invoices',  'label' => 'Invoices',  'icon' => 'file-text',  'href' => '/crm/invoices/index.php',     'perm' => 'billing.view'],
-
-    // ── Schedule ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Schedule', 'head' => 'otto'],
-    ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
-    ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
-    ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
-    ['key' => 'timesheets',  'label' => 'Timesheets',  'icon' => 'file-text', 'href' => '/crm/timeclock/timesheets.php',     'perm' => 'timer.override'],
-    ['key' => 'payroll',     'label' => 'Payroll',     'icon' => 'dollar-sign', 'href' => '/crm/timeclock/payroll-summary.php', 'perm' => 'timer.override'],
-    ['key' => 'timeclock-settings', 'label' => 'Time Clock Settings', 'icon' => 'settings', 'href' => '/crm/timeclock/settings.php', 'perm' => 'settings.edit'],
-    ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
-    ['key' => 'clusters',    'label' => 'Route Clusters', 'icon' => 'layers',  'href' => '/crm/jobs/clusters_appstack.php', 'perm' => 'jobs.view'],
-
-    // ── Financials ────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Financials', 'head' => 'penny'],
-    ['key' => 'accounting',    'label' => 'Accounting',    'icon' => 'book-open',   'href' => '/crm/accounting_appstack.php',         'perm' => 'expenses.view'],
-    ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
-    ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
-    ['key' => 'freedom',       'label' => 'Owner Freedom', 'icon' => 'compass',     'href' => '/crm/freedom_appstack.php',           'perm' => 'expenses.view'],
-    ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
-    ['key' => 'ledger',       'label' => 'Ledger',        'icon' => 'book',        'href' => '/crm/ledger/',                         'perm' => 'ledger.view'],
-    ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'billing.view'],
-
-    // ── Growth ────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Growth', 'head' => 'mia'],
-    ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
-    ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
-    ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
-    ['key' => 'listings',  'label' => 'Listings',        'icon' => 'map-pin',  'href' => '/crm/marketing/listings.php', 'perm' => 'marketing.view'],
-    ['key' => 'referrals', 'label' => 'Referrals',       'icon' => 'gift',     'href' => '/crm/marketing/referrals.php', 'perm' => 'marketing.view'],
-    ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
-
-    // ── Fleet ─────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Fleet', 'head' => 'otto'],
-    ['key' => 'driver',       'label' => 'Driver Portal',   'icon' => 'truck',       'href' => '/crm/driver-portal.php'],
-    ['key' => 'trip-reports', 'label' => 'Trip Reports',    'icon' => 'clipboard',   'href' => '/crm/trip-reports_appstack.php', 'perm' => 'team.view'],
-
-    // ── Communications ────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Communications', 'head' => 'yui'],
-    ['key' => 'messages', 'label' => 'Messages', 'icon' => 'message-circle', 'href' => '/crm/messages_appstack.php', 'badge' => $_mwUnreadMessages],
-
-    // ── Team ──────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Team', 'head' => 'charlie'],
-    ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
-    ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
-    ['key' => 'quiz',          'label' => 'Knowledge Quiz',  'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
-    ['key' => 'certification', 'label' => 'Certification',    'icon' => 'award',       'href' => '/crm/certification_appstack.php'],
-    ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
-
-    // ── Library ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Library', 'head' => 'mia'],
-    ['key' => 'photos',    'label' => 'Photo Timeline', 'icon' => 'camera',  'href' => '/crm/photos_appstack.php',        'perm' => 'jobs.view'],
-    ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
-    ['key' => 'plants',    'label' => 'Plant Library', 'icon' => 'feather',  'href' => '/crm/plants/library.php',         'perm' => 'clients.view'],
-    ['key' => 'portfolio',     'label' => 'Portfolio',       'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
-    ['key' => 'before-after', 'label' => 'Before & After', 'icon' => 'columns',  'href' => '/crm/before-after_appstack.php',  'perm' => 'portfolio.view'],
-    ['key' => 'media',         'label' => 'Media Library',  'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],
-
-];
+require_once __DIR__ . '/nav-items.php';   // $navItems + badge counts, shared with the phone menu (mobile-nav.php)
 
 // ── Ittai design: the menu IS the office (owner, 2026-10-19) ─────────────────────────────────────────
 // With the it_design choice on (appstack_head.php sets $itShell), every page sits in its department
@@ -150,46 +50,13 @@ $navItems = [
 // permissions and badges as the classic menu below; a page with no mapping stays with its section's head.
 // Admin is Ada's block (kept in step with the classic Admin list further down).
 if (!empty($itShell)):
-    $__itHeads = [
-        'charlie' => ['Charlie', 'Chief of Staff', '統', 'unite, coordinate'],
-        'yui'     => ['Yui',     'Communications', '結', 'tie together'],
-        'sam'     => ['Sam',     'Sales',          '商', 'trade'],
-        'penny'   => ['Penny',   'Finance',        '計', 'keep the account'],
-        'otto'    => ['Otto',    'Operations',     '運', 'carry, run'],
-        'mia'     => ['Mia',     'Marketing',      '広', 'spread wide'],
-        'ada'     => ['Ada',     'Technology',     '技', 'skill, craft'],
-    ];
-    $__itMove = [   // pages that move to the head whose job they are (Ittai v1.2 job descriptions)
-        'invoices' => 'penny', 'payroll' => 'penny', 'jobs' => 'otto', 'map' => 'otto', 'products' => 'otto', 'plants' => 'otto',
-    ];
-    $__itGroups = array_fill_keys(array_keys($__itHeads), []);
-    $__itSection = 'charlie';
-    foreach ($navItems as $__it) {
-        if (($__it['type'] ?? '') === 'header') { $__itSection = $__it['head'] ?? $__itSection; continue; }
-        if (isset($__it['perm']) && function_exists('userHasPermission') && !userHasPermission($__it['perm'])) continue;
-        $__itGroups[$__itMove[$__it['key']] ?? $__itSection][] = $__it;
-    }
-    $__can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
-    foreach ([
-        ['audit-trail', 'Audit Trail', 'shield', '/crm/audit-trail_appstack.php', $__can('settings.edit')],
-        ['import', 'Import Data', 'upload', '/crm/import_appstack.php', $__can('settings.edit')],
-        ['privacy', 'Privacy & Data', 'lock', '/crm/privacy_appstack.php', $__can('settings.edit')],
-        ['sites', 'Tenant Sites', 'globe', '/crm/sites_appstack.php', $__can('database.manage')],
-        ['users', 'Users & Roles', 'user-plus', '/crm/users_appstack.php', $__can('users.manage')],
-        ['settings', 'Settings', 'settings', '/crm/settings.php', $__can('settings.edit')],
-        ['system-health', 'System Health', 'activity', '/crm/ada_appstack.php', ($user['role'] ?? '') === 'admin'],
-        ['system-log', 'System Log', 'alert-circle', '/crm/system-log_appstack.php', ($user['role'] ?? '') === 'admin'],
-    ] as [$__k, $__l, $__i, $__h, $__ok]) {
-        if ($__ok) $__itGroups['ada'][] = ['key' => $__k, 'label' => $__l, 'icon' => $__i, 'href' => $__h];
-    }
+    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage);
 ?>
 <nav id="sidebar" class="sidebar it-sidebar" aria-label="Main menu">
     <div class="sidebar-content js-simplebar">
         <a class="sidebar-brand it-sb-brand" href="/crm/dashboard_appstack.php"><span class="align-middle">Mowology</span></a>
         <ul class="sidebar-nav it-sb-nav">
-        <?php foreach ($__itHeads as $__slug => [$__name, $__role, $__kanji, $__means]):
-            if (empty($__itGroups[$__slug])) continue;
-            $__here = in_array($activePage, array_column($__itGroups[$__slug], 'key'), true); ?>
+        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'kanji' => $__kanji, 'means' => $__means, 'here' => $__here, 'items' => $__items]): ?>
             <li class="it-sb-strip<?php echo $__here ? ' is-here' : ''; ?>" data-head="<?php echo $__slug; ?>">
                 <button type="button" class="it-sb-toggle" aria-expanded="true" aria-controls="it-sb-<?php echo $__slug; ?>">
                     <span class="it-sb-face"><img src="/crm/img/heads/<?php echo $__slug; ?>.jpg" alt="" width="36" height="36" loading="lazy"><span class="it-sb-kanji" aria-hidden="true"><?php echo $__kanji; ?></span></span>
@@ -199,7 +66,7 @@ if (!empty($itShell)):
                 </button>
             </li>
             <li class="it-sb-block" id="it-sb-<?php echo $__slug; ?>"><ul class="it-sb-items">
-            <?php foreach ($__itGroups[$__slug] as $__item): ?>
+            <?php foreach ($__items as $__item): ?>
                 <li class="sidebar-item<?php echo ($activePage === $__item['key']) ? ' active' : ''; ?>">
                     <a class="sidebar-link" href="<?php echo $__item['href']; ?>"<?php echo ($activePage === $__item['key']) ? ' aria-current="page"' : ''; ?>>
                         <i class="align-middle" data-feather="<?php echo $__item['icon']; ?>"></i>
