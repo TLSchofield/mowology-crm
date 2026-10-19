@@ -64,17 +64,16 @@ struct ReceiptsView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
-                expenseList
-                if !isSelectMode { captureButton }
-            }
+            expenseList
             .navigationBarTitleDisplayMode(.inline)
             .itAppForm()
             .itAppScreen()
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .bottom) {
-                if isSelectMode && !selectedIds.isEmpty {
-                    bulkActionBar
+                if isSelectMode {
+                    if !selectedIds.isEmpty { bulkActionBar }
+                } else {
+                    captureButton   // a bar under the list, never floating over it (owner, 2026-10-19)
                 }
             }
         }
@@ -346,15 +345,17 @@ struct ReceiptsView: View {
     // MARK: - FAB
 
     private var captureButton: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            // Receipt | Label toggle — what the next photo is.
+        // AAA: a labelled 56 pt button and a 44 pt switch in a bar of their own — the floating
+        // icon-only button and switch covered "No receipt" and the list text (2026-10-19).
+        HStack(spacing: 12) {
+            // Receipt | Label — what the next photo is.
             Picker("Capture", selection: $labelMode) {
                 Text("Receipt").tag(false)
                 Text("Label").tag(true)
             }
             .pickerStyle(.segmented)
-            .frame(width: 170)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+            .frame(width: 150)
+            .frame(minHeight: 44)
             .accessibilityHint("Label: photo of a product bag or a machine's nameplate. It is never an expense.")
 
             Button {
@@ -362,17 +363,18 @@ struct ReceiptsView: View {
                 viewModel.uploadError = nil
                 showCamera = true
             } label: {
-                Image(systemName: labelMode ? "tag.fill" : "camera.fill")
-                    .font(appStyle.font(size: 22, weight: .semibold))
+                Label(labelMode ? "Snap a label" : "Snap a receipt", systemImage: labelMode ? "tag.fill" : "camera.fill")
+                    .font(appStyle.font(.headline))
                     .foregroundStyle(appStyle.onTenant)
-                    .frame(width: 60, height: 60)
-                    .background(appStyle.tenant)
-                    .clipShape(Circle())
-                    .shadow(color: appStyle.shadow(0.4), radius: 8, y: 4)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(appStyle.tenant, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .accessibilityLabel(labelMode ? "Photograph a label" : "Photograph a receipt")
         }
-        .padding(24)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(appStyle.surface)
+        .overlay(alignment: .top) { Rectangle().fill(appStyle.line).frame(height: 1) }
         .contextMenu {
             Button {
                 pickerItem = nil

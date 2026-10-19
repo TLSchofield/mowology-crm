@@ -130,7 +130,9 @@ struct ItAppThemeModifier: ViewModifier {
         content
             .environment(\.colorScheme, enabled ? palette.colorScheme : system)
             .font(enabled ? style.font(.body) : nil)
-            .foregroundStyle(style.text)
+            // No blanket .foregroundStyle(style.text) here: it overrode the label of every filled button
+            // (.borderedProminent), giving dark text on green — "Snap it", Submit, Confirm (owner, AAA, 2026-10-19).
+            // Text takes the scheme's primary colour from .colorScheme above; views set meta/tenant themselves.
             .tint(style.tenant)
             // Field mode is always light. Sheets take their background and button fills from the
             // window, not from the colorScheme above, so a phone in dark mode drew dark sheets with
