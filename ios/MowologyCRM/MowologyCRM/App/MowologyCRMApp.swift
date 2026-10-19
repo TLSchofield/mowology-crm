@@ -43,6 +43,8 @@ struct MowologyCRMApp: App {
                     AppPhotoQueueDrainService.shared.configure(apiClient: client)
                     Task { await AppTransitionDrainService.shared.drain() }
                     Task { await AppPhotoQueueDrainService.shared.drain() }
+                    PlantSendQueue.shared.configure(apiClient: client)
+                    Task { await PlantSendQueue.shared.drain() }   // plants sent with no signal carry on
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -54,6 +56,7 @@ struct MowologyCRMApp: App {
                 // connectivity restored while the app was backgrounded.
                 Task { await AppTransitionDrainService.shared.drain() }
                 Task { await AppPhotoQueueDrainService.shared.drain() }
+                Task { await PlantSendQueue.shared.drain() }
                 // Re-registering is idempotent server-side (upsert) and gives retry
                 // coverage if the token arrived while offline on a previous launch.
                 UIApplication.shared.registerForRemoteNotifications()

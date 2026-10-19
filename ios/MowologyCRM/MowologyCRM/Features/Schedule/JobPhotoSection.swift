@@ -19,6 +19,7 @@ import UIKit
 import PhotosUI
 import AVFoundation
 import CoreLocation
+import UserNotifications
 
 // MARK: - JobPhotoType
 
@@ -257,6 +258,41 @@ struct JobPhotoSection: View {
     /// True while that gate would block — the library picker is swapped for a plain button.
     let photosLocked:   Bool
 
+    @ViewBuilder
+    private func plantLine(_ it: PlantSendQueue.Item) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: it.state == "failed" ? "exclamationmark.circle" : "leaf")
+                .foregroundStyle(it.state == "failed" ? appStyle.attention : appStyle.tenant)
+            VStack(alignment: .leading, spacing: 2) {
+                switch it.state {
+                case "ready":
+                    Text("Plant: \(it.answerLine ?? "identified")").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text("Confirm it, or leave it for the office.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                case "failed":
+                    Text("Plant not identified").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(it.message ?? "Try again with closer photos.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                default:
+                    Text("Plant: identifying…").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(it.mediaIds.count < it.files.count ? "Sending photos — it carries on by itself." : "Asking Pl@ntNet.")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                }
+            }
+            Spacer(minLength: 4)
+            switch it.state {
+            case "ready":
+                Button("Confirm") { plantToConfirm = it }
+                    .buttonStyle(.borderedProminent).tint(appStyle.tenant).frame(minHeight: 44)
+            case "failed":
+                Button("Clear") { PlantSendQueue.shared.remove(it.id) }
+                    .buttonStyle(.bordered).tint(appStyle.meta).frame(minHeight: 44)
+            default:
+                ProgressView().tint(appStyle.tenant)
+            }
+        }
+        .padding(12)
+        .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+    }
+
     private var chooseLabel: some View {
         Label("Choose", systemImage: "photo.on.rectangle")
             .font(appStyle.font(.subheadline, weight: .semibold))
@@ -271,6 +307,8 @@ struct JobPhotoSection: View {
     @StateObject private var vm: JobPhotoViewModel
     @State private var libraryItems: [PhotosPickerItem] = []
     @State private var showPlantId = false
+    @ObservedObject private var plantSends = PlantSendQueue.shared
+    @State private var plantToConfirm: PlantSendQueue.Item?
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
@@ -375,9 +413,17 @@ struct JobPhotoSection: View {
                 .buttonStyle(.bordered)
                 .tint(appStyle.tenant)
             }
+
+            // Plants sent from this job (PlantSendQueue): identifying → the answer → confirm (optional).
+            ForEach(plantSends.sent(forVisit: visitId, userId: authSession.user?.id)) { it in
+                plantLine(it)
+            }
         }
         .fullScreenCover(isPresented: $showPlantId) {
             PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
+        }
+        .fullScreenCover(item: $plantToConfirm) { it in
+            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id) { plantToConfirm = nil }
         }
         .task { await vm.loadExisting() }
         // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
@@ -674,6 +720,179 @@ struct JobPhotoSection: View {
 
 
 
+// MARK: - Plant sender (snap and walk away, owner 2026-10-19)
+//
+// "Once the 3rd photo is taken the snap button should change to Submit and the screen should transition
+// to a thinking screen that says submitted, so the user can continue working (it takes a while to ID)."
+// The camera hands the three photos here and closes; this sends them and asks Pl@ntNet with no screen
+// open. Photos wait on the phone (QueueStorage) until sent, so no signal, a locked phone or a closed app
+// only delays it — the app resumes it on open and on reconnect (MowologyCRMApp, like job photos).
+// The answer comes back as a notification and a line on the job card; confirming it is optional.
+// Same rules as JobPhotoQueue: one run at a time; no signal / expired login keeps everything; a server
+// fault backs off and gives up after 5, shown on the card; re-sending the same photos is safe (the server
+// answers a re-sent set with its existing record).
+@MainActor
+final class PlantSendQueue: ObservableObject {
+    static let shared = PlantSendQueue()
+
+    struct Item: Codable, Identifiable {
+        let id: String
+        let visitId: Int
+        let userId: Int?
+        let files: [String]              // QueueStorage filenames: whole, closer, close-up
+        var mediaIds: [Int] = []         // shots already uploaded, in order
+        let lat: Double?
+        let lng: Double?
+        let accuracy: Double?
+        let heading: Double?
+        let queuedAt: Date
+        var attempts = 0
+        var nextTryAt: Date?
+        var state = "sending"            // sending | ready | failed
+        var message: String?
+        var response: PlantIdResponse?
+
+        /// "Bigleaf Hydrangea (86%)", from the best match.
+        var answerLine: String? {
+            guard let m = response?.record?.matches.first else { return nil }
+            let name = (m.common?.isEmpty == false ? m.common! : m.scientific)
+            return "\(name) (\(Int((m.score * 100).rounded()))%)"
+        }
+    }
+
+    @Published private(set) var items: [Item] = []
+    private let storeKey = "mw.plantsend.queue.v1"
+    private let maxAttempts = 5
+    private var apiClient: APIClient?
+    private var running: Task<Void, Never>?
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: storeKey),
+           let saved = try? JSONDecoder().decode([Item].self, from: data) {
+            // Answers are kept two days for the job card; anything older has been seen or dealt with.
+            items = saved.filter { $0.state == "sending" || $0.queuedAt > Date().addingTimeInterval(-2 * 86_400) }
+        }
+        // Signal back (the app's reconnect ping, as for job photos): send what is waiting.
+        NotificationCenter.default.addObserver(forName: .mwPingQueueOnline, object: nil, queue: .main) { _ in
+            Task { @MainActor in await PlantSendQueue.shared.drain() }
+        }
+    }
+
+    private func save() { UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: storeKey) }
+
+    func configure(apiClient: APIClient) { self.apiClient = apiClient }
+
+    func sent(forVisit visitId: Int, userId: Int?) -> [Item] {
+        items.filter { $0.visitId == visitId && ($0.userId == nil || $0.userId == userId) }
+    }
+
+    /// The camera's three shots. Returns false when the phone could not keep them (no storage).
+    @discardableResult
+    func submit(shots: [Data], visitId: Int, userId: Int?, fix: CLLocation?, heading: Double?, apiClient: APIClient) -> Bool {
+        let id = UUID().uuidString
+        var files: [String] = []
+        for (i, data) in shots.enumerated() {
+            let name = "plant-\(id)-\(i).jpg"
+            guard QueueStorage.write(data, filename: name) else { files.forEach(QueueStorage.remove); return false }
+            files.append(name)
+        }
+        items.append(Item(id: id, visitId: visitId, userId: userId, files: files,
+                          lat: fix?.coordinate.latitude, lng: fix?.coordinate.longitude,
+                          accuracy: fix?.horizontalAccuracy, heading: heading, queuedAt: Date()))
+        save()
+        self.apiClient = apiClient
+        Task { await drain() }
+        return true
+    }
+
+    /// The owner confirmed it, or cleared a failed one, on the job card.
+    func remove(_ id: String) {
+        if let it = items.first(where: { $0.id == id }) { it.files.forEach(QueueStorage.remove) }
+        items.removeAll { $0.id == id }
+        save()
+    }
+
+    func drain() async {
+        if let running { await running.value; return }
+        let task = Task { await drainOnce() }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce() async {
+        guard let api = apiClient else { return }
+        let me = api.currentUserId
+        let bg = BackgroundTaskHold(name: "plant-send")
+        defer { bg.end() }
+        for id in items.filter({ $0.state == "sending" }).map(\.id) {
+            guard var it = items.first(where: { $0.id == id }) else { continue }
+            if let owner = it.userId, owner != me { continue }                 // only its taker's login sends it
+            if let next = it.nextTryAt, next > Date() { continue }
+            do {
+                for i in it.mediaIds.count..<it.files.count {
+                    guard let data = QueueStorage.read(it.files[i]) else { throw APIError.serverError("A plant photo is missing from this phone") }
+                    let res = try await api.uploadVisitPhoto(imageData: data, visitId: it.visitId, photoTypeRaw: "other", queuedAt: it.queuedAt)
+                    if let mid = res["media_id"] as? Int { it.mediaIds.append(mid) }
+                    else if let s = res["media_id"] as? String, let mid = Int(s) { it.mediaIds.append(mid) }
+                    else { throw APIError.serverError("A photo uploaded without an id") }
+                    update(it)                                                // a resend sends only the rest
+                }
+                var body: [String: Any] = ["mode": "identify", "visit_id": it.visitId, "media_ids": it.mediaIds]
+                if let v = it.lat { body["lat"] = v }
+                if let v = it.lng { body["lng"] = v }
+                if let v = it.accuracy { body["accuracy"] = v }
+                if let v = it.heading { body["heading"] = v }
+                let res: PlantIdResponse = try await api.request(.plantId, body: body, timeout: 90)
+                if res.ok, res.record != nil {
+                    it.state = "ready"; it.response = res; it.message = res.message
+                } else {
+                    it.state = "failed"; it.message = res.message ?? "Pl@ntNet couldn't tell what it is. Try closer photos."
+                }
+                it.files.forEach(QueueStorage.remove)                          // sent: the server has the photos
+                update(it)
+                notify(it)
+            } catch let err as APIError {
+                switch err {
+                case .networkError, .unauthorized:
+                    update(it)
+                    return                                                     // no signal / signed out: keep everything
+                default:
+                    it.attempts += 1
+                    if it.attempts >= maxAttempts {
+                        it.state = "failed"; it.message = err.localizedDescription
+                        notify(it)
+                    } else {
+                        it.nextTryAt = Date().addingTimeInterval(60 * pow(2, Double(it.attempts)))
+                    }
+                    update(it)
+                }
+            } catch {
+                update(it)
+                return
+            }
+        }
+    }
+
+    private func update(_ it: Item) {
+        if let i = items.firstIndex(where: { $0.id == it.id }) { items[i] = it; save() }
+    }
+
+    private func notify(_ it: Item) {
+        let c = UNMutableNotificationContent()
+        if it.state == "ready", let line = it.answerLine {
+            c.title = "Plant identified"
+            c.body = "It looks like \(line). Open the job to confirm it, or leave it for the office."
+        } else {
+            c.title = "Plant not identified"
+            c.body = it.message ?? "Try the plant again with closer photos."
+        }
+        c.sound = .default
+        c.userInfo = ["visit_id": it.visitId]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "plant-\(it.id)", content: c, trigger: nil))
+    }
+}
+
 // MARK: - Plant ID ("What is this plant?", 2026-10-15)
 //
 // Three photos of one plant — whole plant, closer, close-up — taken with the app's own camera
@@ -682,25 +901,25 @@ struct JobPhotoSection: View {
 // Pl@ntNet on the visit's property and suggests the bed (inside it / facing it / near it).
 // The crew picks the name and the bed; approved care from the plant library is shown back.
 
-struct PlantMatchDTO: Decodable, Identifiable, Hashable {
+struct PlantMatchDTO: Codable, Identifiable, Hashable {
     let scientific: String
     let common: String?
     let score: Double
     var id: String { scientific }
 }
 
-struct PlantBedRefDTO: Decodable, Hashable {
+struct PlantBedRefDTO: Codable, Hashable {
     let id: Int
     let name: String
     let sure: Bool?
 }
 
-struct PlantBedDTO: Decodable, Identifiable, Hashable {
+struct PlantBedDTO: Codable, Identifiable, Hashable {
     let id: Int
     let name: String
 }
 
-struct PlantRecordDTO: Decodable {
+struct PlantRecordDTO: Codable {
     let id: Int
     let status: String
     let scientificName: String?
@@ -715,13 +934,13 @@ struct PlantRecordDTO: Decodable {
     }
 }
 
-struct PlantCareTaskDTO: Decodable, Hashable {
+struct PlantCareTaskDTO: Codable, Hashable {
     let task: String
     let when: String
     let how: String?
 }
 
-struct PlantCareDTO: Decodable {
+struct PlantCareDTO: Codable {
     let name: String?
     let general: Bool?
     let tasks: [PlantCareTaskDTO]
@@ -741,7 +960,7 @@ struct PlantCareDTO: Decodable {
     }
 }
 
-struct PlantIdResponse: Decodable {
+struct PlantIdResponse: Codable {
     let ok: Bool
     let message: String?
     let record: PlantRecordDTO?
@@ -832,6 +1051,9 @@ struct PlantIdView: View {
     @Environment(\.itAppStyle) private var appStyle
     let visitId: Int
     let authSession: AuthSession
+    /// An answer the sender already has (PlantSendQueue): open straight at "What is it?" — no camera.
+    var preset: PlantIdResponse? = nil
+    var presetItemId: String? = nil
     let onClose: () -> Void
 
     private static let steps = [
@@ -851,11 +1073,8 @@ struct PlantIdView: View {
     @State private var other: String = ""
     @State private var bedId: Int = 0
     @State private var saved: PlantIdResponse?
-    /// Media ids of the shots already uploaded, in order — a retry sends only the rest (2026-10-16).
-    @State private var uploaded: [Int] = []
-    /// The send stopped (no signal, or the app went to the background): the photos are kept for Try again.
-    @State private var sendFailed = false
-    @Environment(\.scenePhase) private var scenePhase
+    /// Handed to PlantSendQueue: the "Submitted" screen shows, then closes by itself.
+    @State private var submitted = false
 
     var body: some View {
         Group {
@@ -863,17 +1082,21 @@ struct PlantIdView: View {
                 doneView(saved)
             } else if let result, let record = result.record {
                 pickView(result, record)
+            } else if submitted {
+                submittedView
             } else {
                 shootView
             }
         }
         .task {
+            if let preset, let rec = preset.record {
+                pick = rec.scientificName ?? (rec.matches.first?.scientific ?? "")
+                bedId = rec.bed?.id ?? 0
+                result = preset
+                return
+            }
             fix.start()
             await camera.start(videoMode: false)
-        }
-        // Back from the background after a send was cut off: carry on by itself.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active, sendFailed, !busy, shots.count == 3 { Task { await identify() } }
         }
         .onDisappear {
             fix.stop()
@@ -918,12 +1141,18 @@ struct PlantIdView: View {
                         }
                     }
                 }
-                if sendFailed && !busy {
+                if shots.count == 3 {
+                    // All three taken: the shutter becomes Submit (owner, 2026-10-19).
                     HStack(spacing: 12) {
-                        Button("Retake photos") { Task { await retake() } }
+                        Button("Retake") { Task { await retake() } }
+                            .font(appStyle.font(.headline))
+                            .frame(minWidth: 110, minHeight: 56)
                             .buttonStyle(.bordered).tint(.white)
-                        Button("Try again") { Task { await identify() } }
-                            .buttonStyle(.borderedProminent)
+                        Button(action: submit) {
+                            Text("Submit").font(appStyle.font(.headline))
+                                .frame(minWidth: 170, minHeight: 56)
+                        }
+                        .buttonStyle(.borderedProminent).tint(appStyle.tenant)
                     }
                     .padding(.bottom, 24)
                 } else {
@@ -953,63 +1182,58 @@ struct PlantIdView: View {
                 guard let data else { status = "That photo didn't take — try again."; return }
                 shots.append(data)
                 if shots.count == 3 {
-                    camera.stop()   // the camera's job is done — no indicator light during upload and picking
-                    await identify()
+                    camera.stop()   // the camera's job is done — Submit or Retake
                 }
             }
         }
     }
 
-    private func identify() async {
-        guard !busy else { return }
-        busy = true
-        sendFailed = false
-        // Switching apps mid-send: iOS lets a background task finish (about 30 s) instead of cutting it off.
-        let bg = BackgroundTaskHold(name: "plant-id")
-        defer { busy = false; bg.end() }
-        let api = APIClient(authSession: authSession)
-        do {
-            // Only the shots not sent yet (a re-sent photo is recognised by the server anyway).
-            for i in uploaded.count..<shots.count {
-                status = "Uploading photo \(i + 1) of 3…"
-                let data = shots[i]
-                let res = try await api.uploadVisitPhoto(imageData: data, visitId: visitId, photoTypeRaw: "other")
-                if let id = res["media_id"] as? Int { uploaded.append(id) }
-                else if let s = res["media_id"] as? String, let id = Int(s) { uploaded.append(id) }
-                else { throw APIError.serverError("A photo uploaded without an id") }
+    /// Hand the three photos to the sender and let the crew get back to work.
+    private func submit() {
+        let ok = PlantSendQueue.shared.submit(shots: shots, visitId: visitId, userId: authSession.user?.id,
+                                              fix: fix.best, heading: wholeHeading, apiClient: APIClient(authSession: authSession))
+        guard ok else { status = "This phone is out of space, so the photos couldn't be kept. Free some space and try again."; return }
+        fix.stop()
+        submitted = true
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            onClose()
+        }
+    }
+
+    // MARK: Submitted — the "thinking" screen
+
+    private var submittedView: some View {
+        ZStack {
+            appStyle.page.ignoresSafeArea()
+            VStack(spacing: 18) {
+                Spacer()
+                ProgressView().controlSize(.large).tint(appStyle.tenant)
+                Text("Submitted").font(appStyle.font(.title2, weight: .bold)).foregroundStyle(appStyle.text)
+                Text("Identifying the plant. Carry on working — the answer comes to this job and as a notification.")
+                    .font(appStyle.font(.body)).foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center).padding(.horizontal, 32)
+                HStack(spacing: 10) {
+                    ForEach(Array(shots.enumerated()), id: \.offset) { _, data in
+                        if let img = PhotoMetadata.thumbnail(from: data, maxPixel: 160) {
+                            Image(uiImage: img).resizable().scaledToFill().frame(width: 64, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                        }
+                    }
+                }
+                Spacer()
+                Button { onClose() } label: {
+                    Text("Done").font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: 56)
+                }
+                .buttonStyle(.borderedProminent).tint(appStyle.tenant)
+                .padding(.horizontal, 24).padding(.bottom, 24)
             }
-            let ids = uploaded
-            status = "Asking Pl@ntNet…"
-            var body: [String: Any] = ["mode": "identify", "visit_id": visitId, "media_ids": ids]
-            if let b = fix.best {
-                body["lat"] = b.coordinate.latitude
-                body["lng"] = b.coordinate.longitude
-                body["accuracy"] = b.horizontalAccuracy
-            }
-            if let h = wholeHeading { body["heading"] = h }
-            let res: PlantIdResponse = try await api.request(.plantId, body: body, timeout: 90)
-            if res.ok, let rec = res.record {
-                pick = rec.scientificName ?? (rec.matches.first?.scientific ?? "")
-                bedId = rec.bed?.id ?? 0
-                result = res
-                status = nil
-            } else {
-                status = res.message ?? "Plant identification response ok=\(res.ok), record=\(res.record == nil ? "missing" : "present"); server returned no message field."
-                await retake()
-            }
-        } catch {
-            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
-            // Keep the photos: Try again sends what is left (or it carries on by itself when the app comes back).
-            status = ErrorDetails.describe(error) + " Your photos are kept. Tap Try again."
-            sendFailed = true
         }
     }
 
     /// Back to shooting: clear the shots and turn the camera on again.
     private func retake() async {
         shots = []
-        uploaded = []
-        sendFailed = false
         status = nil
         await camera.start(videoMode: false)
     }
@@ -1071,7 +1295,10 @@ struct PlantIdView: View {
         if pick.isEmpty { body["common_name"] = other.trimmingCharacters(in: .whitespaces) } else { body["scientific_name"] = pick }
         do {
             let res: PlantIdResponse = try await APIClient(authSession: authSession).request(.plantId, body: body)
-            if res.ok { saved = res } else { status = res.message ?? "Plant save response ok=false; server returned no message field." }
+            if res.ok {
+                saved = res
+                if let presetItemId { PlantSendQueue.shared.remove(presetItemId) }   // dealt with: off the job card
+            } else { status = res.message ?? "Plant save response ok=false; server returned no message field." }
         } catch {
             AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
             status = ErrorDetails.describe(error)

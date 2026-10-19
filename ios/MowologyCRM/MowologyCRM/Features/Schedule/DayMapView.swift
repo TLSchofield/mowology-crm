@@ -9,6 +9,9 @@ import SwiftUI
 import MapKit
 
 struct DayMapView: View {
+    /// The stop card's height grows with the phone's text size: a fixed 148 pt (set before Ittai's larger
+    /// type and 48 pt buttons) let the time line spill off the top and Directions off the bottom (2026-10-19).
+    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 200
     @Environment(\.itAppStyle) private var appStyle
 
     let stops: [Stop]
@@ -126,7 +129,8 @@ struct DayMapView: View {
                                 total: mappableStops.count,
                                 distanceMeters: distance(to: stop),
                                 canMove: isAdmin && stop.canBeMoved && onMove != nil,
-                                onMove: { onMove?(stop) }
+                                onMove: { onMove?(stop) },
+                                height: cardHeight
                             )
                             .containerRelativeFrame(.horizontal)
                             .id(stop.id)
@@ -137,7 +141,7 @@ struct DayMapView: View {
                 .scrollTargetBehavior(.viewAligned)
                 .scrollPosition(id: $selectedId)
                 .contentMargins(.horizontal, 28, for: .scrollContent)
-                .frame(height: StopCarouselCard.height)
+                .frame(height: cardHeight)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -412,14 +416,13 @@ private struct PinTail: Shape {
 private struct StopCarouselCard: View {
     @Environment(\.itAppStyle) private var appStyle
 
-    static let height: CGFloat = 148
-
     let stop: Stop
     let routeOrder: Int
     let total: Int
     let distanceMeters: Double?
     let canMove: Bool
     let onMove: () -> Void
+    let height: CGFloat
 
     private var statusColor: Color {
         stop.isComplete ? Color(.systemGray) : appStyle.tenant
@@ -461,7 +464,7 @@ private struct StopCarouselCard: View {
                             .foregroundStyle(appStyle.meta)
                     }
 
-                    Text(stop.headline ?? stop.propertyAddress)
+                    Text(stop.headline.map(DisplayNameFormatter.string) ?? stop.propertyAddress)   // same case as the list
                         .font(appStyle.font(.body, weight: .bold))
                         .foregroundStyle(appStyle.text)
                         .lineLimit(1)
@@ -504,7 +507,7 @@ private struct StopCarouselCard: View {
                     Button(action: onMove) {
                         Label("Move", systemImage: "calendar.badge.clock")
                             .font(appStyle.font(.caption, weight: .semibold))
-                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 34)
                             .foregroundStyle(appStyle.tenant)
                             .background(appStyle.tenant.opacity(0.10), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(9)))
                     }
@@ -513,7 +516,7 @@ private struct StopCarouselCard: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .frame(height: Self.height)
+        .frame(height: height)
         .background(appStyle.surface)
         .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(16), style: .continuous))
         .shadow(color: appStyle.shadow(0.14), radius: 12, x: 0, y: 3)
