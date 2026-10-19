@@ -5,7 +5,7 @@
  *   <script src="https://mowology.ca/assets/js/embed.js" data-key="TENANT_KEY" async></script>
  *
  * Optional attributes: data-target="#element-id" (where to render; default: right after the script tag),
- * data-title, data-button, data-thanks, data-accent (a CSS colour for the button).
+ * data-title, data-button, data-thanks, data-accent (a CSS colour for the button), data-accent-text (button text colour).
  * The key only names the tenant; the server also checks the page's Origin against the tenant's allowed sites.
  * The form inherits the host page's fonts and text colour. Visitor text is only ever set via textContent.
  */
@@ -21,6 +21,8 @@
   var buttonText = script.getAttribute('data-button') || 'Send';
   var thanks = script.getAttribute('data-thanks') || 'Thank you. We will be in touch soon.';
   var accent = script.getAttribute('data-accent') || '#1f6f4a';
+  var accentText = script.getAttribute('data-accent-text') || '#ffffff';
+  function safeColour(c) { return c.replace(/[^#a-zA-Z0-9(),.% -]/g, ''); }
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
@@ -34,7 +36,7 @@
     '.' + uid + '{font:inherit;color:inherit;max-width:32rem}',
     '.' + uid + ' label{display:block;margin:.6em 0 .2em;font-size:.9em}',
     '.' + uid + ' input,.' + uid + ' textarea{box-sizing:border-box;width:100%;padding:.55em;font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:4px}',
-    '.' + uid + ' button{margin-top:1em;padding:.6em 1.4em;font:inherit;color:#fff;background:' + accent.replace(/[^#a-zA-Z0-9(),.% -]/g, '') + ';border:0;border-radius:4px;cursor:pointer}',
+    '.' + uid + ' button{margin-top:1em;padding:.6em 1.4em;font:inherit;color:' + safeColour(accentText) + ';background:' + safeColour(accent) + ';border:0;border-radius:4px;cursor:pointer}',
     '.' + uid + ' button[disabled]{opacity:.6;cursor:default}',
     '.' + uid + ' .hp{position:absolute;left:-9999px;height:0;overflow:hidden}',
     '.' + uid + ' .msg{margin-top:.8em}'
