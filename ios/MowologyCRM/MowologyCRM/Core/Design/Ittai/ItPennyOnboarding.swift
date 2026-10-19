@@ -60,9 +60,15 @@ struct ItPennyOnboarding: View {
         VStack(alignment: .leading, spacing: ItSpace.s4) {
             switch state {
             case .opening:
-                field("Business name", text: $name)
-                Button("Continue") { onStart(name.trimmed) }
-                    .buttonStyle(ItOnboardingPrimaryButtonStyle()).disabled(name.trimmed.isEmpty || isBusy || !canEdit)
+                if let error {
+                    Text(error).itText(.body14).foregroundStyle(it.color(.statusBlocked)).accessibilityLabel("Error: \(error)")
+                    Button("Retry", action: onRetry).buttonStyle(.plain).itText(.body14, weight: 600)
+                        .foregroundStyle(it.brand).frame(minHeight: ItSize.targetPhone)
+                } else {
+                    field("Business name", text: $name)
+                    Button("Continue") { onStart(name.trimmed) }
+                        .buttonStyle(ItOnboardingPrimaryButtonStyle()).disabled(name.trimmed.isEmpty || isBusy || !canEdit)
+                }
             case .searching:
                 ProgressView().tint(it.brand).accessibilityLabel("Looking this up in the BC Registry")
             case .oneMatch(let match): matchActions(match)
@@ -77,7 +83,7 @@ struct ItPennyOnboarding: View {
             case .confirmed:
                 contactsCard
             }
-            if let error, !state.hasMatch {
+            if let error, !state.hasMatch, state != .opening {
                 Text(error).itText(.body14).foregroundStyle(it.color(.statusBlocked))
                     .accessibilityLabel("Error: \(error)")
             }
@@ -162,7 +168,7 @@ struct ItPennyOnboarding: View {
                 }
             }
             .padding(.horizontal, ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
-            attributionLine
+            if match.source == "orgbook_bc" { attributionLine }
         }
     }
 
@@ -176,10 +182,9 @@ struct ItPennyOnboarding: View {
                 }.buttonStyle(.plain).foregroundStyle(it.brand).accessibilityLabel("About the registry information licence")
             }
             if showsLicence {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Contains information licensed under the")
-                    Link("Open Government Licence – British Columbia.", destination: Self.licenceURL)
-                }.itText(.caption12).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
+                Text(attribution?.trimmed.nilIfEmpty
+                     ?? "Contains information licensed under the Open Government Licence – British Columbia.")
+                    .itText(.caption12).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -260,6 +265,9 @@ struct ItPennyOnboarding: View {
             case .available(let contacts):
                 if contacts.isEmpty { Text("I'll look for your website and contact details next.").itText(.body14).foregroundStyle(it.meta) }
                 ForEach(contacts) { contact in contactRow(contact) }
+                if !contacts.isEmpty {
+                    Text("I'll go through these with you in the next step.").itText(.body14).foregroundStyle(it.meta)
+                }
             }
         }.padding(ItSpace.s3).background(it.sunk, in: RoundedRectangle(cornerRadius: ItRadius.md))
     }
@@ -354,7 +362,7 @@ struct KnowledgeGlyph: View {
         }
         .padding(6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(state == .recognized ? "Business identity recognized." : "Business identity identified.")
+        .accessibilityLabel("Business identity \(state.rawValue).")
         .onAppear { move(to: state) }
         .onChange(of: state) { move(to: $0) }
     }

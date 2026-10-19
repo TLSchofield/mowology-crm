@@ -774,6 +774,7 @@ private struct EditExpenseView: View {
     @State private var expenseDate:    Date
     @State private var amount:         String
     @State private var gst:            String
+    @State private var pst:            String
     @State private var total:          String
     @State private var category:       String
     @State private var paymentMethod:  String
@@ -794,6 +795,7 @@ private struct EditExpenseView: View {
         _expenseDate     = State(initialValue: Self.parseDate(expense.expenseDate))
         _amount          = State(initialValue: expense.amount.map { String(format: "%.2f", $0) } ?? "")
         _gst             = State(initialValue: expense.gstAmount.map { String(format: "%.2f", $0) } ?? "")
+        _pst             = State(initialValue: expense.pstAmount.map { String(format: "%.2f", $0) } ?? "")
         _total           = State(initialValue: String(format: "%.2f", expense.total))
         _category        = State(initialValue: expense.accountingCategory ?? "")
         _paymentMethod   = State(initialValue: expense.paymentMethod ?? "credit_card")
@@ -812,7 +814,7 @@ private struct EditExpenseView: View {
                 Section("Amounts") {
                     amountRow("Subtotal", $amount)
                     amountRow("GST", $gst)
-                    Divider()
+                    amountRow("PST", $pst)
                     amountRow("Total", $total, bold: true)
                 }
                 .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
@@ -897,6 +899,7 @@ private struct EditExpenseView: View {
             date:          Self.isoFormatter.string(from: expenseDate),
             amount:        ReceiptNumber.parse(amount) ?? 0,
             gst:           ReceiptNumber.parse(gst)    ?? 0,
+            pst:           ReceiptNumber.parse(pst)    ?? 0,
             total:         ReceiptNumber.parse(total)  ?? 0,
             category:      category,
             paymentMethod: paymentMethod,

@@ -289,16 +289,16 @@ struct TeamView: View {
                 officeMember("otto", name: "Otto", department: "Operations", vm: otto),
                 officeMember("mia", name: "Mia", department: "Marketing", vm: mia),
                 penny.hasLoaded
-                    ? ItOfficeMember(id: "penny", name: "Penny", department: "Bookkeeper", state: reportedState("penny"),
-                                     stateReason: readyBrief?.heads?["penny"]?.reason,
-                                     topItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" }, count: penny.queue.count,
-                                     loaded: true, loadFailed: penny.loadError != nil)
+                    ? deskMember("penny", name: "Penny", department: "Bookkeeper",
+                                 ownItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" },
+                                 ownCount: penny.queue.count, ownProduced: penny.loadError == nil || !penny.queue.isEmpty,
+                                 loadFailed: penny.loadError != nil)
                     : briefMember("penny", name: "Penny", department: "Bookkeeper"),
                 sam.hasLoaded
-                    ? ItOfficeMember(id: "sam", name: "Sam", department: "Sales", state: reportedState("sam"),
-                                     stateReason: readyBrief?.heads?["sam"]?.reason,
-                                     topItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) }, count: sam.queue.count,
-                                     loaded: true, loadFailed: sam.loadError != nil)
+                    ? deskMember("sam", name: "Sam", department: "Sales",
+                                 ownItem: sam.queue.first.map { "\($0.name) · " + currency($0.amount) },
+                                 ownCount: sam.queue.count, ownProduced: sam.loadError == nil || !sam.queue.isEmpty,
+                                 loadFailed: sam.loadError != nil)
                     : briefMember("sam", name: "Sam", department: "Sales"),
                 ItOfficeMember(id: "ada", name: "Ada", department: "Technology", state: nil, available: false),
             ],
@@ -327,16 +327,26 @@ struct TeamView: View {
     private func officeMember(_ id: String, name: String, department: String,
                               vm: HeadCardViewModel) -> ItOfficeMember {
         guard vm.hasLoaded else { return briefMember(id, name: name, department: department) }
+        return deskMember(id, name: name, department: department, ownItem: vm.items.first?.text,
+                          ownCount: vm.card?.waiting, ownProduced: vm.card != nil,
+                          loadFailed: vm.loadError != nil)
+    }
+
+    private func deskMember(_ id: String, name: String, department: String, ownItem: String?,
+                            ownCount: Int?, ownProduced: Bool, loadFailed: Bool) -> ItOfficeMember {
         let reported = readyBrief?.heads?[id]
+        let briefItem = readyBriefItem(id)
+        let briefProduced = reported != nil || briefItem != nil
         return ItOfficeMember(id: id, name: name, department: department,
                               state: reported?.state.flatMap(ItEmployeeState.init(rawValue:)),
                               stateReason: reported?.reason,
-                              topItem: vm.items.first?.text, count: vm.card?.waiting,
-                              loaded: true, loadFailed: vm.loadError != nil)
+                              topItem: briefItem?.text ?? ownItem,
+                              count: reported?.needsYou ?? ownCount,
+                              loaded: true, loadFailed: loadFailed && !briefProduced && !ownProduced)
     }
 
-    private func reportedState(_ id: String) -> ItEmployeeState? {
-        readyBrief?.heads?[id]?.state.flatMap(ItEmployeeState.init(rawValue:))
+    private func readyBriefItem(_ id: String) -> HeadItem? {
+        readyBrief?.items.first { ($0.route ?? $0.head) == id }
     }
 
     private func briefMember(_ id: String, name: String, department: String) -> ItOfficeMember {
@@ -682,13 +692,13 @@ private struct ItWorkspaceView<Content: View>: View {
                               stage: businessIdentity.current?.knowledge.stage,
                               attribution: businessIdentity.attribution,
                               isBusy: businessIdentity.isBusy,
-                              canEdit: businessIdentity.current?.canEdit == true,
+                              canEdit: businessIdentity.canEdit,
                               initialName: businessIdentity.enteredName,
                               showsOtherMatches: businessIdentity.hasOtherMatches,
                               error: businessIdentity.error,
                               contactsState: businessIdentity.contactsState,
                               onStart: { value in Task { await businessIdentity.start(value) } },
-                              onRetry: { Task { await businessIdentity.searchAgain() } },
+                              onRetry: { Task { await businessIdentity.retry() } },
                               onShowOtherMatches: businessIdentity.showOtherMatches,
                               onSelect: businessIdentity.select,
                               onConfirm: { match in Task { await businessIdentity.confirm(match) } },

@@ -157,7 +157,7 @@ struct MainTabView: View {
         return order.map { slug, name in
             let report = readyBriefStore.response?.heads?[slug]
             return ItOfficeMember(id: slug, name: name, department: "",
-                                  state: report?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                                  state: slug == "ada" ? .unavailable : report?.state.flatMap(ItEmployeeState.init(rawValue:)),
                                   stateReason: report?.reason, loaded: readyBriefStore.loaded,
                                   loadFailed: readyBriefStore.failed, available: slug != "ada")
         }
@@ -241,7 +241,7 @@ struct MainTabView: View {
 private enum AI_OfficeTabIcon {
     /// Render once: the tab bar then applies its normal selected/unselected tint.
     static let image: UIImage = {
-        let renderer = ImageRenderer(content: ItSymbol(size: 24).environment(\.it, ItPalette(.light)))
+        let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
         renderer.scale = UIScreen.main.scale
         return (renderer.uiImage ?? UIImage(systemName: "person.3.fill")!)
             .withRenderingMode(.alwaysTemplate)

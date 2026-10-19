@@ -68,9 +68,9 @@ struct ItOfficeBar: View {
 
     private func accessibilityLabel(_ member: ItOfficeMember) -> String {
         if connectionUnavailable { return "\(member.name), connection unavailable" }
-        if !member.available { return "\(member.name), not available on iPhone yet" }
-        if !member.loaded { return "\(member.name), loading" }
-        guard let state = member.state else { return "\(member.name), status not reported" }
+        if !member.available { return "\(member.name), not in the iPhone app yet" }
+        if !member.loaded || member.state == nil { return "\(member.name), status not loaded yet" }
+        guard let state = member.state else { return "\(member.name), status not loaded yet" }
         let words = state == .approval ? "waiting for your approval" : state.words.lowercased()
         return member.stateReason.map { "\(member.name), \(words), \($0)" } ?? "\(member.name), \(words)"
     }

@@ -36,6 +36,7 @@ final class BusinessIdentityViewModel: ObservableObject {
     }
     @Published private(set) var attribution: String?
     @Published private(set) var contactsState: BusinessContactsState = .idle
+    @Published private(set) var canEdit = false
     private let api: BusinessIdentityAPI
     private(set) var enteredName = ""
     private var lastMatches: [BusinessRegistryMatch] = []
@@ -47,14 +48,20 @@ final class BusinessIdentityViewModel: ObservableObject {
         isBusy = true; error = nil
         do {
             let response = try await api.current()
-            guard response.ok else { error = response.error ?? "GET business identity: response ok=false; server supplied no error message."; isBusy = false; return }
+            guard response.ok else { error = response.error ?? "I couldn't reach the server. Please try again."; isBusy = false; return }
             apply(response)
+            canEdit = response.canEdit
             isBusy = false
             if response.knowledge.stage == .recognized, let name = response.identity?.enteredName {
                 enteredName = name
                 await search(name)
             }
-        } catch { self.error = failure(error); isBusy = false }
+        } catch { self.error = "I couldn't reach the server. Please try again."; isBusy = false }
+    }
+
+    func retry() async {
+        error = nil
+        if current == nil { await load() } else { await searchAgain() }
     }
 
     func start(_ name: String) async {
@@ -145,15 +152,8 @@ final class BusinessIdentityViewModel: ObservableObject {
         contactsState = .loading
         do {
             let response = try await api.contacts()
-            contactsState = response.ok ? .available(response.contacts) : .missing
-        } catch let apiError as APIError {
-            self.error = failure(apiError)
-            switch apiError {
-            case .serverError, .decodingError:
-                contactsState = .missing
-            default: contactsState = .failed
-            }
-        } catch { self.error = failure(error); contactsState = .failed }
+            contactsState = response.ok ? .available(response.contacts) : .failed
+        } catch { contactsState = .failed }
     }
 
     private func apply(_ response: BusinessIdentityCurrentResponse) {

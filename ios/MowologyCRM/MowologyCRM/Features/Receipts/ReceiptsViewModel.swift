@@ -489,7 +489,7 @@ final class ReceiptsViewModel: ObservableObject {
     func updateExpense(
         expenseId: Int,
         vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
+        amount: Double, gst: Double, pst: Double, total: Double,
         category: String, paymentMethod: String, description: String
     ) async -> Bool {
         isSaving  = true
@@ -500,6 +500,7 @@ final class ReceiptsViewModel: ObservableObject {
             "vendor_name_raw":     vendorName,
             "amount":              amount,
             "gst_amount":          gst,
+            "pst_amount":          pst,
             "total":               total,
             "accounting_category": category,
             "payment_method":      paymentMethod,
