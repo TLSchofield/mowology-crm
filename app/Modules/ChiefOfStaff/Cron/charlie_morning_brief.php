@@ -138,10 +138,14 @@ try {
 
     // Every run: ask every head and keep the brief ready for the iPhone's opening screen
     // (HeadBriefReadyService — building it live takes ~7 s, too long to wait for at launch).
-    $view = $f->card($name)['view'];
+    $card = $f->card($name);
+    $view = $card['view'];
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
-        (new HeadBriefReadyService($db))->rebuildCharlie($f, $name, $view);
+        $hbr = new HeadBriefReadyService($db);
+        $hbr->rebuildCharlie($f, $name, $view);
+        // The dashboard's copy of the same answer: "Needs you now" shows it with the page (speed pass, 2026-10-19).
+        $hbr->keepToday(HeadBriefReadyService::todayPayload($card, $desk, $name));
     } catch (Throwable $e) {
         $parts[] = 'ready brief failed: ' . $e->getMessage();
     }

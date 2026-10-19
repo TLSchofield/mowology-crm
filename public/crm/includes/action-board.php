@@ -33,4 +33,18 @@ $__abSrc = function_exists('_av') ? _av('/crm/js/action-board.js') : '/crm/js/ac
   <ul class="mw-ab-rows" data-ab-rows hidden></ul>
   <p class="mw-ab-msg" data-ab-msg aria-live="polite"></p>
 </section>
+<?php
+// Charlie's list as of his last run (cron every 15 min, or the last live answer), printed into the page
+// so "Needs you now" shows with it — the live answer (~7 s) replaces it when it lands (speed pass,
+// 2026-10-19). Stale (> 30 min) or missing: nothing printed, and the board fetches as before.
+$__abSaved = null;
+try {
+    require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+    $__abSaved = (new HeadBriefReadyService(getDB()))->today();
+} catch (Throwable $__e) {
+    error_log('Action board saved list: ' . get_class($__e));
+}
+if ($__abSaved): ?>
+<script>window.MW_CHARLIE_TODAY = <?= json_encode($__abSaved, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?>;</script>
+<?php endif; ?>
 <script src="<?= h($__abSrc) ?>" defer></script>

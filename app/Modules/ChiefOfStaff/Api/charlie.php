@@ -74,13 +74,6 @@ try {
     $name = CharlieVoice::firstName($user);
     $uid = (int)($user['id'] ?? 0);
 
-    $slim = static fn(?array $it) => $it === null ? null : [
-        'key' => $it['key'], 'head' => $it['head'], 'text' => $it['text'], 'url' => $it['url'],
-        'priority' => $it['priority'], 'value' => $it['value'],
-        // For the dashboard's Action Board: what kind it is, how long it has waited, its rank.
-        'kind' => $it['kind'] ?? null, 'since' => $it['since'] ?? null,
-        'first_seen' => $it['first_seen'] ?? null, 'score' => $it['score'] ?? null,
-    ];
     $need = static function (bool $ready, string $migration) {
         if ($ready) return true;
         echo json_encode(['ok' => false, 'error' => "Migration {$migration} has not run"]);
@@ -90,26 +83,12 @@ try {
     switch ($mode) {
         case 'today':
             $card = $f->card($name);
-            $view = $card['view'];
             $desk->markSeen();
-            $heads = [];
-            foreach ($view['heads'] as $h) {
-                $heads[] = ['head' => $h['head'], 'name' => $h['name'], 'role' => $h['role'], 'headline' => $h['headline'],
-                            'waiting' => $h['waiting'], 'items' => array_map($slim, $h['items'])];
-            }
-            echo json_encode([
-                'ok'        => true,
-                'bad'       => $view['bad'],
-                'bad_lead'  => CharlieVoice::badLead($view['bad']),
-                'say'       => $view['say'],
-                'one'       => $slim($view['one']),
-                'rest'      => array_map($slim, $view['rest']),
-                'total'     => $view['total'],
-                'heads'     => $heads,
-                'failed'    => array_keys($view['failed']),
-                'questions' => $desk->questions($name),
-                'inbox'     => $card['inbox'],
-            ]);
+            // One builder for the live answer and the dashboard's saved copy (HeadBriefReadyService).
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+            $payload = HeadBriefReadyService::todayPayload($card, $desk, $name);
+            try { (new HeadBriefReadyService($db))->keepToday($payload); } catch (Throwable $e) { /* the answer still goes out */ }
+            echo json_encode($payload);
             break;
 
         case 'calendar':

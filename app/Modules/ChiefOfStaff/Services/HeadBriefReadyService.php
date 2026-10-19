@@ -167,6 +167,99 @@ class HeadBriefReadyService
         return ($h === '' || $h === 'house') ? 'charlie' : $h;
     }
 
+    // ── The dashboard's copy (speed pass, 2026-10-19) ───────────────────────────────────────────────
+    // charlie.php ?mode=today takes ~7 s live, so the dashboard showed "Charlie is checking with the
+    // team…" for that long. The same view the cron already builds every 15 minutes is now also kept in
+    // the shape the dashboard reads; action-board.php prints it into the page and the live answer
+    // replaces it when it lands. One builder for both, so the two can't drift.
+
+    public const TODAY_KEY = 'charlie_today';
+    /** Older than this and the dashboard ignores the saved copy (falls back to the live fetch). */
+    public const TODAY_MAX_AGE_SEC = 1800;
+
+    /** One of Charlie's items, slimmed for the dashboard (as charlie.php always served it). */
+    public static function slim(?array $it): ?array
+    {
+        return $it === null ? null : [
+            'key' => $it['key'], 'head' => $it['head'], 'text' => $it['text'], 'url' => $it['url'],
+            'priority' => $it['priority'], 'value' => $it['value'],
+            // For the dashboard's Action Board: what kind it is, how long it has waited, its rank.
+            'kind' => $it['kind'] ?? null, 'since' => $it['since'] ?? null,
+            'first_seen' => $it['first_seen'] ?? null, 'score' => $it['score'] ?? null,
+        ];
+    }
+
+    /**
+     * The ?mode=today answer from a CharlieForemanService::card() result.
+     * @param array $card ['view' => …, 'inbox' => …]
+     */
+    public static function todayPayload(array $card, CharlieDeskService $desk, string $name): array
+    {
+        if (!class_exists('CharlieVoice')) require_once __DIR__ . '/CharlieVoice.php';
+        $view = $card['view'];
+        $heads = [];
+        foreach ($view['heads'] as $h) {
+            $heads[] = ['head' => $h['head'], 'name' => $h['name'], 'role' => $h['role'], 'headline' => $h['headline'],
+                        'waiting' => $h['waiting'], 'items' => array_map([self::class, 'slim'], $h['items'])];
+        }
+        return [
+            'ok'        => true,
+            'bad'       => $view['bad'],
+            'bad_lead'  => CharlieVoice::badLead($view['bad']),
+            'say'       => $view['say'],
+            'one'       => self::slim($view['one']),
+            'rest'      => array_map([self::class, 'slim'], $view['rest']),
+            'total'     => $view['total'],
+            'heads'     => $heads,
+            'failed'    => array_keys($view['failed']),
+            'questions' => $desk->questions($name),
+            'inbox'     => $card['inbox'],
+        ];
+    }
+
+    public function keepToday(array $payload): void
+    {
+        $this->put(self::TODAY_KEY, $payload, 0);
+    }
+
+    /**
+     * The dashboard's saved copy, if fresh: items acted on since (dismissed today, snoozed, resolved)
+     * are taken out, as for the iPhone's copy. Adds 'saved_at'. Null when missing or stale.
+     */
+    public function today(?int $now = null): ?array
+    {
+        if (!$this->ready()) return null;
+        $s = $this->db->prepare("SELECT payload, built_at FROM head_brief_ready WHERE head = ?");
+        $s->execute([self::TODAY_KEY]);
+        $row = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $age = ($now ?? time()) - (int)strtotime((string)$row['built_at']);
+        if ($age > self::TODAY_MAX_AGE_SEC) return null;
+        $p = json_decode((string)$row['payload'], true);
+        if (!is_array($p) || empty($p['ok'])) return null;
+        $keys = [];
+        foreach (array_merge([$p['one'] ?? null], (array)($p['rest'] ?? [])) as $it) if (!empty($it['key'])) $keys[] = $it['key'];
+        foreach ((array)($p['heads'] ?? []) as $h) foreach ((array)($h['items'] ?? []) as $it) if (!empty($it['key'])) $keys[] = $it['key'];
+        return self::withoutToday($p, $this->hiddenNow(array_values(array_unique($keys)))) + ['saved_at' => (string)$row['built_at']];
+    }
+
+    /** Pure: the today payload with these keys taken out everywhere they appear. */
+    public static function withoutToday(array $p, array $hiddenKeys): array
+    {
+        if (!$hiddenKeys) return $p;
+        $hide = array_flip(array_map('strval', $hiddenKeys));
+        $keep = static fn($it) => is_array($it) && !isset($hide[(string)($it['key'] ?? '')]);
+        $rest = array_values(array_filter((array)($p['rest'] ?? []), $keep));
+        $one = $p['one'] ?? null;
+        if ($one !== null && !$keep($one)) $one = array_shift($rest);
+        $p['one'] = $one;
+        $p['rest'] = $rest;
+        foreach ((array)($p['heads'] ?? []) as $i => $h) {
+            $p['heads'][$i]['items'] = array_values(array_filter((array)($h['items'] ?? []), $keep));
+        }
+        return $p;
+    }
+
     /** Build Charlie's brief and keep it. Returns the brief. */
     public function rebuildCharlie(CharlieForemanService $f, string $name, ?array $view = null): array
     {
