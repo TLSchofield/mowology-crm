@@ -29,6 +29,8 @@ require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierPriceListServic
 
 class SupplierInboxService
 {
+    /** File names imported as price lists from the email being read (so they aren't filed as forms). */
+    private array $listFiles = [];
     public const DAYS = 4;
 
     private PDO $db;
@@ -156,6 +158,15 @@ class SupplierInboxService
                 if (strpos($body, $h) === false) $body .= "\n" . $h;
             }
             $r = $svc->importFromEmail($supplier, $format, $body, ['message_key' => $key, 'received_at' => $received]);
+            // Lists attached to the email (Specimen Trees' .xls, SW Garden's PDF), when the format says so.
+            foreach ($st ? ImapReader::files($st) : [] as $f) {
+                if (!SupplierPriceListService::listAttachment((string)$f['filename'], $format)) continue;
+                $bytes = ImapReader::fetchPart($conn, $no, $f['pn'], (int)$f['encoding']);
+                $a = $svc->importAttachment($supplier, $format, (string)$f['filename'], $bytes, ['message_key' => $key, 'received_at' => $received, 'body' => $body]);
+                if ($a['status'] === 'imported') $r['imported']++;
+                elseif ($a['status'] === 'failed') $r['failed']++;
+                if ($a['status'] === 'imported' || $a['status'] === 'duplicate') $this->listFiles[(string)$f['filename']] = true;
+            }
             if ($r['imported'] || $r['failed']) {
                 error_log('[supplier inbox] price lists from ' . ($supplier['name'] ?? '?') . ": {$r['imported']} imported, {$r['duplicate']} already in, {$r['failed']} failed");
             }
@@ -215,6 +226,9 @@ class SupplierInboxService
         } else {
             error_log('[supplier inbox] ' . $label . ' #' . $no . ': price lists not imported — sender not verified (' . $listAuth['reason'] . ')');
         }
+        // A PDF that was this supplier's price list is not an account form for the owner to sign.
+        $pdfs = array_values(array_filter($pdfs, fn($a) => !isset($this->listFiles[(string)$a['filename']])));
+        $this->listFiles = [];
         if (!$pdfs) return;
         $body = $body ?? ImapReader::textBody($conn, $no, $st);
         foreach ($pdfs as $a) {

@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/SupplierListParser.php';
 require_once __DIR__ . '/CatalogService.php';
+require_once dirname(__DIR__, 3) . '/Services/Spreadsheet/PdfTableReader.php';   // supplier PDF price tables (2026-10-19)
 
 class SupplierPriceListService
 {
@@ -185,6 +186,36 @@ class SupplierPriceListService
         return $out;
     }
 
+    /** The attached files a format reads (by extension). PURE. */
+    public static function listAttachment(string $fileName, array $format): bool
+    {
+        if (!in_array((string)($format['arrives'] ?? 'link'), ['attachment', 'both'], true)) return false;
+        $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        $spec = json_decode((string)($format['spec_json'] ?? ''), true);
+        $types = (array)($spec['attachment_types'] ?? ['xlsx', 'xls', 'csv', 'pdf']);
+        return in_array($ext, $types, true);
+    }
+
+    /**
+     * One attached list → imported (Specimen Trees' monthly .xls, SW Garden's contractor PDF). Never throws.
+     * @return array{status: string, list_id: ?int}
+     */
+    public function importAttachment(array $supplier, array $format, string $fileName, string $bytes, array $meta): array
+    {
+        try {
+            if (strlen($bytes) > self::MAX_BYTES * 4) return ['status' => 'too_big', 'list_id' => null];
+            $source = 'attachment:' . $fileName;
+            if ($this->seen((int)$supplier['id'], $source, (string)($meta['message_key'] ?? ''))) return ['status' => 'duplicate', 'list_id' => null];
+            $r = $this->import($bytes, ['supplier_account_id' => (int)$supplier['id'], 'format' => $format, 'file_name' => $fileName,
+                                        'source_url' => $source, 'message_key' => $meta['message_key'] ?? null, 'body' => $meta['body'] ?? '',
+                                        'received' => $meta['received_at'] ?? '']);
+            return ['status' => $r['status'], 'list_id' => $r['list_id']];
+        } catch (Throwable $e) {
+            error_log('[price lists] ' . ($supplier['name'] ?? 'supplier') . ' ' . $fileName . ': ' . $e->getMessage());
+            return ['status' => 'failed', 'list_id' => null];
+        }
+    }
+
     /** Already imported this exact link from this exact email? */
     private function seen(int $supplierId, string $url, string $messageKey): bool
     {
@@ -204,7 +235,10 @@ class SupplierPriceListService
     {
         $format = (array)$meta['format'];
         $spec = SupplierListParser::spec((string)$format['spec_json']);
-        $cells = SheetReader::read($bytes, (string)($meta['file_name'] ?? 'list.xlsx'));
+        $fileName = (string)($meta['file_name'] ?? 'list.xlsx');
+        $cells = (strncmp($bytes, '%PDF-', 5) === 0 || strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) === 'pdf')
+            ? PdfTableReader::cells($bytes, (array)($spec['pdf'] ?? []))      // a PDF price table (format's "pdf" section)
+            : SheetReader::read($bytes, $fileName);
         $p = SupplierListParser::parse($cells, $spec, ['file_name' => (string)($meta['file_name'] ?? ''),
                                                        'body' => (string)($meta['body'] ?? ''), 'received' => (string)($meta['received'] ?? '')]);
         $supplierId = (int)$meta['supplier_account_id'];

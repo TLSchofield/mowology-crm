@@ -183,7 +183,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierDirectorySer
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormService.php';
 // Supplier price lists + shared catalogue (migration 1331)
 require_once __DIR__ . '/../app/Services/Spreadsheet/XlsxReader.php';
-require_once __DIR__ . '/../app/Services/Spreadsheet/SheetReader.php';
+require_once __DIR__ . '/../app/Services/Spreadsheet/SheetReader.php';   // + XlsReader (old .xls)
+require_once __DIR__ . '/../app/Services/Spreadsheet/PdfTableReader.php';   // supplier PDF price tables (2026-10-19)
 require_once __DIR__ . '/../app/Modules/Operations/Services/PlantNameNormalizer.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';

@@ -189,6 +189,27 @@ class ImapReader
         }
     }
 
+    /**
+     * Every attached file (any type) that has a name — supplier lists come as .xls/.xlsx/.csv/.pdf (2026-10-19).
+     * @return array<int, array{pn: string, filename: string, mime: string, encoding: int, bytes: int}>
+     */
+    public static function files($part, string $pn = ''): array
+    {
+        $acc = [];
+        $walk = static function ($p, string $at) use (&$walk, &$acc): void {
+            if (!empty($p->parts)) {
+                foreach ($p->parts as $i => $child) $walk($child, $at === '' ? (string)($i + 1) : $at . '.' . ($i + 1));
+                return;
+            }
+            $name = self::param($p, 'filename') ?? self::param($p, 'name');
+            if ($name === null || $name === '') return;
+            $acc[] = ['pn' => $at ?: '1', 'filename' => $name, 'mime' => self::mime($p), 'encoding' => (int)($p->encoding ?? 0),
+                      'bytes' => (int)($p->bytes ?? 0)];
+        };
+        $walk($part, $pn);
+        return $acc;
+    }
+
     /** One part's decoded bytes, fetched with FT_PEEK (never marks the mail read). */
     public static function fetchPart($conn, int $no, string $pn, int $encoding): string
     {
