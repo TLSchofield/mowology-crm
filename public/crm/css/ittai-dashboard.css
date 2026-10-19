@@ -269,3 +269,236 @@ body:has(.it-design) main.content {
   color: var(--it-meta) !important; /* Bootstrap .text-muted is !important */
   font-size: var(--it-meta-13-size);
 }
+
+/* ── Step 2 (2026-10-18): the top of the page — "Needs you now" and the heads deck ── */
+
+/* Needs you now: a hairline list; amber edge only on Charlie's one top item. */
+.it-design .card.mw-action-board {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: var(--it-space-6);
+  padding: var(--it-space-4) var(--it-space-5);
+}
+
+.it-design .mw-ab-title {
+  color: var(--it-text);
+  font-size: var(--it-heading-16-size);
+  font-weight: var(--it-heading-16-weight);
+  line-height: var(--it-heading-16-line);
+}
+
+.it-design .mw-ab-count,
+.it-design .mw-ab-n {
+  background: var(--it-sunk);
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+
+.it-design .mw-ab-line { color: var(--it-meta); font-size: var(--it-body-14-size); }
+
+.it-design .mw-ab-colhead { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .mw-ab-colhead b { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+.it-design .mw-ab-colhead span {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-ab-face {
+  box-shadow: 0 0 0 1px var(--it-line);
+  height: 48px;
+  width: 48px;
+}
+
+.it-design .mw-ab-items { gap: 0; }
+
+.it-design .mw-ab-row {
+  background: transparent;
+  border: 0;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--it-space-3) 0;
+}
+
+.it-design .mw-ab-row.is-top {
+  border-left: 3px solid var(--it-state-approval);
+  padding-left: var(--it-space-3);
+}
+
+.it-design .mw-ab-text { color: var(--it-text); font-size: var(--it-body-14-size); line-height: var(--it-body-14-line); }
+.it-design .mw-ab-wait { color: var(--it-meta); font-size: var(--it-caption-12-size); }
+.it-design .mw-ab-later { color: var(--it-meta); font-size: var(--it-meta-13-size); }
+.it-design .mw-ab-later:hover,
+.it-design .mw-ab-later:focus { color: var(--it-text); }
+
+.it-design .btn-primary.mw-ab-go {
+  background: var(--it-tenant);
+  border-color: var(--it-tenant);
+  border-radius: var(--it-radius-md);
+  color: var(--it-on-tenant);
+  font-weight: 600;
+}
+
+/* Heads deck: flat working surfaces, hairline borders, no glow. */
+.it-design .mw-head-card {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--it-space-5);
+}
+
+.it-design .mw-head-feature { border-color: var(--it-line); }
+
+/* Portrait ring = the head's state colour (working), not a decorative lime glow. */
+.it-design .mw-head-portrait img {
+  border-radius: var(--it-radius-md);
+  box-shadow: 0 0 0 2px var(--it-state-working);
+}
+
+.it-design .mw-head-name {
+  color: var(--it-text);
+  font-size: var(--it-heading-18-size);
+  font-weight: var(--it-heading-18-weight);
+  line-height: var(--it-heading-18-line);
+}
+
+.it-design .mw-head-role { color: var(--it-meta); font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); }
+
+/* State word, not a pill: colour + dot carry it. */
+.it-design .mw-head-pill {
+  background: transparent;
+  color: var(--it-state-working);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  padding: 0;
+}
+.it-design .mw-head-pill i { background: var(--it-state-working); }
+.it-design .mw-head-pill.is-planned { background: transparent; color: var(--it-state-idle); }
+.it-design .mw-head-pill.is-planned i { background: var(--it-state-idle); }
+
+/* Badges: quiet tags. */
+.it-design .mw-head-badge {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm);
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+.it-design .mw-head-badge.is-next { background: var(--it-surface); border-style: dashed; color: var(--it-meta); }
+.it-design .mw-head-badge.is-next i { background: var(--it-tenant); }
+
+/* What the head says: plain sentence, no tinted bubble. */
+.it-design .mw-head-say {
+  background: transparent;
+  border-radius: 0;
+  color: var(--it-text);
+  font-size: var(--it-body-16-size);
+  line-height: var(--it-body-16-line);
+  padding: 0 0 var(--it-space-4);
+}
+.it-design .mw-head-say b { color: var(--it-text); font-weight: 600; }
+
+/* Figures: one hairline grid, like the business pulse. */
+/* Hairlines drawn by the cells (right + bottom) inside a top/left frame, so an empty
+   last slot stays plain surface instead of showing the line colour. */
+.it-design .mw-head-stats {
+  border-left: var(--it-stroke-hairline) solid var(--it-line);
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  gap: 0;
+}
+
+.it-design .mw-head-stat {
+  background: var(--it-surface);
+  border: 0;
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  border-right: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-3) var(--it-space-4);
+}
+
+.it-design .mw-head-stat .mw-k {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: var(--it-caption-12-weight);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-head-stat .mw-v {
+  color: var(--it-text);
+  font-size: var(--it-title-22-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: var(--it-title-22-line);
+}
+
+.it-design .mw-head-stat .mw-v small { color: var(--it-meta); font-size: var(--it-meta-13-size); font-weight: 400; }
+.it-design .mw-head-stat .mw-n { color: var(--it-meta); font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); }
+.it-design .mw-head-stat.is-money .mw-v { color: var(--it-text); }
+.it-design .mw-head-stat.is-alert .mw-v { color: var(--it-status-attention); }
+
+.it-design .mw-head-bar { background: var(--it-sunk); border-radius: 2px; height: 4px; }
+.it-design .mw-head-bar > span { background: var(--it-tenant); border-radius: 2px; }
+
+/* Vendors: quiet tags; "trusted" is an outline in the tenant colour, not a dark fill. */
+.it-design .mw-head-vendors .mw-k {
+  color: var(--it-meta);
+  font-size: var(--it-caption-12-size);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.it-design .mw-hv {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm);
+  font-size: var(--it-caption-12-size);
+}
+.it-design .mw-hv b { color: var(--it-text); font-weight: 600; }
+.it-design .mw-hv small { color: var(--it-meta); }
+.it-design .mw-hv.is-trusted { background: var(--it-surface); border-color: var(--it-tenant); }
+.it-design .mw-hv.is-trusted b,
+.it-design .mw-hv.is-trusted small { color: var(--it-tenant); }
+.it-design .mw-hv-dots em { background: var(--it-line); }
+.it-design .mw-hv-dots em.on,
+.it-design .mw-hv.is-trusted .mw-hv-dots em.on { background: var(--it-tenant); }
+
+.it-design .mw-audit {
+  background: transparent;
+  border-radius: 0;
+  color: var(--it-meta);
+  font-size: var(--it-meta-13-size);
+  padding: var(--it-space-2) 0;
+}
+
+/* Penny's strips: hairline rows; amber edge where a statement has a gap that needs the owner. */
+.it-design .mw-penny-statements,
+.it-design .mw-penny-missing,
+.it-design .mw-penny-trips,
+.it-design .mw-penny-pm {
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 3px solid var(--it-line);
+  border-radius: 0;
+  color: var(--it-text);
+  font-size: var(--it-meta-13-size);
+  line-height: var(--it-meta-13-line);
+}
+
+.it-design .mw-penny-statements.is-bad { border-left-color: var(--it-state-approval); }
+.it-design .mw-penny-statements .mw-ps-k { color: var(--it-text); }
+.it-design .mw-penny-statements .mw-ps-ok { color: var(--it-status-complete); }
+.it-design .mw-penny-statements .mw-ps-bad { color: var(--it-status-attention); font-weight: 600; }
+.it-design .mw-penny-statements .mw-ps-sep { color: var(--it-line); }
+.it-design .mw-penny-statements .mw-ps-link { color: var(--it-tenant); }
+.it-design .mw-penny-statements .mw-ps-gaps { color: var(--it-text); }
+.it-design .mw-penny-statements .mw-ps-gaps li.is-weak { color: var(--it-meta); }
