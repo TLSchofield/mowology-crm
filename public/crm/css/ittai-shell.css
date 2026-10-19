@@ -1,0 +1,163 @@
+/* =============================================================================
+   ittai-shell.css — the Ittai v1.2 frame (sidebar + top bar) on every office page.
+   Loaded by appstack_head.php only when the viewer chose the new design (body.it-shell).
+   The menu is grouped by department head (appstack_sidebar.php). Tokens from ittai-tokens.css.
+   "body.it-shell.it-shell" outranks the AppStack + brand sidebar rules without !important.
+   ============================================================================= */
+
+/* ── Panel ── */
+body.it-shell.it-shell .sidebar,
+body.it-shell.it-shell .sidebar-content {
+  background: var(--it-page);
+}
+body.it-shell.it-shell .sidebar { border-right: var(--it-stroke-hairline) solid var(--it-line); }
+
+body.it-shell.it-shell .sidebar-brand {
+  background: transparent;
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-heading-18-size);
+  font-weight: 600;
+  padding: var(--it-space-5) var(--it-space-5) var(--it-space-3);
+}
+body.it-shell.it-shell .sidebar-brand::before {
+  /* the tenant's own mark: its colour, never the Ittai indigo inside working screens */
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--it-space-2);
+  border-radius: 3px;
+  background: var(--it-tenant-mark);
+  vertical-align: 1px;
+}
+
+body.it-shell.it-shell .it-sb-nav { padding: 0 var(--it-space-2) var(--it-space-8); }
+
+/* ── A head's strip: portrait + kanji, name · role, what the kanji means ── */
+body.it-shell .it-sb-strip { list-style: none; margin-top: var(--it-space-3); }
+body.it-shell .it-sb-strip:first-child { margin-top: 0; }
+
+body.it-shell .it-sb-toggle {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: var(--it-space-3);
+  padding: var(--it-space-2) var(--it-space-3);
+  border: 0;
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+body.it-shell .it-sb-toggle:hover { background: var(--it-selected); }
+body.it-shell .it-sb-toggle:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+
+body.it-shell .it-sb-face { position: relative; width: 40px; height: 40px; }
+body.it-shell .it-sb-face img {
+  position: absolute; left: 2px; top: 2px;
+  width: 34px; height: 34px;
+  border-radius: var(--it-radius-full);
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--it-line);
+}
+body.it-shell .it-sb-kanji {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 20px; height: 20px;
+  border-radius: var(--it-radius-full);
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Zen Kaku Gothic New", var(--it-font-sans);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--it-text);
+}
+
+body.it-shell .it-sb-who { display: flex; flex-direction: column; min-width: 0; }
+body.it-shell .it-sb-name {
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.it-shell .it-sb-role { font-size: var(--it-meta-13-size); line-height: 18px; font-weight: 400; color: var(--it-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.it-shell .it-sb-means {
+  font-size: var(--it-caption-12-size);
+  line-height: var(--it-caption-12-line);
+  font-weight: 500;
+  color: var(--it-meta);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.it-shell .it-sb-means [lang="ja"] { font-family: "Zen Kaku Gothic New", var(--it-font-sans); color: var(--it-text); }
+
+body.it-shell .it-sb-chev { color: var(--it-meta); transition: transform 160ms ease; }
+body.it-shell .it-sb-strip.is-closed .it-sb-chev { transform: rotate(-90deg); }
+
+/* The block the current page is in: the strip's face ring takes the tenant mark */
+body.it-shell .it-sb-strip.is-here .it-sb-face img { box-shadow: 0 0 0 2px var(--it-tenant-mark); }
+
+/* ── The head's pages ── */
+body.it-shell .it-sb-block { list-style: none; }
+body.it-shell .it-sb-block[hidden] { display: none; }
+body.it-shell .it-sb-items { list-style: none; margin: 0 0 var(--it-space-1); padding: 0 0 0 var(--it-space-8); }
+
+body.it-shell.it-shell .sidebar-link,
+body.it-shell.it-shell .sidebar-link i,
+body.it-shell.it-shell .sidebar-link svg { color: var(--it-text); }
+body.it-shell.it-shell .sidebar-link i,
+body.it-shell.it-shell .sidebar-link svg { color: var(--it-meta); width: 16px; height: 16px; stroke-width: 1.5; }
+
+body.it-shell.it-shell .sidebar-link {
+  display: flex; align-items: center; gap: var(--it-space-2);
+  min-height: 36px;
+  margin: 1px 0;
+  padding: var(--it-space-1) var(--it-space-3);
+  border-left: 0;
+  border-radius: var(--it-radius-sm);
+  background: transparent;
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-14-size);
+  font-weight: 400;
+}
+body.it-shell.it-shell .sidebar-link:hover { background: var(--it-selected); }
+body.it-shell.it-shell .sidebar-link:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+
+/* Current page: selected fill + the tenant mark, 600 (Ittai v1.2 nav rule) */
+body.it-shell.it-shell .sidebar-item.active > .sidebar-link {
+  background: var(--it-selected);
+  box-shadow: inset 3px 0 var(--it-tenant-mark);
+  border-left: 0;
+  padding-left: var(--it-space-3);
+  font-weight: 600;
+}
+body.it-shell.it-shell .sidebar-item.active > .sidebar-link,
+body.it-shell.it-shell .sidebar-item.active > .sidebar-link i,
+body.it-shell.it-shell .sidebar-item.active > .sidebar-link svg { color: var(--it-text); }
+
+body.it-shell.it-shell .mw-sidebar-badge {
+  margin-left: auto;
+  background: transparent;
+  color: var(--it-status-attention);
+  border: var(--it-stroke-hairline) solid var(--it-status-attention);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+}
+
+/* Collapsed AppStack sidebar (icon rail): faces only */
+body.it-shell .sidebar.collapsed .it-sb-who,
+body.it-shell .sidebar.collapsed .it-sb-chev { display: none; }
+
+/* ── Top bar: a flat white strip with a hairline ── */
+body.it-shell.it-shell .navbar-bg {
+  background: var(--it-surface);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  box-shadow: none;
+}
+body.it-shell.it-shell .main { background: var(--it-page); }

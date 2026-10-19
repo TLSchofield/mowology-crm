@@ -205,6 +205,18 @@ function _av(string $webPath): string {
   <script>window.MW_USER_ID = <?= (int)($user['id'] ?? 0) ?>;</script>
   <script>window.MW_CSRF_TOKEN = '<?= htmlspecialchars(function_exists('generateCSRFToken') ? generateCSRFToken() : '', ENT_QUOTES, 'UTF-8') ?>';</script>
 
+  <?php
+  // Ittai design frame (owner, 2026-10-19): the "Try the new design" choice (it_design cookie, set on the
+  // dashboard or the account menu) restyles the sidebar and top bar on every office page and groups the
+  // menu by department head. Never in the crew app or the accountant's Ledger-only view. Off = today's CRM.
+  $itShell = !$crewLite && empty($mwLedgerOnly) && (($_COOKIE['it_design'] ?? '') === '1');
+  if ($itShell): ?>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500&amp;display=swap" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-tokens.css') ?>" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-shell.css') ?>" rel="stylesheet">
+  <script src="<?= _av('/crm/js/ittai-shell.js') ?>" defer></script>
+  <?php endif; ?>
+
   <?php echo $extraHead; ?>
 
   <!-- Service Worker registration — see /crm/js/sw-register.js.
@@ -213,7 +225,7 @@ function _av(string $webPath): string {
        cleaned up by the new register script. -->
 
 </head>
-<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
+<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '') . ($itShell ? ' it-shell' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
   <?php if (!$mwLedgerOnly) include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
     <?php if (!$crewLite) include __DIR__ . '/appstack_sidebar.php'; ?>

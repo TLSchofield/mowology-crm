@@ -142,6 +142,80 @@ $navItems = [
     ['key' => 'media',         'label' => 'Media Library',  'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],
 
 ];
+
+// ── Ittai design: the menu IS the office (owner, 2026-10-19) ─────────────────────────────────────────
+// With the it_design choice on (appstack_head.php sets $itShell), every page sits in its department
+// head's block: a full-width strip (portrait, name, role, kanji and what it means), then that head's
+// pages. Order and seats follow the Ittai v1.2 Six + One (Charlie, then clockwise from Yui). Same items,
+// permissions and badges as the classic menu below; a page with no mapping stays with its section's head.
+// Admin is Ada's block (kept in step with the classic Admin list further down).
+if (!empty($itShell)):
+    $__itHeads = [
+        'charlie' => ['Charlie', 'Chief of Staff', '統', 'unite, coordinate'],
+        'yui'     => ['Yui',     'Communications', '結', 'tie together'],
+        'sam'     => ['Sam',     'Sales',          '商', 'trade'],
+        'penny'   => ['Penny',   'Finance',        '計', 'keep the account'],
+        'otto'    => ['Otto',    'Operations',     '運', 'carry, run'],
+        'mia'     => ['Mia',     'Marketing',      '広', 'spread wide'],
+        'ada'     => ['Ada',     'Technology',     '技', 'skill, craft'],
+    ];
+    $__itMove = [   // pages that move to the head whose job they are (Ittai v1.2 job descriptions)
+        'invoices' => 'penny', 'payroll' => 'penny', 'jobs' => 'otto', 'map' => 'otto', 'products' => 'otto', 'plants' => 'otto',
+    ];
+    $__itGroups = array_fill_keys(array_keys($__itHeads), []);
+    $__itSection = 'charlie';
+    foreach ($navItems as $__it) {
+        if (($__it['type'] ?? '') === 'header') { $__itSection = $__it['head'] ?? $__itSection; continue; }
+        if (isset($__it['perm']) && function_exists('userHasPermission') && !userHasPermission($__it['perm'])) continue;
+        $__itGroups[$__itMove[$__it['key']] ?? $__itSection][] = $__it;
+    }
+    $__can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
+    foreach ([
+        ['audit-trail', 'Audit Trail', 'shield', '/crm/audit-trail_appstack.php', $__can('settings.edit')],
+        ['import', 'Import Data', 'upload', '/crm/import_appstack.php', $__can('settings.edit')],
+        ['privacy', 'Privacy & Data', 'lock', '/crm/privacy_appstack.php', $__can('settings.edit')],
+        ['sites', 'Tenant Sites', 'globe', '/crm/sites_appstack.php', $__can('database.manage')],
+        ['users', 'Users & Roles', 'user-plus', '/crm/users_appstack.php', $__can('users.manage')],
+        ['settings', 'Settings', 'settings', '/crm/settings.php', $__can('settings.edit')],
+        ['system-health', 'System Health', 'activity', '/crm/ada_appstack.php', ($user['role'] ?? '') === 'admin'],
+        ['system-log', 'System Log', 'alert-circle', '/crm/system-log_appstack.php', ($user['role'] ?? '') === 'admin'],
+    ] as [$__k, $__l, $__i, $__h, $__ok]) {
+        if ($__ok) $__itGroups['ada'][] = ['key' => $__k, 'label' => $__l, 'icon' => $__i, 'href' => $__h];
+    }
+?>
+<nav id="sidebar" class="sidebar it-sidebar" aria-label="Main menu">
+    <div class="sidebar-content js-simplebar">
+        <a class="sidebar-brand it-sb-brand" href="/crm/dashboard_appstack.php"><span class="align-middle">Mowology</span></a>
+        <ul class="sidebar-nav it-sb-nav">
+        <?php foreach ($__itHeads as $__slug => [$__name, $__role, $__kanji, $__means]):
+            if (empty($__itGroups[$__slug])) continue;
+            $__here = in_array($activePage, array_column($__itGroups[$__slug], 'key'), true); ?>
+            <li class="it-sb-strip<?php echo $__here ? ' is-here' : ''; ?>" data-head="<?php echo $__slug; ?>">
+                <button type="button" class="it-sb-toggle" aria-expanded="true" aria-controls="it-sb-<?php echo $__slug; ?>">
+                    <span class="it-sb-face"><img src="/crm/img/heads/<?php echo $__slug; ?>.jpg" alt="" width="36" height="36" loading="lazy"><span class="it-sb-kanji" aria-hidden="true"><?php echo $__kanji; ?></span></span>
+                    <span class="it-sb-who"><span class="it-sb-name"><?php echo $__name; ?></span><span class="it-sb-role"><?php echo $__role; ?></span>
+                        <span class="it-sb-means"><span lang="ja"><?php echo $__kanji; ?></span> <?php echo $__means; ?></span></span>
+                    <svg class="it-sb-chev" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </li>
+            <li class="it-sb-block" id="it-sb-<?php echo $__slug; ?>"><ul class="it-sb-items">
+            <?php foreach ($__itGroups[$__slug] as $__item): ?>
+                <li class="sidebar-item<?php echo ($activePage === $__item['key']) ? ' active' : ''; ?>">
+                    <a class="sidebar-link" href="<?php echo $__item['href']; ?>"<?php echo ($activePage === $__item['key']) ? ' aria-current="page"' : ''; ?>>
+                        <i class="align-middle" data-feather="<?php echo $__item['icon']; ?>"></i>
+                        <span class="align-middle"><?php echo htmlspecialchars($__item['label']); ?></span>
+                        <?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?>
+                        <span class="mw-sidebar-badge mw-msg-sidebar-badge"><?php echo (int)$__item['badge']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                </li>
+            <?php endforeach; ?>
+            </ul></li>
+        <?php endforeach; ?>
+        </ul>
+    </div>
+</nav>
+<?php return; endif;
 ?>
 <nav id="sidebar" class="sidebar">
     <div class="sidebar-content js-simplebar">
