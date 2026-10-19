@@ -591,3 +591,153 @@ body:has(.it-design) main.content {
   .it-design.it-design .mw-head-badges { max-width: none; }
   .it-design.it-design .mw-head-card { padding: var(--it-space-4); }
 }
+
+/* ── Today with the office (2026-10-19): the mockup made live, above the head columns ──
+   action-board.php prints it when the it_design choice is on; action-board.js fills it from Charlie's list.
+   Hexagon left (Charlie or the head whose three you're on in the centre), today's three right, a carousel
+   to the next head. Below 1100 px the decisions come first; below 700 px the names move under the hexagon. */
+.it-design .it-today {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--it-space-6);
+  align-items: flex-start;
+  padding-bottom: var(--it-space-6);
+  margin-bottom: var(--it-space-5);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+}
+.it-design .it-today[hidden] { display: none; }
+.it-design .it-tc-office {
+  flex: 0 1 440px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  padding: var(--it-space-2) var(--it-space-2) var(--it-space-3);
+}
+.it-design .it-tc-hex { width: 100%; height: auto; max-width: 440px; }
+.it-design .it-hx-spoke line { stroke: var(--it-line); stroke-width: var(--it-stroke-hairline); }
+.it-design .it-hx-side { stroke-linecap: round; stroke: var(--it-line); stroke-width: 1.5px; }
+.it-design .it-hx-side.is-done { stroke: var(--it-status-complete); stroke-width: var(--it-stroke-side-selected); }
+.it-design .it-hx-side.is-wait { stroke: var(--it-status-attention); stroke-width: var(--it-stroke-side); }
+.it-design .it-hx-centre { fill: none; stroke: var(--it-status-progress); stroke-width: var(--it-stroke-centre); }
+.it-design .it-hx-ring { fill: none; stroke: var(--it-line); stroke-width: 1px; }
+.it-design .it-hx-ring.is-done { stroke: var(--it-status-complete); stroke-width: 2px; }
+.it-design .it-hx-ring.is-wait { stroke: var(--it-status-attention); stroke-width: 2px; }
+.it-design .it-hx-badge { fill: var(--it-surface); stroke: var(--it-line); }
+.it-design .it-hx-k { font-family: "Zen Kaku Gothic New", var(--it-font-sans); font-size: 12px; font-weight: 500; fill: var(--it-text); }
+.it-design .it-hx-lbl { font-family: var(--it-font-sans); font-size: 12px; font-weight: 500; fill: var(--it-meta); }
+.it-design .it-hx-name { font-size: 14px; fill: var(--it-text); }
+.it-design .it-hx-name.is-on { font-weight: 600; }
+.it-design .it-hx-role.is-done { fill: var(--it-status-complete); }
+.it-design .it-hx-role.is-wait { fill: var(--it-status-attention); }
+
+.it-design .it-tc-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--it-space-1) var(--it-space-4); font-size: var(--it-caption-12-size); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.it-design .it-tc-legend i { display: inline-block; width: 14px; height: 3px; border-radius: var(--it-radius-full); }
+.it-design .it-tc-legend i.is-done { background: var(--it-status-complete); }
+.it-design .it-tc-legend i.is-wait { background: var(--it-status-attention); }
+
+.it-design .it-tc-onthis { display: none; list-style: none; margin: var(--it-space-2) 0 0; padding: 0; width: 100%; border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .it-tc-onthis li { display: flex; align-items: center; gap: var(--it-space-2); min-height: 48px; border-bottom: var(--it-stroke-hairline) solid var(--it-line); padding: 0 var(--it-space-2); font-size: var(--it-body-14-size); }
+.it-design .it-tc-onthis b { font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-onthis span { color: var(--it-meta); }
+.it-design .it-tc-onthis small { margin-left: auto; font-size: var(--it-caption-12-size); font-weight: 500; }
+
+.it-design .it-tc-main { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-4); }
+.it-design .it-tc-pick { display: flex; gap: var(--it-space-6); align-items: flex-end; flex-wrap: wrap; }
+.it-design .it-tc-three { flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-2); }
+.it-design .it-tc-eyebrow { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-h { margin: 0; font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--it-space-2); }
+.it-design .it-tc-queue { flex: none; width: 184px; display: flex; flex-direction: column; gap: var(--it-space-2); padding-left: var(--it-space-6); border-left: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .it-tc-tab {
+  text-align: left;
+  min-height: 64px;
+  padding: var(--it-space-2) var(--it-space-3);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-md);
+  background: var(--it-surface);
+  color: var(--it-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--it-font-sans);
+  cursor: pointer;
+  min-width: 0;
+}
+.it-design .it-tc-tab b {
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.it-design .it-tc-tab small { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-meta); }
+.it-design .it-tc-tab[aria-pressed="true"] { background: var(--it-selected); box-shadow: inset 0 0 0 1px var(--it-tenant); border-color: var(--it-tenant); }
+.it-design .it-tc-tab:focus-visible,
+.it-design .it-tc-back:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-design .it-tc-step { flex-direction: row; align-items: center; gap: var(--it-space-2); width: 100%; }
+.it-design .it-tc-step span { display: flex; flex-direction: column; min-width: 0; }
+.it-design .it-tc-end { font-size: var(--it-meta-13-size); color: var(--it-meta); }
+
+.it-design .it-tc-face { position: relative; display: inline-block; width: 44px; height: 44px; flex: none; }
+.it-design .it-tc-face img { position: absolute; left: 4px; top: 4px; width: 36px; height: 36px; border-radius: var(--it-radius-full); object-fit: cover; box-shadow: 0 0 0 1px var(--it-line); }
+.it-design .it-tc-face.is-done img { box-shadow: 0 0 0 2px var(--it-status-complete); }
+.it-design .it-tc-kanji {
+  position: absolute; right: -2px; bottom: -2px; width: 20px; height: 20px;
+  border-radius: var(--it-radius-full); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Zen Kaku Gothic New", var(--it-font-sans); font-size: var(--it-caption-12-size); font-weight: 500; line-height: 1; color: var(--it-text);
+}
+
+.it-design .it-tc-card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design .mw-ab-row.it-tc-item { border: 0; padding: 0; }
+.it-design .it-tc-top { padding: var(--it-space-5) var(--it-space-6) var(--it-space-4); display: flex; flex-direction: column; gap: var(--it-space-2); }
+.it-design .it-tc-tag { font-size: var(--it-caption-12-size); line-height: var(--it-caption-12-line); font-weight: 500; color: var(--it-status-attention); }
+.it-design .it-tc-text { margin: 0; font-size: var(--it-title-22-size); line-height: var(--it-title-22-line); font-weight: 600; color: var(--it-text); overflow-wrap: anywhere; }
+.it-design .it-tc-acts { display: flex; align-items: center; gap: var(--it-space-4); flex-wrap: wrap; margin-top: var(--it-space-1); }
+.it-design .btn-primary.it-tc-go { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--it-space-5); }
+.it-design .it-tc-later { min-height: 44px; border: 0; background: transparent; padding: 0 var(--it-space-2); font-weight: 500; }
+.it-design .it-tc-stages {
+  list-style: none; margin: 0;
+  padding: var(--it-space-4) var(--it-space-6) var(--it-space-5);
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--it-space-6);
+}
+.it-design .it-tc-stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.it-design .it-tc-stage-top { display: flex; align-items: center; min-height: 48px; }
+.it-design .it-tc-solid { flex: 1; height: 2px; background: var(--it-status-complete); margin-left: var(--it-space-3); }
+.it-design .it-tc-you {
+  width: 36px; height: 36px; margin: 4px; border-radius: var(--it-radius-full);
+  background: var(--it-sunk); box-shadow: 0 0 0 2px var(--it-status-attention);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--it-caption-12-size); font-weight: 600; color: var(--it-text);
+}
+.it-design .it-tc-stage b { font-size: var(--it-body-16-size); line-height: var(--it-body-16-line); font-weight: 600; color: var(--it-text); }
+.it-design .it-tc-stage small { font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); color: var(--it-meta); }
+.it-design .it-today .is-done { color: var(--it-status-complete); }
+.it-design .it-today .is-wait { color: var(--it-status-attention); }
+.it-design .it-tc-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--it-space-4); flex-wrap: wrap; }
+.it-design .it-tc-back { border: 0; background: transparent; padding: 0; min-height: 44px; color: var(--it-tenant); font-weight: 500; font-size: var(--it-body-14-size); cursor: pointer; }
+.it-design .it-tc-note { font-size: var(--it-meta-13-size); color: var(--it-meta); margin-left: auto; }
+
+/* Tablet and small laptop: the decisions first, the office across the width under them (Ittai 1.2.1) */
+@media (max-width: 1100px) {
+  .it-design .it-tc-office { flex-basis: 100%; order: 2; }
+  .it-design .it-tc-main { flex-basis: 100%; }
+}
+/* Phone: one tab per row, the next head under them, names listed under the hexagon (labels would fall below 12 px) */
+@media (max-width: 700px) {
+  .it-design .it-tc-tabs { grid-template-columns: 1fr; }
+  .it-design .it-tc-queue { width: 100%; padding-left: 0; border-left: 0; }
+  .it-design .it-tc-top { padding: var(--it-space-4); }
+  .it-design .it-tc-stages { padding: var(--it-space-4); column-gap: var(--it-space-4); }
+  .it-design .it-tc-text { font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); }
+  .it-design .it-tc-hex .it-hx-lbl { display: none; }
+  .it-design .it-tc-onthis { display: block; }
+  .it-design .it-tc-legend { margin-top: var(--it-space-2); }
+}

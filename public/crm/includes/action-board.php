@@ -23,10 +23,39 @@ try {
     return;
 }
 $__abSrc = function_exists('_av') ? _av('/crm/js/action-board.js') : '/crm/js/action-board.js';
+// Ittai design (the it_design choice): "Today with the office" above the columns — the hexagon with
+// Charlie (or the head whose three you're on) in the centre, today's three, and a carousel to the next head.
+$__abIttai = (($_COOKIE['it_design'] ?? '') === '1');
 ?>
-<section class="card mw-action-board" id="mw-action-board" aria-labelledby="mw-action-board-title">
+<section class="card mw-action-board<?= $__abIttai ? ' it-today-board' : '' ?>" id="mw-action-board" aria-labelledby="mw-action-board-title">
+  <?php if ($__abIttai): ?>
+  <div class="it-today" data-ab-hero hidden>
+    <section class="it-tc-office" aria-label="Who is on this">
+      <svg class="it-tc-hex" data-tc-hex viewBox="-70 0 560 340" role="img" aria-label=""></svg>
+      <ul class="it-tc-onthis" data-tc-onthis></ul>
+      <div class="it-tc-legend">
+        <span><i class="is-done" aria-hidden="true"></i>Has this ready</span>
+        <span><i class="is-wait" aria-hidden="true"></i>Waiting on you</span>
+      </div>
+    </section>
+    <section class="it-tc-main" aria-label="What needs you">
+      <div class="it-tc-pick">
+        <div class="it-tc-three">
+          <div><div class="it-tc-eyebrow" data-tc-eyebrow></div><h2 class="it-tc-h" data-tc-h></h2></div>
+          <div class="it-tc-tabs" role="group" aria-label="Today's three" data-tc-tabs></div>
+        </div>
+        <div class="it-tc-queue">
+          <div class="it-tc-eyebrow">Next head</div>
+          <div data-tc-next></div>
+        </div>
+      </div>
+      <div class="it-tc-card" data-tc-card aria-live="polite"></div>
+      <div class="it-tc-foot"><span data-tc-prev></span><span class="it-tc-note" data-tc-note></span></div>
+    </section>
+  </div>
+  <?php endif; ?>
   <div class="mw-ab-head">
-    <h2 class="mw-ab-title" id="mw-action-board-title">Needs you now</h2>
+    <h2 class="mw-ab-title" id="mw-action-board-title"><?= $__abIttai ? 'Everything with the team' : 'Needs you now' ?></h2>
     <span class="mw-ab-count" data-ab-count hidden></span>
   </div>
   <p class="mw-ab-line" data-ab-status aria-live="polite">Charlie is checking with the team…</p>

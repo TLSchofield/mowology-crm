@@ -22,6 +22,12 @@
     var count = root.querySelector('[data-ab-count]');
     var msg = root.querySelector('[data-ab-msg]');
     var EMPTY = 'Nothing needs you right now. Charlie is watching.';
+    // Ittai design only (action-board.php prints it when the it_design choice is on): "Today with the
+    // office" — the mockup made live. Charlie in the centre of the hexagon with his three, then a carousel
+    // to the next head with their three (the next head takes the centre, their side lit). Same items,
+    // same Open / Not now / Move to as the columns, so Charlie keeps learning.
+    var hero = root.querySelector('[data-ab-hero]');
+    var gi = 0, ti = 0;   // which group (Charlie's three, then a head's three) and which of its tabs
 
     // Who each head is on the board. Unknown heads (and the Work Queue) are Charlie's.
     var HEADS = {
@@ -33,6 +39,14 @@
         yui:     { name: 'Yui',     face: 'yui',     role: 'Comms' },
         ada:     { name: 'Ada',     face: 'ada',     role: 'Technology' },
         house:   { name: 'Charlie', face: 'charlie', role: 'Chief of Staff' }
+    };
+    var SEAT = {
+        yui:   { kanji: '結', role: 'Communications', cx: 210, cy: 30,  tx: 240, ty: 26,  anchor: 'start', side: [167, 74.7, 253, 74.7] },
+        sam:   { kanji: '商', role: 'Sales',          cx: 330, cy: 98,  tx: 360, ty: 94,  anchor: 'start', side: [271, 85.1, 314, 159.6] },
+        penny: { kanji: '計', role: 'Finance',        cx: 330, cy: 242, tx: 360, ty: 238, anchor: 'start', side: [314, 180.4, 271, 254.9] },
+        otto:  { kanji: '運', role: 'Operations',     cx: 210, cy: 310, tx: 240, ty: 306, anchor: 'start', side: [253, 265.3, 167, 265.3] },
+        mia:   { kanji: '広', role: 'Marketing',      cx: 90,  cy: 242, tx: 60,  ty: 238, anchor: 'end',   side: [149, 254.9, 106, 180.4] },
+        ada:   { kanji: '技', role: 'Technology',     cx: 90,  cy: 98,  tx: 60,  ty: 94,  anchor: 'end',   side: [106, 159.6, 149, 85.1] }
     };
     var PER_COL = 3;     // items shown under each head before "+N more"
     var ROUTE_API = '/crm/api/inbound-route.php';
@@ -126,7 +140,127 @@
             + '</li>';
     }
 
+    // ── Today with the office (Ittai) ──────────────────────────────────────────────────────────
+    /** Charlie's three (the top of his ranking, any head), then each head's own three, most urgent first. */
+    function groups(live) {
+        var out = [{ lead: 'charlie', its: live.slice(0, 3) }];
+        var used = {}, by = {}, order = [];
+        out[0].its.forEach(function (it) { used[it.key] = true; });
+        live.forEach(function (it) {
+            if (used[it.key]) return;
+            var k = headKey(it.head);
+            if (!by[k]) { by[k] = []; order.push(k); }
+            by[k].push(it);
+        });
+        order.forEach(function (k) { out.push({ lead: k, its: by[k].slice(0, 3), all: by[k].length }); });
+        return out.filter(function (g) { return g.its.length; });
+    }
+    function face(k, cls) {
+        var s = SEAT[k];
+        return '<span class="it-tc-face ' + (cls || '') + '"><img src="/crm/img/heads/' + esc(HEADS[k].face) + '.jpg" alt="" width="36" height="36">'
+            + '<span class="it-tc-kanji" aria-hidden="true">' + (s ? s.kanji : '統') + '</span></span>';
+    }
+    function hexSvg(lead, sel, waiting) {
+        var h = '<defs><clipPath id="it-hx-c"><circle cx="210" cy="170" r="26"/></clipPath>';
+        Object.keys(SEAT).forEach(function (k) { var s = SEAT[k]; h += '<clipPath id="it-hx-' + k + '"><circle cx="' + s.cx + '" cy="' + s.cy + '" r="18"/></clipPath>'; });
+        h += '</defs><g class="it-hx-spoke"><line x1="210" y1="140" x2="210" y2="83"/><line x1="236" y1="155" x2="285" y2="127"/><line x1="236" y1="185" x2="285" y2="213"/>'
+            + '<line x1="210" y1="200" x2="210" y2="257"/><line x1="184" y1="185" x2="135" y2="213"/><line x1="184" y1="155" x2="135" y2="127"/></g>';
+        var on = [];
+        Object.keys(SEAT).forEach(function (k) {
+            var s = SEAT[k], st = (k === sel || k === lead) ? 'done' : (waiting[k] ? 'wait' : 'off');
+            h += '<line class="it-hx-side is-' + st + '" x1="' + s.side[0] + '" y1="' + s.side[1] + '" x2="' + s.side[2] + '" y2="' + s.side[3] + '"/>';
+            if (st !== 'off') on.push(HEADS[k].name + (st === 'done' ? ' (has this ready)' : ' (' + waiting[k] + ' waiting)'));
+        });
+        var c = HEADS[lead] || HEADS.charlie;
+        h += '<image href="/crm/img/heads/' + esc(c.face) + '.jpg" x="184" y="144" width="52" height="52" clip-path="url(#it-hx-c)" preserveAspectRatio="xMidYMid slice"/>'
+            + '<circle class="it-hx-centre" cx="210" cy="170" r="28"/>'
+            + '<circle class="it-hx-badge" cx="232" cy="192" r="10"/><text class="it-hx-k" x="232" y="196" text-anchor="middle">' + (SEAT[lead] ? SEAT[lead].kanji : '統') + '</text>'
+            + '<text class="it-hx-lbl it-hx-meta" x="210" y="222" text-anchor="middle">' + esc(c.name) + ' · ' + esc(SEAT[lead] ? SEAT[lead].role : 'Chief of Staff') + '</text>';
+        Object.keys(SEAT).forEach(function (k) {
+            var s = SEAT[k], st = (k === sel || k === lead) ? 'done' : (waiting[k] ? 'wait' : 'off');
+            h += '<image href="/crm/img/heads/' + k + '.jpg" x="' + (s.cx - 18) + '" y="' + (s.cy - 18) + '" width="36" height="36" clip-path="url(#it-hx-' + k + ')" preserveAspectRatio="xMidYMid slice"/>'
+                + '<circle class="it-hx-ring is-' + st + '" cx="' + s.cx + '" cy="' + s.cy + '" r="18.5"/>'
+                + '<circle class="it-hx-badge" cx="' + (s.cx + 15) + '" cy="' + (s.cy + 15) + '" r="10"/>'
+                + '<text class="it-hx-k" x="' + (s.cx + 15) + '" y="' + (s.cy + 19) + '" text-anchor="middle">' + s.kanji + '</text>'
+                + '<text class="it-hx-lbl it-hx-name' + (st !== 'off' ? ' is-on' : '') + '" x="' + s.tx + '" y="' + s.ty + '" text-anchor="' + s.anchor + '">' + esc(HEADS[k].name) + '</text>'
+                + '<text class="it-hx-lbl it-hx-role is-' + st + '" x="' + s.tx + '" y="' + (s.ty + 16) + '" text-anchor="' + s.anchor + '">'
+                +   esc(s.role) + (waiting[k] ? ' · ' + waiting[k] : '') + '</text>';
+        });
+        return { svg: h, label: c.name + ' in the centre. ' + (on.length ? 'On this: ' + on.join(', ') + '.' : '') };
+    }
+    /** "Penny's 3", or "Charlie's next 2" for his items beyond today's three. */
+    function groupName(g, i) {
+        return HEADS[g.lead].name + '\'s ' + (g.lead === 'charlie' && i > 0 ? 'next ' : '') + g.its.length;
+    }
+    function renderHero(live) {
+        if (!hero) return;
+        if (!live.length) { hero.hidden = true; return; }
+        var gs = groups(live);
+        if (gi >= gs.length) gi = gs.length - 1;
+        var g = gs[gi];
+        if (ti >= g.its.length) ti = g.its.length - 1;
+        var it = g.its[ti], k = headKey(it.head), u = safeUrl(it.url), w = waited(it);
+        var waiting = {};
+        live.forEach(function (x) { var hk = headKey(x.head); if (SEAT[hk]) waiting[hk] = (waiting[hk] || 0) + 1; });
+        var hx = hexSvg(g.lead, k, waiting);
+        var svg = hero.querySelector('[data-tc-hex]');
+        svg.innerHTML = hx.svg;
+        svg.setAttribute('aria-label', hx.label);
+
+        // Phone: the hexagon's labels would fall under 12 px, so the heads on this are listed under it.
+        var onthis = '<li>' + face(g.lead) + '<b>' + esc(HEADS[g.lead].name) + '</b><span>' + esc(SEAT[g.lead] ? SEAT[g.lead].role : 'Chief of Staff') + '</span><small class="is-done">in the centre</small></li>';
+        Object.keys(SEAT).forEach(function (hk) {
+            if (hk === g.lead || !(waiting[hk] || hk === k)) return;
+            onthis += '<li>' + face(hk) + '<b>' + esc(HEADS[hk].name) + '</b><span>' + esc(SEAT[hk].role) + '</span>'
+                + '<small class="' + (hk === k ? 'is-done">has this ready' : 'is-wait">' + waiting[hk] + ' waiting') + '</small></li>';
+        });
+        hero.querySelector('[data-tc-onthis]').innerHTML = onthis;
+
+        var leadName = HEADS[g.lead].name;
+        hero.querySelector('[data-tc-eyebrow]').textContent = g.lead === 'charlie' && gi === 0
+            ? 'Charlie · ranked by what happens if it waits' : leadName + ' · ' + (SEAT[g.lead] ? SEAT[g.lead].role : 'Chief of Staff');
+        var n = g.its.length, word = ['one', 'two', 'three'][n - 1];
+        hero.querySelector('[data-tc-h]').textContent = gi === 0
+            ? (n === 1 ? 'One thing needs' : (n === 2 ? 'Two things need' : 'Three things need')) + ' you today'
+            : leadName + '\'s ' + (g.lead === 'charlie' ? 'next ' : '') + word;
+        hero.querySelector('[data-tc-tabs]').innerHTML = g.its.map(function (x, i) {
+            var xk = headKey(x.head), xw = waited(x);
+            return '<button type="button" class="it-tc-tab" data-tc-tab="' + i + '" aria-pressed="' + (i === ti) + '">'
+                + '<b>' + esc(x.text) + '</b><small>' + esc(HEADS[xk].name) + (xw ? ' · ' + esc(xw) : '') + '</small></button>';
+        }).join('');
+
+        var next = gs[gi + 1], prev = gs[gi - 1];
+        hero.querySelector('[data-tc-next]').innerHTML = next
+            ? '<button type="button" class="it-tc-tab it-tc-step" data-tc-go="1">' + face(next.lead) + '<span><b>' + esc(groupName(next, gi + 1)) + '</b><small>Up next · ' + (gi + 2) + ' of ' + gs.length + '</small></span></button>'
+            : '<span class="it-tc-end">That\'s everyone.</span>';
+        hero.querySelector('[data-tc-prev]').innerHTML = prev
+            ? '<button type="button" class="it-tc-back" data-tc-go="-1">‹ ' + (gi === 1 ? 'Charlie\'s three' : esc(groupName(prev, gi - 1))) + '</button>' : '';
+
+        var ready = SEAT[k] ? HEADS[k].name : 'Charlie';
+        hero.querySelector('[data-tc-card]').innerHTML =
+            '<div class="mw-ab-row it-tc-item" data-key="' + esc(it.key) + '">'
+            + '<div class="it-tc-top">'
+            +   '<span class="it-tc-tag">' + esc(ready) + ' has this ready' + (w ? ' · waiting ' + esc(w) : '') + '</span>'
+            +   '<p class="it-tc-text">' + esc(it.text) + '</p>'
+            +   (movable(String(it.key)) ? '<div class="mw-ab-movebar">' + moveMenu(it) + '</div>' : '')
+            +   '<div class="it-tc-acts">'
+            +     (u ? '<a class="btn btn-primary mw-ab-go it-tc-go" href="' + esc(u) + '" data-ab-open>' + esc(label(it)) + '</a>' : '')
+            +     '<button type="button" class="mw-ab-later it-tc-later" data-ab-snooze title="Bring it back tomorrow">Not now</button>'
+            +   '</div>'
+            + '</div>'
+            + '<ol class="it-tc-stages" aria-label="Who does what">'
+            +   '<li class="it-tc-stage"><div class="it-tc-stage-top">' + face(SEAT[k] ? k : 'charlie', 'is-done') + '<i class="it-tc-solid" aria-hidden="true"></i></div>'
+            +     '<b>Ready</b><small>' + esc(ready) + ' · <span class="is-done">done</span></small></li>'
+            +   '<li class="it-tc-stage"><div class="it-tc-stage-top"><span class="it-tc-you">You</span></div>'
+            +     '<b>Your decision</b><small>You · <span class="is-wait">now</span></small></li>'
+            + '</ol></div>';
+        var rest = live.length - g.its.length;
+        hero.querySelector('[data-tc-note]').textContent = rest > 0 ? rest + ' more ' + (rest === 1 ? 'is' : 'are') + ' with the team below.' : '';
+        hero.hidden = false;
+    }
+
     function render() {
+        renderHero(items.filter(function (it) { return it && it.key && !gone[it.key]; }));
         var cols = {}, order = [], total = 0;
         items.forEach(function (it) {
             if (!it || !it.key || gone[it.key]) return;
@@ -179,7 +313,14 @@
         }, WAIT_MS);
     }
 
-    list.addEventListener('click', function (e) {
+    root.addEventListener('click', function (e) {
+        var tab = e.target.closest('[data-tc-tab]'), go = e.target.closest('[data-tc-go]');
+        if (tab || go) {
+            if (tab) ti = parseInt(tab.getAttribute('data-tc-tab'), 10) || 0;
+            else { gi = Math.max(0, gi + (parseInt(go.getAttribute('data-tc-go'), 10) || 0)); ti = 0; }
+            render();
+            return;
+        }
         var li = e.target.closest('.mw-ab-row');
         if (!li) return;
         var key = li.getAttribute('data-key');
@@ -216,7 +357,7 @@
     });
 
     // "Move to…" on a customer message: it goes to that head and Charlie's team learns the sender.
-    list.addEventListener('change', function (e) {
+    root.addEventListener('change', function (e) {
         var sel = e.target.closest('[data-ab-move]');
         if (!sel || !sel.value) return;
         var li = sel.closest('.mw-ab-row');
