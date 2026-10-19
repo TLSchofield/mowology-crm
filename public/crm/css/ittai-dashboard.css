@@ -502,3 +502,75 @@ body:has(.it-design) main.content {
 .it-design .mw-penny-statements .mw-ps-link { color: var(--it-tenant); }
 .it-design .mw-penny-statements .mw-ps-gaps { color: var(--it-text); }
 .it-design .mw-penny-statements .mw-ps-gaps li.is-weak { color: var(--it-meta); }
+
+/* ── Step 3 (2026-10-18): the rest of the dashboard ──────────────────────────────
+   "&" below is .it-design.it-design: several AppStack/brand rules stack three classes,
+   and a doubled class outranks them without !important. */
+
+/* Every card on the page: a flat working surface. */
+.it-design.it-design .card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .card .card-header { background: transparent; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .card .card-title { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: var(--it-heading-16-weight); line-height: var(--it-heading-16-line); text-transform: none; letter-spacing: 0; }
+.it-design.it-design .card .text-muted { color: var(--it-meta) !important; }   /* Bootstrap's own rule is !important */
+.it-design.it-design .btn-primary { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .btn-outline-primary { color: var(--it-tenant); border-color: var(--it-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .btn-outline-primary:hover { background: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; border-radius: var(--it-radius-sm); }
+
+/* Work queue: plain lanes; amber only on the lane that needs the owner (critical). */
+.it-design.it-design .mw-wq-summary, .it-design.it-design .mw-wq-lane { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-wq-lane.mw-wq-lane-critical { border-top: 3px solid var(--it-state-approval); }
+.it-design.it-design .mw-wq-lane-header { background: transparent; }
+.it-design.it-design .mw-wq-lane-header:hover { background: var(--it-selected); }
+.it-design.it-design .mw-wq-lane-icon-wrap { background: transparent; color: var(--it-meta); }
+.it-design.it-design .mw-wq-lane-critical .mw-wq-lane-icon-wrap { color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-lane-badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; }
+.it-design.it-design .mw-wq-lane-critical .mw-wq-lane-badge { background: transparent; color: var(--it-status-attention); border: var(--it-stroke-hairline) solid var(--it-status-attention); }
+.it-design.it-design .mw-wq-item { background: transparent; border: 0; border-bottom: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-wq-item:hover { background: var(--it-selected); }
+.it-design.it-design .mw-wq-item-icon { background: transparent; color: var(--it-meta); }
+.it-design.it-design .mw-wq-item-icon.mw-wq-icon-critical { color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-sum-cat { background: transparent; color: var(--it-meta); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); font-weight: 500; }
+.it-design.it-design .mw-wq-sum-cat.mw-wq-sum-critical { color: var(--it-status-attention); border-color: var(--it-status-attention); }
+.it-design.it-design .mw-wq-summary-total strong { color: var(--it-text); }
+
+/* Incoming quote requests: hairline cards; the urgency word carries the colour. */
+.it-design.it-design .mw-qr-card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-qr-card:hover { background: var(--it-selected); box-shadow: none; }
+.it-design.it-design .mw-urgency-badge { background: transparent; color: var(--it-meta); font-weight: 500; text-transform: none; letter-spacing: 0; padding-left: 0; padding-right: 0; }
+.it-design.it-design .mw-urgency-badge.mw-urgency-asap { color: var(--it-status-attention); }
+
+/* Winter outlook: one hairline grid; sentence-case labels. */
+.it-design.it-design .mw-seasonal { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-seasonal.mw-seasonal-compact { border-left: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .mw-seasonal-month { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; box-shadow: none; }
+.it-design.it-design .mw-seasonal-month-name, .it-design.it-design .mw-seasonal-metric-lbl, .it-design.it-design .mw-seasonal-badge { text-transform: none; letter-spacing: 0; }
+.it-design.it-design .mw-seasonal-month-name { color: var(--it-text); font-weight: 600; }
+.it-design.it-design .mw-seasonal-metric-lbl { color: var(--it-meta); font-size: var(--it-caption-12-size); }
+.it-design.it-design .mw-seasonal-badge { background: var(--it-sunk); color: var(--it-meta); font-weight: 500; border: 0; }
+
+/* Crew today, recent activity, reviews, the live map: flat; state colours only on the dots. */
+.it-design.it-design .card.mw-crew-card { border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-design.it-design .mw-crew-status-dot { box-shadow: none; }
+.it-design.it-design .mw-crew-status-dot.mw-crew-clocked-in { background: var(--it-status-complete); }
+.it-design.it-design .mw-activity-avatar { background: var(--it-sunk); color: var(--it-meta); text-transform: none; }
+.it-design.it-design .mw-ops-map-crew-dot { box-shadow: 0 0 0 2px var(--it-surface); }
+
+/* The heads' own cards (Otto, Charlie, Mia, Sam, Ada …): labels in sentence case, one action colour. */
+.it-design.it-design .mw-k, .it-design.it-design .mw-charlie-tag, .it-design.it-design .mw-mia-lbl, .it-design.it-design .mw-mia-ch-sub, .it-design.it-design .mw-sam-lbl { text-transform: none; letter-spacing: 0; color: var(--it-meta); font-size: var(--it-caption-12-size); font-weight: 500; }
+.it-design.it-design .mw-otto-item.is-p1, .it-design.it-design .mw-charlie-row.is-p1, .it-design.it-design .mw-omr.is-card, .it-design.it-design .mw-sam-q-opened, .it-design.it-design .mw-charlie-thing { border-left-color: var(--it-state-approval); }
+.it-design.it-design .mw-charlie-bad { background: var(--it-surface); border-left-color: var(--it-state-approval); }
+.it-design.it-design .mw-rc-ok, .it-design.it-design .is-main, .it-design.it-design .mw-charlie-go, .it-design.it-design .mw-charlie-btn.is-primary, .it-design.it-design .mw-mia-send, .it-design.it-design .mw-mia-ch-btn.is-primary {
+  background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .mw-otto-qs, .it-design.it-design .mw-charlie-qs, .it-design.it-design .mw-mia-q, .it-design.it-design .mw-pq, .it-design.it-design .mw-sam-why.is-replied { background: var(--it-sunk); }
+.it-design.it-design .mw-mia-ch-pill.is-wait { background: transparent; color: var(--it-status-attention); }
+.it-design.it-design .mw-otto-face, .it-design.it-design .mw-charlie-face, .it-design.it-design .mw-mia-camp { box-shadow: 0 0 0 1px var(--it-line); }
+.it-design.it-design .mw-ada-dot { background: var(--it-state-idle); }
+.it-design.it-design .mw-otto-gaps-photo img { box-shadow: 0 0 0 2px var(--it-state-working); }
+/* Last stragglers: success buttons, Otto's main links, Penny's confidence words, margin labels. */
+.it-design.it-design .btn-success { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }
+.it-design.it-design .mw-otto-btnlink.is-main { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-design.it-design .mw-rc-conf { background: transparent; border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
+.it-design.it-design .mw-rc-conf.is-high { color: var(--it-status-complete); }
+.it-design.it-design .mw-rc-conf.is-low { color: var(--it-status-attention); }
+.it-design.it-design .mw-daily-ops-margin { background: transparent; }
