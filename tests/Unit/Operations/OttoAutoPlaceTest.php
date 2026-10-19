@@ -185,4 +185,47 @@ class OttoAutoPlaceTest extends TestCase
         $far = ParcelLotService::parseFeatures([self::lotFeature('Bare Land Strata', 'EPS42'), self::lotFeature('Bare Land Strata', 'EPS42', 0.01)]);
         $this->assertSame($lot['area_sqm'], ParcelLotService::mergePlan($lot, $far)['area_sqm'], 'a piece 1 km away is another place');
     }
+
+    public function test_a_pin_on_the_street_uses_the_lot_under_the_building(): void
+    {
+        $this->assertSame([49.2296, -123.1549], OttoAutoPlaceService::buildingPoint(['lat' => 49.2296, 'lng' => -123.1549, 'exact' => true], [49.2299, -123.1549]));
+        $this->assertNull(OttoAutoPlaceService::buildingPoint(['lat' => 49.2296, 'lng' => -123.1549, 'exact' => false], [49.2299, -123.1549]), 'approximate');
+        $this->assertNull(OttoAutoPlaceService::buildingPoint(['lat' => 49.2396, 'lng' => -123.1549, 'exact' => true], [49.2299, -123.1549]), '1 km away: another place');
+
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, 'A St', 'Vancouver', 'BC', 49.2299, -123.1549)");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $svc = new OttoAutoPlaceService($db, fn() => ['lat' => 49.2296, 'lng' => -123.1549, 'exact' => true, 'by' => 'osm'],
+            new ParcelLotService(self::fetcher([self::lotFeature()])), '2026-10-18');
+        $this->assertSame(1, $svc->run()['bordered']);
+        $this->assertEqualsWithDelta(49.2299, (float)$db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn(), 1e-9, 'pin not moved');
+    }
+
+    public function test_a_street_pin_takes_the_clearly_nearest_lot_only(): void
+    {
+        $lot = ParcelLotService::parseFeatures([self::lotFeature()]);           // lot 49.22950–49.22970
+        $pinSouth = 49.22950 - 6 / 111320;                                        // 6 m south of it, in the street
+        $near = ParcelLotService::nearestLot($lot, $pinSouth, -123.1549);
+        $this->assertTrue($near['ok']);
+        $this->assertEqualsWithDelta(6.0, $near['nearest_m'], 0.3);
+        $this->assertSame('no_lot', ParcelLotService::nearestLot($lot, 49.22950 - 40 / 111320, -123.1549)['reason'], '40 m away: too far');
+        // A lot across the street whose edge is 12 m from the pin: 6 m vs 12 m is not clearly nearer.
+        $acrossTop = $pinSouth - 12 / 111320;
+        $across = ParcelLotService::parseFeatures([self::lotFeature(), self::lotFeature('Subdivision', 'VAP9', $acrossTop - 49.22970)]);
+        $this->assertSame('ambiguous', ParcelLotService::nearestLot($across, $pinSouth, -123.1549)['reason']);
+    }
+
+    public function test_the_lot_map_being_down_is_retried_the_next_night(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, 'A St', 'Vancouver', 'BC', 49.2296, -123.1549)");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $calls = 0;
+        $down = new ParcelLotService(function () use (&$calls) { $calls++; return null; });
+        $svc = new OttoAutoPlaceService($db, fn() => null, $down, '2026-10-18');
+        $svc->run();
+        $first = $calls;
+        $svc->run();
+        $this->assertGreaterThan($first, $calls, 'asked again, not parked for 30 days');
+    }
 }

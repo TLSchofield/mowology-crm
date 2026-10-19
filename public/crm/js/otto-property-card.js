@@ -61,6 +61,39 @@
             if (say) say.textContent = 'All set — I can route here now.';
         }
 
+        // Otto pins it himself (data-auto-pin, owner 2026-10-18): when the page opens with no pin, ask
+        // Google once a day per property on this browser and save only a ROOFTOP match — the building
+        // itself, so the lot border lands on the right lot. Anything less leaves the button as it was.
+        var auto = card.getAttribute('data-auto-pin') === '1' && card.querySelector('[data-otto-geocode]');
+        if (auto) {
+            var aId = parseInt(auto.getAttribute('data-property-id'), 10);
+            var aKey = 'mw-otto-autopin-' + aId + '-' + new Date().toISOString().slice(0, 10);
+            var tried = false;
+            try { tried = !!window.localStorage.getItem(aKey); window.localStorage.setItem(aKey, '1'); } catch (e) { /* private mode: try anyway */ }
+            if (!tried) {
+                var aRow = auto.closest('.mw-otto-gap');
+                var aNote = aRow && aRow.querySelector('[data-otto-note]');
+                var aFound;
+                loadMaps(card.getAttribute('data-maps-key'))
+                    .then(function () { return geocode(auto.getAttribute('data-address') || ''); })
+                    .then(function (result) {
+                        if (!result.geometry || result.geometry.location_type !== 'ROOFTOP') throw new Error('not rooftop');
+                        aFound = result;
+                        var loc = result.geometry.location;
+                        return save(aId, loc.lat(), loc.lng());
+                    })
+                    .then(function () {
+                        aRow.classList.add('is-done');
+                        if (aNote) aNote.textContent = 'Otto pinned it at ' + (aFound.formatted_address || 'the address') + ' — check it on the map.';
+                        auto.remove();
+                        var after = card.getAttribute('data-after-pin');
+                        if (say && after) say.textContent = after;
+                        refresh();
+                    })
+                    .catch(function () { /* not a rooftop match, or no answer: the Geocode button stays */ });
+            }
+        }
+
         card.querySelectorAll('[data-otto-geocode]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var row = btn.closest('.mw-otto-gap');

@@ -29,6 +29,16 @@ try {
     $__pgAddress = PropertyReadinessService::geocodeAddress($__pg['property']);
     $__pgReturn  = (string)($_SERVER['REQUEST_URI'] ?? ('/crm/properties/view.php?id=' . $__pgId));
     $__pgKey     = defined('GOOGLE_MAPS_API_KEY') ? (string)GOOGLE_MAPS_API_KEY : '';
+    // Otto pins it himself when the page opens (owner, 2026-10-18): Google's browser geocoder,
+    // rooftop matches only — same switch as his nightly run, same permission as the Geocode save.
+    $__pgAuto = false;
+    if (in_array('pin', $__pgMissing, true) && function_exists('userHasAnyPermission') && userHasAnyPermission(['clients.edit', 'jobs.edit'])) {
+        try {
+            $__pgSw = getDB()->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'otto_auto_place'");
+            $__pgSw->execute();
+            $__pgAuto = (string)$__pgSw->fetchColumn() === '1';
+        } catch (Throwable $__e) { /* no switch: the button stays */ }
+    }
 
     // Otto's brain, as on his dashboard card — a bonus, never a reason to hide the card
     $__pgBrain = null;
@@ -44,7 +54,7 @@ try {
                   <div class="card mw-otto-gaps" id="mw-otto-gaps"
                        data-property-id="<?= $__pgId ?>"
                        data-maps-key="<?= h($__pgKey) ?>"
-                       data-after-pin="<?= h($__pgAfterPin) ?>">
+                       data-after-pin="<?= h($__pgAfterPin) ?>"<?= $__pgAuto ? ' data-auto-pin="1"' : '' ?>>
                       <div class="card-header">
                           <div class="mw-otto-gaps-head">
                               <div class="mw-otto-gaps-photo">

@@ -139,11 +139,23 @@ try {
         error_log('[generate_visits cron] approved quotes: ' . $e->getMessage());
     }
 
+    // Otto pins client properties and gives them the city lot as an arrival border (owner, 2026-10-18:
+    // "do it every 6 hrs"). Off until ops_settings otto_auto_place = '1'; one run at a time (GET_LOCK).
+    $autoPlace = '';
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/OttoAutoPlaceService.php';
+        $ap = (new OttoAutoPlaceService(getDB()))->run();
+        if ($ap['ran']) $autoPlace = '; Otto auto-place: ' . $ap['message'];
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] auto-place: ' . get_class($e));
+        $sideProblems[] = 'Otto auto-place failed';
+    }
+
     $hasErrors = !empty($result['errors']) || $sideProblems;
     recordCronRun(
         'generate_visits',
         $hasErrors ? 'warning' : 'success',
-        "{$result['plans_processed']} plans processed, {$result['visits_created']} visits created" . ($sideProblems ? '; ' . implode('; ', $sideProblems) : ''),
+        "{$result['plans_processed']} plans processed, {$result['visits_created']} visits created" . $autoPlace . ($sideProblems ? '; ' . implode('; ', $sideProblems) : ''),
         (int)round($elapsed * 1000),
         $hasErrors ? implode('; ', array_slice(array_merge($result['errors'], $sideProblems), 0, 3)) : null,
         !$isCli

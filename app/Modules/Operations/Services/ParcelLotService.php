@@ -34,15 +34,26 @@ class ParcelLotService
     /** Strata pieces further than this from the client's lot are another part of town, not this complex. */
     public const PLAN_RADIUS_M = 150.0;
     public const PLAN_MAX_FEATURES = 500;
+    /** Street pins: the nearest lot within this, and clearly nearer than the next one. */
+    public const NEAR_MAX_M = 15.0;
+    public const NEAR_MARGIN_M = 10.0;
+    /** Wider box for a street pin (~28 m north–south, ~18 m east–west at Vancouver's latitude). */
+    public const NEAR_BOX_DEG = 0.00025;
     /** A merged hull this much bigger than its pieces bridges gaps that are not the client's: keep the one lot. */
     public const HULL_MAX_GROWTH = 1.3;
 
     /** @var callable(string): ?string */
     private $fetch;
 
-    /** @param callable(string): ?string|null $fetch URL → response body (null on failure). */
-    public function __construct(?callable $fetch = null)
+    private int $pauseMs;
+
+    /**
+     * @param callable(string): ?string|null $fetch URL → response body (null on failure).
+     * @param int|null $pauseMs wait before each request (default 500 ms live, 0 with an injected fetch).
+     */
+    public function __construct(?callable $fetch = null, ?int $pauseMs = null)
     {
+        $this->pauseMs = $pauseMs ?? ($fetch === null ? 500 : 0);
         $this->fetch = $fetch ?? static function (string $url): ?string {
             $ctx = stream_context_create(['http' => ['timeout' => 12, 'ignore_errors' => true,
                 'header' => "User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)\r\n"]]);
@@ -62,6 +73,14 @@ class ParcelLotService
         $features = $this->get(['bbox' => $box, 'count' => '50']);
         if ($features === null) return ['ok' => false, 'reason' => 'unavailable'];
         $lot = self::chooseLot($features, $lat, $lng);
+        if (!$lot['ok'] && $lot['reason'] === 'no_lot') {
+            // The pin is in the street: look a little wider and take the one lot that is clearly nearest.
+            $wide = sprintf('%.6F,%.6F,%.6F,%.6F,urn:ogc:def:crs:EPSG::4326',
+                $lat - self::NEAR_BOX_DEG, $lng - self::NEAR_BOX_DEG, $lat + self::NEAR_BOX_DEG, $lng + self::NEAR_BOX_DEG);
+            $around = $this->get(['bbox' => $wide, 'count' => '200']);
+            if ($around === null) return ['ok' => false, 'reason' => 'unavailable'];
+            $lot = self::nearestLot($around, $lat, $lng);
+        }
         if (!$lot['ok']) return $lot;
         if (in_array(strtolower($lot['class']), self::STRATA, true) && $lot['plan'] !== '') {
             $plan = $this->get(['CQL_FILTER' => "PLAN_NUMBER='" . $lot['plan'] . "'", 'count' => (string)self::PLAN_MAX_FEATURES]);
@@ -76,11 +95,16 @@ class ParcelLotService
     {
         $q = ['service' => 'WFS', 'version' => '2.0.0', 'request' => 'GetFeature', 'typeName' => self::LAYER,
               'outputFormat' => 'application/json', 'srsName' => 'EPSG:4326'] + $params;
-        $body = ($this->fetch)(self::WFS . '?' . http_build_query($q));
-        if ($body === null) return null;
-        $j = json_decode($body, true);
-        if (!is_array($j) || !isset($j['features']) || !is_array($j['features'])) return null;
-        return self::parseFeatures($j['features']);
+        $url = self::WFS . '?' . http_build_query($q);
+        // The province's map server turns away quick bursts from a web host (7 of 15 "unavailable"
+        // on the first live run, 2026-10-18; every one answered from a desk): pace, and retry once.
+        for ($try = 0; $try < 2; $try++) {
+            if ($this->pauseMs > 0) usleep(($try === 0 ? $this->pauseMs : 4 * $this->pauseMs) * 1000);
+            $body = ($this->fetch)($url);
+            $j = $body === null ? null : json_decode($body, true);
+            if (is_array($j) && isset($j['features']) && is_array($j['features'])) return self::parseFeatures($j['features']);
+        }
+        return null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -132,6 +156,28 @@ class ParcelLotService
         $plan = preg_match('/^[A-Z0-9]{2,20}$/', $best['plan']) ? $best['plan'] : '';
         return ['ok' => true, 'ring' => $best['ring'], 'pid' => $best['pid'], 'plan' => $plan, 'class' => $best['class'],
                 'municipality' => $best['municipality'], 'area_sqm' => (int)round($best['area'])];
+    }
+
+    /**
+     * A pin in the street (the old Geocode button puts many there): the nearest lot, only when it is
+     * within NEAR_MAX_M and every other lot is at least NEAR_MARGIN_M further — a pin on the centre
+     * line, with lots on both sides about as near, is never guessed.
+     */
+    public static function nearestLot(array $parsed, float $lat, float $lng): array
+    {
+        $byDist = [];
+        foreach ($parsed as $f) {
+            if (in_array(strtolower(trim($f['class'])), self::NOT_A_LOT, true)) continue;
+            $byDist[] = [self::edgeDistance([$lat, $lng], $f['ring']), $f];
+        }
+        usort($byDist, fn($a, $b) => $a[0] <=> $b[0]);
+        if (!$byDist || $byDist[0][0] > self::NEAR_MAX_M) return ['ok' => false, 'reason' => 'no_lot'];
+        if (isset($byDist[1]) && $byDist[1][0] - $byDist[0][0] < self::NEAR_MARGIN_M) return ['ok' => false, 'reason' => 'ambiguous'];
+        $f = $byDist[0][1];
+        $plan = preg_match('/^[A-Z0-9]{2,20}$/', $f['plan']) ? $f['plan'] : '';
+        return ['ok' => true, 'ring' => $f['ring'], 'pid' => $f['pid'], 'plan' => $plan, 'class' => $f['class'],
+                'municipality' => $f['municipality'], 'area_sqm' => (int)round(PropertyBorderRules::area($f['ring'])),
+                'nearest_m' => round($byDist[0][0], 1)];
     }
 
     /**

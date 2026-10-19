@@ -164,18 +164,7 @@ try {
         error_log('[trip_runs_daily] supplier stops: ' . $e->getMessage());
         $__facts .= '; supplier stops failed: ' . $e->getMessage();
     }
-    // Otto pins client properties from their address (exact matches only) and gives them the
-    // city lot as an arrival border (ParcelMap BC). Off until ops_settings otto_auto_place = '1'.
-    // Additive: a failure never loses the runs above.
-    try {
-        require_once APP_ROOT . '/Modules/Operations/Services/OttoAutoPlaceService.php';
-        $ap = (new OttoAutoPlaceService(getDB()))->run();
-        if ($ap['ran']) $__facts .= '; auto-place: ' . $ap['message'];
-    } catch (Throwable $e) {
-        error_log('[trip_runs_daily] auto-place: ' . get_class($e));
-        $__facts .= '; auto-place failed';
-    }
-    $span =$__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
+    $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
     $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
         . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')
         . ($learned['created'] ? '; Penny named ' . count($learned['created']) . ' place(s) from past receipts: '

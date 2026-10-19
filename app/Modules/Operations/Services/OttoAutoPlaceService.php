@@ -13,10 +13,10 @@
  *            kerb still counts. border_source 'parcel'. A drawn, crew-GPS or kept border is never
  *            touched (re-checked in the INSERT / UPDATE).
  *
- * Off until ops_settings otto_auto_place = '1'. Runs from Otto's nightly cron (trip_runs_daily),
- * a few properties a night (OpenStreetMap's policy: ≤ 1 request a second, no bulk). Never at page load.
+ * Off until ops_settings otto_auto_place = '1'. Runs every 6 hours from generate_visits (owner, 2026-10-18),
+ * a few properties a run (OpenStreetMap's policy: ≤ 1 request a second, no bulk). Never at page load.
  * What was tried and what Otto placed is kept in ops_settings otto_auto_place_state (JSON), so a
- * property that failed is retried after RETRY_DAYS, not every night.
+ * property that failed is retried after RETRY_DAYS, not every run (the province's server being down: next run).
  *
  * Candidates: Otto's active properties (PropertyBorderService::activeProperties) plus properties
  * on a quote from the last 12 months that is not declined / expired.
@@ -114,11 +114,20 @@ class OttoAutoPlaceService
             if ($mode === null || self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today)) continue;
             $n++;
             $lot = $this->lots->lotAt($pin[0], $pin[1]);
+            if (!$lot['ok'] && in_array($lot['reason'], ['no_lot', 'near_edge', 'ambiguous'], true)) {
+                // Pins from the old Geocode button often sit on the street in front of the house:
+                // find the building from the address and use the lot under it — the pin stays put.
+                $at = self::buildingPoint(($this->geocode)(PropertyReadinessService::geocodeAddress($p)), $pin);
+                if ($at) $lot = $this->lots->lotAt($at[0], $at[1]);
+            }
             if (!$lot['ok']) {
                 $r['no_lot']++;
-                $state['border_tried'][$pid] = $this->today;
+                // The province's server being down says nothing about the lot: try again next run.
+                if ($lot['reason'] !== 'unavailable') $state['border_tried'][$pid] = $this->today;
+                $state['border_reason'][$pid] = (string)$lot['reason'];
                 continue;
             }
+            unset($state['border_reason'][$pid]);
             if ($this->writeBorder($pid, $mode, $lot)) {
                 $r['bordered']++;
                 unset($state['border_tried'][$pid]);
@@ -197,6 +206,17 @@ class OttoAutoPlaceService
         return $date !== null && $date !== '' && strtotime($date) > strtotime($today . ' -' . self::RETRY_DAYS . ' days');
     }
 
+    /** Max metres between the pin and the building the address names, for its lot to count as this property's. */
+    public const BUILDING_MAX_M = 80;
+
+    /** The building point from an exact address match, if it is near the pin; else null. */
+    public static function buildingPoint(?array $hit, array $pin): ?array
+    {
+        if (self::pinDecision($hit) !== 'save') return null;
+        $at = [(float)$hit['lat'], (float)$hit['lng']];
+        return PropertyBorderRules::meters($pin[0], $pin[1], $at[0], $at[1]) <= self::BUILDING_MAX_M ? $at : null;
+    }
+
     /**
      * The stored border: closed ring of [lat, lng]. A near-convex lot is grown BUFFER_M (a crew at the
      * kerb counts); buffer() re-hulls, so an L- or U-shaped lot would swallow a neighbour's corner —
@@ -255,7 +275,7 @@ class OttoAutoPlaceService
         [$a, $b, $c, $d] = PropertyBorderRules::bbox($open);
         $area = round(PropertyBorderRules::area($open), 2);
         $label = 'Lot border (city lot map)';
-        $notes = 'Otto: ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ($lot['pid'] ? ', PID ' . $lot['pid'] : '')
+        $notes = 'Otto: ' . (isset($lot['nearest_m']) ? 'pin is ' . $lot['nearest_m'] . ' m outside — nearest lot, ' : '') . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ($lot['pid'] ? ', PID ' . $lot['pid'] : '')
                . ', ' . (int)$lot['area_sqm'] . ' m², +' . self::BUFFER_M . ' m. ' . ParcelLotService::ATTRIBUTION;
         if ($mode === 'replace') {
             $s = $this->db->prepare("
@@ -278,10 +298,10 @@ class OttoAutoPlaceService
         return $s->rowCount() > 0;
     }
 
-    /** @return array{pins: array, pin_tried: array, border_tried: array} */
+    /** @return array{pins: array, pin_tried: array, border_tried: array, border_reason: array} */
     private function state(): array
     {
-        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => []];
+        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => []];
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::STATE_KEY]);
