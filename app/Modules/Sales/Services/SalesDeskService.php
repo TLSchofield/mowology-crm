@@ -489,7 +489,8 @@ class SalesDeskService
                 'text'     => $c['kind'] === 'replied'
                     ? $c['name'] . ' replied about ' . $c['label'] . ' — they\'re waiting on you'
                     : $c['name'] . ': ' . $c['label'] . ' (' . self::money($c['amount']) . ') — ' . $c['days'] . ' days, no reply',
-                'url'      => '/crm/dashboard_appstack.php#mw-sam',
+                // Opens Sam's card on THIS customer, with their latest emails showing (sam-card.js reads ?sam=).
+                'url'      => '/crm/dashboard_appstack.php?sam=' . rawurlencode((string)$c['key']) . '#mw-sam',
                 'priority' => $c['kind'] === 'replied' ? 1 : 2,
             ];
         }

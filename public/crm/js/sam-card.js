@@ -51,6 +51,8 @@
     var maybes = [];         // enquiries from email the rules weren't sure about (desk.maybe_leads)
     var texts = null;        // messages bridge heartbeat {at, silent, minutes}, null = not set up
     var idx = 0, busy = false;
+    // ?sam=<card key> (from Charlie's list / "Needs you now"): open on that customer, their emails showing.
+    var wanted = (function () { try { return new URLSearchParams(window.location.search).get('sam'); } catch (e) { return null; } })();
     var edits = {};          // card key → {channel, subject, body, sms} while Tim types
 
     function esc(s) {
@@ -101,6 +103,12 @@
                 maybes = d.maybe_leads || [];
                 approved = d.approved || [];
                 acceptances = d.acceptances || [];
+                if (wanted) {
+                    for (var w = 0; w < queue.length; w++) if (queue[w].key === wanted) { idx = w; break; }
+                    wanted = null;   // once: later reloads keep the card the owner moved to
+                    var sec = document.getElementById('mw-sam');
+                    if (sec && sec.scrollIntoView) setTimeout(function () { sec.scrollIntoView({ block: 'start' }); }, 0);
+                }
                 if (idx >= queue.length) idx = 0;
                 render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances();
             })
