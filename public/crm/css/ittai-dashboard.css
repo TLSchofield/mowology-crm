@@ -574,3 +574,20 @@ body:has(.it-design) main.content {
 .it-design.it-design .mw-rc-conf.is-high { color: var(--it-status-complete); }
 .it-design.it-design .mw-rc-conf.is-low { color: var(--it-status-attention); }
 .it-design.it-design .mw-daily-ops-margin { background: transparent; }
+
+/* ── Every display (1.2.1, 2026-10-19) ──────────────────────────────────────────
+   Text never below 12 px at any width: the labels the dashboard drew at 9.6–11.8 px. */
+.it-design.it-design :is(small, .small, .mw-sam-count, .mw-sam-meta, .mw-n, .mw-otto-trips-ft, .mw-head-foot span,
+  .mw-mia-hub-foot span, .mw-mia-ch-head span, .mw-mia-ch-pill, .mw-mia-ch-note, .mw-charlie-btn.is-quiet, .mw-charlie-more,
+  .mw-charlie-cal-link, .mw-seasonal-badge, .mw-seasonal-month-name, .mw-seasonal-metric-sub, .mw-seasonal-total em,
+  .mw-wq-sum-cat, .mw-urgency-badge, .mw-activity-avatar, .mw-crew-visits-badge, .custom-select) { font-size: var(--it-caption-12-size); }
+
+/* Phone: the top bar already says "Dashboard" and the date, so the page title goes; head cards stay compact. */
+@media (max-width: 700px) {
+  .it-design .mw-page-header { justify-content: flex-end; margin-bottom: var(--it-space-3); }
+  .it-design .mw-page-header-left { display: none; }
+  .it-design.it-design .mw-head-portrait { align-items: flex-start; gap: var(--it-space-3); }
+  .it-design.it-design .mw-head-portrait img { width: 72px; height: 72px; }
+  .it-design.it-design .mw-head-badges { max-width: none; }
+  .it-design.it-design .mw-head-card { padding: var(--it-space-4); }
+}
