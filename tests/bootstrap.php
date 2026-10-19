@@ -425,3 +425,8 @@ require_once __DIR__ . '/../app/Modules/Plants/Services/BedLocator.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantIdService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantCareService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/SitePlantQuizService.php';
+
+// Embeddable lead form (Ittai tenant websites)
+require_once __DIR__ . '/../app/Modules/CMS/Services/CmsFormSubmitRules.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadRules.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadService.php';
