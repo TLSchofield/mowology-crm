@@ -8,9 +8,12 @@ $pageTitle = 'Design Mockups';
 $activePage = 'mockups';
 
 $mockups = [
+    'ittai-today.php'               => 'Ittai — today with the office',
     'obsidian-root-icons.html'      => 'Obsidian Root™ Icon Set',
     'day-summary-card-mockup.html'  => 'Day Summary Card',
     'profitability-viz-mockup.html' => 'Profitability Visualization',
+    'job-profit-10-views.html'      => 'Job Profitability — 10 Views',
+    'profit-spectrum-5.html'        => 'Profitability Spectrum — 5 Views',
 ];
 ?>
 <?php include 'includes/appstack_head.php'; ?>
