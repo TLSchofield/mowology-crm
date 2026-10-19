@@ -175,7 +175,10 @@ try {
 
 $pageTitle = 'Dashboard';
 $activePage = 'dashboard';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '" defer></script>';
+// Google Maps (~0.8 MB) is NOT loaded with the page any more: the live operations map loads it when its
+// card comes within a screen of view (speed pass, 2026-10-19). The key rides on the map element.
+$extraHead = '';
+$dashMapsKey = htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8');
 if ($itDesign) {
     foreach (['ittai-tokens.css', 'ittai-dashboard.css'] as $__itCss) {
         $extraHead .= '<link href="/crm/css/' . $__itCss . '?v=' . (int)@filemtime(__DIR__ . '/css/' . $__itCss) . '" rel="stylesheet">';
@@ -623,7 +626,7 @@ if ($itDesign) {
                   </div>
                 </div>
                 <div class="card-body p-0">
-                  <div id="dashboard-map" style="height: 340px; background: #e8e8e8;"></div>
+                  <div id="dashboard-map" data-maps-key="<?php echo $dashMapsKey; ?>" style="height: 340px; background: #e8e8e8;"></div>
                   <div class="mw-ops-map-legend" id="mapLegend">
                     <div class="text-center text-muted small py-2">Loading crew data...</div>
                   </div>
@@ -1091,11 +1094,31 @@ if ($itDesign) {
         return d.innerHTML;
     }
 
-    // Init when Google Maps API is ready
-    if (document.readyState === 'complete') {
+    // Load Google Maps only when the map card is about to be seen, then start the map
+    // (initDashboardMap already waits for google.maps). Without IntersectionObserver: load after the page.
+    var mapsRequested = false;
+    function loadMapsThenInit() {
+        if (mapsRequested) return;
+        mapsRequested = true;
+        if (!(window.google && google.maps)) {
+            var el = document.getElementById('dashboard-map');
+            var s = document.createElement('script');
+            s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(el ? (el.getAttribute('data-maps-key') || '') : '');
+            s.async = true;
+            document.head.appendChild(s);
+        }
         initDashboardMap();
+    }
+    var mapTarget = document.getElementById('dashboard-map');
+    if (mapTarget && 'IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+            if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); loadMapsThenInit(); }
+        }, { rootMargin: '600px 0px' });
+        io.observe(mapTarget);
+    } else if (document.readyState === 'complete') {
+        loadMapsThenInit();
     } else {
-        window.addEventListener('load', initDashboardMap);
+        window.addEventListener('load', loadMapsThenInit);
     }
 })();
 </script>
