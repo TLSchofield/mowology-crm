@@ -18,6 +18,7 @@ struct ScheduleView: View {
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
     @State private var viewMode       = ViewMode.list
+    @State private var isOttoExpanded = false
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
     @State private var path: [Stop] = []
@@ -34,25 +35,34 @@ struct ScheduleView: View {
 
     /// Kept inside the navigation content so the calendar toolbar owns its safe area.
     private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
-        Button {
-            notificationRouter.pendingHead = HeadRoute(head: "otto", quoteId: nil)
-        } label: {
-            HStack(spacing: 12) {
-                HeadFaceView(slug: "otto", name: "Otto", size: 36)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Otto needs your attention").font(appStyle.font(.subheadline, weight: .semibold))
-                    Text(suggestion.text).font(appStyle.font(.subheadline)).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                HeadFaceView(slug: "otto", name: "Otto", size: 28)
+                Text("Otto needs your attention")
+                    .font(appStyle.font(.caption, weight: .semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button(isOttoExpanded ? "Hide" : "Review") {
+                    withAnimation(.easeInOut(duration: 0.2)) { isOttoExpanded.toggle() }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right").accessibilityHidden(true)
+                .font(appStyle.font(.caption, weight: .semibold))
+                .frame(minHeight: 48)
             }
-            .foregroundStyle(appStyle.text)
-            .padding(12)
-            .frame(minHeight: 48)
-            .background(appStyle.surface)
+            if isOttoExpanded {
+                Text(suggestion.text)
+                    .font(appStyle.font(.subheadline))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Otto’s desk") {
+                    notificationRouter.pendingHead = HeadRoute(head: "otto", quoteId: nil)
+                }
+                .font(appStyle.font(.caption, weight: .semibold))
+                .frame(minHeight: 48)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Open Otto’s desk to review and act")
+        .foregroundStyle(appStyle.text)
+        .padding(.horizontal, 12)
+        .background(appStyle.surface)
+        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: 1) }
     }
 
     // MARK: - Init
@@ -105,7 +115,8 @@ struct ScheduleView: View {
                         isAdmin:      authSession.user?.isAdmin ?? false,
                         userLocation: viewModel.userLocation,
                         onRefresh:    { await viewModel.refresh() },
-                        onMove:       { movingStop = $0 }
+                        onMove:       { movingStop = $0 },
+                        onSelect:     { path.append($0) }
                     )
                 } else {
                     DayMapView(

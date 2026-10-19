@@ -18,14 +18,14 @@ struct StopCardView: View {
     var distanceMeters: Double? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
 
             // MARK: Top Row — Address + Arrival
             headerLayout {
                 // Who, then where: crews know a stop by the building or client, not the street number.
                 VStack(alignment: .leading, spacing: 2) {
                     if let headline = stop.headline {
-                        Text(headline)
+                        Text(DisplayNameFormatter.string(headline))
                             .font(appStyle.font(.body, weight: .bold))
                             .foregroundStyle(appStyle.text)
                             .lineLimit(appStyle.isEnabled ? nil : 1)
@@ -53,12 +53,13 @@ struct StopCardView: View {
 
                 if !dynamicTypeSize.isAccessibilitySize { Spacer() }
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 1) {
                     if let arrival = stop.estimatedArrival {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(arrival)
+                        VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 1) {
+                            Text([arrival, distanceText].compactMap { $0 }.joined(separator: " · "))
                                 .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
                                 .foregroundStyle(appStyle.tenant)
+                                .lineLimit(1)
 
                             Text("est. arrival")
                                 .font(appStyle.font(.caption2))
@@ -66,11 +67,6 @@ struct StopCardView: View {
                         }
                     }
 
-                    if let text = distanceText {
-                        Label(text, systemImage: "location.fill")
-                            .font(appStyle.font(.caption).monospacedDigit())
-                            .foregroundStyle(appStyle.meta)
-                    }
                 }
             }
 
@@ -103,37 +99,38 @@ struct StopCardView: View {
                 .foregroundStyle(line.warning ? appStyle.attention : appStyle.meta)
             }
 
-            if appStyle.isEnabled {
-                Label(statusPresentation.label, systemImage: statusPresentation.icon)
-                    .font(appStyle.font(.caption, weight: .medium))
-                    .foregroundStyle(statusPresentation.color)
+            if appStyle.isEnabled, let statusPresentation {
+                HStack(spacing: 5) {
+                    ItIcon(shape: statusPresentation.icon, size: 14, color: statusPresentation.color)
+                    Text(statusPresentation.label)
+                }
+                .font(appStyle.font(.caption, weight: .medium))
+                .foregroundStyle(statusPresentation.color)
+                .accessibilityElement(children: .combine)
             }
 
             Divider().overlay(appStyle.isEnabled ? appStyle.line : Color.clear)
 
             // MARK: Bottom Row — Client + Crew + Visit Count
-            footerLayout {
+            VStack(alignment: .leading, spacing: 4) {
 
                 // Client / Contact Name — only when it isn't already the card's headline
                 // (a named building still shows who the client is down here).
                 if let name = stop.footerClientName {
-                    Label(name, systemImage: "person.fill")
+                    Label(DisplayNameFormatter.string(name), systemImage: "person.fill")
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.meta)
-                        .lineLimit(appStyle.isEnabled ? nil : 1)
-                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
 
                 // Crew names (admin only)
                 if isAdmin && !stop.crewNames.isEmpty {
-                    Label(stop.crewNames.joined(separator: ", "), systemImage: "person.2.fill")
+                    Label(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "), systemImage: "person.2.fill")
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.meta)
-                        .lineLimit(appStyle.isEnabled ? nil : 1)
-                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
-                        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : 140, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 // Visit count badge
@@ -144,10 +141,12 @@ struct StopCardView: View {
                         .font(appStyle.font(.caption).monospacedDigit())
                 }
                 .foregroundStyle(appStyle.meta)
-                .padding(.leading, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(minHeight: 48)
         .background(appStyle.surface)
         .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? 0 : appStyle.cornerRadius(14)))
         .shadow(color: appStyle.shadow(0.06), radius: 8, x: 0, y: 2)
@@ -183,17 +182,14 @@ struct StopCardView: View {
             : AnyLayout(HStackLayout(alignment: .top))
     }
 
-    private var footerLayout: AnyLayout {
-        dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 0))
-    }
-
-    private var statusPresentation: (label: String, icon: String, color: Color) {
-        if stop.isComplete { return ("Complete", "checkmark.circle", appStyle.complete) }
-        if stop.isInProgress { return ("In progress", "clock", appStyle.progress) }
-        if stop.isResolved { return ("Resolved", "checkmark.circle", appStyle.meta) }
-        return ("Scheduled", "calendar", appStyle.meta)
+    private var statusPresentation: (label: String, icon: ItIconShape, color: Color)? {
+        let raw = stop.stopStatus.lowercased()
+        if stop.isComplete || ["complete", "completed", "done"].contains(raw) { return ("Done", .check, appStyle.complete) }
+        if stop.isInProgress || raw == "in_progress" { return ("In progress", .clock, appStyle.progress) }
+        if raw == "late" || raw == "overdue" { return ("Late", .triangle, appStyle.attention) }
+        if raw == "skipped" || (!stop.visits.isEmpty && stop.visits.allSatisfy({ $0.visitStatus.lowercased() == "skipped" })) { return ("Skipped", .dashedCircle, appStyle.meta) }
+        if stop.isResolved { return ("Resolved", .check, appStyle.meta) }
+        return nil
     }
 
     private var distanceText: String? {
@@ -239,8 +235,8 @@ private struct ServiceBadge: View {
         Text(label)
             .font(appStyle.font(.caption2, weight: .semibold))
             .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
             .background(color.opacity(0.12))
             .clipShape(Capsule())
     }

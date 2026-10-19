@@ -7,6 +7,23 @@
 
 import Foundation
 
+/// Makes legacy all-caps names readable without changing the stored value.
+enum DisplayNameFormatter {
+    private static let preservedUppercase = Set(["BC", "ULC", "LLC", "LLP", "AI", "IT", "HR", "US", "USA", "UK", "GST", "PST"])
+
+    static func string(_ source: String) -> String {
+        let letters = source.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        guard !letters.isEmpty, letters.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) else { return source }
+        return source.split(separator: " ", omittingEmptySubsequences: false).map { raw in
+            let token = String(raw)
+            let core = token.trimmingCharacters(in: .punctuationCharacters)
+            guard !core.isEmpty, !preservedUppercase.contains(core) else { return token }
+            let readable = core.prefix(1).uppercased() + core.dropFirst().lowercased()
+            return token.replacingOccurrences(of: core, with: readable)
+        }.joined(separator: " ")
+    }
+}
+
 /// The on-site person for a property — caretaker, building manager, tenant.
 struct OnsiteContact: Codable, Hashable {
     let contactId: Int

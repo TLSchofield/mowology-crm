@@ -45,3 +45,10 @@ run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
 # Schedule interrupts only for a recorded, readable pending Otto decision.
 run ottoattention -parse-as-library "$SRC/Core/Models/BookkeeperModels.swift" \
   "$SRC/Core/Models/TeamHeadModels.swift" "$ROOT/ios/LogicTests/OttoAttentionTests.swift"
+
+# Display-only schedule names and the 04:00-local first-open assembly gate.
+cp "$ROOT/ios/LogicTests/SchedulePresentationTests.swift" "$OUT/main.swift"
+run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/ServiceHistory.swift" "$SRC/Core/Models/Visit.swift" \
+  "$SRC/Core/Models/Stop.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" \
+  "$SRC/Core/Design/Ittai/ItTheme.swift" "$SRC/Core/Design/Ittai/ItSymbol.swift" \
+  "$SRC/Core/Design/Ittai/ItSymbolAssembly.swift" "$OUT/main.swift"

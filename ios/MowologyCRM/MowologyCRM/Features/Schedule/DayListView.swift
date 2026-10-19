@@ -23,6 +23,7 @@ struct DayListView: View {
     let onRefresh: () async -> Void
     /// Admin only: asks the parent to open the Move Stop sheet for this stop.
     var onMove: ((Stop) -> Void)? = nil
+    var onSelect: ((Stop) -> Void)? = nil
 
     /// Tracks whether the one-time initial scroll has already fired.
     @State private var hasAutoScrolled = false
@@ -80,12 +81,16 @@ struct DayListView: View {
                 }
 
                 ForEach(stops) { stop in
-                    NavigationLink(value: stop) {
+                    Button {
+                        onSelect?(stop)
+                    } label: {
                         StopCardView(stop: stop,
                                      isAdmin: isAdmin,
                                      distanceMeters: distance(to: stop))
                             .padding(.vertical, appStyle.isEnabled ? 0 : 4)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens visit details")
                     .listRowBackground(appStyle.isEnabled ? appStyle.surface : Color.clear)
                     .listRowSeparator(appStyle.isEnabled ? .visible : .hidden)
                     .listRowSeparatorTint(appStyle.line)

@@ -142,7 +142,10 @@ struct OpeningOverlay: View {
     var onFinish: () -> Void
 
     @AppStorage("mw.opening.lightBackground") private var light = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Phase = .splash
+    @State private var showingAssembly = OpeningAssemblyStore.shouldPlay()
+    @State private var assemblyStart = Date()
     @State private var revealed = 0
     /// The intro (owner, 2026-10-11): the brain grows in, then ITTAI, then the strapline; then the
     /// brain moves to the top left and the brief lands beside it.
@@ -166,8 +169,21 @@ struct OpeningOverlay: View {
             let corner = CGPoint(x: 16 + 16 + small / 2, y: top + 12 + 16 + small / 2)
 
             ZStack(alignment: .top) {
+                if showingAssembly {
+                    ItPalette(light ? .light : .dark).color(.page).ignoresSafeArea()
+                    TimelineView(.animation) { timeline in
+                        ItSymbolAssembly(
+                            time: reduceMotion ? 2 : min(2, timeline.date.timeIntervalSince(assemblyStart)),
+                            size: min(geo.size.width * 0.52, 220),
+                            color: ItPalette(light ? .light : .dark).color(.brand)
+                        )
+                    }
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .transition(.opacity)
+                }
                 if phase == .splash {
                     background.ignoresSafeArea().transition(.opacity)
+                        .opacity(showingAssembly ? 0 : 1)
                 }
                 if phase == .brief, let s = loader.snapshot {
                     briefCard(s, brainSlot: small)
@@ -175,7 +191,7 @@ struct OpeningOverlay: View {
                         .padding(.top, top + 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                if phase == .splash || phase == .waiting {
+                if !showingAssembly && (phase == .splash || phase == .waiting) {
                     let big = phase == .splash
                     OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: (big ? bigSize : small) * 0.62)
                         .frame(width: (big ? bigSize : small) * 1.4, height: (big ? bigSize : small) * 1.4)
@@ -183,7 +199,7 @@ struct OpeningOverlay: View {
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
-                if phase == .splash {
+                if phase == .splash && !showingAssembly {
                     VStack(spacing: 10) {
                         Text(Self.productName)
                             .font(.system(size: 34, weight: .semibold))
@@ -202,7 +218,7 @@ struct OpeningOverlay: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
                 }
-                if phase != .done {
+                if phase != .done && !showingAssembly {
                     let side = phase == .splash ? bigSize : small
                     ZStack {
                         BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
@@ -230,11 +246,27 @@ struct OpeningOverlay: View {
                 }
             }
             .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard showingAssembly else { return }
+                withAnimation(.easeOut(duration: 0.18)) { showingAssembly = false }
+            }
         }
         .task { await run() }
     }
 
     private func run() async {
+        if showingAssembly {
+            OpeningAssemblyStore.markPlayed()
+            assemblyStart = Date()
+            let duration = reduceMotion ? 0.6 : 2.0
+            var elapsed = 0.0
+            while showingAssembly && elapsed < duration {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                elapsed += 0.05
+            }
+            withAnimation(.easeOut(duration: 0.18)) { showingAssembly = false }
+        }
         // The intro: brain (0 s), ITTAI (0.45 s), strapline (0.9 s), held so it can be read — ~2.8 s in all
         // (owner, 2026-10-11: a 5-word line needs ~1.5–2 s on screen to land; past ~3 s it feels like waiting).
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { intro = 1 }

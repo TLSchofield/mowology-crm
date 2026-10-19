@@ -97,7 +97,7 @@ private struct DayChip: View {
                 Circle()
                     .fill(
                         day.stopCount > 0
-                            ? ((isSelected && appStyle.isEnabled) ? appStyle.onTenant : (day.hasIncomplete ? appStyle.attention : appStyle.tenant))
+                            ? ((isSelected && appStyle.isEnabled) ? appStyle.onTenant : appStyle.meta)
                             : Color.clear
                     )
                     .frame(width: 6, height: 6)

@@ -259,10 +259,10 @@ struct ScheduleComponentsRender: View {
         Stop(stopId: id, stopDate: "2026-10-20", stopStatus: status, routeOrder: id,
              estimatedArrival: "10:45", propertyId: id,
              propertyAddress: "123 Harbour Gardens Boulevard", propertyCity: "Vancouver",
-             propertyName: "Harbour Gardens Community Centre", latitude: nil, longitude: nil,
-             contactId: id, contactName: "Morgan Example", contactPhone: nil, contactEmail: nil,
-             onsiteContact: nil, companyName: "Harbour Community Association", lawnSqft: nil,
-             crewIds: [1, 2], crewNames: ["Alex Example", "Taylor Sample"], visitCount: 2,
+             propertyName: "HARBOUR GARDENS COMMUNITY CENTRE", latitude: nil, longitude: nil,
+             contactId: id, contactName: "MORGAN EXAMPLE", contactPhone: nil, contactEmail: nil,
+             onsiteContact: nil, companyName: "VANCOUVER MANAGEMENT LTD", lawnSqft: nil,
+             crewIds: [1, 2], crewNames: ["TIM SCHOFIELD", "ALEXANDRA VAN DER BERG"], visitCount: 2,
              visits: [Visit(visitId: id * 10, serviceType: "lawn_care", planTitle: "Weekly Lawn Care", visitStatus: status),
                       Visit(visitId: id * 10 + 1, serviceType: "hedge_trimming", planTitle: "Hedge Trimming", visitStatus: status)],
              propertyNotes: nil, stopNotes: nil)
@@ -273,7 +273,7 @@ struct ScheduleComponentsRender: View {
             WeekStripView(selectedDate: .constant(selected), weekDays: days)
                 .frame(height: dynamicTypeSize.isAccessibilitySize ? 150 : nil)
             ForEach(Array(["scheduled", "in_progress", "completed"].enumerated()), id: \.offset) { index, status in
-                StopCardView(stop: stop(status, id: index + 1), isAdmin: true, distanceMeters: 1250)
+                StopCardView(stop: stop(status, id: index + 1), isAdmin: true, distanceMeters: 4600)
             }
         }
         .environment(\.itAppStyle, ItAppStyle(isEnabled: true, palette: palette))
@@ -323,6 +323,12 @@ struct ScheduleComponentsRender: View {
                     "schedule-components-\(width)-\(name)-\(mode.rawValue)")
             }
         }
+    }
+    for (index, time) in [0.0, 0.55, 1.25, 2.0].enumerated() {
+        save(Screen(mode: .light, width: 375) {
+            ItSymbolAssembly(time: time, size: 200, color: ItPalette(.light).color(.brand))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }, "opening-assembly-frame-\(index + 1)")
     }
     if CommandLine.arguments.count > 3 && CommandLine.arguments[3] == "schedule-only" { return }
     let one=registryMatch("one","HARBOUR LANDSCAPING LTD.",operating:["Harbour Lawn Care"])
