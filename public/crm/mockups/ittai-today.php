@@ -28,7 +28,7 @@ body{margin:0;background:var(--page);color:var(--text);font-family:Inter,system-
 button{font:inherit;cursor:pointer}
 button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
 .wrap{max-width:1440px;margin:0 auto;padding:40px 48px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
-.office{flex:none;width:480px;max-width:100%;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:8px 8px 14px}
+.office{flex:0 1 480px;min-width:0;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:8px 8px 14px}
 #hex{width:100%;height:auto;max-width:464px}
 .legend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 16px;font-size:12px;line-height:16px;font-weight:500;color:var(--meta)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -69,13 +69,26 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
 .link{border:0;background:transparent;padding:0;min-height:24px;color:var(--tenant);font-weight:500;white-space:nowrap}
 .note{font-size:13px;color:var(--meta)}
 .mock{font-size:12px;color:var(--meta);text-align:center;padding:0 48px 24px}
-@media (max-width:700px){.wrap{padding:20px 16px}.tabs{grid-template-columns:1fr}.queue{width:100%;padding-left:0;border-left:0}.stages{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:16px}}
+/* Tablet and small laptop: the office spans the width above the decisions, never a 480 px column with a gap beside it */
+@media (max-width:1100px){.office{flex-basis:100%}.main{flex-basis:100%;order:-1}}  /* decisions first, as on the phone Home (v1.2) */
+/* Phone: hexagon labels would shrink below 12 px, so the names move into readable text under it */
+.onthis{display:none;list-style:none;margin:8px 0 0;padding:0;width:100%;border-top:1px solid var(--line)}
+.onthis li{display:flex;align-items:center;gap:10px;min-height:44px;border-bottom:1px solid var(--line);padding:0 8px}
+.onthis img{width:28px;height:28px;border-radius:999px;object-fit:cover}
+.onthis .k{font-family:'Zen Kaku Gothic New',sans-serif;font-size:13px;color:var(--meta)}
+.onthis b{font-weight:600}
+.onthis small{margin-left:auto;font-size:12px;font-weight:500}
+@media (max-width:700px){.wrap{padding:20px 16px}.tabs{grid-template-columns:1fr}.queue{width:100%;padding-left:0;border-left:0}
+  .pickrow{gap:16px}.stages{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:16px;padding:16px}.card-top{padding:18px 16px 14px}.card-foot{padding:10px 16px}
+  .amount{font-size:28px;line-height:36px}.anchor{gap:8px 16px}
+  #hex .lbl{display:none}.onthis{display:block}.legend{margin-top:8px}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <section class="office" aria-label="Who is on this">
     <svg id="hex" viewBox="-70 0 560 340" role="img" aria-label=""></svg>
+    <ul class="onthis" id="onthis" aria-label="Who is on this"></ul>
     <div class="legend">
       <span><svg width="18" height="6" aria-hidden="true"><line x1="2" y1="3" x2="16" y2="3" stroke="#1B5F3C" stroke-width="3" stroke-linecap="round"/></svg>Their part is done</span>
       <span><svg width="18" height="6" aria-hidden="true"><line x1="2" y1="3" x2="16" y2="3" stroke="#84530F" stroke-width="3" stroke-linecap="round"/></svg>Waiting on you</span>
@@ -152,16 +165,23 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
          '<circle cx="210" cy="170" r="28" fill="none" stroke="#2F5E8C" stroke-width="1.5"/>' +
          '<circle cx="232" cy="192" r="10" fill="#fff" stroke="' + LINE + '"/>' +
          '<text x="232" y="196" text-anchor="middle" font-family="Zen Kaku Gothic New, sans-serif" font-size="12" font-weight="500" fill="' + INK + '">統</text>' +
-         '<text x="210" y="222" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + META + '">Charlie · Chief of Staff</text>';
+         '<text class="lbl" x="210" y="222" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + META + '">Charlie · Chief of Staff</text>';
     Object.keys(SEAT).forEach(function (k) {
       var s = SEAT[k], st = card.lit[k], on = !!st, c = colorFor(st);
       h += '<image href="' + IMG + k + '.jpg" x="' + (s.cx - 18) + '" y="' + (s.cy - 18) + '" width="36" height="36" clip-path="url(#q-' + k + ')" preserveAspectRatio="xMidYMid slice"/>' +
            '<circle cx="' + s.cx + '" cy="' + s.cy + '" r="18.5" fill="none" stroke="' + (on ? c : LINE) + '" stroke-width="' + (on ? 2 : 1) + '"/>' +
            '<circle cx="' + (s.cx + 15) + '" cy="' + (s.cy + 15) + '" r="10" fill="#fff" stroke="' + LINE + '"/>' +
            '<text x="' + (s.cx + 15) + '" y="' + (s.cy + 19) + '" text-anchor="middle" font-family="Zen Kaku Gothic New, sans-serif" font-size="12" font-weight="500" fill="' + INK + '">' + s.kanji + '</text>' +
-           '<text x="' + s.tx + '" y="' + s.ty + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="' + (on ? 600 : 500) + '" fill="' + INK + '">' + s.name + '</text>' +
-           '<text x="' + s.tx + '" y="' + (s.ty + 16) + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + (on ? c : META) + '">' + s.role + '</text>';
+           '<text class="lbl" x="' + s.tx + '" y="' + s.ty + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="' + (on ? 600 : 500) + '" fill="' + INK + '">' + s.name + '</text>' +
+           '<text class="lbl" x="' + s.tx + '" y="' + (s.ty + 16) + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + (on ? c : META) + '">' + s.role + '</text>';
     });
+    var list = '<li><img src="' + IMG + 'charlie.jpg" alt=""><span class="k">統</span><b>Charlie</b><span style="color:' + META + '">Chief of Staff</span></li>';
+    Object.keys(SEAT).forEach(function (k) {
+      var s = SEAT[k], st = card.lit[k]; if (!st) return;
+      var word = st === 'done' ? 'done' : st === 'wait' ? 'waiting on you' : 'acts next';
+      list += '<li><img src="' + IMG + k + '.jpg" alt=""><span class="k">' + s.kanji + '</span><b>' + s.name + '</b><span style="color:' + META + '">' + s.role + '</span><small style="color:' + colorFor(st) + '">' + word + '</small></li>';
+    });
+    document.getElementById('onthis').innerHTML = list;
     var svg = document.getElementById('hex');
     svg.innerHTML = h;
     svg.setAttribute('aria-label', 'Charlie, Chief of Staff, in the centre. On this: ' + names.join(', ') + '.');
