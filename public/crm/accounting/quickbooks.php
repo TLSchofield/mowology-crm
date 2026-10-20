@@ -15,6 +15,24 @@ $svc = new QboConnectionService($db);
 $flash = $_SESSION['qbo_flash'] ?? null;
 unset($_SESSION['qbo_flash']);
 
+// Connect is a LINK, not a form: the site's CSP has form-action 'self', and Chrome applies it to a
+// form's redirect too, so a POST that redirects to Intuit was silently blocked (2026-10-20).
+// The link carries the CSRF token, checked here; it only starts a sign-in.
+if (($_GET['connect'] ?? '') === '1') {
+    if (!verifyCSRFToken((string)($_GET['t'] ?? ''))) {
+        $_SESSION['qbo_flash'] = ['ok' => false, 'message' => 'The page was open too long. Press Connect again.'];
+        header('Location: quickbooks.php'); exit;
+    }
+    try {
+        $to = $svc->startUrl($_SESSION);
+        error_log('QuickBooks: sending the owner to Intuit sign-in (link)');
+        header('Location: ' . $to); exit;
+    } catch (Throwable $e) {
+        $_SESSION['qbo_flash'] = ['ok' => false, 'message' => $e instanceof RuntimeException ? $e->getMessage() : 'Could not start the QuickBooks sign-in.'];
+        header('Location: quickbooks.php'); exit;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) {
         $_SESSION['qbo_flash'] = ['ok' => false, 'message' => 'The page was open too long. Try again.'];
@@ -22,9 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $action = (string)($_POST['action'] ?? '');
     try {
-        if ($action === 'connect') {
-            header('Location: ' . $svc->startUrl($_SESSION)); exit;
-        } elseif ($action === 'pull') {
+        if ($action === 'pull') {
             $_SESSION['qbo_flash'] = $svc->pull();
         } elseif ($action === 'disconnect') {
             $_SESSION['qbo_flash'] = $svc->disconnect();
@@ -103,10 +119,7 @@ $activePage = 'accounting';
                 <div class="alert alert-warning small"><?= h((string)($status['last_error'] ?? 'Not connected.')) ?></div>
             <?php endif; ?>
             <p>Connect your QuickBooks Online company. You sign in at Intuit; Ittai never sees your QuickBooks password.</p>
-            <form method="post">
-                <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
-                <button class="btn btn-primary" name="action" value="connect">Connect QuickBooks</button>
-            </form>
+            <a class="btn btn-primary" href="quickbooks.php?connect=1&amp;t=<?= h(rawurlencode($csrf)) ?>">Connect QuickBooks</a>
         <?php endif; ?>
     </div>
 </div>

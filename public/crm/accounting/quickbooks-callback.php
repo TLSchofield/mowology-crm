@@ -11,6 +11,10 @@ requirePermission('settings.edit');
 $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
 
+// One line per return (no codes or tokens): where a failed connect stopped.
+error_log('QuickBooks callback: returned' . (!empty($_GET['error']) ? ' error=' . substr(preg_replace('/[^a-z_]/i', '', (string)$_GET['error']), 0, 40) : '')
+          . ' code=' . (empty($_GET['code']) ? 'no' : 'yes') . ' realm=' . (empty($_GET['realmId']) ? 'no' : 'yes')
+          . ' state=' . (empty($_GET['state']) ? 'no' : 'yes') . ' session_state=' . (empty($_SESSION['qbo_oauth']) ? 'no' : 'yes'));
 if (!empty($_GET['error'])) {
     // Only a cancel that carries our own state counts (Codex review 2026-10-20: a forged ?error link
     // must not wipe a sign-in in progress).
@@ -29,6 +33,7 @@ if (!empty($_GET['error'])) {
             (string)($_GET['realmId'] ?? ''),
             (int)($user['id'] ?? 0)
         );
+        error_log('QuickBooks callback: ' . (!empty($_SESSION['qbo_flash']['ok']) ? 'connected' : 'not connected — ' . ($_SESSION['qbo_flash']['message'] ?? '')));
     } catch (Throwable $e) {
         error_log('QuickBooks callback: ' . $e->getMessage());
         $_SESSION['qbo_flash'] = ['ok' => false, 'message' => 'QuickBooks did not connect. Try again.'];
