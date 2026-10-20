@@ -52,7 +52,7 @@ class BankDeskService
     public const CATEGORY_CODES = [
         'materials'           => '5200',   // Materials & Supplies
         'fuel'                => '6100',   // Fuel & Vehicle
-        'tools/equipment'     => '1500',   // Equipment & Tools (owner's call)
+        'tools/equipment'     => '6210',   // Small Tools & Equipment — items $500+ each are equipment (CapitalItemRule, 2026-10-19)
         'repairs/maintenance' => '6200',   // Equipment Maintenance
         'vehicle'             => '6120',   // Vehicle Maintenance
         'disposal/dump'       => '5000',   // Cost of Services

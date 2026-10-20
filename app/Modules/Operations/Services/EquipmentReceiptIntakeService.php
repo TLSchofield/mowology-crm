@@ -22,7 +22,7 @@ class EquipmentReceiptIntakeService
 {
     public const CATEGORY = 'Tools/Equipment';
     public const SETTING_MIN = 'otto_equipment_min_line';
-    public const DEFAULT_MIN = 300.0;
+    public const DEFAULT_MIN = 500.0;   // the books' capital threshold (CapitalItemRule) — the register is the fixed-asset list
     /** Lines that are never a machine, however big. */
     private const NOT_A_MACHINE = '/\b(warranty|protection|service plan|eco ?fee|env(iro)? ?fee|deposit|core charge|rental|blades?|line(?! ?trim)|oil|chains?|filters?|spark plugs?|fuel|gas can|discount|coupon|shipping|delivery)\b/i';
     private const CLASS_WORDS = [
@@ -60,9 +60,11 @@ class EquipmentReceiptIntakeService
     {
         try {
             $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
-            $s->execute([self::SETTING_MIN]);
-            $v = $s->fetchColumn();
-            if ($v !== false && is_numeric($v) && (float)$v > 0) return (float)$v;
+            foreach ([self::SETTING_MIN, 'capital_threshold'] as $k) {
+                $s->execute([$k]);
+                $v = $s->fetchColumn();
+                if ($v !== false && is_numeric($v) && (float)$v > 0) return (float)$v;
+            }
         } catch (Throwable $e) { /* default */ }
         return self::DEFAULT_MIN;
     }
@@ -130,6 +132,7 @@ class EquipmentReceiptIntakeService
                     'power_source' => self::guessPower($name),
                     'purchase_date' => substr((string)$c['expense_date'], 0, 10),
                     'expense_id' => (int)$c['expense_id'],
+                    'cca_class' => '8',   // a machine $500+ each: CCA Class 8 for the accountant (confirm with him)
                     'notes' => mb_substr('Added by Otto from receipt #' . (int)$c['expense_id'] . ($c['vendor'] !== '' ? ' (' . $c['vendor'] . ')' : '')
                         . ', $' . number_format((float)$c['line_total'], 2) . '. Not a machine? "Not equipment" on this page moves it out.', 0, 500),
                 ]);

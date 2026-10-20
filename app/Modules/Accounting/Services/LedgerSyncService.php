@@ -93,7 +93,27 @@ class LedgerSyncService
             'vendor_id'       => !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
             'meals'           => GstReportService::isMeals($row['accounting_category'] ?? null, $this->gstSettings()['meals_categories']),
             'meals_itc_rate'  => $this->gstSettings()['meals_rate'],
-        ];
+        ] + (in_array($cat, self::CAPITAL_RULE_CATEGORIES, true) ? ['capital_rule' => ['threshold' => $this->capitalThreshold()]] : []);
+    }
+
+    /** Receipt categories whose items of the capital threshold or more each are equipment (CapitalItemRule). */
+    public const CAPITAL_RULE_CATEGORIES = ['tools/equipment'];
+
+    private ?float $capitalThresholdCache = null;
+
+    /** ops_settings capital_threshold (dollars, before tax), default $500 — the standard capitalisation threshold. */
+    public function capitalThreshold(): float
+    {
+        if ($this->capitalThresholdCache === null) {
+            $this->capitalThresholdCache = 500.0;
+            try {
+                $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'capital_threshold'");
+                $s->execute();
+                $v = $s->fetchColumn();
+                if ($v !== false && is_numeric($v) && (float)$v > 0) $this->capitalThresholdCache = (float)$v;
+            } catch (\Throwable $e) { /* default */ }
+        }
+        return $this->capitalThresholdCache;
     }
 
     /**

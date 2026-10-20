@@ -76,7 +76,8 @@ class LedgerRepostService
             // is cost — Codex review), post by the full recipe: compare with that. Others: the account only.
             // A Personal receipt too: its account is the shareholder's on it (1302 Katrenna), not the category's.
             $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats())
-                     || strcasecmp((string)$e['accounting_category'], 'Personal') === 0)
+                     || strcasecmp((string)$e['accounting_category'], 'Personal') === 0
+                     || in_array(strtolower(trim((string)$e['accounting_category'])), LedgerSyncService::CAPITAL_RULE_CATEGORIES, true))
                 ? $this->sync->expenseArgs($e) : null;
             $want = $args !== null
                 ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($args)))
@@ -113,7 +114,12 @@ class LedgerRepostService
     }
 
     /** Re-post what plan() found. @return array{reposted: int, failed: int, errors: array} */
-    public function apply(?int $userId = null): array
+    /**
+     * @param ?callable $only fn(string $kind 'invoice'|'expense'|'bank', array $item): bool — repost only these
+     *                        (a reviewed subset; null = every planned item)
+     * @param ?string   $why  the reason written on each reversal, for the accountant (null = the default per kind)
+     */
+    public function apply(?int $userId = null, ?callable $only = null, ?string $why = null): array
     {
         if (!$this->ledger->canRepostSource()) {
             return ['reposted' => 0, 'failed' => 0, 'errors' => ['Run migration 1131 first — the books are corrected with reversing entries now, never deletes.']];
@@ -126,13 +132,17 @@ class LedgerRepostService
                                            vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                            (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                     FROM expenses", array_column($p['expenses'], 'id'));
+        $keep = static fn(string $k, array $list) => $only === null ? $list : array_values(array_filter($list, fn($i) => $only($k, $i)));
+        $p['invoices'] = $keep('invoice', $p['invoices']);
+        $p['expenses'] = $keep('expense', $p['expenses']);
+        $p['bank'] = $keep('bank', $p['bank']);
         foreach ($p['invoices'] as $item) {
             try {
                 $row = $invRows[$item['id']];
                 $args = $this->sync->mapInvoiceToInvoiceArgs($row);
                 $args['revenue_splits'] = $this->map->invoiceSplits($row, $args['net']);
-                $this->atomically(function () use ($item, $userId, $args) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'invoice re-posted to the right income account');
+                $this->atomically(function () use ($item, $userId, $args, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'invoice re-posted to the right income account');
                     $args['created_by'] = $userId; $args['proposed_by'] = 'owner';
                     $this->ledger->postInvoice($args);
                 });
@@ -144,8 +154,8 @@ class LedgerRepostService
         foreach ($p['expenses'] as $item) {
             try {
                 $args = $this->sync->expenseArgs($expRows[$item['id']]);
-                $this->atomically(function () use ($item, $userId, $args) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'receipt re-posted to the right expense account');
+                $this->atomically(function () use ($item, $userId, $args, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'receipt re-posted to the right expense account');
                     $this->ledger->postExpense($args);
                 });
                 $done++;
@@ -155,8 +165,8 @@ class LedgerRepostService
         }
         foreach ($p['bank'] as $item) {
             try {
-                $this->atomically(function () use ($item, $userId) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'bank line re-categorized');
+                $this->atomically(function () use ($item, $userId, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'bank line re-categorized');
                     $args = $this->sync->bankEntryArgsFor((int)$item['id']);
                     if ($args) { $args['created_by'] = $userId; $args['proposed_by'] = 'owner'; $this->ledger->postManual($args); }
                 });

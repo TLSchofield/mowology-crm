@@ -154,3 +154,13 @@ person path (only `DepositBackfillService`). The 2026-10-12 mistakes are tests i
   `docs/plans/2026-10-13-ledger-silent-failures.md`.
 - `BankBalanceCheckService` reads a GST Reserves ••6827 interest line as chequing's Mar–May month-end ($8.59)
   and can't read card (2400) balances — don't trust those months' "statement" figure.
+
+## Equipment: capital vs small tools (standard, 2026-10-19)
+Tools/Equipment receipts post to **6210 Small Tools & Equipment** (migration 1379). When posting, `CapitalItemRule`
+moves any item costing `ops_settings.capital_threshold` ($500) or more EACH, before tax, to **1500 Equipment & Tools**
+(CCA Class 8; Otto adds it to the equipment register with `cca_class` 8). A mixed receipt posts as two debit lines,
+labelled ("Capital ($500+ each): <item>", "Other items on the receipt"), taxes shared by net; a person's own split
+always wins. No lines: the pre-tax amount decides. Bank lines with no receipt in Tools → 6210 (BankDeskService).
+2026 rebooked 2026-10-19 (11 receipts) with the reason on every reversal. 1500 opened 2026 at $19,035.00 (signed FS).
+The repost runner can apply a reviewed subset (`apply($userId, $only, $why)`) — never apply its whole plan unreviewed.
+

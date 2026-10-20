@@ -468,9 +468,30 @@ class LedgerService
             $split = new ExpenseSplitService($this->db);
             if (!$split->ready()) return $exp;
             $args = $split->ledgerArgs((int)$exp['id'], $exp['vendor_name'] ?? null);
-            return $args ? array_merge($exp, $args) : $exp;
+            if ($args) return array_merge($exp, $args);   // a person's split wins
         } catch (\Throwable $e) {
             return $exp;   // never block a posting over the split read
+        }
+        return $this->withCapitalItems($exp);
+    }
+
+    /**
+     * An equipment purchase: items of the capital threshold or more each to 1500 Equipment, the rest to the
+     * receipt's own account (CapitalItemRule — the standard capital / small-tools split, 2026-10-19).
+     * Only when the args carry 'capital_rule' (LedgerSyncService: Tools/Equipment receipts).
+     */
+    public function withCapitalItems(array $exp): array
+    {
+        if (empty($exp['capital_rule']) || empty($exp['id']) || array_key_exists('allocations', $exp)) return $exp;
+        try {
+            if (!class_exists('CapitalItemRule')) require_once __DIR__ . '/CapitalItemRule.php';
+            $s = $this->db->prepare("SELECT name, quantity, unit_price, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+            $s->execute([(int)$exp['id']]);
+            $r = CapitalItemRule::apply($exp, $s->fetchAll(\PDO::FETCH_ASSOC), (float)($exp['capital_rule']['threshold'] ?? CapitalItemRule::DEFAULT_THRESHOLD));
+            return $r ? array_merge($exp, $r) : $exp;
+        } catch (\Throwable $e) {
+            error_log('Capital item rule #' . $exp['id'] . ': ' . $e->getMessage());
+            return $exp;
         }
     }
 
