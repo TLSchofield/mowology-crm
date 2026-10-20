@@ -31,7 +31,11 @@ if (!is_file($file)) { http_response_code(404); echo json_encode(['error' => 'mi
 
 $hasTable  = fn(string $t) => $db->query("SHOW TABLES LIKE " . $db->quote($t))->rowCount() > 0;
 $hasColumn = function (string $t, string $c) use ($db) {
-    $s = $db->prepare("SHOW COLUMNS FROM `{$t}` LIKE ?"); $s->execute([$c]); return $s->rowCount() > 0;
+    // SHOW COLUMNS ... LIKE ? cannot be prepared with native prepares; names here are our own constants.
+    try {
+        foreach ($db->query("SHOW COLUMNS FROM `{$t}`")->fetchAll(PDO::FETCH_ASSOC) as $r) if (strcasecmp((string)$r['Field'], $c) === 0) return true;
+    } catch (Throwable $e) { /* table missing */ }
+    return false;
 };
 
 $state = fn() => [
