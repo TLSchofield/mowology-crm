@@ -62,7 +62,7 @@ class LedgerRepostService
         }
         $expenses = [];
         $s = $this->db->query("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                      vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                      vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                       (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                FROM expenses WHERE total > 0 AND status IN ('approved', 'forwarded')");
         $expRows = $s->fetchAll(PDO::FETCH_ASSOC);
@@ -74,7 +74,9 @@ class LedgerRepostService
             // A receipt split by line (migration 1233) posts one line per share: compare with that recipe.
             // A split receipt, and a meals receipt (only part of its GST is claimable since 2026-10-14, the rest
             // is cost — Codex review), post by the full recipe: compare with that. Others: the account only.
-            $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats()))
+            // A Personal receipt too: its account is the shareholder's on it (1302 Katrenna), not the category's.
+            $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats())
+                     || strcasecmp((string)$e['accounting_category'], 'Personal') === 0)
                 ? $this->sync->expenseArgs($e) : null;
             $want = $args !== null
                 ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($args)))
@@ -121,7 +123,7 @@ class LedgerRepostService
         $invRows = $this->rowsById("SELECT id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id,
                                            issue_date, paid_at, created_at FROM invoices", array_column($p['invoices'], 'id'));
         $expRows = $this->rowsById("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                           vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                           vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                            (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                     FROM expenses", array_column($p['expenses'], 'id'));
         foreach ($p['invoices'] as $item) {

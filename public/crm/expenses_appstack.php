@@ -1470,6 +1470,13 @@ async function submitReceiptExport() {
                 <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
                     <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
                 </button>
+                <div class="btn-group" id="expPersonalGroup" style="display:none;">
+                    <button type="button" class="btn btn-outline-secondary" id="expPersonalBtn" onclick="markPersonalFromModal(null)"
+                            title="Personal: the whole receipt goes on the shareholder's account and no GST is claimed back">Personal</button>
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"
+                            aria-haspopup="true" aria-expanded="false" aria-label="Personal for another shareholder"></button>
+                    <div class="dropdown-menu dropdown-menu-right" id="expPersonalMenu"></div>
+                </div>
                 <?php endif; ?>
                 <?php if ($canSend): ?>
                 <button type="button" class="btn btn-success" id="expSendBtn" onclick="sendExpenseFromModal()" style="display:none;" title="Send to QuickBooks">
@@ -3873,6 +3880,9 @@ async function submitReceiptExport() {
             if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
             if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
             if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
+            var personalGrp = document.getElementById('expPersonalGroup');
+            if (personalGrp) personalGrp.style.display = (e.status === 'rejected' || e.status === 'forwarded' || e.forwarded_to_accounting) ? 'none' : '';
+            if (personalGrp && typeof window.mwPersonalRender === 'function') window.mwPersonalRender();
             // Once forwarded to accounting the header is read-only server-side — say so up
             // front instead of letting Save fail with an error toast.
             var isLocked = (e.status === 'forwarded' || !!e.forwarded_to_accounting);
@@ -4236,6 +4246,70 @@ async function submitReceiptExport() {
         if (!id) return;
         var ok = await window.approveExpense(parseInt(id));
         if (ok) $('#expenseModal').modal('hide');
+    };
+
+    // ── Personal (2026-10-19): the whole receipt on a shareholder's account, no GST claimed ──
+    // The first shareholder (1300, Tim) is the main button; the others are in its menu. Marks it
+    // through the gate (action:'mark_personal'), then Penny's approve window for an open receipt.
+    var personalChoices = null;
+    function personalLoadChoices() {
+        if (personalChoices) return Promise.resolve(personalChoices);
+        return fetch('/crm/api/expenses.php?action=personal_choices', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { personalChoices = (d && d.success && d.shareholders && d.shareholders.length) ? d.shareholders : [{ name: 'Shareholder', account: '1300' }]; return personalChoices; })
+            .catch(function () { return [{ name: 'Shareholder', account: '1300' }]; });
+    }
+    function personalRender() {
+        personalLoadChoices().then(function (list) {
+            var main = document.getElementById('expPersonalBtn'), menu = document.getElementById('expPersonalMenu');
+            if (!main || !menu) return;
+            main.textContent = 'Personal (' + list[0].name + ')';
+            menu.innerHTML = '';
+            list.slice(1).forEach(function (c) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'dropdown-item';
+                b.textContent = 'Personal (' + c.name + ')';
+                b.addEventListener('click', function () { window.markPersonalFromModal(c.account); });
+                menu.appendChild(b);
+            });
+            var split = menu.previousElementSibling;
+            if (split) split.style.display = list.length > 1 ? '' : 'none';
+        });
+    }
+    window.mwPersonalRender = personalRender;   // called when a receipt's window is filled in
+    window.markPersonalFromModal = async function (account) {
+        var id = parseInt(document.getElementById('expenseId').value, 10);
+        if (!id) return;
+        var grp = document.getElementById('expPersonalGroup');
+        if (grp && grp.getAttribute('data-busy') === '1') return;          // one mark at a time
+        var parts = grp ? grp.querySelectorAll('button') : [];
+        if (grp) grp.setAttribute('data-busy', '1');
+        Array.prototype.forEach.call(parts, function (b) { b.disabled = true; });
+        try {
+            var d = await withCSRFRetry(async function () {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_personal', csrf_token: CSRF, id: id, account: account || '' }),
+                });
+                var j = await r.json();
+                if (!j.success) throw new Error(j.error || 'Not marked personal');
+                return j;
+            });
+            var cat = document.getElementById('expAcctCategory');
+            if (cat) cat.value = 'Personal';
+            if (typeof mwToast === 'function') mwToast('Personal: charged to ' + d.shareholder.name + ' (' + d.shareholder.account + '), no GST claimed');
+            // The window is closed either way: what it holds (an old split, unsaved fields) is no longer
+            // the receipt, and a Save from it would put that back (review 2026-10-19).
+            $('#expenseModal').modal('hide');
+            var st = window._currentExpenseStatus;
+            if (st !== 'approved' && st !== 'forwarded') await window.approveExpense(id);
+            loadExpenses(currentPage);
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            if (grp) grp.removeAttribute('data-busy');
+            Array.prototype.forEach.call(parts, function (b) { b.disabled = false; });
+        }
     };
 
     window.rejectExpenseFromModal = function() {

@@ -258,7 +258,7 @@ class ExpenseGateHooks
                 return false;
             }
             $s = $this->db->prepare("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                            vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                            vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                             (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                      FROM expenses WHERE id = ?");
             $s->execute([$expenseId]);

@@ -356,6 +356,12 @@ class LedgerService
      *                   funding? (code, default 2400 Credit Card), cost_type_id?,
      *                   service_type?, job_id?, vendor_id?, memo?
      */
+    /** 1300–1309: what a shareholder owes the company (GIFI 1300/1301; 1302 Katrenna's loan). PURE. */
+    public static function isShareholderAccount(string $code): bool
+    {
+        return (bool)preg_match('/^130\d$/', trim($code));
+    }
+
     public function buildExpenseEntry(array $exp): array
     {
         if (!empty($exp['allocations']) && is_array($exp['allocations'])) {
@@ -369,6 +375,9 @@ class LedgerService
         // A meals receipt claims only part of its GST (s.236, GstReportService's rate) — the rest is
         // cost, as the split builder already did (Codex review 2026-10-14: unsplit meals claimed it all).
         $claim = !empty($exp['meals']) ? round($gst * (isset($exp['meals_itc_rate']) ? (float)$exp['meals_itc_rate'] : 0.5), 2) : $gst;
+        // A personal purchase charged to a shareholder (1300 Tim, 1302 Katrenna …) is not a business
+        // input: no GST is claimed back, the whole receipt goes on the shareholder's account (2026-10-19).
+        if (self::isShareholderAccount((string)$exp['expense_account'])) $claim = 0.0;
 
         $lines = [];
         $lines[] = [
@@ -413,6 +422,7 @@ class LedgerService
             $gst = round((float)($a['gst'] ?? 0), 2);
             $pst = round((float)($a['pst'] ?? 0), 2);
             $claim = !empty($a['meals']) ? round($gst * $rate, 2) : $gst;
+            if (self::isShareholderAccount((string)$a['account'])) $claim = 0.0;   // personal share: no ITC
             $itc += $claim;
             $total += $net + $gst + $pst;
             $debit = round($net + $pst + $gst - $claim, 2);

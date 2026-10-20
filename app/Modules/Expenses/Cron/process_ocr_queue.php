@@ -204,6 +204,14 @@ foreach ($candidateIds as $jobId) {
             isset($row['gps_lat']) ? (float)$row['gps_lat'] : null,
             isset($row['gps_lng']) ? (float)$row['gps_lng'] : null
         );
+        // No text read is a FAILED scan, never "complete": 223 jobs from 2026-10-07 on came back empty here
+        // (the reader failed only when run as the scheduled task) and were marked complete, so they were
+        // never retried and those receipts never got their printed time / card / ticket. Retried 3 times.
+        if (trim((string)($result['ocr_text'] ?? '')) === '') {
+            $p = (array)($result['payload'] ?? []);
+            throw new RuntimeException('No text read (' . ($p['ocr_source'] ?? 'none') . ', pre-screen '
+                . ($p['pre_screen']['decision'] ?? '?') . '): ' . ($p['ocr_error'] ?? 'the reader gave no reason'));
+        }
 
         $write = $db->prepare("
             UPDATE expense_ocr_jobs
@@ -464,6 +472,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
         'ocr_text'          => $ocrText,
         'ocr_available'     => $ocrAvailable,
         'ocr_source'        => $ocrSource,
+        'ocr_error'         => $ocrResult['error'] ?? null,   // why the reader failed, saved on the job (2026-10-19)
         'pre_screen'        => [
             'score'    => $preScreen['score'] ?? 0,
             'decision' => $preScreenDecision,

@@ -160,6 +160,15 @@ try {
         error_log('[generate_visits cron] market prices: ' . get_class($e));
     }
 
+    // Machines from purchase receipts (EquipmentReceiptIntakeService, migration 1377): Otto adds them himself.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
+        $eqIn = (new EquipmentReceiptIntakeService(getDB()))->sweep();
+        if ($eqIn['added']) $autoPlace .= "; equipment from receipts: {$eqIn['added']} added";
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] equipment intake: ' . get_class($e));
+    }
+
     $hasErrors = !empty($result['errors']) || $sideProblems;
     recordCronRun(
         'generate_visits',

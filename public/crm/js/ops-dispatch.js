@@ -46,7 +46,11 @@
             body: JSON.stringify(body)
         }).then(function (r) { return r.json(); }).then(function (r) {
             b.disabled = false;
-            if (r.ok) { say(row, r.message || 'Saved.'); setTimeout(function () { location.reload(); }, 600); }
+            if (r.ok) {
+                say(row, r.message || 'Saved.');
+                var to = typeof r.redirect === 'string' && r.redirect.charAt(0) === '/' && r.redirect.charAt(1) !== '/' ? r.redirect : null;
+                setTimeout(function () { if (to) location.href = to; else location.reload(); }, 600);
+            }
             else say(row, r.message || r.error || 'That did not save.', true);
         }).catch(function () { b.disabled = false; say(row, 'No connection. Try again.', true); });
     });

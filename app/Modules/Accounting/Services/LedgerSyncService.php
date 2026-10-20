@@ -84,7 +84,7 @@ class LedgerSyncService
             'net'             => round($total - $gst - $pst, 2),
             'gst'             => $gst,
             'pst'             => $pst,
-            'expense_account' => LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
+            'expense_account' => self::personalAccount($row, $cat) ?? LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
                                      $row['asset_tag'] ?? null, (string)($row['vendor_name'] ?? $row['vendor_name_raw'] ?? '')),
             'funding'         => $this->fundingAccountFor((string)($row['payment_method'] ?? '')),
             'cost_type_id'    => $categoryToCostType[$cat] ?? null,
@@ -94,6 +94,18 @@ class LedgerSyncService
             'meals'           => GstReportService::isMeals($row['accounting_category'] ?? null, $this->gstSettings()['meals_categories']),
             'meals_itc_rate'  => $this->gstSettings()['meals_rate'],
         ];
+    }
+
+    /**
+     * A Personal receipt always posts to a shareholder: the one marked on it (expenses.shareholder_account,
+     * migration 1376 — Katrenna's 1302), else 1300 Due from Shareholder — never the category map, so a
+     * missing or changed map can't turn a personal purchase into a cost that claims GST (review 2026-10-19). PURE.
+     */
+    public static function personalAccount(array $row, string $cat): ?string
+    {
+        if ($cat !== 'personal') return null;
+        $code = trim((string)($row['shareholder_account'] ?? ''));
+        return LedgerService::isShareholderAccount($code) ? $code : LedgerService::ACC_DUE_FROM_SH;
     }
 
     private ?array $gstSettingsCache = null;
@@ -587,7 +599,7 @@ class LedgerSyncService
 
         $rows = $this->db->query("
             SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category,
-                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                    (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
             FROM expenses
             WHERE total > 0 AND status IN ('approved', 'forwarded')

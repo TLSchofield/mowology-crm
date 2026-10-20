@@ -52,16 +52,16 @@ class ExpenseGate
     /** Expense columns the gate writes. */
     public const COLUMNS = [
         'expense_date', 'vendor_id', 'vendor_name_raw', 'description', 'amount', 'gst_amount', 'pst_amount', 'total',
-        'accounting_category', 'gbp_category', 'payment_method', 'receipt_media_id', 'receipt_lat', 'receipt_lng',
+        'accounting_category', 'shareholder_account', 'gbp_category', 'payment_method', 'receipt_media_id', 'receipt_lat', 'receipt_lng',
         'match_confidence', 'anomaly_flags', 'anomaly_score', 'raw_ocr_json', 'line_items_source', 'job_id', 'property_id',
         'contact_id', 'notes', 'status', 'odometer_start', 'odometer_end', 'fuel_litres', 'fuel_price_per_litre', 'asset_tag',
         'source', 'created_by', 'approved_by', 'approved_at', 'rejection_reason', 'forwarded_to_accounting', 'forwarded_at',
     ];
     /** The money fields — locked once sent to accounting. */
     public const MONEY = ['expense_date', 'vendor_id', 'vendor_name_raw', 'amount', 'gst_amount', 'pst_amount', 'total',
-                          'accounting_category', 'payment_method', 'job_id', 'asset_tag'];
+                          'accounting_category', 'shareholder_account', 'payment_method', 'job_id', 'asset_tag'];
     /** What the books carry for a posted receipt — a change re-posts it. */
-    public const BOOKS = ['expense_date', 'vendor_id', 'amount', 'gst_amount', 'pst_amount', 'total', 'accounting_category',
+    public const BOOKS = ['expense_date', 'vendor_id', 'amount', 'gst_amount', 'pst_amount', 'total', 'accounting_category', 'shareholder_account',
                           'payment_method', 'job_id', 'asset_tag'];
     /** A person changing one of these overrides what Penny / the receipt reader said (head_lessons). */
     public const LESSON_FIELDS = ['accounting_category', 'payment_method', 'job_id', 'vendor_id', 'vendor_name_raw', 'asset_tag'];
@@ -399,7 +399,7 @@ class ExpenseGate
     }
 
     /** A column that arrived with a later migration: written when it exists, never fatal before. */
-    private const OPTIONAL = ['line_items_source', 'asset_tag', 'source'];
+    private const OPTIONAL = ['line_items_source', 'asset_tag', 'source', 'shareholder_account'];
 
     private function withoutMissingColumns(array $cols): array
     {

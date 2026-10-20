@@ -135,6 +135,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBrainService.php
 require_once __DIR__ . '/../app/Modules/Operations/Services/DispatchRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/MunicipalRuleService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
@@ -281,6 +282,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLineItemService
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseSplitService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGateHooks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGate.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpensePersonalService.php';
 require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCaptureService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';

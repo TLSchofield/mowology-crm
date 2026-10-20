@@ -23,17 +23,20 @@ if (!userHasPermission('jobs.edit')) {
 require_once APP_ROOT . '/Modules/Operations/Services/EquipmentService.php';
 require_once APP_ROOT . '/Modules/Operations/Services/EquipmentCatalogService.php';
 require_once APP_ROOT . '/Modules/Operations/Services/OttoManualService.php';
+require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
 $db = getDB();
 $svc = new EquipmentService($db);
 $id = (int)($_GET['id'] ?? 0);
 $d = null;
 $manual = ['ready' => false, 'left' => 0, 'cap' => 0];
 $pending = [];
+$ottoAdded = null;
 try {
     $d = $svc->ready() ? $svc->detail($id) : null;
     $mSvc = new OttoManualService($db);
     $manual = $mSvc->status();
     $pending = $mSvc->pending()[$id] ?? [];
+    $ottoAdded = $d ? (new EquipmentReceiptIntakeService($db, $svc))->addedBy($id) : null;
 } catch (Throwable $e) {
     error_log('Equipment item page: ' . $e->getMessage());
 }
@@ -161,6 +164,14 @@ $scopeLabel = ['item' => 'this machine', 'model' => 'every unit of this model', 
                     data-date="<?= h((string)$it['purchase_date']) ?>" data-cost="<?= h((string)($it['cost_manual'] ?? '')) ?>">find it</button></div>
           <div class="mw-ops-wide" data-eq-receipts></div>
         </div>
+        <?php if ($ottoAdded): ?>
+          <div class="mw-ops-form mt-2" data-row data-id="<?= (int)$it['id'] ?>">
+            <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
+            <p class="mw-ops-hint mb-1 mw-ops-wide">Otto added this from receipt #<?= (int)$ottoAdded['expense_id'] ?> (<?= h((string)$ottoAdded['line_name']) ?>, <?= h($money($ottoAdded['line_total'])) ?>). Not a machine? Move it out and he won't add it again.</p>
+            <div class="mw-ops-wide"><button class="btn btn-sm btn-outline-danger" data-save="move_out_equipment"
+                 data-confirm="Move this out of the equipment register? The receipt stays as it is.">Not equipment, move it out</button></div>
+          </div>
+        <?php endif; ?>
         <?php if (!empty($it['plate_media_id'])): ?>
           <p class="mw-ops-hint mt-2"><a href="/crm/api/serve-receipt.php?id=<?= (int)$it['plate_media_id'] ?>" target="_blank" rel="noopener">The plate photo</a></p>
         <?php endif; ?>

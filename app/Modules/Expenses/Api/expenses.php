@@ -124,6 +124,17 @@ try {
             echo json_encode(['success' => true] + (new BookkeeperDeskService($db))->approvalPreview((int)($_GET['id'] ?? 0)));
             break;
 
+        case 'personal_choices':  // GET — who a Personal receipt can be charged to (the Personal button, 2026-10-19)
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+            echo json_encode(['success' => true, 'shareholders' => (new ExpensePersonalService($db, expenseGate($db)))->shareholders()]);
+            break;
+
+        case 'mark_personal':     // POST {id, account?} — Personal, charged to a shareholder; no GST claimed
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            handleMarkPersonal($db, $input);
+            break;
+
         case 'approve':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
@@ -825,6 +836,24 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
 
 
 /** The expense gate for this request — the one door for every expense change. */
+/** The Personal button: thin controller over ExpensePersonalService (the gate does the rest). */
+function handleMarkPersonal(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+    $check = $db->prepare("SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $check->execute([$id]);
+    $existing = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) throw new Exception('Expense not found');
+    if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+    $account = isset($input['account']) && $input['account'] !== '' ? (string)$input['account'] : null;
+    $res = (new ExpensePersonalService($db, expenseGate($db)))->mark($id, $account, ExpenseGate::actor(getCurrentUser()));
+    echo json_encode(['success' => true, 'expense_id' => $id, 'shareholder' => $res['shareholder'], 'changed' => $res['changed'] ?? []]);
+}
+
 function expenseGate(PDO $db): ExpenseGate
 {
     static $gate = null;

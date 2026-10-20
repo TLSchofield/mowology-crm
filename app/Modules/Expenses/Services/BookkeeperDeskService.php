@@ -142,6 +142,8 @@ class BookkeeperDeskService
             $held = DuplicateReceiptService::heldIds((new DuplicateReceiptService($this->db))->pairsFor($waitingIds));
         } catch (Throwable $e) { /* no duplicate check: count them all */ }
         if (!class_exists('GstReportService')) require_once dirname(__DIR__, 2) . '/Accounting/Services/GstReportService.php';
+        // A personal purchase claims nothing (the Personal button, 2026-10-19 — as GstReportService::withoutPersonal).
+        $gstRows = GstReportService::withoutPersonal($gstRows);
         [$gstConfirmed, $gstStuck] = self::gstClaimBack($gstRows, $held, (new GstReportService($this->db))->settings());
 
         $jobs = $this->db->prepare("SELECT COUNT(*), SUM(job_id IS NOT NULL) FROM expenses WHERE expense_date >= ? AND status <> 'rejected'");
