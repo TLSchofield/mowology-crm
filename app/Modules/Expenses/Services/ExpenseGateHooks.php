@@ -35,6 +35,17 @@ class ExpenseGateHooks
      * Penny's missing-receipt chaser (migration 1245): a receipt that fits an open "missing
      * receipt" item closes it, whatever path it came in by.
      */
+    /** Match the receipt's product lines to the shared catalogue (ReceiptCatalogService). Never fails the save. */
+    public function catalog(int $expenseId): void
+    {
+        try {
+            require_once __DIR__ . '/ReceiptCatalogService.php';
+            (new ReceiptCatalogService($this->db))->match($expenseId);
+        } catch (Throwable $e) {
+            error_log('Receipt catalogue #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** ReceiptDateCheck on a new or re-dated receipt. Never fails the save. */
     public function dateCheck(int $expenseId): void
     {

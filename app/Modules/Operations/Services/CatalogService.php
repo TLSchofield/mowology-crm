@@ -356,6 +356,11 @@ class CatalogService
         $this->db->prepare("DELETE FROM catalog_attribute_values WHERE product_id = ?")->execute([$fromId]);
         $this->db->prepare("UPDATE supplier_price_items SET catalog_product_id = ? WHERE catalog_product_id = ?")->execute([$intoId, $fromId]);
         $this->db->prepare("UPDATE catalog_match_queue SET suggested_product_id = ? WHERE suggested_product_id = ?")->execute([$intoId, $fromId]);
+        // Receipt lines (migration 1378) follow the merge too, when that column is there.
+        try {
+            $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = ? WHERE catalog_product_id = ?")->execute([$intoId, $fromId]);
+            $this->db->prepare("UPDATE expense_line_items SET catalog_suggested_id = ? WHERE catalog_suggested_id = ?")->execute([$intoId, $fromId]);
+        } catch (PDOException $e) { /* before 1378 */ }
         $this->db->prepare("DELETE FROM catalog_products WHERE id = ?")->execute([$fromId]);
     }
 }

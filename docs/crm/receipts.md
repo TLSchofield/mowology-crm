@@ -562,3 +562,17 @@ before to 6 days after the upload, and no other waiting receipt of the vendor ha
 the line's date. Otherwise a fresh single upload is flagged `DATE_UNREADABLE` (Penny explains it); batch scans
 (5+ by one person within the hour) are old on purpose and never flagged. The scanner's fallback for an
 unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated Apr 2.
+
+## Receipt lines ↔ the shared catalogue — 2026-10-19
+Each saved line of a Materials / Tools/Equipment / Repairs receipt is matched to the SHARED product catalogue by
+itself (`ReceiptCatalogService`, migration 1378, runs after every save via `ExpenseGateHooks::catalog`):
+a learned link (this vendor's SKU, then its wording: `catalog_aliases` `rcpt:<vendor key>:sku:` / `:n:`) → an exact
+barcode (12–14 digits only — store SKUs are not barcodes) or name key → the same words as one product → a clear
+most-alike product is ASKED ("Is this …? Yes / No / another one") → else "Add to catalogue". Sizes are words
+("20in", "4x8"): another size halves the score, a size on one side only is asked, never linked.
+Fees, totals, labour and generic nursery lines ("Annuals 6 Pack") are `skip`. The catalogue only grows on the
+office's "Add to catalogue" tap — never from OCR by itself. Every answer is taught (shared across tenants, prices
+stay private): Yes/another one/Add teach the SKU + wording; "No" is remembered for that wording (`_not` aliases);
+a correction to another family moves the key. Corrections are Penny lessons (`catalog_product`). Renaming a line
+resets its link. Office only (crew see links read-only). Backfill 2026: 54 receipts, 1 linked, 12 asked, 57 to add.
+

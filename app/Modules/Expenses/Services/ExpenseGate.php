@@ -308,6 +308,10 @@ class ExpenseGate
         if ($source !== 'date_check' && ($create || array_intersect($changed, ['total', 'expense_date']))) {
             $this->hooks->dateCheck($id);
         }
+        // Its product lines against the shared catalogue (ReceiptCatalogService, migration 1378).
+        if ($create || $linesChange || array_intersect($changed, ['accounting_category', 'vendor_id', 'vendor_name_raw'])) {
+            $this->hooks->catalog($id);
+        }
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
         $userId = $actor['id'] ?? null;
@@ -457,6 +461,13 @@ class ExpenseGate
             $total = array_key_exists('line_total', $op) ? (float)$op['line_total'] : (float)$before['line_total'];
             $this->db->prepare("UPDATE expense_line_items SET name = ?, quantity = ?, unit_price = ?, line_total = ? WHERE id = ?")
                ->execute([$name, $qty, $unit, $total, (int)$before['id']]);
+            if ($name !== (string)$before['name']) {
+                // A renamed line is another product: its catalogue link / "not this" goes, the catalogue hook matches it again.
+                try {
+                    $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = NULL, catalog_match = NULL, catalog_suggested_id = NULL, catalog_score = NULL WHERE id = ?")
+                             ->execute([(int)$before['id']]);
+                } catch (PDOException $e) { /* before migration 1378 */ }
+            }
             if (!empty($before['product_id']) && function_exists('updateProductInventory')) {
                 updateProductInventory($this->db, (int)$before['product_id'], $qty - (float)$before['quantity']);
             }

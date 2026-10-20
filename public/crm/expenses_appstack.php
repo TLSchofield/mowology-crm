@@ -6209,8 +6209,129 @@ async function submitReceiptExport() {
             rows += '<tr><td colspan="6" class="text-start py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
         }
 
+        // Saved lines of the open receipt: their shared-catalogue link, filled in after the table is drawn.
+        if (stored && !editableScope && typeof window.mwCatalogFill === 'function') setTimeout(window.mwCatalogFill, 0);
         return header + rows;
     }
+
+
+    // ── Shared catalogue on each saved line (ReceiptCatalogService, 2026-10-19) ─────
+    // Penny links lines by herself (a learned SKU / wording, an exact name); a likely product is asked
+    // as "Is this …?"; nothing alike → "Add to catalogue". Each answer teaches her the vendor's wording.
+    var mwCatFamilies = [], mwCatCanDecide = false, mwCatSeq = 0;
+    function mwCatHow(m) { return m === 'alias' ? 'Penny knew it' : (m === 'exact' ? 'matched by name' : (m === 'added' ? 'added by you' : 'confirmed')); }
+    function mwCatCell(id, c) {
+        if (!c || !c.eligible) return '';
+        var h = '<div class="mw-li-cat small mt-1" data-cat-line="' + id + '">';
+        if (!mwCatCanDecide) return c.product ? h + 'Catalogue: <strong>' + esc(c.product.name) + '</strong></div>' : '';
+        if (c.product) {
+            h += 'Catalogue: <strong>' + esc(c.product.name) + '</strong> <span class="text-muted">(' + esc(mwCatHow(c.match)) + ')</span>'
+               + ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">change</button>';
+        } else if (c.suggested) {
+            h += 'Is this <strong>' + esc(c.suggested.name) + '</strong>? '
+               + '<button type="button" class="btn btn-outline-success btn-sm py-0 px-2" data-cat-act="yes" data-cat-product="' + c.suggested.id + '">Yes</button> '
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="no">No</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">another one</button>';
+        } else {
+            h += (c.match === 'none' ? '<span class="text-muted">Not in the catalogue.</span> ' : '')
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="add">Add to catalogue</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">find it</button>';
+        }
+        return h + '<div data-cat-panel></div></div>';
+    }
+    function mwCatPaint(lines) {
+        var table = document.getElementById('expLineItemsTable');
+        if (!table || !lines) return;
+        Object.keys(lines).forEach(function (id) {
+            var row = table.querySelector('tr[data-li-id="' + id + '"]');
+            if (!row || !row.cells[0]) return;
+            var old = row.cells[0].querySelector('.mw-li-cat');
+            if (old) old.remove();
+            row.cells[0].insertAdjacentHTML('beforeend', mwCatCell(id, lines[id]));
+            var el = row.cells[0].querySelector('.mw-li-cat');
+            if (el) el._cat = lines[id];
+        });
+    }
+    window.mwCatalogFill = function () {
+        var id = parseInt((document.getElementById('expenseId') || {}).value || '0', 10);
+        if (!id) return;
+        fetch('/crm/api/expenses.php?action=catalog_lines&id=' + id, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.success && d.ready) { mwCatFamilies = d.families || []; mwCatCanDecide = !!d.can_decide; mwCatPaint(d.lines); } })
+            .catch(function () { /* the table stands without it */ });
+    };
+    async function mwCatPost(body) {
+        return withCSRFRetry(async function () {
+            var r = await fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify(Object.assign({ csrf_token: CSRF }, body)) });
+            var j = await r.json();
+            if (!j.success) throw new Error(j.error || j.message || 'Not saved');
+            return j;
+        });
+    }
+    document.addEventListener('click', async function (ev) {
+        var b = ev.target.closest('[data-cat-act]');
+        if (!b) return;
+        var box = b.closest('.mw-li-cat');
+        if (!box) return;
+        var line = parseInt(box.getAttribute('data-cat-line'), 10), act = b.getAttribute('data-cat-act');
+        var panel = box.querySelector('[data-cat-panel]'), c = box._cat || {};
+        if (act === 'find') {
+            panel.innerHTML = '<div class="d-flex mt-1" style="gap:6px"><input type="search" class="form-control form-control-sm" data-cat-q placeholder="Search the catalogue" aria-label="Search the catalogue"></div><div data-cat-results></div>';
+            var q = panel.querySelector('[data-cat-q]'), t = null;
+            q.value = (c.add && c.add.name) || '';
+            var run = function () {
+                var my = ++mwCatSeq, out = panel.querySelector('[data-cat-results]');
+                fetch('/crm/api/expenses.php?action=catalog_search&q=' + encodeURIComponent(q.value), { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () { return { results: [], failed: true }; })
+                    .then(function (d) {
+                        if (my !== mwCatSeq || !out.isConnected) return;               // an older search answering late
+                        if (d && d.failed) { out.innerHTML = '<div class="text-danger mt-1">The search failed — try again.</div>'; return; }
+                        var res = (d && d.results) || [];
+                        panel.querySelector('[data-cat-results]').innerHTML = res.length ? res.map(function (x) {
+                            return '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 mt-1 me-1" data-cat-act="pick" data-cat-product="' + x.id + '">' + esc(x.name) + '</button>';
+                        }).join('') : '<div class="text-muted mt-1">Nothing like that yet — use Add to catalogue.</div>';
+                    });
+            };
+            q.addEventListener('input', function () { clearTimeout(t); t = setTimeout(run, 300); });
+            q.focus(); if (q.value) run();
+            return;
+        }
+        if (act === 'add') {
+            var opts = mwCatFamilies.map(function (f) { return '<option value="' + esc(f.slug) + '"' + (c.add && c.add.family === f.slug ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
+            panel.innerHTML = '<div class="d-flex flex-wrap mt-1" style="gap:6px">'
+                + '<input type="text" class="form-control form-control-sm" style="max-width:260px" data-cat-name aria-label="Product name" value="' + esc((c.add && c.add.name) || '') + '">'
+                + '<input type="text" class="form-control form-control-sm" style="max-width:140px" data-cat-brand aria-label="Brand (optional)" placeholder="Brand (optional)">'
+                + '<select class="form-control form-control-sm" style="max-width:180px" data-cat-family aria-label="Kind of product">' + opts + '</select>'
+                + '<button type="button" class="btn btn-success btn-sm" data-cat-act="save">Add</button></div>';
+            var nm = panel.querySelector('[data-cat-name]');
+            if (nm) nm.focus();
+            return;
+        }
+        var body = { line_id: line };
+        if (act === 'yes' || act === 'pick') { body.action = 'catalog_confirm'; body.product_id = parseInt(b.getAttribute('data-cat-product'), 10); }
+        else if (act === 'no') body.action = 'catalog_dismiss';
+        else if (act === 'save') {
+            body.action = 'catalog_add';
+            body.name = (panel.querySelector('[data-cat-name]') || {}).value || '';
+            body.brand = (panel.querySelector('[data-cat-brand]') || {}).value || '';
+            body.family = (panel.querySelector('[data-cat-family]') || {}).value || '';
+        } else return;
+        if (box.getAttribute('data-busy') === '1') return;             // Yes and No can't both go
+        box.setAttribute('data-busy', '1');
+        var all = box.querySelectorAll('button');
+        Array.prototype.forEach.call(all, function (x) { x.disabled = true; });
+        try {
+            var d = await mwCatPost(body);
+            mwCatPaint(d.lines);
+            if (typeof mwToast === 'function' && d.product) mwToast('Catalogue: ' + d.product.name + ' — Penny will link it by herself next time');
+        } catch (e) {
+            box.removeAttribute('data-busy');
+            Array.prototype.forEach.call(all, function (x) { x.disabled = false; });
+            alert('Error: ' + e.message);
+        }
+    });
 
     // ── Product Linking ──────────────────────────────────────────
     var activePopover = null;
@@ -7310,7 +7431,8 @@ async function submitReceiptExport() {
         if (!s) return '';
         var div = document.createElement('div');
         div.textContent = s;
-        return div.innerHTML;
+        // Quotes too: esc() also fills attribute values (title="…", value="…") — review 2026-10-19.
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // ── Vendor Location Management ──────────────────────────────────────────

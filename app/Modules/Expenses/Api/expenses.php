@@ -124,6 +124,35 @@ try {
             echo json_encode(['success' => true] + (new BookkeeperDeskService($db))->approvalPreview((int)($_GET['id'] ?? 0)));
             break;
 
+        // ── Receipt lines ↔ the shared catalogue (ReceiptCatalogService, migration 1378) ──
+        case 'catalog_lines':     // GET id — each line's link / suggestion / "Add" draft, and the families
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $rc = new ReceiptCatalogService($db);
+            $fams = array_map(fn($f) => ['slug' => $f['slug'], 'name' => $f['name']], (new CatalogService($db))->families());
+            $eid = (int)($_GET['id'] ?? 0);
+            $own = $db->prepare("SELECT created_by FROM expenses WHERE id = ?");
+            $own->execute([$eid]);
+            $owner = $own->fetchColumn();
+            $who = expenseActor();
+            if ($owner === false || (empty($who['is_admin']) && (int)$owner !== (int)$who['id'])) throw new Exception('Expense not found');
+            $ready = $rc->ready();
+            echo json_encode(['success' => true, 'ready' => $ready, 'can_decide' => !empty($who['is_admin']),
+                              'lines' => $ready ? $rc->forExpense($eid) : (object)[], 'families' => $fams]);
+            break;
+
+        case 'catalog_search':    // GET q, family?
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $fam = trim((string)($_GET['family'] ?? ''));
+            echo json_encode(['success' => true, 'results' => (new ReceiptCatalogService($db))->search(mb_substr((string)($_GET['q'] ?? ''), 0, 80), $fam !== '' ? $fam : null)]);
+            break;
+
+        case 'catalog_confirm':   // POST line_id, product_id — "yes" / "it's this one"
+        case 'catalog_dismiss':   // POST line_id — "not this"
+        case 'catalog_add':       // POST line_id, family, name, brand? — "Add to catalogue"
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            echo json_encode(handleCatalogLine($db, $input, $action));
+            break;
+
         case 'personal_choices':  // GET — who a Personal receipt can be charged to (the Personal button, 2026-10-19)
             if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
             require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
@@ -836,6 +865,31 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
 
 
 /** The expense gate for this request — the one door for every expense change. */
+/** A person's catalogue decision on one receipt line: thin controller over ReceiptCatalogService. */
+function handleCatalogLine(PDO $db, ?array $input, string $action): array
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $lineId = (int)($input['line_id'] ?? 0);
+    $s = $db->prepare("SELECT e.id, e.created_by FROM expense_line_items l JOIN expenses e ON e.id = l.expense_id WHERE l.id = ?");
+    $s->execute([$lineId]);
+    $exp = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$exp) throw new Exception('Line not found');
+    // Not money: a receipt sent to accounting can still be linked. The office only: an answer teaches the
+    // SHARED catalogue (every company's next receipt), like approving teaches Penny.
+    $actor = expenseActor();
+    if (empty($actor['is_admin'])) throw new Exception('The office links receipt lines to the catalogue');
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+    $rc = new ReceiptCatalogService($db);
+    $by = (int)$actor['id'] ?: null;
+    if ($action === 'catalog_confirm') $r = $rc->confirm($lineId, (int)($input['product_id'] ?? 0), $by);
+    elseif ($action === 'catalog_dismiss') $r = $rc->dismiss($lineId, $by);
+    else $r = $rc->add($lineId, (string)($input['family'] ?? ''), mb_substr((string)($input['name'] ?? ''), 0, 255),
+                       ($b = trim((string)($input['brand'] ?? ''))) !== '' ? mb_substr($b, 0, 120) : null, $by);
+    return ['success' => !empty($r['ok'])] + $r + (empty($r['ok']) ? ['error' => $r['message'] ?? 'Not saved'] : [])
+           + ['lines' => $rc->forExpense((int)$exp['id'])];
+}
+
 /** The Personal button: thin controller over ExpensePersonalService (the gate does the rest). */
 function handleMarkPersonal(PDO $db, ?array $input): void
 {

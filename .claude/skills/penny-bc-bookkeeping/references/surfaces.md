@@ -34,3 +34,10 @@
 | Supplier stop + Otto's job pick on a receipt (office only) | not built | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService` via `supplier-stops.php` | iPhone |
 
 When you change a row, change the date in this file's heading.
+
+## Receipt lines ↔ shared catalogue (2026-10-19)
+Receipt window, under each saved line: "Catalogue: X (Penny knew it / matched by name / confirmed / added by you)",
+"Is this X? Yes / No / another one", or "Add to catalogue". `ReceiptCatalogService` (migration 1378); actions
+`catalog_lines|search|confirm|dismiss|add` on `/crm/api/expenses.php`. Matching is automatic; a person's answer
+teaches the shared aliases and a Penny lesson. Never creates a catalogue product without the office's tap.
+
