@@ -112,7 +112,7 @@ class PlantIdService
         }
         if (!$images) return ['ok' => false, 'message' => "I couldn't read those photos (JPEG or PNG only)."];
 
-        $res = $this->send(self::API . '?nb-results=3&lang=en&include-related-images=false&api-key=' . rawurlencode($this->transport ? 'test' : (string)PLANTNET_API_KEY), $images);
+        $res = $this->send(self::API . '?nb-results=3&lang=en&include-related-images=true&api-key=' . rawurlencode($this->transport ? 'test' : (string)PLANTNET_API_KEY), $images);
         if ($res['code'] === 404) {
             $matches = [];   // Pl@ntNet: "Species not found" — nothing it recognises
         } elseif ($res['code'] !== 200) {
@@ -143,7 +143,37 @@ class PlantIdService
                 'message' => $sure ? 'Looks like ' . self::label($best) . '.' : "Not sure — take a closer photo of a leaf or flower and try again."];
     }
 
-    /** Pl@ntNet's answer → [{scientific, common, family, score}] best first. */
+    /** Below this best score, or with the top two this close, the person is offered a choice (2026-10-20: 41% vs 29%). */
+    public const CHOOSE_BELOW = 0.50;
+    public const CHOOSE_GAP = 0.15;
+
+    /** Should the result offer the top matches as a choice instead of one "Confirm"? PURE. */
+    public static function shouldChoose(array $matches): bool
+    {
+        if (count($matches) < 2) return false;
+        $a = (float)$matches[0]['score'];
+        $b = (float)$matches[1]['score'];
+        return $a < self::CHOOSE_BELOW || ($a - $b) < self::CHOOSE_GAP;
+    }
+
+    /**
+     * A match's reference photo from Pl@ntNet (include-related-images): the first image, medium size, with its
+     * credit — CC BY-SA, cited "Photo(s): <author> / Pl@ntNet, CC BY-SA" (my.plantnet.org/doc/references/using-images). PURE.
+     * @return array{photo: ?string, photo_credit: ?string}
+     */
+    public static function photoOf(array $result): array
+    {
+        foreach ((array)($result['images'] ?? []) as $img) {
+            $url = $img['url']['m'] ?? $img['url']['s'] ?? $img['url']['o'] ?? null;
+            if (!is_string($url) || !preg_match('#^https://#', $url)) continue;
+            $credit = trim((string)($img['citation'] ?? ''));
+            if ($credit === '') $credit = 'Photo: ' . (trim((string)($img['author'] ?? '')) ?: 'unknown') . ' / Pl@ntNet, ' . (trim((string)($img['license'] ?? '')) ?: 'CC BY-SA');
+            return ['photo' => mb_substr($url, 0, 500), 'photo_credit' => mb_substr($credit, 0, 200)];
+        }
+        return ['photo' => null, 'photo_credit' => null];
+    }
+
+    /** Pl@ntNet's answer → [{scientific, common, family, score, photo, photo_credit}] best first. */
     public static function parse(array $j): array
     {
         $out = [];
@@ -152,7 +182,8 @@ class PlantIdService
             $name = trim((string)($sp['scientificNameWithoutAuthor'] ?? $sp['scientificName'] ?? ''));
             if ($name === '') continue;
             $out[] = ['scientific' => $name, 'common' => trim((string)($sp['commonNames'][0] ?? '')),
-                      'family' => trim((string)($sp['family']['scientificNameWithoutAuthor'] ?? '')), 'score' => round((float)($r['score'] ?? 0), 3)];
+                      'family' => trim((string)($sp['family']['scientificNameWithoutAuthor'] ?? '')), 'score' => round((float)($r['score'] ?? 0), 3)]
+                     + self::photoOf($r);
         }
         usort($out, fn($a, $b) => $b['score'] <=> $a['score']);
         return array_slice($out, 0, 3);
@@ -267,6 +298,7 @@ class PlantIdService
     private function shape(array $r, array $beds): array
     {
         $r['matches'] = json_decode((string)$r['matches'], true) ?: [];
+        $r['choose'] = self::shouldChoose($r['matches']);   // offer the top matches (with photos) instead of one Confirm
         $r['bed'] = self::resolveBed($r, $beds);
         $r['thumbs'] = $this->thumbs(array_map('intval', array_filter(explode(',', (string)$r['media_ids']))));
         return $r;

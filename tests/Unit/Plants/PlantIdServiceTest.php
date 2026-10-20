@@ -156,4 +156,27 @@ class PlantIdServiceTest extends TestCase
         $this->assertSame(55, $svc->forProperty(76)[0]['bed']['id']);
         $this->assertTrue($svc->forProperty(76)[0]['bed']['sure']);
     }
+
+    public function testUnsureResultsOfferTheTopMatchesWithPhotos(): void
+    {
+        // 2464 Point Grey Rd, 2026-10-20: Japanese enkianthus 41%, Japanese pieris 29% — it was pieris.
+        $j = ['results' => [
+            ['score' => 0.408, 'species' => ['scientificNameWithoutAuthor' => 'Enkianthus perulatus', 'commonNames' => ['Japanese enkianthus'], 'family' => ['scientificNameWithoutAuthor' => 'Ericaceae']],
+             'images' => [['organ' => 'leaf', 'author' => 'A B', 'license' => 'cc-by-sa', 'citation' => 'A B / Pl@ntNet, cc-by-sa', 'url' => ['o' => 'https://bs.plantnet.org/o/1', 'm' => 'https://bs.plantnet.org/m/1', 's' => 'https://bs.plantnet.org/s/1']]]],
+            ['score' => 0.29, 'species' => ['scientificNameWithoutAuthor' => 'Pieris japonica', 'commonNames' => ['Japanese Pieris'], 'family' => ['scientificNameWithoutAuthor' => 'Ericaceae']],
+             'images' => [['author' => 'C D', 'license' => 'cc-by-sa', 'url' => ['s' => 'https://bs.plantnet.org/s/2']]]],
+            ['score' => 0.096, 'species' => ['scientificNameWithoutAuthor' => 'Osmanthus fragrans', 'commonNames' => ['Sweet osmanthus']], 'images' => [['url' => ['m' => 'http://insecure/x']]]],
+        ]];
+        $m = PlantIdService::parse($j);
+        $this->assertSame('https://bs.plantnet.org/m/1', $m[0]['photo'], 'medium size');
+        $this->assertSame('A B / Pl@ntNet, cc-by-sa', $m[0]['photo_credit']);
+        $this->assertSame('https://bs.plantnet.org/s/2', $m[1]['photo']);
+        $this->assertSame('Photo: C D / Pl@ntNet, cc-by-sa', $m[1]['photo_credit'], 'credit built when no citation');
+        $this->assertNull($m[2]['photo'], 'never a non-https image');
+        $this->assertTrue(PlantIdService::shouldChoose($m), '41% is not sure');
+        $this->assertFalse(PlantIdService::shouldChoose([['score' => 0.86], ['score' => 0.05]]), 'clearly sure: one Confirm');
+        $this->assertTrue(PlantIdService::shouldChoose([['score' => 0.62], ['score' => 0.55]]), 'two close');
+        $this->assertFalse(PlantIdService::shouldChoose([['score' => 0.3]]), 'nothing to choose between');
+    }
 }
+
