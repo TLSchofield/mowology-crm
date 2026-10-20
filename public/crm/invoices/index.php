@@ -299,7 +299,7 @@ $activePage = 'invoices';
                         if (!$likelyDuplicate) {
                             $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $activeAmount);
                             if (empty($fifoSpread)) {
-                                $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount);
+                                $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount, $et['sender_name'] ?? null, $et['memo'] ?? null);
                             }
                         }
                     }

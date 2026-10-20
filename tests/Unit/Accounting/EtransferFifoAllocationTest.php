@@ -228,4 +228,47 @@ class EtransferFifoAllocationTest extends TestCase
         $this->assertNotNull($dup);
         $this->assertSame('2026-07-25', $dup['pay_date']);
     }
+
+    // ── Clues (2026-10-20: DARREN CANNON, memo "Canon", $409.50 = Kelly Canon's six oldest $68.25 invoices) ──
+
+    private function canonInvoices(): array
+    {
+        $rows = [];
+        foreach ([240, 282, 333, 348, 390, 404, 459] as $i => $n) {
+            $rows[] = ['id' => 900 + $i, 'invoice_number' => 'INV-2026-0' . $n, 'balance_due' => 68.25, 'payer_name' => 'Kelly Canon', 'order_date' => '2026-0' . (3 + intdiv($i, 2)) . '-01'];
+        }
+        $rows[] = ['id' => 990, 'invoice_number' => 'INV-2026-0999', 'balance_due' => 409.50, 'payer_name' => 'Somebody Else', 'order_date' => '2026-05-01'];
+        return $rows;
+    }
+
+    public function test_the_memo_and_the_oldest_invoices_identify_the_payer(): void
+    {
+        $r = $this->serviceWithInvoices($this->canonInvoices())->suggestFifoAllocationByValue(409.50, 'DARREN CANNON', 'Canon');
+        $this->assertNotNull($r, 'the clues are enough, though the amount alone is ambiguous');
+        $this->assertSame('Kelly Canon', $r['payer_name']);
+        $this->assertCount(6, $r['lines']);
+        $this->assertSame('INV-2026-0240', $r['lines'][0]['invoice_number']);
+        $this->assertSame('INV-2026-0404', $r['lines'][5]['invoice_number'], 'the newest one stays open');
+        $this->assertStringContainsString('6 oldest', $r['clue']);
+    }
+
+    public function test_no_clue_no_guess(): void
+    {
+        $svc = $this->serviceWithInvoices($this->canonInvoices());
+        $this->assertSame('Somebody Else', $svc->suggestFifoAllocationByValue(409.50, 'DARREN SMITH', 'lawn care')['payer_name'] ?? null,
+                          'no name clue: the old rule (one payer\'s WHOLE balance) still answers');
+        $this->assertNull($svc->suggestFifoAllocationByValue(400.00, 'DARREN CANNON', 'Canon'), 'the name fits but no oldest invoices add up to it');
+        $this->assertNull($svc->suggestByClues(409.50, 'DARREN SMITH', 'lawn care'), 'the clue rule alone: no name, no guess');
+    }
+
+    public function test_clue_helpers(): void
+    {
+        $this->assertSame(['CANON', 'DARREN', 'CANNON'], EtransferInboxService::clueWords('Canon  e-Transfer DARREN CANNON'));
+        $this->assertSame('Cannon', EtransferInboxService::nameClue(['CANNON'], 'Kelly Canon'), 'one letter different');
+        $this->assertNull(EtransferInboxService::nameClue(['CANDLE'], 'Kelly Canon'));
+        $this->assertNull(EtransferInboxService::nameClue(['KANON'], 'Kelly Canon'), 'same first letter required');
+        $this->assertSame(2, EtransferInboxService::oldestSumming([['balance_due' => 68.25], ['balance_due' => 68.25], ['balance_due' => 68.25]], 136.50));
+        $this->assertSame(0, EtransferInboxService::oldestSumming([['balance_due' => 68.25], ['balance_due' => 68.25]], 100.00));
+    }
 }
+
