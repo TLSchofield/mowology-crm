@@ -593,3 +593,13 @@ the nightly posting books the receipt and retires the line's own entry, so the p
 expect no line. Anything less certain stays a suggestion in the receipt window. Without this, approved receipts and their
 unlinked lines were both booked: chequing was $973 under the bank at Sept month-end; linked, $10.
 
+## Review receipts — the review layer (2026-10-20)
+`/crm/receipts-review_appstack.php` (button "Review receipts" on Expenses; expenses.approve). Every waiting receipt with
+its evidence — Penny's read of the PRINTED total vs the saved total, the bank line (linked / one exact match / none),
+Penny's category, GST (taxCheck), photo — grouped by vendor, biggest first; only flags that need a look. The person ticks
+each receipt they checked; **Approve checked** approves only those (ExpenseApprovalService + Penny's decision, as on
+her card), never a receipt no longer waiting and never a suspected copy. Suspected duplicates: the keeper — approved and
+bank-linked > approved > linked > has a photo > oldest (ReceiptReviewService::keeperOf) — on a green background above its
+copies; **Merge into #keeper** = DuplicateReceiptService::removeCopies (refused unless one duplicate group now); **Not a
+duplicate** dismisses every pair the copy is in. Ittai v1.2: ittai-review.css (tokens only) via $extraHead, receipt-review.js.
+

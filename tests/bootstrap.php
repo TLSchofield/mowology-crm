@@ -285,6 +285,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGateHooks.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseGate.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpensePersonalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCatalogService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptReviewService.php';
 require_once __DIR__ . '/Unit/Expenses/ExpenseGateTestKit.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCaptureService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';

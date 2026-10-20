@@ -60,6 +60,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h1 class="mw-page-title">Expenses</h1>
+    <?php if ($canApprove): ?>
+    <a class="btn btn-sm btn-success" href="/crm/receipts-review_appstack.php" title="Check waiting receipts against the paper, the bank line and Penny's read">Review receipts</a>
+    <?php endif; ?>
     <?php if ($canSend): ?>
     <button type="button" class="btn btn-sm btn-outline-primary" onclick="showReceiptExportModal()" title="Bundle confirmed receipts into a ZIP, email it, and free up disk space">
         <i data-feather="archive" style="width:15px;height:15px;"></i> Export / Archive receipts

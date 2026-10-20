@@ -41,3 +41,8 @@ Receipt window, under each saved line: "Catalogue: X (Penny knew it / matched by
 `catalog_lines|search|confirm|dismiss|add` on `/crm/api/expenses.php`. Matching is automatic; a person's answer
 teaches the shared aliases and a Penny lesson. Never creates a catalogue product without the office's tap.
 
+## Review receipts (2026-10-20)
+`/crm/receipts-review_appstack.php` — the review layer: evidence per waiting receipt (paper vs saved vs bank, Penny's
+category + doubts, GST, photo), vendor-grouped; tick what you checked → Approve checked. Duplicates keeper-first (green =
+in the books); merge copies into it. API `/crm/api/receipt-review.php` (`mode` approve | merge | not_dupe).
+
