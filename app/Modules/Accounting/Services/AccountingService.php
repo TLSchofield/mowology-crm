@@ -143,7 +143,8 @@ class AccountingService
         ");
         $removed += $stmt->rowCount();
 
-        // Invoices that are no longer paid/partial
+        // Invoices that are no longer paid/partial (or were refunded in full)
+        $refunded = $this->invoiceRefundedSql('');
         $stmt = $this->db->query("
             DELETE FROM accounting_transactions
             WHERE reference_type = 'invoice'
@@ -152,12 +153,27 @@ class AccountingService
               AND reference_id NOT IN (
                   SELECT id FROM invoices
                   WHERE status IN ('paid', 'partial')
-                    AND COALESCE(amount_paid, 0) > 0
+                    AND COALESCE(amount_paid, 0) - {$refunded} > 0
               )
         ");
         $removed += $stmt->rowCount();
 
         return $removed;
+    }
+
+    /** @var bool|null cached: does invoices.amount_refunded exist yet (migration 1380)? */
+    private ?bool $hasRefundColumn = null;
+
+    /**
+     * SQL fragment for an invoice's refunded total. "0" until migration 1380 has
+     * run, so deploying this code before the migration cannot break the ledger sync.
+     */
+    private function invoiceRefundedSql(string $alias): string
+    {
+        if ($this->hasRefundColumn === null) {
+            $this->hasRefundColumn = $this->db->query("SHOW COLUMNS FROM invoices LIKE 'amount_refunded'")->rowCount() > 0;
+        }
+        return $this->hasRefundColumn ? "COALESCE({$alias}amount_refunded, 0)" : '0';
     }
 
     /**
@@ -176,20 +192,24 @@ class AccountingService
         // since this codebase uses job_plans — there is no separate `jobs` table.
         // NOTE: invoices table has no assigned_user_id column — attribution is
         // implicit via the related job_plan / contact.
+        // Net of refunds (invoices.amount_refunded, migration 1380): income is what we
+        // kept, and GST scales with it. With nothing refunded this is exactly the old
+        // amount_paid / tax_amount.
+        $refunded = $this->invoiceRefundedSql('i.');
         $stmt = $this->db->query("
             SELECT
                 i.id,
                 COALESCE(i.paid_at, i.updated_at)   AS transaction_date,
-                COALESCE(i.amount_paid, i.total, 0) AS amount,
-                -- GST in proportion to what was paid: a half-paid invoice carried its whole GST
-                -- on half the income (review 2026-10-12).
-                ROUND(COALESCE(i.tax_amount, 0) * LEAST(1, COALESCE(i.amount_paid, i.total, 0) / NULLIF(i.total, 0)), 2) AS gst_amount,
+                COALESCE(i.amount_paid, i.total, 0) - {$refunded} AS amount,
+                -- GST in proportion to what was kept: paid minus refunded, over the invoice total
+                -- (a half-paid invoice carried its whole GST on half the income — review 2026-10-12).
+                ROUND(COALESCE(i.tax_amount, 0) * LEAST(1, (COALESCE(i.amount_paid, i.total, 0) - {$refunded}) / NULLIF(i.total, 0)), 2) AS gst_amount,
                 i.contact_id,
                 i.notes,
                 i.plan_id                           AS job_id
             FROM invoices i
             WHERE i.status IN ('paid', 'partial')
-              AND COALESCE(i.amount_paid, 0) > 0
+              AND COALESCE(i.amount_paid, 0) - {$refunded} > 0
         ");
 
         // A CRM invoice recreated from a 2025 Jobber invoice (JobberLedgerService::linkCrmInvoice) only

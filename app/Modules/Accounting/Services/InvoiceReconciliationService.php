@@ -1255,16 +1255,28 @@ class InvoiceReconciliationService
     /** Upsert the invoice's income ledger row (mirrors AccountingService::syncFromInvoices). */
     private function upsertInvoiceIncomeRow(int $invoiceId): void
     {
+        // SELECT * so this still works before migration 1380 adds amount_refunded.
         $stmt = $this->db->prepare("
-            SELECT id, COALESCE(paid_at, updated_at) AS td,
+            SELECT *, COALESCE(paid_at, updated_at) AS td,
                    COALESCE(amount_paid, total, 0)   AS amt,
-                   COALESCE(tax_amount, 0)           AS gst,
-                   contact_id, plan_id, notes
+                   COALESCE(tax_amount, 0)           AS gst
             FROM invoices WHERE id = ?
         ");
         $stmt->execute([$invoiceId]);
         $inv = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$inv || (float)$inv['amt'] <= 0) return;
+        if (!$inv) return;
+
+        // Net of refunds: income is what we kept, GST scaled to match (unchanged when nothing refunded).
+        $refunded = (float)($inv['amount_refunded'] ?? 0);
+        if ($refunded > 0) {
+            $paid  = (float)($inv['amount_paid'] ?? 0);
+            $net   = max(0.0, $paid - $refunded);
+            $total = (float)($inv['total'] ?? 0);
+            // Same rule as AccountingService::syncFromInvoices: tax in proportion to what was kept.
+            $inv['gst'] = $total > 0 ? round((float)$inv['gst'] * min(1.0, $net / $total), 2) : 0.0;
+            $inv['amt'] = $net;
+        }
+        if ((float)$inv['amt'] <= 0) return;
 
         $accountId = $this->getDefaultIncomeAccountId();
         $desc = 'Invoice payment';

@@ -297,6 +297,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    if ($action === 'refund_payment') {
+        if (!isAdmin()) {
+            $message     = 'Only admins can refund a payment.';
+            $messageType = 'danger';
+        } else {
+            $refundAmount = isset($_POST['refund_amount']) ? (float) $_POST['refund_amount'] : 0.0;
+            $refundReason = trim($_POST['refund_reason'] ?? '');
+
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRefundService.php';
+            try {
+                $refundSvc = new InvoiceRefundService($db);
+                $result    = $refundSvc->refund($invoiceId, $refundAmount, $refundReason, (int) $user['id']);
+
+                logActivityExtended($user['id'], 'Payment refunded',
+                    'Refunded ' . formatCurrency($result['amount']) . ' to the customer via Stripe ('
+                    . $result['stripe_refund_id'] . '). Reason: ' . $refundReason,
+                    null, null, null, $invoiceId);
+
+                $invoice['amount_refunded'] = $result['total_refunded'];
+
+                $message     = 'Refunded ' . formatCurrency($result['amount']) . ' to the customer through Stripe.';
+                $messageType = 'success';
+            } catch (InvalidArgumentException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (RuntimeException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (Throwable $e) {
+                error_log('refund_payment error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                $message     = 'Could not refund the payment. Please check Stripe before trying again.';
+                $messageType = 'danger';
+            }
+        }
+    }
+
     if ($action === 'send') {
         // Load recipients FIRST — status only updates if emails actually go out.
         // Fall back to the contact's live email when the invoice_contacts snapshot
@@ -712,6 +748,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 }
 
 $csrfToken = generateCSRFToken();
+
+// Refund button: admin, paid through Stripe, and migration 1380 has run (amount_refunded exists).
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRefundService.php';
+$refundableAmount = 0.0;
+if (isAdmin()
+    && ($invoice['payment_method'] ?? '') === 'stripe'
+    && !empty($invoice['stripe_payment_intent_id'])
+    && array_key_exists('amount_refunded', $invoice)) {
+    $refundableAmount = InvoiceRefundService::refundable((float) $invoice['amount_paid'], (float) $invoice['amount_refunded']);
+}
 
 // Likely bank-deposit matches for this invoice (same inline reconciliation as the
 // Invoices list and contact view). Only for payable invoices with a balance.
@@ -1149,10 +1195,19 @@ $extraHead = $isPayable
                                           Paid
                                           <?php if (isAdmin()): ?>
                                               <button type="button" class="mw-correct-payment-btn" onclick="openCorrectPaymentModal()" title="Correct this payment amount">Correct</button>
+                                              <?php if ($refundableAmount > 0): ?>
+                                                  <button type="button" class="mw-correct-payment-btn" onclick="openRefundModal()" title="Refund this payment to the customer's card">Refund</button>
+                                              <?php endif; ?>
                                           <?php endif; ?>
                                       </span>
                                       <span class="mw-totals-value" style="color: var(--mw-green);">-<?php echo formatCurrency($invoice['amount_paid']); ?></span>
                                   </div>
+                                  <?php if (floatval($invoice['amount_refunded'] ?? 0) > 0): ?>
+                                  <div class="mw-total-row">
+                                      <span>Refunded to customer</span>
+                                      <span class="mw-totals-value" style="color: #dc2626;"><?php echo formatCurrency($invoice['amount_refunded']); ?></span>
+                                  </div>
+                                  <?php endif; ?>
                                   <div class="mw-total-row mw-grand">
                                       <span>Balance Due</span>
                                       <span class="mw-totals-value" style="color: <?php echo floatval($invoice['balance_due']) > 0 ? '#dc2626' : 'var(--mw-green)'; ?>;">
@@ -2004,6 +2059,60 @@ document.getElementById('cancelModal').addEventListener('click', function(e) { i
 function openCorrectPaymentModal()  { document.getElementById('correctPaymentModal').style.display = 'flex'; document.getElementById('corrected_amount').focus(); }
 function closeCorrectPaymentModal() { document.getElementById('correctPaymentModal').style.display = 'none'; }
 document.getElementById('correctPaymentModal').addEventListener('click', function(e) { if (e.target === this) closeCorrectPaymentModal(); });
+</script>
+<?php endif; ?>
+
+<!-- Refund Modal -->
+<?php if ($refundableAmount > 0): ?>
+<div id="refundModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="refundModalTitle">
+    <div class="mw-modal" style="max-width:480px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="refundModalTitle">Refund — <?php echo htmlspecialchars($invoice['invoice_number']); ?></h5>
+            <button type="button" class="mw-modal-close" onclick="closeRefundModal()" aria-label="Close">&times;</button>
+        </div>
+        <form method="POST" id="refundForm" onsubmit="return confirmRefund(this);">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+            <input type="hidden" name="action" value="refund_payment">
+            <div class="mw-modal-body">
+                <div class="alert alert-warning" style="font-size:13px;margin-bottom:16px;">
+                    Returns money to the customer's card through Stripe. This cannot be undone here.
+                    Stripe does not give back its processing fee. The invoice stays Paid.
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label">Available to refund</label>
+                    <div class="mw-totals-value" style="font-size:18px;"><?php echo formatCurrency($refundableAmount); ?></div>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="refund_amount">Refund amount <span style="color:#dc2626;">*</span></label>
+                    <input type="number" step="0.01" min="0.01" max="<?php echo number_format($refundableAmount, 2, '.', ''); ?>"
+                           id="refund_amount" name="refund_amount" class="form-control"
+                           value="<?php echo number_format($refundableAmount, 2, '.', ''); ?>" required>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="refund_reason">Reason <span style="color:#dc2626;">*</span></label>
+                    <textarea id="refund_reason" name="refund_reason" class="form-control" rows="3" maxlength="500"
+                              placeholder="e.g. Billed twice for the Sep 22 cut" required></textarea>
+                </div>
+            </div>
+            <div class="mw-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeRefundModal()">Cancel</button>
+                <button type="submit" class="btn btn-danger" id="refundSubmitBtn">Refund via Stripe</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openRefundModal()  { document.getElementById('refundModal').style.display = 'flex'; document.getElementById('refund_amount').focus(); }
+function closeRefundModal() { document.getElementById('refundModal').style.display = 'none'; }
+function confirmRefund(form) {
+    var amt = parseFloat(form.refund_amount.value || '0');
+    if (!(amt > 0)) return false;
+    if (!window.confirm('Refund $' + amt.toFixed(2) + ' to the customer\'s card through Stripe now?')) return false;
+    var btn = document.getElementById('refundSubmitBtn');
+    btn.disabled = true; btn.textContent = 'Refunding…';
+    return true;
+}
+document.getElementById('refundModal').addEventListener('click', function(e) { if (e.target === this) closeRefundModal(); });
 </script>
 <?php endif; ?>
 

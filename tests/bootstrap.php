@@ -308,6 +308,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitServic
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledWorkFinder.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRefundService.php';
 
 // CMS
 require_once __DIR__ . '/../app/Modules/CMS/Services/ArticleService.php';
