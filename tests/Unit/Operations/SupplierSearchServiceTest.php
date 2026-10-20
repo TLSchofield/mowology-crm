@@ -32,6 +32,7 @@ class SupplierSearchServiceTest extends TestCase
     public function testMarkupAndDistance(): void
     {
         $this->assertSame(58.05, SupplierSearchService::sell(43.0, 35.0));
+        $this->assertSame(62.11, SupplierSearchService::sell(43.0, 35.0, 7.0), 'cost + 7% PST we paid, then 35%');
         $this->assertNull(SupplierSearchService::sell(null, 35.0));
         $this->assertSame(['km' => 14.0, 'minutes' => 21], SupplierSearchService::roadEstimate(10.0));
         $this->assertSame(['Order Minimum $750.00'], SupplierSearchService::orderRules('["Order Minimum $750.00","11cm Round - 10/tray"]'));
@@ -56,12 +57,12 @@ class SupplierSearchServiceTest extends TestCase
             self::row(['id' => 4, 'supplier_account_id' => 4, 'supplier_name' => 'Fresh In Stock', 'price' => '41.00', 'available' => 0]),
         ];
         $job = ['lat' => 49.2573, 'lng' => -123.1398, 'label' => '1 Test St'];
-        $g = SupplierSearchService::group($rows, ['japanese', 'maple'], $job, 35.0, '2026-10-19', 10);
+        $g = SupplierSearchService::group($rows, ['japanese', 'maple'], $job, 35.0, '2026-10-19', 10, [], 7.0);
         $this->assertCount(1, $g, 'one product, one size');
         $names = array_column($g[0]['offers'], 'supplier');
         $this->assertSame(['Fresh In Stock', 'Old List', 'Cheap But Sold Out'], $names);
         $this->assertSame(43.0, $g[0]['best']['price'], 'a supplier\'s in-stock line beats its own sold-out cheaper one');
-        $this->assertSame(58.05, $g[0]['sell']);
+        $this->assertSame(62.11, $g[0]['sell']);
         $this->assertTrue($g[0]['offers'][1]['stale']);
         $this->assertTrue($g[0]['best']['distance']['estimate']);
         $this->assertGreaterThan(30, $g[0]['best']['distance']['km']);

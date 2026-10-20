@@ -12,7 +12,9 @@
  * the list's date and age, the order rules (minimums), and — when a job is given — about how far that
  * supplier's yard is (straight line × the Closer's detour at its speed: an ESTIMATE, labelled so).
  *
- * Selling price: plants at the plant markup (35%, Tim 2026-10-19 — ops_settings supplier_plant_markup_pct).
+ * Selling price: plants = list cost + BC PST (7%, paid on purchase — installed plants are a contractor's own
+ * cost, so no PST is charged to the client; Tim 2026-10-19, ops_settings supplier_plant_pst_pct) and then the
+ * plant markup (35%, ops_settings supplier_plant_markup_pct).
  * Bulk materials (family hardscape: soil, mulch, gravel…) are NOT marked up here: Otto and Sam price them
  * installed (MulchPricingService) — the search says so and hands the cost on.
  * Read-only. Global-namespace service: require_once the file.
@@ -23,6 +25,7 @@ require_once dirname(__DIR__, 2) . '/Sales/Services/DriveMinutesAdded.php';
 class SupplierSearchService
 {
     public const PLANT_MARKUP_PCT = 35.0;
+    public const PLANT_PST_PCT = 7.0;
     public const STALE_DAYS = 30;
     public const MAX_ROWS = 600;
     private const STOP = ['a', 'an', 'the', 'pot', 'pots', 'plant', 'plants', 'size', 'of', 'in'];
@@ -64,10 +67,10 @@ class SupplierSearchService
         return ['words' => array_values(array_unique($words)), 'size' => $size];
     }
 
-    /** Selling price at a markup on cost, to the cent. PURE. */
-    public static function sell(?float $cost, float $markupPct): ?float
+    /** Selling price: cost + the PST paid on it, then the markup, to the cent. PURE. */
+    public static function sell(?float $cost, float $markupPct, float $pstPct = 0.0): ?float
     {
-        return $cost === null ? null : round($cost * (1 + $markupPct / 100), 2);
+        return $cost === null ? null : round($cost * (1 + $pstPct / 100) * (1 + $markupPct / 100), 2);
     }
 
     /**
@@ -99,13 +102,24 @@ class SupplierSearchService
 
     public function plantMarkupPct(): float
     {
+        return $this->setting('supplier_plant_markup_pct', self::PLANT_MARKUP_PCT);
+    }
+
+    /** PST paid on plants bought to install (0 turns it off). */
+    public function plantPstPct(): float
+    {
+        return $this->setting('supplier_plant_pst_pct', self::PLANT_PST_PCT);
+    }
+
+    private function setting(string $key, float $default): float
+    {
         try {
-            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'supplier_plant_markup_pct'");
-            $s->execute();
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
             $v = $s->fetchColumn();
             if ($v !== false && is_numeric($v)) return (float)$v;
         } catch (Throwable $e) { /* default */ }
-        return self::PLANT_MARKUP_PCT;
+        return $default;
     }
 
     /** The job's pin, for distances. */
@@ -132,8 +146,9 @@ class SupplierSearchService
         $sizeCode = $pq['size'] !== null ? $this->catalog->size('plants', $pq['size'])['code'] : null;
         $job = $propertyId ? $this->propertyPin($propertyId) : null;
         $markup = $this->plantMarkupPct();
+        $pst = $this->plantPstPct();
         $base = ['query' => $q, 'words' => $pq['words'], 'size' => $pq['size'], 'size_code' => $sizeCode, 'job' => $job,
-                 'markup_pct' => $markup, 'results' => []];
+                 'markup_pct' => $markup, 'pst_pct' => $pst, 'results' => []];
         if (!$pq['words']) return $base;
 
         $latest = "JOIN supplier_price_lists l ON l.id = i.list_id
@@ -185,14 +200,14 @@ class SupplierSearchService
         $s = $this->db->prepare($sql);
         $s->execute($args);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
-        $base['results'] = self::group($rows, $pq['words'], $job, $markup, $today, $limit, $stems);
+        $base['results'] = self::group($rows, $pq['words'], $job, $markup, $today, $limit, $stems, $pst);
         return $base;
     }
 
     /**
      * Rows → products × size, each with every supplier's best offer, cheapest in stock first. PURE.
      */
-    public static function group(array $rows, array $words, ?array $job, float $markupPct, string $today, int $limit, array $stems = []): array
+    public static function group(array $rows, array $words, ?array $job, float $markupPct, string $today, int $limit, array $stems = [], float $pstPct = 0.0): array
     {
         $groups = [];
         foreach ($rows as $r) {
@@ -239,7 +254,7 @@ class SupplierSearchService
             $g['offers'] = $offers;
             $g['best'] = $offers[0];
             $g['bulk'] = $g['family'] === 'hardscape';
-            $g['sell'] = $g['bulk'] ? null : self::sell($offers[0]['price'], $markupPct);
+            $g['sell'] = $g['bulk'] ? null : self::sell($offers[0]['price'], $markupPct, $pstPct);
             $g['sell_note'] = $g['bulk'] ? 'Bulk material: Otto and Sam price it installed (haul + spreading), not a flat markup.' : null;
             $hay = strtolower($g['name'] . ' ' . $g['common']);
             $g['score'] = 0;

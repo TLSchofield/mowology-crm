@@ -4,7 +4,8 @@
  *
  * Mounted by quotes/create.php (#mwSupplierAdd). Searches /crm/api/supplier-search.php (every supplier's
  * latest list, cheapest in stock first) and adds a quote line with the page's own addLine():
- *   - a plant: unit price = best cost + the plant markup (35%);
+ *   - a plant: unit price = best cost + the PST we pay on it (7%) + the plant markup (35%) — no PST is
+ *     charged to the client on installed plants;
  *   - soil / mulch / compost: Sam's INSTALLED price per yard — /crm/api/mulch-pricing.php?mode=hint with
  *     supplier_item_id: that list price is the material, that supplier's yard the haul end, plus spreading
  *     at the target margin; the local market price is shown beside it;
@@ -65,6 +66,7 @@
         }).join('') + '</ul>';
         out._results = d.results;
         out._markup = d.markup_pct;
+        out._pst = d.pst_pct;
     }
 
     function search() {
@@ -94,7 +96,7 @@
         var snap = { source: 'supplier_list', supplier: b.supplier, supplier_id: b.supplier_id, item_id: b.item_id, list_id: b.list_id,
                      list_date: b.list_date, item: b.item, size: b.size, cost: b.price, priced_at: new Date().toISOString().slice(0, 10) };
         if (plant) {
-            snap.kind = 'plant'; snap.markup_pct = out._markup; snap.sell = g.sell;
+            snap.kind = 'plant'; snap.pst_pct = out._pst; snap.markup_pct = out._markup; snap.sell = g.sell;
             add(name, g.size, g.sell, 'each', snap);
             btn.textContent = 'Added'; btn.disabled = true;
             return;

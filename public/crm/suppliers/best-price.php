@@ -76,7 +76,7 @@ $money = static fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2
 <?php if ($res !== null): ?>
   <p class="mb-2">
     <strong><?= count($res['results']) ?></strong> result<?= count($res['results']) === 1 ? '' : 's' ?> for “<?= h($q) ?>”<?= $res['size'] ? ' in ' . h($res['size']) : '' ?><?= $res['job'] ? ' · distances from ' . h($res['job']['label']) . ' (about — straight line × detour)' : '' ?>.
-    Plants sell at cost + <?= h(rtrim(rtrim(number_format($res['markup_pct'], 1), '0'), '.')) ?>%.
+    Plants sell at cost<?= $res['pst_pct'] > 0 ? ' + ' . h(rtrim(rtrim(number_format($res['pst_pct'], 1), '0'), '.')) . '% PST we pay' : '' ?> + <?= h(rtrim(rtrim(number_format($res['markup_pct'], 1), '0'), '.')) ?>% (no PST charged on installed plants).
   </p>
   <?php if (!$res['results']): ?>
     <div class="alert alert-light border">No supplier lists it right now. Try fewer words, another size, or the botanical name.</div>
