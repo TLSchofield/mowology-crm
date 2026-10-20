@@ -11,6 +11,7 @@
  *        Otto's runs to them, properties with pins and postcodes, the settings in force.
  * GET ?mode=hint&property_id=N&text=Black mulch install [&product_id=N]   (billing.edit)
  * GET ?mode=hint&q=V6K | 2448 Larch                                         (billing.edit)
+ *   + &supplier_item_id=N: that supplier price-list line is the material, its supplier's yard the haul end.
  *        The compact line for the quote builder and Sam's card. `text` that names no mulch / soil /
  *        compost returns {ok: true, applies: false}.
  *
@@ -57,6 +58,7 @@ try {
     if (!empty($_GET['product_id'])) $opt['product_id'] = (int)$_GET['product_id'];
     if (!empty($_GET['text'])) $opt['text'] = substr((string)$_GET['text'], 0, 200);
     if (!empty($_GET['disposal'])) $opt['disposal'] = true;
+    if (!empty($_GET['supplier_item_id'])) $opt['supplier_item_id'] = (int)$_GET['supplier_item_id'];   // a supplier price-list line as the material (2026-10-19)
 
     switch ($mode) {
         case 'dryrun': {

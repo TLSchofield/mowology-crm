@@ -8,7 +8,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
 header('Content-Type: application/json');
-if (!userHasAnyPermission(['products.view', 'quotes.edit'])) {
+if (!userHasAnyPermission(['products.view', 'quotes.edit', 'billing.edit'])) {   // billing.edit: the quote editor's permission
     http_response_code(403);
     echo json_encode(['ok' => false, 'message' => 'Permission denied']);
     exit;
@@ -23,6 +23,19 @@ try {
     $pid = (int)($_GET['property_id'] ?? 0);
     $limit = max(1, min(30, (int)($_GET['limit'] ?? 12)));
     $r = (new SupplierSearchService(getDB()))->search(mb_substr($q, 0, 80), $pid > 0 ? $pid : null, $limit);
+    // Bulk results: which installed-pricing family Sam's engine prices them as (MulchPricingService: mulch,
+    // soil, compost — manure counts as compost), and what the local market charges (MarketPriceService).
+    require_once APP_ROOT . '/Modules/Sales/Services/MulchPricingService.php';
+    require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
+    $market = new MarketPriceService(getDB());
+    foreach ($r['results'] as &$g) {
+        if (empty($g['bulk'])) continue;
+        $mat = MarketPriceService::material($g['name']);
+        // Only what Sam's engine itself recognises (+ manure = compost): a gravel "…Blend" must never be priced as soil (review 2026-10-19).
+        $g['install_family'] = MulchPricingService::family($g['name']) ?? (preg_match('/\bmanure\b/i', $g['name']) ? 'compost' : null);
+        $g['market'] = $market->current($r['words'], $mat);
+    }
+    unset($g);
     echo json_encode(['ok' => true] + $r, JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('supplier-search: ' . $e->getMessage());

@@ -560,6 +560,13 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     <!-- Line items will be added here by JavaScript -->
                                 </div>
 
+                                <?php /* "Add from supplier lists" — best supplier price + markup, or Sam's installed price (quote-supplier-add.js, 2026-10-19) */ ?>
+                                <div class="mt-3" id="mwSupplierAdd" hidden>
+                                    <label class="form-label mb-1" for="mwSupplierAddQ"><strong>Add from supplier lists</strong> <span class="text-muted small">— plants at cost + markup; soil, mulch and compost priced installed</span></label>
+                                    <input type="search" class="form-control" id="mwSupplierAddQ" data-sa-q placeholder="japanese maple #5, boxwood #1, garden soil" autocomplete="off">
+                                    <div class="mt-2" data-sa-results aria-live="polite"></div>
+                                </div>
+
                                 <div class="d-flex mt-3" style="gap: 12px; flex-wrap: wrap;">
                                     <div class="mw-template-dropdown">
                                         <button type="button" class="btn btn-secondary" id="addFromTemplateBtn">
@@ -2384,5 +2391,6 @@ document.addEventListener('keydown', (e) => {
 
 <!-- Sam's mulch price per yard under mulch / soil / compost lines (read-only hint; "Use" sets the line price) -->
 <script src="<?php echo function_exists('_av') ? _av('/crm/js/sam-mulch-hint.js') : '/crm/js/sam-mulch-hint.js'; ?>" defer></script>
+<script src="<?php echo function_exists('_av') ? _av('/crm/js/quote-supplier-add.js') : '/crm/js/quote-supplier-add.js'; ?>" defer></script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

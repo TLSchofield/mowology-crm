@@ -598,6 +598,41 @@ class MulchPricingService
         return null;
     }
 
+    /**
+     * One supplier price-list line as the material (per yard, pre-tax — trade lists carry no GST) and its
+     * supplier's yard as the haul end (null when the supplier has no pin: then no haul is priced).
+     * Null when the line is missing, priceless, another site's, or not on a current (availability) list.
+     * @return array{material: array, supplier: array}|null
+     */
+    public function listMaterial(int $itemId): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT i.id, i.name, i.price, l.list_date, l.supplier_account_id, a.name AS supplier, a.lat, a.lng
+                                     FROM supplier_price_items i JOIN supplier_price_lists l ON l.id = i.list_id
+                                     LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
+                                     WHERE i.id = ? AND i.site_id = ? AND l.site_id = ? AND l.kind = 'availability'");
+            $site = defined('MW_SITE_ID') ? (int)MW_SITE_ID : 1;   // this tenant's own lists only (review 2026-10-19)
+            $s->execute([$itemId, $site, $site]);
+            $r = $s->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return null;
+        }
+        return $r ? self::listMaterialFrom($r) : null;
+    }
+
+    /** PURE: the row → material + supplier, in breakdown()'s shapes. */
+    public static function listMaterialFrom(array $r): ?array
+    {
+        if (!is_numeric($r['price'] ?? null) || (float)$r['price'] <= 0) return null;
+        $label = trim((string)$r['supplier']) . ' list (' . date('M j, Y', strtotime((string)$r['list_date'])) . ')';
+        $material = ['per_yard' => round((float)$r['price'], 2), 'real' => true, 'source' => $label, 'n' => 1, 'evidence' => [],
+                     'excluded' => [], 'gst_removed' => 0, 'usual_vendor' => null, 'list_item_id' => (int)$r['id']];
+        $supplier = is_numeric($r['lat'] ?? null) && is_numeric($r['lng'] ?? null)
+            ? ['id' => 0, 'name' => (string)$r['supplier'], 'lat' => (float)$r['lat'], 'lng' => (float)$r['lng'], 'basis' => 'the supplier list Sam picked']
+            : null;
+        return ['material' => $material, 'supplier' => $supplier];
+    }
+
     /** "LAWNBOY ENTERPRISES" → "Lawnboy" (as Penny's ProductProposalService::vendorLabel). */
     public static function vendorLabel(string $v): string
     {
@@ -648,15 +683,24 @@ class MulchPricingService
         if (!empty($loc['error'])) $flags[] = $loc['error'];
         $product = $this->product($family, isset($opt['product_id']) ? (int)$opt['product_id'] : null);
 
-        $material = self::material($this->receiptLines($family, $product['ids']), $product['base_cost'], (int)$sv('mulch_receipts_n'));
-        if ($material['source'] === 'product cost') $flags[] = 'No usable receipt lines for ' . strtolower($product['label']) . ' — using the product\'s cost';
-        if ($material['source'] === 'none') $flags[] = 'No receipts and no product cost for ' . strtolower($product['label']);
+        // A line Sam picked from a supplier's price list (quote editor "Add from supplier lists", 2026-10-19):
+        // that list's price is the material, and that supplier's yard is where the haul goes. Else receipts, as before.
+        $listed = !empty($opt['supplier_item_id']) ? $this->listMaterial((int)$opt['supplier_item_id']) : null;
+        if ($listed) {
+            $material = $listed['material'];
+        } else {
+            $material = self::material($this->receiptLines($family, $product['ids']), $product['base_cost'], (int)$sv('mulch_receipts_n'));
+            if ($material['source'] === 'product cost') $flags[] = 'No usable receipt lines for ' . strtolower($product['label']) . ' — using the product\'s cost';
+            if ($material['source'] === 'none') $flags[] = 'No receipts and no product cost for ' . strtolower($product['label']);
+        }
 
-        $supplier = $this->supplier($material['usual_vendor'], $loc['lat'] ?? null, $loc['lng'] ?? null);
-        $runs = $supplier ? $this->runsFrom((int)$supplier['id'], $loc['property_ids'] ?? []) : [];
+        // A listed supplier with no pin has no haul end: never price the trip from another supplier's yard (review 2026-10-19).
+        $supplier = $listed ? $listed['supplier'] : $this->supplier($material['usual_vendor'], $loc['lat'] ?? null, $loc['lng'] ?? null);
+        if ($listed && $supplier === null) $flags[] = 'The supplier of this list has no map pin — no haul priced; pin it on Otto\'s map';
+        $runs = ($supplier && !$listed) ? $this->runsFrom((int)$supplier['id'], $loc['property_ids'] ?? []) : [];
         $straight = ($supplier && ($loc['lat'] ?? null) !== null)
             ? DriveMinutesAdded::haversineKm((float)$loc['lat'], (float)$loc['lng'], (float)$supplier['lat'], (float)$supplier['lng']) : null;
-        $placeFact = $supplier ? $this->fact('run:supplier:place:' . (int)$supplier['id']) : null;
+        $placeFact = ($supplier && !$listed) ? $this->fact('run:supplier:place:' . (int)$supplier['id']) : null;
         $anyFact = $this->fact('run:supplier:any');
         $haul = self::haul($runs, $straight, $placeFact, $anyFact, [
             'hourly' => $hourly, 'crew' => $sv('mulch_haul_crew'), 'per_km' => $perKm['value'],
