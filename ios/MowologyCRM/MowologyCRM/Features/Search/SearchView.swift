@@ -146,6 +146,9 @@ struct SearchView: View {
             .itAppScreen()
             .foregroundStyle(appStyle.text)
             .navigationTitle("Search")
+            // Inline like every other tab: a large title sat under the heads bar (MainTabView's top inset) and was
+            // clipped (Tim's screenshot, 2026-10-19).
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $vm.query,
                         placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Client, address, building, phone…")
