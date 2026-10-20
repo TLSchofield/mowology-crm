@@ -35,6 +35,32 @@ class ExpenseGateHooks
      * Penny's missing-receipt chaser (migration 1245): a receipt that fits an open "missing
      * receipt" item closes it, whatever path it came in by.
      */
+    /**
+     * An approved receipt not yet linked to its statement line: link it when exactly ONE unlinked line has its exact
+     * amount (to the cent) among the bank's own candidates (2026-10-20: approved receipts and their unlinked bank lines
+     * were both booked — chequing was $973 under the bank; linked, it is $11). The nightly posting then books the receipt
+     * and retires the line's own entry (LedgerService::retireLinkedBankEntries). Paid personally: no line expected.
+     * Anything less certain stays a suggestion in the receipt window. Never fails the approval.
+     */
+    public function linkBank(int $expenseId, array $row): void
+    {
+        if (($row['payment_method'] ?? '') === 'owner_paid' || (float)($row['total'] ?? 0) <= 0) return;
+        try {
+            $s = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE matched_expense_id = ? LIMIT 1");
+            $s->execute([$expenseId]);
+            if ($s->fetchColumn()) return;
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+            $svc = new BankImportService($this->db);
+            $total = round((float)$row['total'], 2);
+            $exact = array_values(array_filter($svc->candidateTransactionsForExpense($expenseId, 8),
+                static fn($c) => abs(abs((float)($c['amount'] ?? 0)) - $total) < 0.005));
+            if (count($exact) !== 1) return;
+            $svc->attachExpenseMatch((int)$exact[0]['transaction_id'], $expenseId, 0);
+        } catch (Throwable $e) {
+            error_log('Gate bank link #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** Match the receipt's product lines to the shared catalogue (ReceiptCatalogService). Never fails the save. */
     public function catalog(int $expenseId): void
     {

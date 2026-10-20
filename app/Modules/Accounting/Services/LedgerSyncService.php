@@ -669,6 +669,7 @@ class LedgerSyncService
             SELECT code, expense_category_alias
             FROM chart_of_accounts
             WHERE expense_category_alias IS NOT NULL AND is_active = 1
+              AND type NOT IN ('revenue', 'income')   -- revenue accounts alias SERVICE types (4900 'other'), never a receipt
         ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as $r) {
             $map[strtolower($r['expense_category_alias'])] = $r['code'];

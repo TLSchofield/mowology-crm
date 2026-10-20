@@ -176,7 +176,8 @@ class BankDeskService
             if (isset($byCode[$code])) $byAlias[$cat] = $byCode[$code];
         }
         foreach ($accounts as $a) {
-            if (!empty($a['expense_category_alias'])) $byAlias[strtolower($a['expense_category_alias'])] = $a;
+            // Revenue accounts alias service types (4900 'other') — never a spending category (2026-10-20).
+            if (!empty($a['expense_category_alias']) && !in_array($a['type'], ['revenue', 'income'], true)) $byAlias[strtolower($a['expense_category_alias'])] = $a;
         }
         // A vendor's usual category: its default, else what its approved receipts are booked as most (2+).
         $vendors = $this->db->query("

@@ -138,6 +138,14 @@ class ExpenseGateTest extends TestCase
         $this->assertSame($status, (string)$this->row(412)['status']);
     }
 
+    public function test_approving_links_the_bank_line_once(): void
+    {
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'reconciliation is tried when it is approved');
+        $this->gate->apply(412, ['notes' => 'checked'], self::TIM, 'desktop_modal');
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'not again on a later edit');
+    }
+
     public function test_a_receipt_sent_to_accounting_keeps_its_money(): void
     {
         $this->db->exec("UPDATE expenses SET status = 'forwarded', forwarded_to_accounting = 1 WHERE id = 412");

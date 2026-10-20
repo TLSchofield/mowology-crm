@@ -368,6 +368,8 @@ class ExpenseGate
         $nowConfirmed = in_array($after['status'] ?? '', self::POSTED, true) && ($create || !in_array($before['status'] ?? '', self::POSTED, true));
         if ($nowConfirmed) {
             $this->hooks->learnConfirmed($id, isset($opts['learn_baseline']) && is_array($opts['learn_baseline']) ? $opts['learn_baseline'] : null);
+            // Reconciliation: link it to its ONE exact bank / card line, so the nightly posting books the purchase once.
+            $this->hooks->linkBank($id, $after);
         }
         if (array_key_exists('allocations', $changes) && !empty($extra['allocations']) && ($person || ($actor['kind'] ?? '') === 'penny')) {
             $this->hooks->learnSplit($id, $extra['allocations']);

@@ -24,6 +24,8 @@ require_once __DIR__ . '/GstReportService.php';
 
 class LedgerRepostService
 {
+    /** 1015 Stripe clearing, 1016 Undeposited funds — the holding accounts (migration 1364). */
+    public const HOLDING_CODES = ['1015', '1016'];
     /** Lines that aren't the income / cost side of an entry. */
     private const NOT_CATEGORY = ['1100', '2200', '2210', '2300', '2400', '1010', '1300', '2100'];
 
@@ -92,7 +94,9 @@ class LedgerRepostService
         $bank = [];
         $rows = $this->db->query("
             SELECT je.id AS entry_id, je.source_id, c.code AS posted_code, jl.debit, jl.credit, cn.code AS now_code, cn.type AS now_type,
-                   t.type AS tx_type, t.matched_invoice_id, t.matched_expense_id
+                   t.type AS tx_type, t.matched_invoice_id, t.matched_expense_id, t.transaction_date,
+                   (SELECT COUNT(*) FROM journal_entries xe WHERE xe.source_type = 'expense' AND xe.source_id = t.matched_expense_id
+                      AND xe.status = 'posted' AND xe.reversed_by_entry_id IS NULL) AS receipt_booked
             FROM journal_entries je
             JOIN journal_lines jl ON jl.entry_id = je.id AND jl.description IS NOT NULL
             JOIN chart_of_accounts c ON c.id = jl.account_id
@@ -100,12 +104,22 @@ class LedgerRepostService
             JOIN chart_of_accounts cn ON cn.id = t.account_id
             WHERE je.source_type = 'bank_import' AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
         ")->fetchAll(PDO::FETCH_ASSOC);
+        $holdingFrom = $this->ledger->holdingFrom();
         foreach ($rows as $r) {
             $amt = round((float)$r['debit'] + (float)$r['credit'], 2);
-            $gone = $r['matched_invoice_id'] || $r['matched_expense_id'] || ($r['tx_type'] === 'income' && $r['now_type'] === 'revenue');
+            // Holding accounts (migration 1364): from ledger_holding_from a deposit / payout posts to 1016 Undeposited
+            // funds / 1015 Stripe clearing — that IS its right posting, whatever the line's old category says, and a
+            // deposit matched to an invoice keeps it (it clears the invoice's payment). Flagging them would have moved
+            // 152 lines out of the holding accounts and booked $36,390 of deposits as income (review 2026-10-20).
+            if (in_array($r['posted_code'], self::HOLDING_CODES, true)) continue;
+            $holding = $holdingFrom !== null && (string)$r['transaction_date'] >= $holdingFrom;
+            // A line linked to a receipt is booked by that receipt only once the receipt is posted — a draft's line is its only booking.
+            $gone = ($r['matched_invoice_id'] && !$holding) || ($r['matched_expense_id'] && (int)$r['receipt_booked'] > 0)
+                    || (!$holding && $r['tx_type'] === 'income' && $r['now_type'] === 'revenue');
             if ($r['posted_code'] !== $r['now_code'] || $gone) {
                 $bank[] = ['id' => (int)$r['source_id'], 'entry_id' => (int)$r['entry_id'],
-                           'from' => [$r['posted_code'] => $amt], 'to' => $gone ? [] : [$r['now_code'] => $amt]];
+                           'from' => [$r['posted_code'] => $amt], 'to' => $gone ? [] : [$r['now_code'] => $amt],
+                           'expense_id' => $r['matched_expense_id'] ? (int)$r['matched_expense_id'] : null];
             }
         }
         return ['invoices' => $invoices, 'expenses' => $expenses, 'bank' => $bank,
@@ -164,6 +178,17 @@ class LedgerRepostService
             }
         }
         foreach ($p['bank'] as $item) {
+            if (!empty($item['expense_id'])) {
+                // Its receipt books the purchase: retire the bank line's own entry only when the receipt's entry pays from
+                // the same account for the same amount (LedgerService::retireLinkedBankEntries) — else leave it for a person.
+                try {
+                    $n = $this->ledger->retireLinkedBankEntries((int)$item['expense_id'], $userId);
+                    if ($n > 0) $done++; else { $failed++; $errors[] = 'Bank line ' . $item['id'] . ': its receipt #' . $item['expense_id'] . " doesn't pay the same — left for a person"; }
+                } catch (Throwable $e) {
+                    $failed++; $errors[] = 'Bank line ' . $item['id'] . ': ' . $e->getMessage();
+                }
+                continue;
+            }
             try {
                 $this->atomically(function () use ($item, $userId, $why) {
                     $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'bank line re-categorized');
