@@ -111,7 +111,7 @@ final class APIClient: ObservableObject {
         let response: URLResponse
 
         do {
-            (data, response) = try await execute(urlRequest)
+            (data, response) = try await executeRetryingBusy(urlRequest)
         } catch {
             throw APIError.networkError(error)
         }
@@ -369,6 +369,24 @@ final class APIClient: ObservableObject {
 
     /// One instrumented transport for generic requests and every multipart upload.
     /// Log failures only; never headers, request bodies, photos, or GPS coordinates.
+    /// A READ (GET) that the server turns away as busy (HTTP 508 resource limit, 503, 429, 502/504) is tried again by
+    /// itself — after the server's Retry-After, else ~1.5 s then ~4 s — before anyone sees an error (2026-10-20: the
+    /// morning burst of crew phones hit the host's limit and the schedule showed the raw 508 page). Writes are never
+    /// repeated here: their callers own retrying (queues with idempotency keys).
+    private func executeRetryingBusy(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let isRead = (request.httpMethod ?? "GET").uppercased() == "GET"
+        var result = try await execute(request)
+        guard isRead else { return result }
+        for delay in [1.5, 4.0] {
+            guard let http = result.1 as? HTTPURLResponse, ErrorDetails.isBusy(http.statusCode) else { return result }
+            let asked = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init) ?? delay
+            let wait = min(max(asked, 0.5), 8.0) + Double.random(in: 0...0.4)
+            try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            result = try await execute(request)
+        }
+        return result
+    }
+
     private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
         let label = ErrorDetails.request(request)
         do {

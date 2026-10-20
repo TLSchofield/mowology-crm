@@ -33,6 +33,19 @@ enum ErrorDetails {
         return "\(request.httpMethod ?? "GET") \(parts.string ?? url.path)"
     }
 
+    /// Busy / down answers in plain words.
+    static func friendly(status: Int) -> String {
+        switch status {
+        case 429, 503, 508: return "The server is busy right now — pull down to try again in a moment."
+        case 502, 504: return "The server didn't answer in time — try again in a moment."
+        case 500...599: return "The server had a problem — try again in a moment."
+        default: return "Unexpected answer from the server."
+        }
+    }
+
+    /// The statuses that mean "busy, try again shortly" — a read can be retried by itself.
+    static func isBusy(_ status: Int) -> Bool { [429, 502, 503, 504, 508].contains(status) }
+
     static func response(_ data: Data, status: Int) -> String {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             let message = (json["error"] as? String) ?? (json["message"] as? String)
@@ -43,6 +56,11 @@ enum ErrorDetails {
         }
         let limit = 4096
         let body = String(decoding: data.prefix(limit), as: UTF8.self)
+        // A host's HTML error page ("508 Resource Limit Is Reached") is not something to show anyone (2026-10-20).
+        let head = body.prefix(200).lowercased()
+        if head.contains("<!doctype") || head.contains("<html") {
+            return AppDiagnostics.redacted("HTTP \(status): " + friendly(status: status))
+        }
         return AppDiagnostics.redacted("HTTP \(status): \(data.isEmpty ? "empty response body" : body)" +
             (data.count > limit ? " [truncated after \(limit) of \(data.count) bytes]" : ""))
     }
