@@ -444,3 +444,4 @@ require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/OrgBookBcProv
 require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/FakeRegistryProvider.php';
 require_once __DIR__ . '/../app/Modules/Settings/Api/BusinessIdentityRequest.php';
 require_once __DIR__ . '/../app/Modules/Settings/Services/BusinessIdentityService.php';
+require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService.php';
