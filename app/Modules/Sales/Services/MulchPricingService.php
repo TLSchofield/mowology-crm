@@ -610,7 +610,7 @@ class MulchPricingService
             $s = $this->db->prepare("SELECT i.id, i.name, i.price, l.list_date, l.supplier_account_id, a.name AS supplier, a.lat, a.lng
                                      FROM supplier_price_items i JOIN supplier_price_lists l ON l.id = i.list_id
                                      LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
-                                     WHERE i.id = ? AND i.site_id = ? AND l.site_id = ? AND l.kind = 'availability'");
+                                     WHERE i.id = ? AND i.site_id = ? AND l.site_id = ? AND l.kind = 'availability' AND l.needs_review = 0");
             $site = defined('MW_SITE_ID') ? (int)MW_SITE_ID : 1;   // this tenant's own lists only (review 2026-10-19)
             $s->execute([$itemId, $site, $site]);
             $r = $s->fetch(PDO::FETCH_ASSOC);

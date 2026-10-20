@@ -31,6 +31,21 @@ $flash = '';
 if ($ready && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) { http_response_code(403); exit('You need products.edit to change catalogue matches.'); }
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('The security token expired. Go back and try again.'); }
+    $do = (string)($_POST['do'] ?? '');
+    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip'], true)) {
+        // The reading of a supplier's first list (migration 1390): confirm it, correct it, or dismiss a list we could not read.
+        try {
+            if ($do === 'confirm_format') { $svc->confirmFormat((int)($_POST['format_id'] ?? 0)); $flash = 'Confirmed. Those prices now count in quotes, and later lists from this supplier import quietly.'; }
+            elseif ($do === 'dismiss_skip') { $svc->dismissSkip((int)($_POST['skip_id'] ?? 0)); $flash = 'Dismissed.'; }
+            else {
+                $svc->updateFormatColumns((int)($_POST['format_id'] ?? 0), (array)($_POST['cols'] ?? []));
+                $flash = 'Columns saved. The next list uses them; the list already read keeps its old reading until the supplier sends the next one.';
+            }
+        } catch (Throwable $e) {
+            error_log('price-lists format: ' . $e->getMessage());
+            $flash = 'Could not save that: ' . $e->getMessage();
+        }
+    } else
     try {
         $target = (int)($_POST['target_id'] ?? 0);
         $cat->decide((int)($_POST['queue_id'] ?? 0), (string)($_POST['decision'] ?? ''), (int)($user['id'] ?? 0) ?: null, $target ?: null);
@@ -49,7 +64,9 @@ $formatFamily = [];
 if ($ready) {
     foreach ($db->query("SELECT id, family FROM supplier_list_formats")->fetchAll(PDO::FETCH_KEY_PAIR) as $fid => $fam) $formatFamily[(int)$fid] = $fam;
 }
-$lists = array_values(array_filter($lists, fn($l) => !$l['format_id'] || !$usedFamilies || in_array($formatFamily[(int)$l['format_id']] ?? 'other', $usedFamilies, true)));
+$lists = array_values(array_filter($lists, fn($l) => !empty($l['needs_review']) || !$l['format_id'] || !$usedFamilies || in_array($formatFamily[(int)$l['format_id']] ?? 'other', $usedFamilies, true)));
+$reviews = $ready ? $svc->reviewQueue() : [];   // first lists read automatically, waiting for "looks right"
+$skips = $ready ? $svc->openSkips() : [];        // lists that arrived but could not be read
 
 $suppliers = [];
 foreach ($lists as $l) $suppliers[(int)$l['supplier_account_id']] = $l['supplier_name'] ?: ('Supplier #' . $l['supplier_account_id']);
@@ -104,6 +121,68 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
   </div>
 
   <?php if ($flash !== ''): ?><div class="alert alert-info"><?= h($flash) ?></div><?php endif; ?>
+
+  <?php foreach ($reviews as $rv): $fmt = $rv['format']; $seen = (array)((json_decode((string)$fmt['spec_json'], true) ?: [])['seen_headers'] ?? []); ?>
+  <div class="card mw-plr">
+    <div class="card-body">
+      <h2 class="h5 mb-1">Check how we read <?= h($rv['list']['supplier_name'] ?: $fmt['name']) ?></h2>
+      <p class="mw-ops-hint mb-2">This is the first list we have from them, read automatically (<?= (int)round(((float)$fmt['inferred_confidence']) * 100) ?>% sure). The prices are shown here but are <strong>not used in quotes</strong> until you say it looks right.</p>
+      <div class="table-responsive">
+        <table class="table table-sm mw-ops-table">
+          <thead><tr><th>Name</th><th>Size</th><th class="text-right">Price</th><th class="text-right">Available</th></tr></thead>
+          <tbody>
+          <?php foreach ($rv['sample'] as $it): ?>
+            <tr><td><?= h($it['name']) ?></td><td><?= h((string)$it['size']) ?></td><td class="text-right"><?= h($money($it['price'])) ?></td><td class="text-right"><?= $it['available'] === null ? '' : (int)$it['available'] ?></td></tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <p class="mw-ops-hint mb-2">Columns used: <?php foreach ($rv['columns'] as $field => $hdr): ?><span class="mw-plr-col"><?= h(str_replace('_', ' ', $field)) ?> = “<?= h($hdr) ?>”</span> <?php endforeach; ?></p>
+      <?php if ($canEdit): ?>
+      <form method="post" class="d-inline">
+        <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+        <input type="hidden" name="do" value="confirm_format"><input type="hidden" name="format_id" value="<?= (int)$fmt['id'] ?>">
+        <button class="btn btn-primary btn-sm">Looks right</button>
+      </form>
+      <details class="mw-plr-fix">
+        <summary>Something is wrong — fix the columns</summary>
+        <form method="post" class="mt-2">
+          <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+          <input type="hidden" name="do" value="fix_columns"><input type="hidden" name="format_id" value="<?= (int)$fmt['id'] ?>">
+          <div class="mw-plr-grid">
+          <?php foreach (['name' => 'Name', 'product_code' => 'Code', 'size' => 'Size', 'price' => 'Our price', 'list_price' => 'List price', 'special_price' => 'Special price', 'available' => 'Available', 'zone' => 'Zone', 'category' => 'Category'] as $field => $label): ?>
+            <label><?= h($label) ?>
+              <select name="cols[<?= h($field) ?>]" class="form-control form-control-sm">
+                <option value="">— none —</option>
+                <?php foreach ($seen as $hdr): ?><option value="<?= h($hdr) ?>"<?= ($rv['columns'][$field] ?? '') === $hdr ? ' selected' : '' ?>><?= h($hdr) ?></option><?php endforeach; ?>
+              </select>
+            </label>
+          <?php endforeach; ?>
+          </div>
+          <button class="btn btn-outline-primary btn-sm mt-2">Save columns</button>
+        </form>
+      </details>
+      <?php else: ?><p class="mw-ops-hint mb-0">Someone with product edit access needs to confirm this.</p><?php endif; ?>
+    </div>
+  </div>
+  <?php endforeach; ?>
+
+  <?php if ($skips): ?>
+  <div class="card mw-plr">
+    <div class="card-body">
+      <h2 class="h5 mb-1">Lists we could not read</h2>
+      <p class="mw-ops-hint mb-2">These arrived by email but did not look like a price list we can read. Forward the file to Claude to teach it, or dismiss it.</p>
+      <?php foreach ($skips as $k): ?>
+        <div class="mw-plr-skip">
+          <div><strong><?= h($k['supplier_name'] ?: $k['sender']) ?></strong> — <?= h($k['file_name']) ?> <span class="text-muted">(<?= h(substr((string)$k['created_at'], 0, 10)) ?>)</span><br><span class="text-muted"><?= h($k['reason']) ?></span></div>
+          <?php if ($canEdit): ?>
+          <form method="post"><input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="dismiss_skip"><input type="hidden" name="skip_id" value="<?= (int)$k['id'] ?>"><button class="btn btn-outline-secondary btn-sm">Dismiss</button></form>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <?php if (!$ready): ?>
     <div class="alert alert-warning">Run migration 1331 first (/crm/api/run-migration-1331.php).</div>

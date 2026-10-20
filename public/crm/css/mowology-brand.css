@@ -38626,6 +38626,14 @@ body.mw-rc-zoom-open { overflow: hidden; }
 /* Otto — Supplier price lists (/crm/suppliers/price-lists.php, migration 1331) */
 .mw-pl-summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
 .mw-pl-summary .card { margin-bottom: 16px; }
+/* Supplier price lists: first list from a new supplier, read automatically, waiting for "looks right" */
+.mw-plr { margin-bottom: 16px; border-left: 4px solid var(--mw-orange); }
+.mw-plr-col { display: inline-block; margin: 0 6px 4px 0; padding: 1px 8px; border-radius: 10px; background: var(--mw-light); color: var(--mw-forest); font-size: .8rem; }
+.mw-plr-fix { margin-top: 10px; }
+.mw-plr-fix summary { cursor: pointer; color: var(--mw-green); }
+.mw-plr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.mw-plr-grid label { font-size: .8rem; margin: 0; }
+.mw-plr-skip { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--mw-light); }
 .mw-pl-diff { font-size: .84rem; }
 .mw-pl-new { color: var(--mw-green); font-weight: 600; }
 .mw-pl-up { color: var(--mw-orange); font-weight: 600; }

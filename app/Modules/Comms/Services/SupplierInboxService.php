@@ -141,28 +141,40 @@ class SupplierInboxService
      * has a list format. Never throws. Fills $body (plain + HTML text) for the caller to reuse.
      * @return array{imported: int, failed: int}
      */
-    private function priceLists($conn, int $no, $st, array $supplier, string $from, string $key, string $received, ?string &$body): array
+    private function priceLists($conn, int $no, $st, array $supplier, string $from, string $subject, string $key, string $received, ?string &$body): array
     {
         $none = ['imported' => 0, 'failed' => 0];
         try {
             $svc = new SupplierPriceListService($this->db);
             if (!$svc->ready()) return $none;
-            $format = $svc->formatForDomain(SupplierDirectoryService::domainOf(SupplierDirectoryService::addressOf($from)));
+            $domain = SupplierDirectoryService::domainOf(SupplierDirectoryService::addressOf($from));
+            $format = $svc->formatForDomain($domain);
+            $body = $this->fullBody($conn, $no, $st);
+            // No format for this sender yet: read the first list by itself (migration 1390), hold it for one
+            // "looks right" tap. Nothing here is a guess that reaches a price — until confirmed the list stays
+            // out of quote pricing.
+            if (!$format && $svc->reviewReady()) $format = $this->newFormat($conn, $no, $st, $svc, $supplier, $domain, $from, $subject, $key, $body);
             if (!$format) return $none;
-            $body = ImapReader::textBody($conn, $no, $st);
-            // Mailchimp puts the file links in the HTML part; read it too when the text part won.
-            $html = $st ? ImapReader::bodyPart($st) : null;
-            if ($html && $html['html']) {
-                $h = ImapReader::fetchPart($conn, $no, $html['pn'], (int)$html['encoding']);
-                if ($html['charset'] !== '' && $html['charset'] !== 'UTF-8') $h = (string)@mb_convert_encoding($h, 'UTF-8', $html['charset']);
-                if (strpos($body, $h) === false) $body .= "\n" . $h;
-            }
             $r = $svc->importFromEmail($supplier, $format, $body, ['message_key' => $key, 'received_at' => $received]);
             // Lists attached to the email (Specimen Trees' .xls, SW Garden's PDF), when the format says so.
             foreach ($st ? ImapReader::files($st) : [] as $f) {
                 if (!SupplierPriceListService::listAttachment((string)$f['filename'], $format)) continue;
                 $bytes = ImapReader::fetchPart($conn, $no, $f['pn'], (int)$f['encoding']);
-                $a = $svc->importAttachment($supplier, $format, (string)$f['filename'], $bytes, ['message_key' => $key, 'received_at' => $received, 'body' => $body]);
+                $meta = ['message_key' => $key, 'received_at' => $received, 'body' => $body];
+                $a = $svc->importAttachment($supplier, $format, (string)$f['filename'], $bytes, $meta);
+                if ($a['status'] === 'failed' && !empty($format['auto_inferred'])) {
+                    // A format read automatically can drift (the supplier renamed a column): read the file again,
+                    // and if it reads, hold the new reading for another "looks right" tap and retry once.
+                    $inf = $svc->inferFromFile((string)$f['filename'], $bytes);
+                    if ($inf['ok'] && ($nf = $svc->respecAutoFormat((int)$format['id'], $inf))) {
+                        $format = $nf;
+                        $a = $svc->importAttachment($supplier, $format, (string)$f['filename'], $bytes, $meta);
+                    } elseif (preg_match('/price|list|avail|special|stock|catalog|inventory/i', (string)$f['filename'] . ' ' . $subject)) {
+                        $svc->recordSkip((int)($supplier['id'] ?? 0), SupplierDirectoryService::addressOf($from), $subject, (string)$f['filename'], (string)$inf['reason'], $key);
+                    }
+                    // A file that is not a price list (an account form PDF) is not an import failure for an auto format.
+                    if ($a['status'] === 'failed') $a['status'] = 'ignored';
+                }
                 if ($a['status'] === 'imported') $r['imported']++;
                 elseif ($a['status'] === 'failed') $r['failed']++;
                 if ($a['status'] === 'imported' || $a['status'] === 'duplicate') $this->listFiles[(string)$f['filename']] = true;
@@ -175,6 +187,65 @@ class SupplierInboxService
             error_log('[supplier inbox] price lists: ' . $e->getMessage());
             return ['imported' => 0, 'failed' => 1];
         }
+    }
+
+    /** Plain + HTML text of the email (Mailchimp puts the file links in the HTML part). */
+    private function fullBody($conn, int $no, $st): string
+    {
+        $body = ImapReader::textBody($conn, $no, $st);
+        $html = $st ? ImapReader::bodyPart($st) : null;
+        if ($html && $html['html']) {
+            $h = ImapReader::fetchPart($conn, $no, $html['pn'], (int)$html['encoding']);
+            if ($html['charset'] !== '' && $html['charset'] !== 'UTF-8') $h = (string)@mb_convert_encoding($h, 'UTF-8', $html['charset']);
+            if (strpos($body, $h) === false) $body .= "\n" . $h;
+        }
+        return $body;
+    }
+
+    /**
+     * A sender with no list format: try each attached sheet/PDF and each sheet link on the sender's own
+     * domain (or Mailchimp's file host) with SupplierFormatInferrer. The first that reads becomes the
+     * sender's format (held for review). A file that was clearly a price list but did not read is recorded
+     * as a skip, so it is visible instead of silent; a PDF that is not named like a list stays quiet
+     * (usually an account form, handled elsewhere).
+     */
+    private function newFormat($conn, int $no, $st, SupplierPriceListService $svc, array $supplier, string $domain, string $from, string $subject, string $key, string $body): ?array
+    {
+        $sid = (int)($supplier['id'] ?? 0);
+        $sender = SupplierDirectoryService::addressOf($from);
+        $listy = '/price|list|avail|special|stock|catalog|inventory/i';
+        $hosts = array_values(array_unique([$domain, 'mcusercontent.com']));
+        $try = function (string $name, string $bytes) use ($svc, $supplier, $domain, $hosts, $sid, $sender, $subject, $key, $listy): ?array {
+            $inf = $svc->inferFromFile($name, $bytes);
+            if ($inf['ok']) {
+                error_log('[supplier inbox] new list format for ' . ($supplier['name'] ?? $domain) . ' from ' . $name . ' (confidence ' . $inf['confidence'] . ', ' . $inf['rows'] . ' lines) — held for review');
+                return $svc->createAutoFormat($supplier, $domain, $inf, $hosts);
+            }
+            $isPdf = strtolower(pathinfo($name, PATHINFO_EXTENSION)) === 'pdf';
+            if (!$isPdf || preg_match($listy, $name . ' ' . $subject)) $svc->recordSkip($sid, $sender, $subject, $name, (string)$inf['reason'], $key);
+            return null;
+        };
+        foreach ($st ? ImapReader::files($st) : [] as $f) {
+            $name = (string)$f['filename'];
+            if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), ['xlsx', 'xls', 'csv', 'pdf'], true)) continue;
+            $format = $try($name, ImapReader::fetchPart($conn, $no, $f['pn'], (int)$f['encoding']));
+            if ($format) return $format;
+        }
+        $body = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        preg_match_all('#https?://[^\s"\'<>()\[\]]+#i', $body, $m);
+        foreach (array_unique($m[0]) as $url) {
+            $url = rtrim($url, '.,;:');
+            $name = rawurldecode(basename((string)parse_url($url, PHP_URL_PATH)));
+            if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), ['xlsx', 'xls', 'csv'], true) || !SupplierPriceListService::urlAllowed($url, $hosts)) continue;
+            try {
+                $format = $try($name, SupplierPriceListService::fetch($url, $hosts));
+            } catch (Throwable $e) {
+                $svc->recordSkip($sid, $sender, $subject, $name, 'could not download the list (' . $e->getMessage() . ')', $key);
+                continue;
+            }
+            if ($format) return $format;
+        }
+        return null;
     }
 
     private function one($conn, int $no, int $sid, string $label, SupplierDirectoryService $dir, SupplierFormService $forms, array &$out): void
@@ -220,7 +291,7 @@ class SupplierInboxService
         $body = null;
         $listAuth = ImapReader::senderVerified($conn, $no, SupplierDirectoryService::addressOf($from));
         if (self::listImportAllowed($listAuth)) {
-            $r = $this->priceLists($conn, $no, $st, $supplier, $from, $key, date('Y-m-d H:i:s', $ts), $body);
+            $r = $this->priceLists($conn, $no, $st, $supplier, $from, $subject, $key, date('Y-m-d H:i:s', $ts), $body);
             $out['lists'] += $r['imported'];
             $out['errors'] += $r['failed'];
         } else {

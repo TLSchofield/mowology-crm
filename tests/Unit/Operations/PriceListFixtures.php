@@ -91,7 +91,8 @@ final class PriceListFixtures
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $db->exec("CREATE TABLE supplier_accounts (id INTEGER PRIMARY KEY, name TEXT, domain TEXT)");
-        $db->exec("CREATE TABLE supplier_list_formats (id INTEGER PRIMARY KEY, code TEXT, name TEXT, family TEXT, sender_domains TEXT, link_hosts TEXT, arrives TEXT, spec_json TEXT, is_active INT DEFAULT 1)");
+        $db->exec("CREATE TABLE supplier_list_formats (id INTEGER PRIMARY KEY, code TEXT, name TEXT, family TEXT, sender_domains TEXT, link_hosts TEXT, arrives TEXT, spec_json TEXT, is_active INT DEFAULT 1, needs_review INT DEFAULT 0, auto_inferred INT DEFAULT 0, inferred_confidence REAL)");
+        $db->exec("CREATE TABLE supplier_list_skips (id INTEGER PRIMARY KEY, site_id INT DEFAULT 1, supplier_account_id INT, sender TEXT, subject TEXT, file_name TEXT DEFAULT '', reason TEXT, message_key TEXT DEFAULT '', created_at TEXT, dismissed_at TEXT, UNIQUE(site_id, message_key, file_name))");
         $db->exec("CREATE TABLE catalog_families (id INTEGER PRIMARY KEY, slug TEXT UNIQUE, name TEXT, matcher TEXT, default_use_kind TEXT, sort_order INT DEFAULT 0)");
         $db->exec("CREATE TABLE catalog_categories (id INTEGER PRIMARY KEY, parent_id INT, family TEXT, name TEXT, slug TEXT, UNIQUE(family, slug))");
         $db->exec("CREATE TABLE catalog_category_map (id INTEGER PRIMARY KEY, family TEXT, text_key TEXT, category_id INT, how TEXT, UNIQUE(family, text_key))");
@@ -102,7 +103,7 @@ final class PriceListFixtures
         $db->exec("CREATE TABLE catalog_aliases (id INTEGER PRIMARY KEY, family TEXT, alias_key TEXT, product_id INT, how TEXT, times_confirmed INT DEFAULT 1, UNIQUE(family, alias_key))");
         $db->exec("CREATE TABLE tenant_catalog_families (site_id INT, family TEXT, PRIMARY KEY (site_id, family))");
         $db->exec("CREATE TABLE supplier_price_lists (id INTEGER PRIMARY KEY, site_id INT DEFAULT 1, supplier_account_id INT, format_id INT, kind TEXT, list_date TEXT, valid_until TEXT,
-                   title TEXT, file_name TEXT, source_url TEXT, source_message_key TEXT, rules_json TEXT, row_count INT, imported_at TEXT, UNIQUE(site_id, supplier_account_id, kind, list_date))");
+                   title TEXT, file_name TEXT, source_url TEXT, source_message_key TEXT, rules_json TEXT, row_count INT, imported_at TEXT, needs_review INT DEFAULT 0, UNIQUE(site_id, supplier_account_id, kind, list_date))");
         $db->exec("CREATE TABLE supplier_price_items (id INTEGER PRIMARY KEY, site_id INT DEFAULT 1, list_id INT, product_code TEXT, name TEXT, size TEXT, zone TEXT, category TEXT,
                    brand TEXT, mfr_part_no TEXT, upc TEXT, price REAL, list_price REAL, special_price REAL, available INT, comment TEXT, use_kind TEXT, prev_price REAL,
                    price_change TEXT, catalog_product_id INT, catalog_category_id INT, size_code TEXT, height TEXT, name_key TEXT, match_confidence REAL, match_how TEXT)");

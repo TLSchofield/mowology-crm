@@ -152,8 +152,8 @@ class SupplierSearchService
         if (!$pq['words']) return $base;
 
         $latest = "JOIN supplier_price_lists l ON l.id = i.list_id
-                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' GROUP BY supplier_account_id) x
-                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date
+                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' AND needs_review = 0 GROUP BY supplier_account_id) x
+                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date AND l.needs_review = 0
                 LEFT JOIN catalog_products cp ON cp.id = i.catalog_product_id";
         $wordSql = [];
         $wordArgs = [];
@@ -189,8 +189,8 @@ class SupplierSearchService
                        f.family, cp.canonical_name, cp.common_names
                 FROM supplier_price_items i
                 JOIN supplier_price_lists l ON l.id = i.list_id
-                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' GROUP BY supplier_account_id) x
-                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date
+                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' AND needs_review = 0 GROUP BY supplier_account_id) x
+                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date AND l.needs_review = 0
                 LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
                 LEFT JOIN supplier_list_formats f ON f.id = l.format_id
                 LEFT JOIN catalog_products cp ON cp.id = i.catalog_product_id

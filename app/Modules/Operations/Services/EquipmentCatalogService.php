@@ -206,7 +206,7 @@ class EquipmentCatalogService
             $s = $this->db->prepare("SELECT i.price, i.special_price, l.list_date, a.name AS supplier
                                      FROM supplier_price_items i JOIN supplier_price_lists l ON l.id = i.list_id
                                      LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
-                                     WHERE i.site_id = ? AND i.catalog_product_id = ? ORDER BY l.list_date DESC, i.id DESC LIMIT 1");
+                                     WHERE i.site_id = ? AND i.catalog_product_id = ? AND l.needs_review = 0 ORDER BY l.list_date DESC, i.id DESC LIMIT 1");
             $s->execute([$this->siteId, $productId]);
             $r = $s->fetch(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {

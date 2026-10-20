@@ -89,7 +89,7 @@ class SupplierFormatInferrer
         $parsed = null;
         foreach ($order as $col) {
             $text = trim((string)$cells[$best['row']][$col]);
-            $try = ['header_anchor' => $text, 'columns' => $columns, 'inferred' => true];
+            $try = ['header_anchor' => $text, 'columns' => $columns, 'inferred' => true, 'seen_headers' => array_values($headerTexts)];
             $kinds = self::kinds($fileName);
             if ($kinds) $try['kinds'] = $kinds;
             try {
