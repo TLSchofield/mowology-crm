@@ -146,7 +146,7 @@ Gotchas worth knowing before touching it:
 
 | Cron | Purpose |
 |------|---------|
-| `generate_visits.php` | Materialise `job_visits` ahead of the rolling horizon (calls `generateVisits()`). Every 6 h it also runs Otto's auto-place (pins + lot borders, city lot map first) and the weekly local market price read (`MarketPriceService::refreshDue()`, migration 1375). |
+| `generate_visits.php` | Materialise `job_visits` ahead of the rolling horizon (calls `generateVisits()`). Every 6 h it also runs Otto's auto-place (pins + lot borders, city lot map first) the weekly local market price read (`MarketPriceService::refreshDue()`, migration 1375), and Otto's equipment intake: approved Tools/Equipment receipt lines ≥ $300 (`otto_equipment_min_line`) become equipment rows linked to the receipt (`EquipmentReceiptIntakeService`, migration 1377); "Not equipment, move it out" on the machine's page removes one for good. |
 | `auto_rollover.php` | Roll incomplete/overdue visits forward. Since 2026-10-08 the stop a rolled visit leaves is deleted when nothing else is on it (`stops_removed`). |
 | `weather_schedule_guard.php` | Adjust the schedule around weather. |
 | `seasonal_outlook_refresh.php` | Daily. Rebuild the winter outlook from NOAA ONI + ECCC station data; refresh season-to-date actuals. |

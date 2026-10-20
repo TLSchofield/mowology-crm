@@ -412,3 +412,12 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - **Card statement sections** imported before the closing-balance parser fix had `closing_balance` NULL; filled
   from the PDFs / the next statement's opening on 2026-10-15. `BankBalanceCheckService::report()` still shows
   one bogus card month (statement 5) — its card statements need fixing; check 2400 directly against closings.
+
+## Personal purchases claimed GST (fixed 2026-10-19)
+`buildExpenseEntry` claimed the full GST on every receipt whatever its account, so a Personal receipt (posted to
+1300 Due from Shareholder) still debited 2210 — GST back on a non-business purchase — and the GST return listed
+it. Now no ITC on any 1300–1309 account (whole receipt + split shares), the return and the desk drop unsplit
+Personal receipts, and Personal always posts to a shareholder account, never the category map. Production had
+no posted Personal receipt, so nothing was reposted. Don't confuse with `owner_paid` (a BUSINESS purchase paid
+personally: funded by 1300, keeps its GST credit).
+

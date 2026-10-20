@@ -44,3 +44,12 @@
 | Supplier stop + Otto's job pick on a receipt (office only) | not built — `ReceiptDetailView` shows nothing | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService::forEditor()` via `supplier-stops.php` (session) | iPhone (needs a JWT read of `forEditor()`) |
 
 When you change a row, change the date in this file's heading.
+
+## Equipment from receipts (2026-10-19)
+Otto adds machines himself (Tim: "capital equipment should just be put in there, he can move it out if need be"):
+approved Tools/Equipment receipt lines ≥ $300 (`ops_settings.otto_equipment_min_line`; warranties, blades, line,
+oil etc. excluded) → `equipment` rows with the receipt as purchase, class/power guessed from the line name, in the
+6-hourly `generate_visits` cron (`EquipmentReceiptIntakeService`, `equipment_receipt_intake`, migration 1377).
+"Not equipment, move it out" on `/crm/ops/equipment-item.php` deletes it and remembers the line (refused once the
+machine has services, runs, tasks or a manual read — retire it). A receipt linked to a machine by hand is left alone.
+

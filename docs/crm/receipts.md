@@ -505,6 +505,16 @@ cash. The receipt's entry is funded by 1300 (shareholder loan) — it reduces wh
 keeps its GST credit. Example: Amazon business orders on Tim's personal Visa …1023 / TD cards.
 Also on the iPhone pickers (2026-10-14). Month-close names open receipts on no bank or card line and points here.
 
+## Personal (shareholder) — 2026-10-19
+The opposite of "Paid personally": a PERSONAL purchase on a business card or account (lunch for the family,
+groceries). The receipt window's **Personal (Tim Schofield)** button, with other shareholders in its menu
+(`payroll_shareholders`: Tim = 1300, Katrenna = 1302), sets category Personal + `expenses.shareholder_account`
+(migration 1376) through `ExpensePersonalService` → ExpenseGate, closes the window, then opens Penny's approve window.
+Books: the WHOLE receipt goes to the shareholder's account, no GST claimed back (`LedgerService::isShareholderAccount`,
+1300–1309, also per split share); a Personal receipt never takes the category map's account
+(`LedgerSyncService::personalAccount`). Left off the GST return and Penny's desk GST count
+(`GstReportService::withoutPersonal`). An approved receipt marked Personal is reversed and posted again.
+
 ## Receipt images in lists — thumbnails (2026-10-14)
 The list used to load each full phone photo (median 1.6 MB) for a 32 px box. `serve-receipt.php?id=N&thumb=1`
 serves a 320 px JPEG made once by `ReceiptThumb::ensure()` (GD) and cached in `/uploads/receipts/thumbs/` (denied to
