@@ -265,6 +265,15 @@ struct JobPhotoSection: View {
                 .foregroundStyle(it.state == "failed" ? appStyle.attention : appStyle.tenant)
             VStack(alignment: .leading, spacing: 2) {
                 switch it.state {
+                case "ready" where it.response?.record?.choose == true && (it.response?.record?.matches.count ?? 0) >= 2:
+                    Text("Not sure — which is it?").font(appStyle.font(.subheadline, weight: .semibold))
+                    ForEach(Array((it.response?.record?.matches ?? []).prefix(2))) { m in
+                        Button { plantPick = m.scientific; plantToConfirm = it } label: { plantChoice(m) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(m.name), \(Int((m.score * 100).rounded())) percent. Tap if it is this one.")
+                    }
+                    Button("Something else, or leave it for the office") { plantPick = nil; plantToConfirm = it }
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.text).underline().frame(minHeight: 44)
                 case "ready":
                     Text("Plant: \(it.answerLine ?? "identified")").font(appStyle.font(.subheadline, weight: .semibold))
                     Text("Confirm it, or leave it for the office.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
@@ -279,8 +288,10 @@ struct JobPhotoSection: View {
             }
             Spacer(minLength: 4)
             switch it.state {
+            case "ready" where it.response?.record?.choose == true && (it.response?.record?.matches.count ?? 0) >= 2:
+                EmptyView()   // the choices above are the buttons
             case "ready":
-                Button("Confirm") { plantToConfirm = it }
+                Button("Confirm") { plantPick = nil; plantToConfirm = it }
                     .buttonStyle(.borderedProminent).tint(appStyle.tenant).frame(minHeight: 44)
             case "failed":
                 Button("Clear") { PlantSendQueue.shared.remove(it.id) }
@@ -291,6 +302,24 @@ struct JobPhotoSection: View {
         }
         .padding(12)
         .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+    }
+
+    /// One choice: Pl@ntNet's reference photo, the name and how sure it is, the photo's credit (CC BY-SA requires it).
+    private func plantChoice(_ m: PlantMatchDTO) -> some View {
+        HStack(spacing: 10) {
+            PlantRefPhoto(url: m.photo, size: 56)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(m.name).font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.text)
+                Text("\(m.scientific) · \(Int((m.score * 100).rounded()))%").font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
+                if let c = m.photoCredit { Text(c).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").foregroundStyle(appStyle.meta)
+        }
+        .padding(8)
+        .frame(minHeight: 48)
+        .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .contentShape(Rectangle())
     }
 
     private var chooseLabel: some View {
@@ -309,6 +338,8 @@ struct JobPhotoSection: View {
     @State private var showPlantId = false
     @ObservedObject private var plantSends = PlantSendQueue.shared
     @State private var plantToConfirm: PlantSendQueue.Item?
+    /// The choice tapped on the card (opens the confirm screen with it picked); nil = let the person pick there.
+    @State private var plantPick: String?
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
@@ -423,7 +454,7 @@ struct JobPhotoSection: View {
             PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
         }
         .fullScreenCover(item: $plantToConfirm) { it in
-            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id) { plantToConfirm = nil }
+            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id, presetPick: plantPick) { plantToConfirm = nil }
         }
         .task { await vm.loadExisting() }
         // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
@@ -905,7 +936,16 @@ struct PlantMatchDTO: Codable, Identifiable, Hashable {
     let scientific: String
     let common: String?
     let score: Double
+    /// Pl@ntNet's reference photo of this species (CC BY-SA) and its required credit — 2026-10-20.
+    let photo: String?
+    let photoCredit: String?
     var id: String { scientific }
+    var name: String { common?.isEmpty == false ? common! : scientific }
+
+    enum CodingKeys: String, CodingKey {
+        case scientific, common, score, photo
+        case photoCredit = "photo_credit"
+    }
 }
 
 struct PlantBedRefDTO: Codable, Hashable {
@@ -926,9 +966,11 @@ struct PlantRecordDTO: Codable {
     let commonName: String?
     let matches: [PlantMatchDTO]
     let bed: PlantBedRefDTO?
+    /// Not sure (best under 50%, or the top two close): offer the top matches as choices, not one Confirm.
+    let choose: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case id, status, matches, bed
+        case id, status, matches, bed, choose
         case scientificName = "scientific_name"
         case commonName = "common_name"
     }
@@ -1054,6 +1096,8 @@ struct PlantIdView: View {
     /// An answer the sender already has (PlantSendQueue): open straight at "What is it?" — no camera.
     var preset: PlantIdResponse? = nil
     var presetItemId: String? = nil
+    /// The match tapped on the job card — opens already picked.
+    var presetPick: String? = nil
     let onClose: () -> Void
 
     private static let steps = [
@@ -1090,7 +1134,7 @@ struct PlantIdView: View {
         }
         .task {
             if let preset, let rec = preset.record {
-                pick = rec.scientificName ?? (rec.matches.first?.scientific ?? "")
+                pick = presetPick ?? rec.scientificName ?? (rec.choose == true ? "" : (rec.matches.first?.scientific ?? ""))
                 bedId = rec.bed?.id ?? 0
                 result = preset
                 return
@@ -1249,10 +1293,12 @@ struct PlantIdView: View {
                         Button {
                             pick = m.scientific
                         } label: {
-                            HStack {
+                            HStack(spacing: 10) {
+                                PlantRefPhoto(url: m.photo, size: 48)
                                 VStack(alignment: .leading) {
-                                    Text(m.common?.isEmpty == false ? m.common! : m.scientific)
+                                    Text(m.name)
                                     Text(m.scientific).font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
+                                    if let c = m.photoCredit { Text(c).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta).lineLimit(1) }
                                 }
                                 Spacer()
                                 Text("\(Int((m.score * 100).rounded()))%").foregroundStyle(appStyle.meta)
@@ -1348,3 +1394,28 @@ struct PlantIdView: View {
         }
     }
 }
+
+/// Pl@ntNet's reference photo of a species: a small square, a quiet leaf while it loads or when there is none.
+struct PlantRefPhoto: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let url: String?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let url, let u = URL(string: url) {
+                AsyncImage(url: u) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() } else { placeholder }
+                }
+            } else { placeholder }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+        .accessibilityHidden(true)
+    }
+
+    private var placeholder: some View {
+        ZStack { appStyle.sunk; Image(systemName: "leaf").foregroundStyle(appStyle.meta) }
+    }
+}
+
