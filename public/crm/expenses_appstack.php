@@ -4017,6 +4017,13 @@ async function submitReceiptExport() {
                 '<div class="text-muted small mb-2">No bank transaction linked yet.</div>' +
                 '<button type="button" class="btn btn-sm btn-outline-primary" onclick="mwFindExpenseMatch(' + e.id + ')">' +
                     '<i data-feather="search"></i> Find Match</button>';
+            // Look for it straight away when the receipt is opened (Tim, 2026-10-19) — once per opening, after the
+            // form has its amount and date; it only lists candidates, attaching is still a click.
+            window.__mwAutoMatched = window.__mwAutoMatched || {};
+            if (!window.__mwAutoMatched[e.id] || Date.now() - window.__mwAutoMatched[e.id] > 5000) {   // each opening, never a loop
+                window.__mwAutoMatched[e.id] = Date.now();
+                setTimeout(function () { if (document.getElementById('expMatchArea')) window.mwFindExpenseMatch(e.id); }, 150);
+            }
         }
         if (window.feather) feather.replace();
     }
