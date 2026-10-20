@@ -617,15 +617,26 @@ class MulchPricingService
         } catch (Throwable $e) {
             return null;
         }
-        return $r ? self::listMaterialFrom($r) : null;
+        if (!$r) return null;
+        // BC PST the contractor pays on material it installs (7%; Tim 2026-10-19). Trade list prices are
+        // before tax, so it is added here. Receipt-based material is left as it is (some lines hold PST already).
+        $pst = 7.0;
+        try {
+            $q = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'supplier_material_pst_pct'");
+            $q->execute();
+            $v = $q->fetchColumn();
+            if ($v !== false && is_numeric($v)) $pst = (float)$v;
+        } catch (Throwable $e) { /* default */ }
+        return self::listMaterialFrom($r, $pst);
     }
 
     /** PURE: the row → material + supplier, in breakdown()'s shapes. */
-    public static function listMaterialFrom(array $r): ?array
+    public static function listMaterialFrom(array $r, float $pstPct = 0.0): ?array
     {
         if (!is_numeric($r['price'] ?? null) || (float)$r['price'] <= 0) return null;
-        $label = trim((string)$r['supplier']) . ' list (' . date('M j, Y', strtotime((string)$r['list_date'])) . ')';
-        $material = ['per_yard' => round((float)$r['price'], 2), 'real' => true, 'source' => $label, 'n' => 1, 'evidence' => [],
+        $pst = $pstPct > 0 ? ' + ' . rtrim(rtrim(number_format($pstPct, 2), '0'), '.') . '% PST' : '';
+        $label = trim((string)$r['supplier']) . ' list (' . date('M j, Y', strtotime((string)$r['list_date'])) . ')' . $pst;
+        $material = ['per_yard' => round((float)$r['price'] * (1 + $pstPct / 100), 2), 'real' => true, 'source' => $label, 'n' => 1, 'evidence' => [],
                      'excluded' => [], 'gst_removed' => 0, 'usual_vendor' => null, 'list_item_id' => (int)$r['id']];
         $supplier = is_numeric($r['lat'] ?? null) && is_numeric($r['lng'] ?? null)
             ? ['id' => 0, 'name' => (string)$r['supplier'], 'lat' => (float)$r['lat'], 'lng' => (float)$r['lng'], 'basis' => 'the supplier list Sam picked']

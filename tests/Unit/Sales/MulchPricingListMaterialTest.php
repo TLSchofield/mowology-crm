@@ -20,6 +20,13 @@ class MulchPricingListMaterialTest extends TestCase
         $this->assertSame(['id' => 0, 'name' => 'Fake Garden Supply', 'lat' => 49.19, 'lng' => -122.99, 'basis' => 'the supplier list Sam picked'], $r['supplier']);
     }
 
+    public function testThePstWePayIsAddedToTheListPrice(): void
+    {
+        $r = MulchPricingService::listMaterialFrom(['id' => 1, 'price' => '38.95', 'list_date' => '2026-07-01', 'supplier' => 'Fake Garden Supply', 'lat' => 1, 'lng' => 1], 7.0);
+        $this->assertSame(41.68, $r['material']['per_yard'], '38.95 × 1.07');
+        $this->assertSame('Fake Garden Supply list (Jul 1, 2026) + 7% PST', $r['material']['source']);
+    }
+
     public function testNoPriceNoMaterialAndNoPinNoHaulEnd(): void
     {
         $this->assertNull(MulchPricingService::listMaterialFrom(['id' => 1, 'price' => null, 'list_date' => '2026-07-01', 'supplier' => 'X', 'lat' => 1, 'lng' => 1]));
