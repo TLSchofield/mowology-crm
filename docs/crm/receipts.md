@@ -576,3 +576,14 @@ stay private): Yes/another one/Add teach the SKU + wording; "No" is remembered f
 a correction to another family moves the key. Corrections are Penny lessons (`catalog_product`). Renaming a line
 resets its link. Office only (crew see links read-only). Backfill 2026: 54 receipts, 1 linked, 12 asked, 57 to add.
 
+## GST that can't be right; PDFs; foreign currency — 2026-10-19
+- `ExpenseGate::taxCheck`: GST above the total, or above 15% (highest HST) of the pre-tax amount, is impossible —
+  a person's edit is refused; a NEW receipt (phone / email / desktop capture) is kept as a `GST_WRONG` draft so a
+  capture is never lost; approving / sending it is refused for everyone. Above the company's own rate
+  (`TaxEngine::gstRate`) but possible (out-of-province HST) → `GST_CHECK`, saved. RiskExplainer explains both.
+- Scans from the cron: `ReceiptOCR` calls Google over curl (`receiptOcrHttpPost`) — the CLI had no https stream
+  wrapper, so every scheduled scan read nothing (Oct 7–19).
+- Penny reads a PDF bill as a document (scanned PDFs have no text layer and were never read).
+- `ReceiptFactsService::fillFromOcr` never copies a total from a foreign-currency bill (USD / GBP / EUR, or a US/UK
+  seller not saying CAD): those are booked in CAD from the bank / card line.
+
