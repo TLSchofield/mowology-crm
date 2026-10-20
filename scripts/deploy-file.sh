@@ -214,14 +214,31 @@ trap 'rm -f "$LFTP_OUT"' EXIT
 TEMP_NAME="${FILENAME}.deploying"
 TEMP_DEST="${REMOTE_DIR}${TEMP_NAME}"
 
-if ! mw_lftp "
-    put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'
-    mv '$TEMP_DEST' '$EXPECTED_DEST'
-    quit
-" >"$LFTP_OUT" 2>&1; then
+# ONE data operation per lftp session (2026-10-17 / 2026-10-19): this server drops the
+# FTP session after one transfer, so `put` + `mv` in a single session failed with
+# "put/mv: Not connected". Three short sessions instead: put, size check, mv. The live
+# file is still never touched until the size on the server equals the local size.
+LOCAL_SIZE="$(wc -c <"$LOCAL" | tr -d ' ')"
+
+if ! mw_lftp "put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'; quit" >"$LFTP_OUT" 2>&1; then
     echo "ERROR: lftp upload failed" >&2
     cat "$LFTP_OUT" >&2
     exit 5
 fi
 
-echo "Uploaded: $LOCAL -> $EXPECTED_DEST"
+# Size is the field just before the month name; the column count varies by server.
+REMOTE_SIZE="$(mw_lftp "cls -l '$TEMP_DEST'; quit" 2>>"$LFTP_OUT" \
+    | awk '{for(i=2;i<=NF;i++) if($i ~ /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/){print $(i-1); exit}}')"
+if [[ "$REMOTE_SIZE" != "$LOCAL_SIZE" ]]; then
+    echo "ERROR: uploaded temp file is ${REMOTE_SIZE:-missing} bytes, local is ${LOCAL_SIZE}; live file NOT replaced" >&2
+    cat "$LFTP_OUT" >&2
+    exit 5
+fi
+
+if ! mw_lftp "mv '$TEMP_DEST' '$EXPECTED_DEST'; quit" >"$LFTP_OUT" 2>&1; then
+    echo "ERROR: upload verified but rename failed; live file NOT replaced (temp left at $TEMP_DEST)" >&2
+    cat "$LFTP_OUT" >&2
+    exit 5
+fi
+
+echo "Uploaded and size-verified (${REMOTE_SIZE} bytes): $LOCAL -> $EXPECTED_DEST"

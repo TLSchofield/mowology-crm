@@ -759,6 +759,24 @@ if (isAdmin()
     $refundableAmount = InvoiceRefundService::refundable((float) $invoice['amount_paid'], (float) $invoice['amount_refunded']);
 }
 
+// Refunds issued on this invoice (shown under the totals and in the activity timeline).
+$refundRows = [];
+if (array_key_exists('amount_refunded', $invoice)) {
+    try {
+        $rfStmt = $db->prepare("
+            SELECT r.amount, r.reason, r.created_at, u.full_name
+            FROM invoice_refunds r
+            LEFT JOIN users u ON u.id = r.created_by
+            WHERE r.invoice_id = ? AND r.status = 'succeeded'
+            ORDER BY r.created_at ASC, r.id ASC
+        ");
+        $rfStmt->execute([$invoiceId]);
+        $refundRows = $rfStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log('invoice refunds lookup failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+    }
+}
+
 // Likely bank-deposit matches for this invoice (same inline reconciliation as the
 // Invoices list and contact view). Only for payable invoices with a balance.
 $invoiceMatches = [];
@@ -1204,7 +1222,15 @@ $extraHead = $isPayable
                                   </div>
                                   <?php if (floatval($invoice['amount_refunded'] ?? 0) > 0): ?>
                                   <div class="mw-total-row">
-                                      <span>Refunded to customer</span>
+                                      <span>Refunded to customer
+                                          <?php foreach ($refundRows as $rf): ?>
+                                              <small style="display:block;color:#6b7280;font-weight:normal;">
+                                                  <?php echo htmlspecialchars(formatCurrency($rf['amount'])); ?>
+                                                  &middot; <?php echo htmlspecialchars(date('M j, Y', strtotime($rf['created_at']))); ?>
+                                                  &mdash; <?php echo htmlspecialchars($rf['reason']); ?>
+                                              </small>
+                                          <?php endforeach; ?>
+                                      </span>
                                       <span class="mw-totals-value" style="color: #dc2626;"><?php echo formatCurrency($invoice['amount_refunded']); ?></span>
                                   </div>
                                   <?php endif; ?>
@@ -1400,7 +1426,14 @@ $extraHead = $isPayable
                                 'System', 'mw-dot-reminder');
                   }
                   $addEvent($invoice['paid_at'] ?? null, 'Payment received',
-                            $findActor(['payment', 'paid']), 'mw-dot-paid');
+                            $findActor(['payment', 'paid'], ['refund']), 'mw-dot-paid');
+                  // Refunds come from invoice_refunds (amount, reason, who, when) — their activity_log
+                  // rows say "Payment refunded", which the lifecycle filter below would swallow.
+                  foreach ($refundRows as $rf) {
+                      $addEvent($rf['created_at'],
+                                'Refunded ' . formatCurrency($rf['amount']) . ' — ' . $rf['reason'],
+                                $rf['full_name'] ?: 'System', 'mw-dot-paid');
+                  }
 
                   // Append non-lifecycle activity_log rows (edits, cancels, notes…).
                   $lifecycleKeywords = ['created', 'sent', 'opened', 'viewed', 'reminder', 'paid', 'payment'];

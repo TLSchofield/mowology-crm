@@ -49,6 +49,17 @@ class InvoiceRefundService
         if (!defined('STRIPE_SECRET_KEY') || empty(STRIPE_SECRET_KEY)) {
             throw new RuntimeException('STRIPE_SECRET_KEY is not configured');
         }
+        // The invoice page does not load Composer's autoloader (the webhook and customer
+        // payment endpoints do, themselves). Load it here so the Stripe SDK is available.
+        if (!class_exists('\Stripe\StripeClient')) {
+            $autoload = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 4)) . '/vendor/autoload.php';
+            if (is_file($autoload)) {
+                require_once $autoload;
+            }
+        }
+        if (!class_exists('\Stripe\StripeClient')) {
+            throw new RuntimeException('The Stripe library is not installed on this server.');
+        }
         return new \Stripe\StripeClient(STRIPE_SECRET_KEY);
     }
 
