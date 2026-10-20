@@ -421,3 +421,12 @@ Personal receipts, and Personal always posts to a shareholder account, never the
 no posted Personal receipt, so nothing was reposted. Don't confuse with `owner_paid` (a BUSINESS purchase paid
 personally: funded by 1300, keeps its GST credit).
 
+## Chequing $973 under the bank: approved receipts booked twice with their unlinked bank lines (2026-10-20)
+A receipt books its purchase (CR 1010) when approved; its bank line ALSO books it unless linked (then the line's entry
+is retired). Receipts approved without a link, a duplicate receipt (#281 = #164), a total read as the taxes (#337 $1.03 vs
+$11.53) and a line linked to a REJECTED copy (#44 → #124) each double- or zero-booked a purchase. Fixed + approval now links
+the one exact line. Also: the repost tool must never "fix" 1015/1016 holding-account lines (its old plan would have moved
+152 of them and booked $36,390 of deposits as income), and a receipt category must never take a revenue account
+(4900 "Other Services" aliases the service type 'other' — 3 receipts were income). Feb's −$80: Home Depot #7 $64.26 is
+marked debit but no statement line has it (paid another way — ask Tim).
+

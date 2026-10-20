@@ -587,3 +587,9 @@ resets its link. Office only (crew see links read-only). Backfill 2026: 54 recei
 - `ReceiptFactsService::fillFromOcr` never copies a total from a foreign-currency bill (USD / GBP / EUR, or a US/UK
   seller not saying CAD): those are booked in CAD from the bank / card line.
 
+## Approving links the bank line (reconciliation) — 2026-10-20
+On approval the gate links the receipt to its ONE unlinked statement line with the exact amount (`ExpenseGateHooks::linkBank`);
+the nightly posting books the receipt and retires the line's own entry, so the purchase counts once. Owner-paid receipts
+expect no line. Anything less certain stays a suggestion in the receipt window. Without this, approved receipts and their
+unlinked lines were both booked: chequing was $973 under the bank at Sept month-end; linked, $10.
+
