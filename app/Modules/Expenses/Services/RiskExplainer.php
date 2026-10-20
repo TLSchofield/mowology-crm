@@ -86,6 +86,10 @@ class RiskExplainer
                     return 'That\'s more than double the usual ' . ($cat !== '' ? $cat : 'spend') . ' for this month (about $' . $m[1] . ').';
                 }
                 return 'Bigger than usual for ' . ($cat !== '' ? $cat : 'this kind of expense') . ' — make sure the amount is right.';
+            case 'GST_WRONG':
+                return "The GST can't be right for this total — it's more than any Canadian sales tax. Check the GST on the paper; it can't be approved like this.";
+            case 'GST_CHECK':
+                return 'The GST is more than our rate on the subtotal. Fine if it was bought in an HST province; otherwise check it.';
             case 'DATE_UNREADABLE':
                 $d = !empty($e['expense_date']) ? date('M j, Y', strtotime((string)$e['expense_date'])) : 'this date';
                 return "I read the date as {$d}, long before it was uploaded — it may be handwritten. Check the date on the paper.";

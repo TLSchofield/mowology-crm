@@ -265,7 +265,8 @@ TXT;
     {
         $content = [];
         if ($image) {
-            $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $image['media_type'], 'data' => $image['data']]];
+            $content[] = ['type' => ($image['kind'] ?? 'image') === 'document' ? 'document' : 'image',
+                          'source' => ['type' => 'base64', 'media_type' => $image['media_type'], 'data' => $image['data']]];
         }
         $content[] = ['type' => 'text', 'text' => "Receipt to prepare:\n" . json_encode($prompt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)];
 
@@ -285,10 +286,14 @@ TXT;
             return null;
         }
         $type = mime_content_type($path) ?: '';
+        // An emailed PDF bill — a scan with no text layer can only be read this way (2026-10-19: 9 PDFs never read).
+        if ($type === 'application/pdf') {
+            return ['kind' => 'document', 'media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
+        }
         if (!in_array($type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
             return null;   // HEIC etc. — text only
         }
-        return ['media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
+        return ['kind' => 'image', 'media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
     }
 
     // ─────────────────────────────────────────────────────────────────────────

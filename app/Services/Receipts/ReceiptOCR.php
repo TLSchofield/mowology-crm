@@ -127,25 +127,14 @@ function extractTextFromImage(string $filePath): array
     ]);
 
     // Make the API call with Bearer token
-    $context = stream_context_create([
-        'http' => [
-            'method'  => 'POST',
-            'header'  => "Content-Type: application/json\r\n"
-                       . "Authorization: Bearer " . $accessToken . "\r\n",
-            'content' => $requestBody,
-            'timeout' => 30,
-        ],
-    ]);
-
-    $response = @file_get_contents($apiUrl, false, $context);
+    [$response, $httpErr] = receiptOcrHttpPost($apiUrl, ['Content-Type: application/json', 'Authorization: Bearer ' . $accessToken], $requestBody, 30);
 
     if ($response === false) {
-        $err = error_get_last();
         return [
             'success'      => false,
             'text'         => null,
             'raw_response' => null,
-            'error'        => 'Vision API request failed: ' . ($err['message'] ?? 'Unknown error'),
+            'error'        => 'Vision API request failed: ' . $httpErr,
         ];
     }
 
@@ -286,19 +275,9 @@ function getVisionAccessToken(string $credPath): array
         'assertion'  => $jwt,
     ]);
 
-    $context = stream_context_create([
-        'http' => [
-            'method'  => 'POST',
-            'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
-            'content' => $postData,
-            'timeout' => 15,
-        ],
-    ]);
-
-    $tokenResponse = @file_get_contents($tokenUrl, false, $context);
+    [$tokenResponse, $httpErr] = receiptOcrHttpPost($tokenUrl, ['Content-Type: application/x-www-form-urlencoded'], $postData, 15);
     if ($tokenResponse === false) {
-        $err = error_get_last();
-        return ['success' => false, 'token' => null, 'error' => 'Token exchange failed: ' . ($err['message'] ?? 'Unknown')];
+        return ['success' => false, 'token' => null, 'error' => 'Token exchange failed: ' . $httpErr];
     }
 
     $tokenData = json_decode($tokenResponse, true);
@@ -420,6 +399,29 @@ function calculateFieldConfidences(array $parsed, array $wordConfidences): array
 /**
  * Base64 URL-safe encode (no padding, URL-safe alphabet).
  */
+/**
+ * POST over https: curl when PHP has it, else a stream (2026-10-19). The scan cron's PHP CLI has no https
+ * stream wrapper ("no suitable wrapper could be found"), so every scheduled scan read nothing since
+ * Oct 7 while the same call worked from the web. @return array{0: string|false, 1: string} [body, error]
+ */
+function receiptOcrHttpPost(string $url, array $headers, string $body, int $timeout): array
+{
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
+                                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 10]);
+        $res = curl_exec($ch);
+        $err = $res === false ? 'curl: ' . curl_error($ch) : '';
+        curl_close($ch);
+        return [$res, $err];
+    }
+    $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => implode("\r\n", $headers) . "\r\n", 'content' => $body,
+                                              'timeout' => $timeout, 'ignore_errors' => true]]);
+    $res = @file_get_contents($url, false, $ctx);
+    if ($res === false) { $e = error_get_last(); return [false, (string)($e['message'] ?? 'Unknown error')]; }
+    return [$res, ''];
+}
+
 function base64UrlEncode(string $data): string
 {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');

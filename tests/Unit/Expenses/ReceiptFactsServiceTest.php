@@ -314,4 +314,20 @@ class ReceiptFactsServiceTest extends TestCase
         $this->assertSame('auth', $p['doc_kind']);
         $this->assertNull(ReceiptFactsService::parse("Auth#\nAPPROVED\n")['doc_number'], 'a word is not a number');
     }
+
+    public function testAForeignCurrencyBillNeverGivesTheReceiptItsTotal(): void
+    {
+        $draft = ['status' => 'draft', 'raw_ocr_json' => '', 'total' => 0, 'expense_date' => null, 'vendor_name_raw' => 'Anthropic'];
+        $usd = ['parsed_raw_text' => 'ZDDNYN1S-0003 · $56.00 USD due October 15, 2026', 'parsed_total' => 56.00, 'parsed_date' => '2026-10-15'];
+        $this->assertSame(['raw_ocr_json', 'expense_date'], array_keys(ReceiptFactsService::fillFromOcr($draft, $usd)), 'CAD comes from the bank line');
+        $this->assertTrue(ReceiptFactsService::foreignCurrency('Total £42.00'));
+        $this->assertTrue(ReceiptFactsService::foreignCurrency('Anthropic, PBC San Francisco, California 94104 United States … Total $56.00'), 'a US seller');
+        $this->assertFalse(ReceiptFactsService::foreignCurrency('Canadian Web Hosting Total $25.71 CAD'));
+        $this->assertFalse(ReceiptFactsService::foreignCurrency('CHEVRON TOTAL $14.88'));
+        $asJson = ['parsed_raw_text' => json_encode(['text' => "Anthropic \xff United States Total $56.00", 'source' => 'pdf_text'], JSON_INVALID_UTF8_SUBSTITUTE), 'parsed_total' => 56.0];
+        $this->assertArrayNotHasKey('total', ReceiptFactsService::fillFromOcr($draft, $asJson), 'checked on the text inside the JSON');
+        $cad = ['parsed_raw_text' => 'Canadian Web Hosting Total $25.71', 'parsed_total' => 25.71];
+        $this->assertSame(25.71, ReceiptFactsService::fillFromOcr($draft, $cad)['total']);
+    }
 }
+

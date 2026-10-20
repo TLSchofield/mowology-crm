@@ -439,7 +439,9 @@ class ReceiptInboxService
                 'match_confidence'    => $confidence,
                 'anomaly_flags'       => $anomalyFlags,
                 'anomaly_score'       => $anomalyScore,
-                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']]) : null,
+                // A PDF's text can carry bytes that aren't UTF-8: substituted, or json_encode returns false and the text is lost (2026-10-19).
+                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? (json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']],
+                                                                        JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: null) : null,
                 'notes'               => $note,
                 'status'              => $status,
                 'source'              => 'email_inbox',

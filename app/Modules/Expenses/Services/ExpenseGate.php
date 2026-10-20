@@ -177,6 +177,25 @@ class ExpenseGate
         if (!$delete && !$set && !$linesChange && !$splitChange) {
             return self::result((int)$expenseId, 'none', [], true);
         }
+        // GST that can't be right (owner, 2026-10-19: "surely if the gst is obviously wrong the receipt shouldnt
+        // save"; #114, a $2.61 coffee read as $5.00 GST, failed the nightly posting for months). TaxCheck:
+        //   impossible — a person's edit is refused; a NEW receipt (phone / email / desktop capture, which save as the
+        //                person too) is kept as a flagged draft so a capture is never lost; approving / sending it
+        //                is refused for everyone, so it can't reach the books;
+        //   high       — above this company's GST rate but possible (out-of-province HST): saved, flagged.
+        if (!$delete && ($create || array_intersect(array_keys($set), ['gst_amount', 'pst_amount', 'total', 'status']))) {
+            $after0 = array_merge($before, $cols);
+            $tc = self::taxCheck($after0, $this->gstRate());
+            if ($tc['level'] === 'impossible' && (in_array((string)($after0['status'] ?? ''), self::POSTED, true)
+                                                   || (!$create && ($actor['kind'] ?? 'user') === 'user'))) {
+                throw new InvalidArgumentException($tc['message']);
+            }
+            $flags = self::withTaxFlag((string)($after0['anomaly_flags'] ?? ''), $tc['level']);
+            if ($flags !== (string)($before['anomaly_flags'] ?? '') || $create) {
+                $cols['anomaly_flags'] = $flags;
+                $set = $create ? $cols : self::diff($before, $cols);
+            }
+        }
 
         // ── 2. Write ─────────────────────────────────────────────────────────
         $own = !$this->db->inTransaction();
@@ -535,6 +554,58 @@ class ExpenseGate
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    public const TAX_FLAG_WRONG = 'GST_WRONG';
+    public const TAX_FLAG_CHECK = 'GST_CHECK';
+    /** The highest sales tax that can sit on a Canadian receipt as GST/HST (HST 15%) — above it is impossible. */
+    public const MAX_SALES_TAX = 0.15;
+
+    /**
+     * Is this receipt's GST possible? (regions skill CA: GST above the rate × the pre-tax subtotal can't come
+     * from GST alone; less is normal — zero-rated groceries, deposits.) Rounding allowance: 2¢ or 1%. PURE.
+     * @return array{level: ?string, message: ?string}   level: null | 'high' | 'impossible'
+     */
+    public static function taxCheck(array $row, float $gstRate = 0.05): array
+    {
+        $total = round((float)($row['total'] ?? 0), 2);
+        $gst = round((float)($row['gst_amount'] ?? 0), 2);
+        $pst = round((float)($row['pst_amount'] ?? 0), 2);
+        if ($total <= 0 || $gst <= 0) return ['level' => null, 'message' => null];
+        $net = round($total - $gst - $pst, 2);
+        $slack = static fn($x) => max(0.02, 0.01 * $x);
+        if ($net <= 0 || $gst > self::MAX_SALES_TAX * $net + $slack($net)) {
+            return ['level' => 'impossible', 'message' => 'The GST ($' . number_format($gst, 2) . ") can't be right for a $" . number_format($total, 2)
+                . ' receipt — at ' . rtrim(rtrim(number_format($gstRate * 100, 1), '0'), '.') . '% it would be about $' . number_format($gstRate * $total / (1 + $gstRate), 2) . '. Check the GST on the paper.'];
+        }
+        if ($gst > $gstRate * $net + $slack($net)) {
+            return ['level' => 'high', 'message' => 'The GST is more than ' . rtrim(rtrim(number_format($gstRate * 100, 1), '0'), '.') . '% of the subtotal — fine for HST from another province, otherwise check it.'];
+        }
+        return ['level' => null, 'message' => null];
+    }
+
+    /** anomaly_flags with the GST flag for $level (and only that one). PURE. */
+    public static function withTaxFlag(string $flags, ?string $level): string
+    {
+        $list = array_values(array_filter(array_map('trim', explode(',', strtoupper($flags))), fn($f) => $f !== '' && $f !== self::TAX_FLAG_WRONG && $f !== self::TAX_FLAG_CHECK));
+        if ($level === 'impossible') $list[] = self::TAX_FLAG_WRONG;
+        if ($level === 'high') $list[] = self::TAX_FLAG_CHECK;
+        return implode(',', $list);
+    }
+
+    private ?float $gstRateCache = null;
+
+    private function gstRate(): float
+    {
+        if ($this->gstRateCache === null) {
+            try {
+                if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+                $this->gstRateCache = TaxEngine::gstRate($this->db);
+            } catch (Throwable $e) {
+                $this->gstRateCache = 0.05;
+            }
+        }
+        return $this->gstRateCache;
+    }
 
     /** A column's value as it is stored. @throws InvalidArgumentException */
     public static function normalise(string $col, $v)

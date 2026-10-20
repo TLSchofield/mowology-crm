@@ -111,6 +111,33 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(['total' => 218.40], $this->hooks->calls['learnConfirmed'][0][1], 'the inbox baseline is passed through');
     }
 
+    public function test_impossible_gst_is_refused_on_an_edit_kept_flagged_on_a_capture_and_never_approved(): void
+    {
+        $status = (string)$this->row(412)['status'];
+        try {
+            $this->gate->apply(412, ['gst_amount' => 999.00], self::TIM, 'desktop_modal');
+            $this->fail('a person can\'t save GST bigger than the receipt');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString("can't be right", $e->getMessage());
+        }
+        $this->assertNotSame(999.0, (float)$this->row(412)['gst_amount']);
+
+        $new = $this->gate->apply(null, ['expense_date' => '2026-05-01', 'vendor_name_raw' => 'CHEVRON', 'amount' => 0, 'gst_amount' => 5.00, 'total' => 2.61,
+                                         'status' => 'pending_approval', 'created_by' => 6], self::TIM, 'ios_save');
+        $id = (int)$new['expense_id'];
+        $this->assertGreaterThan(0, $id, 'a phone capture is never lost');
+        $this->assertStringContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags']);
+        try {
+            $this->gate->apply($id, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+            $this->fail('it can\'t be approved like that');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('Check the GST', $e->getMessage());
+        }
+        $this->gate->apply($id, ['gst_amount' => 0.12, 'amount' => 2.49], self::TIM, 'desktop_modal');
+        $this->assertStringNotContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags'], 'fixed: the flag goes');
+        $this->assertSame($status, (string)$this->row(412)['status']);
+    }
+
     public function test_a_receipt_sent_to_accounting_keeps_its_money(): void
     {
         $this->db->exec("UPDATE expenses SET status = 'forwarded', forwarded_to_accounting = 1 WHERE id = 412");

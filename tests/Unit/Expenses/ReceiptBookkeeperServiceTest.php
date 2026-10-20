@@ -174,4 +174,14 @@ class ReceiptBookkeeperServiceTest extends TestCase
         $this->assertSame('14 Day Lawn Cut Service — Tisdall Street', ReceiptBookkeeperService::withoutHouseNumber('14 Day Lawn Cut Service — 6015 Tisdall Street'));
         $this->assertSame('Shop supplies', ReceiptBookkeeperService::withoutHouseNumber('Shop supplies'));
     }
+
+    public function testAPdfBillIsSentAsADocumentAndAPhotoAsAnImage(): void
+    {
+        $pdf = ReceiptBookkeeperService::buildRequest(['x' => 1], ['kind' => 'document', 'media_type' => 'application/pdf', 'data' => 'QUJD'], 'm', 'low');
+        $this->assertSame('document', $pdf['messages'][0]['content'][0]['type']);
+        $this->assertSame('application/pdf', $pdf['messages'][0]['content'][0]['source']['media_type']);
+        $img = ReceiptBookkeeperService::buildRequest(['x' => 1], ['media_type' => 'image/jpeg', 'data' => 'QUJD'], 'm', 'low');
+        $this->assertSame('image', $img['messages'][0]['content'][0]['type'], 'an older caller without kind is a photo');
+    }
 }
+
