@@ -47,7 +47,7 @@ class QboSyncTest extends TestCase
                    (1, 'account', '4100', '80', 'Services'), (1, 'account', '4200', '81', 'Hedges')");
         $db->exec("INSERT INTO chart_of_accounts VALUES ('4100', 'Lawn Care Services', 'revenue', 1), ('4200', 'Hedge & Shrub Trimming', 'revenue', 1), ('4600', 'Fertilization', 'revenue', 1)");
         $db->exec("INSERT INTO clients VALUES (5, 'Susan O''Lim', 'susan@example.ca')");
-        $db->exec("INSERT INTO invoices VALUES (10, 5, 'INV-2026-0500', 'sent', 396.25, 19.81, 5.0, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL)");
+        $db->exec("INSERT INTO invoices VALUES (10, 5, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL)");
         $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 'Hedge trim', NULL, 1)");
         $db->exec("INSERT INTO invoice_payment_allocations VALUES (100, 10, 416.06, '2026-10-20', '2026-10-20 09:00:00', 'ET-55')");
         return $db;
@@ -263,6 +263,14 @@ class QboSyncTest extends TestCase
         $items = array_values(array_filter($this->sent, fn($s) => $s['entity'] === 'item'));
         $this->assertCount(1, $items, 'a new item, not the one pointing at the old account');
         $this->assertSame('99', $items[0]['body']['IncomeAccountRef']['value']);
+    }
+
+    public function test_the_stored_rate_is_read_as_a_fraction_or_a_percent(): void
+    {
+        $this->assertSame(0.05, QboSyncService::rateOf('0.05'), 'live invoices store 0.05');
+        $this->assertSame(0.05, QboSyncService::rateOf(5), 'a percent reads the same');
+        $this->assertSame(0.13, QboSyncService::rateOf('13.0'));
+        $this->assertSame(0.05, QboSyncService::rateOf(null));
     }
 
     public function test_request_ids_and_names(): void

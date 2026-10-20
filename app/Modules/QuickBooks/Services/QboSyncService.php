@@ -157,6 +157,17 @@ class QboSyncService
         return null;
     }
 
+    /**
+     * Pure (tested): invoices.tax_rate as a fraction. Stored as 0.05 on live invoices (checked
+     * 2026-10-20), but a percent (5) is read the same; none → 5%.
+     */
+    public static function rateOf($stored): float
+    {
+        $r = (float)$stored;
+        if ($r <= 0) return self::GST_RATE;
+        return $r > 1 ? $r / 100 : $r;
+    }
+
     /** Pure: the same money to the cent? */
     public static function sameMoney(float $a, float $b): bool
     {
@@ -220,8 +231,8 @@ class QboSyncService
         $net = round((float)($inv['subtotal'] ?? 0), 2);
         $splits = ($this->splits)($inv, $net);
         $ittaiTotal = round((float)($inv['total'] ?: $inv['total_amount']), 2);
-        // The invoice's own rate (invoices.tax_rate, a percent) — tenant-neutral: 13% HST in Ontario, 5% GST in BC.
-        $rate = (float)($inv['tax_rate'] ?? 0) > 0 ? (float)$inv['tax_rate'] / 100 : self::GST_RATE;
+        // The invoice's own rate — tenant-neutral: 13% HST in Ontario, 5% GST in BC.
+        $rate = self::rateOf($inv['tax_rate'] ?? null);
         if (($why = self::cannotSend($net, $gst, $ittaiTotal, $splits, $rate)) !== null) {
             return ['ok' => false, 'message' => $label . ' was not sent: ' . $why];
         }
