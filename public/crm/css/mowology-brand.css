@@ -40473,3 +40473,19 @@ body.mw-books {
 
 /* Expenses: a field the attached receipt just filled in (expenses_appstack.php, 2026-10-15) */
 .mw-field-updated { border-color: var(--mw-green) !important; box-shadow: 0 0 0 0.15rem var(--mw-light); }
+
+/* ── Cost Factors → Penny's check (ledger suggestions) ──── */
+.mw-penny-check { border-left: 4px solid var(--mw-green); }
+.mw-penny-check .card-header { background: var(--mw-light); }
+.mw-penny-sub { font-size: 0.8rem; color: var(--mw-dark); margin-top: 2px; }
+.mw-penny-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--mw-light); }
+.mw-penny-row:last-of-type { border-bottom: 0; }
+.mw-penny-change { color: var(--mw-dark); font-weight: 600; margin-left: 6px; }
+.mw-penny-src { font-size: 0.78rem; color: var(--mw-ink-soft, var(--mw-dark)); margin-top: 2px; }
+.mw-penny-actions { white-space: nowrap; }
+.mw-penny-clear { color: var(--mw-dark); padding: 4px 0; }
+.mw-penny-note { font-size: 0.82rem; color: var(--mw-ink-soft, var(--mw-dark)); background: var(--mw-light); border-radius: 4px; padding: 8px 10px; margin-top: 10px; }
+.mw-penny-note ul { margin: 6px 0 0 18px; padding: 0; }
+@media (max-width: 575.98px) {
+  .mw-penny-row { flex-direction: column; align-items: flex-start; }
+}
