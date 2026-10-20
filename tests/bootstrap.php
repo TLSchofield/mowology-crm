@@ -190,6 +190,7 @@ require_once __DIR__ . '/../app/Services/Spreadsheet/PdfTableReader.php';   // s
 require_once __DIR__ . '/../app/Modules/Operations/Services/PlantNameNormalizer.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormatInferrer.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierSearchService.php';   // best price across supplier lists (2026-10-19)
