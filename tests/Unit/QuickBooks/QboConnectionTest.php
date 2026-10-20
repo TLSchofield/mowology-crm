@@ -292,6 +292,21 @@ class QboConnectionTest extends TestCase
         $this->assertNull(QboConnectionService::suggestTaxCode('out_of_scope', $tax));
     }
 
+    public function test_only_accounts_of_the_same_kind_are_offered(): void
+    {
+        // 2026-10-20 sandbox: "4000 Revenue" was guessed as "Arizona Dept. of Revenue Payable" (a liability).
+        $remote = [
+            ['qbo_id' => '1', 'name' => 'Arizona Dept. of Revenue Payable', 'detail' => 'Other Current Liability'],
+            ['qbo_id' => '2', 'name' => 'Services', 'detail' => 'Income'],
+            ['qbo_id' => '3', 'name' => 'Supplies', 'detail' => 'Expense · 6200'],
+            ['qbo_id' => '4', 'name' => 'Truck', 'detail' => 'Fixed Asset'],
+        ];
+        $this->assertSame(['2'], array_column(QboConnectionService::fitting('revenue', $remote), 'qbo_id'));
+        $this->assertSame(['3'], array_column(QboConnectionService::fitting('expense', $remote), 'qbo_id'));
+        $this->assertSame(['4'], array_column(QboConnectionService::fitting('asset', $remote), 'qbo_id'));
+        $this->assertNull(QboConnectionService::suggestAccount('Revenue', QboConnectionService::fitting('revenue', $remote)));
+    }
+
     public function test_remote_item_shapes(): void
     {
         $this->assertSame(['qbo_id' => '7', 'name' => 'Expenses:Fuel', 'detail' => 'Expense · 6100', 'active' => 1],

@@ -361,6 +361,25 @@ class QboConnectionService
         return true;
     }
 
+    /** QuickBooks account types an Ittai account may map to (an income line never lands in a liability). */
+    public const TYPE_FIT = [
+        'revenue' => ['Income', 'Other Income'],
+        'expense' => ['Expense', 'Cost of Goods Sold', 'Other Expense'],
+        'asset'   => ['Fixed Asset', 'Other Asset', 'Other Current Asset'],
+    ];
+
+    /**
+     * Pure (tested): the QuickBooks accounts that fit an Ittai account's type. The stored detail is
+     * "AccountType · AcctNum" (remoteItem). An unknown Ittai type keeps them all.
+     * @param list<array{qbo_id:string,name:string,detail:?string}> $remote
+     */
+    public static function fitting(string $ittaiType, array $remote): array
+    {
+        $ok = self::TYPE_FIT[$ittaiType] ?? null;
+        if ($ok === null) return $remote;
+        return array_values(array_filter($remote, fn($r) => in_array(trim(explode(' ·', (string)($r['detail'] ?? ''))[0]), $ok, true)));
+    }
+
     /**
      * Pure (tested): Otto's first guess for an Ittai account — same name, then one name containing the
      * other. Only a guess: the owner confirms it on the page.

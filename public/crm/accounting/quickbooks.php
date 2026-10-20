@@ -161,14 +161,16 @@ $activePage = 'accounting';
             <thead><tr><th scope="col">Ittai account</th><th scope="col">QuickBooks account</th></tr></thead>
             <tbody>
             <?php foreach ($accounts as $a):
+                // Only accounts of the same kind (income → income, expense → expense, equipment → fixed asset).
+                $fit = QboConnectionService::fitting((string)$a['type'], $qAccounts);
                 $cur = $maps['account'][$a['code']]['qbo_id'] ?? null;
-                $guess = $cur === null ? QboConnectionService::suggestAccount((string)$a['name'], $qAccounts) : null; ?>
+                $guess = $cur === null ? QboConnectionService::suggestAccount((string)$a['name'], $fit) : null; ?>
                 <tr>
                     <th scope="row" class="fw-normal"><label for="acct-<?= h($a['code']) ?>"><?= h($a['code'] . ' ' . $a['name']) ?></label></th>
                     <td>
                         <select class="form-select form-select-sm" id="acct-<?= h($a['code']) ?>" name="map[account][<?= h($a['code']) ?>]">
                             <option value="">— choose —</option>
-                            <?php foreach ($qAccounts as $q): $sel = ($cur ?? $guess) === $q['qbo_id']; ?>
+                            <?php foreach ($fit as $q): $sel = ($cur ?? $guess) === $q['qbo_id']; ?>
                                 <option value="<?= h($q['qbo_id']) ?>"<?= $sel ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?><?= ($sel && $cur === null) ? ' (suggested)' : '' ?></option>
                             <?php endforeach; ?>
                         </select>
