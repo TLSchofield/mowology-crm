@@ -124,6 +124,13 @@ class QboConnectionService
         $saved = $session['qbo_oauth'] ?? null;
         $now = ($this->clock)();
         if (!self::stateOk(is_array($saved) ? $saved : null, $state, $now, $this->siteId)) {
+            // The browser loaded the return link twice (seen 2026-10-20, one second apart): the first
+            // connected this company moments ago — say so instead of a false failure.
+            $row = $this->row();
+            if (!$saved && $row && (string)$row['realm_id'] === $realmId && $row['status'] === 'connected'
+                && $row['connected_at'] && $now - strtotime((string)$row['connected_at']) < 120) {
+                return ['ok' => true, 'message' => 'Connected to ' . ($row['company_name'] ?: 'your QuickBooks company') . '.'];
+            }
             // A foreign link leaves a sign-in in progress alone (Codex review 2026-10-20).
             return ['ok' => false, 'message' => 'That QuickBooks sign-in did not start here or took too long. Press Connect again.'];
         }

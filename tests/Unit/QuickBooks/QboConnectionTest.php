@@ -115,6 +115,20 @@ class QboConnectionTest extends TestCase
         ]), new QboTokenVault($this->key()), fn() => self::NOW, $http);
     }
 
+    public function test_the_return_link_loaded_twice_is_not_a_failure(): void
+    {
+        $db = $this->db(); $v = new QboTokenVault($this->key()); $calls = [];
+        $this->connected($db, $v, date('Y-m-d H:i:s', self::NOW + 1200));
+        $db->exec("UPDATE qbo_connections SET connected_at = '" . date('Y-m-d H:i:s', self::NOW - 1) . "', company_name = 'CA Co'");
+        $svc = new QboConnectionService($db, 1, $this->oauth($calls, []), $v, fn() => self::NOW);
+        $session = [];                                   // the first load used the state
+        $r = $svc->finish($session, 'code', 'used', '123', 1);
+        $this->assertTrue($r['ok']);
+        $this->assertSame('Connected to CA Co.', $r['message']);
+        $this->assertSame([], $calls, 'the used code is not sent again');
+        $this->assertFalse($svc->finish($session, 'code', 'used', '999', 1)['ok'], 'another company is still refused');
+    }
+
     public function test_a_company_the_tokens_cannot_read_is_never_saved(): void
     {
         $db = $this->db(); $calls = [];
