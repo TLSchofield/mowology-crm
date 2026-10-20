@@ -34,15 +34,27 @@ struct VisitDetailView: View {
 
     /// Drives the Move Stop sheet.
     @State private var isShowingMoveSheet = false
+
+    /// A quick action picked on the schedule card (touch and hold, or ⋯) — run once, here, so the
+    /// special-request gate and every other check is the same as tapping this screen's own buttons.
+    private let onInitialActionRun: () -> Void
+    /// Kept in @State from the first init: the schedule clears its copy on appear, and the redraw that
+    /// follows passes nil — the screen's own copy is what runs.
+    @State private var queuedAction: VisitQuickAction?
+    @State private var isShowingWork = false
+    @State private var scrollTarget: String?
     @Environment(\.dismiss) private var dismissDetail
 
 
     // MARK: - Init
 
-    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession,
+         initialAction: VisitQuickAction? = nil, onInitialActionRun: @escaping () -> Void = {}) {
         self.stop        = stop
         self.isAdmin     = isAdmin
         self.authSession = authSession
+        _queuedAction = State(initialValue: initialAction)
+        self.onInitialActionRun = onInitialActionRun
         let client       = APIClient(authSession: authSession)
         _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
         _specialRequests = StateObject(wrappedValue: SpecialRequestStore(visitIds: stop.visits.map(\.visitId),
@@ -60,6 +72,7 @@ struct VisitDetailView: View {
     // MARK: - Body
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
 
@@ -94,13 +107,33 @@ struct VisitDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
         }
+        .onChange(of: scrollTarget) { _, target in
+            guard let target else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { scrollProxy.scrollTo(target, anchor: .top) }
+            scrollTarget = nil
+        }
+        }
         .background(appStyle.page)
         .itAppScreen()
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
-        .task { await viewModel.restoreActiveTimer() }
-        .task { await specialRequests.load() }
+        // One task, in order: the running timer is restored and the special requests loaded BEFORE a
+        // card's quick action runs, so it sees the real status (a stale "scheduled" card must not start twice).
+        .task {
+            await viewModel.restoreActiveTimer()
+            await specialRequests.load()
+            await runInitialAction()
+        }
+        .onAppear {
+            // Cleared at once: if this screen is left before the action runs, it must not run later.
+            if queuedAction != nil { onInitialActionRun() }
+        }
+        .navigationDestination(isPresented: $isShowingWork) {
+            if let visit = stop.visits.first {
+                VisitWorkView(visitId: visit.visitId, authSession: authSession)
+            }
+        }
         .fullScreenCover(item: $gateRequest) { request in
             SpecialRequestGateView(
                 request:  request,
@@ -144,6 +177,32 @@ struct VisitDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("The office will see this visit as skipped, with the reason you pick.")
+        }
+    }
+
+    /// Runs the card's quick action once, after the special requests are loaded (the gate needs them).
+    private func runInitialAction() async {
+        guard let action = queuedAction, let visit = stop.visits.first else { return }
+        queuedAction = nil
+        let status = viewModel.status(for: visit).lowercased()
+        switch action {
+        case .start:
+            guard status == "scheduled", !specialRequestBlocks(visit.visitId) else { return }
+            await viewModel.startJob(visitId: visit.visitId)
+            if viewModel.errorMessage?.hasPrefix("Special request") == true {
+                await specialRequests.load()
+                if specialRequestBlocks(visit.visitId) { viewModel.errorMessage = nil }
+            }
+        case .finish:
+            if status == "in_progress" { completingVisit = visit }
+        case .skip:
+            if status == "scheduled" { skippingVisit = visit }
+        case .move:
+            if isAdmin && stop.canBeMoved { isShowingMoveSheet = true }
+        case .notes:
+            isShowingWork = true
+        case .photos:
+            scrollTarget = "photos-\(visit.visitId)"
         }
     }
 
@@ -550,6 +609,7 @@ struct VisitDetailView: View {
                     captureGate:   { specialRequestBlocks(visit.visitId) },
                     photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil
                 )
+                .id("photos-\(visit.visitId)")
 
                 // Review earned strip — visible once the client has actually reviewed.
                 if isVisitFlagged && visit.contactHasReviewed {

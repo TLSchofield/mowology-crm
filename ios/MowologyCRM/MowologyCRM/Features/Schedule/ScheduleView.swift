@@ -26,6 +26,8 @@ struct ScheduleView: View {
     @State private var showingFieldJob = false
     /// The stop being moved to another date — drives the Move Stop sheet.
     @State private var movingStop: Stop?
+    /// A quick action picked on a card, run once by the visit screen it opens (keyed by stop id).
+    @State private var pendingActions: [Int: VisitQuickAction] = [:]
     @ObservedObject private var notificationRouter = NotificationRouter.shared
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
@@ -116,7 +118,8 @@ struct ScheduleView: View {
                         userLocation: viewModel.userLocation,
                         onRefresh:    { await viewModel.refresh() },
                         onMove:       { movingStop = $0 },
-                        onSelect:     { path.append($0) }
+                        onSelect:     { pendingActions[$0.id] = nil; path.append($0) },
+                        onAction:     { stop, action in pendingActions[stop.id] = action; path.append(stop) }
                     )
                 } else {
                     DayMapView(
@@ -134,9 +137,11 @@ struct ScheduleView: View {
             // Single navigationDestination covers both list and map modes.
             .navigationDestination(for: Stop.self) { stop in
                 VisitDetailView(
-                    stop:        stop,
-                    isAdmin:     authSession.user?.isAdmin ?? false,
-                    authSession: authSession
+                    stop:          stop,
+                    isAdmin:       authSession.user?.isAdmin ?? false,
+                    authSession:   authSession,
+                    initialAction: pendingActions[stop.id],
+                    onInitialActionRun: { pendingActions[stop.id] = nil }
                 )
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -226,6 +231,7 @@ struct ScheduleView: View {
         notificationRouter.pendingRoute = nil
         showDatePicker = false
         viewMode       = .list
+        pendingActions = [:]          // a notification only opens the visit; no card action rides along
         if let stop = await viewModel.resolve(route) {
             path = [stop]
         } else {

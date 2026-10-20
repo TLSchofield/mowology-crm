@@ -24,6 +24,8 @@ struct DayListView: View {
     /// Admin only: asks the parent to open the Move Stop sheet for this stop.
     var onMove: ((Stop) -> Void)? = nil
     var onSelect: ((Stop) -> Void)? = nil
+    /// A quick action picked on a card (touch-and-hold menu or the ⋯ button). The visit screen runs it.
+    var onAction: ((Stop, VisitQuickAction) -> Void)? = nil
 
     /// Tracks whether the one-time initial scroll has already fired.
     @State private var hasAutoScrolled = false
@@ -81,16 +83,33 @@ struct DayListView: View {
                 }
 
                 ForEach(stops) { stop in
-                    Button {
-                        onSelect?(stop)
-                    } label: {
-                        StopCardView(stop: stop,
-                                     isAdmin: isAdmin,
-                                     distanceMeters: distance(to: stop))
-                            .padding(.vertical, appStyle.isEnabled ? 0 : 4)
+                    let actions = VisitQuickAction.available(for: stop, isAdmin: isAdmin)
+                    HStack(alignment: .center, spacing: 4) {
+                        Button {
+                            onSelect?(stop)
+                        } label: {
+                            StopCardView(stop: stop,
+                                         isAdmin: isAdmin,
+                                         distanceMeters: distance(to: stop))
+                                .padding(.vertical, appStyle.isEnabled ? 0 : 4)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(actions.isEmpty ? "Opens visit details" : "Opens visit details. Touch and hold for actions.")
+
+                        // The visible way to the same actions as touch-and-hold: nothing is gesture-only.
+                        if !actions.isEmpty, onAction != nil {
+                            Menu {
+                                quickActionButtons(actions, for: stop)
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(appStyle.font(.body, weight: .semibold))
+                                    .foregroundStyle(appStyle.text)
+                                    .frame(width: 44, height: 48)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Actions for \(stop.headline ?? stop.propertyAddress)")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Opens visit details")
                     .listRowBackground(appStyle.isEnabled ? appStyle.surface : Color.clear)
                     .listRowSeparator(appStyle.isEnabled ? .visible : .hidden)
                     .listRowSeparatorTint(appStyle.line)
@@ -107,7 +126,10 @@ struct DayListView: View {
                         }
                     }
                     .contextMenu {
-                        if isAdmin, stop.canBeMoved, let onMove {
+                        // Touch and hold, slide to an action, let go (iOS context menus pick on release).
+                        if !actions.isEmpty, onAction != nil {
+                            quickActionButtons(actions, for: stop)
+                        } else if isAdmin, stop.canBeMoved, let onMove {
                             Button {
                                 onMove(stop)
                             } label: {
@@ -131,6 +153,22 @@ struct DayListView: View {
                         proxy.scrollTo(targetId, anchor: .top)
                     }
                 }
+            }
+        }
+    }
+
+    /// One list of buttons for both the touch-and-hold menu and the ⋯ menu, so they never differ.
+    @ViewBuilder
+    private func quickActionButtons(_ actions: [VisitQuickAction], for stop: Stop) -> some View {
+        ForEach(actions, id: \.self) { action in
+            Button(role: action == .skip ? .destructive : nil) {
+                if action == .move, let onMove {
+                    onMove(stop)              // the schedule's own Move sheet, as the swipe uses
+                } else {
+                    onAction?(stop, action)
+                }
+            } label: {
+                Label(action.title, systemImage: action.systemImage)
             }
         }
     }
@@ -281,5 +319,56 @@ private struct SkeletonCard: View {
                 .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
                 value: isAnimating
             )
+    }
+}
+
+// MARK: - Quick actions on a visit card (Tim, 2026-10-20: "slide could be more useful for changes/additions")
+
+/// What touch-and-hold (slide to an action, let go) and the ⋯ button offer on a visit card.
+/// Every action except Move opens the visit screen and runs there, so the special-request gate,
+/// clock-in and permission checks stay in one place (VisitDetailView.runInitialAction).
+/// Kept in this file: the Xcode project is not regenerated on Xcode Cloud, so a new file would not build.
+enum VisitQuickAction: String, Hashable {
+    case start, finish, photos, notes, move, skip
+
+    var title: String {
+        switch self {
+        case .start:  return "Start job"
+        case .finish: return "Finish and add extras"
+        case .photos: return "Photos"
+        case .notes:  return "Checklist, materials & notes"
+        case .move:   return "Move to another date"
+        case .skip:   return "Skip visit"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .start:  return "play.fill"
+        case .finish: return "checkmark.circle"
+        case .photos: return "camera"
+        case .notes:  return "checklist"
+        case .move:   return "calendar.badge.clock"
+        case .skip:   return "forward.end"
+        }
+    }
+
+    /// Only what the visit screen itself would allow now. A stop with several visits gets Move only
+    /// (which visit to start or finish is picked on the visit screen).
+    static func available(for stop: Stop, isAdmin: Bool) -> [VisitQuickAction] {
+        let canMove = isAdmin && stop.canBeMoved
+        guard stop.visits.count == 1, let visit = stop.visits.first else {
+            return canMove ? [.move] : []
+        }
+        switch visit.visitStatus.lowercased() {
+        case "scheduled":
+            return [.start, .notes] + (canMove ? [.move] : []) + [.skip]
+        case "in_progress":
+            return [.finish, .photos, .notes]
+        case "completed":
+            return [.notes]
+        default:
+            return canMove ? [.move] : []
+        }
     }
 }
