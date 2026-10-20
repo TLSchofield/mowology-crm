@@ -9,6 +9,7 @@ requireLogin();
 requirePermission('settings.edit');
 $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
 
 $db  = getDB();
 $svc = new QboConnectionService($db);
@@ -44,6 +45,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['qbo_flash'] = $svc->pull();
         } elseif ($action === 'disconnect') {
             $_SESSION['qbo_flash'] = $svc->disconnect();
+        } elseif ($action === 'send_invoice') {
+            $num = trim((string)($_POST['invoice_number'] ?? ''));
+            $q = $db->prepare('SELECT id FROM invoices WHERE invoice_number = ? LIMIT 1');
+            $q->execute([$num]);
+            $iid = (int)$q->fetchColumn();
+            $_SESSION['qbo_flash'] = $iid > 0
+                ? (new QboSyncService($svc))->sendInvoice($iid)
+                : ['ok' => false, 'message' => 'No invoice ' . $num . '.'];
         } elseif ($action === 'save_map') {
             $bad = 0;
             foreach (['account', 'tax_code'] as $kind) {
@@ -68,6 +77,10 @@ $accounts = $status['connected'] ? $svc->ittaiAccounts() : [];
 $qAccounts = $status['connected'] ? $svc->remote('account') : [];
 $qTax      = $status['connected'] ? $svc->remote('tax_code') : [];
 $csrf = generateCSRFToken();
+$sync = ($status['connected'] && $svc->tablesReady()) ? new QboSyncService($svc) : null;
+$canSend = $sync !== null && $sync->guard() === null;
+$sent = [];
+try { $sent = $sync ? $sync->recent(15) : []; } catch (Throwable $e) { /* migration 1383 not run yet */ }
 
 $pageTitle  = 'QuickBooks';
 $activePage = 'accounting';
@@ -120,6 +133,40 @@ $activePage = 'accounting';
             <?php endif; ?>
             <p>Connect your QuickBooks Online company. You sign in at Intuit; Ittai never sees your QuickBooks password.</p>
             <a class="btn btn-primary" href="quickbooks.php?connect=1&amp;t=<?= h(rawurlencode($csrf)) ?>">Connect QuickBooks</a>
+        <?php endif; ?>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if ($canSend): ?>
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Send an invoice to the test company</h2>
+        <p class="small text-muted">Sends one Ittai invoice to QuickBooks with its customer and payments, then checks QuickBooks' total against Ittai's. Sending the same invoice again never makes a second copy.</p>
+        <form method="post" class="d-flex gap-2 flex-wrap align-items-end">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <input type="hidden" name="action" value="send_invoice">
+            <div>
+                <label class="form-label small mb-1" for="qbo-inv">Invoice number</label>
+                <input class="form-control" id="qbo-inv" name="invoice_number" placeholder="INV-2026-0459" required>
+            </div>
+            <button class="btn btn-primary">Send to QuickBooks</button>
+        </form>
+        <?php if ($sent): ?>
+        <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle">
+                <thead><tr><th scope="col">Sent</th><th scope="col">What</th><th scope="col">Result</th></tr></thead>
+                <tbody>
+                <?php foreach ($sent as $l): ?>
+                    <tr>
+                        <td class="small"><?= $l['sent_at'] ? h(date('M j, g:i a', strtotime((string)$l['sent_at']))) : '' ?></td>
+                        <td><?= h($l['entity_type'] === 'invoice' ? ('Invoice ' . ($l['invoice_number'] ?? '#' . $l['entity_id'])) : ('Payment #' . $l['entity_id'])) ?></td>
+                        <td class="small"><?= h($l['status'] === 'sent' ? ('In QuickBooks' . ($l['qbo_total'] !== null ? ' · $' . number_format((float)$l['qbo_total'], 2) : '')) : (($l['status'] === 'mismatch' ? 'Totals differ: ' : 'Not sent: ') . (string)$l['message'])) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
         <?php endif; ?>
     </div>
 </div>

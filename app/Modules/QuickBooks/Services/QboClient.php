@@ -22,9 +22,12 @@ class QboClient
     private $token;
     /** @var callable(string $url, array $headers): array{status:int, body:string} */
     private $http;
+    /** @var callable(string $url, array $headers, string $body): array{status:int, body:string} */
+    private $httpPost;
 
-    public function __construct(string $environment, string $realmId, callable $token, ?callable $http = null)
+    public function __construct(string $environment, string $realmId, callable $token, ?callable $http = null, ?callable $httpPost = null)
     {
+        $this->httpPost = $httpPost ?? [QboOAuth::class, 'curlPost'];
         $host = self::HOSTS[$environment] ?? self::HOSTS['sandbox'];
         $this->base = $host . '/v3/company/' . rawurlencode($realmId);
         $this->token = $token;
@@ -65,6 +68,57 @@ class QboClient
     public function companyInfo(string $realmId): array
     {
         return $this->get($this->base . '/companyinfo/' . rawurlencode($realmId) . '?minorversion=' . self::MINOR_VERSION);
+    }
+
+    /**
+     * Create an entity (step 2). $requestId is fixed per Ittai thing: Intuit answers a repeat with the
+     * first result, so a retry never makes a second copy.
+     * @return array{ok:bool, data?:array, error?:string, code?:string}
+     */
+    public function create(string $entity, array $body, string $requestId): array
+    {
+        $url = $this->base . '/' . strtolower($entity) . '?' . http_build_query(['minorversion' => self::MINOR_VERSION, 'requestid' => $requestId], '', '&', PHP_QUERY_RFC3986);
+        foreach ([false, true] as $force) {
+            $tok = ($this->token)($force);
+            if ($tok === null) return ['ok' => false, 'error' => 'Not connected to QuickBooks (the sign-in has expired). Connect again.'];
+            $r = ($this->httpPost)($url, ['Authorization: Bearer ' . $tok, 'Accept: application/json', 'Content-Type: application/json'], (string)json_encode($body));
+            if ($r['status'] === 401 && !$force) continue;
+            if ($r['status'] === 200) {
+                $d = json_decode($r['body'], true);
+                return is_array($d) ? ['ok' => true, 'data' => $d] : ['ok' => false, 'error' => 'QuickBooks sent something that is not JSON.'];
+            }
+            return ['ok' => false, 'error' => self::faultLine($r['status'], $r['body']), 'code' => self::faultCode($r['body']),
+                    'refused' => self::refused($r['status'])];
+        }
+        return ['ok' => false, 'error' => 'QuickBooks refused the sign-in twice. Connect again.'];
+    }
+
+    /**
+     * Pure (tested): QuickBooks looked at the request and said no (bad data, a missing mapping) — as
+     * opposed to a timeout, an outage or "busy", where it may or may not have been created.
+     */
+    public static function refused(int $status): bool
+    {
+        return $status >= 400 && $status < 500 && !in_array($status, [401, 408, 429], true);
+    }
+
+    /** Run one query (first page), e.g. to find a customer by name. */
+    public function query(string $sql): array
+    {
+        return $this->get(self::queryUrl($this->base, $sql));
+    }
+
+    /** Pure (tested): QuickBooks' error code ("6240" = duplicate name), or ''. */
+    public static function faultCode(string $body): string
+    {
+        $d = json_decode($body, true);
+        return (string)($d['Fault']['Error'][0]['code'] ?? '');
+    }
+
+    /** Pure (tested): a value inside a QuickBooks query string ('…' with \' and \\ escaped). */
+    public static function quote(string $v): string
+    {
+        return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $v) . "'";
     }
 
     /** One GET; a 401 refreshes the token once and tries again. */

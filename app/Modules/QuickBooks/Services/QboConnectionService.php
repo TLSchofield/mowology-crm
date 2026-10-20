@@ -34,10 +34,13 @@ class QboConnectionService
     private $clock;
     /** @var callable|null  GET transport for QboClient (tests) */
     private $http;
+    /** @var callable|null  POST transport for QboClient sends (tests) */
+    private $httpPost;
 
     public function __construct(PDO $db, int $siteId = 1, ?QboOAuth $oauth = null, ?QboTokenVault $vault = null,
-                                ?callable $clock = null, ?callable $http = null)
+                                ?callable $clock = null, ?callable $http = null, ?callable $httpPost = null)
     {
+        $this->httpPost = $httpPost;
         $this->db = $db;
         $this->siteId = $siteId;
         $cfg = self::config();
@@ -250,8 +253,18 @@ class QboConnectionService
     {
         $row = $this->row();
         return new QboClient((string)($row['environment'] ?? self::config()['environment']), (string)($row['realm_id'] ?? ''),
-                             fn(bool $force) => $this->accessToken($force), $this->http);
+                             fn(bool $force) => $this->accessToken($force), $this->http, $this->httpPost);
     }
+
+    /** The connected company's id and environment (for links), or null. */
+    public function company(): ?array
+    {
+        $r = $this->row();
+        return ($r && in_array($r['status'], ['connected', 'error'], true)) ? ['realm_id' => (string)$r['realm_id'], 'environment' => (string)$r['environment']] : null;
+    }
+
+    public function siteId(): int { return $this->siteId; }
+    public function db(): PDO { return $this->db; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Read: accounts, tax codes, customers
