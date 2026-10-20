@@ -151,6 +151,10 @@ struct DayListView: View {
             Spacer()
         }
         .padding(.top, 8)
+        // Four cards are taller than the space under the week strip: an overflowing stack stays CENTRED and pushed the
+        // strip up under the navigation bar while loading (Tim's screenshot, 2026-10-20). Pinned to the top, the rest trimmed.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .clipped()
         .background(appStyle.page)
     }
 
