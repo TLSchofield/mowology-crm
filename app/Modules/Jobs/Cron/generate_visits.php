@@ -151,6 +151,15 @@ try {
         $sideProblems[] = 'Otto auto-place failed';
     }
 
+    // Local market prices (MarketPriceService, migration 1375): each public source read once a week.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
+        $mp = (new MarketPriceService(getDB()))->refreshDue();
+        if ($mp['sources']) $autoPlace .= "; market prices: {$mp['stored']} new/changed from {$mp['sources']} source(s)" . ($mp['errors'] ? ", {$mp['errors']} failed" : '');
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] market prices: ' . get_class($e));
+    }
+
     $hasErrors = !empty($result['errors']) || $sideProblems;
     recordCronRun(
         'generate_visits',

@@ -191,6 +191,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.p
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierSearchService.php';   // best price across supplier lists (2026-10-19)
+require_once __DIR__ . '/../app/Modules/Operations/Services/MarketPriceService.php';     // local market prices, shared regional layer (2026-10-19)
 require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentPlateParser.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentCatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentImportService.php';

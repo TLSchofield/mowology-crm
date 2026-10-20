@@ -19,7 +19,9 @@ $pageTitle = 'Best Price';
 $activePage = 'products';
 
 require_once APP_ROOT . '/Modules/Operations/Services/SupplierSearchService.php';
+require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
 $db = getDB();
+$market = new MarketPriceService($db);
 $q = trim((string)($_GET['q'] ?? ''));
 $pid = (int)($_GET['property_id'] ?? 0);
 $res = null;
@@ -92,6 +94,16 @@ $money = static fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2
           <?php if ($g['sell'] !== null): ?><div>Sell <strong><?= $money($g['sell']) ?></strong></div><?php else: ?><div class="text-muted small"><?= h((string)$g['sell_note']) ?></div><?php endif; ?>
         </div>
       </div>
+      <?php if ($g['bulk']): $mk = $market->current($res['words'], MarketPriceService::material($g['name'])); if ($mk): ?>
+      <div class="alert alert-light border py-2 mb-2">
+        <strong>Local market</strong> — what customers pay others:
+        <?php foreach ($mk as $m): ?>
+          <div><?= h($m['source']) ?>, <?= h($m['product']) ?>:
+            <?= h(implode(' · ', array_map(fn($y, $p) => ((float)$y === 1.0 ? '1 yd' : ((float)$y === 0.5 ? '½ yd' : ((float)$y === 0.25 ? '¼ yd' : $y . ' yd'))) . ' $' . number_format($p, 0), array_keys($m['sizes']), $m['sizes']))) ?>
+            <span class="text-muted small">(<?= h((string)$m['what']) ?> Read <?= h(date('M j', strtotime($m['seen_on']))) ?>.)</span></div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; endif; ?>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
           <thead><tr><th>Supplier</th><th>As listed</th><th class="text-right">Price</th><th class="text-right">In stock</th><th>List</th><th>From the job</th><th>Order rules</th></tr></thead>
