@@ -578,7 +578,10 @@
         drawer.querySelector('[data-action="take-photo"]')
             .addEventListener('click', function(e) {
                 e.stopPropagation();
-                triggerCamera(visitId, category);
+                // The same in-app camera as the photo tiles (2026-10-20, Fable): this button used the OS file
+                // picker, whose permission check misreads Android's grant and fails with no message — "Before
+                // does nothing" while After (from a tile) worked. triggerBatchCamera falls back to it if needed.
+                triggerBatchCamera(visitId, category);
             });
 
         var skipBtn = drawer.querySelector('[data-action="skip-photo"]');
@@ -1043,7 +1046,15 @@
     /** After photos are in: the same job steps the one-shot camera takes. */
     function afterPhotosTaken(visitId, category) {
         var cur = visits[visitId] ? visits[visitId].status : null;
-        if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
+        if (category === 'before' && cur === 'prompt_before') {
+            // Start was already pressed (the timer runs): go to working, as the one-shot handler does.
+            // Calling clockIn here started the timer twice — the server refused and Before looked failed.
+            visits[visitId].status = 'in_progress';
+            updatePillVisual(visitId, 'in_progress');
+            startPillTimer(visitId);
+            renderPhotoStrip(visitId);
+            closeDrawer();
+        } else if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
             clockIn(visitId, { skipBeforePrompt: true });
         } else if (category === 'after' && cur === 'prompt_after') {
             visits[visitId].status = 'completed';
@@ -1098,6 +1109,21 @@
             return;
         }
 
+        // Photos sent straight to the server because the phone's photo store is unavailable: the visit
+        // moves on (start / finish) only once they are in (Codex review 2026-10-20).
+        var direct = { pending: 0, failed: 0, finish: null };
+        var finishShots = function () {
+            if (direct.failed > 0) {
+                showToast('A photo did not upload. Take it again before going on.', 7000);
+                renderPhotoStrip(visitId);
+                return;
+            }
+            afterPhotosTaken(visitId, category);
+        };
+        var whenShotsIn = function () {
+            if (direct.pending > 0) direct.finish = finishShots; else finishShots();
+        };
+
         var cam = new BatchCamera({
             maxPhotos: 10,
 
@@ -1119,7 +1145,15 @@
                 saveToPhotoQueue(visitId, file, category, function (queueId) {
                     if (queueId !== null) {
                         console.log('[PillWorkflow] Batch photo persisted to queue id=' + queueId);
+                        return;
                     }
+                    // The phone's photo store is unavailable: send it now instead of losing it (Fable 2026-10-20).
+                    direct.pending++;
+                    uploadPhoto(visitId, file, category, function (ok) {
+                        direct.pending--;
+                        if (!ok) direct.failed++;
+                        if (direct.pending === 0 && direct.finish) { var f = direct.finish; direct.finish = null; f(); }
+                    });
                 });
             },
 
@@ -1130,7 +1164,7 @@
                 processPhotoQueue();
                 // The same job steps the one-shot camera takes (photo handler above): a Before photo
                 // before Start is the start; the After photo asked for at the finish completes the job.
-                afterPhotosTaken(visitId, category);
+                whenShotsIn();
             },
 
             onCancel: function (count, reason) {
@@ -1147,6 +1181,9 @@
                 if (count > 0) {
                     showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — will upload when connected.');
                     processPhotoQueue();
+                    // Closed with the X after taking photos: the job steps still happen, as with Done
+                    // (the drawer's Before / After button opens this camera now — Codex review 2026-10-20).
+                    whenShotsIn();
                 }
             }
         });
@@ -1367,6 +1404,13 @@
                 });
             }
 
+            // Held by the special-request gate (409): keep the photo; the queue replays it with queued_at,
+            // which the gate accepts (Fable 2026-10-20 — it used to be dropped).
+            if (status === 409) {
+                showToast('Read the client\u2019s request first \u2014 your photo is saved and will upload.', 6000);
+                return queueAfterFailure(visitId, file, category, takenAt, function(ok, url) { callback(ok, url); });
+            }
+
             // Login expired (the service worker answers 401 for a redirect to the login page): keep the
             // photo; it goes up once they sign in again.
             if (status === 401) {
@@ -1497,7 +1541,12 @@
         var footerClockIn = card.querySelector('[data-footer-clockin]');
         if (footerClockIn) footerClockIn.style.display = 'none';
 
-        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+        // Bound once per panel: showActivePanel runs on load and on every clock-in (Fable 2026-10-20 —
+        // a second binding opened the camera twice).
+        var bindNow = panel.dataset.apBound !== '1';
+        panel.dataset.apBound = '1';
+
+        if (bindNow) panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var cat = btn.getAttribute('data-ap-photo');
                 if (cat === 'additional') {
@@ -1515,7 +1564,7 @@
         });
 
         var pauseBtn = panel.querySelector('[data-ap-pause]');
-        if (pauseBtn) {
+        if (pauseBtn && bindNow) {
             pauseBtn.addEventListener('click', function() {
                 var v = visits[visitId];
                 if (!v) return;
@@ -1525,7 +1574,7 @@
         }
 
         var finishBtn = panel.querySelector('[data-ap-finish]');
-        if (finishBtn) {
+        if (finishBtn && bindNow) {
             finishBtn.addEventListener('click', function() {
                 var v = visits[visitId];
                 if (!v) return;
@@ -2257,7 +2306,8 @@
                     }
                     if (item.status === 'pending' || item.status === 'uploading') {
                         countsByVisit[item.visitId].pending++;
-                    } else if (item.status === 'failed') {
+                    } else if (item.status === 'failed' || item.status === 'refused') {
+                        // Refused photos stay on the badge after the toast (Codex review 2026-10-20).
                         countsByVisit[item.visitId].failed++;
                     }
                 });
@@ -2465,8 +2515,10 @@
                     ' visit=' + item.visitId + ' cat=' + item.category);
             }
 
+            var httpStatus = 0;
             fetch('/crm/api/media-upload.php', { method: 'POST', body: fd })
             .then(function(r) {
+                httpStatus = r.status;
                 var ct = r.headers.get('content-type') || '';
                 if (!ct.includes('application/json') && !ct.includes('text/json')) {
                     return r.text().then(function(t) {
@@ -2526,6 +2578,17 @@
                         : (data.error || 'Upload rejected');
                     console.warn('[PillWorkflow] Queue upload rejected:', errMsg);
                     if (/csrf/i.test(errMsg)) refreshCsrfToken();   // next try uses a fresh token
+                    // Refused for good (not allowed, visit gone, bad file): stop retrying it every hour and
+                    // say so — it used to sit as "pending" for ever (Fable 2026-10-20). CSRF and 409 retry.
+                    var refused = !/csrf/i.test(errMsg) && [400, 403, 404, 413, 415, 422].indexOf(httpStatus) !== -1;
+                    if (refused) {
+                        updateQueueItemStatus(item.id, { status: 'refused', error: errMsg }, function() {
+                            showToast('A photo was refused by the server: ' + errMsg, 7000);
+                            refreshQueueBadges();
+                            processQueueItems(items, idx + 1, done);
+                        });
+                        return;
+                    }
                     updateQueueItemStatus(item.id, { status: 'pending', retries: item.retries + 1 }, function() {
                         processQueueItems(items, idx + 1, done);
                     });
