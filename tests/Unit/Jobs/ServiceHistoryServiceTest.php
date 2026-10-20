@@ -89,4 +89,12 @@ final class ServiceHistoryServiceTest extends TestCase
         $this->assertTrue(ServiceHistoryService::isWinterService('landscaping', 'Snow Removal - Residential'));
         $this->assertFalse(ServiceHistoryService::isWinterService('lawn_care', 'Weekly cut'));
     }
+
+    public function testTheCardsOwnFinishedVisitIsTheLine(): void
+    {
+        $this->assertSame('Done today 9:59 · 91 min', ServiceHistoryService::doneLine('2026-10-20 09:59:38', '2026-10-20', 91));
+        $this->assertSame('Done yesterday 14:05', ServiceHistoryService::doneLine('2026-10-19 14:05:00', '2026-10-20', 0));
+        $this->assertSame('Done Fri 16 Oct 0:30', ServiceHistoryService::doneLine('2026-10-16 00:30:00', '2026-10-20', null));
+    }
 }
+

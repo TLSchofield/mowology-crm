@@ -120,6 +120,17 @@ class ServiceHistoryService
         return $done;
     }
 
+    /** "Done today 9:59 · 91 min" / "Done Mon 14:05" — the card's own finished visit. PURE. */
+    public static function doneLine(string $completedAt, string $today, ?int $minutes): string
+    {
+        $d = substr($completedAt, 0, 10);
+        $days = (int)round((strtotime($today) - strtotime($d)) / 86400);
+        $when = $days <= 0 ? 'today' : ($days === 1 ? 'yesterday' : date('D j M', strtotime($d)));
+        $time = strlen($completedAt) >= 16 ? ltrim(substr($completedAt, 11, 5), '0') : '';
+        if ($time !== '' && $time[0] === ':') $time = '0' . $time;
+        return 'Done ' . $when . ($time !== '' ? ' ' . $time : '') . ($minutes !== null && $minutes > 0 ? ' · ' . $minutes . ' min' : '');
+    }
+
     // ── Lookup ───────────────────────────────────────────────────────────────
 
     /**
@@ -140,7 +151,8 @@ class ServiceHistoryService
         $in = implode(',', array_fill(0, count($visitIds), '?'));
 
         $stmt = $this->db->prepare("
-            SELECT jv.id AS visit_id, jv.plan_id, jp.service_type, jp.title
+            SELECT jv.id AS visit_id, jv.plan_id, jp.service_type, jp.title, jv.status AS visit_status,
+                   jv.completed_at AS visit_completed_at, jv.actual_duration_minutes AS visit_minutes
             FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id
             WHERE jv.id IN ($in)
         ");
@@ -212,7 +224,11 @@ class ServiceHistoryService
                 'winter'            => $winter,
                 'last_completed_at' => $lastDone,
                 'applications_24h'  => $winter ? $apps24 : 0,
-                'summary'           => self::summary($lastDone, $lastSkip, $today, $winter, $apps24),
+                // The card's own visit, once finished, is the news — not the skip before it (Tim, 2026-10-20: "how would
+                // I know the Dorset job was completed" — the card said "Skipped Sun — last done 49 days ago" under Done).
+                'summary'           => ($v['visit_status'] ?? '') === 'completed' && !empty($v['visit_completed_at'])
+                    ? self::doneLine((string)$v['visit_completed_at'], $today, isset($v['visit_minutes']) ? (int)$v['visit_minutes'] : null)
+                    : self::summary($lastDone, $lastSkip, $today, $winter, $apps24),
             ];
         }
         return $out;
