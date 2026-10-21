@@ -80,9 +80,14 @@ Wave (calculates, does not post) until U3 and U4 pass for three consecutive pay 
 
 ## 6. Build steps (each proven before the next)
 
-1. **Rules as data** — `payroll_rules` (jurisdiction, item, value, effective_from, effective_to, source_url,
-   edition). Federal + BC 2026 (both editions) loaded from the T4127 tables; a test fails if a rule has no
-   source or no date range. Our regions skill files (CA.md / CA-BC.md) corrected (5 stale items found).
+1. **Rules as data** — DONE 2026-10-21. Versioned files, not a table: the CRA/BC figures are the same for every
+   tenant (universal layer), so they live in `app/Modules/Payroll/Data/rules-2026.php` (copied from the CRA's
+   own T4127 CSV tables and formulas pages), read by `PayrollRules::forPayDate()`, which picks the edition by
+   pay date and refuses a date no edition covers. `PayrollRulesTest` recomputes every bracket constant and the
+   CPP/CPP2/EI maxima from the rates. Tenant choices (pay calendar, remitter type) will be database rows.
+   Regions skill files corrected (remittance types, T4127 editions, 2026 CPP/EI, shareholder EI, ROE, T4,
+   records; BC vacation base, Sunday overtime week, stat holidays and pay, minimum wage, pay timing, wage
+   statement, WorkSafeBC).
 2. **Hours → gross** — move the BC overtime split out of `payroll-summary.php` into
    `app/Modules/Payroll/Services/PayCalculator` (tenant province from settings); add stat-holiday pay,
    vacation pay (per-cheque or accrued, per written agreement), averaging agreements (optional). Unit tests
