@@ -3,7 +3,7 @@
 -- MySQL 5.7 safe. One ADD COLUMN per statement so the runner can skip any that already exist.
 CREATE TABLE IF NOT EXISTS catalog_taxa (
   species_key VARCHAR(120) NOT NULL PRIMARY KEY COMMENT 'lower case: genus species, or genus alone',
-  rank VARCHAR(16) NULL,
+  taxon_rank VARCHAR(16) NULL,
   inat_taxon_id INT NULL,
   common_name VARCHAR(160) NULL,
   photo_file VARCHAR(80) NULL COMMENT 'file in uploads/taxa, copied from iNaturalist',

@@ -141,11 +141,11 @@ class CatalogTaxonService
         }
         $now = date('Y-m-d H:i:s');
         if ($row) {
-            $this->db->prepare("UPDATE catalog_taxa SET rank = ?, inat_taxon_id = ?, common_name = ?, photo_file = COALESCE(?, photo_file), photo_credit = ?, photo_license = ?,
+            $this->db->prepare("UPDATE catalog_taxa SET taxon_rank = ?, inat_taxon_id = ?, common_name = ?, photo_file = COALESCE(?, photo_file), photo_credit = ?, photo_license = ?,
                                        status = ?, looked_up_at = ? WHERE species_key = ?")
                      ->execute([$new['rank'], $new['taxon_id'], $new['common_name'], $new['photo_file'], $new['photo_credit'], $new['photo_license'], $new['status'], $now, $key]);
         } else {
-            $this->db->prepare("INSERT INTO catalog_taxa (species_key, rank, inat_taxon_id, common_name, photo_file, photo_credit, photo_license, status, looked_up_at)
+            $this->db->prepare("INSERT INTO catalog_taxa (species_key, taxon_rank, inat_taxon_id, common_name, photo_file, photo_credit, photo_license, status, looked_up_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
                      ->execute([$key, $new['rank'], $new['taxon_id'], $new['common_name'], $new['photo_file'], $new['photo_credit'], $new['photo_license'], $new['status'], $now]);
         }
