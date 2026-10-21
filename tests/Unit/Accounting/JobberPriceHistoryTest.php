@@ -80,4 +80,21 @@ class JobberPriceHistoryTest extends TestCase
         $pr = array_values(array_filter($s, fn($x) => strtolower($x['service']) === 'power rake'))[0];
         $this->assertSame(2, $pr['count']);
     }
+
+    public function testCompanyPanelFindsJobberClientNamedWithSuffix(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->exec("CREATE TABLE companies (id INTEGER, company_name TEXT)");
+        $db->exec("CREATE TABLE company_properties (company_id INTEGER, property_id INTEGER)");
+        $db->exec("CREATE TABLE jobber_invoices (jobber_number TEXT, issued_date TEXT, status TEXT, line_items TEXT,
+                   company_id INTEGER, property_id INTEGER, contact_id INTEGER, client_name TEXT)");
+        $db->exec("INSERT INTO companies VALUES (14, 'Beedie Development')");
+        $ins = $db->prepare("INSERT INTO jobber_invoices (jobber_number, issued_date, status, line_items, client_name) VALUES (?,?,?,?,?)");
+        $ins->execute(['1', '2024-10-01', 'paid', 'Full Day Clean Up (1, $1,800.00)', 'Beedie Development - Kanco 2130 Cambridge Apartments Ltd.']);
+        $ins->execute(['2', '2025-10-01', 'paid', 'MAINTENANCE FALL CLEAN UP (1, $1,300.00)', 'Beedie Development c/o Kanco']);
+        $ins->execute(['3', '2025-10-01', 'paid', 'Hedges Trim (1, $65.00)', 'Beedie Development Two Ltd.']);   // a different client
+        $svc = array_column((new JobberPriceHistory($db))->forCompany(14), 'service');
+        sort($svc);
+        $this->assertSame(['Full Day Clean Up', 'MAINTENANCE FALL CLEAN UP'], $svc);
+    }
 }

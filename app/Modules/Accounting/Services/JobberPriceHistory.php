@@ -102,17 +102,32 @@ class JobberPriceHistory
         return self::summarize($this->rows($where, [$contactId]));
     }
 
-    /** Price history for a company: invoices matched to it, to its contact, or at its properties. */
+    /**
+     * Price history for a company: invoices matched to it, at its properties, or whose Jobber client name
+     * is the company's name followed by " - ..." or " c/o ..." (Jobber kept "Beedie Development - Kanco 2130
+     * Cambridge Apartments Ltd." as one client; the importer's exact-name match misses it).
+     */
     public function forCompany(int $companyId): array
     {
         $where = 'company_id = ?';
+        $params = [$companyId];
         try {
             $s = $this->db->prepare("SELECT property_id FROM company_properties WHERE company_id = ?");
             $s->execute([$companyId]);
             $props = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
             if ($props) $where .= ' OR property_id IN (' . implode(',', $props) . ')';
         } catch (Throwable $e) { /* company_properties unreadable — company match only */ }
-        return self::summarize($this->rows($where, [$companyId]));
+        try {
+            $s = $this->db->prepare("SELECT company_name FROM companies WHERE id = ?");
+            $s->execute([$companyId]);
+            $name = trim((string)$s->fetchColumn());
+            if (mb_strlen($name) >= 4) {
+                $esc = addcslashes($name, '%_\\');
+                $where .= " OR client_name = ? OR client_name LIKE ? OR client_name LIKE ?";
+                array_push($params, $name, $esc . ' - %', $esc . ' c/o %');
+            }
+        } catch (Throwable $e) { /* no name match */ }
+        return self::summarize($this->rows($where, $params));
     }
 
     private function rows(string $where, array $params): array
