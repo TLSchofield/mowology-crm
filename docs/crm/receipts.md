@@ -552,3 +552,14 @@ before to 6 days after the upload, and no other waiting receipt of the vendor ha
 the line's date. Otherwise a fresh single upload is flagged `DATE_UNREADABLE` (Penny explains it); batch scans
 (5+ by one person within the hour) are old on purpose and never flagged. The scanner's fallback for an
 unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated Apr 2.
+
+## Emailed receipts: full editor and re-read (2026-10-20)
+
+The "Receipts from email - pending review" panel (`expenses_appstack.php`, `#receipt-inbox`) is extended by `public/crm/js/receipt-inbox-tools.js`, loaded by one `<script>` line placed after the panel's PHP block:
+
+- **Open full editor** on every row opens the same editor a snapped receipt uses (`window.editExpense`). The panel refreshes when it closes.
+- **Re-read / Re-read unread** (`public/crm/api/receipt-inbox-reread.php` -> `ReceiptInboxRereadService`) reads a still-waiting emailed receipt again through `ReceiptInboxService::runOcr`. It fills **blank fields only** (a saved total, vendor or category is never overwritten), writes through `ExpenseGate`, stores the capture baseline (so approving from any screen teaches the reader) and clears the failed-read flag. `dry_run=1` reports without writing. It refuses to fill when the vendor it read is our own name or a form label (our own invoices read as vendor "MOWOLOGY" on production) and reports `check_first`.
+- **PDFs in the editor**: the editor puts the file in an `<img>` (broken for a PDF), and a frame is blocked by the site CSP (`public/.htaccess`, `object-src 'none'`). The script wraps `editExpense` so a PDF shows an "Open PDF in a new tab" button and hides the photo-only Rescan. Showing it inline needs a CSP exemption for `serve-receipt.php` in `.htaccess` (security-sensitive, not done).
+- A scan the server reader cannot read: open the full editor and use **Penny's read**, which sends PDFs to Claude as a document.
+
+Deployment note: the page was patched on the LIVE copy (live is ahead of the repo, another session changes the same file). Whoever deploys `expenses_appstack.php` next must carry the `<script src="/crm/js/receipt-inbox-tools.js?v=...">` line.
