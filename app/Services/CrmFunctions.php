@@ -3003,6 +3003,27 @@ function cronRecentSuccess(string $cronKey, int $minutes): bool
     }
 }
 
+/**
+ * What to put in cron_runs when a cron step fails: "Class at file:line — message" (message trimmed to 200
+ * characters, whitespace collapsed, credentials/URL query strings redacted). Standing rule (owner, 2026-10-21): a failed cron step is recorded with
+ * the exception's class, file, line AND message — never only "failed" or the class name. Nine warnings in a
+ * row ("Otto auto-place failed") gave Ada nothing to act on. tests/Unit/Cron/CronFailureDetailTest.php
+ * fails any cron script that logs get_class($e) without the message.
+ */
+function cronFailureDetail(\Throwable $e): string
+{
+    // A redaction that cannot run must never blank the message: each step keeps the text if preg fails.
+    $msg = preg_replace('/\s+/', ' ', $e->getMessage()) ?? $e->getMessage();
+    // cron_runs is read by admins and Ada: keep credentials out of it. Strip user:pass@, URL query strings
+    // (API keys ride there), Bearer tokens and key=value secrets before anything is stored.
+    $msg = preg_replace('#(://)[^/\s:@]+:[^/\s@]+@#', '$1[redacted]@', $msg) ?? $msg;
+    $msg = preg_replace('#(https?://[^\s?\#]+)\?\S*#i', '$1?[redacted]', $msg) ?? $msg;
+    $msg = preg_replace('#\bBearer\s+[A-Za-z0-9._~+/=-]+#i', 'Bearer [redacted]', $msg) ?? $msg;
+    $msg = preg_replace('#\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|key|authorization)\b(\s*[=:]\s*)[^\s,;&]+#i', '$1$2[redacted]', $msg) ?? $msg;
+    $msg = function_exists('mb_substr') ? mb_substr($msg, 0, 200, 'UTF-8') : substr($msg, 0, 200);
+    return get_class($e) . ' at ' . basename($e->getFile()) . ':' . $e->getLine() . ' — ' . $msg;
+}
+
 function recordCronRun(
     string  $cronKey,
     string  $status      = 'success',

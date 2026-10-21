@@ -329,6 +329,10 @@ The hex values are identical. The prefixes differ because the CRM operates in a 
 - Always use `htmlspecialchars()` or `h()` when outputting user data to HTML
 - Always use `generateCSRFToken()` in forms and `verifyCSRFToken()` on submission
 
+### Cron scripts — always say why a step failed
+
+A failed cron step is recorded in `cron_runs` (via `recordCronRun`, as a `warning`/`error`) with the exception's **class, file:line and message** — use `cronFailureDetail($e)` (`app/Services/CrmFunctions.php`). Never log just "failed" or `get_class($e)`; a side step that fails must also turn the run amber, not leave it `success` with the reason only in the server error log. `tests/Unit/Cron/CronFailureDetailTest.php` fails any `app/Modules/*/Cron/*.php` that logs a bare `get_class()`. (Owner, 2026-10-21: "Otto auto-place failed" nine runs in a row, no cause visible.)
+
 ### Public Site Layout — Locked Contract
 
 Every public page uses exactly these 4 includes in this order. Do NOT duplicate their output.

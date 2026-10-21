@@ -124,8 +124,8 @@ try {
         }
         if (!empty($snowStmt['failed'])) $sideProblems[] = $snowStmt['failed'] . ' snow statement(s) not sent';
     } catch (Throwable $e) {
-        error_log('[generate_visits cron] snow statements: ' . $e->getMessage());
-        $sideProblems[] = 'snow statements failed: ' . $e->getMessage();
+        error_log('[generate_visits cron] snow statements: ' . cronFailureDetail($e));
+        $sideProblems[] = 'snow statements failed: ' . cronFailureDetail($e);
     }
 
     // Approved quotes that no hook caught get Sam's summary + a tray job (QuoteApprovalService).
@@ -136,7 +136,8 @@ try {
             error_log(sprintf('[generate_visits cron] approved quotes: %d summarised / tray jobs', $appr['done']));
         }
     } catch (Throwable $e) {
-        error_log('[generate_visits cron] approved quotes: ' . $e->getMessage());
+        error_log('[generate_visits cron] approved quotes: ' . cronFailureDetail($e));
+        $sideProblems[] = 'approved quotes failed: ' . cronFailureDetail($e);
     }
 
     // Otto pins client properties and gives them the city lot as an arrival border (owner, 2026-10-18:
@@ -147,8 +148,7 @@ try {
         $ap = (new OttoAutoPlaceService(getDB()))->run();
         if ($ap['ran']) $autoPlace = '; Otto auto-place: ' . $ap['message'];
     } catch (Throwable $e) {
-        // Name the failure where Ada reads it (cron_runs): nine warnings in a row said only "failed" (2026-10-21).
-        $apWhy = get_class($e) . ' at ' . basename($e->getFile()) . ':' . $e->getLine() . ' — ' . substr(preg_replace('/\s+/', ' ', $e->getMessage()), 0, 200);
+        $apWhy = cronFailureDetail($e);   // named where Ada reads it (cron_runs), not just 'failed'
         error_log('[generate_visits cron] auto-place: ' . $apWhy);
         $sideProblems[] = 'Otto auto-place failed: ' . $apWhy;
     }
@@ -159,7 +159,8 @@ try {
         $mp = (new MarketPriceService(getDB()))->refreshDue();
         if ($mp['sources']) $autoPlace .= "; market prices: {$mp['stored']} new/changed from {$mp['sources']} source(s)" . ($mp['errors'] ? ", {$mp['errors']} failed" : '');
     } catch (Throwable $e) {
-        error_log('[generate_visits cron] market prices: ' . get_class($e));
+        error_log('[generate_visits cron] market prices: ' . cronFailureDetail($e));
+        $sideProblems[] = 'market prices failed: ' . cronFailureDetail($e);
     }
 
     // Machines from purchase receipts (EquipmentReceiptIntakeService, migration 1377): Otto adds them himself.
@@ -168,7 +169,8 @@ try {
         $eqIn = (new EquipmentReceiptIntakeService(getDB()))->sweep();
         if ($eqIn['added']) $autoPlace .= "; equipment from receipts: {$eqIn['added']} added";
     } catch (Throwable $e) {
-        error_log('[generate_visits cron] equipment intake: ' . get_class($e));
+        error_log('[generate_visits cron] equipment intake: ' . cronFailureDetail($e));
+        $sideProblems[] = 'equipment intake failed: ' . cronFailureDetail($e);
     }
 
     $hasErrors = !empty($result['errors']) || $sideProblems;
