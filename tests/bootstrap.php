@@ -447,3 +447,5 @@ require_once __DIR__ . '/../app/Modules/Settings/Services/BusinessIdentityServic
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboSyncService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
+require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService.php';

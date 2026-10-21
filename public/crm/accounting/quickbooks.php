@@ -130,7 +130,10 @@ $activePage = 'accounting';
         <h1 class="h3 mb-0">QuickBooks Online</h1>
         <p class="text-muted mb-0 small">Keep QuickBooks — Ittai does the typing. This step connects and reads only; nothing is sent to QuickBooks yet.</p>
     </div>
-    <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Accounting</a>
+    <div class="d-flex gap-2">
+        <a href="/crm/onboarding/index.php" class="btn btn-sm btn-outline-primary">Onboarding map</a>
+        <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Accounting</a>
+    </div>
 </div>
 
 <?php if ($flash): ?>

@@ -1,0 +1,54 @@
+/* =============================================================================
+   ittai-onboarding.css — the onboarding map (onboarding/index.php) and module screens (onboarding/step.php),
+   Ittai v1.2. Builds on penny-onboarding.css (its .it-onboard tokens and it-ob-* parts): a quiet vertical
+   path, one marker per step, hairlines not shadows, the tenant colour only on the step that is next.
+   Targets 44 px (48 px on a phone). No hex values: the tokens come from penny-onboarding.css.
+   ============================================================================= */
+
+/* ── Map: the path ───────────────────────────────────────────────────────── */
+.it-obm-path { list-style: none; margin: 24px 0 0; padding: 0; border-top: 1px solid var(--it-line); }
+.it-obm-step { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--it-line); min-height: 64px; }
+.it-obm-marker {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--it-line); color: var(--it-meta); font-weight: 600; font-variant-numeric: tabular-nums; background: var(--it-surface);
+}
+.it-obm-done .it-obm-marker { color: var(--it-text); border-color: var(--it-text); }
+.it-obm-next .it-obm-marker { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-obm-skipped .it-obm-title, .it-obm-not_needed .it-obm-title { color: var(--it-meta); }
+.it-obm-body { flex: 1 1 auto; min-width: 0; }
+.it-obm-title { color: var(--it-text); font-weight: 600; font-size: 16px; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+.it-obm-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.it-obm-line { margin: 0; color: var(--it-meta); font-size: 13px; }
+.it-obm-state { color: var(--it-text); }
+.it-obm-tools { flex: none; display: flex; gap: 4px; }
+.it-obm-tools .it-ob-change { min-width: 44px; min-height: 44px; }
+.it-obm-tools .it-ob-change:disabled { opacity: .35; cursor: default; }
+.it-obm-continue { margin: 20px 0 0; }
+.it-obm-back { color: inherit; }
+.it-obm-flash { margin: 16px 0 0; padding: 10px 14px; border: 1px solid var(--it-line); border-radius: 10px; background: var(--it-surface); color: var(--it-text); }
+.it-obm-flash-warn { border-left: 3px solid var(--it-gold); }
+
+/* ── Module screen ───────────────────────────────────────────────────────── */
+.it-obs-big { font-size: 28px; line-height: 1.2; font-weight: 600; margin: 8px 0 4px; font-variant-numeric: tabular-nums; }
+.it-obs-fact { color: var(--it-meta); margin: 0 0 12px; }
+.it-obs-facts { margin: 8px 0 12px; display: grid; gap: 10px; }
+.it-obs-facts > div { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; gap: 12px; }
+.it-obs-facts dt { color: var(--it-meta); font-weight: 400; }
+.it-obs-facts dd { margin: 0; font-weight: 600; }
+.it-obs-list { margin: 8px 0 0; padding-left: 18px; }
+.it-obs-list li { padding: 4px 0; }
+.it-obs-list span { color: var(--it-meta); }
+.it-obs-parts { list-style: none; margin: 8px 0 16px; padding: 0; border-top: 1px solid var(--it-line); }
+.it-obs-parts li { border-bottom: 1px solid var(--it-line); min-height: 48px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.it-obs-parts a { color: var(--it-text); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+.it-obs-parts a::before { content: "○"; color: var(--it-meta); margin-right: 10px; }
+.it-obs-parts .it-obs-part-done a::before { content: "✓"; color: var(--it-text); }
+.it-obs-parts span { color: var(--it-meta); font-size: 13px; }
+.it-obs-skip { margin-top: 8px; }
+
+@media (max-width: 575.98px) {
+  .it-obm-step { flex-wrap: wrap; }
+  .it-obm-tools { width: 100%; padding-left: 48px; }
+  .it-obm-tools .it-ob-change, .it-obm-title, .it-obs-parts a { min-height: 48px; }
+  .it-obs-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}
