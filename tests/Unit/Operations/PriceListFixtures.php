@@ -97,7 +97,8 @@ final class PriceListFixtures
         $db->exec("CREATE TABLE catalog_categories (id INTEGER PRIMARY KEY, parent_id INT, family TEXT, name TEXT, slug TEXT, UNIQUE(family, slug))");
         $db->exec("CREATE TABLE catalog_category_map (id INTEGER PRIMARY KEY, family TEXT, text_key TEXT, category_id INT, how TEXT, UNIQUE(family, text_key))");
         $db->exec("CREATE TABLE catalog_products (id INTEGER PRIMARY KEY, family TEXT, category_id INT, canonical_name TEXT, brand TEXT, mfr_part_no TEXT, upc TEXT,
-                   match_key TEXT, alt_key TEXT, group_key TEXT, common_names TEXT, UNIQUE(family, match_key))");
+                   match_key TEXT, alt_key TEXT, group_key TEXT, common_names TEXT, species_key TEXT, UNIQUE(family, match_key))");
+        $db->exec("CREATE TABLE catalog_taxa (species_key TEXT PRIMARY KEY, rank TEXT, inat_taxon_id INT, common_name TEXT, photo_file TEXT, photo_credit TEXT, photo_license TEXT, status TEXT DEFAULT 'none', looked_up_at TEXT)");
         $db->exec("CREATE TABLE catalog_attribute_values (product_id INT, attr_key TEXT, value TEXT, source TEXT, PRIMARY KEY (product_id, attr_key))");
         $db->exec("CREATE TABLE catalog_size_equivalents (id INTEGER PRIMARY KEY, family TEXT, raw_key TEXT, canonical TEXT, note TEXT, sort_order INT DEFAULT 0, UNIQUE(family, raw_key))");
         $db->exec("CREATE TABLE catalog_aliases (id INTEGER PRIMARY KEY, family TEXT, alias_key TEXT, product_id INT, how TEXT, times_confirmed INT DEFAULT 1, UNIQUE(family, alias_key))");

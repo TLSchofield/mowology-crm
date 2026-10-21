@@ -32,11 +32,18 @@ if ($ready && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) { http_response_code(403); exit('You need products.edit to change catalogue matches.'); }
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('The security token expired. Go back and try again.'); }
     $do = (string)($_POST['do'] ?? '');
-    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip'], true)) {
+    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip', 'fetch_taxa'], true)) {
         // The reading of a supplier's first list (migration 1390): confirm it, correct it, or dismiss a list we could not read.
         try {
             if ($do === 'confirm_format') { $svc->confirmFormat((int)($_POST['format_id'] ?? 0)); $flash = 'Confirmed. Those prices now count in quotes, and later lists from this supplier import quietly.'; }
             elseif ($do === 'dismiss_skip') { $svc->dismissSkip((int)($_POST['skip_id'] ?? 0)); $flash = 'Dismissed.'; }
+            elseif ($do === 'fetch_taxa') {
+                // Common names and reference photos from iNaturalist, about 40 plant species a click (1 call a second).
+                require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+                @set_time_limit(120);
+                $tx = (new CatalogTaxonService($db))->enrichBatch(40);
+                $flash = "Looked up {$tx['keys']} plant species: {$tx['found']} found, {$tx['none']} not found." . ($tx['stopped'] ? ' Stopped early: ' . $tx['stopped'] . '. Try again in a minute.' : '');
+            }
             else {
                 $svc->updateFormatColumns((int)($_POST['format_id'] ?? 0), (array)($_POST['cols'] ?? []));
                 $flash = 'Columns saved. The next list uses them; the list already read keeps its old reading until the supplier sends the next one.';
@@ -67,6 +74,8 @@ if ($ready) {
 $lists = array_values(array_filter($lists, fn($l) => !empty($l['needs_review']) || !$l['format_id'] || !$usedFamilies || in_array($formatFamily[(int)$l['format_id']] ?? 'other', $usedFamilies, true)));
 $reviews = $ready ? $svc->reviewQueue() : [];   // first lists read automatically, waiting for "looks right"
 $skips = $ready ? $svc->openSkips() : [];        // lists that arrived but could not be read
+require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+$taxaPending = $ready ? (new CatalogTaxonService($db))->pending() : 0;   // plants still waiting for a common name / photo
 
 $suppliers = [];
 foreach ($lists as $l) $suppliers[(int)$l['supplier_account_id']] = $l['supplier_name'] ?: ('Supplier #' . $l['supplier_account_id']);
@@ -121,6 +130,14 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
   </div>
 
   <?php if ($flash !== ''): ?><div class="alert alert-info"><?= h($flash) ?></div><?php endif; ?>
+
+  <?php if ($ready && $taxaPending > 0 && $canEdit): ?>
+  <form method="post" class="mw-pl-taxa mb-3">
+    <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="fetch_taxa">
+    <button class="btn btn-outline-primary btn-sm">Fetch plant names and photos</button>
+    <span class="mw-ops-hint"><?= (int)$taxaPending ?> catalogue plant(s) have no common name or photo yet. This looks up about 40 species a click; it also runs by itself every 6 hours. Photos come from iNaturalist and show the photographer's credit on hover.</span>
+  </form>
+  <?php endif; ?>
 
   <?php foreach ($reviews as $rv): $fmt = $rv['format']; $seen = (array)((json_decode((string)$fmt['spec_json'], true) ?: [])['seen_headers'] ?? []); ?>
   <div class="card mw-plr">
@@ -313,7 +330,7 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
         <?php foreach ($items as $r): ?>
           <tr class="<?= $r['price_change'] ? 'mw-pl-' . h($r['price_change']) . '-row' : '' ?>">
             <td class="mw-pl-code"><?= h((string)$r['product_code']) ?></td>
-            <td class="mw-pl-name"><?= h($r['name']) ?>
+            <td class="mw-pl-name"><?php if (!empty($r['photo_file'])): ?><img class="mw-plantpic" src="/uploads/taxa/<?= h(rawurlencode((string)$r['photo_file'])) ?>" alt="" loading="lazy" title="<?= h((string)$r['photo_credit']) ?>"><?php endif; ?><?= h($r['name']) ?>
               <?php if (!empty($r['common_names'])): ?><div class="mw-ops-hint mt-0"><?= h(str_replace('|', ', ', $r['common_names'])) ?></div><?php endif; ?></td>
             <td><?= $sizeLabel($r) ?></td>
             <td><?= h((string)$r['zone']) ?></td>

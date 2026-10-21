@@ -557,8 +557,9 @@ class SupplierPriceListService
         if (($c = trim((string)($f['category'] ?? ''))) !== '') { $where[] = 'i.category = ?'; $args[] = $c; }
         if (($z = trim((string)($f['size'] ?? ''))) !== '') { $where[] = 'i.size_code = ?'; $args[] = $z; }
         if (!empty($f['changes'])) $where[] = "i.price_change IN ('new','up','down')";
-        $s = $this->db->prepare("SELECT i.*, p.canonical_name, p.common_names FROM supplier_price_items i
+        $s = $this->db->prepare("SELECT i.*, p.canonical_name, p.common_names, t.photo_file, t.photo_credit FROM supplier_price_items i
                                  LEFT JOIN catalog_products p ON p.id = i.catalog_product_id
+                                 LEFT JOIN catalog_taxa t ON t.species_key = p.species_key AND t.status = 'found'
                                  WHERE " . implode(' AND ', $where) . " ORDER BY i.name, i.size_code LIMIT " . max(1, min(5000, $limit)));
         $s->execute($args);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);

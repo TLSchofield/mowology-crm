@@ -186,7 +186,7 @@ class SupplierSearchService
         $sql = "SELECT i.id, i.name, i.size, i.size_code, i.price, i.available, i.comment, i.category, i.catalog_product_id, i.name_key,
                        i.product_code, i.price_change, i.prev_price,
                        l.id AS list_id, l.list_date, l.rules_json, l.supplier_account_id, a.name AS supplier_name, a.lat, a.lng, a.address,
-                       f.family, cp.canonical_name, cp.common_names
+                       f.family, cp.canonical_name, cp.common_names, tx.photo_file, tx.photo_credit
                 FROM supplier_price_items i
                 JOIN supplier_price_lists l ON l.id = i.list_id
                 JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' AND needs_review = 0 GROUP BY supplier_account_id) x
@@ -194,6 +194,7 @@ class SupplierSearchService
                 LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
                 LEFT JOIN supplier_list_formats f ON f.id = l.format_id
                 LEFT JOIN catalog_products cp ON cp.id = i.catalog_product_id
+                LEFT JOIN catalog_taxa tx ON tx.species_key = cp.species_key AND tx.status = 'found'
                 WHERE i.site_id = ? AND l.kind = 'availability' AND i.price IS NOT NULL AND " . implode(' AND ', $where) . "
                 ORDER BY i.price
                 LIMIT " . self::MAX_ROWS;
@@ -240,6 +241,7 @@ class SupplierSearchService
                 $groups[$key] = [
                     'key' => $key, 'name' => (string)($r['canonical_name'] ?: $r['name']), 'common' => $common !== '' && !preg_match('/\d/', $common) ? $common : self::firstCommon((string)($r['common_names'] ?? '')),
                     'size' => (string)$r['size'], 'size_code' => $r['size_code'], 'family' => (string)($r['family'] ?? 'plants'), 'offers' => [],
+                    'photo' => !empty($r['photo_file']) ? '/uploads/taxa/' . rawurlencode((string)$r['photo_file']) : null, 'photo_credit' => $r['photo_credit'] ?? null,
                 ];
             }
             $groups[$key]['offers'][$sid] = $offer;

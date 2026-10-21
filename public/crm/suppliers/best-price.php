@@ -85,9 +85,12 @@ $money = static fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-baseline">
-        <div class="mb-2">
+        <div class="mb-2 d-flex" style="gap:10px">
+          <?php if (!empty($g['photo'])): ?><img class="mw-plantpic mw-plantpic-lg" src="<?= h($g['photo']) ?>" alt="" loading="lazy" title="<?= h((string)$g['photo_credit']) ?>"><?php endif; ?>
+          <div>
           <div class="h5 mb-0"><?= h($g['common'] ?: $g['name']) ?> <span class="text-muted">· <?= h($g['size'] ?: 'per yard') ?></span></div>
           <?php if ($g['common']): ?><div class="text-muted"><?= h($b['item']) ?></div><?php endif; ?>
+          </div>
         </div>
         <div class="text-right mb-2">
           <div class="h4 mb-0"><?= $money($b['price']) ?> <span class="h6 text-muted">cost · <?= h($b['supplier']) ?></span></div>

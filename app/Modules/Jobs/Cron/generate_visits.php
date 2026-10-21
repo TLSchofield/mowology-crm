@@ -160,6 +160,15 @@ try {
         error_log('[generate_visits cron] market prices: ' . get_class($e));
     }
 
+    // Common names + reference photos for catalogue plants (CatalogTaxonService, migration 1391): a small batch each run.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+        $tx = (new CatalogTaxonService(getDB()))->enrichBatch(25);
+        if ($tx['keys']) $autoPlace .= "; plant names/photos: {$tx['found']} found, {$tx['none']} not found for {$tx['keys']} species" . ($tx['stopped'] ? ' (stopped: ' . $tx['stopped'] . ')' : '');
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] plant names: ' . get_class($e));
+    }
+
     // Machines from purchase receipts (EquipmentReceiptIntakeService, migration 1377): Otto adds them himself.
     try {
         require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
