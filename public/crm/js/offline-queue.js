@@ -267,6 +267,25 @@
      * Deletes the record from IDB on success.
      */
     function replayOne(record) {
+        return freshCsrf().then(function (tok) { return replayWith(record, tok); });
+    }
+
+    /**
+     * The session's current CSRF token, or '' when it cannot be had (then the saved one is sent).
+     * A queued action carries the token from the moment it was queued; once the person signs in
+     * again (or the session rolls over) that token is dead, the server answers 400 "Invalid CSRF
+     * token" every time, and the action was dropped after MAX_RETRIES — a Clock In lost that way on
+     * 2026-10-21, six copies of the same notice on screen.
+     */
+    function freshCsrf() {
+        var realFetch = window._mwOrigFetch || window.fetch;
+        return realFetch('/crm/api/get-csrf.php', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) { return (d && typeof d.token === 'string') ? d.token : ''; })
+            .catch(function () { return ''; });
+    }
+
+    function replayWith(record, tok) {
         var opts = {
             method:      record.method || 'POST',
             credentials: 'include',
@@ -280,6 +299,23 @@
         } else if (record.body) {
             opts.body = JSON.stringify(record.body);
             opts.headers['Content-Type'] = 'application/json';
+        }
+
+        // Swap in the live CSRF token wherever the queued request carried one (JSON body or header).
+        if (tok) {
+            if (typeof opts.body === 'string') {
+                try {
+                    var parsed = JSON.parse(opts.body);
+                    if (parsed && typeof parsed === 'object' && Object.prototype.hasOwnProperty.call(parsed, 'csrf_token')) {
+                        parsed.csrf_token = tok;
+                        opts.body = JSON.stringify(parsed);
+                    }
+                } catch (e) { /* not JSON — send as saved */ }
+            }
+            var hdrs = record.headers || {};
+            Object.keys(hdrs).forEach(function (k) {
+                if (k.toLowerCase() === 'x-csrf-token') opts.headers[k] = tok;
+            });
         }
 
         // Include idempotency key so the server deduplicates replays.
@@ -321,7 +357,12 @@
     }
 
     /** A queued action the server kept refusing was dropped — say so; never lose it silently. */
+    var _droppedShown = {};
     function notifyDropped(record, status) {
+        // Six queued copies of one tap give one notice, not six.
+        var dedupe = (record.label || '') + '|' + (record.timestamp || '');
+        if (_droppedShown[dedupe]) return;
+        _droppedShown[dedupe] = true;
         var when = '';
         try { when = new Date(record.timestamp).toLocaleString(); } catch (e) {}
         var msg = 'An offline action could not be saved and was removed: ' + (record.label || 'Action')
