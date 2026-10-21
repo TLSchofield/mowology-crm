@@ -53,6 +53,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['qbo_flash'] = $iid > 0
                 ? (new QboSyncService($svc))->sendInvoice($iid)
                 : ['ok' => false, 'message' => 'No invoice ' . $num . '.'];
+        } elseif ($action === 'auto') {
+            $on = ($_POST['auto'] ?? '') === '1';
+            $from = trim((string)($_POST['from'] ?? '')) ?: null;
+            $ok = (new QboSyncService($svc))->setAuto($on, $from);
+            $_SESSION['qbo_flash'] = ['ok' => $ok, 'message' => !$ok ? 'Pick the date to start from.'
+                : ($on ? 'Automatic sending is on: invoices issued from ' . $from . ' go to QuickBooks within 15 minutes, with their payments.' : 'Automatic sending is off.')];
         } elseif ($action === 'save_map') {
             $bad = 0;
             foreach (['account', 'tax_code'] as $kind) {
@@ -79,8 +85,12 @@ $qTax      = $status['connected'] ? $svc->remote('tax_code') : [];
 $csrf = generateCSRFToken();
 $sync = ($status['connected'] && $svc->tablesReady()) ? new QboSyncService($svc) : null;
 $canSend = $sync !== null && $sync->guard() === null;
-$sent = [];
-try { $sent = $sync ? $sync->recent(15) : []; } catch (Throwable $e) { /* migration 1383 not run yet */ }
+$sent = []; $problems = []; $auto = ['on' => false, 'from' => null];
+try {
+    $sent = $sync ? $sync->recent(15) : [];
+    $problems = $sync ? $sync->problems() : [];
+    $auto = $sync ? $sync->auto() : $auto;
+} catch (Throwable $e) { /* migration 1383 not run yet */ }
 
 $pageTitle  = 'QuickBooks';
 $activePage = 'accounting';
@@ -141,6 +151,36 @@ $activePage = 'accounting';
 <?php if ($canSend): ?>
 <div class="card mb-3">
     <div class="card-body">
+        <h2 class="h5">Automatic sending</h2>
+        <p class="small text-muted">Every 15 minutes, issued invoices (from the date you pick) and their payments go to QuickBooks by themselves. Invoices that can't go as they are wait below with the reason.</p>
+        <form method="post" class="d-flex gap-2 flex-wrap align-items-end mb-3">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <input type="hidden" name="action" value="auto">
+            <?php if ($auto['on']): ?>
+                <p class="mb-0 me-2"><strong>On</strong> — invoices issued from <?= h(date('M j, Y', strtotime((string)$auto['from']))) ?>.</p>
+                <button class="btn btn-outline-secondary" name="auto" value="0">Turn off</button>
+            <?php else: ?>
+                <div>
+                    <span class="form-label small mb-1 d-block" id="qbo-from-label">Send invoices issued from</span>
+                    <!-- The CRM's date picker (CLAUDE.md rule 12); the hidden date input carries the value. -->
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#qbo-from" aria-haspopup="true" aria-expanded="false" aria-labelledby="qbo-from-label">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" id="qbo-from" name="from" class="form-control" hidden value="<?= h(date('Y-m-d')) ?>">
+                </div>
+                <button class="btn btn-primary" name="auto" value="1">Turn on</button>
+            <?php endif; ?>
+        </form>
+
+        <?php if ($problems): ?>
+        <h3 class="h6">Needs you</h3>
+        <ul class="small mb-3">
+            <?php foreach ($problems as $p): ?><li><strong><?= h($p['invoice']) ?></strong> — <?= h($p['why']) ?></li><?php endforeach; ?>
+        </ul>
+        <?php endif; ?>
+
         <h2 class="h5">Send an invoice to the test company</h2>
         <p class="small text-muted">Sends one Ittai invoice to QuickBooks with its customer and payments, then checks QuickBooks' total against Ittai's. Sending the same invoice again never makes a second copy.</p>
         <form method="post" class="d-flex gap-2 flex-wrap align-items-end">

@@ -69,7 +69,8 @@ class QboSyncService
      */
     public static function nextRequestId(string $base, ?array $prev): string
     {
-        if (!$prev || ($prev['status'] ?? '') !== 'refused') return $prev['request_id'] ?? $base;
+        // 'held' too: a held invoice was refused, or never created (then a new id costs nothing).
+        if (!$prev || !in_array($prev['status'] ?? '', ['refused', 'held'], true)) return $prev['request_id'] ?? $base;
         $n = preg_match('/-r(\d+)$/', (string)$prev['request_id'], $m) ? (int)$m[1] + 1 : 1;
         return $base . '-r' . $n;
     }
@@ -227,6 +228,32 @@ class QboSyncService
     public function sendInvoice(int $invoiceId): array
     {
         if (($g = $this->guard()) !== null) return ['ok' => false, 'message' => $g];
+        // One send at a time for this business (the 15-minute run and a press on the page could
+        // otherwise both see "not sent yet" and both create — Codex review 2026-10-20).
+        if (!$this->lock()) return ['ok' => false, 'message' => 'Another QuickBooks send is running. Try again in a minute.'];
+        try {
+            return $this->sendInvoiceLocked($invoiceId);
+        } finally {
+            $this->unlock();
+        }
+    }
+
+    private function lockName(): string { return 'ittai_qbo_' . $this->siteId; }
+
+    private function lock(): bool
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return true;   // tests (SQLite): one process
+        return (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($this->lockName()) . ", 20)")->fetchColumn() === 1;
+    }
+
+    private function unlock(): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        try { $this->db->query("SELECT RELEASE_LOCK(" . $this->db->quote($this->lockName()) . ")"); } catch (Throwable $e) { /* released at disconnect */ }
+    }
+
+    private function sendInvoiceLocked(int $invoiceId): array
+    {
         // Who the customer is (live 2026-10-20: 269 of 445 invoices since April have no client row and
         // 372 no bill-to name — most carry only a contact): client → contact → company → property.
         $s = $this->db->prepare("SELECT i.*, c.display_name AS client_name, c.billing_email AS client_email,
@@ -244,6 +271,13 @@ class QboSyncService
         $inv = $s->fetch(PDO::FETCH_ASSOC);
         if (!$inv) return ['ok' => false, 'message' => 'No invoice #' . $invoiceId . '.'];
         $status = strtolower(trim((string)$inv['status']));
+        $already = $this->link('invoice', (string)$invoiceId);
+        if ($already && $already['qbo_id'] && in_array($status, ['draft', 'cancelled', 'canceled', 'void', ''], true)) {
+            // Voided in Ittai after it was sent: the QuickBooks invoice stays linked (never erased, so it is
+            // never created twice); no payments are sent to it; the page asks the owner to void it there.
+            return ['ok' => false, 'message' => ($inv['invoice_number'] ?: '#' . $invoiceId) . ' was ' . $status . ' in Ittai after it went to QuickBooks — void it in QuickBooks too.',
+                    'invoice_qbo_id' => (string)$already['qbo_id'], 'payments' => 0];
+        }
         if (in_array($status, ['draft', 'cancelled', 'canceled', 'void', ''], true)) {
             return ['ok' => false, 'message' => 'Invoice ' . $inv['invoice_number'] . ' is ' . ($status ?: 'not issued') . ' — only issued invoices go to QuickBooks.'];
         }
@@ -347,7 +381,14 @@ class QboSyncService
         foreach ($rows as $p) {
             $l = $this->link('payment', $p['key']);
             if ($l && $l['qbo_id']) continue;
-            if ($applied + $p['amount'] > round($invoiceTotal, 2) + 0.005) { $held++; continue; }
+            if ($applied + $p['amount'] > round($invoiceTotal, 2) + 0.005) {
+                // Remembered, so the automatic run does not pick this invoice up again every 15 minutes.
+                // sync_token = the amount: a corrected amount makes the automatic run look at it again.
+                $this->saveLink('payment', $p['key'], null, number_format($p['amount'], 2, '.', ''), self::requestId($this->siteId, 'pay', str_replace(':', '', $p['key'])), 'held', null,
+                                'would pay more than the invoice in QuickBooks');
+                $held++;
+                continue;
+            }
             $rid = self::nextRequestId(self::requestId($this->siteId, 'pay', str_replace(':', '', $p['key'])), $l);
             $r = $this->conn->client()->create('Payment', self::paymentBody((string)$cust['qbo_id'], $invoiceQboId, $p['amount'], $p['date'], $p['ref']), $rid);
             if ($r['ok']) {
@@ -485,6 +526,163 @@ class QboSyncService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Automatic sending (owner switch: ops_settings qbo_auto_send = 1, qbo_auto_from = Y-m-d)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public const AUTO_BATCH = 20;
+
+    /** @return array{on:bool, from:?string} */
+    public function auto(): array
+    {
+        $from = $this->setting('qbo_auto_from');
+        return ['on' => $this->setting('qbo_auto_send') === '1' && $from !== null, 'from' => $from];
+    }
+
+    /** The owner turns automatic sending on (from a date: history is not dumped in) or off. */
+    public function setAuto(bool $on, ?string $from): bool
+    {
+        if ($on && ($from === null || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from))) return false;
+        $this->saveSetting('qbo_auto_send', $on ? '1' : '0', 'QuickBooks: send issued invoices and their payments by themselves (QboSyncService::runQueue)');
+        if ($on) $this->saveSetting('qbo_auto_from', $from, 'QuickBooks: only invoices issued on or after this date are sent automatically');
+        return true;
+    }
+
+    /**
+     * What the next run sends: issued invoices on/after the start date not yet in QuickBooks (a held
+     * one only once it has changed since), and invoices already there with a payment not yet sent.
+     * @return list<int> invoice ids
+     */
+    public function due(int $limit = self::AUTO_BATCH): array
+    {
+        $c = $this->conn->company();
+        $a = $this->auto();
+        if (!$c || !$a['on']) return [];
+        $realm = $c['realm_id'];
+        $s = $this->db->prepare("SELECT i.id FROM invoices i
+            LEFT JOIN qbo_links l ON l.site_id = ? AND l.realm_id = ? AND l.entity_type = 'invoice' AND l.entity_id = i.id
+            WHERE LOWER(COALESCE(i.status, '')) NOT IN ('draft', 'cancelled', 'canceled', 'void', '')
+              AND COALESCE(i.issue_date, i.invoice_date) >= ?
+              AND (l.id IS NULL OR (l.qbo_id IS NULL AND (l.status <> 'held' OR COALESCE(l.sync_token, '') <> COALESCE(i.updated_at, ''))))
+            ORDER BY i.id LIMIT " . max(1, min(100, $limit)));
+        $s->execute([$this->siteId, $realm, $a['from']]);
+        $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        // Payments arrived after the invoice was sent (hand-recorded or Stripe).
+        $p = $this->db->prepare("SELECT x.invoice_id, x.amt, lp.status AS lstatus, lp.sync_token AS ltoken FROM (
+                SELECT invoice_id, CONCAT('alloc:', id) AS k, amount AS amt FROM invoice_payment_allocations WHERE amount > 0
+                UNION ALL SELECT invoice_id, CONCAT('stripe:', id), amount_cents / 100 FROM stripe_payments WHERE status = 'succeeded') x
+            JOIN invoices iv ON iv.id = x.invoice_id AND LOWER(COALESCE(iv.status, '')) NOT IN ('draft', 'cancelled', 'canceled', 'void', '')
+            JOIN qbo_links li ON li.site_id = ? AND li.realm_id = ? AND li.entity_type = 'invoice' AND li.entity_id = x.invoice_id AND li.qbo_id IS NOT NULL AND li.status = 'sent'
+            LEFT JOIN qbo_links lp ON lp.site_id = li.site_id AND lp.realm_id = li.realm_id AND lp.entity_type = 'payment' AND lp.entity_id = x.k
+            WHERE lp.qbo_id IS NULL
+            LIMIT 500");
+        $p->execute([$this->siteId, $realm]);
+        foreach ($p->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            // A held payment comes back only when its amount has changed (compared here, not in SQL:
+            // number formats differ between databases).
+            if ($r['lstatus'] === 'held' && (string)$r['ltoken'] === number_format((float)$r['amt'], 2, '.', '')) continue;
+            $ids[] = (int)$r['invoice_id'];
+        }
+        return array_slice(array_values(array_unique($ids)), 0, $limit);
+    }
+
+    /**
+     * One automatic run (Penny's 15-minute job). Stops at the first sign-in problem.
+     * @return array{sent:int, held:int, failed:int, notes:list<string>, stopped:?string}
+     */
+    public function runQueue(int $limit = self::AUTO_BATCH): array
+    {
+        $out = ['sent' => 0, 'held' => 0, 'failed' => 0, 'notes' => [], 'stopped' => null];
+        if (!$this->auto()['on']) return $out;
+        if (($g = $this->guard()) !== null) { $out['stopped'] = $g; return $out; }
+        foreach ($this->due($limit) as $id) {
+            $r = $this->sendInvoice($id);
+            if (!empty($r['invoice_qbo_id']) && $r['ok']) { $out['sent']++; continue; }
+            if (strpos($r['message'], 'Not connected') !== false || strpos($r['message'], 'Connect again') !== false) {
+                $out['stopped'] = $r['message'];
+                break;
+            }
+            $l = $this->link('invoice', (string)$id);
+            if (!empty($l['qbo_id'])) {
+                // In QuickBooks already (voided / changed since, or totals differ): never overwrite its link.
+                if (count($out['notes']) < 5) $out['notes'][] = $r['message'];
+                continue;
+            }
+            if (empty($r['invoice_qbo_id']) && ($this->isHold($r['message']) || ($l['status'] ?? '') === 'refused')) {
+                // Held for the owner (QuickBooks said no, or it can't go as lines × one tax): not tried
+                // again every 15 minutes, only once the invoice changes. The last request id is kept, so
+                // the next try gets a fresh one (nextRequestId).
+                $u = $this->db->prepare('SELECT updated_at FROM invoices WHERE id = ?');
+                $u->execute([$id]);
+                $this->saveLink('invoice', (string)$id, null, (string)($u->fetchColumn() ?: ''),
+                                (string)($l['request_id'] ?? self::requestId($this->siteId, 'inv', (string)$id)), 'held', null, $r['message']);
+                $out['held']++;
+            } else {
+                $out['failed']++;
+            }
+            if (count($out['notes']) < 5) $out['notes'][] = $r['message'];
+        }
+        return $out;
+    }
+
+    /** Pure: a message that means "a person has to look at this invoice" (not a passing failure). */
+    public function isHold(string $msg): bool
+    {
+        foreach (['was not sent: its', 'map Ittai account', 'Pick the QuickBooks tax code', 'has no amount', 'only issued invoices'] as $k) {
+            if (strpos($msg, $k) !== false) return true;
+        }
+        return false;
+    }
+
+    /**
+     * For the page: invoices held, failed, totals that differ, and invoices changed in Ittai after they
+     * were sent (QuickBooks is not edited by Ittai yet — the owner fixes those there).
+     */
+    public function problems(int $limit = 25): array
+    {
+        $c = $this->conn->company();
+        if (!$c) return [];
+        $s = $this->db->prepare("SELECT l.status, l.message, l.qbo_total, i.invoice_number, i.status AS inv_status,
+                                        COALESCE(NULLIF(i.total, 0), i.total_amount) AS ittai_total
+                                 FROM qbo_links l JOIN invoices i ON i.id = l.entity_id
+                                 WHERE l.site_id = ? AND l.realm_id = ? AND l.entity_type = 'invoice'
+                                   AND (l.status IN ('held', 'refused', 'error', 'mismatch')
+                                        OR (l.qbo_id IS NOT NULL AND (ABS(COALESCE(NULLIF(i.total, 0), i.total_amount) - l.qbo_total) >= 0.005
+                                            OR LOWER(COALESCE(i.status, '')) IN ('void', 'cancelled', 'canceled'))))
+                                 ORDER BY l.id DESC LIMIT " . max(1, min(100, $limit)));
+        $s->execute([$this->siteId, $c['realm_id']]);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            if (in_array($r['status'], ['sent', 'mismatch'], true) && in_array(strtolower((string)$r['inv_status']), ['void', 'cancelled', 'canceled'], true)) {
+                $why = 'Voided in Ittai after it was sent — void it in QuickBooks too.';
+            } elseif ($r['status'] === 'sent') {
+                $why = sprintf('Changed in Ittai after it was sent ($%s now, $%s in QuickBooks) — update it in QuickBooks.',
+                               number_format((float)$r['ittai_total'], 2), number_format((float)$r['qbo_total'], 2));
+            } else {
+                $why = (string)$r['message'];
+            }
+            $out[] = ['invoice' => (string)$r['invoice_number'], 'status' => (string)$r['status'], 'why' => $why];
+        }
+        $h = $this->db->prepare("SELECT p.entity_id, p.message, p.sync_token FROM qbo_links p
+                                 WHERE p.site_id = ? AND p.realm_id = ? AND p.entity_type = 'payment' AND p.qbo_id IS NULL AND p.status IN ('held', 'refused', 'error')
+                                 ORDER BY p.id DESC LIMIT 10");
+        $h->execute([$this->siteId, $c['realm_id']]);
+        foreach ($h->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $out[] = ['invoice' => 'Payment ' . $r['entity_id'] . ($r['sync_token'] ? ' ($' . $r['sync_token'] . ')' : ''), 'status' => 'held',
+                      'why' => (string)$r['message'] . ' — check the payments on that invoice.'];
+        }
+        return $out;
+    }
+
+    private function saveSetting(string $key, ?string $value, string $desc): void
+    {
+        $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
+        $u->execute([$value, $key]);
+        if ($u->rowCount() === 0 && $this->setting($key) === null) {
+            $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $desc]);
+        }
+    }
 
     /** What was sent, newest first (for the page). */
     public function recent(int $limit = 20): array

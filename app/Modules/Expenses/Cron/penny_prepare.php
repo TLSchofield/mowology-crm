@@ -92,6 +92,20 @@ try {
     } catch (Throwable $e) {
         $pennyLog('Receipt facts backfill failed (non-fatal): ' . $e->getMessage());
     }
+    // Receipts feed the product catalogue: read a few past receipts (last 120 days) per run
+    // for product proposals on Penny's card. Free (no AI), never creates anything.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+            $pps = new ProductProposalService($db);
+            if ($pps->ready()) {
+                $bf = $pps->backfill(ProductProposalService::BACKFILL_DAYS, 10);
+                if ($bf['scanned'] > 0) $pennyLog("Product scan: read {$bf['scanned']} receipt(s), {$bf['proposals']} proposal(s), {$bf['left']} left.");
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Product scan skipped: ' . $e->getMessage());
+        }
+    }
 
     // Statements check (migration 1231): is every bank / card statement in? Computed at most
     // once a day (cached in ops_settings), whatever this cron's 15-minute cadence.
@@ -112,18 +126,56 @@ try {
         }
     }
 
-    // Receipts feed the product catalogue: read a few past receipts (last 120 days) per run
-    // for product proposals on Penny's card. Free (no AI), never creates anything.
-    if (!$dryRun) {
+    // Look-back review of 2026 (migration 1250), at night: one full rules scan a day (free), then small
+    // Claude batches (5 vendors / payees a run) while some are still unasked and the budget
+    // (ops_settings penny_lookback_budget) lasts. Proposals only — nothing in the books changes here.
+    if (!$dryRun && (int)date('G') >= 1 && (int)date('G') <= 4) {
         try {
-            require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
-            $pps = new ProductProposalService($db);
-            if ($pps->ready()) {
-                $bf = $pps->backfill(ProductProposalService::BACKFILL_DAYS, 10);
-                if ($bf['scanned'] > 0) $pennyLog("Product scan: read {$bf['scanned']} receipt(s), {$bf['proposals']} proposal(s), {$bf['left']} left.");
+            require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $lb = new LookbackService($db);
+            if ($lb->ready()) {
+                $lastScan = (string)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'penny_lookback_last_scan'")->fetchColumn() ?: '');
+                $pendingKey = 'penny_lookback_ai_pending';
+                $pending = (int)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '{$pendingKey}'")->fetchColumn() ?: 0);
+                if (substr($lastScan, 0, 10) !== date('Y-m-d') || ($pending > 0 && $lb->canSpend())) {
+                    if (function_exists('set_time_limit')) @set_time_limit(300);
+                    $lr = $lb->scan(['ai_calls' => 5]);
+                    $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Penny look-back: vendors / payees still to ask Claude')
+                                  ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([$pendingKey, (string)$lr['ai']['pending']]);
+                    $pennyLog('Look-back: ' . $lr['proposals'] . ' found, ' . ($lr['stored']['inserted'] ?? 0) . ' new; Claude ' . $lr['ai']['calls']
+                              . ' call(s) $' . number_format($lr['ai']['cost'], 4) . ', ' . $lr['ai']['pending'] . ' still to ask.');
+                }
             }
         } catch (Throwable $e) {
-            $pennyLog('Product scan skipped: ' . $e->getMessage());
+            $pennyLog('Look-back scan failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    // QuickBooks Online (plan 2026-10-20): when the owner has switched automatic sending on, issued
+    // invoices and their payments go to the connected QuickBooks company (QboSyncService::runQueue).
+    // Its own cron_runs row ('qbo_sync'): a failure or a stopped connection ends in 'warning', so Ada sees it.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
+            // Recorded EVERY run (also when off or not connected), so Ada never reads "switched off" as "missed".
+            $q0 = (int)(microtime(true) * 1000);
+            $qconn = new QboConnectionService($db);
+            $qs = ($qconn->tablesReady() && $qconn->company() !== null) ? new QboSyncService($qconn) : null;
+            if ($qs === null) {
+                recordCronRun('qbo_sync', 'success', 'QuickBooks: not connected — nothing to send.', null, null, !$isCli);
+            } elseif (!$qs->auto()['on']) {
+                recordCronRun('qbo_sync', 'success', 'QuickBooks: automatic sending is off.', null, null, !$isCli);
+            } else {
+                $qr = $qs->runQueue();
+                $qsum = "QuickBooks: {$qr['sent']} sent, {$qr['held']} held, {$qr['failed']} failed" . ($qr['stopped'] ? ' — stopped: ' . $qr['stopped'] : '');
+                if ($qr['sent'] || $qr['held'] || $qr['failed'] || $qr['stopped']) $pennyLog($qsum);
+                recordCronRun('qbo_sync', ($qr['failed'] || $qr['stopped']) ? 'warning' : 'success', $qsum,
+                              (int)(microtime(true) * 1000) - $q0, $qr['notes'] ? implode(' | ', $qr['notes']) : null, !$isCli);
+            }
+        } catch (Throwable $e) {
+            $pennyLog('QuickBooks sending failed (non-fatal): ' . $e->getMessage());
+            recordCronRun('qbo_sync', 'error', 'QuickBooks sending failed', null, $e->getMessage(), !$isCli);
         }
     }
 

@@ -30,7 +30,7 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE qbo_mappings (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, ittai_key TEXT, qbo_id TEXT, qbo_name TEXT, set_by INT, updated_at TEXT)");
         $db->exec("CREATE TABLE qbo_links (id INTEGER PRIMARY KEY, site_id INT, realm_id TEXT, entity_type TEXT, entity_id TEXT, qbo_id TEXT, sync_token TEXT,
                    request_id TEXT, status TEXT, qbo_total REAL, message TEXT, sent_at TEXT)");
-        $db->exec("CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT)");
+        $db->exec("CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT, description TEXT)");
         $db->exec("CREATE TABLE chart_of_accounts (code TEXT, name TEXT, type TEXT, is_active INT)");
         $db->exec("CREATE TABLE clients (id INTEGER PRIMARY KEY, display_name TEXT, billing_email TEXT)");
         $db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, phone TEXT, mobile TEXT)");
@@ -38,7 +38,7 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, province TEXT, postal_code TEXT)");
         $db->exec("CREATE TABLE stripe_payments (id INTEGER PRIMARY KEY, invoice_id INT, amount_cents INT, status TEXT, created_at TEXT, stripe_charge_id TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, contact_id INT, company_id INT, property_id INT, amount_paid REAL, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
-                   total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT)");
+                   total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT, updated_at TEXT)");
         $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, title TEXT, description TEXT, sort_order INT)");
         $db->exec("CREATE TABLE invoice_payment_allocations (id INTEGER PRIMARY KEY, invoice_id INT, amount REAL, payment_date TEXT, created_at TEXT, reference TEXT)");
 
@@ -51,7 +51,7 @@ class QboSyncTest extends TestCase
                    (1, 'account', '4100', '80', 'Services'), (1, 'account', '4200', '81', 'Hedges')");
         $db->exec("INSERT INTO chart_of_accounts VALUES ('4100', 'Lawn Care Services', 'revenue', 1), ('4200', 'Hedge & Shrub Trimming', 'revenue', 1), ('4600', 'Fertilization', 'revenue', 1)");
         $db->exec("INSERT INTO clients VALUES (5, 'Susan O''Lim', 'susan@example.ca')");
-        $db->exec("INSERT INTO invoices VALUES (10, 5, NULL, NULL, NULL, 416.06, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL)");
+        $db->exec("INSERT INTO invoices VALUES (10, 5, NULL, NULL, NULL, 416.06, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL, '2026-10-16 10:00:00')");
         $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 'Hedge trim', NULL, 1)");
         $db->exec("INSERT INTO invoice_payment_allocations VALUES (100, 10, 416.06, '2026-10-20', '2026-10-20 09:00:00', 'ET-55')");
         return $db;
@@ -268,7 +268,7 @@ class QboSyncTest extends TestCase
         $db = $this->db();
         $this->sync($db)->sendInvoice(10);
         $db->exec("UPDATE qbo_mappings SET qbo_id = '99', qbo_name = 'Landscaping' WHERE ittai_key = '4200'");
-        $db->exec("INSERT INTO invoices VALUES (12, 5, NULL, NULL, NULL, 0, 'INV-2026-0501', 'sent', 100, 5, 5.0, 105, 105, '2026-10-17', NULL, NULL, '2026-10-17', 'Susan O''Lim', NULL)");
+        $db->exec("INSERT INTO invoices VALUES (12, 5, NULL, NULL, NULL, 0, 'INV-2026-0501', 'sent', 100, 5, 5.0, 105, 105, '2026-10-17', NULL, NULL, '2026-10-17', 'Susan O''Lim', NULL, NULL)");
         $this->sync($db, [['4200', 100]])->sendInvoice(12);
         $items = array_values(array_filter($this->sent, fn($s) => $s['entity'] === 'item'));
         $this->assertCount(1, $items, 'a new item, not the one pointing at the old account');
@@ -329,6 +329,121 @@ class QboSyncTest extends TestCase
         $b = QboSyncService::customerBody('A', 'a@x.ca', ['Line1' => '1 St'], '604-555-0101');
         $this->assertSame('604-555-0101', $b['PrimaryPhone']['FreeFormNumber']);
         $this->assertSame('1 St', $b['BillAddr']['Line1']);
+    }
+
+    // ── automatic sending ────────────────────────────────────────────────────
+
+    private function autoOn(PDO $db, string $from = '2026-10-01'): void
+    {
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('qbo_auto_send', '1'), ('qbo_auto_from', '$from')");
+    }
+
+    public function test_nothing_is_sent_automatically_until_switched_on(): void
+    {
+        $db = $this->db();
+        $r = $this->sync($db)->runQueue();
+        $this->assertSame(0, $r['sent']);
+        $this->assertSame([], $this->sent);
+        $this->assertFalse($this->sync($db)->setAuto(true, 'soon'), 'a start date is required');
+        $this->assertTrue($this->sync($db)->setAuto(true, '2026-10-01'));
+        $this->assertTrue($this->sync($db)->auto()['on']);
+    }
+
+    public function test_the_run_sends_issued_invoices_from_the_start_date_only(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db, '2026-10-16');
+        $db->exec("INSERT INTO invoices (id, client_id, invoice_number, status, subtotal, tax_amount, tax_rate, total, issue_date, created_at)
+                   VALUES (20, 5, 'INV-OLD', 'sent', 100, 5, 0.05, 105, '2026-09-30', '2026-09-30')");
+        $r = $this->sync($db)->runQueue();
+        $this->assertSame(1, $r['sent']);
+        $inv = array_values(array_filter($this->sent, fn($x) => $x['entity'] === 'invoice'));
+        $this->assertSame(['INV-2026-0500'], array_map(fn($x) => $x['body']['DocNumber'], $inv), 'September history is not dumped in');
+        $this->assertSame(0, $this->sync($db)->runQueue()['sent'], 'nothing twice');
+    }
+
+    public function test_a_held_invoice_waits_until_it_changes(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $db->exec("UPDATE invoices SET total = 400.00");         // a discount: held
+        $r = $this->sync($db)->runQueue();
+        $this->assertSame(1, $r['held']);
+        $this->assertSame([], $this->sent);
+        $this->assertSame([], $this->sync($db)->due(), 'not picked up again');
+        $db->exec("UPDATE invoices SET total = 416.06, updated_at = '2026-10-21 08:00:00'");   // fixed
+        $this->assertSame([10], $this->sync($db)->due());
+        $this->assertSame(1, $this->sync($db)->runQueue()['sent']);
+    }
+
+    public function test_a_refused_invoice_is_held_and_its_retry_gets_a_fresh_id(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $this->answers['invoice'] = fn() => ['status' => 400, 'body' => '{"Fault":{"Error":[{"Message":"Bad","code":"6000"}]}}'];
+        $this->assertSame(1, $this->sync($db)->runQueue()['held']);
+        $this->assertSame([], $this->sync($db)->due());
+        unset($this->answers['invoice']);
+        $db->exec("UPDATE invoices SET updated_at = '2026-10-21 08:00:00'");
+        $this->sync($db)->runQueue();
+        $inv = array_values(array_filter($this->sent, fn($x) => $x['entity'] === 'invoice'));
+        $this->assertStringContainsString('requestid=ittai-1-inv-10-r1', $inv[0]['url']);
+    }
+
+    public function test_a_payment_after_the_invoice_is_picked_up_by_the_next_run(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $db->exec("UPDATE invoice_payment_allocations SET amount = 200.00");
+        $this->sync($db)->runQueue();
+        $db->exec("INSERT INTO stripe_payments VALUES (300, 10, 21606, 'succeeded', '2026-10-21 09:00:00', 'ch_2')");
+        $this->assertSame([10], $this->sync($db)->due());
+        $this->sync($db)->runQueue();
+        $this->assertSame(['payment'], array_column($this->sent, 'entity'));
+        $this->assertSame([], $this->sync($db)->due());
+    }
+
+    public function test_voided_after_sending_keeps_its_link_and_is_never_sent_again(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $db->exec("UPDATE invoice_payment_allocations SET amount = 200.00");
+        $this->sync($db)->runQueue();
+        $qboId = $db->query("SELECT qbo_id FROM qbo_links WHERE entity_type = 'invoice'")->fetchColumn();
+        $db->exec("UPDATE invoices SET status = 'void'");
+        $db->exec("INSERT INTO stripe_payments VALUES (300, 10, 21606, 'succeeded', '2026-10-21 09:00:00', 'ch_2')");
+        $this->assertSame([], $this->sync($db)->due(), 'no payment onto a voided invoice');
+        $r = $this->sync($db)->sendInvoice(10);
+        $this->assertStringContainsString('void it in QuickBooks too', $r['message']);
+        $this->assertSame($qboId, $db->query("SELECT qbo_id FROM qbo_links WHERE entity_type = 'invoice'")->fetchColumn(), 'the link is never erased');
+        $db->exec("UPDATE invoices SET status = 'sent'");      // restored
+        $this->sync($db)->runQueue();
+        $this->assertSame([], array_values(array_filter($this->sent, fn($x) => $x['entity'] === 'invoice')), 'never a second QuickBooks invoice');
+    }
+
+    public function test_a_held_payment_comes_back_when_its_amount_is_corrected(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $db->exec("INSERT INTO invoice_payment_allocations VALUES (101, 10, 416.06, '2026-10-21', '2026-10-21 09:00:00', NULL)");   // a duplicate
+        $this->sync($db)->runQueue();
+        $this->assertSame([], $this->sync($db)->due(), 'held: not every run');
+        $this->assertStringContainsString('would pay more than the invoice', implode(' ', array_column($this->sync($db)->problems(), 'why')));
+        $db->exec("UPDATE invoice_payment_allocations SET amount = 0.00 WHERE id = 100");
+        $db->exec("UPDATE invoice_payment_allocations SET amount = 10.00 WHERE id = 101");   // corrected
+        $this->assertSame([10], $this->sync($db)->due());
+    }
+
+    public function test_changes_in_ittai_after_sending_are_listed(): void
+    {
+        $db = $this->db();
+        $this->sync($db)->sendInvoice(10);
+        $this->assertSame([], $this->sync($db)->problems());
+        $db->exec("UPDATE invoices SET total = 430.00");
+        $p = $this->sync($db)->problems();
+        $this->assertStringContainsString('Changed in Ittai after it was sent ($430.00 now, $416.06 in QuickBooks)', $p[0]['why']);
+        $db->exec("UPDATE invoices SET total = 416.06, status = 'void'");
+        $this->assertStringContainsString('Voided in Ittai', $this->sync($db)->problems()[0]['why']);
     }
 
     public function test_request_ids_and_names(): void
