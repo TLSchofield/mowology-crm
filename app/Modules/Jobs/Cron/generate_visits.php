@@ -147,8 +147,10 @@ try {
         $ap = (new OttoAutoPlaceService(getDB()))->run();
         if ($ap['ran']) $autoPlace = '; Otto auto-place: ' . $ap['message'];
     } catch (Throwable $e) {
-        error_log('[generate_visits cron] auto-place: ' . get_class($e));
-        $sideProblems[] = 'Otto auto-place failed';
+        // Name the failure where Ada reads it (cron_runs): nine warnings in a row said only "failed" (2026-10-21).
+        $apWhy = get_class($e) . ' at ' . basename($e->getFile()) . ':' . $e->getLine() . ' — ' . substr(preg_replace('/\s+/', ' ', $e->getMessage()), 0, 200);
+        error_log('[generate_visits cron] auto-place: ' . $apWhy);
+        $sideProblems[] = 'Otto auto-place failed: ' . $apWhy;
     }
 
     // Local market prices (MarketPriceService, migration 1375): each public source read once a week.
