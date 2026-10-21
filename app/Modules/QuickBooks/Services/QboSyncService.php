@@ -33,13 +33,13 @@ class QboSyncService
      *  live 2026-10-20 — "Ittai: Lawn Care" became item "Lawn Care" under a parent "Ittai"). */
     public const ITEM_SUFFIX = ' (Ittai)';
 
-    private QboConnectionService $conn;
-    private PDO $db;
-    private int $siteId;
+    protected QboConnectionService $conn;
+    protected PDO $db;
+    protected int $siteId;
     /** @var callable(array $invoiceRow, float $net): list<array{0:string,1:float}> */
     private $splits;
     /** @var callable(): int */
-    private $clock;
+    protected $clock;
 
     public function __construct(QboConnectionService $conn, ?callable $splits = null, ?callable $clock = null)
     {
@@ -238,15 +238,15 @@ class QboSyncService
         }
     }
 
-    private function lockName(): string { return 'ittai_qbo_' . $this->siteId; }
+    protected function lockName(): string { return 'ittai_qbo_' . $this->siteId; }
 
-    private function lock(): bool
+    protected function lock(): bool
     {
         if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return true;   // tests (SQLite): one process
         return (int)$this->db->query("SELECT GET_LOCK(" . $this->db->quote($this->lockName()) . ", 20)")->fetchColumn() === 1;
     }
 
-    private function unlock(): void
+    protected function unlock(): void
     {
         if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
         try { $this->db->query("SELECT RELEASE_LOCK(" . $this->db->quote($this->lockName()) . ")"); } catch (Throwable $e) { /* released at disconnect */ }
@@ -626,6 +626,22 @@ class QboSyncService
         return $out;
     }
 
+    /**
+     * Try everything held again on the next run — after the owner fixes the mapping or a tax code, the
+     * cause was not the invoice / receipt itself, so waiting for it to change would wait for ever.
+     * They become 'refused' (not sent, picked up again) and keep their request id, so the retry gets a
+     * fresh one. @return int how many
+     */
+    public function releaseHeld(): int
+    {
+        $c = $this->conn->company();
+        if (!$c) return 0;
+        // Not payments: one held for overpaying waits for its own amount to change (Codex review 2026-10-20).
+        $u = $this->db->prepare("UPDATE qbo_links SET status = 'refused' WHERE site_id = ? AND realm_id = ? AND status = 'held' AND qbo_id IS NULL AND entity_type <> 'payment'");
+        $u->execute([$this->siteId, $c['realm_id']]);
+        return $u->rowCount();
+    }
+
     /** Pure: a message that means "a person has to look at this invoice" (not a passing failure). */
     public function isHold(string $msg): bool
     {
@@ -675,7 +691,7 @@ class QboSyncService
         return $out;
     }
 
-    private function saveSetting(string $key, ?string $value, string $desc): void
+    protected function saveSetting(string $key, ?string $value, string $desc): void
     {
         $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
         $u->execute([$value, $key]);
@@ -696,7 +712,7 @@ class QboSyncService
         return $s->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    private function link(string $type, string $id): ?array
+    protected function link(string $type, string $id): ?array
     {
         $c = $this->conn->company();
         if (!$c) return null;
@@ -706,7 +722,7 @@ class QboSyncService
         return $r ?: null;
     }
 
-    private function saveLink(string $type, string $id, ?string $qboId, ?string $token, string $rid, string $status, ?float $total, ?string $msg): void
+    protected function saveLink(string $type, string $id, ?string $qboId, ?string $token, string $rid, string $status, ?float $total, ?string $msg): void
     {
         $c = $this->conn->company();
         if (!$c) return;
@@ -722,7 +738,7 @@ class QboSyncService
         }
     }
 
-    private function setting(string $key): ?string
+    protected function setting(string $key): ?string
     {
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');

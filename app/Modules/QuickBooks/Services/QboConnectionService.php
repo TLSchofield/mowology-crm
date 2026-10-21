@@ -349,7 +349,7 @@ class QboConnectionService
     /** kind => ittai_key => [qbo_id, qbo_name] */
     public function mappings(): array
     {
-        $out = ['account' => [], 'tax_code' => []];
+        $out = ['account' => [], 'tax_code' => [], 'pay_account' => []];
         $s = $this->db->prepare('SELECT kind, ittai_key, qbo_id, qbo_name FROM qbo_mappings WHERE site_id = ?');
         $s->execute([$this->siteId]);
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[$r['kind']][$r['ittai_key']] = ['qbo_id' => $r['qbo_id'], 'qbo_name' => $r['qbo_name']];
@@ -359,15 +359,24 @@ class QboConnectionService
     /** Save one choice; the QuickBooks id must be one we read (never a typed id). '' clears it. */
     public function setMapping(string $kind, string $ittaiKey, string $qboId, int $userId): bool
     {
-        if (!in_array($kind, ['account', 'tax_code'], true) || $ittaiKey === '' || strlen($ittaiKey) > 64) return false;
+        // 'pay_account': the Ittai account a receipt was paid from (1010 chequing, 2400 card) → a QuickBooks
+        // Bank / Credit Card account (its id is an Account read like the others).
+        if (!in_array($kind, ['account', 'tax_code', 'pay_account'], true) || $ittaiKey === '' || strlen($ittaiKey) > 64) return false;
+        $remoteKind = $kind === 'pay_account' ? 'account' : $kind;
         if ($qboId === '') {
             $this->db->prepare('DELETE FROM qbo_mappings WHERE site_id = ? AND kind = ? AND ittai_key = ?')->execute([$this->siteId, $kind, $ittaiKey]);
             return true;
         }
         $s = $this->db->prepare('SELECT name FROM qbo_remote_items WHERE site_id = ? AND kind = ? AND qbo_id = ?');
-        $s->execute([$this->siteId, $kind, $qboId]);
+        $s->execute([$this->siteId, $remoteKind, $qboId]);
         $name = $s->fetchColumn();
         if ($name === false) return false;
+        if ($kind === 'pay_account') {
+            // Paid from: only a Bank or Credit Card account (enforced here, not just in the page's list).
+            $d = $this->db->prepare("SELECT detail FROM qbo_remote_items WHERE site_id = ? AND kind = 'account' AND qbo_id = ?");
+            $d->execute([$this->siteId, $qboId]);
+            if (!in_array(trim(explode(' ·', (string)$d->fetchColumn())[0]), self::TYPE_FIT['pay'], true)) return false;
+        }
         $u = $this->db->prepare('UPDATE qbo_mappings SET qbo_id = ?, qbo_name = ?, set_by = ? WHERE site_id = ? AND kind = ? AND ittai_key = ?');
         $u->execute([$qboId, $name, $userId ?: null, $this->siteId, $kind, $ittaiKey]);
         if ($u->rowCount() === 0) {
@@ -386,6 +395,7 @@ class QboConnectionService
         'revenue' => ['Income', 'Other Income'],
         'expense' => ['Expense', 'Cost of Goods Sold', 'Other Expense'],
         'asset'   => ['Fixed Asset', 'Other Asset', 'Other Current Asset'],
+        'pay'     => ['Bank', 'Credit Card'],          // what a receipt was paid from
     ];
 
     /**

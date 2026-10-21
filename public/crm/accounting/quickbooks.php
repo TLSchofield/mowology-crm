@@ -10,6 +10,7 @@ requirePermission('settings.edit');
 $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboExpenseSyncService.php';
 
 $db  = getDB();
 $svc = new QboConnectionService($db);
@@ -56,17 +57,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'auto') {
             $on = ($_POST['auto'] ?? '') === '1';
             $from = trim((string)($_POST['from'] ?? '')) ?: null;
-            $ok = (new QboSyncService($svc))->setAuto($on, $from);
+            $qs = new QboSyncService($svc);
+            $ok = $qs->setAuto($on, $from);
+            if ($ok && $on) $qs->releaseHeld();
             $_SESSION['qbo_flash'] = ['ok' => $ok, 'message' => !$ok ? 'Pick the date to start from.'
                 : ($on ? 'Automatic sending is on: invoices issued from ' . $from . ' go to QuickBooks within 15 minutes, with their payments.' : 'Automatic sending is off.')];
+        } elseif ($action === 'receipts') {
+            $on = ($_POST['receipts'] ?? '') === '1';
+            $xs = new QboExpenseSyncService($svc);
+            $xs->setReceipts($on);
+            if ($on) $xs->releaseHeld();
+            $_SESSION['qbo_flash'] = ['ok' => true, 'message' => $on ? 'Receipts are on: approved receipts from the same start date go to QuickBooks as expenses, with their photo.' : 'Receipts are off.'];
+        } elseif ($action === 'retry_held') {
+            $n = (new QboSyncService($svc))->releaseHeld();
+            $_SESSION['qbo_flash'] = ['ok' => true, 'message' => $n . ' held item(s) will be tried again within 15 minutes.'];
         } elseif ($action === 'save_map') {
             $bad = 0;
-            foreach (['account', 'tax_code'] as $kind) {
+            foreach (['account', 'tax_code', 'pay_account'] as $kind) {
                 foreach ((array)($_POST['map'][$kind] ?? []) as $key => $qboId) {
                     if (!$svc->setMapping($kind, (string)$key, (string)$qboId, (int)($user['id'] ?? 0))) $bad++;
                 }
             }
-            $_SESSION['qbo_flash'] = ['ok' => $bad === 0, 'message' => $bad === 0 ? 'Mapping saved.' : $bad . ' choice(s) were not saved — read from QuickBooks again and pick them once more.'];
+            // A held invoice or receipt waiting on a mapping is tried again now that the mapping changed.
+            $released = (new QboSyncService($svc))->releaseHeld();     // 0 when not connected
+            $_SESSION['qbo_flash'] = ['ok' => $bad === 0, 'message' => ($bad === 0 ? 'Mapping saved.' : $bad . ' choice(s) were not saved — read from QuickBooks again and pick them once more.')
+                                      . ($released ? ' ' . $released . ' held item(s) will be tried again.' : '')];
         }
     } catch (Throwable $e) {
         error_log('QuickBooks page: ' . $e->getMessage());
@@ -85,12 +100,25 @@ $qTax      = $status['connected'] ? $svc->remote('tax_code') : [];
 $csrf = generateCSRFToken();
 $sync = ($status['connected'] && $svc->tablesReady()) ? new QboSyncService($svc) : null;
 $canSend = $sync !== null && $sync->guard() === null;
-$sent = []; $problems = []; $auto = ['on' => false, 'from' => null];
+$sent = []; $problems = []; $auto = ['on' => false, 'from' => null]; $receiptsOn = false;
 try {
     $sent = $sync ? $sync->recent(15) : [];
     $problems = $sync ? $sync->problems() : [];
     $auto = $sync ? $sync->auto() : $auto;
+    if ($sync) {
+        $xsync = new QboExpenseSyncService($svc);
+        $receiptsOn = $xsync->receiptsOn();
+        $problems = array_merge($problems, $xsync->expenseProblems());
+    }
 } catch (Throwable $e) { /* migration 1383 not run yet */ }
+// What receipts are paid from in Ittai (1010 chequing, 2400 card; 1300 = paid personally, held).
+$payCodes = [];
+try {
+    $payCodes = $db->query("SELECT DISTINCT c.code, c.name FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id
+                            JOIN chart_of_accounts c ON c.id = jl.account_id
+                            WHERE je.source_type = 'expense' AND je.status = 'posted' AND jl.credit > 0 AND c.code NOT LIKE '130%'
+                            ORDER BY c.code")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+} catch (Throwable $e) { /* no ledger */ }
 
 $pageTitle  = 'QuickBooks';
 $activePage = 'accounting';
@@ -174,7 +202,23 @@ $activePage = 'accounting';
             <?php endif; ?>
         </form>
 
+        <form method="post" class="d-flex gap-2 flex-wrap align-items-center mb-3">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <input type="hidden" name="action" value="receipts">
+            <?php if ($receiptsOn): ?>
+                <p class="mb-0 me-2"><strong>Receipts on</strong> — approved receipts go up as expenses with their photo.</p>
+                <button class="btn btn-outline-secondary btn-sm" name="receipts" value="0">Receipts off</button>
+            <?php elseif ($auto['on']): ?>
+                <p class="mb-0 me-2">Receipts are not sent yet. Map <em>Paid from</em> below first.</p>
+                <button class="btn btn-outline-primary btn-sm" name="receipts" value="1">Send receipts too</button>
+            <?php endif; ?>
+        </form>
+
         <?php if ($problems): ?>
+        <form method="post" class="float-end">
+            <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
+            <button class="btn btn-sm btn-outline-secondary" name="action" value="retry_held">Try held ones again</button>
+        </form>
         <h3 class="h6">Needs you</h3>
         <ul class="small mb-3">
             <?php foreach ($problems as $p): ?><li><strong><?= h($p['invoice']) ?></strong> — <?= h($p['why']) ?></li><?php endforeach; ?>
@@ -240,6 +284,31 @@ $activePage = 'accounting';
             </tbody>
         </table>
         </div>
+
+        <?php if ($payCodes): $qPay = QboConnectionService::fitting('pay', $qAccounts); ?>
+        <h2 class="h5 mt-3">Paid from</h2>
+        <p class="small text-muted">For receipts: the Ittai account a purchase was paid from → the QuickBooks bank or card account. The same account your bank feed downloads into, so QuickBooks offers each receipt as a match.</p>
+        <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <tbody>
+            <?php foreach ($payCodes as $code => $pname):
+                $cur = $maps['pay_account'][$code]['qbo_id'] ?? null; ?>
+                <tr>
+                    <th scope="row" class="fw-normal"><label for="pay-<?= h($code) ?>"><?= h($code . ' ' . $pname) ?></label></th>
+                    <td>
+                        <select class="form-select form-select-sm" id="pay-<?= h($code) ?>" name="map[pay_account][<?= h($code) ?>]">
+                            <option value="">— choose —</option>
+                            <?php foreach ($qPay as $q): ?>
+                                <option value="<?= h($q['qbo_id']) ?>"<?= $cur === $q['qbo_id'] ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+        <?php endif; ?>
 
         <h2 class="h5 mt-3">Accounts</h2>
         <p class="small text-muted">Each Ittai account → the QuickBooks account its amounts go to. "(suggested)" is a guess by name — check it.</p>

@@ -102,6 +102,35 @@ class QboClient
         return $status >= 400 && $status < 500 && !in_array($status, [401, 408, 429], true);
     }
 
+    /**
+     * Attach a file (a receipt photo) to an entity — Intuit's /upload: a multipart body with the
+     * Attachable metadata (file_metadata_01) and the bytes (file_content_01).
+     * @return array{ok:bool, data?:array, error?:string}
+     */
+    public function attach(string $entityType, string $entityId, string $fileName, string $mime, string $bytes): array
+    {
+        $boundary = 'ittai' . bin2hex(random_bytes(8));
+        $meta = json_encode(['AttachableRef' => [['EntityRef' => ['type' => $entityType, 'value' => $entityId]]],
+                             'FileName' => $fileName, 'ContentType' => $mime]);
+        $body = "--{$boundary}\r\nContent-Disposition: form-data; name=\"file_metadata_01\"\r\nContent-Type: application/json\r\n\r\n{$meta}\r\n"
+              . "--{$boundary}\r\nContent-Disposition: form-data; name=\"file_content_01\"; filename=\"" . str_replace('"', '', $fileName) . "\"\r\nContent-Type: {$mime}\r\n\r\n"
+              . $bytes . "\r\n--{$boundary}--\r\n";
+        $url = $this->base . '/upload?minorversion=' . self::MINOR_VERSION;
+        foreach ([false, true] as $force) {
+            $tok = ($this->token)($force);
+            if ($tok === null) return ['ok' => false, 'error' => 'Not connected to QuickBooks (the sign-in has expired). Connect again.'];
+            $r = ($this->httpPost)($url, ['Authorization: Bearer ' . $tok, 'Accept: application/json', 'Content-Type: multipart/form-data; boundary=' . $boundary], $body);
+            if ($r['status'] === 401 && !$force) continue;
+            if ($r['status'] === 200) {
+                $d = json_decode($r['body'], true);
+                $att = $d['AttachableResponse'][0]['Attachable'] ?? null;
+                return $att ? ['ok' => true, 'data' => $att] : ['ok' => false, 'error' => self::faultLine(200, json_encode($d['AttachableResponse'][0] ?? []))];
+            }
+            return ['ok' => false, 'error' => self::faultLine($r['status'], $r['body'])];
+        }
+        return ['ok' => false, 'error' => 'QuickBooks refused the sign-in twice. Connect again.'];
+    }
+
     /** Run one query (first page), e.g. to find a customer by name. */
     public function query(string $sql): array
     {
