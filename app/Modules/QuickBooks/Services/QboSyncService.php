@@ -81,11 +81,28 @@ class QboSyncService
         return mb_substr($n !== '' ? $n : 'Ittai customer (invoice ' . $invoiceId . ')', 0, 100);
     }
 
-    public static function customerBody(string $name, ?string $email): array
+    public static function customerBody(string $name, ?string $email, ?array $addr = null, ?string $phone = null): array
     {
         $b = ['DisplayName' => $name];
         if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) $b['PrimaryEmailAddr'] = ['Address' => $email];
+        if ($addr) $b['BillAddr'] = $addr;
+        if ($phone !== null && trim($phone) !== '') $b['PrimaryPhone'] = ['FreeFormNumber' => mb_substr(trim($phone), 0, 30)];
         return $b;
+    }
+
+    /**
+     * Pure (tested): the customer's billing address for QuickBooks — the invoice's billing address,
+     * else the property it was for. Null when there is no street.
+     */
+    public static function billAddr(array $inv): ?array
+    {
+        $pick = fn(string $a, string $c, string $pr, string $pc) => trim((string)($inv[$a] ?? '')) !== ''
+            ? array_filter(['Line1' => mb_substr(trim((string)$inv[$a]), 0, 500), 'City' => trim((string)($inv[$c] ?? '')),
+                            'CountrySubDivisionCode' => trim((string)($inv[$pr] ?? '')), 'PostalCode' => trim((string)($inv[$pc] ?? '')),
+                            'Country' => 'Canada'], fn($v) => $v !== '')
+            : null;
+        return $pick('billing_address', 'billing_city', 'billing_province', 'billing_postal_code')
+            ?? $pick('property_address', 'property_city', 'property_province', 'property_postal');
     }
 
     /** Pure: "Expenses:Fuel" → "Expenses - Fuel" (a colon is a sub-item in QuickBooks). */
@@ -214,6 +231,8 @@ class QboSyncService
         // 372 no bill-to name — most carry only a contact): client → contact → company → property.
         $s = $this->db->prepare("SELECT i.*, c.display_name AS client_name, c.billing_email AS client_email,
                                         TRIM(CONCAT_WS(' ', ct.first_name, ct.last_name)) AS contact_name, ct.email AS contact_email,
+                                        COALESCE(NULLIF(ct.phone, ''), ct.mobile) AS contact_phone,
+                                        p.city AS property_city, p.province AS property_province, p.postal_code AS property_postal,
                                         co.company_name, co.billing_email AS company_email, p.address AS property_address
                                  FROM invoices i
                                  LEFT JOIN clients c ON c.id = i.client_id
@@ -403,10 +422,12 @@ class QboSyncService
             return ['ok' => true, 'qbo_id' => (string)$hit];
         }
         $rid = self::nextRequestId(self::requestId($this->siteId, 'cust', $key), $l);
-        $r = $c->create('Customer', self::customerBody($name, $email), $rid);
+        $addr = self::billAddr($inv);
+        $phone = $inv['contact_phone'] ?? null;
+        $r = $c->create('Customer', self::customerBody($name, $email, $addr, $phone), $rid);
         if (!$r['ok'] && ($r['code'] ?? '') === self::DUPLICATE_NAME) {
             // The name is taken by a supplier or employee in QuickBooks (names are unique across all three).
-            $r = $c->create('Customer', self::customerBody(mb_substr($name, 0, 89) . ' (customer)', $email), $rid . '-c');
+            $r = $c->create('Customer', self::customerBody(mb_substr($name, 0, 89) . ' (customer)', $email, $addr, $phone), $rid . '-c');
         }
         if (!$r['ok']) {
             $this->saveLink('client', $key, null, null, $rid, !empty($r['refused']) ? 'refused' : 'error', null, $r['error']);

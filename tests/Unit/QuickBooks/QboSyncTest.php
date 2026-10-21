@@ -33,9 +33,9 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT)");
         $db->exec("CREATE TABLE chart_of_accounts (code TEXT, name TEXT, type TEXT, is_active INT)");
         $db->exec("CREATE TABLE clients (id INTEGER PRIMARY KEY, display_name TEXT, billing_email TEXT)");
-        $db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT)");
+        $db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, phone TEXT, mobile TEXT)");
         $db->exec("CREATE TABLE companies (id INTEGER PRIMARY KEY, company_name TEXT, billing_email TEXT)");
-        $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT)");
+        $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, province TEXT, postal_code TEXT)");
         $db->exec("CREATE TABLE stripe_payments (id INTEGER PRIMARY KEY, invoice_id INT, amount_cents INT, status TEXT, created_at TEXT, stripe_charge_id TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, contact_id INT, company_id INT, property_id INT, amount_paid REAL, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
                    total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT)");
@@ -318,6 +318,17 @@ class QboSyncTest extends TestCase
         $a = QboSyncService::customerOf(['id' => 1, 'contact_name' => '', 'property_address' => ''] + $base);
         $b = QboSyncService::customerOf(['id' => 2, 'contact_name' => '', 'property_address' => ''] + $base);
         $this->assertNotSame($a[0], $b[0], 'two nameless invoices never share one customer');
+    }
+
+    public function test_the_customer_gets_a_billing_address_and_phone(): void
+    {
+        $this->assertSame(['Line1' => '3523 West 3rd Avenue', 'City' => 'Vancouver', 'CountrySubDivisionCode' => 'BC', 'PostalCode' => 'V6R 1L6', 'Country' => 'Canada'],
+            QboSyncService::billAddr(['property_address' => '3523 West 3rd Avenue', 'property_city' => 'Vancouver', 'property_province' => 'BC', 'property_postal' => 'V6R 1L6']));
+        $this->assertSame('1 Billing St', QboSyncService::billAddr(['billing_address' => '1 Billing St', 'property_address' => '2 Site Rd'])['Line1'], 'billing address first');
+        $this->assertNull(QboSyncService::billAddr([]));
+        $b = QboSyncService::customerBody('A', 'a@x.ca', ['Line1' => '1 St'], '604-555-0101');
+        $this->assertSame('604-555-0101', $b['PrimaryPhone']['FreeFormNumber']);
+        $this->assertSame('1 St', $b['BillAddr']['Line1']);
     }
 
     public function test_request_ids_and_names(): void
