@@ -88,9 +88,15 @@ class QboSyncService
         return $b;
     }
 
+    /** Pure: "Expenses:Fuel" → "Expenses - Fuel" (a colon is a sub-item in QuickBooks). */
+    public static function noColon(string $s): string
+    {
+        return trim((string)preg_replace('/\s+/', ' ', preg_replace('/\s*:\s*/', ' - ', $s)));
+    }
+
     public static function itemBody(string $accountName, string $qboAccountId): array
     {
-        $name = trim(str_replace(':', ' -', $accountName));
+        $name = self::noColon($accountName);
         return ['Name' => mb_substr($name, 0, 100 - strlen(self::ITEM_SUFFIX)) . self::ITEM_SUFFIX, 'Type' => 'Service', 'IncomeAccountRef' => ['value' => $qboAccountId]];
     }
 
@@ -434,8 +440,8 @@ class QboSyncService
         }
         if ($row) {
             // Same name, another account: a second item named for this account, never the wrong one.
-            $tag = ' · ' . str_replace(':', ' -', (string)($maps['account'][$code]['qbo_name'] ?? $acct));
-            $body['Name'] = mb_substr(str_replace(':', ' -', $name), 0, 100 - strlen(self::ITEM_SUFFIX) - strlen($tag)) . $tag . self::ITEM_SUFFIX;
+            $tag = ' · ' . self::noColon((string)($maps['account'][$code]['qbo_name'] ?? $acct));
+            $body['Name'] = mb_substr(self::noColon($name), 0, 100 - strlen(self::ITEM_SUFFIX) - strlen($tag)) . $tag . self::ITEM_SUFFIX;
         }
         $rid = self::nextRequestId(self::requestId($this->siteId, 'item', $code . '-' . $acct), $l);
         $r = $c->create('Item', $body, $rid);
