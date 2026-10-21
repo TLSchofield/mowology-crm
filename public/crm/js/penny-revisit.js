@@ -130,8 +130,15 @@
             var s = d.scan;
             var t = s.by_tier;
             note.textContent = (dry ? 'Preview (nothing recorded): ' : 'Recorded: ') + 'looked at ' + s.scanned + ' lines. Penny is sure about ' + t.A + ', ' + t.B + ' need a check, ' + t.C + ' are in closed periods (for the accountant).';
-            if (dry && s.examples && s.examples.length) {
-                say('Examples: ' + s.examples.map(function (x) { return x.date + ' ' + money(x.amount) + ' ' + x.description + ' (' + x.from + ' → ' + x.to + ')'; }).join('  |  '), 'info');
+            if (dry && s.groups && s.groups.length) {
+                var m = $('pr-msg');
+                m.className = 'alert alert-info';
+                m.textContent = '';
+                m.appendChild(el('div', 'fw-bold mb-1', 'What she would propose (nothing recorded):'));
+                s.groups.slice(0, 25).forEach(function (g) {
+                    m.appendChild(el('div', 'small', (g.tier === 'A' ? '● ' : '○ ') + (g.label || g.payee_key).slice(0, 44) + ' · ' + g.count + ' line' + (g.count === 1 ? '' : 's') + ' · ' + money(g.total) + ' · ' + (g.from_labels.join(', ') || 'no account') + ' → ' + g.to_label));
+                });
+                if (s.groups.length > 25) m.appendChild(el('div', 'small text-muted', '… and ' + (s.groups.length - 25) + ' more payees.'));
             }
             return dry ? null : load();
         }).catch(function (e) { note.textContent = ''; say(e.message, 'danger'); })

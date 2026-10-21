@@ -26,77 +26,94 @@ class PennyRevisitServiceTest extends TestCase
     }
 
     // ── classify ──────────────────────────────────────────────────────────────────────────
+    // Policy (from the first run on real data, 2026-10-20): revisit reconsiders a MACHINE's choice, never a person's,
+    // and only on evidence the owner authored (a vendor they added, an active rule). Everything else is the desk's.
 
-    public function testDefaultAccountLineWithOwnerEvidenceIsTierA(): void
+    /** A line the owner deliberately left on 6900 ("kept"). */
+    private function kept(array $over = []): array
     {
-        $c = PennyRevisitService::classify($this->line(), $this->advice(), false);
+        return $this->line(array_merge(['review_outcome' => 'kept', 'review_final' => 41], $over));
+    }
+
+    /** A line a rule or the import filed on a real account (5400), nobody reviewed. */
+    private function machineFiled(array $over = []): array
+    {
+        return $this->line(array_merge(['account_id' => 54, 'account_code' => '5400', 'is_auto' => 1], $over));
+    }
+
+    public function testAKeptDefaultLineWithOwnerEvidenceIsTierA(): void
+    {
+        $c = PennyRevisitService::classify($this->kept(), $this->advice(), false);
         $this->assertSame('A', $c['tier']);
         $this->assertStringContainsString('Canadian Electric', $c['reason']);
+        $this->assertSame('A', PennyRevisitService::classify($this->kept(), $this->advice(['source' => 'rule']), false)['tier']);
     }
 
-    public function testARuleOnTheDefaultAccountIsAlsoTierA(): void
+    public function testAnUnreviewedDefaultLineInAnOpenMonthIsLeftToHerDesk(): void
     {
-        $this->assertSame('A', PennyRevisitService::classify($this->line(), $this->advice(['source' => 'rule']), false)['tier']);
+        // It is already on her card with this same advice; listing it again is noise.
+        $this->assertSame('skip', PennyRevisitService::classify($this->line(), $this->advice(), false)['tier']);
     }
 
-    public function testWeakerEvidenceIsTierBEvenOnTheDefaultAccount(): void
+    public function testAMachineFiledLineOnARealAccountIsTierB(): void
     {
+        // Canev on 5400 Subcontractors, put there by a rule: the new vendor says it is truck repair.
+        $this->assertSame('B', PennyRevisitService::classify($this->machineFiled(), $this->advice(), false)['tier']);
+    }
+
+    public function testALineAPersonChoseIsNeverReconsidered(): void
+    {
+        // is_auto_categorized = 0 on a real account: a person set it (transactions screen, owner decision).
+        $this->assertSame('skip', PennyRevisitService::classify($this->machineFiled(['is_auto' => 0]), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->machineFiled(['is_auto' => null]), $this->advice(), true)['tier']);   // even in a locked month
+    }
+
+    public function testOnlyOwnerAuthoredEvidenceCounts(): void
+    {
+        // Shell fuel proposed as Meals (a 'learned' payee with one decision) and restaurants (a 'fact') on the first real run.
         foreach (['learned', 'fact'] as $src) {
-            $this->assertSame('B', PennyRevisitService::classify($this->line(), $this->advice(['source' => $src]), false)['tier'], $src);
+            $this->assertSame('skip', PennyRevisitService::classify($this->kept(), $this->advice(['source' => $src]), false)['tier'], $src . ' (default)');
+            $this->assertSame('skip', PennyRevisitService::classify($this->machineFiled(), $this->advice(['source' => $src]), false)['tier'], $src . ' (real account)');
+            $this->assertSame('skip', PennyRevisitService::classify($this->kept(), $this->advice(['source' => $src]), true)['tier'], $src . ' (locked)');
         }
-    }
-
-    public function testALineAlreadyOnARealAccountIsAtMostTierB(): void
-    {
-        // Canev on 5400 Subcontractors: new evidence says it is wrong, but it was not on a default account: the owner approves.
-        $line = $this->line(['account_id' => 54, 'account_code' => '5400']);
-        $this->assertSame('B', PennyRevisitService::classify($line, $this->advice(), false)['tier']);
     }
 
     public function testALockedMonthIsTierCAndNeverMoved(): void
     {
-        $this->assertSame('C', PennyRevisitService::classify($this->line(), $this->advice(), true)['tier']);
-        $line = $this->line(['account_id' => 54, 'account_code' => '5400']);
-        $this->assertSame('C', PennyRevisitService::classify($line, $this->advice(), true)['tier']);
+        $this->assertSame('C', PennyRevisitService::classify($this->line(), $this->advice(), true)['tier']);          // default, never on her desk (locked)
+        $this->assertSame('C', PennyRevisitService::classify($this->machineFiled(), $this->advice(), true)['tier']);  // machine-filed real account
     }
 
     public function testAnAccountTheOwnerChoseOnPurposeIsLeftAlone(): void
     {
         foreach (['accepted', 'edited', 'bulk', 'approved'] as $outcome) {
-            $line = $this->line(['account_id' => 54, 'account_code' => '5400', 'review_outcome' => $outcome, 'review_final' => 54]);
+            $line = $this->machineFiled(['review_outcome' => $outcome, 'review_final' => 54]);
             $this->assertSame('skip', PennyRevisitService::classify($line, $this->advice(), false)['tier'], $outcome);
         }
     }
 
-    public function testAKeptLineOnTheDefaultAccountCanBeRevisited(): void
+    public function testAReviewedLineWhoseAccountChangedSinceIsNotProtectedByTheOldReview(): void
     {
-        // "Kept" means the owner left it on Miscellaneous: new evidence may reopen it.
-        $line = $this->line(['review_outcome' => 'kept', 'review_final' => 41]);
-        $this->assertSame('A', PennyRevisitService::classify($line, $this->advice(), false)['tier']);
-    }
-
-    public function testAReviewedLineWhoseAccountChangedSinceIsNotProtected(): void
-    {
-        // Reviewed onto 6500, but it sits on 5400 now (moved by a rule or a later edit): the owner's choice no longer applies.
-        $line = $this->line(['account_id' => 54, 'account_code' => '5400', 'review_outcome' => 'accepted', 'review_final' => 65]);
+        // Reviewed onto 6500, but a rule has since put it on 5400: the old decision no longer applies, the machine's choice may be revisited.
+        $line = $this->machineFiled(['review_outcome' => 'accepted', 'review_final' => 65]);
         $this->assertSame('B', PennyRevisitService::classify($line, $this->advice(), false)['tier']);
     }
 
     public function testLinkedVoidAndNonBankLinesAreSkipped(): void
     {
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['matched_expense_id' => 9]), $this->advice(), false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['matched_invoice_id' => 9]), $this->advice(), false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['status' => 'void']), $this->advice(), false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['status' => 'deleted']), $this->advice(), false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['reference_type' => 'expense']), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['matched_expense_id' => 9]), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['matched_invoice_id' => 9]), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['status' => 'void']), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['status' => 'deleted']), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['reference_type' => 'expense']), $this->advice(), false)['tier']);
     }
 
     public function testNoSuggestionOrTheSameAccountOrReceiptAdviceIsSkipped(): void
     {
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(), null, false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(), $this->advice(['account_id' => 41]), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(), null, false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(), $this->advice(['account_id' => 41]), false)['tier']);
         foreach (['found_receipt', 'receipt', 'invoice'] as $src) {
-            $this->assertSame('skip', PennyRevisitService::classify($this->line(), $this->advice(['source' => $src]), false)['tier'], $src);
+            $this->assertSame('skip', PennyRevisitService::classify($this->kept(), $this->advice(['source' => $src]), false)['tier'], $src);
         }
     }
 
@@ -104,25 +121,23 @@ class PennyRevisitServiceTest extends TestCase
     {
         // Real hazard found in the first local preview: the desk maps "WAVE PYRL" to wages (5100). Booking the remittance
         // debit there first would count wages twice once the month's Wave report is imported.
-        $wave = $this->line(['description' => 'PREAUTHORIZEDPAYMENT(WAVEPYRL)']);
-        $this->assertSame('skip', PennyRevisitService::classify($wave, $this->advice(['account_id' => 5, 'code' => '5100', 'source' => 'fact']), false)['tier']);
-        // by account alone, whatever the wording
+        $wave = $this->kept(['description' => 'PREAUTHORIZEDPAYMENT(WAVEPYRL)']);
+        $this->assertSame('skip', PennyRevisitService::classify($wave, $this->advice(['account_id' => 5, 'code' => '5100']), false)['tier']);
         foreach (['5100', '5110', '2310', '2520'] as $code) {
-            $this->assertSame('skip', PennyRevisitService::classify($this->line(), $this->advice(['code' => $code, 'source' => 'learned']), false)['tier'], $code);
+            $this->assertSame('skip', PennyRevisitService::classify($this->kept(), $this->advice(['code' => $code]), false)['tier'], $code);
         }
-        // by wording alone, whatever account is suggested
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['description' => 'Wave PYRL 12345']), $this->advice(), false)['tier']);
-        $this->assertSame('skip', PennyRevisitService::classify($this->line(['description' => 'PAYROLL DEPOSIT']), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['description' => 'Wave PYRL 12345']), $this->advice(), false)['tier']);
+        $this->assertSame('skip', PennyRevisitService::classify($this->kept(['description' => 'PAYROLL DEPOSIT']), $this->advice(), false)['tier']);
     }
 
     public function testPayrollWordingDoesNotCatchOrdinaryPayees(): void
     {
-        $this->assertSame('A', PennyRevisitService::classify($this->line(['description' => 'ETRANSFER DEBIT (CANEV)']), $this->advice(), false)['tier']);
+        $this->assertSame('A', PennyRevisitService::classify($this->kept(['description' => 'ETRANSFER DEBIT (CANEV)']), $this->advice(), false)['tier']);
     }
 
     public function testALineWithNoAccountCountsAsOnTheDefault(): void
     {
-        $line = $this->line(['account_id' => null, 'account_code' => null]);
+        $line = $this->kept(['account_id' => null, 'account_code' => null]);
         $this->assertSame('A', PennyRevisitService::classify($line, $this->advice(), false)['tier']);
     }
 

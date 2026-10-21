@@ -12,10 +12,11 @@ declare(strict_types=1);
  * What it does (STAGE 1: propose only; nothing moves unless the owner approves a payee group):
  *   scan()   runs Penny's OWN advisor (BankDeskService::advise, not new matching) over bank lines she has not
  *            already filed on evidence, and records what she would now do in penny_revisits;
- *   tiers    A  default account (4900/6900), open month, owner-authored evidence (a vendor the owner added, an
- *               active rule): safe to apply without a click LATER; penny_revisit_mode 'auto_narrow' (ships OFF,
+ *   tiers    A  a default-account line the owner KEPT there, open month, owner-authored evidence (a vendor they added,
+ *               an active rule): safe to apply without a click LATER; penny_revisit_mode 'auto_narrow' (ships OFF,
  *               not built into stage 1) is the only thing that would apply these on its own;
- *            B  everything else that is open: the owner approves, one decision per payee;
+ *            B  a line a MACHINE filed on a real account (rule / import: is_auto_categorized), open month: the owner approves,
+ *               one decision per payee. A line a PERSON chose is never reconsidered;
  *            C  the line is in a locked month: NEVER moved, listed for the accountant ("For the accountant");
  *   apply()  moves each approved line with BankLineMoveService::move (append-only: reverse, repost; all or nothing;
  *            refuses locked months), notes why on the line, and counts as the owner's confirmation for rule learning;
@@ -48,8 +49,10 @@ class PennyRevisitService
     public const CHUNK = 100;
     /** Advice that belongs to the receipt / invoice linking flows, not to this. */
     public const SKIP_SOURCES = ['found_receipt', 'receipt', 'invoice'];
-    /** Evidence the owner authored (a vendor they added, a rule they confirmed twice). */
-    public const AUTO_SOURCES = ['vendor', 'rule'];
+    /** The only evidence a revisit acts on: what the owner authored (a vendor they added, a rule confirmed twice). 'learned' (one
+     *  decision) and 'fact' (plain regexes: restaurants, fuel brands) are left to her desk. On real data (2026-10-20) they proposed
+     *  Shell fuel as Meals and filed restaurants, some of them personal, as business meals. */
+    public const EVIDENCE = ['vendor', 'rule'];
     /** Wage / payroll-liability accounts: the Wave payroll import (WavePayrollImportService) owns every line that belongs there.
      *  Booking a Wave debit as wages first counts wages twice once the month's report is imported. */
     public const PAYROLL_ACCOUNTS = ['5100', '5110', '2310', '2520'];
@@ -74,7 +77,7 @@ class PennyRevisitService
     /**
      * What to do with one line given what Penny would now suggest.
      *
-     * @param array      $line   reference_type, type, status, description, matched_expense_id, matched_invoice_id, account_id,
+     * @param array      $line   reference_type, type, status, description, is_auto, matched_expense_id, matched_invoice_id, account_id,
      *                           account_code, review_outcome, review_final
      * @param array|null $advice BankDeskService::advise() result (account_id, code, source, reason) or null
      * @return array{tier:string,reason:string}  tier: A | B | C | skip
@@ -98,11 +101,15 @@ class PennyRevisitService
         if (!$onDefault && in_array($outcome, self::DELIBERATE, true) && (int)($line['review_final'] ?? 0) === (int)($line['account_id'] ?? -1)) {
             return $skip('the owner chose this account');
         }
+        // Revisit reconsiders a MACHINE's choice (the default account, or a rule / import that filed it), never a person's.
+        if (!$onDefault && empty($line['is_auto'])) return $skip('a person chose this account');
+        if (!in_array((string)($advice['source'] ?? ''), self::EVIDENCE, true)) return $skip('weaker evidence: left to her desk');
 
         $reason = trim((string)($advice['reason'] ?? ''));
         if ($locked) return ['tier' => 'C', 'reason' => $reason];   // listed for the accountant, never moved
-        $tier = ($onDefault && in_array((string)($advice['source'] ?? ''), self::AUTO_SOURCES, true)) ? 'A' : 'B';
-        return ['tier' => $tier, 'reason' => $reason];
+        // An unreviewed default-account line in an open month is already on her desk with this same advice.
+        if ($onDefault && $outcome === '') return $skip('already on her desk');
+        return ['tier' => $onDefault ? 'A' : 'B', 'reason' => $reason];
     }
 
     /**
@@ -191,6 +198,7 @@ class PennyRevisitService
     {
         $mode = $this->mode();
         $res = ['mode' => $mode, 'dry_run' => $dryRun, 'scanned' => 0, 'by_tier' => ['A' => 0, 'B' => 0, 'C' => 0], 'by_source' => [], 'examples' => []];
+        $preview = [];
         $ready = $this->ready();
         if ($mode === 'off' || (!$ready && !$dryRun)) return $res;   // a dry run needs no table: it is the read-only preview before migration 1395
 
@@ -222,11 +230,23 @@ class PennyRevisitService
                     $res['examples'][] = ['id' => (int)$line['id'], 'date' => $line['transaction_date'], 'amount' => (float)$line['amount'],
                                           'description' => substr((string)$line['description'], 0, 50), 'from' => $line['account_code'], 'to' => $advice['code'], 'tier' => $c['tier']];
                 }
+                if ($dryRun) {
+                    $preview[] = ['id' => (int)$line['id'], 'payee_key' => self::payeeKey((string)$line['description']), 'to_account_id' => (int)$advice['account_id'],
+                                  'to_label' => trim($advice['code'] . ' ' . $advice['name']), 'from_label' => trim(($line['account_code'] ?? '') . ' ' . ($line['account_name'] ?? '')),
+                                  'tier' => $c['tier'], 'source' => (string)$advice['source'], 'reason' => $c['reason'], 'amount' => (float)$line['amount'],
+                                  'line_date' => $line['transaction_date'], 'description' => (string)$line['description']];
+                }
                 if (!$dryRun) {
                     $ins->execute([(int)$line['id'], self::payeeKey((string)$line['description']), $line['account_id'] ?: null, (int)$advice['account_id'],
                                    $c['tier'], substr((string)$advice['source'], 0, 20), substr($c['reason'], 0, 500), (float)$line['amount'], $line['transaction_date']]);
                 }
             }
+        }
+        if ($dryRun && $preview) {
+            // What she would propose, grouped the way the page groups it (actionable tiers only; tier C is the accountant's count).
+            $act = array_values(array_filter($preview, static function ($r) { return $r['tier'] !== 'C'; }));
+            $res['groups'] = array_slice(self::groupProposals($act), 0, 40);
+            $res['accountant_lines'] = count($preview) - count($act);
         }
         return $res;
     }
@@ -238,7 +258,7 @@ class PennyRevisitService
         $hasReviews = $this->hasTable('bank_line_reviews');
         $sql = "SELECT t.id, t.transaction_date, t.type, t.amount, t.description, t.account_id, t.matched_expense_id,
                        " . ($hasInvoice ? 't.matched_invoice_id' : 'NULL AS matched_invoice_id') . ",
-                       t.bank_account, t.status, t.reference_type, a.code AS account_code, a.name AS account_name,
+                       t.bank_account, t.status, t.reference_type, t.is_auto_categorized AS is_auto, a.code AS account_code, a.name AS account_name,
                        " . ($hasReviews ? 'r.outcome AS review_outcome, r.final_account_id AS review_final' : 'NULL AS review_outcome, NULL AS review_final') . "
                   FROM accounting_transactions t
                   LEFT JOIN chart_of_accounts a ON a.id = t.account_id
