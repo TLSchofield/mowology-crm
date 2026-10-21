@@ -4,12 +4,26 @@ Owner: "Claudia, a gardener, is willing to try the app; she uses Android" → "h
 "She will be a founding business". So: Ittai's first outside customer. Her clients, jobs and books must never
 mix with Mowology's, nothing she sees may say Mowology, and the setup must repeat for the next founders.
 
-## Approach (recommended)
+## Approach (revised 2026-10-21 after the owner's answers)
 
-**One copy of the app per business** — same code, its own database, uploads folder, settings and secrets,
-on its own address (e.g. `claudia.ittai.ca` or her business name). Strongest separation, smallest risk to
-Mowology's live books, repeatable. Real shared multi-tenancy (a business id on every table and query) waits
-until there are enough customers to pay for it — it touches nearly every query in the live system.
+**One installation, one database per business.** One copy of the code serves every business; the address a
+person arrives on (`<business>.ittai.ca`) picks that business's database, uploads folder, session folder and
+settings (config chosen by host; crons by a `--tenant` argument, run once per business by one runner). Deploy
+once, every business updates; data stays completely separate. Not separate apps to maintain (owner: "Does that
+mean we are managing multiple apps?" — no). Shared multi-tenancy inside one database is still not needed.
+
+**Phones: one native Android app.** The native app (codex/native, nearly finished) gets a single server setting
+chosen at sign-in by business code (today `mowology.ca` is a constant in 8 files) and an "Ittai" build of the
+same code (own name/icon/app id) beside "Mowology Crew" (`ca.mowology.crew`, kept so the crew's installs keep
+updating). Spec to Codex; Claude reviews and tests on the tablet.
+
+**The business sets itself up in onboarding** (owner: "These items are part of the onboarding process"):
+About you (name to use, how to reach — her mobile, quiet hours), company name lookup (business settings + her
+address `<slug>.ittai.ca`), email (Ittai sends on her behalf, reply-to her address; her own domain later),
+the founding-business agreement as its own step (accepted + dated), QuickBooks or our books, accountant.
+The owner (Tim) supplies only: the founding terms' words and price (Claude drafts, a lawyer reviews), and a
+one-time server setup for ittai.ca (an address per business + a certificate covering them — check the host
+supports a wildcard subdomain and certificate first).
 
 ## What the code assumes today (audited 2026-10-21)
 
@@ -32,12 +46,12 @@ model sees, plus the sender, session path and defaults.
 
 | # | Unknown | Settled by |
 |---|---|---|
-| U1 | Hosting: a second site on the same cPanel account (subdomain + its own folder + its own database) | Tim creates the subdomain and database in cPanel (I can't over FTP); we check PHP version and cron access there |
+| U1 | Hosting: `*.ittai.ca` pointing at this host with a certificate for every subdomain; a new database per business created without Tim each time (cPanel API token in secrets, or one pre-made pool) | check the host's wildcard DNS/AutoSSL support and cPanel UAPI access first; until then Tim makes Claudia's database by hand once |
 | U2 | Her email sending: from her own domain (needs her DNS/SMTP) or from an Ittai address (e.g. `hello@ittai.ca` "on behalf of" her business, reply-to her email) | Tim decides; phase 1 = Ittai sender with her reply-to (no DNS work for her) |
 | U3 | Texts: her clients' texts must show her number, not Mowology's | settings; SMS stays plain text, no URLs (rule 11) |
 | U4 | Fresh database builds from schema + 345 migrations without Mowology data | build it locally first from `COMPLETE_DATABASE_SCHEMA_CLEAN.sql` + migrations; a test that a fresh install has zero Mowology rows |
 | U5 | No Mowology identity anywhere she can see | after the sweep: crawl her local copy as owner and crew, grep every page, email, PDF and prompt for "Mowology", "mowology.ca", "778", "Tim" |
-| U6 | Android: she uses the web app in Chrome first (phone-only flows must finish there — standing rule) | test every owner flow at 412 px in Chrome on Android; an Android build pointing at her address comes after |
+| U6 | Android: the native app's Ittai build with a business-code sign-in | Codex spec; tests that no screen points at mowology.ca except the Mowology Crew build; tablet test. Chrome (412 px) is the fallback if she starts sooner |
 | U7 | Keys: AI (Anthropic) usage billed to Ittai; Stripe/QuickBooks are HER accounts, connected by her | per-install secrets; AI usage capped per day per install |
 | U8 | Legal: her data, privacy, trial terms | a short founding-business agreement (her data is hers, export any time, deletion on leaving, what Ittai stores and why) — Tim + lawyer, before her real clients go in |
 
