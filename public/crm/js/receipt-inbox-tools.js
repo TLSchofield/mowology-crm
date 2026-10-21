@@ -7,11 +7,12 @@
  *   - Re-read          : read the receipt again on the server (receipt-inbox-reread.php). Fills BLANK fields only; never
  *                        overwrites what is saved, never approves or dismisses.
  *   - Re-read unread   : the same for every receipt in the panel the first read left blank.
- *   - PDF preview      : the editor showed a PDF in an <img> (a broken image). A frame can't be used instead: the site CSP
- *                        (public/.htaccess, object-src 'none') makes Chrome refuse to draw a PDF inside a frame ("This page has
- *                        been blocked by Chrome"). So editExpense is wrapped: for a PDF the preview pane gets a clear note and an
- *                        "Open PDF in a new tab" button (a top-level PDF is not blocked), and the photo-only Rescan button is
- *                        hidden for it (Penny's read is the PDF reader).
+ *   - PDF preview      : the editor showed a PDF in an <img> (a broken image), and Chrome will not draw a PDF in a frame on this
+ *                        page: the page CSP (public/.htaccess) says object-src 'none', and that applies to the PDF viewer inside the
+ *                        frame ("This page has been blocked by Chrome"; also tried 2026-10-20: serve-receipt.php's own PDF CSP is
+ *                        now viewer-friendly, which was not enough). So editExpense is wrapped: for a PDF the preview pane gets a note
+ *                        and an "Open PDF in a new tab" button, and the photo-only Rescan button is hidden (Penny's read reads PDFs).
+ *                        To show it inline, the Expenses page's own CSP needs object-src 'self' (Tim to decide).
  * Loaded by one <script> line in expenses_appstack.php, after the panel's PHP block (so it also covers receipts opened from the list).
  */
 (function () {
