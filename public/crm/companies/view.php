@@ -597,6 +597,17 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php
+                    // Price history by service from the Jobber invoice history (migration 1239; read only).
+                    $jobberPrices = [];
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/JobberPriceHistory.php';
+                        $jobberPrices = (new JobberPriceHistory($db))->forCompany((int)$companyId);
+                    } catch (Throwable $e) {
+                        $jobberPrices = [];
+                    }
+                    ?>
+                    <div class="mt-4"><?php include dirname(__DIR__) . '/includes/jobber_price_history_card.php'; ?></div>
                 </div>
 
                 <!-- Activity Tab -->

@@ -595,6 +595,17 @@ try {
     $jobberHistory = [];
 }
 ?>
+<?php
+// Price history by service (same Jobber history, read only).
+$jobberPrices = [];
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/JobberPriceHistory.php';
+    $jobberPrices = (new JobberPriceHistory($db))->forProperty($propertyId);
+} catch (Throwable $e) {
+    $jobberPrices = [];
+}
+include dirname(__DIR__) . '/includes/jobber_price_history_card.php';
+?>
 <?php if ($jobberHistory): ?>
             <div class="card mb-4">
                 <div class="card-header">
