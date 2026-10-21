@@ -142,6 +142,8 @@ final class SupplierWebCatalogTest extends TestCase
         $skips = $svc->openSkips();
         $this->assertCount(1, $skips);
         $this->assertStringContainsString('429', $skips[0]['reason']);
+        $again = $svc->refreshWebDue($this->fakeHttp([1 => 429]), fn() => null);
+        $this->assertSame(0, $again['shops'], 'refused today: not asked again until tomorrow');
     }
 
     public function testRefusesAPrivateAddressAndNonPublicNames(): void

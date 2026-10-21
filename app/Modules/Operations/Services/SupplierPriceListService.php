@@ -310,6 +310,10 @@ class SupplierPriceListService
             $s->execute([$this->siteId, (int)$f['id']]);
             $last = (string)$s->fetchColumn();
             if ($last !== '' && strtotime($last) > $now - 6 * 86400) continue;
+            // A shop that refused us today (429/403 or an error) is not asked again until tomorrow.
+            $tried = $this->db->prepare("SELECT 1 FROM supplier_list_skips WHERE site_id = ? AND supplier_account_id = ? AND message_key = ?");
+            $tried->execute([$this->siteId, $sid, 'web:' . date('Y-m-d', $now)]);
+            if ($tried->fetchColumn()) continue;
             $out['shops']++;
             try {
                 $r = $this->importWeb(['id' => $sid, 'name' => $f['name']], $f, $http, $sleep);
