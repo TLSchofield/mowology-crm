@@ -185,6 +185,72 @@ class PennyRevisitServiceTest extends TestCase
         $this->assertCount(2, $g);
     }
 
+    // ── grouping by the matched vendor (the tidy-up after the first real run looked messy) ──
+
+    public function testMatchedNameIsReadFromHerReason(): void
+    {
+        $this->assertSame('City of Vancouver Vancouver Landfill', PennyRevisitService::matchedName('City of Vancouver Vancouver Landfill is a vendor you book as Disposal/Dump'));
+        $this->assertSame('Canadian Tire', PennyRevisitService::matchedName('Canadian Tire is a vendor you book as Tools/Equipment'));
+        $this->assertSame('Fuel stops', PennyRevisitService::matchedName('Your rule "Fuel stops" says so'));
+        $this->assertNull(PennyRevisitService::matchedName('It matches your receipt #4'));
+        $this->assertNull(PennyRevisitService::matchedName(''));
+    }
+
+    public function testDifferentBankWordingsOfOneVendorAreOneDecision(): void
+    {
+        // Real case: "CITY OF VANCOUVER - TR" (10 lines) and "CITY OF VANCOUVER - TR CITY OF VANCOUVE" (2 lines) showed as two payees.
+        $mk = function (int $id, string $key, string $desc, float $amt): array {
+            return ['id' => $id, 'payee_key' => $key, 'to_account_id' => 5, 'to_label' => '5000 Cost of Services', 'from_label' => '6500 Office & Administration',
+                    'tier' => 'B', 'source' => 'vendor', 'reason' => 'City of Vancouver Vancouver Landfill is a vendor you book as Disposal/Dump',
+                    'amount' => $amt, 'line_date' => '2026-03-28', 'description' => $desc];
+        };
+        $g = PennyRevisitService::groupProposals([
+            $mk(1, 'city of vancouver tr', 'Point of sale CITY OF VANCOUVER - TR', 20.0),
+            $mk(2, 'city of vancouver tr city of vancouve', 'Point of sale CITY OF VANCOUVER - TR CITY OF VANCOUVE', 15.0),
+        ]);
+        $this->assertCount(1, $g);
+        $this->assertSame('City of Vancouver Vancouver Landfill', $g[0]['label']);
+        $this->assertSame(2, $g[0]['count']);
+        $this->assertSame(35.0, $g[0]['total']);
+        $this->assertCount(2, $g[0]['examples']);   // the real bank wordings, so a wrong match shows
+    }
+
+    public function testExamplesAreCappedAndDeduplicated(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $rows[] = ['id' => $i, 'payee_key' => 'k', 'to_account_id' => 5, 'to_label' => 'x', 'from_label' => 'y', 'tier' => 'B', 'source' => 'vendor',
+                       'reason' => 'ACME is a vendor you book as Materials', 'amount' => 1.0, 'line_date' => '2026-03-0' . $i, 'description' => 'WORDING ' . ($i % 4)];
+        }
+        $g = PennyRevisitService::groupProposals($rows);
+        $this->assertCount(3, $g[0]['examples']);
+        $this->assertSame(array_unique($g[0]['examples']), $g[0]['examples']);
+    }
+
+    public function testAccountantLinesGroupByVendorAndTheFalseMatchIsVisible(): void
+    {
+        // Real false match: "H MART DUNBAR VANCOUVER" matched the vendor Dunbar Lumber on the word "Dunbar". Grouped under the vendor,
+        // with the real bank wording listed, the odd one out is easy to spot.
+        $mk = function (string $desc, float $amt, string $date): array {
+            return ['line_date' => $date, 'amount' => $amt, 'description' => $desc, 'from_label' => '6900 Miscellaneous', 'to_label' => '5200 Materials & Supplies',
+                    'reason' => 'Dunbar Lumber is a vendor you book as Materials'];
+        };
+        $groups = PennyRevisitService::accountantGroups([
+            $mk('POINT OF SALE (DUNBAR LUMBER SUPPLY VANCOUVER)', 42.0, '2025-03-01'),
+            $mk('POINT OF SALE (H MART DUNBAR VANCOUVER BCCA)', 27.97, '2025-11-30'),
+        ]);
+        $this->assertCount(1, $groups);
+        $this->assertSame('Dunbar Lumber', $groups[0]['label']);
+        $this->assertSame(2, $groups[0]['count']);
+        $this->assertSame(69.97, $groups[0]['total']);
+        $this->assertSame('2025-03-01', $groups[0]['first']);
+        $text = PennyRevisitService::accountantText([
+            $mk('POINT OF SALE (H MART DUNBAR VANCOUVER BCCA)', 27.97, '2025-11-30'),
+        ]);
+        $this->assertStringContainsString('Dunbar Lumber: 1 line, $27.97', $text);
+        $this->assertStringContainsString('H MART DUNBAR', $text);
+    }
+
     // ── accountant text and memo ──────────────────────────────────────────────────────────
 
     public function testTheAccountantListSaysNothingWasMovedAndWhy(): void

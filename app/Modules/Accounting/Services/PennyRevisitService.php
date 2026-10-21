@@ -113,7 +113,27 @@ class PennyRevisitService
     }
 
     /**
-     * Proposals grouped by payee and target account (one decision per group).
+     * The vendor or rule Penny matched, read from her own reason text ("X is a vendor you book as Y", 'Your rule "X"').
+     * Grouping by this puts every bank wording of one vendor in one decision ("CITY OF VANCOUVER - TR" and
+     * "CITY OF VANCOUVER - TR CITY OF VANCOUVE" are one payee), and names the match so a wrong one is obvious.
+     */
+    public static function matchedName(string $reason): ?string
+    {
+        $reason = trim($reason);
+        if (preg_match('/^(.+?) is a vendor you book as /i', $reason, $m)) return trim($m[1]);
+        if (preg_match('/^Your rule "(.+)"/i', $reason, $m)) return trim($m[1]);
+        return null;
+    }
+
+    /** A bank description shortened for display; the bank often truncates its own text mid-word. */
+    private static function shortDesc(string $d): string
+    {
+        $d = trim(preg_replace('/\s+/', ' ', $d));
+        return strlen($d) > 64 ? substr($d, 0, 61) . '...' : $d;
+    }
+
+    /**
+     * Proposals grouped by the matched vendor (else the bank payee) and target account: one decision per group.
      *
      * @param array $rows penny_revisits rows joined with description / account labels:
      *                    id, payee_key, to_account_id, to_label, from_label, tier, source, reason, amount, line_date, description
@@ -123,17 +143,21 @@ class PennyRevisitService
     {
         $groups = [];
         foreach ($rows as $r) {
-            $k = $r['payee_key'] . '|' . $r['to_account_id'];
+            $name = self::matchedName((string)($r['reason'] ?? ''));
+            $k = ($name !== null ? 'm:' . strtolower($name) : 'p:' . $r['payee_key']) . '|' . $r['to_account_id'];
             if (!isset($groups[$k])) {
-                $groups[$k] = ['payee_key' => $r['payee_key'], 'label' => (string)($r['description'] ?? $r['payee_key']), 'to_account_id' => (int)$r['to_account_id'],
+                $groups[$k] = ['payee_key' => $r['payee_key'], 'label' => $name ?? self::shortDesc((string)($r['description'] ?? $r['payee_key'])),
+                               'matched' => $name, 'to_account_id' => (int)$r['to_account_id'],
                                'to_label' => (string)($r['to_label'] ?? ''), 'from_labels' => [], 'tier' => $r['tier'], 'source' => (string)($r['source'] ?? ''),
-                               'reason' => (string)($r['reason'] ?? ''), 'count' => 0, 'total' => 0.0, 'first' => null, 'last' => null, 'ids' => []];
+                               'reason' => (string)($r['reason'] ?? ''), 'count' => 0, 'total' => 0.0, 'first' => null, 'last' => null, 'ids' => [], 'examples' => []];
             }
             $g = &$groups[$k];
             $g['count']++;
             $g['total'] = round($g['total'] + (float)$r['amount'], 2);
             $g['ids'][] = (int)$r['id'];
             if (!empty($r['from_label']) && !in_array($r['from_label'], $g['from_labels'], true)) $g['from_labels'][] = (string)$r['from_label'];
+            $ex = self::shortDesc((string)($r['description'] ?? ''));
+            if ($ex !== '' && count($g['examples']) < 3 && !in_array($ex, $g['examples'], true)) $g['examples'][] = $ex;
             $d = (string)($r['line_date'] ?? '');
             if ($d !== '') {
                 if ($g['first'] === null || $d < $g['first']) $g['first'] = $d;
@@ -147,15 +171,45 @@ class PennyRevisitService
         return $out;
     }
 
-    /** Plain text for the accountant: locked-month lines Penny now thinks are on the wrong account. */
+    /**
+     * The accountant's lines, grouped by matched vendor and the accounts involved (a long flat list hid the pattern).
+     * @return array<int,array>  most lines first; each carries its lines for a folded detail view
+     */
+    public static function accountantGroups(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $r) {
+            $name = self::matchedName((string)($r['reason'] ?? '')) ?? self::shortDesc((string)($r['description'] ?? ''));
+            $k = strtolower($name) . '|' . ($r['from_label'] ?? '') . '|' . ($r['to_label'] ?? '');
+            if (!isset($groups[$k])) {
+                $groups[$k] = ['label' => $name, 'from' => (string)($r['from_label'] ?? ''), 'to' => (string)($r['to_label'] ?? ''), 'reason' => (string)($r['reason'] ?? ''),
+                               'count' => 0, 'total' => 0.0, 'first' => null, 'last' => null, 'lines' => []];
+            }
+            $g = &$groups[$k];
+            $g['count']++;
+            $g['total'] = round($g['total'] + (float)$r['amount'], 2);
+            $d = (string)($r['line_date'] ?? '');
+            if ($d !== '') {
+                if ($g['first'] === null || $d < $g['first']) $g['first'] = $d;
+                if ($g['last'] === null || $d > $g['last']) $g['last'] = $d;
+            }
+            $g['lines'][] = ['date' => $d, 'amount' => (float)$r['amount'], 'description' => self::shortDesc((string)($r['description'] ?? ''))];
+            unset($g);
+        }
+        $out = array_values($groups);
+        usort($out, static function ($a, $b) { return $b['count'] <=> $a['count'] ?: $b['total'] <=> $a['total']; });
+        return $out;
+    }
+
+    /** Plain text for the accountant: locked-period lines Penny now thinks are on the wrong account, by vendor. */
     public static function accountantText(array $rows): string
     {
         if (!$rows) return "Nothing for the accountant.\n";
-        $out = "Lines in closed periods that Penny now thinks belong on a different account. Nothing was moved; each needs a decision (for example an adjusting entry in the current period).\n\n";
-        foreach ($rows as $r) {
-            $out .= sprintf("%s  $%s  %s\n    now: %s  ->  suggested: %s\n    why: %s\n",
-                (string)($r['line_date'] ?? ''), number_format((float)$r['amount'], 2), trim((string)($r['description'] ?? '')),
-                (string)($r['from_label'] ?? '?'), (string)($r['to_label'] ?? '?'), (string)($r['reason'] ?? ''));
+        $out = "Lines in closed periods that Penny now thinks belong on a different account. Nothing was moved; each needs a decision (for example an adjusting entry in the current period).\n";
+        foreach (self::accountantGroups($rows) as $g) {
+            $out .= sprintf("\n%s: %d line%s, $%s\n  now: %s  ->  suggested: %s\n  why: %s\n",
+                $g['label'], $g['count'], $g['count'] === 1 ? '' : 's', number_format($g['total'], 2), $g['from'] ?: '?', $g['to'] ?: '?', $g['reason']);
+            foreach ($g['lines'] as $l) $out .= sprintf("    %s  $%s  %s\n", $l['date'], number_format($l['amount'], 2), $l['description']);
         }
         return $out;
     }
@@ -294,7 +348,7 @@ class PennyRevisitService
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         $act = array_values(array_filter($rows, static function ($r) { return $r['tier'] !== 'C'; }));
         $acc = array_values(array_filter($rows, static function ($r) { return $r['tier'] === 'C'; }));
-        return ['actionable' => self::groupProposals($act), 'accountant' => $acc, 'accountant_text' => self::accountantText($acc),
+        return ['actionable' => self::groupProposals($act), 'accountant' => $acc, 'accountant_groups' => self::accountantGroups($acc), 'accountant_text' => self::accountantText($acc),
                 'counts' => ['groups' => count(self::groupProposals($act)), 'lines' => count($act), 'accountant_lines' => count($acc)]];
     }
 

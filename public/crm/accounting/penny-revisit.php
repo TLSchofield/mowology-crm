@@ -56,7 +56,7 @@ $isAdmin    = isAdmin();
         </div>
         <div class="card-body">
             <p class="small text-muted mb-2">Lines in closed periods that Penny now thinks are on the wrong account. She has not moved them.</p>
-            <pre id="pr-accountant" class="small mb-0" style="white-space:pre-wrap;"></pre>
+            <div id="pr-accountant"></div>
         </div>
     </div>
 
@@ -66,7 +66,7 @@ $isAdmin    = isAdmin();
     </div>
 
     <script>window.PENNY_REVISIT_CSRF = <?= json_encode(function_exists('generateCSRFToken') ? generateCSRFToken() : '') ?>;</script>
-    <script src="/crm/js/penny-revisit.js?v=20261021a" defer></script>
+    <script src="/crm/js/penny-revisit.js?v=20261021b" defer></script>
 <?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -48,16 +48,24 @@
 
     function groupCard(g, applied) {
         var card = el('div', 'border rounded p-3 mb-2');
-        var top = el('div', 'd-flex justify-content-between flex-wrap gap-2');
+        var top = el('div', 'd-flex justify-content-between flex-wrap gap-3');
         var left = el('div');
-        var title = el('div', 'fw-bold');
-        title.appendChild(document.createTextNode(g.label || g.payee_key));
-        if (!applied) title.appendChild(tierBadge(g.tier));
-        left.appendChild(title);
+        left.style.minWidth = '0';
+        left.style.flex = '1 1 420px';
+        left.appendChild(el('div', 'fw-bold', g.label || g.payee_key));
         left.appendChild(el('div', 'small text-muted',
             g.count + ' line' + (g.count === 1 ? '' : 's') + ' · ' + money(g.total) + ' · ' + (g.first === g.last ? (g.first || '') : (g.first + ' to ' + g.last))));
         left.appendChild(el('div', 'small', (g.from_labels.join(', ') || 'no account') + '  →  ' + g.to_label));
-        left.appendChild(el('div', 'small text-muted', 'Why: ' + g.reason));
+        if (!applied) {
+            var badgeRow = el('div', 'mt-1');
+            badgeRow.appendChild(tierBadge(g.tier));
+            left.appendChild(badgeRow);
+        }
+        left.appendChild(el('div', 'small text-muted mt-1', 'Why: ' + g.reason));
+        if (g.examples && g.examples.length) {
+            // The real bank wording, so a wrong vendor match is easy to spot ("H MART DUNBAR" matched to Dunbar Lumber).
+            left.appendChild(el('div', 'small text-muted', 'Bank lines: ' + g.examples.join('  ·  ')));
+        }
         top.appendChild(left);
 
         var btns = el('div', 'd-flex gap-2 align-items-start');
@@ -80,6 +88,21 @@
         top.appendChild(btns);
         card.appendChild(top);
         return card;
+    }
+
+    /** One closed-period group: vendor, count and total on one line; the lines fold open underneath. */
+    function accountantGroup(g) {
+        var d = el('details', 'border rounded px-3 py-2 mb-2');
+        var sum = el('summary', 'small');
+        sum.style.cursor = 'pointer';
+        sum.appendChild(el('strong', '', g.label));
+        sum.appendChild(document.createTextNode('  ·  ' + g.count + ' line' + (g.count === 1 ? '' : 's') + '  ·  ' + money(g.total) + '  ·  ' + g.from + '  →  ' + g.to));
+        d.appendChild(sum);
+        d.appendChild(el('div', 'small text-muted mt-2', 'Why: ' + g.reason));
+        g.lines.forEach(function (l) {
+            d.appendChild(el('div', 'small', l.date + '   ' + money(l.amount) + '   ' + l.description));
+        });
+        return d;
     }
 
     function act(mode, ids, btn) {
@@ -109,7 +132,10 @@
 
         $('pr-acc-count').textContent = w.counts.accountant_lines + ' line' + (w.counts.accountant_lines === 1 ? '' : 's');
         lastText = w.accountant_text;
-        $('pr-accountant').textContent = w.accountant_text;
+        var acc = $('pr-accountant');
+        acc.textContent = '';
+        if (!(w.accountant_groups || []).length) acc.appendChild(el('span', 'text-muted', 'Nothing for the accountant.'));
+        (w.accountant_groups || []).forEach(function (g) { acc.appendChild(accountantGroup(g)); });
 
         $('pr-done-count').textContent = a.counts.lines + ' line' + (a.counts.lines === 1 ? '' : 's');
         var done = $('pr-applied');
