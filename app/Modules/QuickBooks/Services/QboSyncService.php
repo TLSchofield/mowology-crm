@@ -29,7 +29,9 @@ if (!class_exists('LedgerAccountMap')) require_once dirname(__DIR__, 2) . '/Acco
 class QboSyncService
 {
     public const DUPLICATE_NAME = '6240';
-    public const ITEM_PREFIX = 'Ittai: ';
+    /** "Lawn Care Services (Ittai)". Never a colon: in QuickBooks "A:B" makes B a sub-item of A (seen
+     *  live 2026-10-20 — "Ittai: Lawn Care" became item "Lawn Care" under a parent "Ittai"). */
+    public const ITEM_SUFFIX = ' (Ittai)';
 
     private QboConnectionService $conn;
     private PDO $db;
@@ -88,7 +90,8 @@ class QboSyncService
 
     public static function itemBody(string $accountName, string $qboAccountId): array
     {
-        return ['Name' => mb_substr(self::ITEM_PREFIX . $accountName, 0, 100), 'Type' => 'Service', 'IncomeAccountRef' => ['value' => $qboAccountId]];
+        $name = trim(str_replace(':', ' -', $accountName));
+        return ['Name' => mb_substr($name, 0, 100 - strlen(self::ITEM_SUFFIX)) . self::ITEM_SUFFIX, 'Type' => 'Service', 'IncomeAccountRef' => ['value' => $qboAccountId]];
     }
 
     /**
@@ -431,7 +434,8 @@ class QboSyncService
         }
         if ($row) {
             // Same name, another account: a second item named for this account, never the wrong one.
-            $body['Name'] = mb_substr(self::ITEM_PREFIX . $name . ' · ' . ($maps['account'][$code]['qbo_name'] ?? $acct), 0, 100);
+            $tag = ' · ' . str_replace(':', ' -', (string)($maps['account'][$code]['qbo_name'] ?? $acct));
+            $body['Name'] = mb_substr(str_replace(':', ' -', $name), 0, 100 - strlen(self::ITEM_SUFFIX) - strlen($tag)) . $tag . self::ITEM_SUFFIX;
         }
         $rid = self::nextRequestId(self::requestId($this->siteId, 'item', $code . '-' . $acct), $l);
         $r = $c->create('Item', $body, $rid);

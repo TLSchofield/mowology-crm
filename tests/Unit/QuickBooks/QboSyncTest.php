@@ -100,7 +100,8 @@ class QboSyncTest extends TestCase
             'an existing customer is looked for first, the apostrophe escaped');
 
         $item = $this->sent[0]['body'];
-        $this->assertSame(['Name' => 'Ittai: Hedge & Shrub Trimming', 'Type' => 'Service', 'IncomeAccountRef' => ['value' => '81']], $item);
+        $this->assertSame(['Name' => 'Hedge & Shrub Trimming (Ittai)', 'Type' => 'Service', 'IncomeAccountRef' => ['value' => '81']], $item);
+        $this->assertSame('Expenses - Fuel (Ittai)', QboSyncService::itemBody('Expenses:Fuel', '1')['Name'], 'no colon: QuickBooks reads it as a sub-item');
 
         $inv = $this->sent[2]['body'];
         $this->assertSame('INV-2026-0500', $inv['DocNumber']);
