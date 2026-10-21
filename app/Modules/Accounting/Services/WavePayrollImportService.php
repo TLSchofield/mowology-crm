@@ -83,7 +83,10 @@ class WavePayrollImportService
         self::ACC_NET_PAY => '/net pay/i',
         self::ACC_SHAREHOLDER => '/shareholder/i',
     ];
-    public const WAVE_REMIT_RE = '/\bWAVE\b.*\bPYRL\b|\bPYRL\b.*\bWAVE\b/i';
+    /** Wave's CRA remittance debit. The bank writes it both "Wave PYRL 0012345" and, in its compact form, "PREAUTHORIZEDPAYMENT(WAVEPYRL)"
+     *  (no space: no word boundary between WAVE and PYRL). The old pattern needed the boundary, so January 2026's two debits (which
+     *  add up to the exact $3,117.27 due) were "not found" and would have stayed on wages, counting them twice (found 2026-10-21). */
+    public const WAVE_REMIT_RE = '/\bWAVE\s*PYRL\b|\bWAVE\b.*\bPYRL\b|\bPYRL\b.*\bWAVE\b/i';
     public const WAVE_FEE_RE = '/\bWAVE\b.*PAYROLL\s*FEE/i';
 
     private PDO $db;

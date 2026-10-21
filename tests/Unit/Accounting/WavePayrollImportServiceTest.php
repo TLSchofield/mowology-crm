@@ -188,6 +188,31 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertSame([1 => '2310', 2 => '2310', 3 => '2520', 4 => '2520', 5 => '2520', 6 => '2520', 7 => '2520', 8 => '6800'], $to);
     }
 
+    public function testRemittancePatternAcceptsTheBanksCompactAndSpacedWording(): void
+    {
+        foreach (['Wave PYRL 0012345', 'WAVE PYRL', 'Preauthorized payment Wave PYRL', 'PREAUTHORIZEDPAYMENT(WAVEPYRL)', 'PREAUTHORIZED PAYMENT (WAVE PYRL)', 'WAVE   PYRL'] as $d) {
+            $this->assertSame(1, preg_match(WavePayrollImportService::WAVE_REMIT_RE, $d), $d);
+        }
+        foreach (['WAVE - PAYROLL FEES', 'JAN 02WAVE - PAYROLL FEES TORONTO ON', 'COSTCO WHOLESALE', 'ETRANSFER DEBIT (NIGEL CASEY)', 'TRAVEL PYRLX'] as $d) {
+            $this->assertSame(0, preg_match(WavePayrollImportService::WAVE_REMIT_RE, $d), $d);
+        }
+    }
+
+    public function testWaveDebitsInTheBanksCompactWordingAreStillFoundAsTheRemittance(): void
+    {
+        // Production, January 2026: two debits of $691.62 each written "PREAUTHORIZEDPAYMENT(WAVEPYRL)" were reported as
+        // "no Wave debits found" although they add up to the exact remittance.
+        $bank = self::bank();
+        $bank[0]['description'] = 'PREAUTHORIZEDPAYMENT(WAVEPYRL)';
+        $bank[1]['description'] = 'PREAUTHORIZEDPAYMENT(WAVEPYRL)';
+        $m = WavePayrollImportService::months(WavePayrollImportService::parse(self::january()))['2026-01'];
+        $claimed = [];
+        $r = WavePayrollImportService::matchMonth($m, $bank, 'Pat Owner', $claimed);
+        $this->assertSame('match', $r['remittance']['status']);
+        $this->assertEqualsCanonicalizing([1, 2], $r['remittance']['ids']);
+        $this->assertSame(0.0, $r['remittance']['diff']);
+    }
+
     public function testRemittanceThatDoesNotAddUpIsOfferedUnticked(): void
     {
         $m = WavePayrollImportService::months(WavePayrollImportService::parse(self::january()))['2026-01'];
