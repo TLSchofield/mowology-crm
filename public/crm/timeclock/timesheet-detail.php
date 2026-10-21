@@ -215,6 +215,7 @@ $activePage = 'timesheets';
 
 <!-- Pay summary row -->
 <?php if ($hourlyRate > 0): ?>
+<p class="text-muted small mb-2">An estimate for this timesheet week. Weekly overtime is settled on the pay run, which uses BC&rsquo;s Sunday&ndash;Saturday overtime week.</p>
 <div class="mw-pay-summary mb-4" id="js-pay-summary">
     <div class="mw-pay-card">
         <div class="mw-pay-card-label">Rate</div>

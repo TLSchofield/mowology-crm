@@ -49,9 +49,20 @@ final class OvertimeCalculatorPeriodTest extends TestCase
         $this->assertSame(660, $p['ot_1_5_minutes']);
     }
 
-    public function testSundayBelongsToTheWeekThatStartedMonday(): void
+    /** BC ESA s.1: the overtime week begins on Sunday (Fable review 2026-10-21; it was Monday). */
+    public function testTheOvertimeWeekStartsOnSunday(): void
     {
-        $p = OvertimeCalculator::calculatePeriod(['2026-10-11' => 60, '2026-10-12' => 60], 10.0);
-        $this->assertSame(['2026-10-05', '2026-10-12'], array_keys($p['weeks']));
+        $p = OvertimeCalculator::calculatePeriod(['2026-10-10' => 60, '2026-10-11' => 60, '2026-10-12' => 60], 10.0);
+        $this->assertSame(['2026-10-04', '2026-10-11'], array_keys($p['weeks']), 'Sat ends a week; Sun and Mon start the next');
+    }
+
+    /** Sunday 8 h + Monday–Friday 8 h = 48 h in one ESA week: 8 h weekly overtime (Monday weeks paid none). */
+    public function testASundayShiftCountsTowardThatWeeksForty(): void
+    {
+        $days = ['2026-10-11' => 480];
+        foreach (['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] as $d) $days[$d] = 480;
+        $p = OvertimeCalculator::calculatePeriod($days, 10.0);
+        $this->assertSame(480, $p['ot_1_5_minutes']);
+        $this->assertSame(2400, $p['regular_minutes']);
     }
 }

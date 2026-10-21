@@ -102,8 +102,9 @@ class OvertimeCalculator
     }
 
     /**
-     * Pay for any period (e.g. a bi-weekly pay run): days are grouped into their Monday–Sunday
-     * week, each week goes through calculate() (daily 8 h / 12 h rules + the 40 h weekly rule),
+     * Pay for any period (e.g. a bi-weekly pay run): days are grouped into their Sunday–Saturday
+     * week — the BC Employment Standards Act's overtime week begins on Sunday (s.1 "week"; it was
+     * Monday–Sunday until 2026-10-21, found by the payroll plan's Fable review), each week goes through calculate() (daily 8 h / 12 h rules + the 40 h weekly rule),
      * and the weeks are summed. The weekly threshold is never applied to more than one week.
      * PURE.
      *
@@ -117,15 +118,15 @@ class OvertimeCalculator
         foreach ($dailyMinutes as $date => $min) {
             $ts = strtotime((string)$date);
             if ($ts === false) continue;
-            $monday = date('Y-m-d', strtotime('monday this week', $ts));
-            $byWeek[$monday][date('Y-m-d', $ts)] = ($byWeek[$monday][date('Y-m-d', $ts)] ?? 0) + (int)$min;
+            $sunday = date('Y-m-d', strtotime('-' . (int)date('w', $ts) . ' days', $ts));   // w: 0 = Sunday
+            $byWeek[$sunday][date('Y-m-d', $ts)] = ($byWeek[$sunday][date('Y-m-d', $ts)] ?? 0) + (int)$min;
         }
         $sum = ['regular_minutes' => 0, 'ot_1_5_minutes' => 0, 'ot_2_0_minutes' => 0,
                 'gross_pay' => 0.0, 'regular_pay' => 0.0, 'ot_1_5_pay' => 0.0, 'ot_2_0_pay' => 0.0,
                 'has_overtime' => false, 'daily_breakdown' => [], 'weeks' => []];
-        foreach ($byWeek as $monday => $days) {
+        foreach ($byWeek as $sunday => $days) {
             $w = self::calculate($days, $hourlyRate);
-            $sum['weeks'][$monday] = $w;
+            $sum['weeks'][$sunday] = $w;
             foreach (['regular_minutes', 'ot_1_5_minutes', 'ot_2_0_minutes'] as $k) $sum[$k] += $w[$k];
             foreach (['gross_pay', 'regular_pay', 'ot_1_5_pay', 'ot_2_0_pay'] as $k) $sum[$k] = round($sum[$k] + $w[$k], 2);
             $sum['has_overtime'] = $sum['has_overtime'] || $w['has_overtime'];

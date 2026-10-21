@@ -17,9 +17,10 @@ requirePermission('timer.override');
 $db = getDB();
 
 // ── Date range ────────────────────────────────────────────────────────────────
-// Default: last complete bi-weekly period (most recent Monday that is ≥14 days ago)
+// Default: last complete bi-weekly period, Sunday to Saturday — BC's overtime week starts on Sunday,
+// so a pay period that starts on Sunday never cuts an overtime week (2026-10-21; was Monday).
 $today     = new DateTime('today');
-$lastMon   = new DateTime('last monday');
+$lastMon   = new DateTime('last sunday');
 $lastMon->modify('-7 days'); // go back one more week for a complete bi-weekly
 $defaultEnd   = (clone $lastMon)->modify('+13 days')->format('Y-m-d');
 $defaultStart = $lastMon->format('Y-m-d');
@@ -70,8 +71,8 @@ $grandTotalPay  = 0;
 
 foreach ($employees as $emp) {
     // Per-day shift minutes inside the range (the same rows and statuses recalculateTimesheetTotals()
-    // sums into timesheets.total_shift_minutes), then BC overtime per day and per Monday–Sunday
-    // week via OvertimeCalculator::calculatePeriod(). Until 2026-10-12 this summed the stored
+    // sums into timesheets.total_shift_minutes), then BC overtime per day and per Sunday–Saturday
+    // week (BC ESA) via OvertimeCalculator::calculatePeriod(). Until 2026-10-12 this summed the stored
     // weekly totals of every timesheet overlapping the range and applied the 40 h rule ONCE to the
     // whole (bi-weekly) lump, with no daily 8 h / 12 h rule — the 1.5×/2× split was wrong.
     $dayStmt = $db->prepare("
@@ -224,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_approve'])) {
 
 // ── Preset date helpers ───────────────────────────────────────────────────────
 // Current bi-weekly: most recent completed 2-week block
-$curBiStart = (new DateTime('last monday'))->modify('-7 days')->format('Y-m-d');
+$curBiStart = (new DateTime('last sunday'))->modify('-7 days')->format('Y-m-d');
 $curBiEnd   = (new DateTime($curBiStart))->modify('+13 days')->format('Y-m-d');
 // Previous bi-weekly
 $prevBiStart = (new DateTime($curBiStart))->modify('-14 days')->format('Y-m-d');
@@ -318,7 +319,7 @@ $activePage = 'payroll';
         &bull; <?php echo (int)((strtotime($rangeEnd) - strtotime($rangeStart)) / 86400 + 1); ?> days
     </span>
     <?php if (date('N', strtotime($rangeStart)) !== '1' || date('N', strtotime($rangeEnd)) !== '7'): ?>
-    <div class="text-muted small mt-1">Overtime is worked out per day and per Monday&ndash;Sunday week. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
+    <div class="text-muted small mt-1">Overtime is worked out per day and per Sunday&ndash;Saturday week (BC law). This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
     <?php endif; ?>
 </div>
 
