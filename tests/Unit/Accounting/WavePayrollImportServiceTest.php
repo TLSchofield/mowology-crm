@@ -213,6 +213,33 @@ final class WavePayrollImportServiceTest extends TestCase
         $this->assertSame(0.0, $r['remittance']['diff']);
     }
 
+    public function testEmployeesPaidFiveDaysBeforeAFirstOfTheMonthPaydayAreStillMatched(): void
+    {
+        // Production, April 2026: paydays 1, 15 and 29 Apr; the e-Transfers went out 27 Mar, 10 Apr and 24 Apr. With a 3-day look-back the
+        // 27 Mar payment was out of reach and nobody's net pay added up. Net pay = 27 Mar + 10 Apr + 24 Apr, exactly.
+        $month = ['month' => '2026-04',
+                  'totals' => ['remittance' => 0.0, 'withholdings' => 0.0, 'employer' => 0.0, 'net' => 5799.98, 'wages' => 7425.66],
+                  'employees' => [['name' => 'Nigel Casey', 'first' => 'Nigel', 'last' => 'Casey', 'wages' => 7425.66, 'totals' => ['net' => 5799.98, 'wages' => 7425.66]]]];
+        $l = fn($id, $d, $a) => ['id' => $id, 'date' => $d, 'amount' => $a, 'description' => 'ETRANSFER DEBIT (NIGEL CASEY)', 'direction' => 'out', 'account_code' => '5100'];
+        $bank = [$l(1, '2026-03-27', 1411.79), $l(2, '2026-04-10', 1996.90), $l(3, '2026-04-24', 2391.29), $l(4, '2026-05-08', 2417.06)];
+        $claimed = [];
+        $r = WavePayrollImportService::matchMonth($month, $bank, null, $claimed);
+        $this->assertSame('match', $r['employees'][0]['status']);
+        $this->assertEqualsCanonicalizing([1, 2, 3], $r['employees'][0]['ids']);
+        $this->assertNotContains(4, $r['employees'][0]['ids'], 'the 8 May payment belongs to the next month');
+    }
+
+    public function testALineMoreThanAWeekBeforeTheMonthIsStillNotPulledIn(): void
+    {
+        $month = ['month' => '2026-04',
+                  'totals' => ['remittance' => 0.0, 'withholdings' => 0.0, 'employer' => 0.0, 'net' => 1411.79, 'wages' => 1800.0],
+                  'employees' => [['name' => 'Nigel Casey', 'first' => 'Nigel', 'last' => 'Casey', 'wages' => 1800.0, 'totals' => ['net' => 1411.79, 'wages' => 1800.0]]]];
+        $bank = [['id' => 1, 'date' => '2026-03-13', 'amount' => 1411.79, 'description' => 'ETRANSFER DEBIT (NIGEL CASEY)', 'direction' => 'out', 'account_code' => '5100']];
+        $claimed = [];
+        $r = WavePayrollImportService::matchMonth($month, $bank, null, $claimed);
+        $this->assertNotSame('match', $r['employees'][0]['status']);   // 13 Mar is March's payment (paid for the 18 Mar payday)
+    }
+
     public function testRemittanceThatDoesNotAddUpIsOfferedUnticked(): void
     {
         $m = WavePayrollImportService::months(WavePayrollImportService::parse(self::january()))['2026-01'];

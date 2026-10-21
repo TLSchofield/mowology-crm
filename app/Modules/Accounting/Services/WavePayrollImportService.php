@@ -510,7 +510,10 @@ class WavePayrollImportService
             $isSh = $shAcct !== null;
             foreach ($out as $l) {
                 if (isset($claimed[$l['id']]) || preg_match(self::WAVE_REMIT_RE, $l['description'])) continue;
-                $lo = $isSh ? $start : self::addDays($start, -3);
+                // Employees are paid by e-Transfer about 5 days BEFORE Wave's payday, so a month whose first payday is the 1st or 2nd
+                // has its first payment in the previous month (April 2026: paydays 1, 15, 29 Apr paid 27 Mar, 10 Apr, 24 Apr). Seven days
+                // back reaches it; an earlier month's own lines are already claimed (oldest month first) or moved, so this cannot steal them.
+                $lo = $isSh ? $start : self::addDays($start, -7);
                 $hi = $isSh ? $end : self::addDays($end, 5);
                 if ($l['date'] < $lo || $l['date'] > $hi) continue;
                 if (!self::nameMatches($l['description'], $e, $month['employees'])) continue;
