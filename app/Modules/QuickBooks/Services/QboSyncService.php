@@ -201,8 +201,17 @@ class QboSyncService
     public function sendInvoice(int $invoiceId): array
     {
         if (($g = $this->guard()) !== null) return ['ok' => false, 'message' => $g];
-        $s = $this->db->prepare('SELECT i.*, c.display_name AS client_name, c.billing_email AS client_email
-                                 FROM invoices i LEFT JOIN clients c ON c.id = i.client_id WHERE i.id = ?');
+        // Who the customer is (live 2026-10-20: 269 of 445 invoices since April have no client row and
+        // 372 no bill-to name — most carry only a contact): client → contact → company → property.
+        $s = $this->db->prepare("SELECT i.*, c.display_name AS client_name, c.billing_email AS client_email,
+                                        TRIM(CONCAT_WS(' ', ct.first_name, ct.last_name)) AS contact_name, ct.email AS contact_email,
+                                        co.company_name, co.billing_email AS company_email, p.address AS property_address
+                                 FROM invoices i
+                                 LEFT JOIN clients c ON c.id = i.client_id
+                                 LEFT JOIN contacts ct ON ct.id = i.contact_id
+                                 LEFT JOIN companies co ON co.id = i.company_id
+                                 LEFT JOIN properties p ON p.id = i.property_id
+                                 WHERE i.id = ?");
         $s->execute([$invoiceId]);
         $inv = $s->fetch(PDO::FETCH_ASSOC);
         if (!$inv) return ['ok' => false, 'message' => 'No invoice #' . $invoiceId . '.'];
@@ -266,46 +275,105 @@ class QboSyncService
     }
 
     /** @return array{sent:int, say:string} */
+    /**
+     * Every recorded payment on the invoice, as Ittai's ledger counts them (InvoicePaymentPlanner):
+     * hand-recorded allocations AND succeeded Stripe payments (live: 248 Stripe-paid invoices have no
+     * allocation). @return list<array{key:string, amount:float, date:string, ref:?string}>
+     */
+    public function paymentsOf(int $invoiceId): array
+    {
+        $out = [];
+        $s = $this->db->prepare('SELECT id, amount, payment_date, created_at, reference FROM invoice_payment_allocations WHERE invoice_id = ? AND amount > 0 ORDER BY id');
+        $s->execute([$invoiceId]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $out[] = ['key' => 'alloc:' . $p['id'], 'amount' => round((float)$p['amount'], 2),
+                      'date' => (string)($p['payment_date'] ?: substr((string)$p['created_at'], 0, 10)), 'ref' => $p['reference'] ?? null];
+        }
+        try {
+            $s = $this->db->prepare("SELECT id, amount_cents, created_at, stripe_charge_id FROM stripe_payments WHERE invoice_id = ? AND status = 'succeeded' ORDER BY id");
+            $s->execute([$invoiceId]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                $out[] = ['key' => 'stripe:' . $p['id'], 'amount' => round((int)$p['amount_cents'] / 100, 2),
+                          'date' => substr((string)$p['created_at'], 0, 10), 'ref' => 'Stripe'];
+            }
+        } catch (Throwable $e) { /* no Stripe table: allocations only */ }
+        return $out;
+    }
+
     private function sendPayments(array $inv, string $invoiceQboId, float $invoiceTotal): array
     {
-        $cust = $this->link('client', $this->customerKey($inv));
-        if (!$cust || !$cust['qbo_id'] || $invoiceQboId === '') return ['sent' => 0, 'say' => ''];
-        $s = $this->db->prepare('SELECT id, amount, payment_date, created_at, reference FROM invoice_payment_allocations WHERE invoice_id = ? AND amount > 0 ORDER BY id');
-        $s->execute([(int)$inv['id']]);
+        if ($invoiceQboId === '') return ['sent' => 0, 'say' => ''];
+        // The payment's customer is the one QuickBooks has on THAT invoice (never a fresh guess).
+        $q = $this->conn->client()->query('SELECT * FROM Invoice WHERE Id = ' . QboClient::quote($invoiceQboId));
+        $custId = $q['ok'] ? (string)($q['data']['QueryResponse']['Invoice'][0]['CustomerRef']['value'] ?? '') : '';
+        if ($custId === '') return ['sent' => 0, 'say' => ' Payments not sent: the invoice could not be read back from QuickBooks.'];
+        $cust = ['qbo_id' => $custId];
         $sent = 0; $failed = []; $held = 0;
-        $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->paymentsOf((int)$inv['id']);
         // What is already applied in QuickBooks: a payment is never sent past the invoice's total.
         $applied = 0.0;
         foreach ($rows as $p) {
-            $l = $this->link('payment', (string)$p['id']);
+            $l = $this->link('payment', $p['key']);
             if ($l && $l['qbo_id']) $applied += round((float)$l['qbo_total'], 2);
         }
         foreach ($rows as $p) {
-            $l = $this->link('payment', (string)$p['id']);
+            $l = $this->link('payment', $p['key']);
             if ($l && $l['qbo_id']) continue;
-            if ($applied + round((float)$p['amount'], 2) > round($invoiceTotal, 2) + 0.005) { $held++; continue; }
-            $rid = self::nextRequestId(self::requestId($this->siteId, 'pay', (string)$p['id']), $l);
-            $date = (string)($p['payment_date'] ?: substr((string)$p['created_at'], 0, 10));
-            $r = $this->conn->client()->create('Payment', self::paymentBody((string)$cust['qbo_id'], $invoiceQboId, (float)$p['amount'], $date, $p['reference'] ?? null), $rid);
+            if ($applied + $p['amount'] > round($invoiceTotal, 2) + 0.005) { $held++; continue; }
+            $rid = self::nextRequestId(self::requestId($this->siteId, 'pay', str_replace(':', '', $p['key'])), $l);
+            $r = $this->conn->client()->create('Payment', self::paymentBody((string)$cust['qbo_id'], $invoiceQboId, $p['amount'], $p['date'], $p['ref']), $rid);
             if ($r['ok']) {
                 $q = (array)($r['data']['Payment'] ?? []);
-                $this->saveLink('payment', (string)$p['id'], (string)($q['Id'] ?? ''), (string)($q['SyncToken'] ?? ''), $rid, 'sent', round((float)($q['TotalAmt'] ?? 0), 2), null);
-                $applied += round((float)$p['amount'], 2);
+                $this->saveLink('payment', $p['key'], (string)($q['Id'] ?? ''), (string)($q['SyncToken'] ?? ''), $rid, 'sent', round((float)($q['TotalAmt'] ?? 0), 2), null);
+                $applied += $p['amount'];
                 $sent++;
             } else {
-                $this->saveLink('payment', (string)$p['id'], null, null, $rid, !empty($r['refused']) ? 'refused' : 'error', null, $r['error']);
+                $this->saveLink('payment', $p['key'], null, null, $rid, !empty($r['refused']) ? 'refused' : 'error', null, $r['error']);
                 $failed[] = $r['error'];
             }
         }
+        // Paid in Ittai beyond the recorded payments (an old direct "paid" mark, or account credit —
+        // not cash): said, never guessed (InvoicePaymentPlanner's 'direct' remainder).
+        $recorded = 0.0;
+        foreach ($rows as $p) $recorded += $p['amount'];
+        $rest = round((float)($inv['amount_paid'] ?? 0) - $recorded, 2);
         $say = ($sent ? ' ' . $sent . ' payment' . ($sent === 1 ? '' : 's') . ' applied.' : '')
+             . ($rest > 0.005 ? sprintf(' $%s marked paid in Ittai has no payment record (an older entry or account credit) — enter it in QuickBooks by hand.', number_format($rest, 2)) : '')
              . ($failed ? ' ' . count($failed) . ' payment(s) not sent: ' . $failed[0] : '')
              . ($held ? ' ' . $held . ' payment(s) held: they would pay more than the invoice.' : '');
         return ['sent' => $sent, 'say' => $say];
     }
 
+    /**
+     * Pure (tested): who the invoice's customer is — [key, name, email]. Client, then contact, then
+     * company, then the property; never a key shared by unrelated invoices (an empty name used to
+     * hash to one "Ittai customer" for all of them).
+     * @return array{0:string, 1:string, 2:?string}
+     */
+    public static function customerOf(array $inv): array
+    {
+        $n = fn($v) => trim((string)preg_replace('/\s+/', ' ', (string)$v));
+        if (!empty($inv['client_id']) && $n($inv['client_name'] ?? '') !== '') {
+            return ['client:' . (int)$inv['client_id'], $n($inv['client_name']), $inv['client_email'] ?? null];
+        }
+        if (!empty($inv['contact_id']) && $n($inv['contact_name'] ?? '') !== '') {
+            return ['contact:' . (int)$inv['contact_id'], $n($inv['contact_name']), $inv['contact_email'] ?? null];
+        }
+        if (!empty($inv['company_id']) && $n($inv['company_name'] ?? '') !== '') {
+            return ['company:' . (int)$inv['company_id'], $n($inv['company_name']), $inv['company_email'] ?? null];
+        }
+        if ($n($inv['bill_to_name'] ?? '') !== '') {
+            return ['billto:' . substr(sha1(strtolower($n($inv['bill_to_name']))), 0, 20), $n($inv['bill_to_name']), $inv['sent_to_email'] ?? null];
+        }
+        if (!empty($inv['property_id']) && $n($inv['property_address'] ?? '') !== '') {
+            return ['property:' . (int)$inv['property_id'], $n($inv['property_address']), $inv['sent_to_email'] ?? null];
+        }
+        return ['invoice:' . (int)$inv['id'], 'Ittai customer (invoice ' . (int)$inv['id'] . ')', $inv['sent_to_email'] ?? null];
+    }
+
     private function customerKey(array $inv): string
     {
-        return !empty($inv['client_id']) ? (string)(int)$inv['client_id'] : 'billto:' . substr(sha1(strtolower(trim((string)$inv['bill_to_name']))), 0, 20);
+        return self::customerOf($inv)[0];
     }
 
     /** @return array{ok:bool, qbo_id?:string, message?:string} */
@@ -314,7 +382,8 @@ class QboSyncService
         $key = $this->customerKey($inv);
         $l = $this->link('client', $key);
         if ($l && $l['qbo_id']) return ['ok' => true, 'qbo_id' => (string)$l['qbo_id']];
-        $name = self::displayName($inv['client_name'] ?? null, $inv['bill_to_name'] ?? null, (int)$inv['id']);
+        [, $who, $email] = self::customerOf($inv);
+        $name = self::displayName($who, null, (int)$inv['id']);
         $c = $this->conn->client();
         // An existing QuickBooks customer with this name is the same client: use it, never a duplicate.
         $found = $c->query('SELECT Id, DisplayName FROM Customer WHERE DisplayName = ' . QboClient::quote($name));
@@ -324,7 +393,6 @@ class QboSyncService
             $this->saveLink('client', $key, (string)$hit, null, 'found', 'sent', null, 'matched by name');
             return ['ok' => true, 'qbo_id' => (string)$hit];
         }
-        $email = $inv['client_email'] ?? $inv['sent_to_email'] ?? null;
         $rid = self::nextRequestId(self::requestId($this->siteId, 'cust', $key), $l);
         $r = $c->create('Customer', self::customerBody($name, $email), $rid);
         if (!$r['ok'] && ($r['code'] ?? '') === self::DUPLICATE_NAME) {

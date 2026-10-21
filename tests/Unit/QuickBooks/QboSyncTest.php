@@ -33,7 +33,11 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT)");
         $db->exec("CREATE TABLE chart_of_accounts (code TEXT, name TEXT, type TEXT, is_active INT)");
         $db->exec("CREATE TABLE clients (id INTEGER PRIMARY KEY, display_name TEXT, billing_email TEXT)");
-        $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
+        $db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT)");
+        $db->exec("CREATE TABLE companies (id INTEGER PRIMARY KEY, company_name TEXT, billing_email TEXT)");
+        $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT)");
+        $db->exec("CREATE TABLE stripe_payments (id INTEGER PRIMARY KEY, invoice_id INT, amount_cents INT, status TEXT, created_at TEXT, stripe_charge_id TEXT)");
+        $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, contact_id INT, company_id INT, property_id INT, amount_paid REAL, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
                    total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT)");
         $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, title TEXT, description TEXT, sort_order INT)");
         $db->exec("CREATE TABLE invoice_payment_allocations (id INTEGER PRIMARY KEY, invoice_id INT, amount REAL, payment_date TEXT, created_at TEXT, reference TEXT)");
@@ -47,7 +51,7 @@ class QboSyncTest extends TestCase
                    (1, 'account', '4100', '80', 'Services'), (1, 'account', '4200', '81', 'Hedges')");
         $db->exec("INSERT INTO chart_of_accounts VALUES ('4100', 'Lawn Care Services', 'revenue', 1), ('4200', 'Hedge & Shrub Trimming', 'revenue', 1), ('4600', 'Fertilization', 'revenue', 1)");
         $db->exec("INSERT INTO clients VALUES (5, 'Susan O''Lim', 'susan@example.ca')");
-        $db->exec("INSERT INTO invoices VALUES (10, 5, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL)");
+        $db->exec("INSERT INTO invoices VALUES (10, 5, NULL, NULL, NULL, 416.06, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL)");
         $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 'Hedge trim', NULL, 1)");
         $db->exec("INSERT INTO invoice_payment_allocations VALUES (100, 10, 416.06, '2026-10-20', '2026-10-20 09:00:00', 'ET-55')");
         return $db;
@@ -59,6 +63,11 @@ class QboSyncTest extends TestCase
         $get = function (string $url, array $h) {
             $q = urldecode((string)parse_url($url, PHP_URL_QUERY));
             $this->queries[] = $q;
+            if (strpos($q, 'FROM Invoice WHERE Id') !== false) {
+                $cust = array_values(array_filter($this->sent, fn($x) => $x['entity'] === 'invoice'));
+                $ref = $cust ? end($cust)['body']['CustomerRef']['value'] : '61';
+                return ['status' => 200, 'body' => json_encode(['QueryResponse' => ['Invoice' => [['Id' => '1', 'CustomerRef' => ['value' => $ref ?: '61']]]]])];
+            }
             return ['status' => 200, 'body' => '{"QueryResponse":{}}'];
         };
         $post = function (string $url, array $h, string $body) {
@@ -258,7 +267,7 @@ class QboSyncTest extends TestCase
         $db = $this->db();
         $this->sync($db)->sendInvoice(10);
         $db->exec("UPDATE qbo_mappings SET qbo_id = '99', qbo_name = 'Landscaping' WHERE ittai_key = '4200'");
-        $db->exec("INSERT INTO invoices VALUES (12, 5, 'INV-2026-0501', 'sent', 100, 5, 5.0, 105, 105, '2026-10-17', NULL, NULL, '2026-10-17', 'Susan O''Lim', NULL)");
+        $db->exec("INSERT INTO invoices VALUES (12, 5, NULL, NULL, NULL, 0, 'INV-2026-0501', 'sent', 100, 5, 5.0, 105, 105, '2026-10-17', NULL, NULL, '2026-10-17', 'Susan O''Lim', NULL)");
         $this->sync($db, [['4200', 100]])->sendInvoice(12);
         $items = array_values(array_filter($this->sent, fn($s) => $s['entity'] === 'item'));
         $this->assertCount(1, $items, 'a new item, not the one pointing at the old account');
@@ -271,6 +280,43 @@ class QboSyncTest extends TestCase
         $this->assertSame(0.05, QboSyncService::rateOf(5), 'a percent reads the same');
         $this->assertSame(0.13, QboSyncService::rateOf('13.0'));
         $this->assertSame(0.05, QboSyncService::rateOf(null));
+    }
+
+    public function test_a_stripe_payment_is_sent_with_the_invoices_own_customer(): void
+    {
+        // Live 2026-10-20: INV-2026-0461 was paid by Stripe (stripe_payments only) and went up unpaid.
+        $db = $this->db();
+        $db->exec("DELETE FROM invoice_payment_allocations");
+        $db->exec("INSERT INTO stripe_payments VALUES (277, 10, 41606, 'succeeded', '2026-10-16 14:18:09', 'ch_1')");
+        $r = $this->sync($db)->sendInvoice(10);
+        $pays = array_values(array_filter($this->sent, fn($s) => $s['entity'] === 'payment'));
+        $this->assertCount(1, $pays);
+        $this->assertSame(416.06, $pays[0]['body']['TotalAmt']);
+        $this->assertSame('Stripe', $pays[0]['body']['PaymentRefNum']);
+        $inv = array_values(array_filter($this->sent, fn($s) => $s['entity'] === 'invoice'));
+        $this->assertSame($inv[0]['body']['CustomerRef']['value'], $pays[0]['body']['CustomerRef']['value'], 'the payment is for the invoice\'s customer');
+        $this->assertSame(1, $r['payments']);
+    }
+
+    public function test_paid_without_a_payment_record_is_said(): void
+    {
+        $db = $this->db();
+        $db->exec("DELETE FROM invoice_payment_allocations");
+        $r = $this->sync($db)->sendInvoice(10);
+        $this->assertStringContainsString('$416.06 marked paid in Ittai has no payment record', $r['message']);
+    }
+
+    public function test_the_customer_comes_from_client_then_contact_then_company_then_property(): void
+    {
+        $base = ['id' => 478, 'client_id' => null, 'contact_id' => 40, 'company_id' => null, 'property_id' => 43,
+                 'client_name' => null, 'contact_name' => 'Matthew Collingwood', 'contact_email' => 'm@example.ca',
+                 'company_name' => null, 'bill_to_name' => null, 'property_address' => '3523 West 3rd Avenue'];
+        $this->assertSame(['contact:40', 'Matthew Collingwood', 'm@example.ca'], QboSyncService::customerOf($base), 'INV-2026-0461: contact only');
+        $this->assertSame('client:5', QboSyncService::customerOf(['client_id' => 5, 'client_name' => 'Strata 123'] + $base)[0]);
+        $this->assertSame('property:43', QboSyncService::customerOf(['contact_name' => ''] + $base)[0]);
+        $a = QboSyncService::customerOf(['id' => 1, 'contact_name' => '', 'property_address' => ''] + $base);
+        $b = QboSyncService::customerOf(['id' => 2, 'contact_name' => '', 'property_address' => ''] + $base);
+        $this->assertNotSame($a[0], $b[0], 'two nameless invoices never share one customer');
     }
 
     public function test_request_ids_and_names(): void
