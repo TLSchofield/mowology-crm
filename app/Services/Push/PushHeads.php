@@ -9,10 +9,12 @@ declare(strict_types=1);
  * data['screen'] / data['open'] (quotes → Sam; jobs, crew, trips, tracking → Otto; receipts → Penny).
  * A notification with no recognisable head is left exactly as it was.
  */
+require_once dirname(__DIR__) . '/HeadIdentity.php';
+
 final class PushHeads
 {
     public const HEADS = [
-        'charlie' => ['Charlie', 'Foreman'],
+        'charlie' => ['Kaname', 'Foreman'],   // shown name: name() (HeadIdentity)
         'sam'     => ['Sam', 'Sales'],
         'otto'    => ['Otto', 'Ops'],
         'penny'   => ['Penny', 'Books'],
@@ -21,11 +23,17 @@ final class PushHeads
         'ada'     => ['Ada', 'Tech'],
     ];
 
+    /** The shown first name of a head (the chief of staff's comes from HeadIdentity). */
+    public static function name(string $head): string
+    {
+        return $head === HeadIdentity::CHIEF_KEY ? HeadIdentity::chiefName() : self::HEADS[$head][0];
+    }
+
     /** "Sam [Sales]" for a head slug; null when unknown. */
     public static function label(?string $head): ?string
     {
         $h = self::HEADS[strtolower((string)$head)] ?? null;
-        return $h ? $h[0] . ' [' . $h[1] . ']' : null;
+        return $h ? self::name(strtolower((string)$head)) . ' [' . $h[1] . ']' : null;
     }
 
     /** Which head a push belongs to, from its data payload (and title as a last resort). */
@@ -40,7 +48,8 @@ final class PushHeads
         if (preg_match('/campaign|review|social|marketing/', $tag)) return 'mia';
         if (preg_match('/message|reply|comms|client/', $tag)) return 'yui';
         foreach (self::HEADS as $slug => $h) {
-            if (stripos($title, $h[0] . ':') === 0 || strcasecmp(trim($title), $h[0]) === 0) return $slug;
+            $nm = self::name($slug);
+            if (stripos($title, $nm . ':') === 0 || strcasecmp(trim($title), $nm) === 0) return $slug;
         }
         return null;
     }
@@ -55,7 +64,7 @@ final class PushHeads
         if ($head === null) return [$title, $body];
         $label = (string)self::label($head);
         if (strpos($title, $label) === 0) return [$title, $body];            // already branded
-        $name = self::HEADS[$head][0];
+        $name = self::name($head);
         $lead = trim((string)preg_replace('/^' . preg_quote($name, '/') . '\s*[:\-–—]\s*/iu', '', $title));
         if (strcasecmp($lead, $name) === 0) $lead = '';
         $newBody = $lead === '' ? $body : ($body === '' ? $lead : $lead . ' — ' . $body);

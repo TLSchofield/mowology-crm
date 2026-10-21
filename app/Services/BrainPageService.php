@@ -19,6 +19,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/HeadBrain.php';
+require_once __DIR__ . '/HeadIdentity.php';
 
 class BrainPageService
 {
@@ -34,8 +35,8 @@ class BrainPageService
                       'client' => 'Mia keeps in touch with clients and property managers, so nobody is forgotten between seasons.'],
         'yui'     => ['name' => 'Yui',     'role' => 'Client communications',     'they' => 'she',
                       'client' => 'Yui makes sure every client message gets a prompt, personal reply.'],
-        'charlie' => ['name' => 'Charlie', 'role' => 'Chief of Staff',            'they' => 'he',
-                      'client' => 'Charlie keeps the whole team pointed at what matters most, every morning.'],
+        'charlie' => ['name' => 'Kaname', 'role' => 'Chief of Staff',              'they' => 'he',
+                      'client' => '{NAME} keeps the whole team pointed at what matters most, every morning.'],   // name/pronoun: HeadIdentity (see cfg())
     ];
 
     /** A group's name for one item, where "1 people" would read wrong. */
@@ -146,6 +147,12 @@ class BrainPageService
     public static function view(string $head, array $brain, float $bright, bool $client): array
     {
         $cfg = self::HEADS[$head] ?? ['name' => ucfirst($head), 'role' => '', 'they' => 'they', 'client' => ''];
+        if ($head === HeadIdentity::CHIEF_KEY) {
+            $chief = HeadIdentity::chief();
+            $cfg['name'] = $chief['name'];
+            $cfg['they'] = $chief['they'];
+        }
+        $cfg['client'] = str_replace('{NAME}', $cfg['name'], $cfg['client']);
         $parts = array_values(array_filter((array)($brain['parts'] ?? []), 'is_array'));
         $items = array_values(array_filter($parts, [self::class, 'isItem']));
         $counted = array_values(array_filter($parts, fn($p) => !self::isItem($p)));
