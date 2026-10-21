@@ -56,6 +56,8 @@ try {
     }
 
     $expenseId   = (int)($input['id'] ?? 0);
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin(getDB(), (int)$jwtUser['id'], 'expense-update', 'update');
     $currentUser = [
         'id'       => (int)$jwtUser['id'],
         'is_admin' => jwtIsAdmin($jwtUser['role'] ?? ''),

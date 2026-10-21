@@ -125,6 +125,8 @@ try {
             exit;
         }
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new RuntimeException('POST required');
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+        IdempotencyGuard::begin(getDB(), (int)$jwtUser['id'], 'bookkeeper-mobile', $earlyMode, ['penny_apply', 'penny_keep']);
         $body = json_decode((string)file_get_contents('php://input'), true) ?? [];
         $expenseId = (int)($body['expense_id'] ?? 0);
         echo json_encode($earlyMode === 'penny_apply' ? $svc->apply($expenseId, $user, $actor) : $svc->keep($expenseId, $user, $actor));
@@ -146,6 +148,8 @@ try {
     $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'queue');
 
     $db = getDB();
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'remove_dupes', 'move', 'message_done']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.

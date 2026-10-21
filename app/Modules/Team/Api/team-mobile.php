@@ -160,6 +160,8 @@ try {
     $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'brief');
 
     $db = getDB();
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, (int)$user['id'], 'team-mobile', $mode, ['act', 'ask', 'move', 'done', 'geocode', 'gbp_post', 'otto_decide', 'otto_undo_auto']);
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/TeamCardService.php';

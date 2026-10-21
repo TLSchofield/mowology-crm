@@ -60,6 +60,8 @@ try {
     $isMultipart = stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data') !== false;
     $in = $isMultipart ? $_POST : (json_decode((string)file_get_contents('php://input'), true) ?? []);
     $mode = (string)($in['mode'] ?? '');
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin(getDB(), $uid, 'equipment-mobile', $mode, ['plate', 'save', 'update']);
 
     switch ($mode) {
         case 'plate':

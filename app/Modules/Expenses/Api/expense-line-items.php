@@ -114,6 +114,8 @@ try {
 
     $op = (string)($input['op'] ?? '');
     $lineItemId = (int)($input['line_item_id'] ?? 0);
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'expense-line-items', $op);
 
     $expenseIdFor = static function (int $lineItemId) use ($db): int {
         $stmt = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");

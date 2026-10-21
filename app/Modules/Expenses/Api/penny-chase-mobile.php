@@ -56,6 +56,8 @@ try {
         exit;
     }
     $uid = (int)$user['id'];
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, $uid, 'penny-chase-mobile', $mode, ['attach', 'no_receipt', 'reassign']);
     $owner = function () use ($isOwner): void {
         if (!$isOwner) {
             http_response_code(403);

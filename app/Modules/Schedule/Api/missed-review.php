@@ -46,6 +46,8 @@ try {
     unset($input['action'], $input['module']);   // the /api/ router's own parameters
 
     require_once APP_ROOT . '/Modules/Operations/Services/MissedVisitReviewService.php';
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin(getDB(), (int)$jwtUser['id'], 'missed-review', (string)($input['mode'] ?? $input['decision'] ?? 'decide'));
     [$status, $body] = (new MissedVisitReviewService(getDB()))->handle($method, $input, (int)$jwtUser['id']);
     http_response_code($status);
     echo json_encode($body);
