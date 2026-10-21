@@ -15,14 +15,24 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
+
 class TeamCardService
 {
     /** As action-board.js PER_COL. */
     public const PER_COL = 3;
 
+    /** A head's shown name + role; the chief of staff's name comes from HeadIdentity (the owner may rename them). */
+    public static function meta(string $head): array
+    {
+        $m = self::HEADS[$head] ?? ['name' => ucfirst($head), 'role' => ''];
+        if ($head === HeadIdentity::CHIEF_KEY) $m['name'] = HeadIdentity::chiefName();
+        return $m;
+    }
+
     /** The heads with a generic phone card. Face = /crm/img/heads/<slug>.jpg (as the board). */
     public const HEADS = [
-        'charlie' => ['name' => 'Charlie', 'role' => 'Chief of Staff'],
+        'charlie' => ['name' => 'Kaname', 'role' => 'Chief of Staff'],   // shown name: use meta() (HeadIdentity)
         'otto'    => ['name' => 'Otto',    'role' => 'Operations'],
         'mia'     => ['name' => 'Mia',     'role' => 'Marketing'],
         'yui'     => ['name' => 'Yui',     'role' => 'Communications'],

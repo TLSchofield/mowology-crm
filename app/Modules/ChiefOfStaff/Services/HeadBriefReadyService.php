@@ -138,8 +138,8 @@ class HeadBriefReadyService
         $out = [
             'ok'       => true,
             'head'     => 'charlie',
-            'name'     => TeamCardService::HEADS['charlie']['name'],
-            'role'     => TeamCardService::HEADS['charlie']['role'],
+            'name'     => TeamCardService::meta('charlie')['name'],
+            'role'     => TeamCardService::meta('charlie')['role'],
             'face_url' => TeamCardService::faceUrl('charlie'),
             'headline' => $col['headline'],
             'waiting'  => $col['waiting'],

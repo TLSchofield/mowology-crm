@@ -62,10 +62,10 @@ reference that matches the task:
    truck, break, supplier, weather), then the Decision-Log entry (GPS server boundary 2026-09-19,
    trip overhead 2026-10-07, crew-app shell 2026-10-08, supplier forms 2026-10-10).
 2. Graph what you are about to touch: `python3 ~/.claude/tools/graphify.py touches <Class>`.
-   Checked 2026-10-11: `OpsDeskService` reaches 17 files (Charlie's brief/inbox/urgent, team card,
+   Checked 2026-10-11: `OpsDeskService` reaches 17 files (Kaname's brief/inbox/urgent, team card,
    web card, iPhone `team-mobile.php`); `TripSegmentService` feeds `BreakService`,
-   `StopEvidenceService`, `TripCostService` and Charlie's fact answerer — a change to stop
-   detection changes breaks, trip costs and Charlie's answers at once.
+   `StopEvidenceService`, `TripCostService` and Kaname's fact answerer — a change to stop
+   detection changes breaks, trip costs and Kaname's answers at once.
 3. Crew pages are fragile (one bad script froze every Android tap on 2026-10-08). Check whether
    the page is AppStack or standalone (`grep -c appstack_head <page>`) before using a page global.
 4. Production files are often ahead of the repo (schedule, team-mobile, crew JS). `cmp` against
@@ -105,8 +105,8 @@ reference that matches the task:
 
 | Job | The one place | Used by |
 |---|---|---|
-| Otto's suggestions (record, expire, sort) | `OpsDeskService::current()` in `app/Modules/Operations/Services/OpsDeskService.php` | web card, iPhone Team tab, Charlie |
-| Otto's lines in Charlie's 7 am brief | `OpsDeskService::brief()` | Charlie brief/inbox/urgent, team card |
+| Otto's suggestions (record, expire, sort) | `OpsDeskService::current()` in `app/Modules/Operations/Services/OpsDeskService.php` | web card, iPhone Team tab, Kaname |
+| Otto's lines in Kaname's 7 am brief | `OpsDeskService::brief()` | Kaname brief/inbox/urgent, team card |
 | Applying a suggestion (every button) | `OttoActionService::decide()` | `app/Modules/Operations/Api/otto.php`, `app/Modules/Team/Api/team-mobile.php` |
 | Suggestion kinds | `OpsDeskService::KINDS` — must list every kind `current()` emits (stats count by it) | card numbers, brief |
 | Buttons for a new kind | server-sent `propose.buttons` [{label, choice, main}] | `public/crm/js/otto-card.js`, iOS `OttoSuggestionViews.swift` |
@@ -147,7 +147,7 @@ reference that matches the task:
 | Any change to recorded time (approved week, overlap, weeks to recalc, DST minutes) | `TimeEntryGuard::refusal()` / `TimeEntryGuard::overlapping()` / `TimeEntryGuard::recalcWeeks()` + pure `TimeclockRules` | time-entry-edit, admin_add_entry, job-time-entry-edit, Otto clock_out/timer |
 | Pay over a period (BC daily 8/12 h + weekly 40 h, per week) | `OvertimeCalculator::calculatePeriod()` | `public/crm/timeclock/payroll-summary.php` |
 | Visit status changes (guarded) | `VisitLifecycleService::updateVisitStatus()` / `VisitLifecycleService::canTransition()` | every completion/skip path |
-| End-of-day missed-visit review (open at last clock-out or 18:00, Otto's pick per visit, apply, lesson) | `MissedVisitReviewService::tick()` (rides Charlie's 15-min cron) / `MissedVisitReviewService::decide()`; pure pick `MissedVisitRules::pick()` | dashboard card section `public/crm/includes/otto-missed-panel.php`, desk `public/crm/ops/missed-visits.php`, iPhone `OttoMissedReviewSheet` via `/api/schedule/missed-review` |
+| End-of-day missed-visit review (open at last clock-out or 18:00, Otto's pick per visit, apply, lesson) | `MissedVisitReviewService::tick()` (rides Kaname's 15-min cron) / `MissedVisitReviewService::decide()`; pure pick `MissedVisitRules::pick()` | dashboard card section `public/crm/includes/otto-missed-panel.php`, desk `public/crm/ops/missed-visits.php`, iPhone `OttoMissedReviewSheet` via `/api/schedule/missed-review` |
 | What the nightly rollover does to a past-due visit (roll / skip / hold a contract visit open) | `MissedVisitRules::rolloverAction()` in `app/Modules/Jobs/Cron/auto_rollover.php` | rollover cron |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 

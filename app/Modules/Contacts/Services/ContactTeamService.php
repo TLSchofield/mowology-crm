@@ -31,6 +31,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once dirname(__DIR__, 2) . '/Sales/Services/UnclaimedReplyService.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
 class ContactTeamService
 {
@@ -50,7 +51,7 @@ class ContactTeamService
         'penny'   => ['Penny', 'Bookkeeper'],
         'otto'    => ['Otto', 'Operations'],
         'mia'     => ['Mia', 'Marketing'],
-        'charlie' => ['Charlie', 'Chief of Staff'],
+        'charlie' => ['Kaname', 'Chief of Staff'],   // shown name: item() (HeadIdentity)
     ];
 
     /** A "says they paid" message counts this long. */
@@ -582,6 +583,7 @@ class ContactTeamService
     public static function item(string $head, string $kind, int $group, string $text, string $label, string $url, int $priority = 2): array
     {
         [$name, $role] = self::HEADS[$head] ?? [ucfirst($head), ''];
+        if ($head === HeadIdentity::CHIEF_KEY) $name = HeadIdentity::chiefName();
         return [
             'head' => $head, 'name' => $name, 'role' => $role, 'kind' => $kind,
             'group' => $group, 'priority' => $priority, 'text' => $text,

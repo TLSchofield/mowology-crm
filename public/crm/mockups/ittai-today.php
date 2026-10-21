@@ -99,7 +99,7 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
   <section class="main" aria-label="What needs you">
     <div class="pickrow">
       <div class="three">
-        <div><div class="eyebrow">Charlie · ranked by what happens if it waits</div><div class="h">Three things need you today</div></div>
+        <div><div class="eyebrow">Kaname · ranked by what happens if it waits</div><div class="h">Three things need you today</div></div>
         <div class="tabs" role="group" aria-label="Today's three" id="tabs"></div>
       </div>
       <div class="queue">
@@ -165,7 +165,7 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
          '<circle cx="210" cy="170" r="28" fill="none" stroke="#2F5E8C" stroke-width="1.5"/>' +
          '<circle cx="232" cy="192" r="10" fill="#fff" stroke="' + LINE + '"/>' +
          '<text x="232" y="196" text-anchor="middle" font-family="Zen Kaku Gothic New, sans-serif" font-size="12" font-weight="500" fill="' + INK + '">統</text>' +
-         '<text class="lbl" x="210" y="222" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + META + '">Charlie · Chief of Staff</text>';
+         '<text class="lbl" x="210" y="222" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + META + '">Kaname · Chief of Staff</text>';
     Object.keys(SEAT).forEach(function (k) {
       var s = SEAT[k], st = card.lit[k], on = !!st, c = colorFor(st);
       h += '<image href="' + IMG + k + '.jpg" x="' + (s.cx - 18) + '" y="' + (s.cy - 18) + '" width="36" height="36" clip-path="url(#q-' + k + ')" preserveAspectRatio="xMidYMid slice"/>' +
@@ -175,7 +175,7 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
            '<text class="lbl" x="' + s.tx + '" y="' + s.ty + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="' + (on ? 600 : 500) + '" fill="' + INK + '">' + s.name + '</text>' +
            '<text class="lbl" x="' + s.tx + '" y="' + (s.ty + 16) + '" text-anchor="' + s.anchor + '" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="' + (on ? c : META) + '">' + s.role + '</text>';
     });
-    var list = '<li><img src="' + IMG + 'charlie.jpg" alt=""><span class="k">統</span><b>Charlie</b><span style="color:' + META + '">Chief of Staff</span></li>';
+    var list = '<li><img src="' + IMG + 'charlie.jpg" alt=""><span class="k">統</span><b>Kaname</b><span style="color:' + META + '">Chief of Staff</span></li>';
     Object.keys(SEAT).forEach(function (k) {
       var s = SEAT[k], st = card.lit[k]; if (!st) return;
       var word = st === 'done' ? 'done' : st === 'wait' ? 'waiting on you' : 'acts next';
@@ -184,7 +184,7 @@ button:focus-visible{outline:2px solid var(--progress);outline-offset:2px}
     document.getElementById('onthis').innerHTML = list;
     var svg = document.getElementById('hex');
     svg.innerHTML = h;
-    svg.setAttribute('aria-label', 'Charlie, Chief of Staff, in the centre. On this: ' + names.join(', ') + '.');
+    svg.setAttribute('aria-label', 'Kaname, Chief of Staff, in the centre. On this: ' + names.join(', ') + '.');
   }
 
   function stage(st, isLast) {

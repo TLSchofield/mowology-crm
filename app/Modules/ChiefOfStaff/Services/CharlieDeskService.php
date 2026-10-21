@@ -161,6 +161,7 @@ class CharlieDeskService
             }
         }
         $names = CharlieBriefService::HEADS;
+        $names['charlie']['name'] = HeadIdentity::chiefName();
         foreach (array_keys($failed) as $h) {
             $out[] = "I couldn't reach " . ($names[$h]['name'] ?? ucfirst((string)$h)) . ' — their part of this brief is missing.';
         }

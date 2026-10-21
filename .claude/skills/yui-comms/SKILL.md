@@ -51,7 +51,7 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 2. Graph what you are about to touch: `python3 ~/.claude/tools/graphify.py touches <Class>`.
    Checked 2026-10-11: `MailboxConfig` is read by every inbox cron plus `IcloudInboxRouter`;
    `SalesInboxService` reaches Yui's desk, Penny's brief adapter and the iCloud API;
-   `UnclaimedReplyService` reaches Charlie's brief/desk/inbox, Sam's APIs and Yui; `PushDispatcher`
+   `UnclaimedReplyService` reaches Kaname's brief/desk/inbox, Sam's APIs and Yui; `PushDispatcher`
    is called by 8 files (none of them Yui's). Change a shared reader once, there.
 3. Diff the live copy first. Sales/Comms files have repeatedly been ahead on production
    (see `references/traps.md`) — never deploy a repo copy of a reader wholesale.
@@ -94,8 +94,8 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 | One live iCloud read at a time | `MailboxPollLock::acquire()` | iCloud router |
 | Customer mail history (office@ + iCloud) | `SalesInboxService::ingest()` (+ `SalesInboxService::classifyAny()` joins non-contacts) | sales_inbox_poll, iCloud router |
 | Which head owns an inbound message, "Move to…" | InboundRouteService + InboundTopicClassifier — **not in this tree** (see traps) | ingest, Sam/Yui/Penny cards, team-mobile |
-| Client replies nobody answered (Sam's lane vs Yui's) | `UnclaimedReplyService::items()` / `UnclaimedReplyService::lane()` | Yui desk, Sam desk, Charlie, contact timeline |
-| Yui's five sections + brief | `YuiDeskService::desk()` / `YuiDeskService::brief()` (decisions in `app/Modules/Comms/Services/YuiRules.php`) | web card, iPhone Team tab, Charlie |
+| Client replies nobody answered (Sam's lane vs Yui's) | `UnclaimedReplyService::items()` / `UnclaimedReplyService::lane()` | Yui desk, Sam desk, Kaname, contact timeline |
+| Yui's five sections + brief | `YuiDeskService::desk()` / `YuiDeskService::brief()` (decisions in `app/Modules/Comms/Services/YuiRules.php`) | web card, iPhone Team tab, Kaname |
 | Drafting and sending a Yui message | `YuiDraftService::draftReply()` (Claude, capped) / `YuiDraftService::send()` | `app/Modules/Comms/Api/yui.php` |
 | Text rules check | `YuiRules::smsProblems()` (wraps `SamFollowupService::smsProblems()`) | Yui send, `public/crm/js/yui-card.js` mirror |
 | Supplier mail + business licence | `SupplierInboxService::poll()` | inside sales_inbox_poll (office@ + iCloud) |

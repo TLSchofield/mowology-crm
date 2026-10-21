@@ -4,7 +4,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 /**
- * Keeps every head's skill true (owner, 2026-10-11): Penny, Charlie, Sam, Otto, Mia, Yui, Ada and
+ * Keeps every head's skill true (owner, 2026-10-11): Penny, Kaname, Sam, Otto, Mia, Yui, Ada and
  * the shared regions. For each skill under .claude/skills/<head-…>/:
  *  - every `app/…`, `public/…`, `scripts/…` path and `Class::method()` / `function()` it names exists;
  *  - it has a "Before and after every change (Obsidian + Graphify)" section that sends you to the
@@ -18,7 +18,7 @@ final class HeadSkillsTest extends TestCase
     /** Head skills (folder => display name). Add a head here when it gets a skill. */
     private const HEADS = [
         'penny-bc-bookkeeping'   => 'Penny',
-        'charlie-chief-of-staff' => 'Charlie',
+        'kaname-chief-of-staff' => 'Kaname',
         'sam-sales'              => 'Sam',
         'otto-operations'        => 'Otto',
         'mia-marketing'          => 'Mia',

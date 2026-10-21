@@ -1,6 +1,6 @@
 ---
 name: regions
-description: Use whenever a rule depends on WHERE the business or the job is — country, province or city. Taxes (GST/PST/HST), payroll and employment standards, WorkSafe, marketing-consent and SMS rules, business licences, noise/leaf-blower bylaws, watering restrictions, snow bylaws. Every head's skill (Penny, Otto, Sam, Mia, Yui, Charlie, Ada) points here instead of keeping its own copy. For Ittai, a business in another place gets its own region files and data rows.
+description: Use whenever a rule depends on WHERE the business or the job is — country, province or city. Taxes (GST/PST/HST), payroll and employment standards, WorkSafe, marketing-consent and SMS rules, business licences, noise/leaf-blower bylaws, watering restrictions, snow bylaws. Every head's skill (Penny, Otto, Sam, Mia, Yui, Kaname, Ada) points here instead of keeping its own copy. For Ittai, a business in another place gets its own region files and data rows.
 covers:
   - app/Modules/Operations/Services/MunicipalRuleService.php
   - app/Modules/Accounting/Services/TaxEngine.php

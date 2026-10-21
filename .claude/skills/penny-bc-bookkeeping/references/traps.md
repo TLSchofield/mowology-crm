@@ -207,7 +207,7 @@ Now enforced in code — don't undo:
   `recordWhenBanked()` need `etransfer_notifications.sender_verified = 1` (migration 1340 — until it
   runs nothing auto-records).
 - **Stripe disputes and refunds reach the journal** (`StripeEventLedgerService`, migration 1342,
-  idempotent per event id): dispute → invoice `dispute_status`, DR 1100 / CR 1010, Charlie emails Tim;
+  idempotent per event id): dispute → invoice `dispute_status`, DR 1100 / CR 1010, Kaname emails Tim;
   won → reversed; refund → DR 2160 Customer Deposits / CR 1010 (the invoice is left for a person).
   A late `payment_failed` never overwrites a succeeded payment.
 - **Autopay is switched on only by the cardholder entering the card** (SetupIntent, or a payment with
@@ -355,7 +355,7 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
   - Customer pay page: any other error → "try again in a minute", never a second PaymentIntent.
   - Autopay: an unknown outcome is never auto-retried (`failure_code = 'api_unknown'`, staff email: check Stripe first).
 - Webhook re-reads `stripe_payments` FOR UPDATE inside its transaction (a redelivered part payment counted once).
-- A card payment on an invoice already paid another way → activity `stripe_overpayment` → Charlie urgent alert
+- A card payment on an invoice already paid another way → activity `stripe_overpayment` → Kaname urgent alert
   ("probably paid twice — refund?"). Penny never refunds by herself.
 - Client credit applies inside one locked transaction with its journal entry (`ClientCreditService::applyToInvoice()`).
   Still Tim's choice: apply credit automatically before autopay (the portal already says it does).

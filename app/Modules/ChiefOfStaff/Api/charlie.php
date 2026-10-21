@@ -56,6 +56,7 @@ try {
     session_write_close();
 
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/AccountantPackService.php';
     $f = new CharlieForemanService($db);
@@ -68,7 +69,7 @@ try {
     $canAsk = $mode === 'ask' && ($user['role'] ?? '') === 'admin';
     if (!$desk->isOwner($user) && !$canAsk) {
         http_response_code(403);
-        echo json_encode(['ok' => false, 'error' => 'Charlie works for the owner only']);
+        echo json_encode(['ok' => false, 'error' => HeadIdentity::chiefName() . ' works for the owner only']);
         exit;
     }
     $name = CharlieVoice::firstName($user);
@@ -192,5 +193,5 @@ try {
 } catch (Throwable $e) {
     error_log('Charlie API: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => 'Charlie is unavailable right now']);
+    echo json_encode(['ok' => false, 'error' => (class_exists('HeadIdentity') ? HeadIdentity::chiefName() : 'The chief of staff') . ' is unavailable right now']);
 }

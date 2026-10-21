@@ -11,6 +11,7 @@ require_once __DIR__ . '/CharlieDeskService.php';
 require_once __DIR__ . '/CharlieInboxService.php';
 require_once __DIR__ . '/CharlieUrgentService.php';
 require_once __DIR__ . '/DeadlineService.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
 class CharlieForemanService
 {
@@ -75,7 +76,7 @@ class CharlieForemanService
         }
         $mail = CharlieUrgentService::email($new, CharlieVoice::firstName($owner), $baseUrl);
         $html = class_exists('EmailWrapper') ? EmailWrapper::wrap($mail['body'], 'Open the dashboard', rtrim($baseUrl, '/') . '/crm/dashboard_appstack.php', $company) : $mail['body'];
-        $res = sendEmail($to, $mail['subject'], $html, null, 'Charlie at ' . ($company['company_name'] ?? 'Mowology'));
+        $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? 'Mowology'));
         $err = !empty($res['success']) ? null : (string)($res['error'] ?? 'send failed');
         $this->urgent->record($new, $err);
         return ['sent' => $err === null ? count($new) : 0, 'error' => $err];

@@ -161,6 +161,7 @@ try {
 
     $db = getDB();
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/TeamCardService.php';
     $f = new CharlieForemanService($db);
@@ -273,8 +274,8 @@ try {
             $out = [
                 'ok'       => true,
                 'head'     => $head,
-                'name'     => TeamCardService::HEADS[$head]['name'],
-                'role'     => TeamCardService::HEADS[$head]['role'],
+                'name'     => TeamCardService::meta($head)['name'],
+                'role'     => TeamCardService::meta($head)['role'],
                 'face_url' => TeamCardService::faceUrl($head),
                 'headline' => $col['headline'],
                 'waiting'  => $col['waiting'],
@@ -312,7 +313,7 @@ try {
 
         case 'act': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
-            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => 'Charlie learns from the owner only.']); break; }
+            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => HeadIdentity::chiefName() . ' learns from the owner only.']); break; }
             $what = (string)($input['what'] ?? '');
             if (!in_array($what, ['open', 'snooze'], true)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown action']); break; }
             echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
@@ -402,7 +403,7 @@ try {
 
         case 'ask': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
-            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => 'Charlie answers the owner only.', 'left' => 0]); break; }
+            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => HeadIdentity::chiefName() . ' answers the owner only.', 'left' => 0]); break; }
             require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
             @set_time_limit(90);
             echo json_encode((new CharlieAskService($db))->ask((string)($input['question'] ?? ''), (int)$user['id']));

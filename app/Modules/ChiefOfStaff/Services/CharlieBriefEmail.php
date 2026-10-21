@@ -10,6 +10,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieVoice.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
 class CharlieBriefEmail
 {
@@ -79,7 +80,7 @@ class CharlieBriefEmail
                 $html .= '</div>';
             }
         }
-        $html .= '<p style="margin:18px 0 0;font-size:14px;color:' . self::MUTED . ';' . self::FONT . '">I\'ll keep checking through the day — the dashboard always has the latest.<br>— Charlie</p>';
+        $html .= '<p style="margin:18px 0 0;font-size:14px;color:' . self::MUTED . ';' . self::FONT . '">I\'ll keep checking through the day — the dashboard always has the latest.<br>— ' . htmlspecialchars(HeadIdentity::chiefName(), ENT_QUOTES, 'UTF-8') . '</p>';
 
         return ['subject' => CharlieVoice::subject($one), 'body' => $html];
     }

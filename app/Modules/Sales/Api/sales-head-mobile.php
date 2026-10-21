@@ -256,8 +256,9 @@ try {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             $key = substr((string)($input['key'] ?? ''), 0, 120);
             if (strpos($key, 'sam:reply:') !== 0) { echo json_encode(['ok' => false, 'message' => 'That isn\'t one of Sam\'s replies.']); break; }
+            require_once APP_ROOT . '/Services/HeadIdentity.php';
             $charlie = APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
-            if (!is_file($charlie)) { echo json_encode(['ok' => false, 'message' => 'Charlie isn\'t set up on this server.']); break; }
+            if (!is_file($charlie)) { echo json_encode(['ok' => false, 'message' => HeadIdentity::chiefName() . ' isn\'t set up on this server.']); break; }
             if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
             require_once $charlie;
             $f = new CharlieForemanService($db);

@@ -10,6 +10,7 @@
  */
 if (!defined('APP_ROOT')) return;
 try {
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
     $__cDesk = new CharlieDeskService(getDB());
     $__cUser = (array)($user ?? (function_exists('getCurrentUser') ? getCurrentUser() : []) ?? []);
@@ -35,13 +36,13 @@ try {
 $__cName = CharlieVoice::firstName($__cUser);
 $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
 ?>
-<section class="mw-head-card mw-charlie" id="mw-charlie" data-name="<?= h($__cName) ?>">
+<section class="mw-head-card mw-charlie" id="mw-charlie" data-name="<?= h($__cName) ?>" data-chief-name="<?= h(HeadIdentity::chiefName()) ?>">
   <div class="mw-charlie-top">
     <div class="mw-charlie-photo">
-      <img class="mw-charlie-face" src="/crm/img/heads/charlie.jpg" alt="Charlie, Foreman" width="72" height="72">
+      <img class="mw-charlie-face" src="/crm/img/heads/charlie.jpg" alt="<?= h(HeadIdentity::chiefName()) ?>, Foreman" width="72" height="72">
       <?php if ($__cBrain !== null): ?>
-        <button type="button" class="mw-head-brain mw-charlie-brain" aria-label="Charlie's brain: <?= (int)$__cBrain['units'] ?> things learned"
-                data-head="Charlie"
+        <button type="button" class="mw-head-brain mw-charlie-brain" aria-label="<?= h(HeadIdentity::chiefName()) ?>'s brain: <?= (int)$__cBrain['units'] ?> things learned"
+                data-head="<?= h(HeadIdentity::chiefName()) ?>" data-head-slug="charlie"
                 data-units="<?= (int)$__cBrain['units'] ?>"
                 data-bright="<?= h((string)($__cBadges['called_rate'] ?? 0.5)) ?>"
                 data-parts="<?= h(json_encode($__cBrain['parts'])) ?>"
@@ -51,14 +52,14 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
       <?php endif; ?>
     </div>
     <div class="mw-charlie-id">
-      <div class="mw-head-nm">Charlie</div>
+      <div class="mw-head-nm"><?= h(HeadIdentity::chiefName()) ?></div>
       <div class="mw-head-role">Foreman</div>
       <span class="mw-head-pill"><i></i>Working</span>
     </div>
   </div>
 
   <?php if ($__cBadges['earned'] || $__cBadges['next']): ?>
-  <div class="mw-head-badges mw-charlie-badges" aria-label="Charlie's badges">
+  <div class="mw-head-badges mw-charlie-badges" aria-label="<?= h(HeadIdentity::chiefName()) ?>'s badges">
     <?php foreach ($__cBadges['earned'] as $__b): ?>
       <span class="mw-head-badge" title="<?= h($__b['title']) ?>"><?= h($__b['icon']) ?> <?= h($__b['label']) ?></span>
     <?php endforeach; ?>

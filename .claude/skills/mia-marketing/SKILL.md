@@ -55,8 +55,8 @@ the task:
    social-publisher sections in Known-Failure-Patterns are required reading before touching tokens
    or the publisher cron.
 2. Graph what you are about to touch: `python3 ~/.claude/tools/graphify.py touches <Class>`.
-   Mia's services are read by Charlie, Sam, Yui and the iPhone (checked 2026-10-11):
-   `MiaDeskService` → Charlie's brief, `TeamCardService`, team-mobile;
+   Mia's services are read by Kaname, Sam, Yui and the iPhone (checked 2026-10-11):
+   `MiaDeskService` → Kaname's brief, `TeamCardService`, team-mobile;
    `MiaCampaignService` → Sam's desk and unclaimed replies, Yui, contact team panel;
    `ConsentLedgerService` → Mia, Sam, Yui, field observations;
    `ReviewRequestService` → `pow-actions.php` and `VisitLifecycleService::updateVisitStatus()`.
@@ -104,7 +104,7 @@ the task:
 |---|---|---|
 | Who Mia suggests contacting (reconnect, seasonal, quiet PM, referral, consent ask) | `MiaFinder` (`app/Modules/Marketing/Services/MiaFinder.php`) | `MiaDeskService::prepare()` |
 | Sending a one-to-one suggestion (consent + Sam re-check, `communication_log`) | `MiaDeskService::decide()` | web card |
-| Mia's items for Charlie / the Action Board / iPhone | `MiaDeskService::brief()` | Charlie, `TeamCardService`, team-mobile |
+| Mia's items for Kaname / the Action Board / iPhone | `MiaDeskService::brief()` | Kaname, `TeamCardService`, team-mobile |
 | Suggestion wording, SMS check, CASL wrapper | `MiaWording` | desk, campaigns |
 | Consent per contact and channel | `ConsentLedgerService::allows()` (backfill: `ConsentLedgerService::refresh()`) | Mia, Sam, Yui, sequences |
 | Campaign calendar (dates, audiences, conditions) | `mia_calendar` table + `MiaCalendar` (seed must match `MiaCalendar::defaults()`) | `MiaCampaignService` |
@@ -121,7 +121,7 @@ the task:
 | Season themes for posts | `MiaSeasonThemes` | channels |
 | Social drafts from crew photos | `MiaSocialService::draftWeek()` → `SocialDraftPipeline` | weekly cron |
 | Publishing social posts | `SocialPublisher::enqueuePost()` + `app/Modules/Social/Cron/social_publisher.php` | editor, cron |
-| Meta tokens and health | `SocialEncryption::decrypt()`, `SocialAccountHealth::sweep()`, `SocialConnectionState`, `MetaService::graphVersion()` | publisher, social page, Charlie |
+| Meta tokens and health | `SocialEncryption::decrypt()`, `SocialAccountHealth::sweep()`, `SocialConnectionState`, `MetaService::graphVersion()` | publisher, social page, Kaname |
 | Picking a photo for any channel | `MediaPickerService::pick()` / `MediaPickerService::markUsed()` | email, GBP, social |
 | Tagging photos (service, season, privacy, consent) | `MediaTagService` + `MediaTagRules` | uploads, daily cron |
 | Search Console weekly watch | `WebsiteWatchService::run()` + `WebsiteWatchRules` | weekly cron |

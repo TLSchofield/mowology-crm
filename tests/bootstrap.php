@@ -452,3 +452,5 @@ require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.ph
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService.php';
 // Penny Payroll (2026-10-21): CRA / BC rules by pay date
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayrollRules.php';
+require_once __DIR__ . '/../app/Modules/Payroll/Services/PayCalculator.php';
+require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';

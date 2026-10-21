@@ -1,4 +1,4 @@
-# How Charlie's brief is built
+# How Kaname's brief is built
 
 ## The heads (`CharlieBriefService::collect()`)
 Each source returns `['head', 'headline', 'count', 'items' => [key, text, url, priority 1–3, kind,
@@ -28,10 +28,10 @@ day's snapshot in `charlie_briefs`, and may ask Tim "which first?" on a close ca
 ## Where it goes
 | Consumer | What it shows |
 |---|---|
-| Web dashboard Charlie card (`public/crm/includes/charlie-card.php` + `public/crm/js/charlie-card.js`) | `charlie.php?mode=today`: bad news, the one thing, Open / Done / Later / Not today, questions, inbox |
-| Action Board (`public/crm/js/action-board.js`) | one column per head, top 3 each, reusing the card's list; house + unknown heads sit in Charlie's column |
+| Web dashboard Kaname card (`public/crm/includes/charlie-card.php` + `public/crm/js/charlie-card.js`) | `charlie.php?mode=today`: bad news, the one thing, Open / Done / Later / Not today, questions, inbox |
+| Action Board (`public/crm/js/action-board.js`) | one column per head, top 3 each, reusing the card's list; house + unknown heads sit in Kaname's column |
 | iPhone Team tab | team-mobile `?mode=brief&head=<head>` — that head's column via `TeamCardService::column()` |
-| iPhone opening screen | team-mobile `?mode=brief&head=charlie&ready=1` — the **ready copy** of Charlie's column |
+| iPhone opening screen | team-mobile `?mode=brief&head=charlie&ready=1` — the **ready copy** of Kaname's column |
 | Email, 7 am Mon–Fri Vancouver | cron → `CharlieBriefEmail::render()` from the frozen snapshot; once a day |
 
 ## The ready copy (`head_brief_ready`, migration 1319)
@@ -44,9 +44,9 @@ day's snapshot in `charlie_briefs`, and may ask Tim "which first?" on a close ca
 - Only the opening screen uses it. The Team tab and the web stay live.
 
 ## What the opening screen actually shows (checked 2026-10-11)
-The ready copy is **Charlie's column only** — deadlines, House lines and any unknown head, top 3 by
+The ready copy is **Kaname's column only** — deadlines, House lines and any unknown head, top 3 by
 score. Penny's, Sam's, Otto's, Mia's and Yui's lines are not in it. The phone then re-orders it
 (`MorningBriefStore.build` in `ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieMorningBrief.swift`):
 new since yesterday first, then by priority (not score), at most 3 lines, the rest counted as
-"ongoing on the Team tab". Each line is labelled with its `head` ("House", "Charlie") and a tap
+"ongoing on the Team tab". Each line is labelled with its `head` ("House", "Kaname") and a tap
 opens that head on the Team tab.

@@ -48,7 +48,7 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 2. Graph what you are about to touch: `python3 ~/.claude/tools/graphify.py touches <Class>`
    (every screen/app a change reaches) and `… file <path>` (what it uses). Watch for reach
    outside Sales: `SamFollowupService` is also used by Yui (`YuiDraftService`, `YuiRules`);
-   `SalesDeskService` feeds Charlie's brief and Yui's desk.
+   `SalesDeskService` feeds Kaname's brief and Yui's desk.
 3. Sales files on production are often AHEAD of the repo (other sessions). `cmp` against the
    live copy before deploying; `scripts/deploy-merged.py` stops on conflicts.
 4. On production data: `scripts/prod-run.sh` preview first, then `--commit`.
@@ -93,12 +93,12 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 | Who a quote goes to + PM CC | `QuoteRecipientService::forProperty()`, `QuoteRecipientService::ccForQuote()` | `public/crm/quotes/view.php`, `public/crm/quotes/create.php`, companies/properties pages, `SamFollowupService` |
 | Client unticks lines before signing | `QuoteLineChoiceService::setDeclined()` | `public/customer/api/quote-upsell.php`, `public/customer/quote.php`, office lock on `public/crm/quotes/view.php`, plan conversion (`app/Modules/Jobs/Services/Plan/PlanLineItems.php`) |
 | Everything after an approval (summary, tray job, push) | `QuoteApprovalService::afterApproval()` | `public/customer/quote.php`, `public/crm/customer/quote.php`, `public/crm/quotes/view.php` (approve_verbal), nightly `QuoteApprovalService::sweep()` in `app/Modules/Jobs/Cron/generate_visits.php` |
-| Follow-up queue (who is waiting, one card per customer) | `SalesDeskService::queue()` | `app/Modules/Sales/Api/sales-head.php`, `app/Modules/Sales/Api/sales-head-mobile.php`, Charlie, Yui |
+| Follow-up queue (who is waiting, one card per customer) | `SalesDeskService::queue()` | `app/Modules/Sales/Api/sales-head.php`, `app/Modules/Sales/Api/sales-head-mobile.php`, Kaname, Yui |
 | Drafting, sending, parking a follow-up | `SamFollowupService::draft()`, `SamFollowupService::send()`, `SamFollowupService::park()` | Sam web + iPhone, Yui |
 | Claude reply draft (Tim's tap, 20/day) | `SamFollowupService::draftReply()` | Sam web + iPhone |
 | Text rule check | `SamFollowupService::smsProblems()` | send; copies in `public/crm/js/sam-card.js` and iOS `SalesSMS` |
 | Client mail history (office@, iCloud) | `SalesInboxService::ingest()`; joining strangers' mail to a quote `SalesInboxService::classifyAny()` | `app/Modules/Sales/Cron/sales_inbox_poll.php`, `IcloudInboxRouter` |
-| Replies no other net caught; clear "yes" | `UnclaimedReplyService::items()`, `UnclaimedReplyService::lane()` | Sam, Charlie |
+| Replies no other net caught; clear "yes" | `UnclaimedReplyService::items()`, `UnclaimedReplyService::lane()` | Sam, Kaname |
 | Email enquiries from strangers | `EmailLeadService::score()`, `EmailLeadService::maybes()` | iCloud router, Sam web |
 | Expired quotes: lost / keep / won | `SamQuestionService::answer()` | Sam web + iPhone |
 | Pipeline stage of a contact/company | `PipelineStageService::onEvent()`, `PipelineStageService::sweep()` | quote/plan/invoice events, pipeline sweep |

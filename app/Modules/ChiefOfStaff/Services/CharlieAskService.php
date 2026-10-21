@@ -22,6 +22,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieFactAnswerer.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
 class CharlieAskService
 {
@@ -37,7 +38,7 @@ class CharlieAskService
     public const ROWS        = 6;
 
     public const SYSTEM_PROMPT = <<<'TXT'
-You are Charlie, Chief of Staff for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC. The owner asks you quick questions about his customers from his phone.
+You are {CHIEF}, Chief of Staff for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC. The owner asks you quick questions about his customers from his phone.
 
 Answer ONLY from the CRM records you are given. They are everything the CRM holds that matched his question; if the answer isn't in them, say plainly that you can't see it in the CRM and what you did find. Never guess or invent names, dates, amounts or statuses.
 
@@ -48,8 +49,14 @@ How to read the records:
 - Several people can share a first name — if more than one matches, say which one you mean or list them briefly.
 - facts: counts and totals already worked out from Otto's truck log and cost facts, Penny's receipts and the schedule, for the period named. Trust them as given; don't recount.
 
-Reply in Charlie's voice: plain, short, friendly, first person, to the owner. At most 4 short sentences, plain text, no markdown, no bullet points. Use real dates (e.g. "Oct 3") and amounts ($1,240). You can't change anything in the CRM — you only look things up.
+Reply in {CHIEF}'s voice: plain, short, friendly, first person, to the owner. At most 4 short sentences, plain text, no markdown, no bullet points. Use real dates (e.g. "Oct 3") and amounts ($1,240). You can't change anything in the CRM — you only look things up.
 TXT;
+
+    /** The system prompt with the chief of staff's shown name filled in (the owner may rename them). */
+    public static function systemPrompt(): string
+    {
+        return str_replace('{CHIEF}', HeadIdentity::chiefName(), self::SYSTEM_PROMPT);
+    }
 
     /** Words that are never a name or a street. */
     public const STOP = [
@@ -134,7 +141,7 @@ TXT;
     /** @return array{ok: bool, answer?: string, message?: string, source?: string, left: int, capped?: bool} */
     public function ask(string $question, int $userId): array
     {
-        if (!$this->ready()) return ['ok' => false, 'message' => 'Ask Charlie needs migration 1215.', 'left' => 0];
+        if (!$this->ready()) return ['ok' => false, 'message' => 'Ask ' . HeadIdentity::chiefName() . ' needs migration 1215.', 'left' => 0];
         $question = self::cleanQuestion($question);
         if (mb_strlen($question) < 3) return ['ok' => false, 'message' => 'Type a question first.', 'left' => $this->status()['left']];
 
@@ -442,7 +449,7 @@ TXT;
         return [
             'model'      => self::MODEL,
             'max_tokens' => 600,
-            'system'     => [['type' => 'text', 'text' => self::SYSTEM_PROMPT, 'cache_control' => ['type' => 'ephemeral']]],
+            'system'     => [['type' => 'text', 'text' => self::systemPrompt(), 'cache_control' => ['type' => 'ephemeral']]],
             'messages'   => [['role' => 'user', 'content' => [['type' => 'text', 'text' => $prompt]]]],
         ];
     }

@@ -14,12 +14,13 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/OnboardingModules.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
 class OnboardingService
 {
     public const ORDER = 'onboarding_order';
     public const SKIPPED = 'onboarding_skipped';
-    public const OWNERS = ['penny' => 'Penny', 'sam' => 'Sam', 'otto' => 'Otto', 'charlie' => 'Charlie'];
+    public const OWNERS = ['penny' => 'Penny', 'sam' => 'Sam', 'otto' => 'Otto', 'charlie' => 'Kaname'];   // shown name: ownerName()
 
     private OnboardingContext $c;
     /** @var array<string, OnboardingModule> */
@@ -148,7 +149,7 @@ class OnboardingService
             $state = in_array($k, $skipped, true) ? 'skipped' : $m->state($this->c);
             if ($k === 'done' && $state !== OnboardingModule::DONE && $this->allBeforeFinished($order, $skipped)) $state = OnboardingModule::TODO;
             if ($state === OnboardingModule::TODO && !$nextSeen) { $state = 'next'; $nextSeen = true; }
-            $rows[] = ['key' => $k, 'title' => $m->title(), 'owner' => self::OWNERS[$m->owner()] ?? $m->owner(), 'state' => $state,
+            $rows[] = ['key' => $k, 'title' => $m->title(), 'owner' => $m->owner() === HeadIdentity::CHIEF_KEY ? HeadIdentity::chiefName() : (self::OWNERS[$m->owner()] ?? $m->owner()), 'state' => $state,
                        'summary' => $m->summary($this->c), 'first' => $i === 0, 'last' => $i === count($order) - 1,
                        'skippable' => $m->skippable(), 'pinned' => $m->pinned()];
         }

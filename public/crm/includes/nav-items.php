@@ -7,6 +7,7 @@
  * require_once: the badge counts are queried once per page however many menus print it.
  */
 if (!isset($user)) $user = ['name' => 'Admin'];
+if (defined('APP_ROOT') && is_file(APP_ROOT . '/Services/HeadIdentity.php')) require_once APP_ROOT . '/Services/HeadIdentity.php';   // the chief of staff's shown name
 
 // Unread message count for badge (silent fail if messages table not yet created)
 $_mwUnreadMessages = 0;
@@ -120,7 +121,7 @@ if (!function_exists('mwIttaiNavBlocks')) {
     function mwIttaiNavBlocks(array $navItems, array $user, string $activePage): array
     {
         $heads = [
-            'charlie' => ['Charlie', 'Chief of Staff', '統', 'unite, coordinate'],
+            'charlie' => [class_exists('HeadIdentity') ? HeadIdentity::chiefName() : 'Kaname', 'Chief of Staff', '統', 'unite, coordinate'],
             'yui'     => ['Yui',     'Communications', '結', 'tie together'],
             'sam'     => ['Sam',     'Sales',          '商', 'trade'],
             'penny'   => ['Penny',   'Finance',        '計', 'keep the account'],

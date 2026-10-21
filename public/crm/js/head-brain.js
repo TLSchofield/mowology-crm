@@ -1,11 +1,9 @@
 /**
  * A department head's brain — a slowly turning 3D shape of triangles on their dashboard card.
- * Shared by every head (Sam, Otto, Mia, Charlie); generalised from Penny's penny-brain.js.
+ * Shared by every head (Sam, Otto, Mia, the chief of staff); generalised from Penny's penny-brain.js.
  *
- * 500 shapes, always the same (built from the shape number, no randomness between page
- * loads): shape N has at least N + 3 triangles, and the families alternate — double
- * pyramids and twisted double pyramids while small, then geodesic spheres (from a
- * tetrahedron, octahedron or icosahedron) — with "brain folds" that deepen as the head grows.
+ * 500 shapes, always the same: shape N has exactly N triangles (the ladder, 2026-10-20 — one triangle,
+ * the open book, Sierpinski triangles, the eight equilateral solids, snowflakes, geodesic spheres…; see RECIPES).
  * Every thing the head has learned (HeadBrain.php) moves it on one shape and lights one
  * more triangle; the newest one pulses; it glows brighter the more often the head is right.
  *
@@ -620,7 +618,8 @@
             btn.title = who + "'s brain: " + units + ' thing' + (units === 1 ? '' : 's') + ' learned · shape ' + view.shape.k + ' of ' + SHAPES + ' (click for more)';
             var since = btn.getAttribute('data-since') || '';
             // data-no-page: a brain inside a task (Penny's approve window) opens the pop-up, never leaves the page.
-            var page = PAGES.indexOf(who.toLowerCase()) >= 0 && !btn.hasAttribute('data-no-page') ? '/crm/brain.php?head=' + who.toLowerCase() : '';
+            var slug = (btn.getAttribute('data-head-slug') || who).toLowerCase();   // data-head-slug: the head's key when the shown name differs (Kaname = charlie)
+            var page = PAGES.indexOf(slug) >= 0 && !btn.hasAttribute('data-no-page') ? '/crm/brain.php?head=' + slug : '';
             if (page) btn.title = btn.title.replace('(click for more)', '(click to open the full page)');
             btn.addEventListener('click', function () {
                 if (page) { window.location.href = page; return; }   // the full page replaces the pop-up

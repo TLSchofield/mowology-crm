@@ -180,7 +180,7 @@ try {
     $payload = json_decode((string)($brief['payload'] ?? ''), true) ?: CharlieDeskService::payload($view);
     $mail = CharlieBriefEmail::render($payload, $name, $base);
     $html = EmailWrapper::wrap($mail['body'], 'Open your dashboard', rtrim($base, '/') . '/crm/dashboard_appstack.php', $company);
-    $res = sendEmail($to, $mail['subject'], $html, null, 'Charlie at ' . ($company['company_name'] ?? 'Mowology'));
+    $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? 'Mowology'));
 
     if (!empty($res['success'])) {
         $desk->markEmailed($today, null);

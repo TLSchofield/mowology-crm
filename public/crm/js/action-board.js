@@ -14,6 +14,8 @@
     'use strict';
     var root = document.getElementById('mw-action-board');
     if (!root) return;
+    // The chief of staff's shown name comes from the page (HeadIdentity); the key stays 'charlie'.
+    var CHIEF = root.getAttribute('data-chief-name') || 'Kaname';
 
     var API = '/crm/api/charlie.php';
     var WAIT_MS = 6000;
@@ -21,7 +23,7 @@
     var list = root.querySelector('[data-ab-rows]');
     var count = root.querySelector('[data-ab-count]');
     var msg = root.querySelector('[data-ab-msg]');
-    var EMPTY = 'Nothing needs you right now. Charlie is watching.';
+    var EMPTY = 'Nothing needs you right now. ' + CHIEF + ' is watching.';
     // Ittai design only (action-board.php prints it when the it_design choice is on): "Today with the
     // office" — the mockup made live. Charlie in the centre of the hexagon with his three, then a carousel
     // to the next head with their three (the next head takes the centre, their side lit). Same items,
@@ -31,14 +33,14 @@
 
     // Who each head is on the board. Unknown heads (and the Work Queue) are Charlie's.
     var HEADS = {
-        charlie: { name: 'Charlie', face: 'charlie', role: 'Chief of Staff' },
+        charlie: { name: CHIEF, face: 'charlie', role: 'Chief of Staff' },
         penny:   { name: 'Penny',   face: 'penny',   role: 'Bookkeeper' },
         sam:     { name: 'Sam',     face: 'sam',     role: 'Sales' },
         otto:    { name: 'Otto',    face: 'otto',    role: 'Operations' },
         mia:     { name: 'Mia',     face: 'mia',     role: 'Marketing' },
         yui:     { name: 'Yui',     face: 'yui',     role: 'Comms' },
         ada:     { name: 'Ada',     face: 'ada',     role: 'Technology' },
-        house:   { name: 'Charlie', face: 'charlie', role: 'Chief of Staff' }
+        house:   { name: CHIEF, face: 'charlie', role: 'Chief of Staff' }
     };
     var SEAT = {
         yui:   { kanji: '結', role: 'Communications', cx: 210, cy: 30,  tx: 240, ty: 26,  anchor: 'start', side: [167, 74.7, 253, 74.7] },
@@ -218,7 +220,7 @@
 
         var leadName = HEADS[g.lead].name;
         hero.querySelector('[data-tc-eyebrow]').textContent = g.lead === 'charlie' && gi === 0
-            ? 'Charlie · ranked by what happens if it waits' : leadName + ' · ' + (SEAT[g.lead] ? SEAT[g.lead].role : 'Chief of Staff');
+            ? CHIEF + ' · ranked by what happens if it waits' : leadName + ' · ' + (SEAT[g.lead] ? SEAT[g.lead].role : 'Chief of Staff');
         var n = g.its.length, word = ['one', 'two', 'three'][n - 1];
         hero.querySelector('[data-tc-h]').textContent = gi === 0
             ? (n === 1 ? 'One thing needs' : (n === 2 ? 'Two things need' : 'Three things need')) + ' you today'
@@ -234,9 +236,9 @@
             ? '<button type="button" class="it-tc-tab it-tc-step" data-tc-go="1">' + face(next.lead) + '<span><b>' + esc(groupName(next, gi + 1)) + '</b><small>Up next · ' + (gi + 2) + ' of ' + gs.length + '</small></span></button>'
             : '<span class="it-tc-end">That\'s everyone.</span>';
         hero.querySelector('[data-tc-prev]').innerHTML = prev
-            ? '<button type="button" class="it-tc-back" data-tc-go="-1">‹ ' + (gi === 1 ? 'Charlie\'s three' : esc(groupName(prev, gi - 1))) + '</button>' : '';
+            ? '<button type="button" class="it-tc-back" data-tc-go="-1">‹ ' + (gi === 1 ? CHIEF + '\'s three' : esc(groupName(prev, gi - 1))) + '</button>' : '';
 
-        var ready = SEAT[k] ? HEADS[k].name : 'Charlie';
+        var ready = SEAT[k] ? HEADS[k].name : CHIEF;
         hero.querySelector('[data-tc-card]').innerHTML =
             '<div class="mw-ab-row it-tc-item" data-key="' + esc(it.key) + '">'
             + '<div class="it-tc-top">'
@@ -307,9 +309,9 @@
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     if (got) return;
-                    if (!take(d)) status.textContent = (d && d.error) || 'Charlie can\'t reach the team right now.';
+                    if (!take(d)) status.textContent = (d && d.error) || CHIEF + ' can\'t reach the team right now.';
                 })
-                .catch(function () { if (!got) status.textContent = 'Charlie can\'t reach the team right now. Try a refresh.'; });
+                .catch(function () { if (!got) status.textContent = CHIEF + ' can\'t reach the team right now. Try a refresh.'; });
         }, WAIT_MS);
     }
 

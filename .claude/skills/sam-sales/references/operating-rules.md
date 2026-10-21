@@ -20,7 +20,7 @@
   service — learned from how long accepted quotes took (median, 5+ quotes), else
   `sam_stale_days` (default 5).
 - The customer wrote back after our last email → "they replied, you haven't" comes first.
-- A clear "yes" always ranks first on Charlie's board.
+- A clear "yes" always ranks first on Kaname's board.
 
 ## Every approval is stated line by line
 - `QuoteApprovalService::summary()` lists every line ✓ / ✗ with its amount, the approved total

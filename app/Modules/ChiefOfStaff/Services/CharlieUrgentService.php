@@ -21,6 +21,8 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
+
 class CharlieUrgentService
 {
     public const DEFAULT_PAYMENT_MIN = 500.0;
@@ -312,7 +314,7 @@ class CharlieUrgentService
             $url = preg_match('#^https?://#', $a['url']) ? $a['url'] : $base . '/' . ltrim($a['url'], '/');
             $html .= '<li><a href="' . $e($url) . '" style="color:#0D3B2E;">' . $e($a['text']) . '</a></li>';
         }
-        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, books that stop matching the bank, same-day weather and security alarms. — Charlie</p>';
+        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, books that stop matching the bank, same-day weather and security alarms. — ' . htmlspecialchars(HeadIdentity::chiefName(), ENT_QUOTES, 'UTF-8') . '</p>';
         return ['subject' => $subject, 'body' => $html];
     }
 }

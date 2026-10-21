@@ -1,7 +1,7 @@
 # Where Ada will appear — PLANNED, NOT BUILT
 
 ## Existing places she plugs into (verified 2026-10-11)
-- **Charlie's brief.** `CharlieBriefService::collect()` asks every head through a list of sources
+- **Kaname's brief.** `CharlieBriefService::collect()` asks every head through a list of sources
   (`app/Modules/ChiefOfStaff/Services/CharlieBriefService.php`). Each head returns
   `['head', 'headline', 'count', 'items' => [key, text, url, priority, kind, value, since]]`;
   a head that is not deployed is simply absent, and one that throws is listed as failed.
@@ -20,11 +20,11 @@
   "last worked", evidence line, hand-off text with a copy button.
 - **Team card** in the heads deck (`public/crm/includes/dept-heads-deck.php`), like the other heads' cards (face, column via
   `TeamCardService::column()`).
-- **iPhone**: through Charlie's ready copy only, at first. A native health screen is not planned.
+- **iPhone**: through Kaname's ready copy only, at first. A native health screen is not planned.
 - **Ittai**: per-tenant rows once a tenant model exists.
 
 ## Rules
 1. Logic in one planned server service; page, card, brief and any API only call it.
-2. Ada's brief must never be the reason Charlie's brief is late — cap her work per run, and
+2. Ada's brief must never be the reason Kaname's brief is late — cap her work per run, and
    read precomputed results if a check is slow.
 3. When a surface is added, list it here with its date.

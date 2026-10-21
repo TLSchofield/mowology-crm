@@ -14,6 +14,7 @@
  */
 if (!defined('APP_ROOT')) return;
 try {
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
     $__abDesk = new CharlieDeskService(getDB());
     $__abUser = (array)($user ?? (function_exists('getCurrentUser') ? getCurrentUser() : []) ?? []);
@@ -27,7 +28,7 @@ $__abSrc = function_exists('_av') ? _av('/crm/js/action-board.js') : '/crm/js/ac
 // Charlie (or the head whose three you're on) in the centre, today's three, and a carousel to the next head.
 $__abIttai = (($_COOKIE['it_design'] ?? '') === '1');
 ?>
-<section class="card mw-action-board<?= $__abIttai ? ' it-today-board' : '' ?>" id="mw-action-board" aria-labelledby="mw-action-board-title">
+<section class="card mw-action-board<?= $__abIttai ? ' it-today-board' : '' ?>" id="mw-action-board" data-chief-name="<?= h(HeadIdentity::chiefName()) ?>" aria-labelledby="mw-action-board-title">
   <?php if ($__abIttai): ?>
   <div class="it-today" data-ab-hero hidden>
     <section class="it-tc-office" aria-label="Who is on this">
@@ -58,7 +59,7 @@ $__abIttai = (($_COOKIE['it_design'] ?? '') === '1');
     <h2 class="mw-ab-title" id="mw-action-board-title"><?= $__abIttai ? 'Everything with the team' : 'Needs you now' ?></h2>
     <span class="mw-ab-count" data-ab-count hidden></span>
   </div>
-  <p class="mw-ab-line" data-ab-status aria-live="polite">Charlie is checking with the team…</p>
+  <p class="mw-ab-line" data-ab-status aria-live="polite"><?= h(HeadIdentity::chiefName()) ?> is checking with the team…</p>
   <ul class="mw-ab-rows" data-ab-rows hidden></ul>
   <p class="mw-ab-msg" data-ab-msg aria-live="polite"></p>
 </section>
