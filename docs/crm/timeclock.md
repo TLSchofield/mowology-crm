@@ -27,7 +27,7 @@ Payroll operates on a strict source-of-truth hierarchy:
 | Core functions | [`app/Modules/Team/Services/TimeclockFunctions.php`](../../app/Modules/Team/Services/TimeclockFunctions.php) | `stopJobTimer()`, `recalculateTimesheetTotals()`, `getJobTimeEntriesForRange()` |
 | Orphaned timer cron | [`app/Modules/Team/Cron/stop_orphaned_job_timers.php`](../../app/Modules/Team/Cron/stop_orphaned_job_timers.php) | Hourly: stops any active job timer running > 12h, caps to shift |
 | Job entry edit API | [`app/Modules/Team/Api/job-time-entry-edit.php`](../../app/Modules/Team/Api/job-time-entry-edit.php) | Admin: void or set_duration on individual job_time_entries |
-| OT calculator | [`app/Modules/Team/Services/OvertimeCalculator.php`](../../app/Modules/Team/Services/OvertimeCalculator.php) | BC Employment Standards Act (daily 8h/12h + weekly 40h) |
+| OT calculator | [`app/Modules/Team/Services/OvertimeCalculator.php`](../../app/Modules/Team/Services/OvertimeCalculator.php) | BC Employment Standards Act (daily 8h/12h + weekly 40h; the overtime week runs **Sunday–Saturday**, ESA s.1 — Monday until 2026-10-21; only the first 8 h of each day count toward the 40) |
 | Timesheet detail | [`public/crm/timeclock/timesheet-detail.php`](../../public/crm/timeclock/timesheet-detail.php) | UI: per-day breakdown, anomaly warnings, admin void/correct |
 | Migration | [`database/migrations/1031_job_time_entry_anomaly_flags.sql`](../../database/migrations/1031_job_time_entry_anomaly_flags.sql) | Adds `flagged_anomaly`, `auto_stopped` columns to `job_time_entries` |
 
