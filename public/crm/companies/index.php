@@ -145,6 +145,7 @@ $stages = getLifecycleStages('company');
 
 $pageTitle = 'Companies';
 $activePage = 'companies';
+$bodyClass  = 'it-list'; // Ittai list skin (css/ittai-lists.css) — applies only when the new design is on
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

@@ -214,6 +214,7 @@ function _av(string $webPath): string {
   <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500&amp;display=swap" rel="stylesheet">
   <link href="<?= _av('/crm/css/ittai-tokens.css') ?>" rel="stylesheet">
   <link href="<?= _av('/crm/css/ittai-shell.css') ?>" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-lists.css') ?>" rel="stylesheet">
   <script src="<?= _av('/crm/js/ittai-shell.js') ?>" defer></script>
   <?php endif; ?>
 

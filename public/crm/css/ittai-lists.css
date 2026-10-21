@@ -1,0 +1,170 @@
+/* =============================================================================
+   ittai-lists.css — list pages in the Ittai v1.2 (Kanso) look.
+   Opt-in per page: the page sets $bodyClass = 'it-list' AND the person chose the new design
+   (body.it-shell). Both classes are required, so with the new design off, or on any page that has
+   not opted in (invoices, clients, expenses … share these mw-* classes), nothing here applies.
+   Kanso: one calm page colour, white hairline panels, no shadows, no tinted rows, figures in
+   tabular numerals, status as a quiet word in its own colour, ONE filled button (the page action).
+   Tokens only (ittai-tokens.css) — no hex values. Text is --it-text or --it-meta (AAA on page,
+   surface, sunk and selected); status colours are AAA on --it-sunk.
+   ============================================================================= */
+
+body.it-shell.it-list,
+body.it-shell.it-list .main,
+body.it-shell.it-list main.content { background: var(--it-page); }
+
+body.it-shell.it-list main.content {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-variant-numeric: tabular-nums;
+}
+body.it-shell.it-list main.content :focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+body.it-shell.it-list .mw-page-header { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--it-space-4); margin: 0 0 var(--it-space-6); padding: 0; border: 0; background: transparent; }
+body.it-shell.it-list .mw-page-title { font-family: var(--it-font-sans); font-size: var(--it-title-28-size); line-height: var(--it-title-28-line); font-weight: var(--it-title-28-weight); letter-spacing: -0.01em; color: var(--it-text); margin: 0; }
+body.it-shell.it-list .mw-page-subtitle { color: var(--it-meta); font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); margin: var(--it-space-1) 0 0; }
+body.it-shell.it-list .mw-page-actions { display: flex; flex-wrap: wrap; gap: var(--it-space-2); }
+
+/* ── Buttons: the page action is the one filled button; the rest are outlined ── */
+body.it-shell.it-list main.content .btn { min-height: var(--it-target-desktop); display: inline-flex; align-items: center; justify-content: center; gap: var(--it-space-2); padding: 0 var(--it-space-4); border-radius: var(--it-radius-md); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; box-shadow: none; text-decoration: none; }
+body.it-shell.it-list main.content .btn-primary { background: var(--it-tenant); border: var(--it-stroke-hairline) solid var(--it-tenant); color: var(--it-on-tenant); font-weight: 600; }
+body.it-shell.it-list main.content .btn-primary:hover { background: var(--it-tenant); color: var(--it-on-tenant); filter: brightness(0.92); }
+body.it-shell.it-list main.content .btn-outline-secondary,
+body.it-shell.it-list main.content .btn-outline-primary,
+body.it-shell.it-list main.content .btn-secondary,
+body.it-shell.it-list main.content .btn-light { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-text); }
+body.it-shell.it-list main.content .btn-outline-secondary:hover,
+body.it-shell.it-list main.content .btn-outline-primary:hover,
+body.it-shell.it-list main.content .btn-secondary:hover,
+body.it-shell.it-list main.content .btn-light:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.it-list main.content .btn svg { width: 16px; height: 16px; }
+
+/* ── Stat cards: a quiet row of figures, not four loud cards ─────────────── */
+body.it-shell.it-list .mw-stats-row { gap: var(--it-space-3); margin-bottom: var(--it-space-6); }
+body.it-shell.it-list .mw-stat-card,
+body.it-shell.it-list .mw-ctr-stat-card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); box-shadow: none; padding: var(--it-space-4) var(--it-space-5); transition: none; }
+body.it-shell.it-list .mw-stat-card:hover { box-shadow: none; }
+body.it-shell.it-list .mw-stat-value,
+body.it-shell.it-list .mw-ctr-stat-value { font-size: var(--it-title-28-size); line-height: var(--it-title-28-line); font-weight: var(--it-title-28-weight); letter-spacing: -0.01em; color: var(--it-text); }
+body.it-shell.it-list .mw-stat-label,
+body.it-shell.it-list .mw-ctr-stat-label { text-transform: none; letter-spacing: 0; font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); font-weight: 500; color: var(--it-meta); margin-top: var(--it-space-1); }
+body.it-shell.it-list .mw-stat-sub,
+body.it-shell.it-list .mw-ctr-stat-sub { font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); color: var(--it-meta); }
+
+/* ── Filter tabs: a segmented control, selected = sunk fill + 600 ────────── */
+body.it-shell.it-list .mw-filter-tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); }
+body.it-shell.it-list .mw-filter-tab { min-height: var(--it-target-desktop); padding: 0 var(--it-space-4); gap: var(--it-space-2); background: transparent; border: 0; border-radius: var(--it-radius-full); color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 400; }
+body.it-shell.it-list .mw-filter-tab:hover { background: var(--it-sunk); color: var(--it-text); }
+body.it-shell.it-list .mw-filter-tab.active,
+body.it-shell.it-list .mw-filter-tab--active { background: var(--it-selected); color: var(--it-text); font-weight: 600; }
+body.it-shell.it-list .mw-filter-tab .count,
+body.it-shell.it-list .mw-filter-tab-count { background: transparent; color: var(--it-meta); min-width: 0; height: auto; padding: 0; font-size: var(--it-meta-13-size); font-weight: 400; }
+body.it-shell.it-list .mw-filter-tab.active .count,
+body.it-shell.it-list .mw-filter-tab--active .mw-filter-tab-count { background: transparent; color: var(--it-text); }
+body.it-shell.it-list .mw-filter-tab-alert .mw-filter-icon { color: var(--it-status-attention); width: 16px; height: 16px; }
+
+/* ── Search ──────────────────────────────────────────────────────────────── */
+body.it-shell.it-list .mw-search-box { margin-bottom: var(--it-space-4); }
+body.it-shell.it-list .mw-search-input,
+body.it-shell.it-list main.content .form-control,
+body.it-shell.it-list main.content .custom-select { min-height: var(--it-target-desktop); padding: 0 var(--it-space-3); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: none; color: var(--it-text); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); }
+body.it-shell.it-list .mw-search-input:focus,
+body.it-shell.it-list main.content .form-control:focus { border-color: var(--it-focus); box-shadow: none; outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 1px; }
+body.it-shell.it-list .mw-search-input::placeholder { color: var(--it-meta); }
+
+/* ── Notice ──────────────────────────────────────────────────────────────── */
+body.it-shell.it-list .alert { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-left: var(--it-stroke-side) solid var(--it-status-attention); border-radius: var(--it-radius-md); color: var(--it-text); box-shadow: none; }
+
+/* ── Table: a hairline list ──────────────────────────────────────────────── */
+body.it-shell.it-list .mw-table-card,
+body.it-shell.it-list main.content .card { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); box-shadow: none; overflow: hidden; }
+body.it-shell.it-list main.content .card-header { background: transparent; border-bottom: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-text); font-weight: 600; }
+body.it-shell.it-list .mw-table,
+body.it-shell.it-list main.content .table { color: var(--it-text); font-size: var(--it-body-14-size); margin: 0; }
+body.it-shell.it-list .mw-table thead th,
+body.it-shell.it-list main.content .table thead th { background: var(--it-sunk); color: var(--it-meta); font-size: var(--it-meta-13-size); font-weight: 500; text-transform: none; letter-spacing: 0; padding: var(--it-space-3) var(--it-space-4); border-top: 0; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-list .mw-table thead th a { color: inherit; text-decoration: none; }
+body.it-shell.it-list .mw-table td,
+body.it-shell.it-list main.content .table td { padding: var(--it-space-3) var(--it-space-4); border-top: 0; border-bottom: var(--it-stroke-hairline) solid var(--it-line); vertical-align: middle; }
+body.it-shell.it-list .mw-table tbody tr:last-child td,
+body.it-shell.it-list main.content .table tbody tr:last-child td { border-bottom: 0; }
+body.it-shell.it-list .mw-table tbody tr:hover,
+body.it-shell.it-list main.content .table-hover tbody tr:hover { background: var(--it-sunk); }
+body.it-shell.it-list .mw-cell-primary { display: block; color: var(--it-text); font-weight: 600; }
+body.it-shell.it-list .mw-cell-secondary { display: block; color: var(--it-meta); font-size: var(--it-meta-13-size); }
+body.it-shell.it-list .text-muted,
+body.it-shell.it-list main.content small.text-muted { color: var(--it-meta) !important; }
+/* Rows are not tinted: where a quote stands is told by its status word, not a coloured stripe */
+body.it-shell.it-list tr.mw-q-opened td,
+body.it-shell.it-list tr.mw-q-accepted td,
+body.it-shell.it-list tr.mw-q-declined td { background: transparent; }
+body.it-shell.it-list tr.mw-q-opened td:first-child,
+body.it-shell.it-list tr.mw-q-accepted td:first-child,
+body.it-shell.it-list tr.mw-q-declined td:first-child { box-shadow: inset var(--it-stroke-side) 0 0 var(--it-line); }
+
+/* ── Status words (badges): a quiet chip on the surface tone (status colours are AAA there, not on sunk), the word carries the meaning ───── */
+body.it-shell.it-list .mw-status-badge,
+body.it-shell.it-list .mw-badge-status,
+body.it-shell.it-list main.content .badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 var(--it-space-2); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); color: var(--it-meta); font-size: var(--it-meta-13-size); font-weight: 500; letter-spacing: 0; text-transform: none; }
+body.it-shell.it-list .mw-status-badge[class*="accepted"], body.it-shell.it-list .mw-status-badge[class*="completed"], body.it-shell.it-list .mw-status-badge[class*="paid"], body.it-shell.it-list .mw-status-badge[class*="active"] { color: var(--it-status-complete); }
+body.it-shell.it-list .mw-status-badge[class*="sent"], body.it-shell.it-list .mw-status-badge[class*="viewed"], body.it-shell.it-list .mw-status-badge[class*="progress"], body.it-shell.it-list .mw-status-badge[class*="scheduled"] { color: var(--it-status-progress); }
+body.it-shell.it-list .mw-status-badge[class*="hold"], body.it-shell.it-list .mw-status-badge[class*="paused"], body.it-shell.it-list .mw-status-badge[class*="partial"], body.it-shell.it-list .mw-status-badge[class*="weather"], body.it-shell.it-list .mw-status-badge[class*="expired"] { color: var(--it-status-attention); }
+body.it-shell.it-list .mw-status-badge[class*="declined"], body.it-shell.it-list .mw-status-badge[class*="cancel"], body.it-shell.it-list .mw-status-badge[class*="overdue"] { color: var(--it-status-blocked); }
+body.it-shell.it-list .mw-days-badge { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); font-size: var(--it-meta-13-size); font-weight: 500; }
+body.it-shell.it-list .mw-days-ok { color: var(--it-meta); }
+body.it-shell.it-list .mw-days-warning { color: var(--it-status-attention); }
+body.it-shell.it-list .mw-days-urgent { color: var(--it-status-blocked); }
+body.it-shell.it-list .mw-followup-badge { color: var(--it-meta); }
+
+/* ── Small print never drops under 12 px; text links in rows are real 44 px targets ── */
+body.it-shell.it-list main.content small,
+body.it-shell.it-list main.content .small,
+body.it-shell.it-list main.content h4,
+body.it-shell.it-list .mw-stat-overdue-badge,
+body.it-shell.it-list .mw-row-margin-pct,
+body.it-shell.it-list .mw-company-type-badge { font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); }
+body.it-shell.it-list .mw-company-type-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 var(--it-space-2); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); color: var(--it-meta); font-weight: 500; letter-spacing: 0; text-transform: none; }
+body.it-shell.it-list .mw-stat-overdue-badge { color: var(--it-status-blocked); font-weight: 500; }
+body.it-shell.it-list main.content td a.mw-cell-primary,
+body.it-shell.it-list main.content td a.font-weight-bold { display: flex; align-items: center; min-height: var(--it-target-desktop); color: var(--it-text); text-decoration: none; }
+body.it-shell.it-list main.content td a.mw-cell-primary:hover,
+body.it-shell.it-list main.content td a.font-weight-bold:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Row actions: quiet outlined buttons ─────────────────────────────────── */
+body.it-shell.it-list .mw-action-btn { min-height: var(--it-target-desktop); padding: 0 var(--it-space-3); display: inline-flex; align-items: center; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 500; }
+body.it-shell.it-list .mw-action-btn:hover { background: var(--it-selected); color: var(--it-text); }
+
+body.it-shell.it-list .mw-datepicker-trigger { min-height: var(--it-target-desktop); border-radius: var(--it-radius-md); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); color: var(--it-text); box-shadow: none; }
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+body.it-shell.it-list .mw-pagination { padding: var(--it-space-3) var(--it-space-4); border-top: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); font-size: var(--it-meta-13-size); }
+body.it-shell.it-list .mw-pagination-pages a,
+body.it-shell.it-list .mw-pagination-pages span { min-width: var(--it-target-desktop); min-height: var(--it-target-desktop); display: inline-flex; align-items: center; justify-content: center; border-radius: var(--it-radius-md); color: var(--it-text); background: transparent; border: 0; }
+body.it-shell.it-list .mw-pagination-pages a:hover { background: var(--it-sunk); }
+body.it-shell.it-list .mw-pagination-pages span.active { background: var(--it-selected); font-weight: 600; }
+body.it-shell.it-list .mw-pagination-pages span.disabled { color: var(--it-meta); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+body.it-shell.it-list .mw-empty-state { color: var(--it-meta); padding: var(--it-space-12) var(--it-space-4); }
+
+/* ── Bulk bar ────────────────────────────────────────────────────────────── */
+body.it-shell.it-list .mw-bulk-action-bar { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); box-shadow: var(--it-shadow-sticky); color: var(--it-text); }
+
+/* ── Phone: panels go edge to edge of the gutter, tables scroll inside their panel ── */
+@media (max-width: 767px) {
+  body.it-shell.it-list .mw-page-title { font-size: var(--it-title-22-size); line-height: var(--it-title-22-line); }
+  body.it-shell.it-list .mw-filter-tabs { display: flex; border-radius: var(--it-radius-lg); }
+  body.it-shell.it-list .mw-filter-tab { min-height: var(--it-target-phone); }
+  body.it-shell.it-list main.content .btn,
+  body.it-shell.it-list .mw-action-btn,
+  body.it-shell.it-list .mw-search-input,
+  body.it-shell.it-list main.content .form-control,
+  body.it-shell.it-list main.content .custom-select,
+  body.it-shell.it-list .mw-datepicker-trigger,
+  body.it-shell.it-list main.content td a.mw-cell-primary,
+  body.it-shell.it-list main.content td a.font-weight-bold { min-height: var(--it-target-phone); }
+  body.it-shell.it-list .mw-page-actions .btn { flex: 1 1 auto; }
+}
