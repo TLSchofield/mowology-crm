@@ -20,6 +20,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/SupplierListParser.php';
 require_once __DIR__ . '/SupplierFormatInferrer.php';
+require_once __DIR__ . '/SupplierWebCatalogReader.php';
+require_once __DIR__ . '/SupplierDirectoryService.php';
 require_once __DIR__ . '/CatalogService.php';
 require_once dirname(__DIR__, 3) . '/Services/Spreadsheet/PdfTableReader.php';   // supplier PDF price tables (2026-10-19)
 
@@ -223,6 +225,102 @@ class SupplierPriceListService
         $s = $this->db->prepare("SELECT 1 FROM supplier_price_lists WHERE site_id = ? AND supplier_account_id = ? AND source_url = ? AND (source_message_key = ? OR ? = '') LIMIT 1");
         $s->execute([$this->siteId, $supplierId, mb_substr($url, 0, 500), mb_substr($messageKey, 0, 191), $messageKey]);
         return (bool)$s->fetchColumn();
+    }
+
+    // ---- a supplier's public web shop (SupplierWebCatalogReader) ----------------------------------
+
+    /**
+     * Add a Shopify web shop as a supplier: the directory entry (once per web domain), its web format (held for a
+     * "looks right"), and the first read. Returns what happened.
+     * @param callable|null $resolve fn(string $host): string  host -> IP (tests); default gethostbyname
+     * @return array{supplier_id: int, format_id: int, import: array}
+     * @throws InvalidArgumentException|RuntimeException
+     */
+    public function addWebSupplier(string $name, string $url, ?callable $http = null, ?callable $sleep = null, ?callable $resolve = null): array
+    {
+        $base = SupplierWebCatalogReader::safeBase($url);
+        $host = (string)parse_url($base, PHP_URL_HOST);
+        $ip = ($resolve ?? 'gethostbyname')($host);
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) throw new InvalidArgumentException('that name does not resolve to a public web server');
+        $name = trim($name) !== '' ? trim($name) : $host;
+
+        $dir = new SupplierDirectoryService($this->db);
+        $s = $this->db->prepare("SELECT id FROM supplier_accounts WHERE domain = ? OR domain = ? ORDER BY id LIMIT 1");
+        $s->execute([$host, preg_replace('/^www\./', '', $host)]);
+        $sid = (int)($s->fetchColumn() ?: 0);
+        if (!$sid) $sid = $dir->upsert(['name' => $name, 'website' => $base, 'status' => 'open', 'list_kind' => 'web', 'sells' => 'online shop']);
+        if (!$sid) throw new RuntimeException('could not add the supplier');
+
+        $bare = (string)preg_replace('/^www\./', '', $host);   // www and bare are one shop
+        $code = 'web-' . substr((string)preg_replace('/[^a-z0-9]+/', '-', $bare), 0, 50);
+        $q = $this->db->prepare("SELECT * FROM supplier_list_formats WHERE code = ?");
+        $q->execute([$code]);
+        $format = $q->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$format) {
+            $spec = SupplierWebCatalogReader::spec($base, $sid);
+            $this->db->prepare("INSERT INTO supplier_list_formats (code, name, family, sender_domains, link_hosts, arrives, spec_json, is_active, needs_review, auto_inferred)
+                                VALUES (?, ?, 'other', NULL, ?, 'web', ?, 1, 1, 0)")
+                     ->execute([$code, mb_substr($name . ' (web shop)', 0, 160), $bare, json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+            $q->execute([$code]);
+            $format = $q->fetch(PDO::FETCH_ASSOC);
+        }
+        $supplier = ['id' => $sid, 'name' => $name];
+        return ['supplier_id' => $sid, 'format_id' => (int)$format['id'], 'import' => $this->importWeb($supplier, $format, $http, $sleep)];
+    }
+
+    /**
+     * Read one web format now -> a new list dated today (the existing diff shows what moved since last time).
+     * @return array{status: string, list_id: ?int, rows: int, products: int, pages: int}
+     * @throws RuntimeException when the shop cannot be read
+     */
+    public function importWeb(array $supplier, array $format, ?callable $http = null, ?callable $sleep = null): array
+    {
+        $spec = SupplierListParser::spec((string)$format['spec_json']);
+        $web = (array)($spec['web'] ?? []);
+        if (($web['type'] ?? '') !== 'shopify' || empty($web['base'])) throw new RuntimeException('not a web shop format');
+        $base = SupplierWebCatalogReader::safeBase((string)$web['base']);
+        $hosts = self::splitList((string)($format['link_hosts'] ?? ''));
+        if ($hosts && !self::urlAllowed($base . '/', $hosts)) throw new RuntimeException('the shop address is not the format\'s host');
+        $feed = SupplierWebCatalogReader::fetchAll($base, $http ?? [SupplierWebCatalogReader::class, 'curl'], $sleep ?? static function (int $us): void { usleep($us); });
+        $cells = SupplierWebCatalogReader::cells($feed['products'], $web);
+        $r = $this->importCells($cells, ['supplier_account_id' => (int)$supplier['id'], 'format' => $format, 'file_name' => 'web catalogue',
+                                         'source_url' => $base . SupplierWebCatalogReader::PATH, 'received' => date('Y-m-d')]);
+        return ['status' => $r['status'], 'list_id' => $r['list_id'], 'rows' => $r['rows'], 'products' => count($feed['products']), 'pages' => $feed['pages']];
+    }
+
+    /**
+     * Weekly: every active web format whose newest list is 7+ days old. A shop that cannot be read is recorded
+     * as a skip with the reason, never silently. Called by the generate_visits cron.
+     * @return array{shops: int, imported: int, failed: int}
+     */
+    public function refreshWebDue(?callable $http = null, ?callable $sleep = null, ?int $now = null): array
+    {
+        $out = ['shops' => 0, 'imported' => 0, 'failed' => 0];
+        $now = $now ?? time();
+        try {
+            $formats = $this->db->query("SELECT * FROM supplier_list_formats WHERE is_active = 1 AND arrives = 'web'")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return $out;
+        }
+        foreach ($formats as $f) {
+            $web = (array)((json_decode((string)$f['spec_json'], true) ?: [])['web'] ?? []);
+            $sid = (int)($web['supplier_id'] ?? 0);
+            if (!$sid) continue;
+            $s = $this->db->prepare("SELECT MAX(list_date) FROM supplier_price_lists WHERE site_id = ? AND format_id = ?");
+            $s->execute([$this->siteId, (int)$f['id']]);
+            $last = (string)$s->fetchColumn();
+            if ($last !== '' && strtotime($last) > $now - 6 * 86400) continue;
+            $out['shops']++;
+            try {
+                $r = $this->importWeb(['id' => $sid, 'name' => $f['name']], $f, $http, $sleep);
+                if ($r['status'] === 'imported') $out['imported']++;
+            } catch (Throwable $e) {
+                $out['failed']++;
+                error_log('[web catalogue] ' . $f['name'] . ': ' . $e->getMessage());
+                $this->recordSkip($sid, (string)($f['link_hosts'] ?? ''), 'Web catalogue', 'products.json', mb_substr($e->getMessage(), 0, 240), 'web:' . date('Y-m-d', $now));
+            }
+        }
+        return $out;
     }
 
     // ---- formats read automatically (migration 1390) --------------------------------------------
@@ -430,6 +528,17 @@ class SupplierPriceListService
         $cells = (strncmp($bytes, '%PDF-', 5) === 0 || strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) === 'pdf')
             ? PdfTableReader::cells($bytes, (array)($spec['pdf'] ?? []))      // a PDF price table (format's "pdf" section)
             : SheetReader::read($bytes, $fileName);
+        return $this->importCells($cells, $meta);
+    }
+
+    /**
+     * The same import from cells already read (a web catalogue, SupplierWebCatalogReader, has no file).
+     * @param array $meta as import()
+     */
+    public function importCells(array $cells, array $meta): array
+    {
+        $format = (array)$meta['format'];
+        $spec = SupplierListParser::spec((string)$format['spec_json']);
         $p = SupplierListParser::parse($cells, $spec, ['file_name' => (string)($meta['file_name'] ?? ''),
                                                        'body' => (string)($meta['body'] ?? ''), 'received' => (string)($meta['received'] ?? '')]);
         $supplierId = (int)$meta['supplier_account_id'];

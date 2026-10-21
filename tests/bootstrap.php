@@ -191,6 +191,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/PlantNameNormalizer.
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormatInferrer.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierWebCatalogReader.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogTaxonService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';

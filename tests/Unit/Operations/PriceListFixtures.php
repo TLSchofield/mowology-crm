@@ -90,7 +90,7 @@ final class PriceListFixtures
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $db->exec("CREATE TABLE supplier_accounts (id INTEGER PRIMARY KEY, name TEXT, domain TEXT)");
+        $db->exec("CREATE TABLE supplier_accounts (id INTEGER PRIMARY KEY, name TEXT, domain TEXT, email TEXT, phone TEXT, website TEXT, address TEXT, sells TEXT, status TEXT, list_kind TEXT, asked_at TEXT, notes TEXT, lat REAL, lng REAL, last_heard_at TEXT)");
         $db->exec("CREATE TABLE supplier_list_formats (id INTEGER PRIMARY KEY, code TEXT, name TEXT, family TEXT, sender_domains TEXT, link_hosts TEXT, arrives TEXT, spec_json TEXT, is_active INT DEFAULT 1, needs_review INT DEFAULT 0, auto_inferred INT DEFAULT 0, inferred_confidence REAL)");
         $db->exec("CREATE TABLE supplier_list_skips (id INTEGER PRIMARY KEY, site_id INT DEFAULT 1, supplier_account_id INT, sender TEXT, subject TEXT, file_name TEXT DEFAULT '', reason TEXT, message_key TEXT DEFAULT '', created_at TEXT, dismissed_at TEXT, UNIQUE(site_id, message_key, file_name))");
         $db->exec("CREATE TABLE catalog_families (id INTEGER PRIMARY KEY, slug TEXT UNIQUE, name TEXT, matcher TEXT, default_use_kind TEXT, sort_order INT DEFAULT 0)");

@@ -160,6 +160,15 @@ try {
         error_log('[generate_visits cron] market prices: ' . get_class($e));
     }
 
+    // Suppliers' public web shops (SupplierWebCatalogReader): each read at most once a week.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/SupplierPriceListService.php';
+        $wc = (new SupplierPriceListService(getDB()))->refreshWebDue();
+        if ($wc['shops']) $autoPlace .= "; web shops: {$wc['imported']} read" . ($wc['failed'] ? ", {$wc['failed']} failed" : '');
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] web shops: ' . get_class($e));
+    }
+
     // Common names + reference photos for catalogue plants (CatalogTaxonService, migration 1391): a small batch each run.
     try {
         require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';

@@ -32,11 +32,17 @@ if ($ready && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) { http_response_code(403); exit('You need products.edit to change catalogue matches.'); }
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('The security token expired. Go back and try again.'); }
     $do = (string)($_POST['do'] ?? '');
-    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip', 'fetch_taxa'], true)) {
+    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip', 'fetch_taxa', 'add_web_supplier'], true)) {
         // The reading of a supplier's first list (migration 1390): confirm it, correct it, or dismiss a list we could not read.
         try {
             if ($do === 'confirm_format') { $svc->confirmFormat((int)($_POST['format_id'] ?? 0)); $flash = 'Confirmed. Those prices now count in quotes, and later lists from this supplier import quietly.'; }
             elseif ($do === 'dismiss_skip') { $svc->dismissSkip((int)($_POST['skip_id'] ?? 0)); $flash = 'Dismissed.'; }
+            elseif ($do === 'add_web_supplier') {
+                // A supplier's public Shopify web shop (brecksbulbs.ca): its product feed read as a price list.
+                @set_time_limit(180);
+                $w = $svc->addWebSupplier((string)($_POST['shop_name'] ?? ''), (string)($_POST['shop_url'] ?? ''));
+                $flash = "Added. Read {$w['import']['products']} products ({$w['import']['rows']} priced lines). It stays out of quote pricing until you press \"Looks right\" below, and refreshes itself weekly.";
+            }
             elseif ($do === 'fetch_taxa') {
                 // Common names and reference photos from iNaturalist, about 40 plant species a click (1 call a second).
                 require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
@@ -131,6 +137,21 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
 
   <?php if ($flash !== ''): ?><div class="alert alert-info"><?= h($flash) ?></div><?php endif; ?>
 
+  <?php if ($ready && $canEdit): ?>
+  <details class="mb-3 mw-plr-fix">
+    <summary>Add a supplier from its website</summary>
+    <form method="post" class="mt-2">
+      <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="add_web_supplier">
+      <div class="mw-plr-grid">
+        <label>Supplier name<input name="shop_name" class="form-control form-control-sm" placeholder="Breck's Bulbs" maxlength="160"></label>
+        <label>Web address<input name="shop_url" class="form-control form-control-sm" placeholder="https://www.brecksbulbs.ca" required maxlength="200"></label>
+      </div>
+      <p class="mw-ops-hint mt-2 mb-2">Works for online shops built on Shopify. We read only the public product feed (the same list the shop gives any visitor), once a week, and never log in or order anything. Takes about 15 seconds.</p>
+      <button class="btn btn-outline-primary btn-sm">Add and read it</button>
+    </form>
+  </details>
+  <?php endif; ?>
+
   <?php if ($ready && $taxaPending > 0 && $canEdit): ?>
   <form method="post" class="mw-pl-taxa mb-3">
     <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="fetch_taxa">
@@ -143,7 +164,11 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
   <div class="card mw-plr">
     <div class="card-body">
       <h2 class="h5 mb-1">Check how we read <?= h($rv['list']['supplier_name'] ?: $fmt['name']) ?></h2>
+      <?php if (($fmt['arrives'] ?? '') === 'web'): ?>
+      <p class="mw-ops-hint mb-2">Read from their public web shop. These are <strong>retail web prices</strong>, shipping extra, and stock shows as sold out when it is out of season. They are shown here but <strong>not used in quotes</strong> until you say it looks right.</p>
+      <?php else: ?>
       <p class="mw-ops-hint mb-2">This is the first list we have from them, read automatically (<?= (int)round(((float)$fmt['inferred_confidence']) * 100) ?>% sure). The prices are shown here but are <strong>not used in quotes</strong> until you say it looks right.</p>
+      <?php endif; ?>
       <div class="table-responsive">
         <table class="table table-sm mw-ops-table">
           <thead><tr><th>Name</th><th>Size</th><th class="text-right">Price</th><th class="text-right">Available</th></tr></thead>
@@ -161,6 +186,7 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
         <input type="hidden" name="do" value="confirm_format"><input type="hidden" name="format_id" value="<?= (int)$fmt['id'] ?>">
         <button class="btn btn-primary btn-sm">Looks right</button>
       </form>
+      <?php if (!empty($fmt['auto_inferred'])): ?>
       <details class="mw-plr-fix">
         <summary>Something is wrong — fix the columns</summary>
         <form method="post" class="mt-2">
@@ -179,6 +205,7 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
           <button class="btn btn-outline-primary btn-sm mt-2">Save columns</button>
         </form>
       </details>
+      <?php endif; ?>
       <?php else: ?><p class="mw-ops-hint mb-0">Someone with product edit access needs to confirm this.</p><?php endif; ?>
     </div>
   </div>
