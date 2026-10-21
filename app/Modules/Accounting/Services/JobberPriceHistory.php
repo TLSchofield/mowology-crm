@@ -130,6 +130,41 @@ class JobberPriceHistory
         return self::summarize($this->rows($where, $params));
     }
 
+    /**
+     * Fill in line items that the first Jobber import left empty. ONLY writes jobber_invoices.line_items,
+     * and only where it is still empty — status, balance, tax and every other column (which the 2026
+     * ledger reads) are never touched, so this is safe to run on a newer export than the original import.
+     * @return array{rows:int, matched:int, filled:int, already_had:int, not_found:int, no_lines:int}
+     */
+    public function backfillLineItems(string $csv): array
+    {
+        $out = ['rows' => 0, 'matched' => 0, 'filled' => 0, 'already_had' => 0, 'not_found' => 0, 'no_lines' => 0];
+        $p = JobberCsv::parse($csv);
+        if ($p['kind'] !== 'invoices') return $out + ['error' => 'That is not a Jobber Invoices export.'];
+        $map = JobberCsv::guessMapping('invoices', $p['headers'], []);
+        if (JobberCsv::missing('invoices', $map) || !isset($map['line_items'])) {
+            return $out + ['error' => 'The export has no "Line items" column.'];
+        }
+        $have = [];
+        foreach ($this->db->query("SELECT jobber_number, line_items FROM jobber_invoices")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $have[(string)$r['jobber_number']] = trim((string)$r['line_items']) !== '';
+        }
+        $upd = $this->db->prepare("UPDATE jobber_invoices SET line_items = ? WHERE jobber_number = ? AND (line_items IS NULL OR line_items = '')");
+        foreach ($p['rows'] as $raw) {
+            $row = JobberCsv::invoiceRow($raw, $map);
+            if ($row === null) continue;
+            $out['rows']++;
+            $n = (string)$row['jobber_number'];
+            if (!isset($have[$n])) { $out['not_found']++; continue; }
+            $out['matched']++;
+            if ($have[$n]) { $out['already_had']++; continue; }
+            if ($row['line_items'] === null) { $out['no_lines']++; continue; }
+            $upd->execute([$row['line_items'], $n]);
+            $out['filled']++;
+        }
+        return $out;
+    }
+
     private function rows(string $where, array $params): array
     {
         try {

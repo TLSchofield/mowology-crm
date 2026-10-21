@@ -97,4 +97,31 @@ class JobberPriceHistoryTest extends TestCase
         sort($svc);
         $this->assertSame(['Full Day Clean Up', 'MAINTENANCE FALL CLEAN UP'], $svc);
     }
+
+    public function testBackfillFillsOnlyEmptyLineItemsAndTouchesNothingElse(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->exec("CREATE TABLE jobber_invoices (jobber_number TEXT, status TEXT, balance REAL, total REAL, line_items TEXT)");
+        $db->exec("INSERT INTO jobber_invoices VALUES ('100','paid',0,50.4,NULL), ('101','paid',0,10,'Keep Me (1, $10.00)'), ('102','past_due',99,99,'')");
+        $csv = "Invoice #,Client name,Total (\$),Line items,Status,Created date,Issued date\n"
+             . "100,Susan Lim,50.4,\"Lawn Cut Service - 割草 (1, \$48.00)\",Paid,\"May 01, 2026\",\"May 01, 2026\"\n"
+             . "101,Susan Lim,10,\"Replaced (1, \$10.00)\",Paid,\"May 01, 2026\",\"May 01, 2026\"\n"
+             . "102,Bob,99,\"Snow (1, \$99.00)\",Past Due,\"May 01, 2026\",\"May 01, 2026\"\n"
+             . "999,Nobody,5,\"X (1, \$5.00)\",Paid,\"May 01, 2026\",\"May 01, 2026\"\n";
+        $res = (new JobberPriceHistory($db))->backfillLineItems($csv);
+        $this->assertSame(['rows' => 4, 'matched' => 3, 'filled' => 2, 'already_had' => 1, 'not_found' => 1, 'no_lines' => 0], $res);
+        $rows = array_column($db->query("SELECT * FROM jobber_invoices")->fetchAll(PDO::FETCH_ASSOC), null, 'jobber_number');
+        $this->assertSame('Lawn Cut Service - 割草 (1, $48.00)', $rows['100']['line_items']);
+        $this->assertSame('Keep Me (1, $10.00)', $rows['101']['line_items']);   // never overwritten
+        $this->assertSame('Snow (1, $99.00)', $rows['102']['line_items']);
+        $this->assertSame('past_due', $rows['102']['status']);                  // nothing else changes
+        $this->assertEquals(99.0, $rows['102']['balance']);
+    }
+
+    public function testBackfillRejectsAnExportThatIsNotInvoices(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $res = (new JobberPriceHistory($db))->backfillLineItems("Quote #,Client name\n1,x\n");
+        $this->assertArrayHasKey('error', $res);
+    }
 }
