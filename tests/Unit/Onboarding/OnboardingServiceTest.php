@@ -15,7 +15,7 @@ class OnboardingServiceTest extends TestCase
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec("CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT, description TEXT)");
-        $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, full_name TEXT, preferred_name TEXT, role TEXT)");
+        $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, full_name TEXT, preferred_name TEXT, role TEXT, phone TEXT, contact_channel TEXT, quiet_start TEXT, quiet_end TEXT, quiet_weekends INT DEFAULT 0)");
         $db->exec("CREATE TABLE business_identity (id INTEGER PRIMARY KEY, legal_name TEXT, operating_name TEXT, registration_number TEXT)");
         $db->exec("CREATE TABLE qbo_connections (site_id INT, status TEXT, refresh_token_enc TEXT)");
         $db->exec("CREATE TABLE qbo_onboarding_parts (site_id INT, part TEXT)");
@@ -76,11 +76,14 @@ class OnboardingServiceTest extends TestCase
         $name = $s->module('name');
         $this->assertFalse($name->save($s->context(), '', '', '')['ok']);
         $this->assertSame('Nice to meet you, Tim.', $name->save($s->context(), 'Timothy', 'Schofield', 'Tim')['message']);
+        $this->assertSame('next', array_column($this->svc($db)->map(), 'state', 'key')['name'], 'a name alone is one side of three');
+        $name->saveReach($s->context(), 'email', '');
+        $name->saveQuiet($s->context(), '20:00', '07:00', false);
         $db->exec("INSERT INTO business_identity VALUES (1, 'Mowology Lawns & Landscapes Ltd', 'Mowology', 'BC1234567')");
         $s = $this->svc($db);
         $map = array_column($s->map(), null, 'key');
         $this->assertSame('done', $map['name']['state']);
-        $this->assertSame('Penny calls you Tim.', $map['name']['summary']);
+        $this->assertSame('Penny calls you Tim · by email · quiet 8 pm–7 am.', $map['name']['summary']);
         $this->assertSame('Mowology · BC1234567', $map['company']['summary']);
         $this->assertSame('quickbooks', $s->next());
     }
@@ -117,6 +120,8 @@ class OnboardingServiceTest extends TestCase
         $this->assertFalse($this->svc($db)->readyToFinish());
         $s = $this->svc($db);
         $s->module('name')->save($s->context(), 'Tim', 'S', 'Tim');
+        $s->module('name')->saveReach($s->context(), 'app', '');
+        $s->module('name')->saveQuiet($s->context(), '21:00', '06:30', true);
         $db->exec("INSERT INTO business_identity VALUES (1, 'X Ltd', 'X', NULL)");
         foreach (['quickbooks', 'books', 'accountant'] as $k) $s->skip($k, true);
         $this->assertTrue($this->svc($db)->readyToFinish());
@@ -133,5 +138,34 @@ class OnboardingServiceTest extends TestCase
         $this->assertSame(1, $p['done'], 'a skipped step counts as finished');
         $this->assertTrue($this->svc($db)->skip('accountant', false)['ok']);
         $this->assertSame([], $this->svc($db)->skipped());
+    }
+
+    /** About you, one side at a time (owner, 2026-10-20): name to use · how to reach you · when not to bother you. */
+    public function test_about_you_asks_the_next_missing_thing_and_checks_each_answer(): void
+    {
+        $db = $this->db();
+        $s = $this->svc($db); $c = $s->context(); $m = $s->module('name');
+        $this->assertSame([false, false, false], $m->known($c));
+        $this->assertSame('name', $m->nextPart($c));
+        $m->save($c, 'Ada', '', '');
+        $this->assertSame([true, false, false], $m->known($c), 'blank "call you" = the first name');
+        $this->assertSame('reach', $m->nextPart($c));
+
+        $this->assertFalse($m->saveReach($c, 'pigeon', '')['ok']);
+        $this->assertFalse($m->saveReach($c, 'text', '555-0101')['ok'], 'a text needs a full mobile number');
+        $this->assertFalse($m->saveReach($c, 'text', 'abc6045550101xyz')['ok'], 'letters are not a phone number (Codex 2026-10-21)');
+        $this->assertFalse($m->saveReach($c, 'text', '604555010112345')['ok'], 'too many digits');
+        $this->assertTrue($m->saveReach($c, 'text', '+1 604.555.0101')['ok']);
+        $this->assertSame('(604) 555-0101', $db->query('SELECT phone FROM users WHERE id = 1')->fetchColumn(), 'stored the one way');
+        $db->exec("UPDATE users SET phone = '' WHERE id = 1");
+        $this->assertSame([true, false, false], $m->known($c), 'text with no number is not known');
+        $m->saveReach($c, 'text', '6045550101');
+        $this->assertSame('quiet', $m->nextPart($c));
+
+        $this->assertFalse($m->saveQuiet($c, '25:00', '07:00', false)['ok']);
+        $this->assertFalse($m->saveQuiet($c, '07:00', '07:00', false)['ok'], 'from and until the same');
+        $this->assertSame('Nothing from us between 10 pm and 6:30 am, or at weekends.', $m->saveQuiet($c, '22:00', '06:30', true)['message']);
+        $this->assertSame([true, true, true], $m->known($c));
+        $this->assertNull($m->nextPart($c));
     }
 }

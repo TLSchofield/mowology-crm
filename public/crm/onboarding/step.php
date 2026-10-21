@@ -12,6 +12,7 @@ requirePermission('settings.edit');
 $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/Onboarding/Services/OnboardingService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboOnboardingService.php';
+require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
 
 $db  = getDB();
 $uid = (int)($user['id'] ?? 0);
@@ -21,7 +22,8 @@ $key = (string)($_GET['m'] ?? $_POST['m'] ?? '');
 $mod = $svc->module($key);
 if (!$mod) { header('Location: index.php'); exit; }
 $part = (string)($_GET['part'] ?? $_POST['part'] ?? '');
-if ($part !== '' && !in_array($part, OnboardingQuickBooksModule::PARTS, true)) $part = '';
+$partsOk = $key === 'name' ? array_merge(OnboardingNameModule::PARTS, ['all']) : OnboardingQuickBooksModule::PARTS;
+if ($part !== '' && !in_array($part, $partsOk, true)) $part = '';
 
 $qconn = null;
 try { $qconn = new QboConnectionService($db); } catch (Throwable $e) { /* not set up */ }
@@ -42,10 +44,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $do = (string)($_POST['do'] ?? '');
     try {
         if ($do === 'skip') { $_SESSION['ob_flash'] = $svc->skip($key, true); $goNext(); }
-        if ($key === 'name' && $do === 'save') {
-            $r = $mod->save($ctx, (string)($_POST['first'] ?? ''), (string)($_POST['last'] ?? ''), (string)($_POST['preferred'] ?? ''));
+        if ($key === 'name' && in_array($do, ['save', 'reach', 'quiet'], true)) {
+            $r = $do === 'save' ? $mod->save($ctx, (string)($_POST['first'] ?? ''), (string)($_POST['last'] ?? ''), (string)($_POST['preferred'] ?? ''))
+               : ($do === 'reach' ? $mod->saveReach($ctx, (string)($_POST['channel'] ?? ''), (string)($_POST['mobile'] ?? ''))
+               : $mod->saveQuiet($ctx, (string)($_POST['from'] ?? ''), (string)($_POST['to'] ?? ''), !empty($_POST['weekends'])));
             $_SESSION['ob_flash'] = $r;
-            if ($r['ok']) $goNext();
+            if ($r['ok']) {
+                // The side that just locked animates in on the next screen.
+                $_SESSION['ob_fresh'] = array_search($do === 'save' ? 'name' : $do, OnboardingNameModule::PARTS, true);
+                $np = $mod->nextPart($ctx);
+                if ($np === null) { header('Location: step.php?m=name&part=all'); exit; }
+                header('Location: step.php?m=name&part=' . $np); exit;
+            }
+            header('Location: step.php?m=name&part=' . ($do === 'save' ? 'name' : $do)); exit;
         } elseif ($key === 'quickbooks' && in_array($do, ['yes', 'no'], true)) {
             $mod->setAnswer($ctx, $do === 'yes');
             if ($do === 'no') $goNext();
@@ -97,6 +108,9 @@ $me = $me->fetch(PDO::FETCH_ASSOC) ?: [];
 $call = trim((string)($me['preferred_name'] ?? '')) ?: trim((string)($me['first_name'] ?? ''));
 $invite = $_SESSION['ob_invite_link'] ?? null;
 unset($_SESSION['ob_invite_link']);
+$fresh = $_SESSION['ob_fresh'] ?? null;
+unset($_SESSION['ob_fresh']);
+if ($key === 'name' && $part === '') $part = $mod->nextPart($ctx) ?? 'all';
 
 $pageTitle = $mod->title();
 $activePage = 'settings';
@@ -104,6 +118,9 @@ $extraHead = '<link rel="preconnect" href="https://fonts.googleapis.com"><link r
     . '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">';
 foreach (['penny-onboarding.css', 'ittai-onboarding.css'] as $__css) {
     $extraHead .= '<link href="/crm/css/' . $__css . '?v=' . (int)@filemtime(dirname(__DIR__) . '/css/' . $__css) . '" rel="stylesheet">';
+}
+foreach (['head-brain.js', 'ittai-knowledge-glyph.js', 'onboarding-about.js'] as $__js) {
+    $extraHead .= '<script src="/crm/js/' . $__js . '?v=' . (int)@filemtime(dirname(__DIR__) . '/js/' . $__js) . '" defer></script>';
 }
 $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
 ?>
@@ -118,10 +135,41 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
 
         <section class="it-ob-conversation">
             <div class="it-ob-penny-row">
-                <div class="it-ob-avatar" aria-hidden="true">P</div>
+                <?php
+                // Penny's photo and brain (owner, 2026-10-20): what she learns here joins her brain. On the screen
+                // where "About you" is finished, the brain is drawn without that fact; the gold triangle flies in
+                // and the brain redraws with it (onboarding-about.js).
+                $brain = null; $arrive = null;
+                try { $brain = (new PennyBrainService($db))->learned(); } catch (Throwable $e) { $brain = null; }
+                if ($brain && $key === 'name' && $fresh !== null && $fresh !== false) {
+                    foreach ($brain['parts'] as $i => $p) {
+                        if (($p['key'] ?? '') === 'person:' . $uid) { $arrive = $p; unset($brain['parts'][$i]); $brain['units']--; break; }
+                    }
+                    $brain['parts'] = array_values($brain['parts']);
+                }
+                ?>
+                <div class="it-ob-penny-photo mw-head-photo">
+                    <img src="/crm/img/heads/penny.jpg" alt="" width="64" height="64">
+                    <?php if ($brain): ?>
+                    <button type="button" class="mw-brain" id="obPennyBrain" data-head="Penny" data-no-page aria-label="Penny's brain: <?= (int)$brain['units'] ?> things learned"
+                            data-empty="Nothing learned yet. Every answer you give teaches her something."
+                            data-teach="She glows brighter the more often she's right first time"
+                            data-units="<?= (int)$brain['units'] ?>" data-bright="0.5"
+                            data-parts="<?= h(json_encode($brain['parts'])) ?>"
+                            <?= $arrive ? 'data-arrive="' . h(json_encode($arrive)) . '"' : '' ?>
+                            data-since="<?= h(!empty($brain['since']) ? date('M j, Y', strtotime($brain['since'])) : '') ?>"><canvas></canvas></button>
+                    <?php endif; ?>
+                </div>
                 <div class="it-ob-penny-content">
+                    <?php if ($key === 'name'): $kn = $mod->known($ctx); ?>
+                    <div class="it-ob-knowledge" id="obAboutGlyph" data-part="<?= h($part) ?>" data-locked="<?= h(implode(',', array_map('intval', $kn))) ?>" data-fresh="<?= $fresh === null || $fresh === false ? '' : (int)$fresh ?>"></div>
+                    <?php endif; ?>
                     <p class="it-ob-penny-line"><?php
-                        if ($key === 'quickbooks' && $part !== '') {
+                        if ($key === 'name') {
+                            $who = $call !== '' ? $call . ', ' : '';
+                            echo h(['name' => $mod->question($ctx), 'reach' => $who . 'how should we reach you?',
+                                    'quiet' => $who . 'when shouldn\'t we bother you?', 'all' => 'Thank you' . ($call !== '' ? ', ' . $call : '') . ' — I know how to look after you now.'][$part] ?? $mod->question($ctx));
+                        } elseif ($key === 'quickbooks' && $part !== '') {
                             $lines = ['business' => "Here's your business as QuickBooks has it.", 'clients' => 'These are your QuickBooks customers. I\'ll give them to Sam.',
                                       'services' => 'These are your products and services. Otto keeps them in his catalogue.', 'suppliers' => 'These are your suppliers.',
                                       'accounts' => 'I matched your QuickBooks accounts to Ittai\'s.'];
@@ -135,14 +183,44 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
             <?php if ($flash): ?><p class="it-obm-flash<?= empty($flash['ok']) ? ' it-obm-flash-warn' : '' ?>" role="status"><?= h((string)$flash['message']) ?></p><?php endif; ?>
 
             <div class="it-ob-workspace">
-            <?php if ($key === 'name'): ?>
+            <?php if ($key === 'name'): $m = $mod->me($ctx); ?>
+                <?php if ($part === 'name'): ?>
                 <form method="post" class="it-ob-form">
                     <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="name"><input type="hidden" name="do" value="save">
-                    <div class="it-ob-field"><label for="ob-first">First name</label><input class="it-ob-input" id="ob-first" name="first" autocomplete="given-name" required value="<?= h((string)($me['first_name'] ?? '')) ?>"></div>
-                    <div class="it-ob-field"><label for="ob-last">Last name</label><input class="it-ob-input" id="ob-last" name="last" autocomplete="family-name" value="<?= h((string)($me['last_name'] ?? '')) ?>"></div>
-                    <div class="it-ob-field"><label for="ob-pref">What should I call you?</label><input class="it-ob-input" id="ob-pref" name="preferred" autocomplete="nickname" value="<?= h((string)($me['preferred_name'] ?? '')) ?>"><small>Leave it blank to use your first name.</small></div>
+                    <div class="it-ob-field"><label for="ob-first">First name</label><input class="it-ob-input" id="ob-first" name="first" autocomplete="given-name" required value="<?= h((string)($m['first_name'] ?? '')) ?>"></div>
+                    <div class="it-ob-field"><label for="ob-last">Last name</label><input class="it-ob-input" id="ob-last" name="last" autocomplete="family-name" value="<?= h((string)($m['last_name'] ?? '')) ?>"></div>
+                    <div class="it-ob-field"><label for="ob-pref">What should I call you?</label><input class="it-ob-input" id="ob-pref" name="preferred" autocomplete="nickname" value="<?= h((string)($m['preferred_name'] ?? '')) ?>"><small>Leave it blank to use your first name.</small></div>
                     <div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary">Continue</button></div>
                 </form>
+                <?php elseif ($part === 'reach'): $ch = (string)($m['contact_channel'] ?? ''); ?>
+                <form method="post" class="it-ob-form">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="name"><input type="hidden" name="do" value="reach">
+                    <fieldset class="it-obs-choice">
+                        <legend class="it-obs-fact">Pick one</legend>
+                        <?php foreach (OnboardingNameModule::CHANNELS as $v => $label): ?>
+                            <label class="it-obs-option"><input type="radio" name="channel" value="<?= h($v) ?>"<?= $ch === $v ? ' checked' : '' ?> required> <span><?= h($label) ?></span></label>
+                        <?php endforeach; ?>
+                    </fieldset>
+                    <div class="it-ob-field"><label for="ob-mobile">Mobile number</label><input class="it-ob-input" id="ob-mobile" name="mobile" type="tel" autocomplete="tel" value="<?= h((string)($m['phone'] ?? '')) ?>"><small>Needed for text messages.</small></div>
+                    <div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary">Continue</button><a class="it-ob-button it-ob-button-link" href="step.php?m=name&amp;part=name">Back</a></div>
+                </form>
+                <?php elseif ($part === 'quiet'): ?>
+                <form method="post" class="it-ob-form">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="name"><input type="hidden" name="do" value="quiet">
+                    <div class="it-obs-pair">
+                        <div class="it-ob-field"><label for="ob-from">Quiet from</label><input class="it-ob-input" id="ob-from" name="from" type="time" required value="<?= h(substr((string)($m['quiet_start'] ?? '20:00'), 0, 5)) ?>"></div>
+                        <div class="it-ob-field"><label for="ob-to">Until</label><input class="it-ob-input" id="ob-to" name="to" type="time" required value="<?= h(substr((string)($m['quiet_end'] ?? '07:00'), 0, 5)) ?>"></div>
+                    </div>
+                    <label class="it-obs-option"><input type="checkbox" name="weekends" value="1"<?= !empty($m['quiet_weekends']) ? ' checked' : '' ?>> <span>Weekends too</span></label>
+                    <div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary">Continue</button><a class="it-ob-button it-ob-button-link" href="step.php?m=name&amp;part=reach">Back</a></div>
+                </form>
+                <?php else: ?>
+                    <div class="it-ob-card"><p class="it-ob-card-title"><?= h($mod->summary($ctx)) ?></p></div>
+                    <div class="it-ob-actions">
+                        <a class="it-ob-button it-ob-button-primary" href="<?= ($n = $svc->next()) ? 'step.php?m=' . h($n) : 'index.php' ?>">Continue</a>
+                        <a class="it-ob-button it-ob-button-link" href="step.php?m=name&amp;part=name">Change something</a>
+                    </div>
+                <?php endif; ?>
 
             <?php elseif ($key === 'company'): ?>
                 <?php if ($state === 'done'): ?>

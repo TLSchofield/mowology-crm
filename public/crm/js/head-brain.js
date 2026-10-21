@@ -42,24 +42,183 @@
     }
     function norm(v) { var l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
 
-    // ── Families ───────────────────────────────────────────────────────────
-    function bipyramid(n) {                     // 2n triangles
-        var ring = [], tris = [], top = [0, 1.15, 0], bot = [0, -1.15, 0];
-        for (var i = 0; i < n; i++) { var a = i / n * 2 * Math.PI; ring.push([Math.cos(a), 0, Math.sin(a)]); }
-        for (i = 0; i < n; i++) { var p = ring[i], q = ring[(i + 1) % n]; tris.push([top, q, p], [bot, p, q]); }
-        return tris;
+    // ── The ladder (owner, 2026-10-20) ─────────────────────────────────────
+    // Shape N has exactly N triangles, one per thing learned. Picked once from Monkey Mind's Shape Lab
+    // (~/Projects/monkeymind/tools/shape-lab/generators.js, solveByFaceCount) and stored here as one short
+    // recipe per stage: the eight equilateral-triangle solids, geodesic spheres and their stellated (spiky)
+    // versions, Sierpinski triangles, snowflakes, whirlpools, mandalas, droplets and rough stones. A count
+    // with no named shape shows the next solid part-built ("u:<N>"), one face joining an edge of the last.
+    // Regenerate with scripts/brain/brain-ladder.mjs (it rewrites RECIPES); the iOS app runs this same file.
+    var RECIPES = '1 book si:1 T4 u:6 T6 u:8 T8 si:2 T10 u:12 T12 u:14 T14 sn:5,1 T16 u:18 s:b:3 u:20 T20 sn:7,1 w:1,1,11 u:24 s:T8 m:5,3 w:1,1,13 si:3 sn:4,2 u:30 s:b:5 u:32 g:octa,2 sn:11,1 u:36 m:7,3 g:tetra,3 u:42 u:42 sn:13,1 w:1,2,10 u:42 s:b:7 u:48 w:1,2,11 sn:15,1 u:48 u:48 s:g:tetra,2 sn:7,2 w:1,5,5 m:17,2 ra:13,52 u:60 sn:18,1 m:11,3 w:1,2,14 u:60 u:60 u:60 s:T20 u:64 u:64 sn:21,1 g:tetra,4 m:13,3 w:1,3,11 u:72 ra:17,68 sn:23,1 w:1,5,7 u:72 g:octa,3 u:80 u:80 sn:5,3 ra:19,76 m:11,4 w:1,3,13 u:80 g:icosa,2 si:4 u:96 u:96 sn:12,2 m:17,3 u:96 u:96 w:1,4,11 u:96 sn:6,3 m:13,4 ra:23,92 u:96 u:96 m:19,3 s:g:octa,2 u:100 sn:14,2 m:11,5 g:tetra,5 u:108 u:108 u:108 w:1,4,13 sn:15,2 u:108 u:108 s:g:tetra,3 u:128 w:1,5,11 u:128 sn:16,2 u:128 u:128 m:23,3 ra:29,116 u:128 u:128 sn:17,2 w:1,4,15 m:11,6 u:128 u:128 sn:4,4 m:25,3 w:3,3,7 u:128 g:octa,4 u:144 w:1,5,13 u:144 m:12,6 sn:19,2 u:144 u:144 ra:34,136 u:144 u:144 u:144 sn:20,2 u:144 u:144 m:13,6 g:tetra,6 u:180 u:180 sn:21,2 ra:37,148 u:180 w:1,5,15 u:180 ra:38,152 m:17,5 sn:22,2 u:180 w:1,6,13 u:180 u:180 u:180 w:1,5,16 sn:23,2 m:18,5 u:180 ra:41,164 sn:11,3 u:180 u:180 w:1,6,14 m:13,7 d:17 u:180 ra:43,172 u:180 u:180 m:25,4 w:2,4,11 u:180 u:180 u:180 g:icosa,3 u:192 m:26,4 u:192 ra:46,184 u:192 sn:6,4 m:17,6 ra:47,188 u:192 d:19 u:192 s:g:tetra,4 u:196 u:196 sn:13,3 g:tetra,7 u:200 w:3,3,11 u:200 g:octa,5 u:216 u:216 m:29,4 ra:51,204 u:216 u:216 m:23,5 w:2,4,13 u:216 sn:14,3 u:216 ra:53,212 u:216 u:216 u:216 s:g:octa,3 sn:7,4 u:240 u:240 w:2,5,11 m:17,7 u:240 u:240 w:2,4,14 sn:15,3 u:240 u:240 ra:57,228 u:240 d:23 m:21,6 ra:58,232 u:240 w:3,3,13 u:240 ra:59,236 u:240 u:240 u:240 s:g:icosa,2 u:256 m:22,6 si:5 ra:61,244 u:256 u:256 m:19,7 sn:8,4 u:256 w:5,5,5 u:256 m:28,5 u:256 u:256 sn:17,3 g:tetra,8 u:288 u:288 u:288 w:2,5,13 m:29,5 u:288 u:288 w:2,6,11 u:288 u:288 u:288 ra:67,268 u:288 sn:18,3 u:288 ra:68,272 m:21,7 u:288 u:288 ra:69,276 u:288 u:288 sn:9,4 w:2,5,14 u:288 u:288 u:288 ra:71,284 sn:19,3 m:26,6 u:288 g:octa,6 u:300 d:29 u:300 ra:73,292 u:300 u:300 u:300 ra:74,296 m:27,6 u:300 u:300 s:g:tetra,5 u:320 u:320 u:320 ra:76,304 u:320 u:320 u:320 m:28,6 u:320 sn:10,4 u:320 w:2,6,13 u:320 u:320 sn:21,3 ra:79,316 u:320 u:320 m:29,6 g:icosa,4 u:324 u:324 u:324 g:tetra,9 m:25,7 u:384 u:384 ra:82,328 u:384 sn:22,3 u:384 ra:83,332 u:384 u:384 u:384 w:2,6,14 u:384 m:26,7 u:384 d:34 sn:11,4 u:384 u:384 ra:86,344 sn:23,3 u:384 u:384 ra:87,348 u:384 w:5,5,7 m:27,7 ra:88,352 u:384 u:384 u:384 ra:89,356 u:384 u:384 u:384 sn:24,3 u:384 u:384 u:384 m:28,7 u:384 u:384 u:384 ra:92,368 u:384 d:37 u:384 sn:12,4 u:384 u:384 m:25,8 ra:94,376 u:384 u:384 u:384 d:38 u:384 u:384 u:384 s:g:octa,4 u:392 u:392 u:392 ra:97,388 u:392 w:3,5,13 u:392 g:octa,7 u:400 u:400 u:400 w:3,6,11 u:400 u:400 u:400 g:tetra,10 u:432 u:432 sn:13,4 ra:101,404 m:27,8 u:432 u:432 ra:102,408 u:432 d:41 u:432 ra:103,412 u:432 u:432 u:432 w:4,4,13 u:432 u:432 u:432 w:3,5,14 u:432 u:432 u:432 ra:106,424 u:432 u:432 u:432 ra:107,428 u:432 d:43 u:432 s:g:tetra,6 u:484 sn:14,4 m:29,8 ra:109,436 u:484 u:484 u:484 w:4,5,11 u:484 u:484 u:484 ra:111,444 u:484 u:484 u:484 w:4,4,14 u:484 d:45 u:484 ra:113,452 u:484 u:484 u:484 ra:114,456 u:484 u:484 u:484 d:46 u:484 u:484 u:484 ra:116,464 sn:15,4 u:484 u:484 w:3,6,13 u:484 d:47 u:484 ra:118,472 u:484 u:484 u:484 ra:119,476 u:484 u:484 u:484 w:3,5,16 u:484 u:484 u:484 g:tetra,11 u:500 u:500 u:500 ra:122,488 u:500 d:49 u:500 ra:123,492 u:500 u:500 u:500 sn:16,4 u:500 u:500 u:500 g:icosa,5'.split(' ');
+    // The eight convex deltahedra, exact (every edge the same length), faces in build order.
+    var SOLIDS = {
+        T4: [[[0.5774,-0.5774,-0.5774],[-0.5774,0.5774,-0.5774],[0.5774,0.5774,0.5774]], [[-0.5774,-0.5774,0.5774],[0.5774,0.5774,0.5774],[-0.5774,0.5774,-0.5774]], [[-0.5774,-0.5774,0.5774],[-0.5774,0.5774,-0.5774],[0.5774,-0.5774,-0.5774]], [[-0.5774,-0.5774,0.5774],[0.5774,-0.5774,-0.5774],[0.5774,0.5774,0.5774]]],
+        T6: [[[0,1,0],[0.7071,0,0],[-0.3536,0,-0.6124]], [[0,1,0],[-0.3536,0,-0.6124],[-0.3536,0,0.6124]], [[0,1,0],[-0.3536,0,0.6124],[0.7071,0,0]], [[0,-1,0],[-0.3536,0,-0.6124],[0.7071,0,0]], [[-0.3536,0,0.6124],[-0.3536,0,-0.6124],[0,-1,0]], [[-0.3536,0,0.6124],[0,-1,0],[0.7071,0,0]]],
+        T8: [[[0,1,0],[1,0,0],[0,0,-1]], [[0,1,0],[0,0,-1],[-1,0,0]], [[0,1,0],[0,0,1],[1,0,0]], [[0,1,0],[-1,0,0],[0,0,1]], [[0,0,-1],[0,-1,0],[-1,0,0]], [[0,0,-1],[1,0,0],[0,-1,0]], [[0,0,1],[-1,0,0],[0,-1,0]], [[0,0,1],[0,-1,0],[1,0,0]]],
+        T10: [[[0,0.618,0],[0.309,0,0.9511],[1,0,0]], [[0,0.618,0],[1,0,0],[0.309,0,-0.9511]], [[0,0.618,0],[0.309,0,-0.9511],[-0.809,0,-0.5878]], [[0,0.618,0],[-0.809,0,0.5878],[0.309,0,0.9511]], [[0,0.618,0],[-0.809,0,-0.5878],[-0.809,0,0.5878]], [[0.309,0,0.9511],[0,-0.618,0],[1,0,0]], [[0.309,0,-0.9511],[1,0,0],[0,-0.618,0]], [[0.309,0,-0.9511],[0,-0.618,0],[-0.809,0,-0.5878]], [[-0.809,0,0.5878],[-0.809,0,-0.5878],[0,-0.618,0]], [[-0.809,0,0.5878],[0,-0.618,0],[0.309,0,0.9511]]],
+        T12: [[[0,0.8431,0.5377],[0.6932,0.2211,0],[0,0.8431,-0.5377]], [[0,0.8431,0.5377],[0,0.8431,-0.5377],[-0.6932,0.2211,0]], [[0,0.8431,-0.5377],[0,-0.2211,-0.6932],[-0.6932,0.2211,0]], [[0,0.8431,-0.5377],[0.6932,0.2211,0],[0,-0.2211,-0.6932]], [[0,0.8431,0.5377],[0,-0.2211,0.6932],[0.6932,0.2211,0]], [[0,0.8431,0.5377],[-0.6932,0.2211,0],[0,-0.2211,0.6932]], [[0,-0.2211,-0.6932],[0.6932,0.2211,0],[0.5377,-0.8431,0]], [[0,-0.2211,0.6932],[0.5377,-0.8431,0],[0.6932,0.2211,0]], [[-0.5377,-0.8431,0],[-0.6932,0.2211,0],[0,-0.2211,-0.6932]], [[-0.5377,-0.8431,0],[0,-0.2211,0.6932],[-0.6932,0.2211,0]], [[-0.5377,-0.8431,0],[0,-0.2211,-0.6932],[0.5377,-0.8431,0]], [[-0.5377,-0.8431,0],[0.5377,-0.8431,0],[0,-0.2211,0.6932]]],
+        T14: [[[-0.2899,0.5021,0.5021],[0.5798,0.5021,0],[-0.2899,0.5021,-0.5021]], [[-0.2899,0.5021,-0.5021],[0.5798,0.5021,0],[0.5,0,-0.866]], [[-0.2899,0.5021,0.5021],[0.5,0,0.866],[0.5798,0.5021,0]], [[-0.2899,0.5021,0.5021],[-0.2899,0.5021,-0.5021],[-1,0,0]], [[0.5,0,-0.866],[0.5798,0.5021,0],[0.5798,-0.5021,0]], [[0.5,0,0.866],[0.5798,-0.5021,0],[0.5798,0.5021,0]], [[-0.2899,-0.5021,-0.5021],[-1,0,0],[-0.2899,0.5021,-0.5021]], [[-0.2899,-0.5021,-0.5021],[-0.2899,0.5021,-0.5021],[0.5,0,-0.866]], [[-0.2899,-0.5021,-0.5021],[0.5,0,-0.866],[0.5798,-0.5021,0]], [[-0.2899,-0.5021,0.5021],[-0.2899,0.5021,0.5021],[-1,0,0]], [[-0.2899,-0.5021,0.5021],[0.5,0,0.866],[-0.2899,0.5021,0.5021]], [[-0.2899,-0.5021,0.5021],[0.5798,-0.5021,0],[0.5,0,0.866]], [[-0.2899,-0.5021,0.5021],[-1,0,0],[-0.2899,-0.5021,-0.5021]], [[-0.2899,-0.5021,0.5021],[-0.2899,-0.5021,-0.5021],[0.5798,-0.5021,0]]],
+        T16: [[[0,1,0],[0,0.3729,-0.6271],[-0.6271,0.3729,0]], [[0,1,0],[0.6271,0.3729,0],[0,0.3729,-0.6271]], [[0,0.3729,0.6271],[0.6271,0.3729,0],[0,1,0]], [[0,0.3729,0.6271],[0,1,0],[-0.6271,0.3729,0]], [[-0.4434,-0.3729,-0.4434],[-0.6271,0.3729,0],[0,0.3729,-0.6271]], [[0.4434,-0.3729,-0.4434],[0,0.3729,-0.6271],[0.6271,0.3729,0]], [[0.4434,-0.3729,-0.4434],[-0.4434,-0.3729,-0.4434],[0,0.3729,-0.6271]], [[0.4434,-0.3729,0.4434],[0.6271,0.3729,0],[0,0.3729,0.6271]], [[0.4434,-0.3729,0.4434],[0.4434,-0.3729,-0.4434],[0.6271,0.3729,0]], [[-0.4434,-0.3729,0.4434],[0,0.3729,0.6271],[-0.6271,0.3729,0]], [[-0.4434,-0.3729,0.4434],[-0.6271,0.3729,0],[-0.4434,-0.3729,-0.4434]], [[-0.4434,-0.3729,0.4434],[0.4434,-0.3729,0.4434],[0,0.3729,0.6271]], [[0.4434,-0.3729,-0.4434],[0,-1,0],[-0.4434,-0.3729,-0.4434]], [[0.4434,-0.3729,0.4434],[0,-1,0],[0.4434,-0.3729,-0.4434]], [[-0.4434,-0.3729,0.4434],[-0.4434,-0.3729,-0.4434],[0,-1,0]], [[-0.4434,-0.3729,0.4434],[0,-1,0],[0.4434,-0.3729,0.4434]]],
+        T20: [[[0.5257,0.8507,0],[-0.5257,0.8507,0],[0,0.5257,0.8507]], [[0.5257,0.8507,0],[0,0.5257,-0.8507],[-0.5257,0.8507,0]], [[-0.5257,0.8507,0],[-0.8507,0,0.5257],[0,0.5257,0.8507]], [[-0.8507,0,-0.5257],[-0.5257,0.8507,0],[0,0.5257,-0.8507]], [[-0.8507,0,-0.5257],[-0.8507,0,0.5257],[-0.5257,0.8507,0]], [[0.5257,0.8507,0],[0,0.5257,0.8507],[0.8507,0,0.5257]], [[0.5257,0.8507,0],[0.8507,0,-0.5257],[0,0.5257,-0.8507]], [[0.5257,0.8507,0],[0.8507,0,0.5257],[0.8507,0,-0.5257]], [[0,-0.5257,0.8507],[0.8507,0,0.5257],[0,0.5257,0.8507]], [[0,-0.5257,0.8507],[0,0.5257,0.8507],[-0.8507,0,0.5257]], [[0.8507,0,-0.5257],[0,-0.5257,-0.8507],[0,0.5257,-0.8507]], [[-0.8507,0,-0.5257],[0,0.5257,-0.8507],[0,-0.5257,-0.8507]], [[0.8507,0,-0.5257],[0.8507,0,0.5257],[0.5257,-0.8507,0]], [[0,-0.5257,0.8507],[0.5257,-0.8507,0],[0.8507,0,0.5257]], [[0.8507,0,-0.5257],[0.5257,-0.8507,0],[0,-0.5257,-0.8507]], [[-0.5257,-0.8507,0],[-0.8507,0,0.5257],[-0.8507,0,-0.5257]], [[-0.5257,-0.8507,0],[0,-0.5257,0.8507],[-0.8507,0,0.5257]], [[-0.5257,-0.8507,0],[-0.8507,0,-0.5257],[0,-0.5257,-0.8507]], [[-0.5257,-0.8507,0],[0,-0.5257,-0.8507],[0.5257,-0.8507,0]], [[-0.5257,-0.8507,0],[0.5257,-0.8507,0],[0,-0.5257,0.8507]]]
+    };
+    var SOLID_NAMES = { T4: 'tetrahedron', T6: 'triangular bipyramid', T8: 'octahedron', T10: 'pentagonal bipyramid', T12: 'snub disphenoid',
+        T14: 'triaugmented triangular prism', T16: 'gyroelongated square bipyramid', T20: 'icosahedron' };
+    function v3(p) { return [p[0], p[1], p.length > 2 ? p[2] : 0]; }
+    function flatTris(T) { return T.map(function (t) { return [v3(t[0]), v3(t[1]), v3(t[2])]; }); }
+    function eqTri(r, rot) { var p = []; for (var k = 0; k < 3; k++) { var a = rot + k * 2 * Math.PI / 3; p.push([r * Math.cos(a), r * Math.sin(a)]); } return p; }
+    function mid2(a, b) { return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
+    // Shape Lab generators, ported without three.js (same maths, same face counts).
+    var GEN = {
+        bipyramid: function (nn, s) {
+            var r = s / (2 * Math.sin(Math.PI / nn)), h = Math.sqrt(Math.max(0.001, s * s - r * r)), eq = [], T = [];
+            for (var i = 0; i < nn; i++) { var a = i / nn * Math.PI * 2; eq.push([Math.cos(a) * r, 0, Math.sin(a) * r]); }
+            for (i = 0; i < nn; i++) { var p = eq[i], q = eq[(i + 1) % nn]; T.push([[0, h, 0], p, q], [[0, -h, 0], q, p]); }
+            return T;
+        },
+        antiprism: function (n, h) {
+            var T = [], tc = [0, 0, h], bc = [0, 0, -h], top = [], bot = [];
+            for (var i = 0; i < n; i++) { var a = i * 2 * Math.PI / n, b = a + Math.PI / n; top.push([Math.cos(a), Math.sin(a), h]); bot.push([Math.cos(b), Math.sin(b), -h]); }
+            for (i = 0; i < n; i++) { var j = (i + 1) % n; T.push([top[i], bot[i], top[j]], [bot[i], bot[j], top[j]], [tc, top[i], top[j]], [bc, bot[j], bot[i]]); }
+            return T;
+        },
+        mandala: function (P, rings) {
+            var rp = [[[0, 0]]], T = [];
+            for (var r = 1; r <= rings; r++) { var pts = []; for (var i = 0; i < P; i++) { var a = i / P * 2 * Math.PI + (r % 2) * (Math.PI / P), rad = r / rings; pts.push([Math.cos(a) * rad, Math.sin(a) * rad]); } rp.push(pts); }
+            var c = rp[0][0];
+            for (i = 0; i < P; i++) T.push([c, rp[1][i], rp[1][(i + 1) % P]]);
+            for (r = 1; r < rings; r++) { var A = rp[r], B = rp[r + 1]; for (i = 0; i < P; i++) { T.push([A[i], B[i], A[(i + 1) % P]]); T.push([A[(i + 1) % P], B[i], B[(i + 1) % P]]); } }
+            return flatTris(T);
+        },
+        droplet: function (segs) {
+            var PR = [[0, -1.0], [0.55, -0.85], [0.82, -0.55], [0.78, -0.1], [0.55, 0.35], [0.22, 0.75], [0, 1.0]], T = [];
+            var rings = PR.map(function (q) { var pts = []; for (var i = 0; i < segs; i++) { var a = i / segs * 2 * Math.PI; pts.push([Math.cos(a) * q[0], q[1], Math.sin(a) * q[0]]); } return pts; });
+            for (var ri = 0; ri < rings.length - 1; ri++) {
+                var A = rings[ri], B = rings[ri + 1];
+                for (var i = 0; i < segs; i++) { var j = (i + 1) % segs; if (PR[ri][0] > 0.001) T.push([A[i], B[i], A[j]]); if (PR[ri + 1][0] > 0.001) T.push([A[j], B[i], B[j]]); }
+            }
+            return T;
+        },
+        whirlpool: function (arms, turns, segsPerTurn, rMax) {
+            var T = [], steps = turns * segsPerTurn, bw = 0.06;
+            for (var arm = 0; arm < arms; arm++) {
+                var phase = arm * 2 * Math.PI / arms, pi = null, po = null;
+                for (var s = 0; s <= steps; s++) {
+                    var t = s / steps, th = t * turns * 2 * Math.PI + phase, r = t * rMax, cx = Math.cos(th), sx = Math.sin(th);
+                    var rin = Math.max(0, r - bw), rout = r + bw, a = [cx * rin, sx * rin, 0], b = [cx * rout, sx * rout, 0];
+                    if (pi) T.push([pi, po, a], [a, po, b]);
+                    pi = a; po = b;
+                }
+            }
+            return T;
+        },
+        sierpinski: function (depth) {
+            var T = [eqTri(1, Math.PI / 2)];
+            for (var d = 0; d < depth; d++) {
+                var nt = [];
+                T.forEach(function (t) { var m = [mid2(t[0], t[1]), mid2(t[1], t[2]), mid2(t[2], t[0])]; nt.push([t[0], m[0], m[2]], [m[0], t[1], m[1]], [m[2], m[1], t[2]]); });
+                T = nt;
+            }
+            return flatTris(T);
+        },
+        snowflake: function (arms, levels) {
+            var T = [], spread = Math.PI / 5, decay = 0.5, at = 0.55;
+            function spike(px, py, dir, len, hw) {
+                var dx = Math.cos(dir), dy = Math.sin(dir), wx = Math.cos(dir + Math.PI / 2) * hw, wy = Math.sin(dir + Math.PI / 2) * hw;
+                return [[px + wx, py + wy], [px - wx, py - wy], [px + dx * len, py + dy * len]];
+            }
+            function branch(px, py, dir, len, hw, level) {
+                T.push(spike(px, py, dir, len, hw));
+                if (level >= levels) return;
+                var bx = px + Math.cos(dir) * len * at, by = py + Math.sin(dir) * len * at;
+                branch(bx, by, dir - spread, len * decay, hw * decay, level + 1);
+                branch(bx, by, dir + spread, len * decay, hw * decay, level + 1);
+            }
+            for (var i = 0; i < arms; i++) branch(0, 0, (i / arms) * 2 * Math.PI + Math.PI / 2, 1, 0.05, 0);
+            return flatTris(T);
+        },
+        // Pyramidalise each face: 3 spiky faces per face.
+        stellate: function (T, h) {
+            var out = [];
+            T.forEach(function (t) {
+                var a = t[0], b = t[1], c = t[2], ct = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+                var u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                var n = norm([u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]);
+                if (n[0] * ct[0] + n[1] * ct[1] + n[2] * ct[2] < 0) n = [-n[0], -n[1], -n[2]];   // always outwards
+                var ap = [ct[0] + n[0] * h, ct[1] + n[1] * h, ct[2] + n[2] * h];
+                out.push([a, b, ap], [b, c, ap], [c, a, ap]);
+            });
+            return out;
+        },
+        // Deterministic vertex noise: a rough stone. Same seed, same stone, every time.
+        jitter: function (T, amt, seed) {
+            var vm = {};
+            return T.map(function (t) {
+                return t.map(function (v) {
+                    var k = v[0].toFixed(3) + ',' + v[1].toFixed(3) + ',' + v[2].toFixed(3);
+                    if (!vm[k]) {
+                        var s = (k.split('').reduce(function (a, ch) { return Math.imul(a, 31) + ch.charCodeAt(0) | 0; }, 0) ^ seed) >>> 0;
+                        var h = function () { s = Math.imul(s, 1664525) + 1013904223 >>> 0; return s / 4294967295 - 0.5; };
+                        vm[k] = [v[0] + h() * amt, v[1] + h() * amt, v[2] + h() * amt];
+                    }
+                    return vm[k];
+                });
+            });
+        }
+    };
+    /** Centre on the origin and scale so the farthest point is 1 (every stage the same size). */
+    function fit(T) {
+        var c = [0, 0, 0], n = 0, m = 0;
+        T.forEach(function (t) { t.forEach(function (v) { c[0] += v[0]; c[1] += v[1]; c[2] += v[2]; n++; }); });
+        c = [c[0] / n, c[1] / n, c[2] / n];
+        T.forEach(function (t) { t.forEach(function (v) { m = Math.max(m, Math.hypot(v[0] - c[0], v[1] - c[1], v[2] - c[2])); }); });
+        m = m || 1;
+        return T.map(function (t) { return t.map(function (v) { return [(v[0] - c[0]) / m, (v[1] - c[1]) / m, (v[2] - c[2]) / m]; }); });
     }
-    function gyrobipyramid(n) {                 // 4n triangles: two pyramids on an antiprism
-        var up = [], dn = [], tris = [], top = [0, 1.25, 0], bot = [0, -1.25, 0];
-        for (var i = 0; i < n; i++) {
-            var a = i / n * 2 * Math.PI, b = a + Math.PI / n;
-            up.push([Math.cos(a), 0.38, Math.sin(a)]); dn.push([Math.cos(b), -0.38, Math.sin(b)]);
+    /** Faces in growth order: start at the top, then always the face touching the most built edges. */
+    function growthOrder(T) {
+        function key(v) { return v[0].toFixed(4) + ',' + v[1].toFixed(4) + ',' + v[2].toFixed(4); }
+        var cen = T.map(function (t) { return (t[0][1] + t[1][1] + t[2][1]) / 3; });
+        var E = T.map(function (t) { return [[t[0], t[1]], [t[1], t[2]], [t[2], t[0]]].map(function (e) { return [key(e[0]), key(e[1])].sort().join('|'); }); });
+        var by = {}, done = [], score = [], order = [], i;
+        E.forEach(function (es, f) { es.forEach(function (e) { (by[e] = by[e] || []).push(f); }); });
+        for (i = 0; i < T.length; i++) { done.push(false); score.push(0); }
+        function take(f) { done[f] = true; order.push(f); E[f].forEach(function (e) { by[e].forEach(function (g) { if (!done[g]) score[g] += 10; }); }); }
+        var first = 0; for (i = 1; i < T.length; i++) if (cen[i] > cen[first]) first = i;
+        take(first);
+        while (order.length < T.length) {
+            var best = -1, bs = -Infinity;
+            for (i = 0; i < T.length; i++) if (!done[i] && score[i] + cen[i] > bs) { bs = score[i] + cen[i]; best = i; }
+            take(best);
         }
-        for (i = 0; i < n; i++) {
-            var j = (i + 1) % n;
-            tris.push([top, up[j], up[i]], [up[i], up[j], dn[i]], [up[j], dn[j], dn[i]], [bot, dn[i], dn[j]]);
+        return order.map(function (f) { return T[f]; });
+    }
+    function nums(r) { return r.split(':').pop().split(',').map(Number); }
+    /** A recipe → its triangles (not yet fitted) and plain name. */
+    function cook(r) {
+        var k = r.split(':')[0], p;
+        if (r === '1') return { tris: [[[0, 1, 0], [-0.866, -0.5, 0], [0.866, -0.5, 0]]], name: 'triangle', flat: true };
+        if (r === 'book') return { tris: [[[0, 0.85, -0.31], [0, -0.85, -0.31], [1.02, 0, 0.15]], [[0, 0.85, -0.31], [0, -0.85, -0.31], [-1.02, 0, 0.15]]], name: 'open book' };
+        if (SOLIDS[r]) return { tris: SOLIDS[r], name: SOLID_NAMES[r] };
+        if (k === 's') { var base = cook(r.slice(2)); return { tris: GEN.stellate(base.tris, 0.35), name: 'stellated ' + base.name, geo: base.geo }; }
+        if (k === 'u') {
+            var n = nums(r)[0], whole = cook(RECIPES[n - 1]);
+            return { tris: growthOrder(fit(whole.tris)), name: 'building the ' + whole.name, building: n, geo: whole.geo };
         }
-        return tris;
+        p = nums(r);
+        if (k === 'g') {
+            var b = r.split(':')[1].split(',')[0];
+            return { tris: geodesic(b === 'icosa' ? 'ico' : b, p[1]), name: (b === 'icosa' ? 'geodesic sphere' : b + ' geodesic') + ', frequency ' + p[1], geo: true };
+        }
+        if (k === 'si') return { tris: GEN.sierpinski(p[0]), name: 'Sierpinski triangle, depth ' + p[0], flat: true };
+        if (k === 'sn') return { tris: GEN.snowflake(p[0], p[1]), name: p[0] + '-arm snowflake', flat: true };
+        if (k === 'w') return { tris: GEN.whirlpool(p[0], p[1], p[2], 1), name: 'whirlpool', flat: true };
+        if (k === 'm') return { tris: GEN.mandala(p[0], p[1]), name: p[0] + '-petal mandala', flat: true };
+        if (k === 'd') return { tris: GEN.droplet(p[0]), name: 'droplet' };
+        if (k === 'rb') return { tris: GEN.jitter(GEN.bipyramid(p[0], 1), 0.35, p[1]), name: 'rough stone' };
+        if (k === 'ra') return { tris: GEN.jitter(GEN.antiprism(p[0], 0.6), 0.35, p[1]), name: 'rough boulder' };
+        if (k === 'b') return { tris: GEN.bipyramid(p[0], 1), name: p[0] + '-sided bipyramid' };
+        if (k === 'a') return { tris: GEN.antiprism(p[0], 0.6), name: p[0] + '-sided antiprism' };
+        return { tris: SOLIDS.T4, name: 'tetrahedron' };
     }
     var BASES = {
         tetra: function () {
@@ -79,7 +238,6 @@
                 .map(function (f) { return [V[f[0]], V[f[1]], V[f[2]]]; });
         }
     };
-    var BASE_FACES = { tetra: 4, octa: 8, ico: 20 };
     function geodesic(base, f) {                // BASE_FACES · f² triangles on a sphere
         var out = [];
         BASES[base]().forEach(function (T) {
@@ -100,32 +258,19 @@
 
     /** Shape k (1…500): its family, triangles and folds — the same every time. */
     function shape(k) {
-        var need = k + 3, r = rng(k * 7919), fam, tris, name;
-        if (k === 1) {
-            // A single triangle — the seed (owner, 2026-10-10). Drawn from both sides as it turns.
-            tris = [[[0, 1, 0], [-0.866, -0.5, 0], [0.866, -0.5, 0]]]; name = 'triangle'; fam = 'geo';
-        } else if (k <= 90 && k % 3 !== 0) {
-            if (k % 3 === 1) { var n = Math.max(3, Math.ceil(need / 2)); tris = bipyramid(n); name = n + '-sided double pyramid'; }
-            else { var m = Math.max(3, Math.ceil(need / 4)); tris = gyrobipyramid(m); name = m + '-sided twisted double pyramid'; }
-            fam = 'pyramid';
-        } else {
-            var best = null;                     // geodesic with the least overshoot; rotate bases for variety
-            ['tetra', 'octa', 'ico'].forEach(function (b, idx) {
-                var f = Math.max(1, Math.ceil(Math.sqrt(need / BASE_FACES[b])));
-                var faces = BASE_FACES[b] * f * f, score = faces + ((idx + k) % 3) * 0.5;
-                if (!best || score < best.score) best = { b: b, f: f, score: score };
-            });
-            tris = geodesic(best.b, best.f);
-            name = { tetra: 'tetra', octa: 'octa', ico: 'icosa' }[best.b] + ' geodesic, frequency ' + best.f;
-            fam = 'geo';
-        }
+        var r = rng(k * 7919), c = cook(RECIPES[k - 1] || '1'), part = c.building ? k : c.tris.length;
+        var tris = fit(c.tris).slice(0, part), name = c.name, fam = c.flat ? 'flat' : c.geo ? 'geo' : 'solid';
         // Brain folds: a few seeded waves; deeper and finer as k grows.
-        var depth = 0.02 + 0.16 * (k / SHAPES), waves = [];
+        // Only the geodesic spheres fold (from shape 80): a fold would bend a solid's flat faces or a flat figure.
+        var depth = fam === 'geo' && k >= 80 ? 0.02 + 0.16 * (k / SHAPES) : 0, waves = [];
         for (var w = 0; w < 3; w++) {
             waves.push({ d: norm([r() - 0.5, r() - 0.5, r() - 0.5]), k: 2 + Math.floor(r() * (2 + k / 60)), ph: r() * 6.283 });
         }
         // Its own turn in space, so no two shapes look alike.
-        var ax = r() * 6.283, ay = r() * 6.283, cx = Math.cos(ax), sx = Math.sin(ax), cy = Math.cos(ay), sy = Math.sin(ay);
+        var ax = r() * 6.283, ay = r() * 6.283;
+        if (k <= 4) { ax = 0.3; ay = 0.55; }      // the first shapes rest face-on (a random tilt showed shape 1 edge-on)
+        if (fam === 'flat') { ax = 0; ay = 0; }   // flat figures face the viewer; draw() sways them instead of spinning
+        var cx = Math.cos(ax), sx = Math.sin(ax), cy = Math.cos(ay), sy = Math.sin(ay);
         function turn(v) {
             var y = v[1] * cx - v[2] * sx, z = v[1] * sx + v[2] * cx;
             return [v[0] * cy + z * sy, y, -v[0] * sy + z * cy];
@@ -141,7 +286,7 @@
             return out;
         }
         tris = tris.map(function (t) { return [fold(t[0]), fold(t[1]), fold(t[2])]; });
-        return { k: k, tris: tris, name: name, family: fam };
+        return { k: k, tris: tris, name: name, family: fam, flat: fam === 'flat' };
     }
 
     /** Which triangles light first: sweeping from the front-top, like a thought spreading. */
@@ -296,7 +441,9 @@
             var g = canvas.getContext('2d');
             g.setTransform(dpr, 0, 0, dpr, 0, 0);
             var R = Math.min(W, H) * scale;
-            var a = still ? 0.6 : (now - t0) / 11000 * 2 * Math.PI, tilt = 0.45;
+            // A flat figure sways about 40° each way so it never turns edge-on; everything else turns round.
+            var spin = (now - t0) / 11000 * 2 * Math.PI;
+            var a = sh.flat ? (still ? 0 : 0.7 * Math.sin(spin)) : (still ? 0.6 : spin), tilt = sh.flat ? 0.15 : 0.45;
             var ca = Math.cos(a), sa = Math.sin(a), ct = Math.cos(tilt), st = Math.sin(tilt);
             function P(v) {
                 var x = v[0] * ca + v[2] * sa, z = -v[0] * sa + v[2] * ca, y = v[1];

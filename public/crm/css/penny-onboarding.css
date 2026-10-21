@@ -36,6 +36,12 @@
 .it-ob-triangle { height: 72px; overflow: visible; width: 72px; }
 .it-ob-triangle line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2; }
 .it-ob-triangle-fill { fill: var(--it-ruri); opacity: 0; transition: opacity 600ms ease-in-out; }
+/* About you glyph: locked sides are solid, loose ones fainter (owner, 2026-10-20: a locked side must read as locked
+   even with loose lines crossing it; same line weight, no outline of the shape). */
+.it-ob-by-side line { opacity: .55; }
+.it-ob-by-side line { transition: opacity 300ms ease-in-out, stroke 500ms ease-in-out; }
+/* Known = gold (owner, 2026-10-20): each side turns gold as it locks. */
+.it-ob-by-side line.it-ob-side-locked { opacity: 1; stroke: var(--it-gold); }
 .it-ob-triangle.it-ob-understood .it-ob-triangle-fill { opacity: 1; }
 .it-ob-workspace { margin: 28px 0 0 64px; }
 .it-ob-form { display: grid; gap: 16px; }

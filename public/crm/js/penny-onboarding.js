@@ -15,78 +15,8 @@
   var enteredName = '';
   var matches = [];
 
-  function KnowledgeGlyph(element, options) {
-    options = options || {};
-    this.element = element;
-    this.reducedMotion = !!options.reducedMotion;
-    this.state = null;
-    this.previousState = null;
-    this.frame = 0;
-    this.endpoints = [[36, 10, 63, 57], [63, 57, 9, 57], [9, 57, 36, 10]];
-    // Recognized = three separate pieces of the triangle: each side shortened to 70%, pushed out from the centre and turned a
-    // little, so they never cross or meet (owner, 2026-10-17). [outward push, tangential shift, degrees, drift amplitude, phase]
-    this.chaos = [[0.38, 2.5, -12, 1.1, .2], [0.42, -3, 9, .8, 2.3], [0.36, 2, -10, 1.25, 4.4]];
-    element.innerHTML = '<svg class="it-ob-triangle" viewBox="0 0 72 72" role="img"><title></title><path class="it-ob-triangle-fill" d="M36 10 L63 57 L9 57 Z"></path><line x1="36" y1="10" x2="63" y2="57"></line><line x1="63" y1="57" x2="9" y2="57"></line><line x1="9" y1="57" x2="36" y2="10"></line></svg>';
-    this.svg = element.querySelector('svg');
-    this.title = element.querySelector('title');
-    this.sides = Array.prototype.slice.call(element.querySelectorAll('line'));
-  }
-  KnowledgeGlyph.prototype.coords = function (side, values) {
-    side.setAttribute('x1', values[0]); side.setAttribute('y1', values[1]);
-    side.setAttribute('x2', values[2]); side.setAttribute('y2', values[3]);
-  };
-  KnowledgeGlyph.prototype.loose = function (i, time) {
-    var c = this.chaos[i]; var e = this.endpoints[i];
-    var cx = 36, cy = 41.33;                                   // the triangle's centroid
-    var mx = (e[0] + e[2]) / 2, my = (e[1] + e[3]) / 2;        // this side's midpoint
-    var dx = e[2] - e[0], dy = e[3] - e[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
-    var x = mx + (mx - cx) * c[0] + ux * c[1] + Math.sin(time * .0007 + c[4]) * c[3] * 0.5;
-    var y = my + (my - cy) * c[0] + uy * c[1] + Math.cos(time * .0009 + c[4]) * c[3] * 0.5;
-    var angle = Math.atan2(dy, dx) + c[2] * Math.PI / 180 + Math.sin(time * .0005 + c[4]) * .02;
-    var half = len * 0.35;
-    return [x - Math.cos(angle) * half, y - Math.sin(angle) * half, x + Math.cos(angle) * half, y + Math.sin(angle) * half];
-  };
-  KnowledgeGlyph.prototype.drift = function () {
-    var glyph = this;
-    window.cancelAnimationFrame(this.frame);
-    function draw(time) {
-      if (glyph.state !== 'recognized' || glyph.reducedMotion) return;
-      glyph.sides.forEach(function (side, i) { glyph.coords(side, glyph.loose(i, time)); });
-      glyph.frame = window.requestAnimationFrame(draw);
-    }
-    if (this.reducedMotion) this.sides.forEach(function (side, i) { glyph.coords(side, glyph.loose(i, 0)); });
-    else this.frame = window.requestAnimationFrame(draw);
-  };
-  KnowledgeGlyph.prototype.setState = function (state, animate) {
-    var glyph = this;
-    var descriptions = { recognized: 'Business identity recognized.', identified: 'Business identity identified.', understood: 'Business identity understood.', mastered: 'Business identity mastered.' };
-    window.cancelAnimationFrame(this.frame);
-    this.previousState = this.state;
-    this.state = state || null;
-    this.element.hidden = !descriptions[state];
-    if (!descriptions[state]) return Promise.resolve();
-    this.title.textContent = descriptions[state];
-    this.svg.setAttribute('aria-label', descriptions[state]);
-    this.svg.classList.toggle('it-ob-understood', state === 'understood' || state === 'mastered');
-    if (state === 'recognized') { this.drift(); return Promise.resolve(); }
-    var starts = this.sides.map(function (side) { return ['x1', 'y1', 'x2', 'y2'].map(function (a) { return parseFloat(side.getAttribute(a)); }); });
-    if (!animate || this.reducedMotion || this.previousState === state) {
-      this.sides.forEach(function (side, i) { glyph.coords(side, glyph.endpoints[i]); });
-      return Promise.resolve();
-    }
-    return new Promise(function (resolve) {
-      var begun;
-      function draw(now) {
-        if (!begun) begun = now;
-        var progress = Math.min(1, (now - begun) / 1200);
-        var eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        glyph.sides.forEach(function (side, i) { glyph.coords(side, starts[i].map(function (v, j) { return v + (glyph.endpoints[i][j] - v) * eased; })); });
-        if (progress < 1) glyph.frame = window.requestAnimationFrame(draw);
-        else resolve();
-      }
-      glyph.frame = window.requestAnimationFrame(draw);
-    });
-  };
+  // The knowledge glyph lives in ittai-knowledge-glyph.js (shared with onboarding's "About you", 2026-10-20).
+  var KnowledgeGlyph = window.ItKnowledgeGlyph;
 
   var glyph = new KnowledgeGlyph(knowledge, { reducedMotion: reduced });
 

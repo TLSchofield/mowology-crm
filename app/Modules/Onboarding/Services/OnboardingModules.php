@@ -8,24 +8,84 @@
  */
 require_once __DIR__ . '/OnboardingModule.php';
 
-/** "What's your name, and what should I call you?" */
+/**
+ * "About you" (owner, 2026-10-20): the three things Ittai needs about the person — the name to use, how they
+ * want to be contacted, and when not to bother them. One screen each; the knowledge glyph locks a side per
+ * answer and closes its circle when all three are known. Key stays 'name' so a saved order keeps its place.
+ */
 class OnboardingNameModule extends OnboardingModule
 {
+    public const PARTS = ['name', 'reach', 'quiet'];
+    public const CHANNELS = ['text' => 'Text message', 'email' => 'Email', 'app' => 'App notification'];
+
     public function key(): string { return 'name'; }
-    public function title(): string { return 'Your name'; }
+    public function title(): string { return 'About you'; }
     public function owner(): string { return 'penny'; }
     public function skippable(): bool { return false; }
     public function question(OnboardingContext $c): string { return "Hi, I'm Penny. What's your name, and what should I call you?"; }
 
+    public function me(OnboardingContext $c): array
+    {
+        try {
+            $s = $c->db->prepare('SELECT first_name, last_name, preferred_name, phone, contact_channel, quiet_start, quiet_end, quiet_weekends FROM users WHERE id = ?');
+            $s->execute([$c->userId]);
+            return $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            return [];   // migration 1385 not run yet
+        }
+    }
+
+    /** @return array{0:bool,1:bool,2:bool} name to use · how to reach · when not to bother */
+    public function known(OnboardingContext $c): array
+    {
+        return self::knownFrom($this->me($c));
+    }
+
+    /** Pure, from a users row: the three sides (Penny's brain counts a person the same way). */
+    public static function knownFrom(array $m): array
+    {
+        $channel = (string)($m['contact_channel'] ?? '');
+        return [trim((string)($m['preferred_name'] ?? '')) !== '',
+                isset(self::CHANNELS[$channel]) && ($channel !== 'text' || self::mobile((string)($m['phone'] ?? '')) !== null),
+                !empty($m['quiet_start']) && !empty($m['quiet_end'])];
+    }
+
+    /** The first part still to answer, or null. */
+    public function nextPart(OnboardingContext $c): ?string
+    {
+        foreach ($this->known($c) as $i => $k) if (!$k) return self::PARTS[$i];
+        return null;
+    }
+
     public function state(OnboardingContext $c): string
     {
-        return trim((string)$c->one('SELECT preferred_name FROM users WHERE id = ?', [$c->userId])) !== '' ? self::DONE : self::TODO;
+        return in_array(false, $this->known($c), true) ? self::TODO : self::DONE;
     }
 
     public function summary(OnboardingContext $c): string
     {
-        $p = trim((string)$c->one('SELECT preferred_name FROM users WHERE id = ?', [$c->userId]));
-        return $p !== '' ? 'Penny calls you ' . $p . '.' : '';
+        $m = $this->me($c);
+        $name = trim((string)($m['preferred_name'] ?? ''));
+        $how = self::reachNote($m);
+        $bits = array_values(array_filter([$name !== '' ? 'Penny calls you ' . $name : '', $how]));
+        return $bits ? implode(' · ', $bits) . '.' : '';
+    }
+
+    /** Pure: "by text message · quiet 8 pm–7 am and weekends" (the parts that are known). */
+    public static function reachNote(array $m): string
+    {
+        $bits = [];
+        if (isset(self::CHANNELS[(string)($m['contact_channel'] ?? '')])) $bits[] = 'by ' . strtolower(self::CHANNELS[$m['contact_channel']]);
+        if (!empty($m['quiet_start']) && !empty($m['quiet_end'])) $bits[] = 'quiet ' . self::clock((string)$m['quiet_start']) . '–' . self::clock((string)$m['quiet_end']) . (!empty($m['quiet_weekends']) ? ' and weekends' : '');
+        return implode(' · ', $bits);
+    }
+
+    /** Pure: "20:00:00" → "8 pm", "07:30:00" → "7:30 am". */
+    public static function clock(string $t): string
+    {
+        $ts = strtotime('2000-01-01 ' . $t);
+        if ($ts === false) return $t;
+        return date((int)date('i', $ts) ? 'g:i a' : 'g a', $ts);
     }
 
     /** @return array{ok:bool, message:string} */
@@ -38,6 +98,45 @@ class OnboardingNameModule extends OnboardingModule
         $c->db->prepare('UPDATE users SET first_name = ?, last_name = ?, full_name = ?, preferred_name = ? WHERE id = ?')
               ->execute([$first, $last, trim($first . ' ' . $last), $preferred, $c->userId]);
         return ['ok' => true, 'message' => 'Nice to meet you, ' . $preferred . '.'];
+    }
+
+    /** "How should we reach you?" — text needs a mobile number. */
+    public function saveReach(OnboardingContext $c, string $channel, string $mobile): array
+    {
+        if (!isset(self::CHANNELS[$channel])) return ['ok' => false, 'message' => 'Pick how you\'d like to hear from us.'];
+        $number = self::mobile($mobile);
+        if ($channel === 'text' && $number === null) return ['ok' => false, 'message' => 'Your mobile number, please (10 digits), so the texts reach you.'];
+        if ($channel === 'text') {
+            $c->db->prepare('UPDATE users SET contact_channel = ?, phone = ? WHERE id = ?')->execute([$channel, $number, $c->userId]);
+        } else {
+            $c->db->prepare('UPDATE users SET contact_channel = ? WHERE id = ?')->execute([$channel, $c->userId]);
+        }
+        return ['ok' => true, 'message' => 'Got it — ' . strtolower(self::CHANNELS[$channel]) . '.'];
+    }
+
+    /**
+     * Pure: a North American mobile number as "(604) 555-1212", or null. Only digits, spaces, + ( ) - . are allowed;
+     * 10 digits, or 11 starting with 1 (Codex review 2026-10-21: "abc6045551212xyz" used to pass and be stored as typed).
+     */
+    public static function mobile(string $raw): ?string
+    {
+        $raw = trim($raw);
+        if ($raw === '' || !preg_match('/^[\d\s+().-]+$/', $raw)) return null;
+        $d = preg_replace('/\D+/', '', $raw);
+        if (strlen($d) === 11 && $d[0] === '1') $d = substr($d, 1);
+        if (strlen($d) !== 10) return null;
+        return '(' . substr($d, 0, 3) . ') ' . substr($d, 3, 3) . '-' . substr($d, 6);
+    }
+
+    /** "When shouldn't we bother you?" — quiet from / to (may run past midnight), weekends optional. */
+    public function saveQuiet(OnboardingContext $c, string $from, string $to, bool $weekends): array
+    {
+        $ok = fn($t) => (bool)preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $t);
+        if (!$ok($from) || !$ok($to)) return ['ok' => false, 'message' => 'Pick a time for both, please.'];
+        if ($from === $to) return ['ok' => false, 'message' => 'The start and end are the same — pick two different times.'];
+        $c->db->prepare('UPDATE users SET quiet_start = ?, quiet_end = ?, quiet_weekends = ? WHERE id = ?')
+              ->execute([$from . ':00', $to . ':00', $weekends ? 1 : 0, $c->userId]);
+        return ['ok' => true, 'message' => 'Nothing from us between ' . self::clock($from) . ' and ' . self::clock($to) . ($weekends ? ', or at weekends' : '') . '.'];
     }
 }
 

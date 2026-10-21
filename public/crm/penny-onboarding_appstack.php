@@ -39,5 +39,6 @@ include __DIR__ . '/includes/appstack_head.php';
     </div>
 </main>
 
-<script src="/crm/js/penny-onboarding.js?v=20261017b"></script>
+<script src="/crm/js/ittai-knowledge-glyph.js?v=20261020a"></script>
+<script src="/crm/js/penny-onboarding.js?v=20261020a"></script>
 <?php include __DIR__ . '/includes/appstack_footer.php'; ?>
