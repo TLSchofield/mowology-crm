@@ -189,3 +189,22 @@ approval, posting retry, T4/ROE amendments, and a full ledger → remittance →
 
 **Order unchanged** (rules → hours → deductions → runs → stubs → books → remittances → year end → security →
 shadow next to Wave), with the data-model items above built in step 4 before any run can be approved.
+
+## 9. Paying staff: Interac e-Transfer, prepared by Penny, sent by the owner's bank (owner, 2026-10-21)
+
+- After a run is approved, Penny prepares the payment: per person net pay, their e-Transfer email, a memo
+  ("Pay Oct 1–15"). Where the owner's business banking takes a **bulk Interac e-Transfer file**, she makes that
+  file in the bank's format; otherwise a list to send by hand (today's practice). The owner uploads and
+  authorises it in online banking — Ittai never holds or sends money (section 4 stands).
+- **Confirmed, not assumed:** each transfer is matched to its bank debit on import (existing matching); missing,
+  declined or unaccepted transfers are flagged in the brief and the stub stays "not paid yet" until matched.
+- **Written authorisation per employee** (BC ESA s.20: wages by deposit to the employee's account only if
+  authorised in writing — verified on gov.bc.ca 2026-10-21; e-Transfer isn't named, closest to a deposit with
+  autodeposit on): a "pay me by e-Transfer to <email>" consent in the crew app, stored with its date. Steve to
+  confirm it suffices.
+- Unknown: whether Vancity business banking accepts a bulk e-Transfer upload and its file format — the owner
+  checks in online banking or with Vancity; until then, the hand-sent list.
+- Pricing benchmark (ChatGPT, QuickBooks Canada pricing page, Oct 2026 — to confirm): Core $30 + $5/person,
+  Premium $55 + $8 (time tracking, scheduling), Elite $80 + $15 (GPS geofencing, project time). Ittai's GPS clock
+  and job costing compete with Elite (5 staff ≈ $155/month), not Core.
+
