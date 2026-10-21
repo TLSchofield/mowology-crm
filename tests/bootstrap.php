@@ -94,6 +94,7 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/MailboxPollLock.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxRereadService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
