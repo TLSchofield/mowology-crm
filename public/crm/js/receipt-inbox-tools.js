@@ -12,7 +12,9 @@
  *                        frame ("This page has been blocked by Chrome"; also tried 2026-10-20: serve-receipt.php's own PDF CSP is
  *                        now viewer-friendly, which was not enough). So editExpense is wrapped: for a PDF the preview pane gets a note
  *                        and an "Open PDF in a new tab" button, and the photo-only Rescan button is hidden (Penny's read reads PDFs).
- *                        To show it inline, the Expenses page's own CSP needs object-src 'self' (Tim to decide).
+ *                        2026-10-22: the PDF is ALSO drawn beside the form, in its own frame (#mwPdfFrame) that has no sandbox attribute:
+ *                        Chrome refuses a PDF inside the page's sandbox="" receipt frame. That needs the Expenses page's CSP to say
+ *                        object-src 'self' (public/.htaccess, this one page only); until then the frame is blank and the button is the fallback.
  * Loaded by one <script> line in expenses_appstack.php, after the panel's PHP block (so it also covers receipts opened from the list).
  */
 (function () {
@@ -37,6 +39,18 @@
                     box.hidden = true;
                     var frame = document.getElementById('expReceiptFrame');
                     if (frame) { frame.hidden = true; frame.src = 'about:blank'; }
+                    // The PDF, drawn by Chrome's own viewer in a frame with no sandbox attribute (the page's frame is sandbox="").
+                    var pdf = document.getElementById('mwPdfFrame');
+                    if (!pdf) {
+                        pdf = document.createElement('iframe');
+                        pdf.id = 'mwPdfFrame';
+                        pdf.className = 'mw-modal-receipt-frame';
+                        pdf.title = 'Emailed receipt (PDF)';
+                        pdf.setAttribute('referrerpolicy', 'no-referrer');
+                        col.appendChild(pdf);
+                    }
+                    pdf.hidden = false;
+                    pdf.src = e.receipt_path + (String(e.receipt_path).indexOf('#') < 0 ? '#toolbar=0&view=FitH' : '');
                     if (!note) {
                         note = document.createElement('div');
                         note.id = 'mwPdfNote';
@@ -46,7 +60,7 @@
                     note.textContent = '';
                     var msg = document.createElement('div');
                     msg.className = 'text-muted mb-3';
-                    msg.textContent = 'This receipt is a PDF. Chrome can\'t show it inside this window, so open it beside the editor.';
+                    msg.textContent = 'This receipt is a PDF. If it does not show below, open it in its own tab.';
                     var link = document.createElement('a');
                     link.className = 'btn btn-outline-primary';
                     link.href = e.receipt_path;
@@ -58,8 +72,10 @@
                     note.hidden = false;
                     var rescan = document.getElementById('expRescanBtn');
                     if (rescan) rescan.style.display = 'none';
-                } else if (note) {
-                    note.hidden = true;   // a non-PDF receipt: the editor's own preview applies
+                } else {
+                    if (note) note.hidden = true;   // a non-PDF receipt: the editor's own preview applies
+                    var oldPdf = document.getElementById('mwPdfFrame');
+                    if (oldPdf) { oldPdf.hidden = true; oldPdf.src = 'about:blank'; }
                 }
             } catch (err) { /* the editor still works without the PDF frame */ }
             return result;

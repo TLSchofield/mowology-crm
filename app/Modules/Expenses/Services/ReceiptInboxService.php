@@ -342,6 +342,17 @@ class ReceiptInboxService
             return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'unsupported attachment'];
         }
 
+        // The MIME label and file name are the sender's claim. Check the bytes, and store under an extension WE
+        // choose from them, never the sender's (a file named x.php labelled image/png used to be saved as x.php).
+        if (!class_exists('ReceiptAttachmentGuard', false)) require_once __DIR__ . '/ReceiptAttachmentGuard.php';
+        $real = ReceiptAttachmentGuard::inspect($bytes);
+        if (!$real['ok'] || ($real['kind'] === 'pdf') !== $isPdf) {
+            $why = $real['ok'] ? 'labelled ' . ($isPdf ? 'PDF' : 'image') . ' but is not' : $real['problem'];
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'not a real receipt file (' . $why . ')');
+            return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'not a real receipt file'];
+        }
+        $filename = pathinfo($filename, PATHINFO_FILENAME) . '.' . $real['ext'];
+
         // 1) Store the attachment to disk + media_assets.
         $stored = $this->storeAttachment($bytes, $filename, $mime, $isPdf, $sha256, $systemUserId);
         $mediaId  = $stored['media_id'];
@@ -439,7 +450,9 @@ class ReceiptInboxService
                 'match_confidence'    => $confidence,
                 'anomaly_flags'       => $anomalyFlags,
                 'anomaly_score'       => $anomalyScore,
-                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']]) : null,
+                // A PDF's text can carry bytes that aren't UTF-8: substituted, or json_encode returns false and the text is lost (2026-10-19).
+                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? (json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']],
+                                                                        JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: null) : null,
                 'notes'               => $note,
                 'status'              => $status,
                 'source'              => 'email_inbox',
