@@ -262,7 +262,7 @@ async function submitReceiptExport() {
     </div>
 </div>
 <?php endif; ?>
-<script src="/crm/js/receipt-inbox-tools.js?v=20261020f" defer></script>
+<script src="/crm/js/receipt-inbox-tools.js?v=20261022a" defer></script>
 
 <?php if ($canEdit): ?>
 <!-- Hidden file inputs (must stay outside hidden containers for mobile access) -->
