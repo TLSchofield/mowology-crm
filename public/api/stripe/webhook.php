@@ -32,6 +32,19 @@ require_once $appConfigDir . '/secrets.php';
 // The app config file defines getDB() / Database class.
 require_once $appConfigDir . '/config.php';
 
+// ── Test tenant gate — BEFORE the SDK, the signature check and any DB work ──────
+// On a test tenant nothing is processed unless secrets declare the signing secret a Stripe
+// TEST-mode secret (STRIPE_WEBHOOK_SECRET_IS_TEST = true); a live-mode event is acknowledged
+// with 200 and ignored (checked again once the event is verified, below). Production: no-op.
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+$__webhookSecretIsTest = defined('STRIPE_WEBHOOK_SECRET_IS_TEST') && STRIPE_WEBHOOK_SECRET_IS_TEST === true;
+if (($__why = \App\Core\OutboundGuard::webhookRefusal($__webhookSecretIsTest, null)) !== null) {
+    error_log('[Stripe Webhook] ignored on test tenant: ' . $__why);
+    http_response_code(200);
+    echo 'ignored';
+    exit;
+}
+
 // Stripe SDK via Composer autoload
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -46,6 +59,12 @@ try {
         $sigHeader,
         STRIPE_WEBHOOK_SECRET
     );
+    if (($__why = \App\Core\OutboundGuard::webhookRefusal($__webhookSecretIsTest, (bool)($event->livemode ?? true), (string)$event->type . ' ' . (string)$event->id)) !== null) {
+        error_log('[Stripe Webhook] ignored on test tenant: ' . $__why);
+        http_response_code(200);
+        echo 'ignored';
+        exit;
+    }
 } catch (\UnexpectedValueException $e) {
     // Invalid payload
     error_log('[Stripe Webhook] Invalid payload: ' . $e->getMessage());

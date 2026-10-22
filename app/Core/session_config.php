@@ -24,15 +24,20 @@ if (headers_sent($file, $line)) {
  */
 $savePath = '/home/mowology/tmp';
 
-// A second tenant may name its own folder (SESSION_SAVE_PATH constant in secrets.php, or the
-// environment variable when this file runs before secrets are loaded). It is used only when it
-// already exists and is writable; otherwise everything below is exactly as before. Self-contained
-// on purpose: this file runs on every request and must not depend on another include.
-$__tenantSessionPath = defined('SESSION_SAVE_PATH') ? (string)constant('SESSION_SAVE_PATH') : (string)getenv('SESSION_SAVE_PATH');
-if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
-    $savePath = $__tenantSessionPath;
+// A TEST tenant (TENANT_MODE other than 'live' — constant, or environment variable since this file
+// can run before secrets are loaded) may name its own folder in TENANT_SESSION_SAVE_PATH (constant,
+// else environment variable), used only when it already exists and is writable. Live / undefined
+// mode consults nothing: the path above is used exactly as before. Self-contained on purpose: this
+// file runs on every request and must not depend on another include.
+$__tenantMode = defined('TENANT_MODE') ? (string)constant('TENANT_MODE') : (string)getenv('TENANT_MODE');
+if ($__tenantMode !== '' && $__tenantMode !== 'live') {
+    $__tenantSessionPath = defined('TENANT_SESSION_SAVE_PATH') ? (string)constant('TENANT_SESSION_SAVE_PATH') : (string)getenv('TENANT_SESSION_SAVE_PATH');
+    if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
+        $savePath = $__tenantSessionPath;
+    }
+    unset($__tenantSessionPath);
 }
-unset($__tenantSessionPath);
+unset($__tenantMode);
 
 // Ensure it exists
 if (!is_dir($savePath)) {

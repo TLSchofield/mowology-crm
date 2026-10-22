@@ -14,7 +14,7 @@ namespace App\Core;
  *   TENANT_OFFICE_EMAIL     Reply-To / Return-Path     office@mowology.ca
  *   TENANT_NOTIFY_EMAIL     owner notification inbox   mowology@icloud.com
  *   TENANT_NOTIFY_SMS       owner SMS gateway address  7788469273@msg.telus.com
- *   SESSION_SAVE_PATH       PHP session directory      /home/mowology/tmp
+ *   TENANT_SESSION_SAVE_PATH  PHP session directory    /home/mowology/tmp  (test mode only)
  *   CRON_LOCK_PREFIX        cron lock-file prefix      mowology_cron_
  *
  * No side effects at load. The wider "assumes Mowology" cleanup (AI prompts, templates, phone
@@ -28,7 +28,7 @@ final class TenantIdentity
         'TENANT_OFFICE_EMAIL'   => 'office@mowology.ca',
         'TENANT_NOTIFY_EMAIL'   => 'mowology@icloud.com',
         'TENANT_NOTIFY_SMS'     => '7788469273@msg.telus.com',
-        'SESSION_SAVE_PATH'     => '/home/mowology/tmp',
+        'TENANT_SESSION_SAVE_PATH' => '/home/mowology/tmp',
         'CRON_LOCK_PREFIX'      => 'mowology_cron_',
     ];
 
@@ -89,14 +89,24 @@ final class TenantIdentity
     }
 
     /**
-     * The session directory: the SESSION_SAVE_PATH constant, else the SESSION_SAVE_PATH
-     * environment variable (session_config.php runs before secrets.php on some paths, and
-     * cPanel can SetEnv it), else today's path. Callers still check is_dir/is_writable.
+     * The session directory. Live / undefined mode: today's path, unconditionally — no
+     * constant or environment variable is consulted. Test mode: TENANT_SESSION_SAVE_PATH
+     * (constant, else environment variable — session_config.php can run before secrets.php,
+     * and cPanel can SetEnv it), else today's path. Callers still check is_dir/is_writable.
+     *
+     * @param bool|null $testMode null = ask OutboundGuard
      */
-    public static function sessionSavePath(): string
+    public static function sessionSavePath(?bool $testMode = null): string
     {
-        $value = defined('SESSION_SAVE_PATH') ? constant('SESSION_SAVE_PATH') : getenv('SESSION_SAVE_PATH');
-        return self::resolve('SESSION_SAVE_PATH', $value === false ? null : $value);
+        if ($testMode === null) {
+            require_once __DIR__ . '/OutboundGuard.php';
+            $testMode = OutboundGuard::isTest();
+        }
+        if (!$testMode) {
+            return self::DEFAULTS['TENANT_SESSION_SAVE_PATH'];
+        }
+        $value = defined('TENANT_SESSION_SAVE_PATH') ? constant('TENANT_SESSION_SAVE_PATH') : getenv('TENANT_SESSION_SAVE_PATH');
+        return self::resolve('TENANT_SESSION_SAVE_PATH', $value === false ? null : $value);
     }
 
     public static function cronLockPrefix(): string

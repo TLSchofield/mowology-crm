@@ -27,7 +27,8 @@ Production's `secrets.php` defines **none** of these. Undefined = today's behavi
 | `TENANT_OFFICE_EMAIL` | email | Reply-To / Return-Path — fallback `office@mowology.ca` |
 | `TENANT_NOTIFY_EMAIL` | email | owner notification inbox (`NOTIFICATION_EMAIL`) — fallback `mowology@icloud.com` |
 | `TENANT_NOTIFY_SMS` | gateway address | owner SMS gateway (`NOTIFICATION_SMS_GATEWAY`) — fallback `7788469273@msg.telus.com` |
-| `SESSION_SAVE_PATH` | path | PHP session folder; used only when it exists and is writable — fallback `/home/mowology/tmp`. `app/Core/session_config.php` may run before secrets are loaded, so the tenant should **also** `SetEnv SESSION_SAVE_PATH …` in its `.htaccess` (the file reads the env var when the constant is missing). |
+| `STRIPE_WEBHOOK_SECRET_IS_TEST` | bool | `true` declares `STRIPE_WEBHOOK_SECRET` to be the Stripe **test-mode** signing secret. Without it the webhook endpoint processes **nothing** on a test tenant (every delivery is acknowledged with 200 and ignored). Never set it on production. |
+| `TENANT_SESSION_SAVE_PATH` | path | PHP session folder, **test mode only**; used when it exists and is writable — otherwise `/home/mowology/tmp`. Live / undefined mode consults no constant and no environment variable. `app/Core/session_config.php` can run before secrets are loaded, so the tenant should **also** `SetEnv TENANT_MODE test` and `SetEnv TENANT_SESSION_SAVE_PATH …` in its `.htaccess` (both files read the env vars when the constants are missing; `OutboundGuard` reads the `TENANT_MODE` env var too, so the two can never disagree). |
 | `CRON_LOCK_PREFIX` | `[a-z0-9_]` | cron lock-file prefix in `sys_get_temp_dir()` — fallback `mowology_cron_`. Two tenants on one host with the same prefix would block each other's crons. |
 
 Example for a test tenant:
@@ -42,10 +43,14 @@ define('TENANT_MAIL_FROM_NAME', 'Ittai Test');
 define('TENANT_OFFICE_EMAIL', 'office@test.example.com');
 define('TENANT_NOTIFY_EMAIL', 'tenant-test@example.com');
 define('TENANT_NOTIFY_SMS', '7788469273@msg.telus.com');
-define('SESSION_SAVE_PATH', '/home/<account>/tmp-test');
+define('TENANT_SESSION_SAVE_PATH', '/home/<account>/tmp-test');
 define('CRON_LOCK_PREFIX', 'tenanttest_cron_');
 define('STRIPE_SECRET_KEY', 'sk_test_…');        // a live key is refused outright
+define('STRIPE_WEBHOOK_SECRET', 'whsec_…');      // from the Stripe TEST dashboard …
+define('STRIPE_WEBHOOK_SECRET_IS_TEST', true);   // … and say so, or the webhook ignores everything
 ```
+
+`SANDBOX_ALLOW_RECIPIENTS` and `SANDBOX_ALLOW_CRONS` must be **arrays**. A string (or anything else) is a configuration error: it is logged once (`kind: config`) and treated as an empty list, so nothing is allowed.
 
 ## What happens in `TENANT_MODE = 'test'`
 
@@ -56,7 +61,8 @@ define('STRIPE_SECRET_KEY', 'sk_test_…');        // a live key is refused outr
 | **Push** (FCM / APNs) | Never sent; logged; reported to the queue as delivered so it does not retry five times. |
 | **Crons** that send or charge | Refuse to run (`exit 0` with a log line, JSON when called over the web) unless named in `SANDBOX_ALLOW_CRONS`. Even an allowed cron's messages still pass the email/SMS/push gates above. |
 | **Stripe** | `OutboundGuard::stripeKey()` throws `RuntimeException` before any client exists unless the key starts with `sk_test_` / `rk_test_`. |
-| **Tripwire** | `TENANT_MODE = 'test'` with `DB_NAME = mowology_landscape_crm` **or** a request host of `mowology.ca` / `www.mowology.ca` blocks **everything** — allow-list, sink and test keys included — and writes a `tripwire` log line plus a loud `error_log`. |
+| **Stripe webhook** (`public/api/stripe/webhook.php`) | Gated at the very top, before the SDK loads and before signature verification: unless `STRIPE_WEBHOOK_SECRET_IS_TEST === true` every delivery gets HTTP 200 and no work. After verification, an event with `livemode === true` (or no `livemode` field) gets HTTP 200 and no work — before routing, before any DB access. |
+| **Fail closed** | **Everything** — allow-list, sink and test keys included — is blocked, with a `tripwire` log line and a loud `error_log`, when `TENANT_MODE` is not live and: `DB_NAME` (the constant `Database::connect()` builds its DSN from — there is no other source) is **undefined or empty**; or `DB_NAME` is `mowology_landscape_crm`; or the request host, normalised (lower-case, port and trailing dots removed, IPv6 brackets stripped), is `mowology.ca` / `www.mowology.ca`; or the sandbox log directory cannot be created / written (checked once per process with a real append before any decision — a decision that cannot be recorded is not taken). |
 
 In `'live'` mode no method writes a file, logs, or alters an argument. `tests/Unit/Core/OutboundGuardTest.php` proves the same inputs come out identical.
 
@@ -73,7 +79,7 @@ In `'live'` mode no method writes a file, logs, or alters an argument. `tests/Un
 | Stripe — `InvoiceService`, `InvoiceRefundService`, `StripePayoutService`, `AutopayService`, `public/api/stripe/webhook.php` (×2), `public/crm/api/stripe/create-payment-intent.php` (×2), `public/crm/api/backfill-stripe-cards.php`, `public/crm/api/stripe-payout-probe.php`, `public/crm/companies/api-save-company-card.php`, `public/customer/api/{autopay-setup,confirm-saved-card,invoice-payment-intent}.php` | the key passes through `OutboundGuard::stripeKey()` at all 14 sites |
 | Crons — **charge:** `autopay_charge`, `contract_billing`; **campaign:** `campaign_sender`, `automation_runner`, `invoice_reminders`, `invoice_overdue`, `optin_resend_sender`, `seasonal_triggers`, `mia_email_daily`, `mia_channels_weekly`; **sender:** `forgot_clockout_sms`, `auto_clockout`, `tracking_silent_alert`, `charlie_morning_brief`, `quote_request_reminder`, `push_drain` | `OutboundGuard::cronGate(name, kind)` immediately after `config.php` loads |
 
-`tests/Unit/Core/OutboundExitsScanTest.php` fails the build if a new direct `mail(`, `new PHPMailer`, Stripe client / `setApiKey`, Twilio, FCM or APNs endpoint appears under `app/` or `public/` outside the files above, if a listed file loses its guard call, if a Stripe key is used unwrapped, or if a cron on the list loses its gate.
+`tests/Unit/Core/OutboundExitsScanTest.php` scans **every** PHP file under `app/` and `public/` (the files above included). Each exit it finds — a direct `mail(`, `new PHPMailer` / `$mail->send()`, a curl / socket / HTTP read inside a function that targets a Twilio / Stripe / FCM / APNs host, a Stripe key set or client built, any `\Stripe\X::call()`, the webhook's `constructEvent` — must be preceded by an `OutboundGuard` call **inside the same function body** (brace-matched from the token stream: methods, closures, nested braces) or, for top-level script code, earlier at top level; a Stripe key must be wrapped on the very line it is used. It also insists the adapters above still contain exits (so a rewrite cannot hide one), that the webhook is gated before the SDK loads and again before routing, and that every listed cron keeps its top-level gate. Failures name `file:line`.
 
 Everything else that sends (quotes, invoices, reminders, Sam/Yui/Mia/Otto/Charlie, special requests, consent, reviews, portal) calls `sendEmail()` / `sendSms()` / `PushDispatcher`, so it is covered by the rows above.
 
@@ -87,7 +93,7 @@ One JSON object per line, one file per day: `app/Storage/sandbox/outbound-YYYY-M
 {"time":"2026-10-21T14:05:00-07:00","kind":"cron","target":"autopay_charge","action":"refused","preview":"","cron_kind":"charge","reason":"not in SANDBOX_ALLOW_CRONS"}
 ```
 
-`kind` ∈ `email | sms | push | cron | stripe | tripwire`; `action` ∈ `redirected | blocked | refused | blocked-all`. The preview is at most 200 characters, HTML stripped; bodies and device tokens are never written. Every line also goes to `error_log` as `OutboundGuard[kind] action: target (reason)`.
+`kind` ∈ `email | sms | push | cron | stripe | webhook | config | tripwire`; `action` ∈ `redirected | blocked | refused | ignored | error | blocked-all`. Every field is control-character-stripped (a newline in a recipient cannot forge a second record) and capped — preview 200 characters with HTML stripped, any other string 300, labels 40; bodies and device tokens are never written. Every line also goes to `error_log` as `OutboundGuard[kind] action: target (reason)`, cleaned the same way.
 
 `OutboundGuard::summary(int $limit = 50)` returns `mode`, `tripped`, `log_dir`, `counts` (per `kind:action`) and the newest entries, read-only, for the admin page that comes later. Quick look from a shell: `tail -n 50 app/Storage/sandbox/outbound-$(date +%F).jsonl | jq .`
 
@@ -116,7 +122,7 @@ Also **not** done in this step, deliberately — the wider "assumes Mowology" cl
 
 1. cPanel: subdomain `test.<domain>` → its own document root; its own MySQL database + data-only user (and a DDL user for the migration runners); its own `tmp-test/` session folder.
 2. Deploy the same tree. `secrets.php` for the tenant = production's keys **removed** (Anthropic, Meta, Google, Trackimo, QBO, IMAP), `STRIPE_SECRET_KEY = sk_test_…`, the webhook signing secret from the Stripe **test** dashboard, and the constants in the table above with `TENANT_MODE = 'test'`.
-3. `.htaccess`: `SetEnv SESSION_SAVE_PATH /home/<account>/tmp-test`.
+3. `.htaccess`: `SetEnv TENANT_MODE test` and `SetEnv TENANT_SESSION_SAVE_PATH /home/<account>/tmp-test`.
 4. Load the schema (`database/COMPLETE_DATABASE_SCHEMA_CLEAN.sql` + migrations), then seed test clients with **fake** emails / phones only.
 5. Open any page: confirm `OutboundGuard::summary()['tripped']` is `null` and `mode` is `test`; send one test quote and confirm it lands in the sink with the `[TEST -> …]` subject and the banner.
 6. Cron lines for the tenant: none of the gated crons until each is deliberately allow-listed.
