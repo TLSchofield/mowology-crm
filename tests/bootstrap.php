@@ -56,6 +56,9 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitRules.php
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitReviewService.php';
 require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
+// Test tenant (2026-10-21): the outbound gate and the tenant identity fallbacks
+require_once __DIR__ . '/../app/Core/OutboundGuard.php';
+require_once __DIR__ . '/../app/Core/TenantIdentity.php';
 require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
