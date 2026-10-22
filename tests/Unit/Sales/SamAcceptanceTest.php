@@ -89,6 +89,26 @@ class SamAcceptanceTest extends TestCase
         $this->assertSame('2026-10-14 10:14:46', $g[40]['last_in']);
     }
 
+    /** The real Oct 14 email: nine signed files named by short number; Eva's 0059 is not among them. */
+    public function test_the_files_of_an_email_name_the_quotes_it_is_about(): void
+    {
+        $open = [];
+        foreach ([59 => 84, 60 => 85, 61 => 86, 62 => 87, 63 => 88, 64 => 89, 65 => 90, 66 => 91, 67 => 92, 68 => 93, 69 => 94] as $n => $id) {
+            $open[] = ['id' => $id, 'number' => sprintf('QUO-2026-%04d', $n)];
+        }
+        $files = [1 => 'KENWOOD - MOWOLOGY - SNOW 0060 - SIGNED.pdf', 2 => 'SHANNON - MOWOLOGY - SNOW 0061 - SIGNED.pdf',
+                  3 => 'MOHAWK - MOWOLOGY - SNOW 0062 - SIGNED.pdf', 4 => 'ST CHARLES - MOWOLOGY - SNOW 0063 - SIGNED.pdf',
+                  5 => 'CRYSTAL COURT - MOWOLOGY - SNOW 0064 - SIGNED.pdf', 6 => 'OAKRIDGE - MOWOLOGY - SNOW 0065 - SIGNED.pdf',
+                  7 => 'VILLAGE GREEN - MOWOLOGY - SNOW 0066 - SIGNED.pdf', 8 => 'BRANDON - MOWOLOGY - SNOW 0068 - SIGNED.pdf',
+                  9 => 'KPC - MOWOLOGY - SNOW 0069 - SIGNED.pdf', 10 => 'image001.png'];
+        $ids = SalesDeskService::quoteIdsNamedBy($open, 'Snow Removal - 2025/2026 - Signed quotes', 'Please see attached signed quotes', $files);
+        sort($ids);
+        $this->assertSame([85, 86, 87, 88, 89, 90, 91, 93, 94], $ids);
+        $this->assertNotContains(84, $ids, "Eva's quote (0059) is not in the batch");
+        $this->assertNotContains(92, $ids, 'nor is 0067 (another customer)');
+        $this->assertSame([], SalesDeskService::quoteIdsNamedBy($open, 'Re: your quote', 'Thanks, will look at it', [10 => 'image001.png']), 'no number: names no quote');
+    }
+
     public function test_a_year_in_a_file_name_is_not_a_quote_number(): void
     {
         $m = SamAcceptanceService::match([['id' => 7, 'number' => 'QUO-2025-2026'], ['id' => 8, 'number' => 'QUO-2026-0070']],

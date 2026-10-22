@@ -291,10 +291,26 @@ class SalesDeskService
                 }
             } catch (Throwable $e) { $tied = []; }
         }
+        // No acceptance record? The files kept with the mail still name the quotes ("MOHAWK - MOWOLOGY - SNOW 0062 -
+        // SIGNED.pdf"), so read them the way Sam's acceptance matching does.
+        $files = []; $open = [];
+        if ($this->hasTable('inbound_message_attachments')) {
+            try {
+                foreach ($this->db->query("SELECT message_key, id, filename FROM inbound_message_attachments")->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                    $files[(string)$f['message_key']][(int)$f['id']] = (string)$f['filename'];
+                }
+                $open = $this->db->query("SELECT id, quote_number AS number FROM quotes WHERE status IN ('sent', 'viewed')")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { $files = []; $open = []; }
+        }
         foreach ($rows as $r) {
             if (!self::countsAsSamReply($r)) continue;
+            $key = (string)($r['message_key'] ?? '');
+            $ids = $tied[$key] ?? [];
+            if (!$ids && !empty($files[$key]) && $open) {
+                $ids = self::quoteIdsNamedBy($open, (string)$r['subject'], (string)$r['snippet'], $files[$key]);
+            }
             $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id'],
-                    'quote_ids' => $tied[(string)($r['message_key'] ?? '')] ?? []];
+                    'quote_ids' => $ids];
             if (!empty($r['company_id'])) {
                 $k = (int)$r['company_id'];
                 if (!isset($out['company'][$k]) || $hit['at'] > $out['company'][$k]['at']) $out['company'][$k] = $hit;
@@ -304,6 +320,19 @@ class SalesDeskService
             if ($org !== null && (!isset($out['org'][$org]) || $hit['at'] > $out['org'][$org]['at'])) $out['org'][$org] = $hit;
         }
         return $out;
+    }
+
+    /**
+     * The open quotes an email names — by a QUO number in the text, or a quote number in a file name — read the way
+     * Sam's acceptance matching reads them. Empty when it names none. Pure.
+     * @param array<int, array{id: int|string, number: string}> $open
+     * @param array<int, string> $files attachment id => file name
+     * @return int[]
+     */
+    public static function quoteIdsNamedBy(array $open, string $subject, string $text, array $files): array
+    {
+        if (!class_exists('SamAcceptanceService')) require_once __DIR__ . '/SamAcceptanceService.php';
+        return array_values(array_map('intval', array_column(SamAcceptanceService::match($open, $subject, $text, $files), 'quote_id')));
     }
 
     /**
