@@ -14,6 +14,12 @@
  * Migrated from: public/crm/includes/email_helper.php
  */
 
+// Test tenant: both mail() calls below are gated by OutboundGuard (pass-through on production).
+if (!defined('APP_ROOT')) {
+    require_once dirname(__DIR__, 2) . '/Core/paths.php';
+}
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+
 /**
  * Send an HTML email, optionally with a PDF attachment.
  *
@@ -42,6 +48,12 @@ function sendCrmEmail(
         error_log("sendCrmEmail: attachment not found: {$attachmentPath}");
         $attachmentPath = null;
     }
+
+    $guard = \App\Core\OutboundGuard::email($to, $subject, $htmlBody);
+    if (!$guard['send']) {
+        return true;
+    }
+    [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
 
     // --- Simple HTML email (no attachment) ---
     if (!$attachmentPath) {

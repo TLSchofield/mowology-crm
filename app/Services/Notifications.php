@@ -14,12 +14,20 @@ if (!function_exists('h')) {
  * Migrated from: public/crm/includes/notifications.php
  */
 
+// Test tenant: the two mail() calls below are gated by OutboundGuard (pass-through on production) and
+// the owner's inbox / SMS gateway come from TenantIdentity (today's values unless secrets say otherwise).
+if (!defined('APP_ROOT')) {
+    require_once dirname(__DIR__) . '/Core/paths.php';
+}
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+require_once APP_ROOT . '/Core/TenantIdentity.php';
+
 // Notification configuration
 if (!defined('NOTIFICATION_EMAIL')) {
-    define('NOTIFICATION_EMAIL', 'mowology@icloud.com');
+    define('NOTIFICATION_EMAIL', \App\Core\TenantIdentity::notifyEmail());
 }
 if (!defined('NOTIFICATION_SMS_GATEWAY')) {
-    define('NOTIFICATION_SMS_GATEWAY', '7788469273@msg.telus.com'); // Telus email-to-SMS gateway
+    define('NOTIFICATION_SMS_GATEWAY', \App\Core\TenantIdentity::notifySms()); // Telus email-to-SMS gateway
 }
 
 /**
@@ -32,6 +40,12 @@ if (!defined('NOTIFICATION_SMS_GATEWAY')) {
  * @return bool Success status
  */
 function sendEmailNotification($to, $subject, $body, $from = 'Mowology <noreply@mowology.ca>') {
+    $guard = \App\Core\OutboundGuard::email((string)$to, (string)$subject, (string)$body);
+    if (!$guard['send']) {
+        return true;
+    }
+    [$to, $subject, $body] = [$guard['to'], $guard['subject'], $guard['body']];
+
     $headers = "From: {$from}\r\n";
     $headers .= "Reply-To: office@mowology.ca\r\n";
     $headers .= "MIME-Version: 1.0\r\n";
@@ -54,6 +68,10 @@ function sendSMSNotification($message) {
 
     // Truncate message if too long (SMS limit is ~160 chars)
     $message = substr($message, 0, 160);
+
+    if (!\App\Core\OutboundGuard::sms(NOTIFICATION_SMS_GATEWAY, (string)$message)) {
+        return true;
+    }
 
     return mail(NOTIFICATION_SMS_GATEWAY, '', $message, $headers);
 }

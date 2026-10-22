@@ -31,6 +31,13 @@ if (!defined('APP_ROOT')) {
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
 require_once APP_ROOT . '/Services/Messaging/SmsTemplates.php';
+// Test tenant: every email / SMS exit below passes through OutboundGuard (pass-through on production);
+// the default From / Reply-To come from TenantIdentity (today's addresses unless secrets say otherwise).
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+require_once APP_ROOT . '/Core/TenantIdentity.php';
+
+use App\Core\OutboundGuard;
+use App\Core\TenantIdentity;
 
 // ─── Canadian Carrier Email-to-SMS Gateways ─────────────────────────
 
@@ -180,10 +187,16 @@ function _normaliseCcList(array $cc, string $to): array
  */
 function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, array $files, string $fromName, array $cc = []): array
 {
+    $guard = OutboundGuard::email($to, $subject, $htmlBody, $cc);
+    if (!$guard['send']) {
+        return ['success' => true, 'method' => 'sandbox (blocked)', 'error' => null];
+    }
+    [$to, $cc, $subject, $htmlBody] = [$guard['to'], $guard['cc'], $guard['subject'], $guard['body']];
+
     $mail = _createMailer();
     if ($mail) {
         try {
-            $mail->setFrom('no-reply@mowology.ca', $fromName);
+            $mail->setFrom(TenantIdentity::mailFrom(), $fromName);
             $mail->addAddress($to);
             foreach ($cc as $ccAddr) {
                 $mail->addCC($ccAddr);
@@ -261,7 +274,7 @@ function sendSms(
     $attempts = 0;
     $errors = [];
     $sentCarriers = [];
-    $fromEmail = 'no-reply@mowology.ca';
+    $fromEmail = TenantIdentity::mailFrom();
 
     // Use native mail() for SMS gateways — NOT PHPMailer.
     // PHPMailer adds MIME headers (Content-Type, MIME-Version, Message-ID, etc.)
@@ -271,6 +284,13 @@ function sendSms(
     foreach (CANADIAN_SMS_GATEWAYS as $carrierName => $smsDomain) {
         $attempts++;
         $smsRecipient = $cleanPhone . '@' . $smsDomain;
+
+        // Test tenant: a gateway that is not allow-listed is logged, never texted; the flow
+        // still sees a success so nothing retries. Pass-through on production.
+        if (!OutboundGuard::sms($smsRecipient, $message)) {
+            $sentCarriers[] = $carrierName . ' (sandbox)';
+            continue;
+        }
 
         try {
             $headers = "From: {$senderName} <{$fromEmail}>\r\n"
@@ -931,7 +951,11 @@ function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
         $domain = CANADIAN_SMS_GATEWAYS[$carrierName];
         $smsRecipient = $cleanPhone . '@' . $domain;
 
-        $result = mail($smsRecipient, "Test", $message, "From: Mowology <no-reply@mowology.ca>\r\n");
+        if (!OutboundGuard::sms($smsRecipient, $message)) {
+            return ['success' => true, 'carrier' => $carrierName, 'recipient' => $smsRecipient, 'message' => 'Sandbox: test SMS logged, not sent'];
+        }
+
+        $result = mail($smsRecipient, "Test", $message, "From: " . TenantIdentity::mailFromName() . " <" . TenantIdentity::mailFrom() . ">\r\n");
 
         return [
             'success' => $result,
@@ -1154,8 +1178,8 @@ function _createMailer(): ?\PHPMailer\PHPMailer\PHPMailer
         $mail->Encoding   = '8bit';
         $mail->XMailer    = 'Mowology CRM';
 
-        $mail->setFrom('no-reply@mowology.ca', 'Mowology');
-        $mail->addReplyTo('office@mowology.ca', 'Mowology');
+        $mail->setFrom(TenantIdentity::mailFrom(), TenantIdentity::mailFromName());
+        $mail->addReplyTo(TenantIdentity::officeEmail(), TenantIdentity::mailFromName());
 
         return $mail;
     } catch (\Throwable $e) {
@@ -1181,8 +1205,14 @@ function _sendViaPhpMailer(
         return null; // PHPMailer not available
     }
 
+    $guard = OutboundGuard::email($to, $subject, $htmlBody);
+    if (!$guard['send']) {
+        return ['success' => true, 'error' => null];
+    }
+    [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
     try {
-        $mail->setFrom('no-reply@mowology.ca', $fromName);
+        $mail->setFrom(TenantIdentity::mailFrom(), $fromName);
         $mail->addAddress($to);
         $mail->Subject = $subject;
         $mail->isHTML(true);
@@ -1264,12 +1294,18 @@ function _sendSimpleHtmlEmail(
     string $fromName = 'Mowology'
 ): bool {
     try {
-        $fromEmail = 'no-reply@mowology.ca';
+        $guard = OutboundGuard::email($to, $subject, $htmlBody);
+        if (!$guard['send']) {
+            return true;
+        }
+        [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
+        $fromEmail = TenantIdentity::mailFrom();
         $fromName  = _stripHeaderInjection($fromName);
         $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "Reply-To: " . TenantIdentity::officeEmail() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
@@ -1298,6 +1334,12 @@ function _sendSimpleHtmlEmail(
 function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = 'Mowology', array $cc = []): bool
 {
     try {
+        $guard = OutboundGuard::email($to, $subject, $htmlBody, $cc);
+        if (!$guard['send']) {
+            return true;
+        }
+        [$to, $cc, $subject, $htmlBody] = [$guard['to'], $guard['cc'], $guard['subject'], $guard['body']];
+
         $fromName = _stripHeaderInjection($fromName);
         $subject  = _stripHeaderInjection($subject);
         $boundary = '==BOUNDARY_' . md5((string)microtime(true) . $to . (string)mt_rand()) . '==';
@@ -1321,9 +1363,9 @@ function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody
         }
         $body .= "--{$boundary}--\r\n";
 
-        $headers  = "From: {$fromName} <no-reply@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers  = "From: {$fromName} <" . TenantIdentity::mailFrom() . ">\r\n";
+        $headers .= "Reply-To: " . TenantIdentity::officeEmail() . "\r\n";
+        $headers .= "Return-Path: " . TenantIdentity::officeEmail() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
         $headers .= "X-Mailer: Mowology CRM\r\n";
@@ -1359,6 +1401,12 @@ function _sendEmailWithAttachment(
     string $fromName = 'Mowology'
 ): bool {
     try {
+        $guard = OutboundGuard::email($to, $subject, $htmlBody);
+        if (!$guard['send']) {
+            return true;
+        }
+        [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
         $fromName = _stripHeaderInjection($fromName);
         $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
@@ -1392,9 +1440,9 @@ function _sendEmailWithAttachment(
         $body .= $encodedFile . "\r\n";
         $body .= "--{$boundary}--\r\n";
 
-        $headers = "From: {$fromName} <no-reply@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers = "From: {$fromName} <" . TenantIdentity::mailFrom() . ">\r\n";
+        $headers .= "Reply-To: " . TenantIdentity::officeEmail() . "\r\n";
+        $headers .= "Return-Path: " . TenantIdentity::officeEmail() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
         $headers .= "X-Mailer: Mowology CRM\r\n";

@@ -22,6 +22,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: every send below is gated (pass-through on production)
 
 // ─── PHPMailer Loader ────────────────────────────────────────────────
 
@@ -202,6 +203,12 @@ function _sendViaPhpMailer(
         return null; // PHPMailer not available — caller should use fallback
     }
 
+    $guard = \App\Core\OutboundGuard::email($to, $subject, $htmlBody);
+    if (!$guard['send']) {
+        return true;
+    }
+    [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
     try {
         // Override from name if provided
         $mail->setFrom('no-reply@mowology.ca', $from);
@@ -282,6 +289,12 @@ function sendSimpleHtmlEmail(
     string $from = 'Mowology'
 ): bool {
     try {
+        $guard = \App\Core\OutboundGuard::email($to, $subject, $htmlBody);
+        if (!$guard['send']) {
+            return true;
+        }
+        [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
         $fromEmail = 'no-reply@mowology.ca';
         $from      = _stripHeaderInjection($from);
         $subject   = _stripHeaderInjection($subject);
@@ -328,6 +341,12 @@ function sendEmailWithAttachment(
     string $from = 'Mowology'
 ): bool {
     try {
+        $guard = \App\Core\OutboundGuard::email($to, $subject, $htmlBody);
+        if (!$guard['send']) {
+            return true;
+        }
+        [$to, $subject, $htmlBody] = [$guard['to'], $guard['subject'], $guard['body']];
+
         $from     = _stripHeaderInjection($from);
         $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
