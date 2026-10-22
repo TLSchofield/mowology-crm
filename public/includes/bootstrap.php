@@ -11,6 +11,13 @@ require_once dirname(__DIR__) . '/app_config/config.php';
 // Configure session to use a writable cPanel temp directory
 if (session_status() === PHP_SESSION_NONE) {
   $sessionPath = '/home/mowology/tmp';
+  // A second tenant may name its own folder (SESSION_SAVE_PATH in secrets.php, loaded by config.php
+  // above); used only when it exists and is writable, else the path above as before.
+  $__tenantSessionPath = defined('SESSION_SAVE_PATH') ? (string)constant('SESSION_SAVE_PATH') : (string)getenv('SESSION_SAVE_PATH');
+  if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
+    $sessionPath = $__tenantSessionPath;
+  }
+  unset($__tenantSessionPath);
   if (is_dir($sessionPath) && is_writable($sessionPath)) {
     session_save_path($sessionPath);
   }

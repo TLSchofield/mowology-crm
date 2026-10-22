@@ -23,9 +23,10 @@ final class CronLock
 
     public static function acquire(string $name): self
     {
+        require_once __DIR__ . '/TenantIdentity.php';
         $lock = new self();
         $lock->path = sys_get_temp_dir()
-            . '/mowology_cron_'
+            . '/' . TenantIdentity::cronLockPrefix()   // 'mowology_cron_' unless CRON_LOCK_PREFIX says otherwise
             . preg_replace('/[^a-z0-9_]/i', '_', $name)
             . '.lock';
 

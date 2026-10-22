@@ -24,6 +24,16 @@ if (headers_sent($file, $line)) {
  */
 $savePath = '/home/mowology/tmp';
 
+// A second tenant may name its own folder (SESSION_SAVE_PATH constant in secrets.php, or the
+// environment variable when this file runs before secrets are loaded). It is used only when it
+// already exists and is writable; otherwise everything below is exactly as before. Self-contained
+// on purpose: this file runs on every request and must not depend on another include.
+$__tenantSessionPath = defined('SESSION_SAVE_PATH') ? (string)constant('SESSION_SAVE_PATH') : (string)getenv('SESSION_SAVE_PATH');
+if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
+    $savePath = $__tenantSessionPath;
+}
+unset($__tenantSessionPath);
+
 // Ensure it exists
 if (!is_dir($savePath)) {
     @mkdir($savePath, 0700, true);

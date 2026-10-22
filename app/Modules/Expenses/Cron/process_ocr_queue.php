@@ -71,7 +71,8 @@ require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
 // once claude/lucid-allen-28bfce merges to main. The inline flock below
 // is functionally equivalent (non-blocking exclusive lock, released by
 // the kernel on process exit) so the swap will be a one-line change.
-$lockPath   = sys_get_temp_dir() . '/mowology_cron_process_ocr_queue.lock';
+require_once APP_ROOT . '/Core/TenantIdentity.php';
+$lockPath   = sys_get_temp_dir() . '/' . \App\Core\TenantIdentity::cronLockPrefix() . 'process_ocr_queue.lock';
 $lockHandle = fopen($lockPath, 'c');
 if ($lockHandle === false) {
     fwrite(STDERR, "process_ocr_queue: failed to open lockfile $lockPath\n");
