@@ -9,6 +9,12 @@
  * the Mac. Stored rows are sales_messages with mailbox 'imessage', channel 'sms' and
  * from/to 'text' — the raw number is not stored either; contact_id says who it was.
  *
+ * 2026-10-22 (bridge 1.2, migration 1396): a text from a number that is NOT a customer is no longer dropped
+ * (a customer texting from a new number was invisible to Yui). The bridge also posts those, with the number's
+ * last 10 digits; they wait in text_unmatched until Tim links the number to a customer (rows move into
+ * sales_messages) or marks it personal (rows deleted; only a salted hash is kept in text_personal and
+ * served back in numbers() so the bridge never sends that number again).
+ *
  * Every run also posts a heartbeat() (counts only), so status() can tell when the bridge
  * has gone silent (Mac asleep, Full Disk Access lost, wrong token).
  *
@@ -82,13 +88,15 @@ class TextBridgeService
 
     /**
      * Store matched texts. Each: {hash, direction: in|out, sent_at: unix seconds, guid, text}.
-     * Unknown hashes are rejected (never stored).
-     * @return array{stored: int, dupe: int, unknown: int, invalid: int}
+     * A hash that is not a customer is kept in text_unmatched when the message carries its number ('phone', last 10
+     * digits, which must hash to it) and the number is not marked personal; otherwise it is dropped.
+     * @return array{stored: int, dupe: int, unknown: int, invalid: int, unmatched: int, personal: int}
      */
     public function ingest(array $msgs): array
     {
         [, $map] = $this->numbers();
-        $res = ['stored' => 0, 'dupe' => 0, 'unknown' => 0, 'invalid' => 0];
+        $personal = array_flip($this->personalHashes());
+        $res = ['stored' => 0, 'dupe' => 0, 'unknown' => 0, 'invalid' => 0, 'unmatched' => 0, 'personal' => 0];
         $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
         $s = $this->db->prepare("
             {$verb} INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
@@ -97,7 +105,13 @@ class TextBridgeService
         foreach ($msgs as $m) {
             $row = is_array($m) ? self::row($m, $map) : null;
             if ($row === null) { $res['invalid']++; continue; }
-            if ($row === 'unknown') { $res['unknown']++; continue; }
+            if ($row === 'unknown') {
+                $res['unknown']++;
+                $u = $this->inboxReady() ? self::unmatchedRow($m, $this->salt(), $personal) : null;
+                if ($u === 'personal') { $res['personal']++; }
+                elseif (is_array($u)) { $this->storeUnmatched($u) ? $res['unmatched']++ : $res['dupe']++; }
+                continue;
+            }
             $s->execute([self::MAILBOX, $row['key'], $row['direction'], $row['contact_id'], $row['snippet'], $row['sent_at']]);
             $s->rowCount() > 0 ? $res['stored']++ : $res['dupe']++;
         }
@@ -142,11 +156,232 @@ class TextBridgeService
         return ['key' => 'interac-' . $guid, 'sender' => $sender, 'sent_at' => date('Y-m-d H:i:s', (int)$at)];
     }
 
+    // ──────────────────────────────────────────────────────
+    // Texts from numbers that are not a customer yet (migration 1396)
+    // ──────────────────────────────────────────────────────
+
+    private ?bool $inboxReady = null;
+
+    /** Have the text_unmatched / text_personal tables been created (migration 1396)? */
+    public function inboxReady(): bool
+    {
+        if ($this->inboxReady !== null) return $this->inboxReady;
+        try {
+            $this->db->query("SELECT 1 FROM text_unmatched LIMIT 1");
+            $this->db->query("SELECT 1 FROM text_personal LIMIT 1");
+            return $this->inboxReady = true;
+        } catch (Throwable $e) {
+            return $this->inboxReady = false;
+        }
+    }
+
+    /** Salted hashes of the numbers marked personal: served to the bridge so it never sends them. @return string[] */
+    public function personalHashes(): array
+    {
+        if (!$this->inboxReady()) return [];
+        try { return $this->db->query("SELECT number_hash FROM text_personal")->fetchAll(PDO::FETCH_COLUMN) ?: []; }
+        catch (Throwable $e) { return []; }
+    }
+
+    /**
+     * Pure (tested): one posted text from a non-customer number → a text_unmatched row; 'personal' when the number
+     * is on the blocklist; null when malformed or when 'phone' is missing or does not hash to 'hash' (so the server
+     * never stores a number the bridge did not really have).
+     * @param array<string, mixed> $personal hash => anything
+     * @return array{phone10: string, key: string, direction: string, snippet: string, sent_at: string}|string|null
+     */
+    public static function unmatchedRow(array $m, string $salt, array $personal)
+    {
+        $hash  = strtolower((string)($m['hash'] ?? ''));
+        $phone = (string)($m['phone'] ?? '');
+        $guid  = (string)($m['guid'] ?? '');
+        $dir   = (string)($m['direction'] ?? '');
+        $at    = $m['sent_at'] ?? null;
+        $text  = trim(str_replace("\u{FFFC}", '', (string)($m['text'] ?? '')));
+        if (!preg_match('/^[0-9a-f]{64}$/', $hash) || !preg_match('/^\d{10}$/', $phone)) return null;
+        if (!hash_equals(self::hash($phone, $salt), $hash)) return null;
+        if (isset($personal[$hash])) return 'personal';
+        if (!preg_match('~^[A-Za-z0-9:_/\-]{1,150}$~', $guid)) return null;
+        if (!in_array($dir, ['in', 'out', 'inbound', 'outbound'], true)) return null;
+        if (!is_numeric($at) || (int)$at < 946684800 || (int)$at > time() + 86400) return null;
+        if ($text === '') return null;
+        return [
+            'phone10'   => $phone,
+            'key'       => 'imsg-' . $guid,
+            'direction' => ($dir === 'in' || $dir === 'inbound') ? 'inbound' : 'outbound',
+            'snippet'   => mb_strlen($text) > self::SNIPPET_MAX ? rtrim(mb_substr($text, 0, self::SNIPPET_MAX - 1)) . '…' : $text,
+            'sent_at'   => date('Y-m-d H:i:s', (int)$at),
+        ];
+    }
+
+    /** Waiting texts the CRM will hold: a token holder cannot grow the table without limit. */
+    public const UNMATCHED_CAP = 5000;
+
+    /** @param array{phone10: string, key: string, direction: string, snippet: string, sent_at: string} $u true when new */
+    private function storeUnmatched(array $u): bool
+    {
+        // The blocklist is read again here, not trusted from the start of the batch: a number marked personal while this
+        // request was running must not slip in afterwards (Codex review 2026-10-22).
+        $h = self::hash($u['phone10'], $this->salt());
+        $p = $this->db->prepare("SELECT 1 FROM text_personal WHERE number_hash = ?");
+        $p->execute([$h]);
+        if ($p->fetchColumn()) return false;
+        if ((int)$this->db->query("SELECT COUNT(*) FROM text_unmatched")->fetchColumn() >= self::UNMATCHED_CAP) return false;
+        $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+        $st = $this->db->prepare("{$verb} INTO text_unmatched (phone10, message_key, direction, snippet, sent_at) VALUES (?, ?, ?, ?, ?)");
+        $st->execute([$u['phone10'], $u['key'], $u['direction'], $u['snippet'], $u['sent_at']]);
+        return $st->rowCount() > 0;
+    }
+
+    /**
+     * Move waiting texts whose number now belongs to a customer into sales_messages (the number was added to a
+     * customer's record). Run after every link and each time the bridge fetches the number list.
+     * @return int texts moved
+     */
+    public function adoptUnmatched(): int
+    {
+        if (!$this->inboxReady()) return 0;
+        $this->map = null;
+        [$salt, $map] = $this->numbers();
+        $moved = 0;
+        $phones = $this->db->query("SELECT DISTINCT phone10 FROM text_unmatched")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+        foreach ($phones as $ph) {
+            $h = self::hash((string)$ph, $salt);
+            if (!isset($map[$h])) continue;
+            $rows = $this->db->prepare("SELECT message_key, direction, snippet, sent_at FROM text_unmatched WHERE phone10 = ? ORDER BY sent_at");
+            $rows->execute([$ph]);
+            $ins = $this->db->prepare("
+                {$verb} INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
+                VALUES (?, ?, ?, 'sms', ?, 'text', 'text', NULL, ?, ?)
+            ");
+            $copied = [];
+            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $ins->execute([self::MAILBOX, $r['message_key'], $r['direction'], (int)$map[$h], $r['snippet'], $r['sent_at']]);
+                $copied[] = (string)$r['message_key'];
+                $moved++;
+            }
+            // Delete only what was copied: a text that arrived while this ran stays for the next pass (Codex review).
+            $del = $this->db->prepare("DELETE FROM text_unmatched WHERE message_key = ?");
+            foreach ($copied as $k) $del->execute([$k]);
+        }
+        return $moved;
+    }
+
+    /**
+     * The waiting numbers for Tim's list, newest first, each with its latest few messages.
+     * @return array<int, array{phone10: string, count: int, inbound: int, first_at: string, last_at: string, messages: array}>
+     */
+    public function unknownThreads(int $limit = 50, int $perThread = 5): array
+    {
+        if (!$this->inboxReady()) return [];
+        $limit = max(1, min(200, $limit));
+        $st = $this->db->query("SELECT phone10, COUNT(*) AS n, SUM(direction = 'inbound') AS ins, MIN(sent_at) AS first_at, MAX(sent_at) AS last_at
+                                FROM text_unmatched GROUP BY phone10 ORDER BY last_at DESC LIMIT {$limit}");
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $m = $this->db->prepare("SELECT direction, snippet, sent_at FROM text_unmatched WHERE phone10 = ? ORDER BY sent_at DESC, id DESC LIMIT " . max(1, $perThread));
+            $m->execute([$r['phone10']]);
+            $out[] = ['phone10' => (string)$r['phone10'], 'count' => (int)$r['n'], 'inbound' => (int)$r['ins'],
+                      'first_at' => (string)$r['first_at'], 'last_at' => (string)$r['last_at'],
+                      'messages' => array_reverse($m->fetchAll(PDO::FETCH_ASSOC))];
+        }
+        return $out;
+    }
+
+    /** How many different numbers are waiting (for a badge). */
+    public function unknownCount(): int
+    {
+        if (!$this->inboxReady()) return 0;
+        try { return (int)$this->db->query("SELECT COUNT(DISTINCT phone10) FROM text_unmatched")->fetchColumn(); }
+        catch (Throwable $e) { return 0; }
+    }
+
+    /**
+     * Customers to link a waiting number to: a name or part of a phone number. Newest-active first, at most $limit.
+     * @return array<int, array{id: int, name: string, phone: string, mobile: string}>
+     */
+    public function searchContacts(string $q, int $limit = 8): array
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 2) return [];
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
+        $digits = preg_replace('/\D/', '', $q);
+        $dl = $digits !== '' ? '%' . $digits . '%' : $like;
+        $limit = max(1, min(25, $limit));
+        $sql = "SELECT id, first_name, last_name, phone, mobile FROM contacts
+                WHERE (first_name || ' ' || last_name) LIKE ? ESCAPE '\\' OR phone LIKE ? OR mobile LIKE ?
+                ORDER BY id DESC LIMIT {$limit}";
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $sql = str_replace("(first_name || ' ' || last_name)", "CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))", $sql);
+        }
+        $st = $this->db->prepare($sql);
+        $st->execute([$like, $dl, $dl]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = ['id' => (int)$r['id'], 'name' => trim((string)$r['first_name'] . ' ' . (string)$r['last_name']),
+                      'phone' => (string)($r['phone'] ?? ''), 'mobile' => (string)($r['mobile'] ?? '')];
+        }
+        return $out;
+    }
+
+    /**
+     * Put a waiting number on a customer's record, then move its texts to that customer. Fills a blank mobile, else a
+     * blank phone; when both are filled it replaces the one named in $replace ('phone' | 'mobile') and refuses
+     * without it, so a number is never overwritten by accident.
+     * @return array{ok: bool, error?: string, moved?: int, field?: string}
+     */
+    public function linkToContact(string $phone10, int $contactId, ?string $replace = null): array
+    {
+        if (!preg_match('/^\d{10}$/', $phone10)) return ['ok' => false, 'error' => 'That is not a 10-digit number.'];
+        $w = $this->db->prepare("SELECT 1 FROM text_unmatched WHERE phone10 = ? LIMIT 1");
+        $w->execute([$phone10]);
+        if (!$w->fetchColumn()) return ['ok' => false, 'error' => 'No texts are waiting from that number.'];
+        $this->map = null;
+        [$salt0, $map0] = $this->numbers();
+        $owner = $map0[self::hash($phone10, $salt0)] ?? null;
+        if ($owner !== null && (int)$owner !== $contactId) return ['ok' => false, 'error' => 'That number already belongs to another customer.'];
+        $st = $this->db->prepare("SELECT id, phone, mobile FROM contacts WHERE id = ?");
+        $st->execute([$contactId]);
+        $c = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$c) return ['ok' => false, 'error' => 'Customer not found.'];
+        $have = fn($f) => self::normalize(isset($c[$f]) ? (string)$c[$f] : null);
+        if ($have('mobile') === $phone10 || $have('phone') === $phone10) { $field = null; }       // already on the record
+        elseif (trim((string)($c['mobile'] ?? '')) === '') $field = 'mobile';
+        elseif (trim((string)($c['phone'] ?? '')) === '') $field = 'phone';
+        elseif (in_array($replace, ['phone', 'mobile'], true)) $field = $replace;
+        else return ['ok' => false, 'error' => 'This customer already has a phone and a mobile number: say which one the new number replaces.'];
+        if ($field !== null) {
+            $this->db->prepare("UPDATE contacts SET {$field} = ? WHERE id = ?")->execute([$phone10, $contactId]);
+        }
+        return ['ok' => true, 'moved' => $this->adoptUnmatched(), 'field' => $field];
+    }
+
+    /**
+     * Mark a number personal: its waiting texts are deleted and only the salted hash is kept, so the bridge never
+     * sends this number again. A customer's number is refused (take it off the customer first).
+     * @return array{ok: bool, error?: string, deleted?: int}
+     */
+    public function markPersonal(string $phone10, ?int $userId = null): array
+    {
+        if (!$this->inboxReady()) return ['ok' => false, 'error' => 'Run migration 1396 first.'];
+        if (!preg_match('/^\d{10}$/', $phone10)) return ['ok' => false, 'error' => 'That is not a 10-digit number.'];
+        $this->map = null;
+        [$salt, $map] = $this->numbers();
+        $h = self::hash($phone10, $salt);
+        if (isset($map[$h])) return ['ok' => false, 'error' => 'That number belongs to a customer.'];
+        $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+        $this->db->prepare("{$verb} INTO text_personal (number_hash, marked_by) VALUES (?, ?)")->execute([$h, $userId]);
+        $del = $this->db->prepare("DELETE FROM text_unmatched WHERE phone10 = ?");
+        $del->execute([$phone10]);
+        return ['ok' => true, 'deleted' => $del->rowCount()];
+    }
+
     /** Last-seen + counts from the Mac (numbers only). */
     public function heartbeat(array $counts): array
     {
         $hb = ['at' => date('Y-m-d H:i:s')];
-        foreach (['scanned', 'one_to_one', 'matched_customers', 'sent', 'stored'] as $k) {
+        foreach (['scanned', 'one_to_one', 'matched_customers', 'sent', 'stored', 'unmatched'] as $k) {
             $hb[$k] = max(0, (int)($counts[$k] ?? 0));
         }
         $hb['version'] = mb_substr(preg_replace('/[^0-9A-Za-z.\-]/', '', (string)($counts['version'] ?? '')), 0, 20);

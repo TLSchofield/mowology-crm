@@ -40501,3 +40501,24 @@ body.mw-books {
   #expenseModal #mwPdfFrame,
   #expenseModal #expReceiptFrame { height:calc(96vh - 200px); min-height:480px; }   /* the PDF, and an emailed receipt shown as sent */
 }
+
+/* ── Texts from numbers we don't know (Yui's card, 2026-10-22) ──────────────────────────────────── */
+.mw-txi { margin:16px 0; padding:14px 16px; border:1px solid var(--mw-light); border-left:4px solid var(--mw-orange); border-radius:8px; background-color:Canvas; }
+.mw-txi-head { display:flex; align-items:center; gap:10px; }
+.mw-txi-count { font-size:.78rem; color:var(--mw-dark); background:var(--mw-light); border-radius:10px; padding:1px 8px; }
+.mw-txi-help { margin:6px 0 10px; font-size:.82rem; color:var(--mw-dark); }
+.mw-txi-msg { margin:0 0 10px; padding:8px 10px; border-radius:6px; font-size:.84rem; background:var(--mw-light); }
+.mw-txi-msg.is-bad { border-left:3px solid var(--mw-orange); }
+.mw-txi-thread { padding:10px 0; border-top:1px solid var(--mw-light); }
+.mw-txi-top { display:flex; flex-wrap:wrap; gap:10px; align-items:baseline; }
+.mw-txi-meta { font-size:.78rem; color:var(--mw-dark); }
+.mw-txi-line { display:flex; gap:8px; margin-top:4px; font-size:.86rem; }
+.mw-txi-who { flex:0 0 74px; font-size:.74rem; color:var(--mw-dark); }
+.mw-txi-line.is-out .mw-txi-text { color:var(--mw-dark); }
+.mw-txi-text { min-width:0; overflow-wrap:anywhere; }
+.mw-txi-acts { display:flex; gap:8px; margin-top:10px; }
+.mw-txi-link { margin-top:10px; }
+.mw-txi-results { margin-top:6px; }
+.mw-txi-result { margin-top:4px; }
+.mw-txi-ask { margin:8px 0 6px; font-size:.84rem; }
+.mw-txi-empty { font-size:.84rem; color:var(--mw-dark); }
