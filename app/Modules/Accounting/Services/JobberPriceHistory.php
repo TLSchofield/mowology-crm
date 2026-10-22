@@ -83,14 +83,18 @@ class JobberPriceHistory
         return $list;
     }
 
-    /** Price history for everything billed at one property. */
-    public function forProperty(int $propertyId): array
+    // ── Who a Jobber record belongs to ───────────────────────────────────────────
+    // scope*() return [SQL condition, params] over the columns contact_id / company_id / property_id /
+    // client_name, which jobber_invoices and jobber_quotes share — so quotes and invoices always agree.
+
+    /** @return array{0:string,1:array} */
+    public function scopeForProperty(int $propertyId): array
     {
-        return self::summarize($this->rows('property_id = ?', [$propertyId]));
+        return ['property_id = ?', [$propertyId]];
     }
 
-    /** Price history for a contact: invoices matched to them or to a property they are the site contact of. */
-    public function forContact(int $contactId): array
+    /** A contact: records matched to them or to a property they are the site contact of. @return array{0:string,1:array} */
+    public function scopeForContact(int $contactId): array
     {
         $where = 'contact_id = ?';
         try {
@@ -99,15 +103,15 @@ class JobberPriceHistory
             $props = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
             if ($props) $where .= ' OR property_id IN (' . implode(',', $props) . ')';
         } catch (Throwable $e) { /* properties unreadable — contact match only */ }
-        return self::summarize($this->rows($where, [$contactId]));
+        return [$where, [$contactId]];
     }
 
     /**
-     * Price history for a company: invoices matched to it, at its properties, or whose Jobber client name
-     * is the company's name followed by " - ..." or " c/o ..." (Jobber kept "Beedie Development - Kanco 2130
-     * Cambridge Apartments Ltd." as one client; the importer's exact-name match misses it).
+     * A company: records matched to it, at its properties, or whose Jobber client name is the company's name
+     * followed by " - ..." or " c/o ..." (Jobber kept "Beedie Development - Kanco 2130 Cambridge Apartments
+     * Ltd." as one client; the importer's exact-name match misses it). @return array{0:string,1:array}
      */
-    public function forCompany(int $companyId): array
+    public function scopeForCompany(int $companyId): array
     {
         $where = 'company_id = ?';
         $params = [$companyId];
@@ -127,8 +131,12 @@ class JobberPriceHistory
                 array_push($params, $name, $esc . ' - %', $esc . ' c/o %');
             }
         } catch (Throwable $e) { /* no name match */ }
-        return self::summarize($this->rows($where, $params));
+        return [$where, $params];
     }
+
+    public function forProperty(int $propertyId): array { return self::summarize($this->rows(...$this->scopeForProperty($propertyId))); }
+    public function forContact(int $contactId): array   { return self::summarize($this->rows(...$this->scopeForContact($contactId))); }
+    public function forCompany(int $companyId): array   { return self::summarize($this->rows(...$this->scopeForCompany($companyId))); }
 
     /**
      * Fill in line items that the first Jobber import left empty. ONLY writes jobber_invoices.line_items,

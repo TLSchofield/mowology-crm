@@ -266,6 +266,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberPriceHistory.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';

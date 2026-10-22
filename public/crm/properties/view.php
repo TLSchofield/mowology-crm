@@ -598,13 +598,19 @@ try {
 <?php
 // Price history by service (same Jobber history, read only).
 $jobberPrices = [];
+$jobberQuotes = [];
 try {
     require_once APP_ROOT . '/Modules/Accounting/Services/JobberPriceHistory.php';
-    $jobberPrices = (new JobberPriceHistory($db))->forProperty($propertyId);
+    require_once APP_ROOT . '/Modules/Accounting/Services/JobberQuoteHistory.php';
+    $ph = new JobberPriceHistory($db);
+    $jobberPrices = $ph->forProperty($propertyId);
+    $jobberQuotes = (new JobberQuoteHistory($db))->forScope($ph->scopeForProperty($propertyId));
 } catch (Throwable $e) {
     $jobberPrices = [];
+    $jobberQuotes = [];
 }
 include dirname(__DIR__) . '/includes/jobber_price_history_card.php';
+include dirname(__DIR__) . '/includes/jobber_quotes_card.php';
 ?>
 <?php if ($jobberHistory): ?>
             <div class="card mb-4">
