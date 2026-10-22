@@ -495,8 +495,12 @@ class ReceiptInboxService
         $storedName = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
         $diskPath   = $uploadDir . $storedName;
         $webPath    = '/uploads/receipts/' . $storedName;
-        file_put_contents($diskPath, $bytes);
+        if (@file_put_contents($diskPath, $bytes, LOCK_EX) !== strlen($bytes)) {
+            @unlink($diskPath);   // a failed or partial write must not leave a receipt row pointing at nothing (2026-10-22)
+            throw new \RuntimeException('could not write the receipt file');
+        }
 
+        try {
         $w = null; $h = null;
         if (!$isPdf) {
             $info = @getimagesize($diskPath);
@@ -523,6 +527,10 @@ class ReceiptInboxService
         ]);
 
         return ['media_id' => (int) $this->db->lastInsertId(), 'disk_path' => $diskPath, 'web_path' => $webPath];
+        } catch (\Throwable $e) {
+            @unlink($diskPath);   // the row failed: do not leave an orphan file for each retry
+            throw $e;
+        }
     }
 
     /**

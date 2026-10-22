@@ -6,21 +6,48 @@ use PHPUnit\Framework\TestCase;
 /** ReceiptAttachmentGuard: the bytes decide what a file is; the sender's name and labels never do. */
 class ReceiptAttachmentGuardTest extends TestCase
 {
+    /** Tiny but structurally real files (1x1 pixel), so the decoder check has something to decode. */
+    private function real(string $name): string
+    {
+        $b64 = [
+            'png'  => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+            'gif'  => 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+            'webp' => 'UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==',
+            'jpg'  => '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
+        ];
+        return base64_decode($b64[$name]);
+    }
+
     public function testRealFilesAreRecognisedAndGetTheirOwnExtension(): void
     {
+        $pdf = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\nstartxref\n0\n%%EOF\n";
+        $heic = "\0\0\0\x18" . 'ftypheic' . str_repeat("\0", 16);
         $cases = [
-            'pdf'  => ["%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj", 'pdf', 'pdf'],
-            'jpg'  => ["\xFF\xD8\xFF\xE0\x00\x10JFIF", 'image', 'jpg'],
-            'png'  => ["\x89PNG\r\n\x1A\n\x00\x00", 'image', 'png'],
-            'gif'  => ['GIF89a' . str_repeat("\0", 10), 'image', 'gif'],
-            'webp' => ['RIFF' . "\x10\0\0\0" . 'WEBPVP8 ', 'image', 'webp'],
-            'heic' => ["\0\0\0\x18" . 'ftypheic' . "\0\0\0\0", 'image', 'heic'],
+            'pdf'  => [$pdf, 'pdf', 'pdf'],
+            'jpg'  => [$this->real('jpg'), 'image', 'jpg'],
+            'png'  => [$this->real('png'), 'image', 'png'],
+            'gif'  => [$this->real('gif'), 'image', 'gif'],
+            'webp' => [$this->real('webp'), 'image', 'webp'],
+            'heic' => [$heic, 'image', 'heic'],
         ];
         foreach ($cases as $name => [$bytes, $kind, $ext]) {
             $r = ReceiptAttachmentGuard::inspect($bytes);
-            $this->assertTrue($r['ok'], $name);
+            $this->assertTrue($r['ok'], $name . ': ' . ($r['problem'] ?? ''));
             $this->assertSame($kind, $r['kind'], $name);
             $this->assertSame($ext, $r['ext'], $name);
+        }
+    }
+
+    public function testASignatureAloneIsNotEnough(): void
+    {
+        foreach ([
+            "\xFF\xD8\xFF",                                  // three bytes of a JPEG
+            "\x89PNG\r\n\x1A\n",                              // just the PNG signature
+            "\0\0\0\x18" . 'ftypheicJUNK',                   // a HEIC brand with a box size that is not real
+            "<html><script>alert(1)</script>%PDF-1.7",         // PDF marker behind other content
+            "%PDF-1.7\n1 0 obj\n<<>>\nendobj\n",              // a PDF cut off before its end marker
+        ] as $i => $bytes) {
+            $this->assertFalse(ReceiptAttachmentGuard::inspect($bytes)['ok'], 'case ' . $i);
         }
     }
 
@@ -42,17 +69,17 @@ class ReceiptAttachmentGuardTest extends TestCase
     public function testEmptyAndOversizeAreRefused(): void
     {
         $this->assertSame('empty file', ReceiptAttachmentGuard::inspect('')['problem']);
-        $pdf = "%PDF-1.4\n" . str_repeat('a', 2000);
+        $pdf = "%PDF-1.4\n" . str_repeat('a', 2000) . "\n%%EOF\n";
         $this->assertTrue(ReceiptAttachmentGuard::inspect($pdf, 5000)['ok']);
         $this->assertFalse(ReceiptAttachmentGuard::inspect($pdf, 1000)['ok']);
         $this->assertStringContainsString('too large', ReceiptAttachmentGuard::inspect($pdf, 1000)['problem']);
         $this->assertSame(15728640, ReceiptAttachmentGuard::MAX_BYTES);
     }
 
-    public function testPdfSignatureMayFollowAFewBytesOfJunk(): void
+    public function testPdfMayStartWithABomOrNewlineButNotFarIn(): void
     {
-        $this->assertTrue(ReceiptAttachmentGuard::inspect("\xEF\xBB\xBF\n%PDF-1.5\n")['ok']);
-        // ...but not buried deep in an otherwise unrelated file.
-        $this->assertFalse(ReceiptAttachmentGuard::inspect(str_repeat('x', 2000) . "%PDF-1.5")['ok']);
+        $tail = "1 0 obj\n<<>>\nendobj\n%%EOF\n";
+        $this->assertTrue(ReceiptAttachmentGuard::inspect("\xEF\xBB\xBF\n%PDF-1.5\n" . $tail)['ok']);
+        $this->assertFalse(ReceiptAttachmentGuard::inspect(str_repeat('x', 200) . "%PDF-1.5\n" . $tail)['ok']);
     }
 }

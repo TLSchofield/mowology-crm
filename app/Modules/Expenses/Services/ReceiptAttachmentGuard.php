@@ -29,18 +29,30 @@ class ReceiptAttachmentGuard
         if ($len === 0) return self::no('empty file');
         if ($len > $maxBytes) return self::no('file too large (' . (int)round($len / 1048576) . ' MB)');
 
-        // PDF: "%PDF-" at the start (viewers tolerate a little junk first, so look in the first 1 KB).
-        if (strpos(substr($bytes, 0, 1024), '%PDF-') !== false) {
+        // PDF: "%PDF-" at the very start (a BOM or newline may precede it) and a "%%EOF" trailer near the end. A
+        // signature alone is not enough: "<html>...%PDF-" or a truncated blob would reach the PDF/image readers.
+        $pdfAt = strpos(substr($bytes, 0, 32), '%PDF-');
+        if ($pdfAt !== false) {
+            if (strpos(substr($bytes, -2048), '%%EOF') === false) return self::no('PDF is cut off (no end marker)');
             return ['ok' => true, 'kind' => 'pdf', 'ext' => 'pdf', 'problem' => null];
         }
         $head = substr($bytes, 0, 16);
-        if (strncmp($head, "\xFF\xD8\xFF", 3) === 0)                         return self::img('jpg');
-        if (strncmp($head, "\x89PNG\r\n\x1A\n", 8) === 0)                    return self::img('png');
-        if (strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0) return self::img('gif');
-        if (strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP') return self::img('webp');
-        // HEIC / HEIF: an ISO box "ftyp" at byte 4 with a heic-family brand.
+        $isRaster = strncmp($head, "\xFF\xD8\xFF", 3) === 0
+            || strncmp($head, "\x89PNG\r\n\x1A\n", 8) === 0
+            || strncmp($head, 'GIF87a', 6) === 0 || strncmp($head, 'GIF89a', 6) === 0
+            || (strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP');
+        if ($isRaster) {
+            // PHP's own decoder checks the structure (dimensions, type), not just the first bytes.
+            $info = @getimagesizefromstring($bytes);
+            $ext = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_GIF => 'gif', IMAGETYPE_WEBP => 'webp'][$info[2] ?? 0] ?? null;
+            if (!$info || $ext === null || ($info[0] ?? 0) < 1 || ($info[1] ?? 0) < 1) return self::no('image is damaged');
+            return self::img($ext);
+        }
+        // HEIC / HEIF: PHP cannot decode these, so check the ISO box: its size field, "ftyp", and a heic-family brand.
         if (substr($head, 4, 4) === 'ftyp' && preg_match('/^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/', substr($head, 8, 4))) {
-            return self::img('heic');
+            $box = unpack('N', substr($head, 0, 4))[1];
+            if ($box >= 16 && $box <= min($len, 4096)) return self::img('heic');
+            return self::no('image is damaged');
         }
         return self::no('not a PDF or image');
     }
