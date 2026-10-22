@@ -299,7 +299,9 @@ class SalesDeskService
                 foreach ($this->db->query("SELECT message_key, id, filename FROM inbound_message_attachments")->fetchAll(PDO::FETCH_ASSOC) as $f) {
                     $files[(string)$f['message_key']][(int)$f['id']] = (string)$f['filename'];
                 }
-                $open = $this->db->query("SELECT id, quote_number AS number FROM quotes WHERE status IN ('sent', 'viewed')")->fetchAll(PDO::FETCH_ASSOC);
+                // Every recent quote, whatever its status: the ones a reply names may already be accepted. Last 120 days only,
+                // so QUO-2025-0060 and QUO-2026-0060 can never both be candidates for "0060".
+                $open = $this->db->query("SELECT id, quote_number AS number FROM quotes WHERE created_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)")->fetchAll(PDO::FETCH_ASSOC);
             } catch (Throwable $e) { $files = []; $open = []; }
         }
         foreach ($rows as $r) {
