@@ -56,12 +56,29 @@ class ReceiptInboxService
     public static function isOfficeReceipt(?string $from, string $subject, string $filename, array $ownerEmails, array $clientEmails): bool
     {
         $from = strtolower(trim((string)$from));
+        // Our own documents are never receipts, even when one of us forwards them (2026-10-22: a signed quote forwarded
+        // from the owner's address with its PDF became an "Emailed receipt").
+        if (self::isOwnDocument($subject . ' ' . $filename)) return false;
         if ($from !== '' && in_array($from, $ownerEmails, true)) return true;
         if ($from === '' || str_ends_with($from, '@mowology.ca')) return false;
         if (in_array($from, $clientEmails, true)) return false;
         $text = $subject . ' ' . $filename;
         if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote request/i', $text)) return false;
         return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+    }
+
+    /**
+     * Does this subject / file name say it is one of OUR documents (a quote, contract or proposal we sent), not a bill
+     * we received? Our document numbers (QUO-, JOB-, CTR-) always say so. The words quote / proposal / contract /
+     * agreement say so unless the text also says receipt / invoice / bill / order / statement (a supplier's invoice
+     * that mentions a quote is still an invoice). INV- is NOT used: a vendor's invoice number can look like ours. PURE.
+     */
+    public static function isOwnDocument(string $text): bool
+    {
+        if (preg_match('/\b(?:QUO|JOB|CTR)-\d{4}-\d{3,5}\b/i', $text)) return true;
+        $quoteish   = (bool)preg_match('/\bquot(?:e|es|ed|ation|ations)\b|\bproposals?\b|\bcontracts?\b|\bagreements?\b/i', $text);
+        $receiptish = (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (?:confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+        return $quoteish && !$receiptish;
     }
 
     /**
