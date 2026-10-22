@@ -40498,5 +40498,6 @@ body.mw-books {
   #expenseModal .modal-content.mw-expense-modal { height:96vh; max-height:96vh; }
   #expReceiptCol[style*="block"] { flex:0 0 50%; max-width:50%; }
   #expReceiptCol[style*="block"] ~ #expFormCol { flex:0 0 50%; max-width:50%; }
-  #expenseModal #mwPdfFrame { height:calc(96vh - 200px); min-height:480px; }
+  #expenseModal #mwPdfFrame,
+  #expenseModal #expReceiptFrame { height:calc(96vh - 200px); min-height:480px; }   /* the PDF, and an emailed receipt shown as sent */
 }
