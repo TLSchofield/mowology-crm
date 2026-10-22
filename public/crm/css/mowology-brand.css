@@ -40489,3 +40489,14 @@ body.mw-books {
 @media (max-width: 575.98px) {
   .mw-penny-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Edit Expense fills the screen (Tim 2026-10-22) ──────────────────────────────────────────────
+   The receipt, an emailed PDF above all, has to be readable beside the form. Wide screens only: on a phone the
+   modal keeps its normal stacked layout. */
+@media (min-width: 992px) {
+  #expenseModal .modal-dialog { max-width:98vw; width:98vw; margin:1vh auto; }
+  #expenseModal .modal-content.mw-expense-modal { height:96vh; max-height:96vh; }
+  #expReceiptCol[style*="block"] { flex:0 0 50%; max-width:50%; }
+  #expReceiptCol[style*="block"] ~ #expFormCol { flex:0 0 50%; max-width:50%; }
+  #expenseModal #mwPdfFrame { height:calc(96vh - 200px); min-height:480px; }
+}
