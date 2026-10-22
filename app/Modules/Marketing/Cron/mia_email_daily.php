@@ -27,6 +27,8 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 $__cronStart = microtime(true);
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('mia_email_daily', 'campaign'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 
 $__cli = php_sapi_name() === 'cli';
 if ($__cli) {

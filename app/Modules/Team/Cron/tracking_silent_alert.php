@@ -34,6 +34,8 @@ unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 $__cronStart = microtime(true);
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('tracking_silent_alert', 'sender'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 
 if (php_sapi_name() === 'cli') {
     require_once APP_ROOT . '/Core/CronLock.php';

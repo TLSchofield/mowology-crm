@@ -40,6 +40,8 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('push_drain', 'sender'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 require_once APP_ROOT . '/Services/Push/ApnsService.php';
 require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
 // recordCronRun() lives here; the CLI bootstrap (config.php only) doesn't load it.

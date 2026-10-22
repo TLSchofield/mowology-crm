@@ -25,6 +25,8 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('quote_request_reminder', 'sender'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 
 // Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
 if (php_sapi_name() === 'cli') {

@@ -32,6 +32,8 @@ for ($__i = 0; $__i < 6; $__i++) {
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('autopay_charge', 'charge'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once CRM_INCLUDES . '/functions.php';

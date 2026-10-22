@@ -46,6 +46,8 @@ if (!defined('APP_ROOT')) {
 }
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/OutboundGuard.php';
+\App\Core\OutboundGuard::cronGate('contract_billing', 'charge'); // test tenant: refuses to run unless allow-listed (pass-through on production)
 
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
     throw new ErrorException($message, 0, $severity, $file, $line);
