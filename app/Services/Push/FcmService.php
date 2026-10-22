@@ -72,6 +72,12 @@ class FcmService
             return ['success' => false, 'http_code' => 0, 'error' => 'FCM not configured', 'unregistered' => false];
         }
 
+        // Test tenant: push is logged, never sent; reported as delivered so the queue does not retry.
+        require_once dirname(__DIR__, 2) . '/Core/OutboundGuard.php';
+        if (!\App\Core\OutboundGuard::push('android', $deviceToken, $title)) {
+            return ['success' => true, 'http_code' => 0, 'error' => null, 'unregistered' => false, 'sandbox' => 'blocked'];
+        }
+
         $accessToken = self::getOrCreateAccessToken();
         if ($accessToken === null) {
             return ['success' => false, 'http_code' => 0, 'error' => 'FCM OAuth2 token exchange failed', 'unregistered' => false];

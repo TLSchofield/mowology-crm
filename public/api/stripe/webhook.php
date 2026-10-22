@@ -215,7 +215,8 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 
     // ── Extract card details (for saving on file) ─────────────────────────────
     // Stripe SDK key must be set here for PaymentMethod retrieval
-    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+    require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+    \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
 
     $paymentMethodId = $intent->payment_method ?? null;
     $cardBrand   = null;
@@ -669,7 +670,8 @@ function handleSetupIntentSucceeded(\Stripe\SetupIntent $intent): void
         return;
     }
 
-    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+    require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+    \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
 
     $cardBrand  = null;
     $cardLast4  = null;

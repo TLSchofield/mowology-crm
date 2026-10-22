@@ -29,7 +29,8 @@ class AutopayService
     public function __construct(\PDO $db)
     {
         $this->db = $db;
-        \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+        require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+        \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
         \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
     }
 

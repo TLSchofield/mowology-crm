@@ -60,7 +60,8 @@ class InvoiceRefundService
         if (!class_exists('\Stripe\StripeClient')) {
             throw new RuntimeException('The Stripe library is not installed on this server.');
         }
-        return new \Stripe\StripeClient(STRIPE_SECRET_KEY);
+        require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+        return new \Stripe\StripeClient(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
     }
 
     // ══════════════════════════════════════════════════════════════════════

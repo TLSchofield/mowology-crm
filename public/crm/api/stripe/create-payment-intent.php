@@ -84,7 +84,8 @@ $amountCents = (int) round($balanceDue * 100);
 // This prevents duplicate intents if the customer opens the payment page twice.
 if (!empty($invoice['stripe_payment_intent_id'])) {
     try {
-        \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+        require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+        \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
         $existingIntent = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
         // Guard (Fable review 2026-10-12): an intent that already succeeded or is still
@@ -141,7 +142,8 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
 
 // ── Create new PaymentIntent ─────────────────────────────────────────────────
 try {
-    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+    require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+    \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
     \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
 
     $intent = \Stripe\PaymentIntent::create([

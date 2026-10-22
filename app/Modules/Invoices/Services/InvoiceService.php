@@ -57,7 +57,8 @@ class InvoiceService
         if (!defined('STRIPE_SECRET_KEY') || empty(STRIPE_SECRET_KEY)) {
             throw new RuntimeException('STRIPE_SECRET_KEY is not configured');
         }
-        return new \Stripe\StripeClient(STRIPE_SECRET_KEY);
+        require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+        return new \Stripe\StripeClient(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
     }
 
     // ══════════════════════════════════════════════════════════════════════

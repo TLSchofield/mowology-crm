@@ -52,7 +52,8 @@ $out['bank_stripe_income'] = $db->query("
 
 // 2. Can the key read payouts?
 try {
-    $stripe = new \Stripe\StripeClient(STRIPE_SECRET_KEY);
+    require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+    $stripe = new \Stripe\StripeClient(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
     $payouts = $stripe->payouts->all(['limit' => 5]);
     $out['payouts'] = array_map(fn($p) => [
         'id' => $p->id, 'amount' => $p->amount / 100, 'arrival' => date('Y-m-d', (int)$p->arrival_date), 'status' => $p->status,

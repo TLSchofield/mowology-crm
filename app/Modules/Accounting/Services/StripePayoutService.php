@@ -56,7 +56,8 @@ class StripePayoutService
             require_once PUBLIC_ROOT . '/app_config/secrets.php';
         }
         if (!defined('STRIPE_SECRET_KEY') || !STRIPE_SECRET_KEY) throw new RuntimeException('Stripe key not configured');
-        return $this->stripe = new \Stripe\StripeClient(STRIPE_SECRET_KEY);
+        require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+        return $this->stripe = new \Stripe\StripeClient(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
     }
 
     /** Stripe payout bank lines still booked as income. */

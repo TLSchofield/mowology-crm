@@ -76,6 +76,12 @@ class ApnsService
             return ['success' => false, 'http_code' => 0, 'error' => 'APNs not configured', 'unregistered' => false];
         }
 
+        // Test tenant: push is logged, never sent; reported as delivered so the queue does not retry.
+        require_once dirname(__DIR__, 2) . '/Core/OutboundGuard.php';
+        if (!\App\Core\OutboundGuard::push('ios', $deviceToken, $title)) {
+            return ['success' => true, 'http_code' => 0, 'error' => null, 'unregistered' => false, 'sandbox' => 'blocked'];
+        }
+
         $jwt   = self::getOrCreateJwt();
         $topic = $apnsTopic ?? 'ca.mowology.crm-field';
 

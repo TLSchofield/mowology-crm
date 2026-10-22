@@ -25,7 +25,8 @@ require_once dirname(__DIR__, 2) . '/app_config/config.php';
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-\Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+require_once APP_ROOT . '/Core/OutboundGuard.php'; // test tenant: refuses a live Stripe key (pass-through on production)
+\Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));
 
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 $token = trim($input['token'] ?? '');
