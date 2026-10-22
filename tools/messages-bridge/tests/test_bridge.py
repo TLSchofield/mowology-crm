@@ -88,12 +88,13 @@ class Fixture:
 
 
 class FakeClient:
-    def __init__(self, known_numbers):
+    def __init__(self, known_numbers, personal_numbers=()):
         self.hashes = {bridge.hash_number(bridge.normalize_number(n), SALT) for n in known_numbers}
+        self.personal = {bridge.hash_number(bridge.normalize_number(n), SALT) for n in personal_numbers}
         self.posts = []
 
     def numbers(self):
-        return SALT, set(self.hashes)
+        return SALT, set(self.hashes), set(self.personal)
 
     def post(self, mode, payload):
         self.posts.append((mode, payload))
@@ -213,18 +214,70 @@ class RunTest(unittest.TestCase):
         self.run_bridge(c)
         self.assertEqual([m["text"] for m in c.sent()], ["recent"])
 
-    def test_unmatched_never_sent_logged_or_printed(self):
+    def test_a_number_that_is_not_a_customer_is_sent_with_its_number_but_never_logged_or_printed(self):
+        # 1.2 (2026-10-22): a customer texting from a new number must not be lost. The text goes up WITH the number's
+        # last 10 digits (the CRM checks it hashes to 'hash'); nothing about it is printed or logged on the Mac.
         s = self.fx.handle(STRANGER)
-        self.fx.msg(self.fx.chat(s), s, text="secret family stuff")
+        self.fx.msg(self.fx.chat(s), s, text="Please change my number to this one")
         self.fx.msg(self.cust_chat, self.cust, text="customer text")
         c = FakeClient([CUSTOMER])
         self.run_bridge(c)
-        everything = repr(c.posts) + "\n".join(self.lines)
-        self.assertNotIn("secret family stuff", everything)
+        everything = "\n".join(self.lines)
+        self.assertNotIn("Please change my number", everything)
         self.assertNotIn("0199", everything)
-        self.assertEqual([m["text"] for m in c.sent()], ["customer text"])
+        by_text = {m["text"]: m for m in c.sent()}
+        self.assertEqual({"customer text", "Please change my number to this one"}, set(by_text))
+        self.assertNotIn("phone", by_text["customer text"], "a customer's number is still never sent")
+        stranger = by_text["Please change my number to this one"]
+        self.assertEqual(bridge.normalize_number(STRANGER), stranger["phone"])
+        self.assertEqual(bridge.hash_number(stranger["phone"], SALT), stranger["hash"])
         self.assertEqual(c.posts[-1][0], "heartbeat")
-        self.assertEqual(c.posts[-1][1]["sent"], 1)
+        self.assertEqual(c.posts[-1][1]["sent"], 2)
+
+    def test_a_number_marked_personal_is_never_sent(self):
+        s = self.fx.handle(STRANGER)
+        self.fx.msg(self.fx.chat(s), s, text="family stuff")
+        self.fx.msg(self.cust_chat, self.cust, text="customer text")
+        c = FakeClient([CUSTOMER], personal_numbers=[STRANGER])
+        self.run_bridge(c)
+        self.assertEqual(["customer text"], [m["text"] for m in c.sent()])
+        self.assertNotIn("family stuff", repr(c.posts))
+
+    def test_short_codes_toll_free_numbers_and_code_texts_stay_on_the_mac(self):
+        for number, text in [("22395", "Your bank: hello"), ("+18885551234", "Your order shipped"),
+                             ("+16045550177", "Your verification code is 482913"),
+                             ("+16045550178", "Sale today! Reply STOP to opt out"),
+                             ("+16045550179", "Use 482193 to verify your account"),
+                             ("+16045550171", "50% off today - shop now"),
+                             ("+16045550172", "Your appointment is scheduled for Friday at 3pm")]:
+            h = self.fx.handle(number)
+            self.fx.msg(self.fx.chat(h), h, text=text)
+        c = FakeClient([CUSTOMER])
+        self.run_bridge(c)
+        self.assertEqual([], c.sent())
+
+    def test_first_run_sends_a_non_customers_texts_only_from_the_last_day(self):
+        # no state file (first run, or it was lost): a customer's 90 days still go; a stranger's old history never does
+        s = self.fx.handle(STRANGER)
+        ch = self.fx.chat(s)
+        self.fx.msg(ch, s, text="old family chat", ago=30 * 86400)
+        self.fx.msg(ch, s, text="new today", ago=3600)
+        self.fx.msg(self.cust_chat, self.cust, text="customer 30 days ago", ago=30 * 86400)
+        c = FakeClient([CUSTOMER])
+        self.run_bridge(c)
+        self.assertEqual({"customer 30 days ago", "new today"}, {m["text"] for m in c.sent()})
+        # a later run (the mark exists) takes everything new as normal
+        self.fx.msg(ch, s, text="later", ago=60)
+        c2 = FakeClient([CUSTOMER])
+        self.run_bridge(c2)
+        self.assertEqual(["later"], [m["text"] for m in c2.sent()])
+
+    def test_group_chats_are_still_never_sent(self):
+        a, b = self.fx.handle("+16045550180"), self.fx.handle("+16045550181")
+        self.fx.msg(self.fx.chat(a, b), a, text="group plans")
+        c = FakeClient([CUSTOMER])
+        self.run_bridge(c)
+        self.assertEqual([], c.sent())
 
     def test_dry_run_prints_counts_only_and_sends_nothing(self):
         s = self.fx.handle(STRANGER)
@@ -233,7 +286,9 @@ class RunTest(unittest.TestCase):
         c = FakeClient([CUSTOMER])
         self.run_bridge(c, dry_run=True)
         self.assertEqual(c.posts, [])
-        self.assertEqual(self.lines, ["dry run: scanned 2, one-to-one 2, matched 1 customers, would send 1 texts"])
+        self.assertEqual(self.lines, ["dry run: scanned 2, one-to-one 2, matched 1 customers, would send 1 customer texts "
+                                      "and 1 texts from 1 other numbers"])
+        self.assertNotIn("private", "\n".join(self.lines))
         self.assertIsNone(bridge.load_state(self.state))       # the mark is not moved
 
     def test_failed_post_keeps_the_mark(self):

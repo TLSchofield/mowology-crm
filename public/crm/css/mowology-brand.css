@@ -40843,6 +40843,19 @@ body.mw-books {
 .mw-txi-result { margin-top:4px; }
 .mw-txi-ask { margin:8px 0 6px; font-size:.84rem; }
 .mw-txi-empty { font-size:.84rem; color:var(--mw-dark); }
+.mw-txi-contacts-section { margin-top:18px; padding-top:14px; border-top:1px solid var(--mw-light); }
+.mw-txi-section-title { margin:0; font-size:1rem; font-weight:600; }
+.mw-txi-contact { display:flex; gap:16px; align-items:center; justify-content:space-between; padding:10px 0; border-top:1px solid var(--mw-light); }
+.mw-txi-contact-info { min-width:0; }
+.mw-txi-contact-name { font-weight:600; overflow-wrap:anywhere; }
+.mw-txi-contact-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; }
+.mw-txi-contact-actions .btn { min-height:44px; }
+.mw-txi-confirm { flex:1 1 260px; font-size:.84rem; }
+@media (max-width:1023.98px) {
+  .mw-txi-contact { align-items:flex-start; flex-direction:column; }
+  .mw-txi-contact-actions { width:100%; justify-content:flex-start; }
+  .mw-txi-contact-actions .btn { min-height:48px; }
+}
 
 /* ── Timesheet pay summary (timesheet-detail.php): rate, regular, overtime, gross as a row of cards (2026-10-23).
    The markup shipped on 5d1d7998 without any rules, so it showed as a bare stacked list. ───────────── */

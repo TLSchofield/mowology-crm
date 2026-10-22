@@ -3,11 +3,14 @@
 Mowology messages bridge — texts from customers -> CRM (read-only).
 
 Runs on Tim's Mac (launchd, every 5 minutes). Reads the Messages database READ-ONLY,
-keeps only ONE-TO-ONE conversations, and sends to the CRM only the messages exchanged
-with a known customer. Matching never exposes a phone number: the CRM hands out salted
-SHA-256 hashes of its customers' numbers, the bridge hashes each conversation's number
-the same way on the Mac, and only matches leave the machine. Everything else (family,
-friends, group chats, unknown numbers) is never sent, logged or printed.
+keeps only ONE-TO-ONE conversations and sends them to the CRM. A customer's texts are matched
+by salted SHA-256 hash (the CRM hands out the hashes, the bridge hashes each conversation's
+number the same way). Since 1.2 (2026-10-22) a text from a number that is NOT a customer is sent
+too, WITH the number's last 10 digits, so a customer who texts from a new number is not lost: it
+waits in Tim's list in the CRM until he links it to a customer or marks it personal. A number
+marked personal is served back as a hash and never sent again. Never sent: group chats, short
+codes, toll-free business numbers, one-time-code / verification texts, and anything printed or
+logged here (counts only).
 
 Python 3.9 standard library only (/usr/bin/python3 on macOS 13).
 
@@ -33,7 +36,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.1"
+VERSION = "1.2"
 DEFAULT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 DEFAULT_STATE_DIR = os.path.expanduser("~/Library/Application Support/mowology-bridge")
 DEFAULT_URL = "https://mowology.ca/crm/api/text-bridge.php"
@@ -181,6 +184,40 @@ def match(rows, salt, hashes):
     return out, len(customers)
 
 
+TOLL_FREE = ("800", "822", "833", "844", "855", "866", "877", "880", "881", "882", "883", "884", "885", "886", "887", "888", "889")
+AUTOMATED_TEXT = re.compile(
+    r"verification code|security code|one[- ]time (?:code|pass)|\bOTP\b|\b(?:use|enter|your)\b.{0,25}\b\d{4,8}\b.{0,25}"
+    r"(?:verify|code|log ?in|sign ?in|authenticat|confirm)|\b\d{4,8}\b is your|your .{0,30}code is\b|"
+    r"reply STOP|text STOP|msg ?& ?data rates|opt[- ]out|unsubscribe|\b\d{1,3}% off\b|shop now|"
+    r"\bsale\b.{0,20}\b(?:today|ends)\b|click (?:here|the link)|your (?:order|package|appointment|delivery|account)\b.{0,40}"
+    r"(?:ready|shipped|scheduled|reminder|confirmed|has been)", re.I)
+
+
+def is_automated(ten, text):
+    """A toll-free business number, or a code / marketing text: not a person to answer."""
+    return ten[:3] in TOLL_FREE or bool(AUTOMATED_TEXT.search(text or ""))
+
+
+def unmatched(rows, salt, hashes, personal):
+    """One-to-one texts from numbers that are neither a customer nor marked personal, WITH the number's
+    last 10 digits (the CRM checks it hashes to 'hash'). Short codes, toll-free numbers and automated
+    texts are left on the Mac. Returns (messages, distinct numbers)."""
+    out, numbers = [], set()
+    for r in rows:
+        ten = normalize_number(r["handle"])
+        if ten is None:
+            continue
+        h = hash_number(ten, salt)
+        if h in hashes or h in personal:
+            continue
+        if is_automated(ten, r["text"]):
+            continue
+        numbers.add(h)
+        out.append({"hash": h, "phone": ten, "direction": "out" if r["from_me"] else "in",
+                    "sent_at": r["sent_at"], "guid": r["guid"], "text": r["text"]})
+    return out, len(numbers)
+
+
 # Interac's own alert texts (short code 100001): "INTERAC e-Transfer: NAME sent you money. See …".
 # Only the sender's name and the time go up — no link, no number (2026-10-14: Penny pairs the name
 # with the bank deposit; the alert carries no amount). Outgoing ("X accepted your money transfer")
@@ -260,7 +297,7 @@ class CrmClient:
         res = self._call(urllib.request.Request(self.url + "?mode=numbers", method="GET"))
         if not res.get("ok"):
             raise RuntimeError("CRM refused the numbers request")
-        return str(res["salt"]), set(res["hashes"])
+        return str(res["salt"]), set(res["hashes"]), set(res.get("personal") or [])
 
     def post(self, mode, payload):
         body = dict(payload)
@@ -290,31 +327,46 @@ def run(db_path, state_dir, client, dry_run=False, now=None, out=print):
     finally:
         conn.close()
 
-    salt, hashes = client.numbers()
+    salt, hashes, personal = client.numbers()
     matched, customers = match(rows, salt, hashes)
+    others, other_numbers = unmatched(rows, salt, hashes, personal)
+    if not state:
+        # First run (no mark yet): customers' last 90 days as before, but a number that is not a customer only from the
+        # last day. Otherwise a lost state file would upload months of family and friends' history before Tim could
+        # mark any of it personal (Codex review 2026-10-22).
+        day_ago = now - 86400
+        others = [m for m in others if (m["sent_at"] or 0) >= day_ago]
+        other_numbers = len({m["hash"] for m in others})
     alerts = interac_alerts(rows)
     counts = {"scanned": scanned, "one_to_one": len(rows), "matched_customers": customers,
-              "texts": len(matched), "interac": len(alerts)}
+              "texts": len(matched), "unmatched_texts": len(others), "unmatched_numbers": other_numbers,
+              "interac": len(alerts)}
 
     if dry_run:
-        out("dry run: scanned %d, one-to-one %d, matched %d customers, would send %d texts"
-            % (scanned, len(rows), customers, len(matched)))
+        out("dry run: scanned %d, one-to-one %d, matched %d customers, would send %d customer texts "
+            "and %d texts from %d other numbers"
+            % (scanned, len(rows), customers, len(matched), len(others), other_numbers))
         return counts
 
     stored = 0
-    for i in range(0, len(matched), BATCH):
-        res = client.post("ingest", {"messages": matched[i:i + BATCH]})
+    unmatched_kept = 0
+    batch_all = matched + others
+    for i in range(0, len(batch_all), BATCH):
+        res = client.post("ingest", {"messages": batch_all[i:i + BATCH]})
         stored += int(res.get("stored", 0))
+        unmatched_kept += int(res.get("unmatched", 0))
     if alerts:
         client.post("interac", {"alerts": alerts})
     # Only after every batch was accepted: a failure above leaves the mark where it was,
     # so the next run re-sends (the CRM ignores duplicates by guid).
     save_state(state_dir, {"rowid": max_rowid, "updated": int(now)})
     counts["stored"] = stored
+    counts["unmatched_kept"] = unmatched_kept
     client.post("heartbeat", {"scanned": scanned, "one_to_one": len(rows), "matched_customers": customers,
-                              "sent": len(matched), "stored": stored, "version": VERSION})
-    out("%s scanned %d, one-to-one %d, matched %d customers, sent %d texts, %d new, %d Interac alerts"
-        % (time.strftime("%Y-%m-%d %H:%M:%S"), scanned, len(rows), customers, len(matched), stored, len(alerts)))
+                              "sent": len(batch_all), "stored": stored, "unmatched": unmatched_kept, "version": VERSION})
+    out("%s scanned %d, one-to-one %d, matched %d customers, sent %d texts (%d from other numbers), %d new, %d kept for review, %d Interac alerts"
+        % (time.strftime("%Y-%m-%d %H:%M:%S"), scanned, len(rows), customers, len(batch_all), len(others), stored,
+           unmatched_kept, len(alerts)))
     return counts
 
 

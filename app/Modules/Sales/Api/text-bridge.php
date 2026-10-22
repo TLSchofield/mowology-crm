@@ -2,10 +2,14 @@
 /**
  * Messages bridge endpoint — customer texts from Tim's Mac (tools/messages-bridge/).
  *
- * GET  ?mode=numbers     {ok, salt, hashes: [...]} salted SHA-256 of every customer number
- *                        (last 10 digits). Contact ids and numbers never leave the CRM.
- * POST {mode: 'ingest', messages: [{hash, direction: in|out, sent_at, guid, text}, ...]}
- *                        at most 500 per call; unknown hashes are rejected, duplicates ignored.
+ * GET  ?mode=numbers     {ok, salt, hashes: [...], personal: [...]} salted SHA-256 of every customer number
+ *                        (last 10 digits) and of every number Tim marked personal (the bridge never sends those).
+ *                        Contact ids and numbers never leave the CRM. Also moves waiting texts whose number has
+ *                        just been added to a customer into that customer's history.
+ * POST {mode: 'ingest', messages: [{hash, direction: in|out, sent_at, guid, text, phone?}, ...]}
+ *                        at most 500 per call; duplicates ignored. A hash that is not a customer is kept for Tim's
+ *                        "texts from numbers we don't know" list when 'phone' (last 10 digits) is sent and hashes
+ *                        to it (bridge 1.2, migration 1396); otherwise it is rejected.
  * POST {mode: 'interac', alerts: [{guid, sent_at, sender}, ...]}  Interac alert texts (name + time only)
  * POST {mode: 'heartbeat', scanned, one_to_one, matched_customers, sent, stored, version}
  *
@@ -72,8 +76,9 @@ try {
     }
 
     if ($method === 'GET' && $mode === 'numbers') {
+        try { $svc->adoptUnmatched(); } catch (Throwable $e) { error_log('text-bridge adopt: ' . $e->getMessage()); }
         [$salt, $map] = $svc->numbers();
-        $reply(200, ['ok' => true, 'salt' => $salt, 'hashes' => array_keys($map)]);
+        $reply(200, ['ok' => true, 'salt' => $salt, 'hashes' => array_keys($map), 'personal' => $svc->personalHashes()]);
     }
     if ($method === 'POST' && $mode === 'ingest') {
         $msgs = $input['messages'] ?? null;

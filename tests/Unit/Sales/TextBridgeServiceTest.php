@@ -80,7 +80,7 @@ class TextBridgeServiceTest extends TestCase
     {
         $db = $this->db();
         $res = (new TextBridgeService($db))->ingest([$this->msg(), $this->msg(['guid' => 'p:0/ABC-124', 'direction' => 'out', 'text' => 'See you then'])]);
-        $this->assertSame(['stored' => 2, 'dupe' => 0, 'unknown' => 0, 'invalid' => 0], $res);
+        $this->assertSame(['stored' => 2, 'dupe' => 0, 'unknown' => 0, 'invalid' => 0, 'unmatched' => 0, 'personal' => 0], $res);
         $rows = $db->query("SELECT * FROM sales_messages ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
         $this->assertSame('imessage', $rows[0]['mailbox']);
         $this->assertSame('sms', $rows[0]['channel']);
@@ -98,7 +98,7 @@ class TextBridgeServiceTest extends TestCase
     {
         $svc = new TextBridgeService($this->db());
         $svc->ingest([$this->msg()]);
-        $this->assertSame(['stored' => 0, 'dupe' => 1, 'unknown' => 0, 'invalid' => 0], $svc->ingest([$this->msg()]));
+        $this->assertSame(['stored' => 0, 'dupe' => 1, 'unknown' => 0, 'invalid' => 0, 'unmatched' => 0, 'personal' => 0], $svc->ingest([$this->msg()]));
     }
 
     public function test_an_unknown_hash_is_rejected(): void
@@ -122,7 +122,7 @@ class TextBridgeServiceTest extends TestCase
             $this->msg(['text' => "  \u{FFFC} "]),
             'just a string',
         ]);
-        $this->assertSame(['stored' => 0, 'dupe' => 0, 'unknown' => 0, 'invalid' => 6], $res);
+        $this->assertSame(['stored' => 0, 'dupe' => 0, 'unknown' => 0, 'invalid' => 6, 'unmatched' => 0, 'personal' => 0], $res);
     }
 
     public function test_long_texts_are_cut_short(): void
