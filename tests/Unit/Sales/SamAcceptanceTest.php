@@ -68,6 +68,27 @@ class SamAcceptanceTest extends TestCase
         $this->assertNull(SalesDeskService::mergeOrgReplies($touches, $quotes, $own)[32]['last_in'], 'his own mail is counted elsewhere');
     }
 
+    /** 2026-10-22: Alena's nine signed quotes paused the chase on Eva's quote for a building that was not in them. */
+    public function test_a_reply_tied_to_other_quotes_does_not_pause_this_one(): void
+    {
+        $blank = ['last_in' => null, 'last_out' => '2026-10-04 20:02:00', 'last_sam' => null, 'snooze_until' => null, 'thread' => []];
+        $touches = [32 => $blank, 40 => $blank];   // 32 Ron's Mohawk (85, signed), 40 Eva's Kerrisdale Landing (84, not in the batch)
+        $quotes = [
+            ['id' => 85, 'contact_id' => 32, 'company_id' => 4, 'contact_company_id' => 4, 'email' => 'rharvie@vml.bc.ca'],
+            ['id' => 84, 'contact_id' => 40, 'company_id' => 4, 'contact_company_id' => 4, 'email' => 'eva@vml.ca'],
+        ];
+        $tied = ['company' => [], 'org' => ['vml.ca' => ['at' => '2026-10-14 10:14:46', 'by' => 'Alena Radosovska', 'contact_id' => 1535, 'quote_ids' => [85, 86, 87]]]];
+        $t = SalesDeskService::mergeOrgReplies($touches, $quotes, $tied);
+        $this->assertSame('2026-10-14 10:14:46', $t[32]['last_in'], 'the quote the reply names is answered');
+        $this->assertNull($t[40]['last_in'], 'another building at the same company is still waiting');
+
+        // a reply that names no quote still pauses them all, as before
+        $generic = ['company' => [], 'org' => ['vml.ca' => ['at' => '2026-10-14 10:14:46', 'by' => 'Alena Radosovska', 'contact_id' => 1535, 'quote_ids' => []]]];
+        $g = SalesDeskService::mergeOrgReplies($touches, $quotes, $generic);
+        $this->assertSame('2026-10-14 10:14:46', $g[32]['last_in']);
+        $this->assertSame('2026-10-14 10:14:46', $g[40]['last_in']);
+    }
+
     public function test_a_year_in_a_file_name_is_not_a_quote_number(): void
     {
         $m = SamAcceptanceService::match([['id' => 7, 'number' => 'QUO-2025-2026'], ['id' => 8, 'number' => 'QUO-2026-0070']],

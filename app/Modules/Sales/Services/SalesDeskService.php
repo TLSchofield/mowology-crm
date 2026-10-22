@@ -264,7 +264,8 @@ class SalesDeskService
 
     /**
      * The latest Sam-relevant email in from each company and each mail organisation (120 days):
-     * ['company' => [company_id => [at, by, contact_id]], 'org' => [org => [at, by, contact_id]]].
+     * ['company' => [company_id => [at, by, contact_id, quote_ids]], 'org' => [org => [at, by, contact_id, quote_ids]]];
+     * quote_ids lists the quotes the reply was matched to (empty when it names none).
      */
     public function orgReplies(): array
     {
@@ -274,14 +275,26 @@ class SalesDeskService
         $routed = true;
         try { $this->db->query('SELECT head, head_source FROM sales_messages LIMIT 0'); } catch (Throwable $e) { $routed = false; }
         $rows = $this->db->query("
-            SELECT m.contact_id, m.sent_at, m.from_addr, m.from_name, m.subject, m.snippet" . ($routed ? ", m.head, m.head_source" : "") . ",
+            SELECT m.contact_id, m.message_key, m.sent_at, m.from_addr, m.from_name, m.subject, m.snippet" . ($routed ? ", m.head, m.head_source" : "") . ",
                    c.company_id
             FROM sales_messages m LEFT JOIN contacts c ON c.id = m.contact_id
             WHERE m.direction = 'inbound' AND m.sent_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
         ")->fetchAll(PDO::FETCH_ASSOC);
+        // A reply the signed-quote matching has already tied to specific quotes (sam_acceptances, migration 1366) pauses
+        // only those quotes, not every quote the company has (2026-10-22: Alena's nine signed quotes made Sam say Eva's
+        // quote for a different building was answered, and he stopped chasing it).
+        $tied = [];
+        if ($this->hasTable('sam_acceptances')) {
+            try {
+                foreach ($this->db->query("SELECT message_key, quote_id FROM sam_acceptances")->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                    $tied[(string)$t['message_key']][] = (int)$t['quote_id'];
+                }
+            } catch (Throwable $e) { $tied = []; }
+        }
         foreach ($rows as $r) {
             if (!self::countsAsSamReply($r)) continue;
-            $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id']];
+            $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id'],
+                    'quote_ids' => $tied[(string)($r['message_key'] ?? '')] ?? []];
             if (!empty($r['company_id'])) {
                 $k = (int)$r['company_id'];
                 if (!isset($out['company'][$k]) || $hit['at'] > $out['company'][$k]['at']) $out['company'][$k] = $hit;
@@ -311,6 +324,8 @@ class SalesDeskService
             if ($org !== null && isset($orgReplies['org'][$org])) $hits[] = $orgReplies['org'][$org];
             foreach ($hits as $h) {
                 if ($h['contact_id'] === $cid) continue;   // their own mail is already counted
+                // tied to specific quotes (signed-quote matching) and not this one: it is about someone else's quote
+                if (!empty($h['quote_ids']) && !in_array((int)($q['id'] ?? 0), $h['quote_ids'], true)) continue;
                 if ($touches[$cid]['last_in'] === null || $h['at'] > (string)$touches[$cid]['last_in']) {
                     $touches[$cid]['last_in'] = $h['at'];
                     $touches[$cid]['last_in_by'] = $h['by'];
@@ -489,7 +504,8 @@ class SalesDeskService
                 'text'     => $c['kind'] === 'replied'
                     ? $c['name'] . ' replied about ' . $c['label'] . ' — they\'re waiting on you'
                     : $c['name'] . ': ' . $c['label'] . ' (' . self::money($c['amount']) . ') — ' . $c['days'] . ' days, no reply',
-                'url'      => '/crm/dashboard_appstack.php#mw-sam',
+                // Opens Sam's card on THIS customer, with their latest emails showing (sam-card.js reads ?sam=).
+                'url'      => '/crm/dashboard_appstack.php?sam=' . rawurlencode((string)$c['key']) . '#mw-sam',
                 'priority' => $c['kind'] === 'replied' ? 1 : 2,
             ];
         }
