@@ -20,8 +20,8 @@ class ReceiptAttachmentGuard
     public const MAX_BYTES = 15728640;   // 15 MB
 
     /**
-     * @return array{ok: bool, kind: ?string, ext: ?string, problem: ?string}
-     *   kind is 'pdf' or 'image'; ext is the only extension it may be stored under.
+     * @return array{ok: bool, kind: ?string, ext: ?string, mime: ?string, problem: ?string}
+     *   kind is 'pdf' or 'image'; ext is the only extension it may be stored under; mime is the matching type.
      */
     public static function inspect(string $bytes, int $maxBytes = self::MAX_BYTES): array
     {
@@ -31,10 +31,10 @@ class ReceiptAttachmentGuard
 
         // PDF: "%PDF-" at the very start (a BOM or newline may precede it) and a "%%EOF" trailer near the end. A
         // signature alone is not enough: "<html>...%PDF-" or a truncated blob would reach the PDF/image readers.
-        $pdfAt = strpos(substr($bytes, 0, 32), '%PDF-');
-        if ($pdfAt !== false) {
+        $pdfAt = strpos(substr($bytes, 0, 1024), '%PDF-');
+        if ($pdfAt !== false && strpos(substr($bytes, 0, $pdfAt), '<') === false) {
             if (strpos(substr($bytes, -2048), '%%EOF') === false) return self::no('PDF is cut off (no end marker)');
-            return ['ok' => true, 'kind' => 'pdf', 'ext' => 'pdf', 'problem' => null];
+            return ['ok' => true, 'kind' => 'pdf', 'ext' => 'pdf', 'mime' => 'application/pdf', 'problem' => null];
         }
         $head = substr($bytes, 0, 16);
         $isRaster = strncmp($head, "\xFF\xD8\xFF", 3) === 0
@@ -51,7 +51,7 @@ class ReceiptAttachmentGuard
         // HEIC / HEIF: PHP cannot decode these, so check the ISO box: its size field, "ftyp", and a heic-family brand.
         if (substr($head, 4, 4) === 'ftyp' && preg_match('/^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/', substr($head, 8, 4))) {
             $box = unpack('N', substr($head, 0, 4))[1];
-            if ($box >= 16 && $box <= min($len, 4096)) return self::img('heic');
+            if ($box >= 16 && $box <= min($len, 4096) && $len >= $box + 16) return self::img('heic');
             return self::no('image is damaged');
         }
         return self::no('not a PDF or image');
@@ -59,11 +59,12 @@ class ReceiptAttachmentGuard
 
     private static function img(string $ext): array
     {
-        return ['ok' => true, 'kind' => 'image', 'ext' => $ext, 'problem' => null];
+        $mime = ['jpg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp', 'heic' => 'image/heic'][$ext];
+        return ['ok' => true, 'kind' => 'image', 'ext' => $ext, 'mime' => $mime, 'problem' => null];
     }
 
     private static function no(string $why): array
     {
-        return ['ok' => false, 'kind' => null, 'ext' => null, 'problem' => $why];
+        return ['ok' => false, 'kind' => null, 'ext' => null, 'mime' => null, 'problem' => $why];
     }
 }

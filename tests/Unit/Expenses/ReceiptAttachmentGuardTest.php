@@ -21,7 +21,7 @@ class ReceiptAttachmentGuardTest extends TestCase
     public function testRealFilesAreRecognisedAndGetTheirOwnExtension(): void
     {
         $pdf = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\nstartxref\n0\n%%EOF\n";
-        $heic = "\0\0\0\x18" . 'ftypheic' . str_repeat("\0", 16);
+        $heic = "\0\0\0\x18" . 'ftypheic' . str_repeat("\0", 36);
         $cases = [
             'pdf'  => [$pdf, 'pdf', 'pdf'],
             'jpg'  => [$this->real('jpg'), 'image', 'jpg'],
@@ -35,6 +35,7 @@ class ReceiptAttachmentGuardTest extends TestCase
             $this->assertTrue($r['ok'], $name . ': ' . ($r['problem'] ?? ''));
             $this->assertSame($kind, $r['kind'], $name);
             $this->assertSame($ext, $r['ext'], $name);
+            $this->assertSame($ext === 'jpg' ? 'image/jpeg' : ($kind === 'pdf' ? 'application/pdf' : 'image/' . $ext), $r['mime'], $name);
         }
     }
 
@@ -80,6 +81,9 @@ class ReceiptAttachmentGuardTest extends TestCase
     {
         $tail = "1 0 obj\n<<>>\nendobj\n%%EOF\n";
         $this->assertTrue(ReceiptAttachmentGuard::inspect("\xEF\xBB\xBF\n%PDF-1.5\n" . $tail)['ok']);
-        $this->assertFalse(ReceiptAttachmentGuard::inspect(str_repeat('x', 200) . "%PDF-1.5\n" . $tail)['ok']);
+        // a printer/scanner header before the marker is tolerated; markup before it is not
+        $this->assertTrue(ReceiptAttachmentGuard::inspect(str_repeat('@PJL JOB ', 20) . "%PDF-1.5\n" . $tail)['ok']);
+        $this->assertFalse(ReceiptAttachmentGuard::inspect('<html><body>' . "%PDF-1.5\n" . $tail)['ok']);
+        $this->assertFalse(ReceiptAttachmentGuard::inspect(str_repeat('x', 2000) . "%PDF-1.5\n" . $tail)['ok']);
     }
 }

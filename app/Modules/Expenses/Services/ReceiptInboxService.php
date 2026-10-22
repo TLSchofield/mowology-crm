@@ -352,6 +352,7 @@ class ReceiptInboxService
             return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'not a real receipt file'];
         }
         $filename = pathinfo($filename, PATHINFO_FILENAME) . '.' . $real['ext'];
+        $mime     = $real['mime'];   // the recorded type follows the bytes too, not the sender's label
 
         // 1) Store the attachment to disk + media_assets.
         $stored = $this->storeAttachment($bytes, $filename, $mime, $isPdf, $sha256, $systemUserId);
