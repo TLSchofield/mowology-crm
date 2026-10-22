@@ -11,18 +11,15 @@ require_once dirname(__DIR__) . '/app_config/config.php';
 // Configure session to use a writable cPanel temp directory
 if (session_status() === PHP_SESSION_NONE) {
   $sessionPath = '/home/mowology/tmp';
-  // A TEST tenant (TENANT_MODE other than 'live', from secrets.php loaded by config.php above, or the
-  // environment) may name its own folder in TENANT_SESSION_SAVE_PATH (constant, else environment),
-  // used only when it exists and is writable. Live / undefined mode consults nothing.
-  $__tenantMode = defined('TENANT_MODE') ? (string)constant('TENANT_MODE') : (string)getenv('TENANT_MODE');
-  if ($__tenantMode !== '' && $__tenantMode !== 'live') {
-    $__tenantSessionPath = defined('TENANT_SESSION_SAVE_PATH') ? (string)constant('TENANT_SESSION_SAVE_PATH') : (string)getenv('TENANT_SESSION_SAVE_PATH');
-    if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
-      $sessionPath = $__tenantSessionPath;
-    }
-    unset($__tenantSessionPath);
+  // A second tenant may name its own folder in the uniquely named TENANT_SESSION_SAVE_PATH (constant
+  // from secrets.php, else the environment variable of that name, set only on the test tenant's
+  // vhost), used only when it exists and is writable. Production sets neither. Nothing mode-related
+  // is consulted.
+  $__tenantSessionPath = defined('TENANT_SESSION_SAVE_PATH') ? (string)constant('TENANT_SESSION_SAVE_PATH') : (string)getenv('TENANT_SESSION_SAVE_PATH');
+  if ($__tenantSessionPath !== '' && is_dir($__tenantSessionPath) && is_writable($__tenantSessionPath)) {
+    $sessionPath = $__tenantSessionPath;
   }
-  unset($__tenantMode);
+  unset($__tenantSessionPath);
   if (is_dir($sessionPath) && is_writable($sessionPath)) {
     session_save_path($sessionPath);
   }

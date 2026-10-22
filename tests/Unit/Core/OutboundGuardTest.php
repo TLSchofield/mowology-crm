@@ -143,19 +143,24 @@ final class OutboundGuardTest extends TestCase
         $this->assertSame('live', OutboundGuard::mode());
     }
 
-    public function test_the_environment_variable_sets_test_mode_when_the_constant_is_missing(): void
+    public function test_an_environment_tenant_mode_changes_nothing(): void
     {
+        // The mode comes ONLY from the constant; an env var cannot switch a box into test mode.
+        $this->assertFalse(defined('TENANT_MODE'));
         putenv('TENANT_MODE=test');
         try {
             OutboundGuard::reset();
-            $this->assertSame('test', OutboundGuard::mode());
-            // and with no DB_NAME known it fails closed
-            $this->assertNotNull(OutboundGuard::blocked());
+            $this->assertSame('live', OutboundGuard::mode());
+            $this->assertNull(OutboundGuard::blocked());
+            $in = ['client@example.com', 'S', 'B', ['pm@example.com']];
+            $this->assertSame(['send' => true, 'to' => $in[0], 'cc' => $in[3], 'subject' => 'S', 'body' => 'B', 'redirected' => false, 'reason' => null], OutboundGuard::email(...$in));
+            $this->assertSame('sk_live_x', OutboundGuard::stripeKey('sk_live_x'));
+            $this->assertSame('/home/mowology/tmp', App\Core\TenantIdentity::sessionSavePath());
+            $this->assertStringNotContainsString("getenv('TENANT_MODE')", (string)file_get_contents(dirname(__DIR__, 3) . '/app/Core/OutboundGuard.php'));
         } finally {
             putenv('TENANT_MODE');
             OutboundGuard::reset();
         }
-        $this->assertSame('live', OutboundGuard::mode());
     }
 
     // ── Test mode: email ───────────────────────────────────────────────────────
@@ -408,13 +413,43 @@ final class OutboundGuardTest extends TestCase
         rmdir($ro);
     }
 
-    public function test_a_writable_log_directory_is_ready_and_checked_once(): void
+    public function test_a_writable_log_directory_is_ready_and_the_probe_is_removed(): void
     {
         $this->test();
         $this->assertNull(OutboundGuard::logNotReady());
         $this->assertDirectoryExists($this->logDir);
-        $this->assertFileExists(OutboundGuard::logPath());
-        $this->assertSame([], $this->logRows(), 'the readiness probe writes no entry');
+        $this->assertSame([], glob($this->logDir . '/.probe-*') ?: [], 'the non-empty probe file is removed');
+        $this->assertSame([], $this->logRows(), 'the readiness probe writes no log entry');
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/app/Core/OutboundGuard.php');
+        $this->assertStringNotContainsString("fwrite(\$h, '')", $src, 'an empty write succeeds on a full disk');
+        $this->assertStringContainsString('$wrote !== strlen($line)', $src, 'the byte count is checked');
+        $this->assertStringContainsString('fflush($h)', $src);
+    }
+
+    public function test_a_real_log_write_that_fails_flips_readiness_off(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root can write a read-only file');
+        }
+        $this->test();
+        $this->assertNull(OutboundGuard::logNotReady());
+        $this->assertFalse(OutboundGuard::sms('6045550199@txt.bellmobility.ca', 'first'));
+        $this->assertCount(1, $this->logRows());
+        $this->assertTrue(OutboundGuard::email('owner@example.test', 'S', 'B')['send'], 'allow-listed while the log works');
+
+        // The log file becomes unwritable mid-process: the next decision cannot be recorded …
+        chmod(OutboundGuard::logPath(), 0400);
+        $this->assertFalse(OutboundGuard::sms('6045550199@txt.bellmobility.ca', 'second'));
+        // … so from now on EVERYTHING is blocked, the allow-list included.
+        $why = OutboundGuard::blocked();
+        $this->assertNotNull($why);
+        $this->assertStringContainsString('sandbox log write failed', $why);
+        $this->assertFalse(OutboundGuard::email('owner@example.test', 'S', 'B')['send']);
+        $this->assertFalse(OutboundGuard::sms('6045550100@msg.telus.com', 'allowed, still blocked'));
+        $this->assertFalse(OutboundGuard::cronMayRun('forgot_clockout_sms'));
+        $this->assertSame($why, OutboundGuard::summary()['tripped']);
+        chmod(OutboundGuard::logPath(), 0640);
+        $this->assertCount(1, $this->logRows(), 'nothing was appended while the file was read-only');
     }
 
     // ── Log hygiene ────────────────────────────────────────────────────────────

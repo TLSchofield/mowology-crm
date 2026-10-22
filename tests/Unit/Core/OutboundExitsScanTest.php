@@ -4,42 +4,90 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 /**
- * Test tenant (2026-10-21): the choke point must not erode — structurally, not by file name.
+ * Test tenant (2026-10-21): the choke point must not erode — structurally, from the token stream.
  *
- * EVERY PHP file under app/ and public/ (guarded ones included) is scanned. Each outbound exit
- * found — a direct mail() call, a PHPMailer instance or ->send(), a curl / socket / HTTP read
- * in a function that targets a Twilio / Stripe / FCM / APNs host, a Stripe key set or client
- * built, any \Stripe\X::call(), the webhook's constructEvent — must be preceded by an
- * OutboundGuard call inside the same function body (brace-matched from the token stream, so
- * methods, closures and nested braces are handled), or, for top-level script code, by an
- * OutboundGuard call earlier at top level. Anything else fails with file:line.
+ * EVERY PHP file under app/ and public/ is scanned. Exits are found as tokens, so line breaks,
+ * whitespace or comments between a name and its "(" change nothing:
+ *   mail(...)                        a direct mail() call with arguments
+ *   $mailer->send()                  PHPMailer's send, in any file that mentions PHPMailer
+ *   curl_init / curl_exec / fsockopen / stream_socket_client (…)
+ *                                    inside a function that targets a Twilio / Stripe / FCM / APNs host
+ *   file_get_contents('https://…')   to one of those hosts
+ *   \Stripe\Stripe::setApiKey(…), new \Stripe\StripeClient(…)      ("key" exits)
+ *   \Stripe\Anything::call(…)        ("api" exits, incl. the webhook's constructEvent)
+ *   'api.twilio.com'                 any string literal
+ *
+ * Rules:
+ *   adapter exits may only live inside the explicitly listed adapter methods below, and the
+ *   method must USE the result of an OutboundGuard call before the exit (assigned, tested in a
+ *   condition, returned, passed as an argument) — a guard merely called and ignored does not count;
+ *   key exits must pass the key through OutboundGuard::stripeKey() inside the call's own arguments
+ *   and also live in a listed method;
+ *   api exits need an earlier used OutboundGuard::stripeKey() / ::webhookRefusal() in the file
+ *   (the Stripe key is process-global, set once per request).
+ * Anything else fails with file:line [label] scope.
  */
 final class OutboundExitsScanTest extends TestCase
 {
     private const HOSTS = '/api\.twilio\.com|api\.stripe\.com|fcm\.googleapis\.com|api(?:\.sandbox)?\.push\.apple\.com/i';
 
+    /**
+     * The only places an adapter / key exit may exist. "file::scope"; scope is Class::method,
+     * function, {closure} or (top-level). One comment per entry says what it sends.
+     */
+    private const ALLOWED_ADAPTERS = [
+        // MessagingService — the sanctioned email/SMS module (CLAUDE.md rule 9)
+        'app/Services/Messaging/MessagingService.php::_sendViaPhpMailer'          => 'PHPMailer SMTP send for sendEmail()',
+        'app/Services/Messaging/MessagingService.php::_sendEmailMultiAttach'      => 'PHPMailer send with several attachments / Cc',
+        'app/Services/Messaging/MessagingService.php::_sendSimpleHtmlEmail'       => 'native mail() fallback, no attachment',
+        'app/Services/Messaging/MessagingService.php::_sendEmailWithAttachment'   => 'native mail() fallback, one attachment',
+        'app/Services/Messaging/MessagingService.php::_sendEmailWithAttachments'  => 'native mail() fallback, several attachments',
+        'app/Services/Messaging/MessagingService.php::sendSms'                    => 'mail() to the ten carrier SMS gateways',
+        'app/Services/Messaging/MessagingService.php::testSmsGateway'             => 'mail() to one carrier gateway (admin test)',
+        // SmtpMailer — legacy twin, loaded only via public/crm/includes/smtp_mailer.php
+        'app/Services/Messaging/SmtpMailer.php::_sendViaPhpMailer'                => 'legacy PHPMailer SMTP send',
+        'app/Services/Messaging/SmtpMailer.php::sendSimpleHtmlEmail'              => 'legacy native mail() fallback',
+        'app/Services/Messaging/SmtpMailer.php::sendEmailWithAttachment'          => 'legacy native mail() with attachment',
+        // EmailHelper — legacy, loaded only via public/crm/includes/email_helper.php
+        'app/Services/Messaging/EmailHelper.php::sendCrmEmail'                    => 'legacy mail() with optional PDF',
+        // Notifications — owner alerts (quote requests); the live twin is public/includes/notifications.php
+        'app/Services/Notifications.php::sendEmailNotification'                   => 'mail() to the owner inbox',
+        'app/Services/Notifications.php::sendSMSNotification'                     => 'mail() to the owner SMS gateway',
+        'public/includes/notifications.php::sendEmailNotification'                => 'live twin: mail() to the owner inbox',
+        'public/includes/notifications.php::sendSMSNotification'                  => 'live twin: mail() to the owner SMS gateway',
+        // Push adapters
+        'app/Services/Push/FcmService.php::FcmService::send'                      => 'curl to fcm.googleapis.com',
+        'app/Services/Push/ApnsService.php::ApnsService::send'                    => 'curl to api.push.apple.com',
+        // Stripe key sites (the key itself is wrapped on the line; these are the only places it is set)
+        'app/Modules/Accounting/Services/StripePayoutService.php::StripePayoutService::stripe' => 'StripeClient for payout matching (read-only)',
+        'app/Modules/Invoices/Services/InvoiceRefundService.php::InvoiceRefundService::stripe' => 'StripeClient for refunds',
+        'app/Modules/Invoices/Services/InvoiceService.php::InvoiceService::stripe'             => 'StripeClient for customers / payment intents',
+        'app/Services/Payments/AutopayService.php::AutopayService::__construct'                => 'global key for autopay charges',
+        'public/api/stripe/webhook.php::handlePaymentSucceeded'                   => 'global key to read the payment method',
+        'public/api/stripe/webhook.php::handleSetupIntentSucceeded'               => 'global key to read the saved card',
+        'public/crm/api/backfill-stripe-cards.php::(top-level)'                   => 'admin tool: global key to list saved cards',
+        'public/crm/api/stripe-payout-probe.php::(top-level)'                     => 'admin probe: StripeClient to read payouts',
+        'public/crm/api/stripe/create-payment-intent.php::(top-level)'            => 'CRM: global key for a payment intent (set twice, both top-level)',
+        'public/crm/companies/api-save-company-card.php::(top-level)'             => 'CRM: global key to save a card',
+        'public/customer/api/autopay-setup.php::(top-level)'                      => 'portal: global key for autopay setup',
+        'public/customer/api/confirm-saved-card.php::(top-level)'                 => 'portal: global key to confirm a card',
+        'public/customer/api/invoice-payment-intent.php::(top-level)'             => 'portal: global key for a payment intent',
+    ];
+
     /** Files in which the scan MUST find at least one exit (so a rewrite cannot hide one). */
     private const MUST_HAVE_EXITS = [
-        'app/Services/Messaging/MessagingService.php',
-        'app/Services/Messaging/SmtpMailer.php',
-        'app/Services/Messaging/EmailHelper.php',
-        'app/Services/Notifications.php',
-        'public/includes/notifications.php',
-        'app/Services/Push/FcmService.php',
-        'app/Services/Push/ApnsService.php',
-        'app/Modules/Accounting/Services/StripePayoutService.php',
-        'app/Modules/Invoices/Services/InvoiceRefundService.php',
-        'app/Modules/Invoices/Services/InvoiceService.php',
-        'app/Services/Payments/AutopayService.php',
-        'public/api/stripe/webhook.php',
-        'public/crm/api/backfill-stripe-cards.php',
-        'public/crm/api/stripe-payout-probe.php',
-        'public/crm/api/stripe/create-payment-intent.php',
-        'public/crm/companies/api-save-company-card.php',
-        'public/customer/api/autopay-setup.php',
-        'public/customer/api/confirm-saved-card.php',
+        'app/Services/Messaging/MessagingService.php', 'app/Services/Messaging/SmtpMailer.php',
+        'app/Services/Messaging/EmailHelper.php', 'app/Services/Notifications.php', 'public/includes/notifications.php',
+        'app/Services/Push/FcmService.php', 'app/Services/Push/ApnsService.php',
+        'app/Modules/Accounting/Services/StripePayoutService.php', 'app/Modules/Invoices/Services/InvoiceRefundService.php',
+        'app/Modules/Invoices/Services/InvoiceService.php', 'app/Services/Payments/AutopayService.php',
+        'public/api/stripe/webhook.php', 'public/crm/api/backfill-stripe-cards.php', 'public/crm/api/stripe-payout-probe.php',
+        'public/crm/api/stripe/create-payment-intent.php', 'public/crm/companies/api-save-company-card.php',
+        'public/customer/api/autopay-setup.php', 'public/customer/api/confirm-saved-card.php',
         'public/customer/api/invoice-payment-intent.php',
     ];
+
+    private const STATEMENT_START = [';', '{', '}'];
 
     private static function root(): string
     {
@@ -71,39 +119,120 @@ final class OutboundExitsScanTest extends TestCase
         return $out;
     }
 
-    /**
-     * Function / method / closure bodies as [startOffset, endOffset] (byte offsets of the
-     * opening and closing brace), from the token stream so braces in strings and comments
-     * never count. Arrow functions have no body and are skipped.
-     *
-     * @return array<int, array{0:int,1:int}>
-     */
-    public static function functionBodies(string $src): array
+    // ── Token helpers ──────────────────────────────────────────────────────────
+
+    /** @return array<int, array{t:int|null, x:string, o:int, l:int}> */
+    private static function tokens(string $src): array
     {
-        $tokens = token_get_all($src);
-        $pos = [];
+        $out = [];
         $off = 0;
-        foreach ($tokens as $i => $t) {
-            $pos[$i] = $off;
-            $off += strlen(is_array($t) ? $t[1] : $t);
+        $line = 1;
+        foreach (token_get_all($src) as $t) {
+            $x = is_array($t) ? $t[1] : $t;
+            $out[] = ['t' => is_array($t) ? $t[0] : null, 'x' => $x, 'o' => $off, 'l' => $line];
+            $off += strlen($x);
+            $line += substr_count($x, "\n");
         }
-        $bodies = [];
+        return $out;
+    }
+
+    private static function isNoise(array $tok): bool
+    {
+        return in_array($tok['t'], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true);
+    }
+
+    /** Index of the next (dir=1) / previous (dir=-1) significant token, or null. */
+    private static function sig(array $tokens, int $i, int $dir): ?int
+    {
+        for ($j = $i + $dir; $j >= 0 && $j < count($tokens); $j += $dir) {
+            if (!self::isNoise($tokens[$j])) {
+                return $j;
+            }
+        }
+        return null;
+    }
+
+    private static function isNamePart(array $tok): bool
+    {
+        if ($tok['t'] === T_STRING || $tok['t'] === T_NS_SEPARATOR) {
+            return true;
+        }
+        foreach (['T_NAME_QUALIFIED', 'T_NAME_FULLY_QUALIFIED', 'T_NAME_RELATIVE'] as $c) {
+            if (defined($c) && $tok['t'] === constant($c)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A (possibly namespaced) name starting at $i: [name without leading "\", last index], or null. */
+    private static function nameAt(array $tokens, int $i): ?array
+    {
+        if (!self::isNamePart($tokens[$i])) {
+            return null;
+        }
+        $name = '';
+        $j = $i;
+        while ($j < count($tokens) && self::isNamePart($tokens[$j])) {
+            $name .= $tokens[$j]['x'];
+            $j++;
+        }
+        return [ltrim($name, '\\'), $j - 1];
+    }
+
+    /** Index of the ")" matching the "(" at $open. */
+    private static function closeParen(array $tokens, int $open): int
+    {
+        $depth = 0;
+        for ($k = $open; $k < count($tokens); $k++) {
+            if ($tokens[$k]['x'] === '(') {
+                $depth++;
+            } elseif ($tokens[$k]['x'] === ')') {
+                $depth--;
+                if ($depth === 0) {
+                    return $k;
+                }
+            }
+        }
+        return count($tokens) - 1;
+    }
+
+    /**
+     * Function / method / closure bodies and class bodies, brace-matched from the token stream
+     * (braces in strings and comments never count; arrow functions have no body).
+     *
+     * @return array{fns: array<int, array{s:int, e:int, name:string}>, classes: array<int, array{s:int, e:int, name:string}>}
+     */
+    public static function scopes(string $src, ?array $tokens = null): array
+    {
+        $tokens = $tokens ?? self::tokens($src);
+        $fns = [];
+        $classes = [];
         $n = count($tokens);
         for ($i = 0; $i < $n; $i++) {
-            $t = $tokens[$i];
-            if (!is_array($t) || $t[0] !== T_FUNCTION) {
+            $t = $tokens[$i]['t'];
+            if ($t !== T_FUNCTION && $t !== T_CLASS) {
                 continue;
             }
-            // first '{' after the signature (an abstract / interface method hits ';' first)
-            $j = $i + 1;
+            $prev = self::sig($tokens, $i, -1);
+            if ($t === T_CLASS && $prev !== null && in_array($tokens[$prev]['t'], [T_DOUBLE_COLON, T_NEW], true)) {
+                continue; // ::class, or an anonymous class (its methods are still found)
+            }
+            $name = $t === T_FUNCTION ? '{closure}' : '(anonymous)';
+            $j = self::sig($tokens, $i, 1);
+            if ($j !== null && $tokens[$j]['x'] === '&') {
+                $j = self::sig($tokens, $j, 1);
+            }
+            if ($j !== null && $tokens[$j]['t'] === T_STRING) {
+                $name = $tokens[$j]['x'];
+            }
             $open = null;
-            for (; $j < $n; $j++) {
-                $tj = $tokens[$j];
-                if ($tj === ';') {
+            for ($k = $i + 1; $k < $n; $k++) {
+                if ($tokens[$k]['x'] === ';') {
                     break;
                 }
-                if ($tj === '{') {
-                    $open = $j;
+                if ($tokens[$k]['x'] === '{') {
+                    $open = $k;
                     break;
                 }
             }
@@ -112,51 +241,77 @@ final class OutboundExitsScanTest extends TestCase
             }
             $depth = 0;
             for ($k = $open; $k < $n; $k++) {
-                $tk = $tokens[$k];
-                if ($tk === '{' || (is_array($tk) && in_array($tk[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true))) {
+                $x = $tokens[$k]['x'];
+                $tt = $tokens[$k]['t'];
+                if ($x === '{' || $tt === T_CURLY_OPEN || $tt === T_DOLLAR_OPEN_CURLY_BRACES) {
                     $depth++;
-                } elseif ($tk === '}') {
+                } elseif ($x === '}') {
                     $depth--;
                     if ($depth === 0) {
-                        $bodies[] = [$pos[$open], $pos[$k]];
+                        $entry = ['s' => $tokens[$open]['o'], 'e' => $tokens[$k]['o'], 'name' => $name];
+                        if ($t === T_FUNCTION) {
+                            $fns[] = $entry;
+                        } else {
+                            $classes[] = $entry;
+                        }
                         break;
                     }
                 }
             }
         }
-        return $bodies;
+        return ['fns' => $fns, 'classes' => $classes];
     }
 
-    /** Innermost body containing $offset, or null at top level. @return array{0:int,1:int}|null */
-    private static function enclosing(array $bodies, int $offset): ?array
+    /** Backwards-compatible: function bodies as [open, close] offsets. @return array<int, array{0:int,1:int}> */
+    public static function functionBodies(string $src): array
+    {
+        return array_map(static fn(array $f) => [$f['s'], $f['e']], self::scopes($src)['fns']);
+    }
+
+    /** Innermost entry containing $offset. */
+    private static function innermost(array $entries, int $offset): ?array
     {
         $best = null;
-        foreach ($bodies as $b) {
-            if ($offset > $b[0] && $offset < $b[1] && ($best === null || $b[0] > $best[0])) {
+        foreach ($entries as $b) {
+            if ($offset > $b['s'] && $offset < $b['e'] && ($best === null || $b['s'] > $best['s'])) {
                 $best = $b;
             }
         }
         return $best;
     }
 
-    private static function insideAny(array $bodies, int $offset): bool
+    private static function scopeName(array $scopes, int $offset): string
     {
-        return self::enclosing($bodies, $offset) !== null;
+        $fn = self::innermost($scopes['fns'], $offset);
+        if ($fn === null) {
+            return '(top-level)';
+        }
+        $cls = self::innermost($scopes['classes'], $fn['s']);
+        return ($cls !== null && $cls['name'] !== '(anonymous)' ? $cls['name'] . '::' : '') . $fn['name'];
     }
 
+    // ── The scan ───────────────────────────────────────────────────────────────
+
     /**
-     * Scan one file. Returns ['exits' => n, 'bad' => [messages]].
-     *
+     * @param array<string, string>|null $allowed adapter allow-list (null = the real one)
      * @return array{exits:int, bad:string[]}
      */
-    public static function scanFile(string $rel, string $src): array
+    public static function scanFile(string $rel, string $src, ?array $allowed = null): array
     {
-        $bodies   = self::functionBodies($src);
+        $allowed = $allowed ?? self::ALLOWED_ADAPTERS;
         $hasHosts = preg_match(self::HOSTS, $src) === 1;
         $hasPhpMailer = strpos($src, 'PHPMailer') !== false;
+        // Lossless pre-filter (keeps the suite's memory peak down): every exit kind needs one of
+        // these in the raw text — the word "mail" (as a token it cannot hide in "email"), "Stripe\",
+        // "PHPMailer" for ->send(), the Twilio host, or a push/Stripe host for curl/socket/HTTP reads.
+        if (!$hasHosts && !$hasPhpMailer && !preg_match('/\bmail\b|Stripe\\\\|api\.twilio\.com/i', $src)) {
+            return ['exits' => 0, 'bad' => []];
+        }
+        $tokens  = self::tokens($src);
+        $scopes  = self::scopes($src, $tokens); // one token stream per file, not two
+        $n = count($tokens);
 
-        // Class constants whose value names one of the hosts (e.g. SEND_ENDPOINT) — a function
-        // that references them is a network adapter even if the host literal is elsewhere.
+        // Class constants whose value names one of the hosts (e.g. SEND_ENDPOINT).
         $hostConsts = [];
         if ($hasHosts && preg_match_all('/const\s+([A-Z_][A-Z0-9_]*)\s*=\s*([\'"])([^\'"]*)\2/', $src, $cm, PREG_SET_ORDER)) {
             foreach ($cm as $c) {
@@ -165,8 +320,9 @@ final class OutboundExitsScanTest extends TestCase
                 }
             }
         }
-        $isAdapterRegion = static function (int $start, int $end) use ($src, $hostConsts): bool {
-            $region = substr($src, $start, $end - $start);
+        $isAdapterRegion = static function (int $offset) use ($src, $scopes, $hostConsts): bool {
+            $fn = self::innermost($scopes['fns'], $offset);
+            $region = $fn === null ? $src : substr($src, $fn['s'], $fn['e'] - $fn['s']);
             if (preg_match(self::HOSTS, $region)) {
                 return true;
             }
@@ -178,85 +334,148 @@ final class OutboundExitsScanTest extends TestCase
             return false;
         };
 
-        // Every OutboundGuard call, by offset, with whether it sits at top level.
+        // Every OutboundGuard::method( call: offset, method, whether its result is USED.
         $guards = [];
-        if (preg_match_all('/OutboundGuard::\w+\s*\(/', $src, $gm, PREG_OFFSET_CAPTURE)) {
-            foreach ($gm[0] as $g) {
-                $guards[] = ['off' => $g[1], 'top' => !self::insideAny($bodies, $g[1])];
+        $exits  = [];
+        for ($i = 0; $i < $n; $i++) {
+            $tok = $tokens[$i];
+
+            // string literals: Twilio host
+            if ($tok['t'] === T_CONSTANT_ENCAPSED_STRING && stripos($tok['x'], 'api.twilio.com') !== false) {
+                $exits[] = ['label' => 'Twilio', 'rule' => 'adapter', 'o' => $tok['o'], 'l' => $tok['l']];
+                continue;
+            }
+
+            // PHPMailer ->send()
+            if ($hasPhpMailer && $tok['t'] === T_OBJECT_OPERATOR) {
+                $a = self::sig($tokens, $i, 1);
+                $b = $a === null ? null : self::sig($tokens, $a, 1);
+                $c = $b === null ? null : self::sig($tokens, $b, 1);
+                if ($a !== null && $b !== null && $c !== null && $tokens[$a]['x'] === 'send' && $tokens[$b]['x'] === '(' && $tokens[$c]['x'] === ')') {
+                    $exits[] = ['label' => 'PHPMailer send()', 'rule' => 'adapter', 'o' => $tok['o'], 'l' => $tok['l']];
+                }
+                continue;
+            }
+
+            $nm = self::nameAt($tokens, $i);
+            if ($nm === null) {
+                continue;
+            }
+            [$name, $last] = $nm;
+            $prev = self::sig($tokens, $i, -1);
+            $prevTok = $prev === null ? null : $tokens[$prev];
+            $afterName = self::sig($tokens, $last, 1);
+            $i = $last; // skip the rest of the name
+
+            // OutboundGuard::method(
+            if (substr($name, -13) === 'OutboundGuard' && $afterName !== null && $tokens[$afterName]['t'] === T_DOUBLE_COLON) {
+                $m = self::sig($tokens, $afterName, 1);
+                $p = $m === null ? null : self::sig($tokens, $m, 1);
+                if ($m !== null && $p !== null && $tokens[$m]['t'] === T_STRING && $tokens[$p]['x'] === '(') {
+                    $used = $prevTok !== null && $prevTok['t'] !== T_OPEN_TAG && !in_array($prevTok['x'], self::STATEMENT_START, true);
+                    $guards[] = ['o' => $tok['o'], 'method' => $tokens[$m]['x'], 'used' => $used];
+                }
+                continue;
+            }
+
+            // Stripe static calls / client
+            if (preg_match('/^Stripe\\\\/', $name)) {
+                if ($prevTok !== null && $prevTok['t'] === T_NEW && $name === 'Stripe\\StripeClient' && $afterName !== null && $tokens[$afterName]['x'] === '(') {
+                    $exits[] = ['label' => 'new StripeClient', 'rule' => 'key', 'o' => $tok['o'], 'l' => $tok['l'], 'open' => $afterName];
+                } elseif ($afterName !== null && $tokens[$afterName]['t'] === T_DOUBLE_COLON) {
+                    $m = self::sig($tokens, $afterName, 1);
+                    $p = $m === null ? null : self::sig($tokens, $m, 1);
+                    if ($m !== null && $p !== null && $tokens[$m]['t'] === T_STRING && $tokens[$p]['x'] === '(') {
+                        if ($name === 'Stripe\\Stripe' && $tokens[$m]['x'] === 'setApiKey') {
+                            $exits[] = ['label' => 'Stripe::setApiKey', 'rule' => 'key', 'o' => $tok['o'], 'l' => $tok['l'], 'open' => $p];
+                        } else {
+                            $exits[] = ['label' => 'Stripe API call ' . $name . '::' . $tokens[$m]['x'], 'rule' => 'api', 'o' => $tok['o'], 'l' => $tok['l']];
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // plain function calls: mail(), network sends, file_get_contents(url)
+            $isCall = $afterName !== null && $tokens[$afterName]['x'] === '('
+                && ($prevTok === null || !in_array($prevTok['t'], [T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NEW, T_CONST], true))
+                && strpos($name, '\\') === false;
+            if (!$isCall) {
+                continue;
+            }
+            $lname = strtolower($name);
+            $firstArg = self::sig($tokens, $afterName, 1);
+            $hasArgs = $firstArg !== null && $tokens[$firstArg]['x'] !== ')';
+            if ($lname === 'mail' && $hasArgs) {
+                $exits[] = ['label' => 'mail()', 'rule' => 'adapter', 'o' => $tok['o'], 'l' => $tok['l']];
+            } elseif (in_array($lname, ['curl_init', 'curl_exec', 'fsockopen', 'stream_socket_client'], true) && $hasHosts && $isAdapterRegion($tok['o'])) {
+                $exits[] = ['label' => 'network send ' . $lname . '()', 'rule' => 'adapter', 'o' => $tok['o'], 'l' => $tok['l']];
+            } elseif ($lname === 'file_get_contents' && $hasArgs && $tokens[$firstArg]['t'] === T_CONSTANT_ENCAPSED_STRING
+                && preg_match(self::HOSTS, $tokens[$firstArg]['x'])) {
+                $exits[] = ['label' => 'file_get_contents(url)', 'rule' => 'adapter', 'o' => $tok['o'], 'l' => $tok['l']];
             }
         }
-        $guardedBefore = static function (int $offset) use ($bodies, $guards): bool {
-            $body = self::enclosing($bodies, $offset);
+
+        $usedGuardBefore = static function (int $offset, ?array $methods = null) use ($guards, $scopes): bool {
+            $fn = self::innermost($scopes['fns'], $offset);
             foreach ($guards as $g) {
-                if ($g['off'] >= $offset) {
+                if ($g['o'] >= $offset || !$g['used'] || ($methods !== null && !in_array($g['method'], $methods, true))) {
                     continue;
                 }
-                if ($body !== null) {
-                    if ($g['off'] > $body[0] && $g['off'] < $body[1]) {
+                if ($fn !== null) {
+                    if ($g['o'] > $fn['s'] && $g['o'] < $fn['e']) {
                         return true;
                     }
-                } elseif ($g['top']) {
+                } elseif (self::innermost($scopes['fns'], $g['o']) === null) {
                     return true;
                 }
             }
             return false;
         };
-        $keyGateBefore = static function (int $offset) use ($src): bool {
-            $head = substr($src, 0, $offset);
-            return strpos($head, 'OutboundGuard::stripeKey(') !== false || strpos($head, 'OutboundGuard::webhookRefusal(') !== false;
+        $usedKeyGuardAnywhereBefore = static function (int $offset) use ($guards): bool {
+            foreach ($guards as $g) {
+                if ($g['o'] < $offset && $g['used'] && in_array($g['method'], ['stripeKey', 'webhookRefusal'], true)) {
+                    return true;
+                }
+            }
+            return false;
         };
 
-        $exits = 0;
         $bad = [];
-        $lineStart = 0;
-        foreach (explode("\n", $src) as $i => $line) {
-            $lineNo = $i + 1;
-            $off = $lineStart;
-            $lineStart += strlen($line) + 1;
-            if (preg_match('/^\s*(\*|\/\/|#|\/\*)/', $line)) {
-                continue; // comment line
-            }
-            $found = [];
-
-            if (preg_match('/(?<![\w>:$\\\\])@?mail\(\s*[^\s)]/', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $found[] = ['mail()', $m[0][1], 'guard'];
-            }
-            // Constructing a PHPMailer sends nothing; the exit is ->send(), required to be guarded in
-            // every file that mentions PHPMailer (so a fresh `new PHPMailer … ->send()` is caught).
-            if ($hasPhpMailer && preg_match('/\$\w+->send\(\)/', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $found[] = ['PHPMailer send()', $m[0][1], 'guard'];
-            }
-            if (preg_match('/new\s+\\\\?Stripe\\\\StripeClient\s*\(|\\\\Stripe\\\\Stripe::setApiKey\s*\(/', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $found[] = ['Stripe key', $m[0][1], 'key'];
-            } elseif (preg_match('/\\\\Stripe\\\\[A-Z]\w*(?:\\\\[A-Z]\w*)*::\w+\s*\(/', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $found[] = ['Stripe API call', $m[0][1], 'keygate'];
-            }
-            if (preg_match('/api\.twilio\.com/i', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $found[] = ['Twilio', $m[0][1], 'guard'];
-            }
-            if ($hasHosts && preg_match('/\b(curl_init|curl_exec|fsockopen|stream_socket_client)\s*\(|file_get_contents\(\s*[\'"]https?:/', $line, $m, PREG_OFFSET_CAPTURE)) {
-                $at = $off + $m[0][1];
-                $body = self::enclosing($bodies, $at);
-                $region = $body ?? [0, strlen($src)];
-                if ($isAdapterRegion($region[0], $region[1])) {
-                    $found[] = ['network send', $m[0][1], 'guard'];
+        foreach ($exits as $e) {
+            $scope = self::scopeName($scopes, $e['o']);
+            $where = "{$rel}:{$e['l']} [{$e['label']}] in {$scope}";
+            if ($e['rule'] === 'api') {
+                if (!$usedKeyGuardAnywhereBefore($e['o'])) {
+                    $bad[] = $where . ' — no used OutboundGuard::stripeKey()/webhookRefusal() earlier in the file';
                 }
+                continue;
             }
-
-            foreach ($found as [$label, $col, $rule]) {
-                $exits++;
-                $at = $off + $col;
-                $ok = $rule === 'key' ? strpos($line, 'OutboundGuard::stripeKey(') !== false
-                    : ($rule === 'keygate' ? $keyGateBefore($at) : $guardedBefore($at));
-                if (!$ok) {
-                    $bad[] = "{$rel}:{$lineNo} [{$label}] " . trim($line);
+            if (!isset($allowed[$rel . '::' . $scope])) {
+                $bad[] = $where . ' — not an allow-listed adapter method';
+                continue;
+            }
+            if ($e['rule'] === 'key') {
+                $close = self::closeParen($tokens, $e['open']);
+                $args = '';
+                for ($k = $e['open']; $k <= $close; $k++) {
+                    $args .= $tokens[$k]['x'];
                 }
+                if (strpos($args, 'OutboundGuard::stripeKey') === false) {
+                    $bad[] = $where . ' — the key is not wrapped in OutboundGuard::stripeKey() in the call arguments';
+                }
+                continue;
+            }
+            if (!$usedGuardBefore($e['o'])) {
+                $bad[] = $where . ' — no OutboundGuard call whose result is used before the exit in this function';
             }
         }
-        return ['exits' => $exits, 'bad' => $bad];
+        return ['exits' => count($exits), 'bad' => $bad];
     }
 
-    public function test_every_outbound_exit_is_preceded_by_a_guard_in_its_function(): void
+    // ── Tests on the real tree ─────────────────────────────────────────────────
+
+    public function test_every_outbound_exit_is_an_allow_listed_adapter_that_uses_the_guard(): void
     {
         $bad = [];
         $exitsPerFile = [];
@@ -265,8 +484,9 @@ final class OutboundExitsScanTest extends TestCase
             $exitsPerFile[$rel] = $r['exits'];
             $bad = array_merge($bad, $r['bad']);
         }
+        gc_mem_caches(); // hand the token streams' freed chunks back, so later tests keep their headroom
         $this->assertSame([], $bad,
-            "Outbound exit(s) without an OutboundGuard call earlier in the same function (or at top level before it). Send through MessagingService, or call OutboundGuard first:\n" . implode("\n", $bad));
+            "Outbound exit(s) outside the allow-listed adapters, or without a USED OutboundGuard result before them. Send through MessagingService, or guard first and list the method in OutboundExitsScanTest::ALLOWED_ADAPTERS:\n" . implode("\n", $bad));
 
         $missing = [];
         foreach (self::MUST_HAVE_EXITS as $rel) {
@@ -276,6 +496,34 @@ final class OutboundExitsScanTest extends TestCase
         }
         $this->assertSame([], $missing, 'the scan found no exit in these adapters — the patterns or the files changed: ' . implode(', ', $missing));
         $this->assertGreaterThanOrEqual(40, array_sum($exitsPerFile));
+    }
+
+    public function test_every_allow_listed_adapter_still_exists_and_has_an_exit(): void
+    {
+        $byFile = [];
+        foreach (array_keys(self::ALLOWED_ADAPTERS) as $key) {
+            [$rel, $scope] = explode('::', $key, 2);
+            $byFile[$rel][] = $scope;
+        }
+        foreach ($byFile as $rel => $scopesWanted) {
+            $path = self::root() . '/' . $rel;
+            $this->assertFileExists($path, "{$rel} is on the adapter allow-list but gone — remove its entries");
+            $src = (string)file_get_contents($path);
+            $scopes = self::scopes($src);
+            foreach ($scopesWanted as $scope) {
+                if ($scope === '(top-level)') {
+                    continue;
+                }
+                $found = false;
+                foreach ($scopes['fns'] as $f) {
+                    if (self::scopeName($scopes, $f['s'] + 1) === $scope) {
+                        $found = true;
+                        break;
+                    }
+                }
+                $this->assertTrue($found, "{$rel}: allow-listed adapter {$scope} no longer exists — remove it from the list");
+            }
+        }
     }
 
     public function test_the_webhook_entry_is_gated_before_and_after_signature_verification(): void
@@ -292,55 +540,12 @@ final class OutboundExitsScanTest extends TestCase
         $this->assertLessThan($construct, $gate1, 'the first gate must run before signature verification');
         $this->assertLessThan($gate2, $construct, 'the second gate must inspect the verified event');
         $this->assertLessThan(strpos($src, 'switch ($event->type)'), $gate2, 'the second gate must run before routing');
-        $this->assertStringContainsString("STRIPE_WEBHOOK_SECRET_IS_TEST", $src);
+        $this->assertStringContainsString('STRIPE_WEBHOOK_SECRET_IS_TEST', $src);
         $this->assertStringContainsString('$event->livemode ?? true', $src, 'an event without livemode is treated as live');
-        $this->assertSame([], self::functionBodies(substr($src, 0, $gate2)) === [] ? [] : ['?'], 'both gates sit at top level, before any function');
-    }
-
-    public function test_the_brace_matcher_handles_methods_closures_strings_and_nesting(): void
-    {
-        $src = '<?php class A { function m() { $f = function () { if (1) { return "}"; } }; $s = "{$x}"; } } function top() { }';
-        $bodies = self::functionBodies($src);
-        $this->assertCount(3, $bodies);
-        foreach ($bodies as [$s, $e]) {
-            $this->assertSame('{', $src[$s]);
-            $this->assertSame('}', $src[$e]);
-        }
-        // the closure is nested inside m()
-        usort($bodies, static fn($a, $b) => $a[0] <=> $b[0]);
-        $this->assertGreaterThan($bodies[0][0], $bodies[1][0]);
-        $this->assertLessThan($bodies[0][1], $bodies[1][1]);
-        $this->assertGreaterThan($bodies[0][1], $bodies[2][0]);
-    }
-
-    public function test_an_unguarded_exit_is_reported_and_a_guarded_one_is_not(): void
-    {
-        $bad = '<?php function a($to) { return mail($to, "s", "b"); }';
-        $this->assertCount(1, self::scanFile('x.php', $bad)['bad']);
-        $good = '<?php function a($to) { $g = \App\Core\OutboundGuard::email($to, "s", "b"); if (!$g["send"]) return true; return mail($g["to"], "s", "b"); }';
-        $this->assertSame([], self::scanFile('x.php', $good)['bad']);
-        // a guard in a DIFFERENT function does not count
-        $other = '<?php function g() { \App\Core\OutboundGuard::email("a", "s", "b"); } function a($to) { return mail($to, "s", "b"); }';
-        $this->assertCount(1, self::scanFile('x.php', $other)['bad']);
-        // a guard AFTER the exit does not count
-        $late = '<?php function a($to) { $r = mail($to, "s", "b"); \App\Core\OutboundGuard::email($to, "s", "b"); return $r; }';
-        $this->assertCount(1, self::scanFile('x.php', $late)['bad']);
-        // top-level script: a top-level guard before the exit counts
-        $script = "<?php\n\\App\\Core\\OutboundGuard::webhookRefusal(true, null);\n\$e = \\Stripe\\Webhook::constructEvent(\$p, \$s, \$k);\n";
-        $this->assertSame([], self::scanFile('x.php', $script)['bad']);
-        // a Stripe key must be wrapped on the very line it is used
-        $key = '<?php \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);';
-        $this->assertCount(1, self::scanFile('x.php', $key)['bad']);
-        // a fresh PHPMailer send in a new file is caught
-        $pm = '<?php function a() { $m = new \PHPMailer\PHPMailer\PHPMailer(true); $m->addAddress("x"); return $m->send(); }';
-        $this->assertCount(1, self::scanFile('x.php', $pm)['bad']);
-        // a curl in a function that targets a push host needs a guard; one that targets another host does not
-        $push = "<?php class P { const SEND = 'https://fcm.googleapis.com/x'; const TOK = 'https://oauth2.googleapis.com/t';\n"
-              . "static function send() { \$ch = curl_init(); curl_setopt(\$ch, CURLOPT_URL, self::SEND); }\n"
-              . "static function token() { \$ch = curl_init(); curl_setopt(\$ch, CURLOPT_URL, self::TOK); } }";
-        $r = self::scanFile('x.php', $push);
-        $this->assertCount(1, $r['bad']);
-        $this->assertStringContainsString(':2 ', $r['bad'][0]);
+        $scopes = self::scopes($src);
+        $this->assertSame('(top-level)', self::scopeName($scopes, $gate1));
+        $this->assertSame('(top-level)', self::scopeName($scopes, $gate2));
+        $this->assertSame('(top-level)', self::scopeName($scopes, $construct));
     }
 
     public function test_sending_and_charging_crons_are_gated(): void
@@ -371,7 +576,100 @@ final class OutboundExitsScanTest extends TestCase
             $this->assertNotFalse($cfg, $rel);
             $this->assertLessThan($gate, $cfg, "{$rel}: config.php must load before the gate");
             $this->assertLessThan($cfg + 400, $gate, "{$rel}: the gate must sit right after config.php");
-            $this->assertFalse(self::insideAny(self::functionBodies($src), $gate), "{$rel}: the gate must be top-level");
+            $this->assertSame('(top-level)', self::scopeName(self::scopes($src), $gate), "{$rel}: the gate must be top-level");
         }
+    }
+
+    // ── Self-tests of the scanner ──────────────────────────────────────────────
+
+    private const SELF_ALLOW = ['x.php::a' => 'test', 'x.php::K::m' => 'test', 'x.php::(top-level)' => 'test', 'x.php::P::send' => 'test'];
+
+    public function test_the_brace_matcher_handles_methods_closures_strings_and_nesting(): void
+    {
+        $src = '<?php class A { function m() { $f = function () { if (1) { return "}"; } }; $s = "{$x}"; } } function top() { }';
+        $s = self::scopes($src);
+        $this->assertCount(3, $s['fns']);
+        $this->assertCount(1, $s['classes']);
+        $this->assertSame('A', $s['classes'][0]['name']);
+        $this->assertSame('A::m', self::scopeName($s, $s['fns'][0]['s'] + 1));
+        $this->assertSame('A::{closure}', self::scopeName($s, $s['fns'][1]['s'] + 1));
+        $this->assertSame('top', self::scopeName($s, $s['fns'][2]['s'] + 1));
+        $this->assertSame('(top-level)', self::scopeName($s, strlen($src) - 1));
+    }
+
+    public function test_split_line_and_commented_calls_are_still_exits(): void
+    {
+        $split = "<?php function a(\$to) { return mail\n   /* why not */\n(\$to, 's', 'b'); }";
+        $r = self::scanFile('x.php', $split, self::SELF_ALLOW);
+        $this->assertSame(1, $r['exits']);
+        $this->assertCount(1, $r['bad']);
+        $this->assertStringContainsString(':1 [mail()] in a', $r['bad'][0]);
+        $stripe = "<?php \\Stripe\\Stripe\n::\nsetApiKey\n(STRIPE_SECRET_KEY);";
+        $this->assertCount(1, self::scanFile('x.php', $stripe, self::SELF_ALLOW)['bad']);
+        $this->assertSame(0, self::scanFile('x.php', '<?php // mail($a, $b, $c) in a comment', self::SELF_ALLOW)['exits']);
+        $this->assertSame(0, self::scanFile('x.php', '<?php $s = "call mail(x) in a string"; $o->mail($a); Foo::mail($a); function mail_it() {}', self::SELF_ALLOW)['exits']);
+    }
+
+    public function test_a_guard_whose_result_is_ignored_does_not_count(): void
+    {
+        $ignored = '<?php function a($to) { \App\Core\OutboundGuard::email($to, "s", "b"); return mail($to, "s", "b"); }';
+        $r = self::scanFile('x.php', $ignored, self::SELF_ALLOW);
+        $this->assertCount(1, $r['bad']);
+        $this->assertStringContainsString('result is used', $r['bad'][0]);
+        foreach ([
+            '$g = \App\Core\OutboundGuard::email($to, "s", "b"); if (!$g["send"]) return true;',
+            'if (!\App\Core\OutboundGuard::sms($to, "b")) { return true; }',
+            'return \App\Core\OutboundGuard::sms($to, "b") && mail($to, "s", "b");',
+        ] as $usage) {
+            $good = '<?php function a($to) { ' . $usage . ' return mail($to, "s", "b"); }';
+            $this->assertSame([], self::scanFile('x.php', $good, self::SELF_ALLOW)['bad'], $usage);
+        }
+    }
+
+    public function test_a_guard_in_another_method_or_after_the_exit_does_not_count(): void
+    {
+        $other = '<?php class K { function g() { $x = \App\Core\OutboundGuard::email("a", "s", "b"); } function m($to) { return mail($to, "s", "b"); } }';
+        $r = self::scanFile('x.php', $other, self::SELF_ALLOW);
+        $this->assertCount(1, $r['bad']);
+        $this->assertStringContainsString('in K::m', $r['bad'][0]);
+        $late = '<?php function a($to) { $r = mail($to, "s", "b"); $g = \App\Core\OutboundGuard::email($to, "s", "b"); return $r; }';
+        $this->assertCount(1, self::scanFile('x.php', $late, self::SELF_ALLOW)['bad']);
+        $closure = '<?php function a($to) { $g = \App\Core\OutboundGuard::email($to, "s", "b"); $f = function () use ($to) { return mail($to, "s", "b"); }; }';
+        $this->assertCount(1, self::scanFile('x.php', $closure, self::SELF_ALLOW)['bad'], 'a closure is its own scope');
+    }
+
+    public function test_an_exit_outside_the_allow_list_fails_even_when_guarded(): void
+    {
+        $src = '<?php function notListed($to) { $g = \App\Core\OutboundGuard::email($to, "s", "b"); if (!$g["send"]) return true; return mail($g["to"], "s", "b"); }';
+        $r = self::scanFile('x.php', $src, self::SELF_ALLOW);
+        $this->assertCount(1, $r['bad']);
+        $this->assertStringContainsString('not an allow-listed adapter', $r['bad'][0]);
+    }
+
+    public function test_stripe_key_api_push_and_top_level_rules(): void
+    {
+        // a Stripe key must be wrapped inside the call's arguments
+        $this->assertCount(1, self::scanFile('x.php', '<?php \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);', self::SELF_ALLOW)['bad']);
+        $this->assertSame([], self::scanFile('x.php', '<?php \Stripe\Stripe::setApiKey(\App\Core\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));', self::SELF_ALLOW)['bad']);
+        $this->assertCount(1, self::scanFile('x.php', '<?php class K { function m() { return new \Stripe\StripeClient(STRIPE_SECRET_KEY); } }', self::SELF_ALLOW)['bad']);
+        // an API call needs a used key gate earlier in the file; the webhook's constructEvent needs the webhook gate
+        $this->assertCount(1, self::scanFile('x.php', '<?php $pi = \Stripe\PaymentIntent::create(["amount" => 1]);', self::SELF_ALLOW)['bad']);
+        $ok = "<?php\n\\Stripe\\Stripe::setApiKey(\\App\\Core\\OutboundGuard::stripeKey(STRIPE_SECRET_KEY));\n\$pi = \\Stripe\\PaymentIntent::create(['amount' => 1]);\n";
+        $this->assertSame([], self::scanFile('x.php', $ok, self::SELF_ALLOW)['bad']);
+        $this->assertCount(1, self::scanFile('x.php', '<?php $e = \Stripe\Webhook::constructEvent($p, $s, $k);', self::SELF_ALLOW)['bad']);
+        $this->assertCount(1, self::scanFile('x.php', "<?php\n\\App\\Core\\OutboundGuard::webhookRefusal(true, null);\n\$e = \\Stripe\\Webhook::constructEvent(\$p, \$s, \$k);", self::SELF_ALLOW)['bad'], 'the gate result must be used');
+        $this->assertSame([], self::scanFile('x.php', "<?php\nif (\\App\\Core\\OutboundGuard::webhookRefusal(true, null) !== null) { exit; }\n\$e = \\Stripe\\Webhook::constructEvent(\$p, \$s, \$k);", self::SELF_ALLOW)['bad']);
+        // a curl in a method that targets a push host is an exit; a token exchange to another host is not
+        $push = "<?php class P { const SEND = 'https://fcm.googleapis.com/x'; const TOK = 'https://oauth2.googleapis.com/t';\n"
+              . "static function send() { \$ch = curl_init(); curl_setopt(\$ch, CURLOPT_URL, self::SEND); }\n"
+              . "static function token() { \$ch = curl_init(); curl_setopt(\$ch, CURLOPT_URL, self::TOK); } }";
+        $r = self::scanFile('x.php', $push, self::SELF_ALLOW);
+        $this->assertSame(1, $r['exits']);
+        $this->assertStringContainsString(':2 [network send curl_init()] in P::send', $r['bad'][0]);
+        // a fresh PHPMailer send in a new file is caught
+        $pm = '<?php function a() { $m = new \PHPMailer\PHPMailer\PHPMailer(true); $m->addAddress("x"); return $m->send(); }';
+        $this->assertCount(1, self::scanFile('x.php', $pm, self::SELF_ALLOW)['bad']);
+        // both the Twilio host literal and the HTTP read to it are flagged
+        $this->assertCount(2, self::scanFile('x.php', '<?php function a() { return file_get_contents("https://api.twilio.com/x"); }', self::SELF_ALLOW)['bad']);
     }
 }

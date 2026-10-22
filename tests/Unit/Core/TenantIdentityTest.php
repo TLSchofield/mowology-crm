@@ -22,7 +22,6 @@ final class TenantIdentityTest extends TestCase
         $this->assertSame('7788469273@msg.telus.com', TenantIdentity::notifySms());
         $this->assertSame('mowology_cron_', TenantIdentity::cronLockPrefix());
         $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath());
-        $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath(false));
     }
 
     public function test_a_defined_value_wins_and_an_empty_one_falls_back(): void
@@ -53,20 +52,21 @@ final class TenantIdentityTest extends TestCase
         TenantIdentity::resolve('TENANT_PHONE', '604');
     }
 
-    public function test_session_path_is_only_ever_changed_in_test_mode(): void
+    public function test_session_path_reads_only_the_uniquely_named_tenant_variable(): void
     {
         $this->assertFalse(defined('TENANT_SESSION_SAVE_PATH'));
-        putenv('TENANT_SESSION_SAVE_PATH=/tmp/tenant-sessions');
         putenv('SESSION_SAVE_PATH=/tmp/generic-must-be-ignored');
+        putenv('TENANT_MODE=test');
         try {
-            $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath(false), 'live mode consults nothing');
-            $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath(), 'undefined mode is live');
-            $this->assertSame('/tmp/tenant-sessions', TenantIdentity::sessionSavePath(true));
+            $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath(), 'the generic name and the mode change nothing');
+            putenv('TENANT_SESSION_SAVE_PATH=/tmp/tenant-sessions');
+            $this->assertSame('/tmp/tenant-sessions', TenantIdentity::sessionSavePath(), 'the tenant variable is honoured on its own, no mode involved');
         } finally {
             putenv('TENANT_SESSION_SAVE_PATH');
             putenv('SESSION_SAVE_PATH');
+            putenv('TENANT_MODE');
         }
-        $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath(true), 'test mode with nothing set keeps the default');
+        $this->assertSame('/home/mowology/tmp', TenantIdentity::sessionSavePath());
     }
 
     public function test_the_wired_files_read_the_identity_not_a_literal(): void
@@ -93,12 +93,12 @@ final class TenantIdentityTest extends TestCase
         foreach (['app/Core/session_config.php', 'public/includes/bootstrap.php'] as $f) {
             $src = (string)file_get_contents($root . '/' . $f);
             $this->assertStringContainsString("'/home/mowology/tmp'", $src, $f . ' must keep the production default');
-            // Only the uniquely named tenant constant / env var, and only once TENANT_MODE is not live.
+            // Only the uniquely named tenant constant / env var; nothing mode-related, nothing generic.
             $this->assertStringContainsString("defined('TENANT_SESSION_SAVE_PATH')", $src, $f);
             $this->assertStringContainsString("getenv('TENANT_SESSION_SAVE_PATH')", $src, $f);
             $this->assertSame(0, preg_match("/[^_]SESSION_SAVE_PATH/", $src), $f . ' must not consult the generic SESSION_SAVE_PATH');
-            $this->assertSame(1, preg_match("/\\\$__tenantMode\s*!==\s*''\s*&&\s*\\\$__tenantMode\s*!==\s*'live'/", $src), $f . ' must gate on TENANT_MODE');
-            $this->assertLessThan(strpos($src, "defined('TENANT_SESSION_SAVE_PATH')"), strpos($src, "defined('TENANT_MODE')"), $f . ': the mode check comes first');
+            $this->assertSame(0, preg_match("/getenv\(\s*['\"](?!TENANT_SESSION_SAVE_PATH['\"])/", $src), $f . ' may read no other environment variable');
+            $this->assertStringNotContainsString('TENANT_MODE', $src, $f . ' must not consult the mode');
         }
     }
 }

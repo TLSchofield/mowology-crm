@@ -14,7 +14,7 @@ namespace App\Core;
  *   TENANT_OFFICE_EMAIL     Reply-To / Return-Path     office@mowology.ca
  *   TENANT_NOTIFY_EMAIL     owner notification inbox   mowology@icloud.com
  *   TENANT_NOTIFY_SMS       owner SMS gateway address  7788469273@msg.telus.com
- *   TENANT_SESSION_SAVE_PATH  PHP session directory    /home/mowology/tmp  (test mode only)
+ *   TENANT_SESSION_SAVE_PATH  PHP session directory    /home/mowology/tmp  (constant or env var)
  *   CRON_LOCK_PREFIX        cron lock-file prefix      mowology_cron_
  *
  * No side effects at load. The wider "assumes Mowology" cleanup (AI prompts, templates, phone
@@ -89,22 +89,14 @@ final class TenantIdentity
     }
 
     /**
-     * The session directory. Live / undefined mode: today's path, unconditionally — no
-     * constant or environment variable is consulted. Test mode: TENANT_SESSION_SAVE_PATH
-     * (constant, else environment variable — session_config.php can run before secrets.php,
-     * and cPanel can SetEnv it), else today's path. Callers still check is_dir/is_writable.
-     *
-     * @param bool|null $testMode null = ask OutboundGuard
+     * The session directory: the uniquely named TENANT_SESSION_SAVE_PATH (constant, else the
+     * environment variable of the same name — set only on a test tenant's vhost, since
+     * session_config.php can run before secrets.php), else today's path. Nothing mode-related
+     * is consulted: production sets neither, so it keeps /home/mowology/tmp. Callers still
+     * check is_dir/is_writable.
      */
-    public static function sessionSavePath(?bool $testMode = null): string
+    public static function sessionSavePath(): string
     {
-        if ($testMode === null) {
-            require_once __DIR__ . '/OutboundGuard.php';
-            $testMode = OutboundGuard::isTest();
-        }
-        if (!$testMode) {
-            return self::DEFAULTS['TENANT_SESSION_SAVE_PATH'];
-        }
         $value = defined('TENANT_SESSION_SAVE_PATH') ? constant('TENANT_SESSION_SAVE_PATH') : getenv('TENANT_SESSION_SAVE_PATH');
         return self::resolve('TENANT_SESSION_SAVE_PATH', $value === false ? null : $value);
     }

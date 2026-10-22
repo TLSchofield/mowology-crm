@@ -13,8 +13,8 @@ namespace App\Core;
  *
  * Optional constants (secrets.php of the test tenant):
  *   TENANT_MODE               'live' (default when undefined) or 'test'. Anything other than
- *                             'live' is treated as 'test' — a typo fails safe. The TENANT_MODE
- *                             environment variable is read when the constant is undefined.
+ *                             'live' is treated as 'test' — a typo fails safe. The constant
+ *                             only: no environment variable is consulted.
  *   SANDBOX_MAIL_SINK         one email address every test-mode email is redirected to.
  *   SANDBOX_ALLOW_RECIPIENTS  ARRAY of exact email addresses / SMS gateway addresses allowed
  *                             to receive REAL messages in test mode (the owner's own inbox).
@@ -103,11 +103,9 @@ final class OutboundGuard
 
     public static function mode(): string
     {
+        // The constant only (secrets.php loads before any guard call; crons gate after config.php).
+        // No environment variable can switch the mode.
         $raw = self::setting('TENANT_MODE');
-        if ($raw === null && self::$override === null) {
-            $env = getenv('TENANT_MODE');
-            $raw = $env === false ? null : $env;
-        }
         if ($raw === null || $raw === '' || $raw === self::MODE_LIVE) {
             return self::MODE_LIVE;
         }
@@ -426,8 +424,10 @@ final class OutboundGuard
 
     /**
      * Test mode only: can the sandbox log be written? The directory must exist (or be
-     * creatable) and an append on today's file must succeed. Checked once per process per
-     * directory, before any outbound decision; a failure blocks everything.
+     * creatable) and a NON-EMPTY probe line must be written in full and flushed to a probe
+     * file there (an empty write "succeeds" on a full disk), which is then removed. Checked
+     * once per process per directory before any outbound decision — and a real log write
+     * that later fails flips readiness off again, so everything blocks from then on.
      */
     public static function logNotReady(): ?string
     {
@@ -444,20 +444,35 @@ final class OutboundGuard
         } elseif (!is_writable($dir)) {
             $why = "sandbox log directory is not writable: {$dir}";
         } else {
-            $h = @fopen(self::logPath(), 'ab');
-            if ($h === false || @fwrite($h, '') === false) {
-                $why = 'sandbox log file cannot be appended: ' . self::logPath();
-            }
-            if (is_resource($h)) {
+            $probe = $dir . '/.probe-' . getmypid() . '-' . bin2hex(random_bytes(4));
+            $line  = 'OutboundGuard probe ' . date('c') . "\n";
+            $h = @fopen($probe, 'wb');
+            if ($h === false) {
+                $why = "sandbox log directory refuses a new file: {$dir}";
+            } else {
+                $wrote = @fwrite($h, $line);
+                $flushed = @fflush($h);
                 fclose($h);
+                if ($wrote !== strlen($line) || !$flushed || @filesize($probe) !== strlen($line)) {
+                    $why = "sandbox log probe write failed (disk full?): {$dir}";
+                }
+                @unlink($probe);
             }
+        }
+        self::markReadiness($dir, $why);
+        return $why;
+    }
+
+    private static function markReadiness(string $dir, ?string $why): void
+    {
+        if ($why !== null && isset(self::$readiness[$dir])) {
+            return; // already blocked for an earlier reason — keep the first one
         }
         self::$readiness[$dir] = $why;
         if ($why !== null && !self::$logFailureReported) {
             self::$logFailureReported = true;
             error_log('OutboundGuard FAIL-CLOSED: ' . $why . ' — every outbound action is blocked until the log can be written.');
         }
-        return $why;
     }
 
     /**
@@ -535,9 +550,14 @@ final class OutboundGuard
             if (!is_dir($dir)) {
                 @mkdir($dir, 0750, true);
             }
-            @file_put_contents(self::logPath(), json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND | LOCK_EX);
+            $line  = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+            $wrote = @file_put_contents(self::logPath(), $line, FILE_APPEND | LOCK_EX);
+            if ($wrote !== strlen($line)) {
+                // A decision that could not be recorded: from now on every action is blocked.
+                self::markReadiness($dir, 'sandbox log write failed: ' . self::logPath());
+            }
         } catch (\Throwable $e) {
-            // the log is never the reason a request fails
+            self::markReadiness(self::logDir(), 'sandbox log write threw: ' . get_class($e));
         }
         error_log("OutboundGuard[{$kind}] {$action}: {$target}" . ($reason !== null ? ' (' . $reason . ')' : ''));
     }
