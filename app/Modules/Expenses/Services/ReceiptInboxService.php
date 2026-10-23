@@ -57,12 +57,29 @@ class ReceiptInboxService
     public static function isOfficeReceipt(?string $from, string $subject, string $filename, array $ownerEmails, array $clientEmails): bool
     {
         $from = strtolower(trim((string)$from));
+        // Our own documents are never receipts, even when one of us forwards them (2026-10-22: a signed quote forwarded
+        // from the owner's address with its PDF became an "Emailed receipt").
+        if (self::isOwnDocument($subject . ' ' . $filename)) return false;
         if ($from !== '' && in_array($from, $ownerEmails, true)) return true;
         if ($from === '' || str_ends_with($from, '@mowology.ca')) return false;
         if (in_array($from, $clientEmails, true)) return false;
         $text = $subject . ' ' . $filename;
         if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote request/i', $text)) return false;
         return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+    }
+
+    /**
+     * Does this subject / file name say it is one of OUR documents (a quote, contract or proposal we sent), not a bill
+     * we received? Our document numbers (QUO-, JOB-, CTR-) always say so. The words quote / proposal / contract /
+     * agreement say so unless the text also says receipt / invoice / bill / order / statement (a supplier's invoice
+     * that mentions a quote is still an invoice). INV- is NOT used: a vendor's invoice number can look like ours. PURE.
+     */
+    public static function isOwnDocument(string $text): bool
+    {
+        if (preg_match('/\b(?:QUO|JOB|CTR)-\d{4}-\d{3,5}\b/i', $text)) return true;
+        $quoteish   = (bool)preg_match('/\bquot(?:e|es|ed|ation|ations)\b|\bproposals?\b|\bcontracts?\b|\bagreements?\b/i', $text);
+        $receiptish = (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (?:confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+        return $quoteish && !$receiptish;
     }
 
     /**
@@ -343,6 +360,18 @@ class ReceiptInboxService
             return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'unsupported attachment'];
         }
 
+        // The MIME label and file name are the sender's claim. Check the bytes, and store under an extension WE
+        // choose from them, never the sender's (a file named x.php labelled image/png used to be saved as x.php).
+        if (!class_exists('ReceiptAttachmentGuard', false)) require_once __DIR__ . '/ReceiptAttachmentGuard.php';
+        $real = ReceiptAttachmentGuard::inspect($bytes);
+        if (!$real['ok'] || ($real['kind'] === 'pdf') !== $isPdf) {
+            $why = $real['ok'] ? 'labelled ' . ($isPdf ? 'PDF' : 'image') . ' but is not' : $real['problem'];
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'not a real receipt file (' . $why . ')');
+            return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'not a real receipt file'];
+        }
+        $filename = pathinfo($filename, PATHINFO_FILENAME) . '.' . $real['ext'];
+        $mime     = $real['mime'];   // the recorded type follows the bytes too, not the sender's label
+
         // 1) Store the attachment to disk + media_assets.
         $stored = $this->storeAttachment($bytes, $filename, $mime, $isPdf, $sha256, $systemUserId);
         $mediaId  = $stored['media_id'];
@@ -485,8 +514,12 @@ class ReceiptInboxService
         $storedName = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
         $diskPath   = $uploadDir . $storedName;
         $webPath    = uploadsUrl('receipts') . '/' . $storedName;
-        file_put_contents($diskPath, $bytes);
+        if (@file_put_contents($diskPath, $bytes, LOCK_EX) !== strlen($bytes)) {
+            @unlink($diskPath);   // a failed or partial write must not leave a receipt row pointing at nothing (2026-10-22)
+            throw new \RuntimeException('could not write the receipt file');
+        }
 
+        try {
         $w = null; $h = null;
         if (!$isPdf) {
             $info = @getimagesize($diskPath);
@@ -513,6 +546,10 @@ class ReceiptInboxService
         ]);
 
         return ['media_id' => (int) $this->db->lastInsertId(), 'disk_path' => $diskPath, 'web_path' => $webPath];
+        } catch (\Throwable $e) {
+            @unlink($diskPath);   // the row failed: do not leave an orphan file for each retry
+            throw $e;
+        }
     }
 
     /**

@@ -3529,7 +3529,7 @@ $unconvertedRequests = $db->query("
                 </div>
 
                 <!-- Billing Statement Card -->
-                <div class="card mb-3 mw-grid-wide">
+                <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">
                       <i data-feather="book-open"></i> Billing Statement
@@ -4133,6 +4133,12 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
                 <?php endif; ?>
+
+                <!-- Jobber price history + quotes (read-only history; fragment loaded on demand, empty when there is none) -->
+                <div id="mwJobberHistory"></div>
+                <script>
+                (function(){fetch('/crm/api/jobber-price-history.php?contact_id=<?= (int)$clientId ?>&html=1',{credentials:'same-origin'}).then(function(r){return r.ok?r.text():''}).then(function(h){var el=document.getElementById('mwJobberHistory');if(el&&h.indexOf('card')!==-1)el.innerHTML=h}).catch(function(){})})();
+                </script>
 
                 <!-- Activity Timeline Card (Enhanced) -->
                 <div class="card mb-3">
