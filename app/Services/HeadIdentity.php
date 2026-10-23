@@ -29,8 +29,9 @@ class HeadIdentity
         'they' => ['they' => 'they', 'them' => 'them', 'their' => 'their', 'theyre' => "they're"],
     ];
 
-    /** Per database connection, like BusinessIdentity (Codex 2026-10-23). */
-    private static array $chief = [];
+    /** Per database connection object, like BusinessIdentity (Codex 2026-10-23). */
+    private static ?SplObjectStorage $chief = null;
+    private static ?array $noDb = null;
 
     /**
      * The chief of staff as shown: name, role, photo and pronoun forms (they/them/their/theyre).
@@ -41,8 +42,9 @@ class HeadIdentity
         if ($db === null && function_exists('getDB')) {
             try { $db = getDB(); } catch (Throwable $e) { $db = null; }
         }
-        $key = $db ? spl_object_id($db) : 0;
-        if (isset(self::$chief[$key])) return self::$chief[$key];
+        self::$chief = self::$chief ?? new SplObjectStorage();
+        if ($db && self::$chief->contains($db)) return self::$chief[$db];
+        if (!$db && self::$noDb !== null) return self::$noDb;
         $c = self::CHIEF_DEFAULTS;
         if ($db) {
             try {
@@ -56,7 +58,9 @@ class HeadIdentity
                 }
             } catch (Throwable $e) { /* defaults */ }
         }
-        return self::$chief[$key] = $c + self::PRONOUNS[$c['pronoun']];
+        $out = $c + self::PRONOUNS[$c['pronoun']];
+        if ($db) self::$chief[$db] = $out; else self::$noDb = $out;
+        return $out;
     }
 
     /** The chief of staff's shown name ("Kaname"). */
@@ -68,7 +72,8 @@ class HeadIdentity
     /** Pure, for tests: the chief with the given overrides applied. */
     public static function chiefWith(array $overrides): array
     {
-        self::$chief = [];
+        self::$chief = null;
+        self::$noDb = null;
         $c = array_merge(self::CHIEF_DEFAULTS, array_filter($overrides, 'strlen'));
         if (!isset(self::PRONOUNS[$c['pronoun']])) $c['pronoun'] = self::CHIEF_DEFAULTS['pronoun'];
         return $c + self::PRONOUNS[$c['pronoun']];
@@ -77,6 +82,7 @@ class HeadIdentity
     /** Forget the cached chief (tests, or after the owner changes a setting in the same request). */
     public static function reset(): void
     {
-        self::$chief = [];
+        self::$chief = null;
+        self::$noDb = null;
     }
 }

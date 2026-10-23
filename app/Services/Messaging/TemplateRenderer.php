@@ -80,11 +80,8 @@ require_once __DIR__ . '/IdentityMail.php';
  */
 function emailCompanyDetails(): array
 {
-    static $cached = null;
-    if ($cached !== null) {
-        return $cached;
-    }
-
+    // No cache of its own: BusinessIdentity caches per business; a static here kept the FIRST business's
+    // footer for every later one in a worker (Codex 2026-10-23).
     // Known-good fallbacks (used if business_settings is empty/unreadable).
     $idn = BusinessIdentity::get();
     $d = [
@@ -111,8 +108,7 @@ function emailCompanyDetails(): array
         error_log('emailCompanyDetails: settings read failed, using fallbacks — ' . $e->getMessage());
     }
 
-    $cached = $d;
-    return $cached;
+    return $d;
 }
 
 /**

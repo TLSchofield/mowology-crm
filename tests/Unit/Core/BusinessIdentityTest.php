@@ -52,4 +52,27 @@ class BusinessIdentityTest extends TestCase
         $this->assertSame('Acme ca', $b['sms_name'], 'no domain-looking token in texts');
         $this->assertStringNotContainsString("\n", BusinessIdentity::describe($b));
     }
+
+    private function db(string $name, string $site): PDO
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->exec("CREATE TABLE business_settings (id INTEGER PRIMARY KEY, company_name TEXT, company_phone TEXT, company_email TEXT, company_website TEXT, company_address TEXT)");
+        $db->exec("INSERT INTO business_settings (company_name, company_website) VALUES ('{$name}', '{$site}')");
+        return $db;
+    }
+
+    /** Codex 2026-10-23: links never come from the request's Host header; each connection keeps its own business. */
+    public function test_links_ignore_the_host_header_and_each_database_keeps_its_own_business(): void
+    {
+        BusinessIdentity::reset();
+        $_SERVER['HTTP_HOST'] = 'attacker.example';
+        $a = $this->db('Mowology', 'mowology.ca');
+        $this->assertSame('https://mowology.ca', BusinessIdentity::get($a)['app_url']);
+        $b = $this->db('Greenleaf', 'greenleaf.ca');
+        $this->assertSame('Greenleaf', BusinessIdentity::get($b)['name']);
+        $this->assertSame('Mowology', BusinessIdentity::get($a)['name'], 'cached per connection, never mixed');
+        unset($_SERVER['HTTP_HOST']);
+        BusinessIdentity::reset();
+    }
 }
+

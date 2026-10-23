@@ -34,6 +34,9 @@ function sendCrmEmail(
     string $from = ''
 ): bool {
     if ($from === '') $from = _idFromName() . ' <' . _idFromEmail() . '>';
+    // No line breaks in headers, whoever passed them (Codex 2026-10-23).
+    $from    = trim((string)preg_replace('/[\r\n\x00]+/', ' ', $from));
+    $subject = trim((string)preg_replace('/[\r\n\x00]+/', ' ', $subject));
     // Validate email address
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         error_log("sendCrmEmail: invalid recipient email: {$to}");

@@ -277,7 +277,7 @@ function sendSms(
     // Carriers silently drop texts with anything link-like (rule 11). A business name such as "Acme.ca" can
     // arrive through any template, so every text is made safe here: a dot between a letter or digit and a
     // letter becomes a space ("Acme.ca" → "Acme ca"); prices ($1,240.50) and sentence ends are untouched.
-    $message = (string)preg_replace('/(?<=[\p{L}\p{N}])\.(?=\p{L})/u', ' ', $message);
+    $message = (string)preg_replace('/(?<=[\p{L}\p{N}])\.(?=(?:ca|com|net|org|info|biz|io|co|app|us|uk|me|shop|store|site|online|xyz)\b)/iu', ' ', $message);   // only real web endings: "J.Smith" stays (Codex 2026-10-23)
 
     // Truncate to SMS limit
     if (strlen($message) > 160) {

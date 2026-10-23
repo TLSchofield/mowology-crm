@@ -16,8 +16,10 @@
  */
 class BusinessIdentity
 {
-    /** Per database connection (spl_object_id), so a worker serving several businesses never mixes them (Codex 2026-10-23). */
-    private static array $cache = [];
+    /** Per database connection object (not its numeric id, which PHP reuses), so a worker serving several
+     *  businesses never mixes them (Codex 2026-10-23, twice). */
+    private static ?SplObjectStorage $cache = null;
+    private static ?array $noDb = null;
     /** Set by use(): wins over the cache (tests; a worker that has just switched business). */
     private static ?array $use = null;
 
@@ -38,8 +40,9 @@ class BusinessIdentity
         if ($db === null && function_exists('getDB')) {
             try { $db = getDB(); } catch (Throwable $e) { $db = null; }
         }
-        $key = $db ? spl_object_id($db) : 0;
-        if (isset(self::$cache[$key])) return self::$cache[$key];
+        self::$cache = self::$cache ?? new SplObjectStorage();
+        if ($db && self::$cache->contains($db)) return self::$cache[$db];
+        if (!$db && self::$noDb !== null) return self::$noDb;
         $s = $i = $ops = $owner = [];
         $staff = 0;
         if ($db) {
@@ -54,8 +57,12 @@ class BusinessIdentity
                 : self::row($db, "SELECT id, first_name, preferred_name, phone FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1");
             try { $staff = (int)$db->query('SELECT COUNT(*) FROM users WHERE is_active = 1')->fetchColumn(); } catch (Throwable $e) { $staff = 0; }
         }
-        $appUrl = defined('APP_URL') ? (string)APP_URL : (PHP_SAPI !== 'cli' && !empty($_SERVER['HTTP_HOST']) ? 'https://' . (string)$_SERVER['HTTP_HOST'] : '');
-        return self::$cache[$key] = self::from($s, $i, $ops, $owner, $staff, defined('MAIL_FROM_ADDRESS') ? (string)MAIL_FROM_ADDRESS : '', $appUrl);
+        // Links use the install's configured address (APP_URL, set per business) or the business's website —
+        // never the request's Host header, which a caller controls (Codex 2026-10-23).
+        $appUrl = defined('APP_URL') ? (string)APP_URL : '';
+        $b = self::from($s, $i, $ops, $owner, $staff, defined('MAIL_FROM_ADDRESS') ? (string)MAIL_FROM_ADDRESS : '', $appUrl);
+        if ($db) self::$cache[$db] = $b; else self::$noDb = $b;
+        return $b;
     }
 
     /** Pure: build the identity from the rows (tests, and the cache above). */
@@ -135,7 +142,8 @@ class BusinessIdentity
 
     public static function reset(): void
     {
-        self::$cache = [];
+        self::$cache = null;
+        self::$noDb = null;
         self::$use = null;
     }
 
