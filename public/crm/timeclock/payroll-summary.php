@@ -268,6 +268,11 @@ $activePage = 'payroll';
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="list" style="width:14px;height:14px;"></i> All Timesheets
         </a>
+        <?php if (function_exists('isAdmin') && isAdmin()): ?>
+        <a href="/crm/accounting/payroll-import.php" class="btn btn-sm btn-outline-secondary" title="Upload Wave's monthly Wages &amp; taxes report so Penny can book the month">
+            <i data-feather="upload" style="width:14px;height:14px;"></i> Import Wave report
+        </a>
+        <?php endif; ?>
     </div>
 </div>
 
