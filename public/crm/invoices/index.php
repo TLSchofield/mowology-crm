@@ -375,7 +375,7 @@ $activePage = 'invoices';
                                     <div class="mw-et-card-sub">Issued <?php echo htmlspecialchars($etD($et['matched_invoice_date'] ?? null)); ?> · <?php echo formatCurrency((float)($et['matched_balance'] ?? 0)); ?> owing</div>
                                     <div class="mw-et-card-sub"><?php
                                         $how = (string)($et['match_method'] ?? '');
-                                        echo $how === 'invoice_number' ? 'Named in the email memo' : ($how === 'reference_number' ? 'Interac reference matches' : 'Matched by the sender’s name — check it'); ?></div>
+                                        echo $how === 'invoice_number' ? 'Named in the email memo' : ($how === 'reference_number' ? 'Interac reference matches' : ($how === 'amount' ? 'The one open invoice for exactly this amount — check it' : 'Matched by the sender’s name — check it')); ?></div>
                                 <?php elseif (!empty($spreadLines)): ?>
                                     <div class="mw-et-card-main"><?php echo $isValueGuess ? 'Clears ' . htmlspecialchars($valueFallback['payer_name']) . '’s balance' : (count($spreadLines) > 1 ? count($spreadLines) . ' invoices, oldest first' : 'Oldest open invoice'); ?></div>
                                     <?php foreach (array_slice($spreadLines, 0, 4) as $sl): ?>
