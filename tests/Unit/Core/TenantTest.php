@@ -12,7 +12,7 @@ class TenantTest extends TestCase
 
     public function test_the_original_business_is_unchanged_on_every_other_address(): void
     {
-        foreach (['mowology.ca', 'www.mowology.ca', 'localhost:8000', '', 'ittai.ca', 'www.ittai.ca', 'junkology.ca'] as $h) {
+        foreach (['mowology.ca', 'www.mowology.ca', 'MOWOLOGY.CA.', 'localhost:8000', '104.193.174.145', 'junkology.ca'] as $h) {
             $this->assertSame(Tenant::DEFAULT, Tenant::resolve($h, null, $this->reg)['key'], $h);
         }
     }
@@ -47,4 +47,13 @@ class TenantTest extends TestCase
         $this->assertSame('', Tenant::appUrl());
         Tenant::forTests(null);
     }
+
+    /** Codex 2026-10-23: fail closed — no Host, a malformed one, or Ittai's marketing address never reach the original business. */
+    public function test_empty_malformed_and_marketing_addresses_are_not_found(): void
+    {
+        foreach (['', '   ', 'acme.ittai.ca:bad', 'evil.test/x', 'a b.ca', 'ittai.ca', 'www.ittai.ca', 'ITTAI.CA.', 'xn--', '-bad.ca'] as $h) {
+            $this->assertNull(Tenant::resolve($h, null, $this->reg)['key'], var_export($h, true));
+        }
+    }
 }
+

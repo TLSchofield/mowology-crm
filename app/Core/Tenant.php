@@ -26,7 +26,7 @@ final class Tenant
     public const DEFAULT = 'default';
     /** The routed domain: every address under it must be a registered business. */
     public const ROUTED_SUFFIX = '.ittai.ca';
-    /** Addresses under the routed domain that are not businesses (the marketing site). */
+    /** Addresses under the routed domain that are not businesses (the marketing site): never the app. */
     public const NOT_TENANT = ['ittai.ca', 'www.ittai.ca'];
 
     private static ?array $current = null;
@@ -41,10 +41,14 @@ final class Tenant
             if ($cliKey === self::DEFAULT) return ['key' => self::DEFAULT, 'cfg' => []];
             return isset($registry[$cliKey]) && self::valid($registry[$cliKey]) ? ['key' => $cliKey, 'cfg' => $registry[$cliKey]] : ['key' => null];
         }
+        // Fail closed (Codex 2026-10-23): an empty or malformed address, and Ittai's own marketing addresses,
+        // never fall back to the original business — they are not found. Only a well-formed address outside
+        // ittai.ca is the original business.
         $h = strtolower(trim((string)$host));
-        $h = (string)preg_replace('/:\d+$/', '', $h);            // drop a port
-        $h = rtrim($h, '.');
-        if ($h === '' || in_array($h, self::NOT_TENANT, true) || substr($h, -strlen(self::ROUTED_SUFFIX)) !== self::ROUTED_SUFFIX) {
+        if (!preg_match('/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?\.?(:\d{1,5})?$/', $h)) return ['key' => null];
+        $h = rtrim((string)preg_replace('/:\d+$/', '', $h), '.');   // drop a port and a trailing dot
+        if ($h === ltrim(self::ROUTED_SUFFIX, '.') || in_array($h, self::NOT_TENANT, true)) return ['key' => null];
+        if (substr($h, -strlen(self::ROUTED_SUFFIX)) !== self::ROUTED_SUFFIX) {
             return ['key' => self::DEFAULT, 'cfg' => []];
         }
         foreach ($registry as $key => $cfg) {
