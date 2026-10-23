@@ -202,8 +202,12 @@ shadow next to Wave), with the data-model items above built in step 4 before any
   authorised in writing — verified on gov.bc.ca 2026-10-21; e-Transfer isn't named, closest to a deposit with
   autodeposit on): a "pay me by e-Transfer to <email>" consent in the crew app, stored with its date. Steve to
   confirm it suffices.
-- Unknown: whether Vancity business banking accepts a bulk e-Transfer upload and its file format — the owner
-  checks in online banking or with Vancity; until then, the hand-sent list.
+- Vancity: the owner doesn't think its business banking takes a bulk e-Transfer upload (2026-10-22), so for
+  Mowology the **hand-sent list is the design**, built for the phone: one card per person (name, net pay,
+  e-Transfer email, memo) with copy buttons for each field to paste into the Vancity app, a "Sent" tick
+  (→ waiting for the bank), Penny's match on the next bank import (→ paid), and a flag in the brief for anything
+  unmatched after 2 days (declined, not accepted, wrong email). Tenants whose bank takes a bulk file get a
+  "download file" button on the same screen.
 - Pricing benchmark (ChatGPT, QuickBooks Canada pricing page, Oct 2026 — to confirm): Core $30 + $5/person,
   Premium $55 + $8 (time tracking, scheduling), Elite $80 + $15 (GPS geofencing, project time). Ittai's GPS clock
   and job costing compete with Elite (5 staff ≈ $155/month), not Core.
