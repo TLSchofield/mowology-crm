@@ -15,7 +15,7 @@ final class TestIdentity
         return self::set(BusinessIdentity::from(
             ['company_name' => 'Mowology Landscaping', 'company_phone' => '778 846 9273', 'company_email' => 'office@mowology.ca', 'company_website' => 'https://mowology.ca', 'company_address' => '2845 West 15th Ave, Vancouver, BC V6K 3A1'],
             ['entered_name' => 'Mowology', 'legal_name' => 'MOWOLOGY LAWNS & LANDSCAPES LTD.', 'jurisdiction' => 'BC'],
-            ['business_trade' => 'landscaping and property-maintenance', 'business_city' => 'Vancouver'],
+            ['business_trade' => 'landscaping and property-maintenance', 'business_city' => 'Vancouver', 'mail_verified_domains' => 'mowology.ca'],
             ['id' => 1, 'first_name' => 'TIM', 'preferred_name' => 'Tim'], 3));
     }
 
@@ -31,9 +31,7 @@ final class TestIdentity
 
     public static function set(array $identity): array
     {
-        $p = new ReflectionProperty(BusinessIdentity::class, 'cache');
-        $p->setAccessible(true);
-        $p->setValue(null, $identity);
+        BusinessIdentity::use($identity);
         return $identity;
     }
 }

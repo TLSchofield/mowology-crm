@@ -17,7 +17,7 @@ require_once __DIR__ . '/IdentityMail.php';
 if (!function_exists('buildQuoteNotificationSmsText')) {
     function buildQuoteNotificationSmsText(string $quoteNumber, string $companyName = ''): string
     {
-        $fallbackName = _idFromName();
+        $fallbackName = _idSmsName();
         // A dot in the company name ("Mowology Inc.") could read as a domain to a gateway filter
         $company = trim(str_replace('.', '', $companyName)) ?: $fallbackName;
         $call    = _idSmsTail('Call');

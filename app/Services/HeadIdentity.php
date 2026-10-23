@@ -29,7 +29,8 @@ class HeadIdentity
         'they' => ['they' => 'they', 'them' => 'them', 'their' => 'their', 'theyre' => "they're"],
     ];
 
-    private static ?array $chief = null;
+    /** Per database connection, like BusinessIdentity (Codex 2026-10-23). */
+    private static array $chief = [];
 
     /**
      * The chief of staff as shown: name, role, photo and pronoun forms (they/them/their/theyre).
@@ -37,16 +38,17 @@ class HeadIdentity
      */
     public static function chief(?PDO $db = null): array
     {
-        if (self::$chief !== null) return self::$chief;
-        $c = self::CHIEF_DEFAULTS;
         if ($db === null && function_exists('getDB')) {
             try { $db = getDB(); } catch (Throwable $e) { $db = null; }
         }
+        $key = $db ? spl_object_id($db) : 0;
+        if (isset(self::$chief[$key])) return self::$chief[$key];
+        $c = self::CHIEF_DEFAULTS;
         if ($db) {
             try {
                 $st = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('chief_name', 'chief_pronoun', 'chief_photo')");
                 foreach ($st ? $st->fetchAll(PDO::FETCH_KEY_PAIR) : [] as $k => $v) {
-                    $v = trim((string)$v);
+                    $v = trim((string)preg_replace('/[\x00-\x1F\x7F]/u', '', (string)$v));   // it reaches email headers
                     if ($v === '') continue;
                     if ($k === 'chief_name' && mb_strlen($v) <= 40) $c['name'] = $v;
                     if ($k === 'chief_pronoun' && isset(self::PRONOUNS[$v])) $c['pronoun'] = $v;
@@ -54,7 +56,7 @@ class HeadIdentity
                 }
             } catch (Throwable $e) { /* defaults */ }
         }
-        return self::$chief = $c + self::PRONOUNS[$c['pronoun']];
+        return self::$chief[$key] = $c + self::PRONOUNS[$c['pronoun']];
     }
 
     /** The chief of staff's shown name ("Kaname"). */
@@ -66,7 +68,7 @@ class HeadIdentity
     /** Pure, for tests: the chief with the given overrides applied. */
     public static function chiefWith(array $overrides): array
     {
-        self::$chief = null;
+        self::$chief = [];
         $c = array_merge(self::CHIEF_DEFAULTS, array_filter($overrides, 'strlen'));
         if (!isset(self::PRONOUNS[$c['pronoun']])) $c['pronoun'] = self::CHIEF_DEFAULTS['pronoun'];
         return $c + self::PRONOUNS[$c['pronoun']];
@@ -75,6 +77,6 @@ class HeadIdentity
     /** Forget the cached chief (tests, or after the owner changes a setting in the same request). */
     public static function reset(): void
     {
-        self::$chief = null;
+        self::$chief = [];
     }
 }

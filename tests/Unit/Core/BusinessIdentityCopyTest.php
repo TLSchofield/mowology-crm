@@ -100,7 +100,7 @@ class BusinessIdentityCopyTest extends TestCase
         $this->assertStringContainsString('hello@greenleaf.ca', EtransferNudgeService::autodepositAddress());
         $this->assertSame('Greenleaf: Your quote QUO-1 is ready. Check your email to view and accept it. Questions? Call (604) 555-0142.', buildQuoteNotificationSmsText('QUO-1'));
         $this->assertSame(['greenleaf.ca', 'hello@greenleaf.ca', '604-555-0142', '(604) 555-0142', '6045550142'], DraftSafety::own());
-        $this->assertSame('no-reply@greenleaf.ca', _idFromEmail());
+        $this->assertSame('no-reply@ittai.ca', _idFromEmail());
         $this->assertSame('hello@greenleaf.ca', _idReplyTo());
         $this->assertSame('Greenleaf', _idFromName());
         // Mowology's address is no longer "ours" for this business: a draft carrying it is flagged.

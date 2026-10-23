@@ -16,7 +16,7 @@ if (!function_exists('_idFromName')) {
     /** Display name for From: the caller's own name if given, else the business's short name. */
     function _idFromName(string $given = ''): string
     {
-        $given = trim($given);
+        $given = trim((string)preg_replace('/[\x00-\x1F\x7F]/u', '', $given));   // header injection (Codex 2026-10-23)
         return $given !== '' ? $given : (BusinessIdentity::get()['mail_from_name'] ?: 'Ittai');
     }
 }
@@ -52,9 +52,8 @@ if (!function_exists('_idSiteUrl')) {
     /** The business's own site, https-prefixed ('' when none is on file). */
     function _idSiteUrl(): string
     {
-        $w = BusinessIdentity::get()['website'];
-        if ($w === '') return '';
-        return preg_match('#^https?://#i', $w) ? rtrim($w, '/') : 'https://' . rtrim($w, '/');
+        // The CRM / client portal's own address (install, request host, else website) — never a hostless link.
+        return BusinessIdentity::get()['app_url'];
     }
 }
 if (!function_exists('_idCompanyInfo')) {
@@ -89,5 +88,13 @@ if (!function_exists('_idBrand')) {
             'email'     => $h($b['email']),
             'callLine'  => $b['phone'] !== '' ? ' or call us at <strong>' . $h($b['phone']) . '</strong>' : '',
         ];
+    }
+}
+
+if (!function_exists('_idSmsName')) {
+    /** The business name as it may appear in a text: no dots, @ or slashes (carriers drop link-like texts), ≤ 30 chars. */
+    function _idSmsName(): string
+    {
+        return BusinessIdentity::get()['sms_name'] ?: 'us';
     }
 }

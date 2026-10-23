@@ -1,5 +1,8 @@
 <?php
 require_once __DIR__ . '/auth.php';
+// The business's own name (Ittai founding businesses, 2026-10-23); never another business's.
+require_once APP_ROOT . '/Services/BusinessIdentity.php';
+$__bizName = BusinessIdentity::get()['name'] ?: 'Ittai';
 
 header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
@@ -61,7 +64,7 @@ $csrf_token = generateLoginCSRFToken();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Mowology CRM</title>
+    <title>Sign in - <?= htmlspecialchars($__bizName) ?></title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -411,7 +414,7 @@ $csrf_token = generateLoginCSRFToken();
 <body>
     <div class="login-container">
         <div class="login-header">
-            <div class="logo">Mowology</div>
+            <div class="logo"><?= htmlspecialchars($__bizName) ?></div>
             <div class="tagline">Client Management System</div>
         </div>
         

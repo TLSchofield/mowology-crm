@@ -274,6 +274,11 @@ function sendSms(
         ];
     }
 
+    // Carriers silently drop texts with anything link-like (rule 11). A business name such as "Acme.ca" can
+    // arrive through any template, so every text is made safe here: a dot between a letter or digit and a
+    // letter becomes a space ("Acme.ca" → "Acme ca"); prices ($1,240.50) and sentence ends are untouched.
+    $message = (string)preg_replace('/(?<=[\p{L}\p{N}])\.(?=\p{L})/u', ' ', $message);
+
     // Truncate to SMS limit
     if (strlen($message) > 160) {
         $message = substr($message, 0, 157) . '...';
@@ -1290,7 +1295,8 @@ function _sendSimpleHtmlEmail(
         $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
-        $headers .= 'Reply-To: ' . ($replyTo ?? _idReplyTo()) . "\r\n";
+        $replyTo  = $replyTo !== null ? (filter_var(trim((string)preg_replace('/[\x00-\x1F\x7F]/', '', $replyTo)), FILTER_VALIDATE_EMAIL) ?: null) : null;
+        $headers .= 'Reply-To: ' . ($replyTo ?? _idReplyTo()) . "\r\n";   // validated: no header injection (Codex 2026-10-23)
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";

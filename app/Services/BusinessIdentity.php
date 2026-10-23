@@ -16,7 +16,16 @@
  */
 class BusinessIdentity
 {
-    private static ?array $cache = null;
+    /** Per database connection (spl_object_id), so a worker serving several businesses never mixes them (Codex 2026-10-23). */
+    private static array $cache = [];
+    /** Set by use(): wins over the cache (tests; a worker that has just switched business). */
+    private static ?array $use = null;
+
+    /** Use exactly this identity until reset() (tests, and a worker that switches business). */
+    public static function use(?array $identity): void
+    {
+        self::$use = $identity;
+    }
 
     /**
      * @return array{name:string, display_name:string, legal_name:string, phone:string, email:string, website:string,
@@ -25,17 +34,19 @@ class BusinessIdentity
      */
     public static function get(?PDO $db = null): array
     {
-        if (self::$cache !== null) return self::$cache;
+        if (self::$use !== null) return self::$use;
         if ($db === null && function_exists('getDB')) {
             try { $db = getDB(); } catch (Throwable $e) { $db = null; }
         }
+        $key = $db ? spl_object_id($db) : 0;
+        if (isset(self::$cache[$key])) return self::$cache[$key];
         $s = $i = $ops = $owner = [];
         $staff = 0;
         if ($db) {
             $s = self::row($db, 'SELECT company_name, company_phone, company_email, company_website, company_address FROM business_settings ORDER BY id LIMIT 1');
             $i = self::row($db, 'SELECT entered_name, operating_name, legal_name, jurisdiction FROM business_identity ORDER BY id LIMIT 1');
             try {
-                $ops = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('business_trade', 'business_city', 'owner_user_id', 'charlie_owner_user_id', 'etransfer_email')")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+                $ops = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('business_trade', 'business_city', 'owner_user_id', 'charlie_owner_user_id', 'etransfer_email', 'mail_verified_domains')")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
             } catch (Throwable $e) { $ops = []; }
             $ownerId = (int)($ops['owner_user_id'] ?? $ops['charlie_owner_user_id'] ?? 0);
             $owner = $ownerId > 0
@@ -43,23 +54,33 @@ class BusinessIdentity
                 : self::row($db, "SELECT id, first_name, preferred_name, phone FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1");
             try { $staff = (int)$db->query('SELECT COUNT(*) FROM users WHERE is_active = 1')->fetchColumn(); } catch (Throwable $e) { $staff = 0; }
         }
-        return self::$cache = self::from($s, $i, $ops, $owner, $staff, defined('MAIL_FROM_ADDRESS') ? (string)MAIL_FROM_ADDRESS : '');
+        $appUrl = defined('APP_URL') ? (string)APP_URL : (PHP_SAPI !== 'cli' && !empty($_SERVER['HTTP_HOST']) ? 'https://' . (string)$_SERVER['HTTP_HOST'] : '');
+        return self::$cache[$key] = self::from($s, $i, $ops, $owner, $staff, defined('MAIL_FROM_ADDRESS') ? (string)MAIL_FROM_ADDRESS : '', $appUrl);
     }
 
     /** Pure: build the identity from the rows (tests, and the cache above). */
-    public static function from(array $s, array $i, array $ops, array $owner, int $staff = 0, string $mailFrom = ''): array
+    public static function from(array $s, array $i, array $ops, array $owner, int $staff = 0, string $mailFrom = '', string $appUrl = ''): array
     {
-        $t = fn($v) => trim((string)($v ?? ''));
+        // Every field is one clean line: no control characters (header injection — Codex 2026-10-23), capped length.
+        $t = fn($v, int $max = 120) => mb_substr(trim((string)preg_replace('/\s+/u', ' ', (string)preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)($v ?? '')))), 0, $max);
+        $mail = fn($v) => filter_var($t($v, 190), FILTER_VALIDATE_EMAIL) ?: '';
         $display = $t($s['company_name'] ?? '');
         $short = $t($i['operating_name'] ?? '') ?: $t($i['entered_name'] ?? '') ?: $display;
         $website = $t($s['company_website'] ?? '');
-        $email = $t($s['company_email'] ?? '');
+        $email = $mail($s['company_email'] ?? '');
         $ownerName = $t($owner['preferred_name'] ?? '') ?: ucfirst(strtolower($t($owner['first_name'] ?? '')));
+        // The sender must be a domain this server is allowed to send for (SPF/DKIM), never just the business's
+        // website (Codex 2026-10-23): MAIL_FROM_ADDRESS, else the website's domain only if it is listed in
+        // ops_settings mail_verified_domains, else Ittai's own address. The business's email is the Reply-To.
+        $mailFrom = $mail($mailFrom);
         if ($mailFrom === '') {
             $host = strtolower((string)preg_replace('#^(https?://)?(www\.)?#i', '', $website));
             $host = (string)preg_replace('#[/:].*$#', '', $host);
-            $mailFrom = preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/', $host) ? 'no-reply@' . $host : 'no-reply@ittai.ca';
+            $verified = array_filter(array_map(fn($d) => strtolower(trim($d)), explode(',', (string)($ops['mail_verified_domains'] ?? ''))));
+            $mailFrom = ($host !== '' && in_array($host, $verified, true)) ? 'no-reply@' . $host : 'no-reply@ittai.ca';
         }
+        $site = $website === '' ? '' : (preg_match('#^https?://#i', $website) ? rtrim($website, '/') : 'https://' . rtrim($website, '/'));
+        $appUrl = preg_match('#^https://[a-z0-9.-]+(:\d+)?$#i', rtrim($appUrl, '/')) ? rtrim($appUrl, '/') : $site;
         return [
             'name'            => $short,                         // "Mowology" — how people say it
             'display_name'    => $display ?: $short,             // "Mowology Landscaping" — invoices, headers
@@ -76,7 +97,11 @@ class BusinessIdentity
             'mail_from'       => $mailFrom,
             'mail_from_name'  => $short ?: 'Ittai',
             'reply_to'        => $email,
-            'etransfer_email' => $t($ops['etransfer_email'] ?? '') ?: $email,
+            'etransfer_email' => $mail($ops['etransfer_email'] ?? '') ?: $email,
+            // Links to the CRM and client portal: the install's own address, never a blank host (Codex 2026-10-23).
+            'app_url'         => $appUrl,
+            // For texts: no dots, @ or slashes (carriers drop anything that looks like a link), at most 30 characters.
+            'sms_name'        => mb_substr(trim((string)preg_replace('/\s+/u', ' ', (string)preg_replace('#[.@/:\\\\]#u', ' ', $short))), 0, 30),
             'staff'           => $staff,
         ];
     }
@@ -91,6 +116,11 @@ class BusinessIdentity
         $name = $b['name'] !== '' ? $b['name'] : 'this business';
         $what = trim(($b['staff'] > 0 && $b['staff'] <= 50 ? $b['staff'] . '-person ' : '') . ($b['trade'] !== '' ? $b['trade'] . ' ' : '') . 'business');
         $where = trim($b['city'] . ($b['city'] !== '' && $b['province'] !== '' ? ', ' : '') . $b['province']);
+        // Only letters, numbers, spaces and simple punctuation reach a prompt: the business types these fields, and
+        // they are data, never instructions (Codex 2026-10-23).
+        $safe = fn($v) => trim((string)preg_replace('/[^\p{L}\p{N} &\',.\-()]/u', '', (string)$v));
+        [$name, $what, $where] = [$safe($name), $safe($what), $safe($where)];
+        $b['owner_name'] = $safe($b['owner_name']);
         $s = $name . ', a ' . $what . ($where !== '' ? ' in ' . $where : '');
         return $s . ($b['owner_name'] !== '' ? ' (owner: ' . $b['owner_name'] . ')' : '');
     }
@@ -105,7 +135,8 @@ class BusinessIdentity
 
     public static function reset(): void
     {
-        self::$cache = null;
+        self::$cache = [];
+        self::$use = null;
     }
 
     private static function row(PDO $db, string $sql, array $p = []): array
