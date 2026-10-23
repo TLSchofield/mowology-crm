@@ -1,12 +1,12 @@
 From 607485b763756468eeb01f4356c25540a77a6ea0 Mon Sep 17 00:00:00 2001
 From: Tim Schofield <timschofield@example.com>
 Date: Wed, 21 Oct 2026 06:38:59 -0700
-Subject: [PATCH] =?UTF-8?q?feat(ios):=20the=20brain's=20shapes=20come=20fr?=
- =?UTF-8?q?om=20the=20web's=20head-brain.js=20(JavaScriptCore):=20shape=20?=
- =?UTF-8?q?N=20has=20exactly=20N=20triangles,=201=E2=80=93500;=20flat=20fi?=
- =?UTF-8?q?gures=20sway;=20falls=20back=20to=20the=20Swift=20shapes=20unti?=
- =?UTF-8?q?l=20downloaded.=20HELD=20=E2=80=94=20not=20pushed=20(another=20?=
- =?UTF-8?q?chat's=20iOS=20rebuild)?=
+Subject: [PATCH 1/2] =?UTF-8?q?feat(ios):=20the=20brain's=20shapes=20come?=
+ =?UTF-8?q?=20from=20the=20web's=20head-brain.js=20(JavaScriptCore):=20sha?=
+ =?UTF-8?q?pe=20N=20has=20exactly=20N=20triangles,=201=E2=80=93500;=20flat?=
+ =?UTF-8?q?=20figures=20sway;=20falls=20back=20to=20the=20Swift=20shapes?=
+ =?UTF-8?q?=20until=20downloaded.=20HELD=20=E2=80=94=20not=20pushed=20(ano?=
+ =?UTF-8?q?ther=20chat's=20iOS=20rebuild)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -199,6 +199,144 @@ index e522a8bf..cf4b2c3a 100644
          let ca = cos(a), sa = sin(a), ct = cos(tilt), st = sin(tilt)
          func P(_ v: BrainShape.V) -> (x: Double, y: Double, z: Double, vx: Double, vy: Double) {
              let x = v.x * ca + v.z * sa, z = -v.x * sa + v.z * ca, y = v.y
+-- 
+2.39.3 (Apple Git-145)
+
+
+From 3222c079eb82ebedadf185b055fb33588f826594 Mon Sep 17 00:00:00 2001
+From: Tim Schofield <timschofield@example.com>
+Date: Fri, 23 Oct 2026 07:11:32 -0700
+Subject: [PATCH 2/2] =?UTF-8?q?fix(ios):=20Codex=20review=20of=20BrainLadd?=
+ =?UTF-8?q?er=20=E2=80=94=20JavaScript=20only=20on=20a=20background=20queu?=
+ =?UTF-8?q?e=20(a=20stuck=20script=20can't=20freeze=20the=20screen),=20sha?=
+ =?UTF-8?q?pes=20built=20in=20the=20background=20and=20read=20without=20bl?=
+ =?UTF-8?q?ocking,=20downloads=20capped=20at=20512=20KB.=20HELD=20?=
+ =?UTF-8?q?=E2=80=94=20not=20pushed?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../Features/Splash/CharlieBrainSplash.swift  | 70 ++++++++++++-------
+ 1 file changed, 44 insertions(+), 26 deletions(-)
+
+diff --git a/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift b/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
+index cf4b2c3a..473576d1 100644
+--- a/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
++++ b/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
+@@ -32,39 +32,55 @@ final class BrainLadder {
+     typealias Built = (tris: [[SIMD3<Double>]], flat: Bool)
+ 
+     private let source = URL(string: "https://mowology.ca/crm/js/head-brain.js")!
++    /// Every JavaScript call happens on this one background queue — never the main thread. A broken or hostile
++    /// script can only stall this queue; the screen keeps drawing the Swift shapes (Codex review 2026-10-23).
++    private let queue = DispatchQueue(label: "ca.mowology.brain-ladder", qos: .utility)
++    private let maxBytes = 512_000          // the real file is ~50 KB
+     private let lock = NSLock()
+-    private var shapeFn: JSValue?
+-    private var context: JSContext?
+-    private var built: [Int: Built] = [:]
+-    private var refreshing = false
++    private var shapeFn: JSValue?            // touched only on `queue`
++    private var context: JSContext?          // touched only on `queue`
++    private var built: [Int: Built] = [:]    // guarded by lock
++    private var pending: Set<Int> = []       // guarded by lock
++    private var refreshing = false           // guarded by lock
+ 
+     private var file: URL {
+         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("head-brain.js")
+     }
+ 
+     private init() {
+-        if let js = try? String(contentsOf: file, encoding: .utf8) { _ = install(js) }
+-        refresh()
++        queue.async { [weak self] in
++            guard let self else { return }
++            if let d = try? Data(contentsOf: self.file), d.count <= self.maxBytes, let js = String(data: d, encoding: .utf8) { _ = self.install(js) }
++            self.refresh()
++        }
+     }
+ 
+-    /// Load the cached file off the main thread at app start, so the first brain drawn doesn't wait for it.
+-    static func warmUp() { DispatchQueue.global(qos: .userInitiated).async { _ = BrainLadder.shared } }
++    /// Load the cached file off the main thread at app start.
++    static func warmUp() { _ = BrainLadder.shared }
+ 
+-    /// Shape k from the web's ladder, or nil (not downloaded yet / not valid) → the caller uses its own.
++    /// Shape k from the web's ladder if it is already built; otherwise nil now (the caller draws its own) and it
++    /// is built in the background for next time. Never blocks and never runs JavaScript on the caller's thread.
+     func shape(_ k: Int) -> Built? {
+-        lock.lock(); defer { lock.unlock() }
+-        if let b = built[k] { return b }
++        lock.lock()
++        if let b = built[k] { lock.unlock(); return b }
++        let start = !pending.contains(k)
++        if start { pending.insert(k) }
++        lock.unlock()
++        if start { queue.async { [weak self] in self?.build(k) } }
++        return nil
++    }
++
++    private func build(_ k: Int) {   // on `queue`
++        defer { lock.lock(); pending.remove(k); lock.unlock() }
+         guard let fn = shapeFn, let s = fn.call(withArguments: [k]),
+               let raw = s.forProperty("tris")?.toArray() as? [[[Double]]], raw.count == k,
+               // Every triangle three points, every point three real numbers — a bad file falls back, never crashes.
+-              raw.allSatisfy({ $0.count == 3 && $0.allSatisfy { $0.count == 3 && $0.allSatisfy(\.isFinite) } }) else { return nil }
+-        let tris = raw.map { $0.map { SIMD3<Double>($0[0], $0[1], $0[2]) } }
+-        let b: Built = (tris, s.forProperty("flat")?.toBool() ?? false)
+-        built[k] = b
+-        return b
++              raw.allSatisfy({ $0.count == 3 && $0.allSatisfy { $0.count == 3 && $0.allSatisfy(\.isFinite) } }) else { return }
++        let b: Built = (raw.map { $0.map { SIMD3<Double>($0[0], $0[1], $0[2]) } }, s.forProperty("flat")?.toBool() ?? false)
++        lock.lock(); built[k] = b; lock.unlock()
+     }
+ 
+-    /// Fetch the current file; keep it only if it builds the first shapes exactly (each shape is checked again when used).
++    /// Fetch the current file; keep it only if it is small and builds the first shapes exactly.
+     func refresh() {
+         lock.lock()
+         if refreshing { lock.unlock(); return }
+@@ -74,27 +90,29 @@ final class BrainLadder {
+         req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+         URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+             guard let self else { return }
+-            defer { self.lock.lock(); self.refreshing = false; self.lock.unlock() }
+-            guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
+-                  let js = String(data: data, encoding: .utf8), js.contains("var RECIPES") else { return }
+-            if self.install(js) { try? data.write(to: self.file, options: .atomic) }
++            let done = { self.lock.lock(); self.refreshing = false; self.lock.unlock() }
++            guard (response as? HTTPURLResponse)?.statusCode == 200, let data, data.count <= self.maxBytes,
++                  let js = String(data: data, encoding: .utf8), js.contains("var RECIPES") else { done(); return }
++            self.queue.async {
++                if self.install(js) { try? data.write(to: self.file, options: .atomic) }
++                done()
++            }
+         }.resume()
+     }
+ 
+     @discardableResult
+-    private func install(_ js: String) -> Bool {
++    private func install(_ js: String) -> Bool {   // on `queue`
+         guard let ctx = JSContext() else { return false }
+         // The page globals head-brain.js touches on load; no DOM, so it never draws or mounts anything.
+         ctx.evaluateScript("var window = this; window.matchMedia = function () { return { matches: false }; }; var document = { readyState: 'loading', addEventListener: function () {}, querySelectorAll: function () { return []; } };")
+         ctx.evaluateScript(js)
+         guard ctx.exception == nil, let fn = ctx.evaluateScript("window.HeadBrain && window.HeadBrain.shape"), fn.isObject else { return false }
+-        // Small shapes only: this runs on first use, which can be a view on the main thread.
++        // Small shapes only.
+         for k in [1, 2, 4] {
+             guard let n = fn.call(withArguments: [k])?.forProperty("tris")?.forProperty("length")?.toInt32(), n == k else { return false }
+         }
+-        lock.lock()
+-        context = ctx; shapeFn = fn; built = [:]
+-        lock.unlock()
++        context = ctx; shapeFn = fn
++        lock.lock(); built = [:]; lock.unlock()
+         return true
+     }
+ }
 -- 
 2.39.3 (Apple Git-145)
 
