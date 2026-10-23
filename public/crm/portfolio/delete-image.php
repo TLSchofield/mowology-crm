@@ -57,7 +57,12 @@ if (!$imagePath) {
 }
 
 // Determine if this is a media system file or legacy file
-$isMediaSystem = (strpos($imagePath, uploadsUrl('cms') . '/') !== false);
+$isMediaSystem = (strpos($imagePath, uploadsUrl('cms') . '/') === 0);
+// A media-system path must really resolve inside this business's CMS folder before anything is deleted
+// (no "..", no other business's folder — Codex 2026-10-23).
+if ($isMediaSystem && !uploadsInside(PUBLIC_ROOT . $imagePath, 'cms')) {
+    json_response(false, 'That image is not in this site\'s media folder');
+}
 
 if ($isMediaSystem) {
     // Media system file — clean up via media_assets + variants

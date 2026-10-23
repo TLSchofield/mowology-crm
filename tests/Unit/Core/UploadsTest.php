@@ -46,9 +46,33 @@ class UploadsTest extends TestCase
     public function test_htaccess_serves_only_own_hosts_and_no_scripts(): void
     {
         $h = Uploads::htaccess(['greenleaf.ittai.ca']);
-        $this->assertStringContainsString('RewriteCond %{HTTP_HOST} !^greenleaf\.ittai\.ca(:\d+)?$ [NC]', $h);
+        $this->assertStringContainsString('<If "%{HTTP_HOST} !~ /^(greenleaf\.ittai\.ca)(:[0-9]+)?$/i">', $h, 'core <If>, no mod_rewrite needed (Codex 2026-10-23)');
+        $this->assertStringNotContainsString('IfModule', $h, 'the host rule must not depend on a module being loaded');
         $this->assertStringContainsString('Options -Indexes', $h);
-        $this->assertStringContainsString('php', $h);
+        $this->assertStringContainsString('<FilesMatch "(?i)\\.(ph(p', $h, 'scripts denied');
         $this->assertStringContainsString('Require all denied', $h);
     }
+
+    /** Codex 2026-10-23: a stored path is only trusted when it really resolves inside this business's area. */
+    public function test_uploads_inside_checks_the_real_folder_boundary(): void
+    {
+        $dir = uploadsDir('cms');
+        $ok = $dir . '/ut-' . bin2hex(random_bytes(3)) . '.jpg';
+        $sib = dirname($dir) . '/cms-x-' . bin2hex(random_bytes(3));
+        @mkdir($sib); file_put_contents($ok, 'x'); file_put_contents($sib . '/f.jpg', 'x');
+        try {
+            $this->assertTrue(uploadsInside($ok, 'cms'));
+            $this->assertFalse(uploadsInside($sib . '/f.jpg', 'cms'), 'cms-x/ is not cms/');
+            $this->assertFalse(uploadsInside($dir . '/../cms-x-nope/f.jpg', 'cms'));
+            $this->assertFalse(uploadsInside('/etc/passwd', 'cms'));
+        } finally {
+            @unlink($ok); @unlink($sib . '/f.jpg'); @rmdir($sib);
+        }
+    }
+
+    public function test_a_business_receipts_folder_is_never_served_directly(): void
+    {
+        $this->assertStringContainsString('Require all denied', Uploads::DENY_ALL);
+    }
 }
+

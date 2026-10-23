@@ -37,6 +37,12 @@ if (!function_exists('uploadsDir')) {
         $root = defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 2) . '/public';
         $dir = rtrim($root, '/') . '/' . uploadsBase() . ($area !== '' ? '/' . $area : '');
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        // A business's receipts are never served directly (as /uploads/receipts/.htaccess does for the original
+        // business): only serve-receipt.php reads them (Codex 2026-10-23).
+        if (!Tenant::isDefault() && ($area === 'receipts' || strpos($area, 'receipts/') === 0)) {
+            $deny = rtrim($root, '/') . '/' . uploadsBase() . '/receipts/.htaccess';
+            if (!is_file($deny)) @file_put_contents($deny, Uploads::DENY_ALL);
+        }
         return $dir;
     }
 }
@@ -50,8 +56,24 @@ if (!function_exists('uploadsUrl')) {
     }
 }
 
+if (!function_exists('uploadsInside')) {
+    /**
+     * True when $absPath (a file on disk) really lies inside the current business's upload $area — resolved
+     * with realpath and compared on a folder boundary ("receipts/" never matches "receipts-private/").
+     * Use before serving, zipping or deleting a file named by a stored path (Codex 2026-10-23).
+     */
+    function uploadsInside(string $absPath, string $area): bool
+    {
+        $real = realpath($absPath);
+        $base = realpath(uploadsDir($area));
+        return $real !== false && $base !== false && strpos($real, rtrim($base, '/') . '/') === 0;
+    }
+}
+
 final class Uploads
 {
+    public const DENY_ALL = "# Receipts are served only through serve-receipt.php (Ittai).\nOptions -Indexes\nRequire all denied\n";
+
     /**
      * Create a business's uploads folder with an .htaccess that serves its files only on its own addresses.
      * Called when a business is set up (provisioning). Idempotent.
@@ -63,22 +85,27 @@ final class Uploads
         $dir = rtrim($root, '/') . '/uploads/t/' . $key;
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
         file_put_contents($dir . '/.htaccess', self::htaccess($hosts));
+        if (!is_dir($dir . '/receipts')) @mkdir($dir . '/receipts', 0755, true);
+        file_put_contents($dir . '/receipts/.htaccess', self::DENY_ALL);
         return $dir;
     }
 
-    /** Pure: the .htaccess for a business's folder — its own hosts only, no scripts, no listings. */
+    /**
+     * Pure: the .htaccess for a business's folder — its own hosts only, no listings, no scripts. Uses Apache 2.4's
+     * core <If> (no mod_rewrite needed), so the host rule can't silently vanish (Codex 2026-10-23).
+     */
     public static function htaccess(array $hosts): string
     {
-        $conds = [];
+        $alts = [];
         foreach ($hosts as $h) {
             $h = strtolower(trim((string)$h));
-            if (!preg_match('/^[a-z0-9.-]+$/', $h)) continue;
-            $conds[] = 'RewriteCond %{HTTP_HOST} !^' . str_replace('.', '\\.', $h) . '(:\\d+)?$ [NC]';
+            if (preg_match('/^[a-z0-9.-]+$/', $h)) $alts[] = str_replace('.', '\\.', $h);
         }
-        if (!$conds) $conds[] = 'RewriteCond %{HTTP_HOST} .';   // no valid host: refuse everyone
+        $rule = $alts
+            ? "<If \"%{HTTP_HOST} !~ /^(" . implode('|', $alts) . ")(:[0-9]+)?$/i\">\n    Require all denied\n</If>\n"
+            : "Require all denied\n";   // no valid host: refuse everyone
         return "# One business's files: served only on its own address (Ittai). Written by Uploads::ensureTenantFolder().\n"
-            . "Options -Indexes\n"
-            . "<IfModule mod_rewrite.c>\nRewriteEngine On\n" . implode("\n", $conds) . "\nRewriteRule ^ - [F]\n</IfModule>\n"
-            . "<FilesMatch \"\\.(php|phtml|phar|pl|py|cgi|sh)$\">\nRequire all denied\n</FilesMatch>\n";
+            . "Options -Indexes\n" . $rule
+            . "<FilesMatch \"(?i)\\.(ph(p\\d*|t|tml|ar|ps)|inc|cgi|pl|py|sh)$\">\n    Require all denied\n</FilesMatch>\n";
     }
 }

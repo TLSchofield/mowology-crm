@@ -92,7 +92,7 @@ try {
     $allowed  = false;
     if ($realPath) {
         foreach ($allowedPrefixes as $prefix) {
-            if ($prefix && strpos($realPath, $prefix) === 0) {
+            if ($prefix && strpos($realPath, rtrim($prefix, '/') . '/') === 0) {   // folder boundary: receipts/ never matches receipts-x/ (Codex 2026-10-23)
                 $allowed = true;
                 break;
             }
