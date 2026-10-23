@@ -7,6 +7,7 @@
  * materials, notes, PDF download/generate, lock/unlock controls.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
@@ -113,7 +114,7 @@ $shareToken = $stmtToken->fetch(PDO::FETCH_ASSOC);
 $hasActiveToken = $shareToken
     && $shareToken['revoked_at'] === null
     && ($shareToken['expires_at'] === null || strtotime($shareToken['expires_at']) > time());
-$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
 
 // Load notes
 $stmtNotes = $db->prepare("

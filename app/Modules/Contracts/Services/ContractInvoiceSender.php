@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * ContractInvoiceSender — emails one monthly contract invoice (contract_billing cron).
  *
@@ -188,7 +190,7 @@ class ContractInvoiceSender
         $recipientName = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')) ?: 'Valued Customer';
         $firstName     = ($row['first_name'] ?? '') ?: 'there';
         $companyInfo   = EmailWrapper::getCompanyInfo();
-        $viewUrl       = 'https://mowology.ca/customer/invoice.php?token=' . urlencode((string)$row['access_token']);
+        $viewUrl       = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode((string)$row['access_token']);
 
         $tpl = loadEmailTemplate('invoice_sent', [
             '{{customer_first_name}}' => $firstName,

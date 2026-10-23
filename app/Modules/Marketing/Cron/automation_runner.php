@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 $__dir = __DIR__;
@@ -518,7 +519,7 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                     ? date('F j, Y', strtotime($quoteData['quote_valid_until']))
                     : '';
                 $quoteUrl = !empty($quoteData['quote_token'])
-                    ? 'https://mowology.ca/customer/quote.php?token=' . urlencode($quoteData['quote_token'])
+                    ? _idSiteUrl() . '/customer/quote.php?token=' . urlencode($quoteData['quote_token'])
                     : '';
 
                 $vars = [

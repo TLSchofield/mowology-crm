@@ -25,6 +25,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -323,7 +324,7 @@ if (!empty($cleanMatches) || !empty($pending)) {
 
     $count   = count($cleanMatches) + count($pending);
     $subject = "{$count} emailed receipt" . ($count === 1 ? '' : 's') . ' processed';
-    $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca') . '/crm/expenses_appstack.php#receipt-inbox';
+    $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl()) . '/crm/expenses_appstack.php#receipt-inbox';
     $html    = '<div style="font-family:Arial,sans-serif;max-width:560px;">'
              . '<h2 style="color:#1A5F4A;">Emailed receipts processed</h2>'
              . $section('Clean match — high confidence, waiting for your approval', $cleanMatches, '#2D8659')

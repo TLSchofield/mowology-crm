@@ -18,6 +18,7 @@
  * Global-namespace service: require_once the file. Pure rules are static + tested.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 require_once __DIR__ . '/CompanyProfileService.php';
 require_once __DIR__ . '/CompanyDocumentService.php';
@@ -345,12 +346,12 @@ class SupplierFormService
         }
         $p = (new CompanyProfileService($this->db))->profile();
         $answers = json_decode((string)$f['answers_json'], true) ?: [];
-        $html = self::note($withLicence, in_array(true, $answers, true), $p['email'] ?: 'office@mowology.ca',
+        $html = self::note($withLicence, in_array(true, $answers, true), $p['email'] ?: _idReplyTo(),
                            ['contact' => $p['contact'], 'company' => $p['trade_name'] ?: $p['legal_name'], 'phone' => $p['phone']]);
         if (!function_exists('sendEmail')) require_once CRM_INCLUDES . '/messaging.php';
         $subject = trim((string)$f['subject']);
         $subject = $subject === '' ? 'Account application – ' . ($p['trade_name'] ?: $p['legal_name']) : (stripos($subject, 're:') === 0 ? $subject : 'Re: ' . $subject);
-        $res = sendEmail($r['to'], $subject, $html, null, trim(($p['contact'] ? $p['contact'] . ', ' : '') . ($p['trade_name'] ?: 'Mowology')), $files, $r['cc']);
+        $res = sendEmail($r['to'], $subject, $html, null, trim(($p['contact'] ? $p['contact'] . ', ' : '') . ($p['trade_name'] ?: _idFromName())), $files, $r['cc']);
         if (empty($res['success'])) {
             $this->db->prepare("UPDATE supplier_forms SET error = ? WHERE id = ?")->execute([mb_substr((string)($res['error'] ?? 'send failed'), 0, 255), $id]);
             return ['ok' => false, 'message' => 'The email did not go: ' . ($res['error'] ?? 'send failed')];

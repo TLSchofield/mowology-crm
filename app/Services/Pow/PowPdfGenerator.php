@@ -11,6 +11,7 @@
  * Client Confidence Box is included as the last content section.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -44,7 +45,7 @@ class PowPdfGenerator
             ? STORAGE_ROOT . '/pdfs/pow'
             : dirname($this->publicRoot) . '/storage/pdfs/pow';
         $this->siteUrl     = rtrim($siteUrl, '/');
-        $this->companyName = 'Mowology Landscaping';
+        $this->companyName = _idCompanyInfo()['company_name'];
         $this->logoPath    = $this->publicRoot . '/assets/img/mowology-logo.png';
 
         if (!is_dir($this->storageDir)) {
@@ -257,7 +258,7 @@ class PowPdfGenerator
         $logoTag      = '';
         if (file_exists($this->logoPath)) {
             $logoData = base64_encode(file_get_contents($this->logoPath));
-            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="Mowology">';
+            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
         }
 
         $mapTag = '';

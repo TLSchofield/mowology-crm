@@ -21,6 +21,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // Bootstrap
 $__dir = __DIR__;
@@ -118,7 +119,7 @@ try {
 
         $amount   = '$' . number_format((float)$inv['balance_due'], 2);
         $viewUrl  = !empty($inv['access_token'])
-            ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($inv['access_token'])
+            ? _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($inv['access_token'])
             : '';
         $sentTo   = [];
 
@@ -180,7 +181,7 @@ try {
                     $smsMsg = "Mowology: Invoice {$inv['invoice_number']} reminder ({$amount} due). Check email to pay. (778) 846-9273.";
                 }
 
-                $smsResult = sendSms($rcpt['phone'], $smsMsg, 'Mowology');
+                $smsResult = sendSms($rcpt['phone'], $smsMsg, '');
                 if ($smsResult['success']) {
                     $smsSent++;
                     remLog("  SMS sent to {$contactName}");

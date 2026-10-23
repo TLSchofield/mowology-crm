@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
@@ -122,9 +123,10 @@ session_write_close();
         ? '<p>' . nl2br(htmlspecialchars($message)) . '</p>'
         : '<p>Please find your Proof of Work report attached for the service completed at your property.</p>';
 
-    $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $year    = date('Y');
 
+    $__b = _idBrand();
     $htmlBody = <<<HTML
 <!DOCTYPE html>
 <html lang="en">
@@ -136,7 +138,7 @@ session_write_close();
 
         <!-- Header -->
         <tr><td style="background:#1A5F4A;padding:24px 32px;">
-          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">Mowology Landscaping</h1>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">{$__b['full']}</h1>
           <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Proof of Work — Service Report</p>
         </td></tr>
 
@@ -152,14 +154,14 @@ session_write_close();
           </table>
           <p style="font-size:14px;color:#555;">The attached PDF contains your complete service report including GPS route data, photos, materials used, and a completion checklist.</p>
           <p style="font-size:14px;color:#555;">If you have any questions about the service performed, please don't hesitate to get in touch.</p>
-          <p style="margin-top:24px;font-size:14px;color:#1a1a1a;">Thank you for trusting Mowology with your property.</p>
-          <p style="font-size:14px;margin:0;"><strong>The Mowology Team</strong></p>
+          <p style="margin-top:24px;font-size:14px;color:#1a1a1a;">Thank you for trusting {$__b['name']} with your property.</p>
+          <p style="font-size:14px;margin:0;"><strong>The {$__b['name']} Team</strong></p>
         </td></tr>
 
         <!-- Footer -->
         <tr><td style="background:#0D3B2E;padding:16px 32px;text-align:center;">
           <p style="color:rgba(255,255,255,0.6);font-size:11px;margin:0;">
-            &copy; {$year} Mowology Landscaping &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
+            &copy; {$year} {$__b['full']} &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
           </p>
         </td></tr>
 
@@ -172,7 +174,7 @@ HTML;
 
     $subject = "Your Proof of Work Report — {$visitNum} ({$visitDate})";
 
-    $result = sendEmail($recipient, $subject, $htmlBody, $pdfServerPath, 'Mowology Landscaping');
+    $result = sendEmail($recipient, $subject, $htmlBody, $pdfServerPath, '');
 
     // Log the attempt
     $db->prepare("

@@ -56,7 +56,7 @@ switch ($action) {
             $settings = [];
         }
 
-        $companyName = $settings['company_name'] ?? 'Mowology Landscaping';
+        $companyName = $settings['company_name'] ?? _idCompanyInfo()['company_name'];
         $signature = $settings['email_signature_text'] ?? '';
         $footer = $settings['email_footer_html'] ?? '';
 

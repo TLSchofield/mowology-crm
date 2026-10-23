@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /**
  * Penny's on-demand guidance on a bank line: the prompt carries Tim's rules and note,
  * answers are checked against the chart (an invented account is rejected), one payee is
@@ -11,6 +13,18 @@ use PHPUnit\Framework\TestCase;
  */
 class BankGuidanceServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private const TLNK = 'Point of sale TLNK/0534703381';
 
     private function chart(): array

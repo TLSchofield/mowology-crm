@@ -13,6 +13,8 @@
 
 declare(strict_types=1);
 
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+
 /**
  * Send weather alerts for a batch of action items.
  * Deduplicates by checking weather_action_log before sending.
@@ -115,8 +117,9 @@ function sendWeatherEmailAlert(string $visitNumber, string $date, string $proper
     $autoRescheduled = !empty($item['auto_rescheduled']);
     $actionHtml = $autoRescheduled
         ? '<p style="color:#2D8659;"><strong>✓ Auto-rescheduled</strong> to the suggested slot.</p>'
-        : '<p><a href="https://mowology.ca/crm/ops/weather_actions.php">Review in Weather Actions →</a></p>';
+        : '<p><a href="' . _idSiteUrl() . '/crm/ops/weather_actions.php">Review in Weather Actions →</a></p>';
 
+    $wxName = htmlspecialchars(_idFromName());
     $htmlBody = "
         <div style='font-family:Arial,sans-serif;max-width:600px;'>
             <h2 style='color:#333;'>Weather Alert: {$visitNumber}</h2>
@@ -130,7 +133,7 @@ function sendWeatherEmailAlert(string $visitNumber, string $date, string $proper
             {$suggestedHtml}
             {$actionHtml}
             <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
-            <p style='color:#999;font-size:12px;'>Mowology Weather Guard — automated weather monitoring</p>
+            <p style='color:#999;font-size:12px;'>{$wxName} Weather Guard — automated weather monitoring</p>
         </div>
     ";
 
@@ -281,6 +284,8 @@ function sendSaltEmailAlert(string $date, string $dayName, string $dateLabel, st
 
     $subject = "❄️ Salt Alert ({$timingLabel}): {$dayName} {$dateLabel} — {$lowTemp}°C, {$condition}";
 
+    $wxName = htmlspecialchars(_idFromName());
+    $wxBase = _idSiteUrl();
     $htmlBody = "
         <div style='font-family:Arial,sans-serif;max-width:600px;'>
             <h2 style='color:#1565c0;'>❄️ Salt Operations Alert</h2>
@@ -303,9 +308,9 @@ function sendSaltEmailAlert(string $date, string $dayName, string $dateLabel, st
                     <td style='padding:10px;'>{$crewCount} crew member(s) sent SMS</td>
                 </tr>
             </table>
-            <p><a href='https://mowology.ca/crm/admin/ops_weather.php' style='color:#2D8659;'>View Weather Ops Settings →</a></p>
+            <p><a href='{$wxBase}/crm/admin/ops_weather.php' style='color:#2D8659;'>View Weather Ops Settings →</a></p>
             <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
-            <p style='color:#999;font-size:12px;'>Mowology Weather Guard — automated salt operations monitoring</p>
+            <p style='color:#999;font-size:12px;'>{$wxName} Weather Guard — automated salt operations monitoring</p>
         </div>
     ";
 

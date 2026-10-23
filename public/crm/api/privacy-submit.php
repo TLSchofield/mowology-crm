@@ -119,7 +119,7 @@ try {
 
         // Admin notification
         sendCrmEmail(
-            defined('SITE_EMAIL') ? SITE_EMAIL : 'office@mowology.ca',
+            defined('SITE_EMAIL') ? SITE_EMAIL : _idReplyTo(),
             "New Privacy Request #{$id} ({$typeLabel})",
             nl2br("A new privacy {$typeLabel} request was submitted.\n\n"
             . "Name:  {$nameHtml}\n"
@@ -127,9 +127,9 @@ try {
             . "Type:  {$typeLabel}\n"
             . "Notes: {$notesHtml}\n\n"
             . "Log in to the CRM to manage this request:\n"
-            . "https://mowology.ca/crm/privacy_appstack.php"),
+            . _idSiteUrl() . "/crm/privacy_appstack.php"),
             null,              // the 4th argument is an attachment path, not the sender
-            'Mowology Admin'
+            _idFromName() . ' Admin'
         );
     }
 

@@ -3,9 +3,23 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /** The client's quote link is built on the business's own address, never the request's Host (Codex 2026-10-15). */
 class QuoteSendOriginTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     public function test_origin_from_the_business_website(): void
     {
         $this->assertSame('https://mowology.ca', QuoteSendService::origin('mowology.ca'));

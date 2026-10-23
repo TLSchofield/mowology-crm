@@ -29,6 +29,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
@@ -75,7 +76,7 @@ try {
         exit;
     }
 
-    $siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
 
     switch ($action) {
 
@@ -142,6 +143,7 @@ try {
                         : 'your recent service';
                     $year = date('Y');
 
+                    $__b = _idBrand();
                     $emailHtml = <<<HTML
 <!DOCTYPE html>
 <html lang="en">
@@ -166,17 +168,17 @@ try {
 <div class="card">
   <div class="hd">
     <h1>Your Service Photos Are Ready</h1>
-    <p>Mowology Landscaping</p>
+    <p>{$__b['full']}</p>
   </div>
   <div class="bd">
     <p>Hi {$firstName},</p>
     <p>Photos from your <strong>{$svcLabel}</strong> on {$visitDate} are now available in your private gallery.</p>
     <p><a href="{$galleryUrl}" class="btn">View Your Photos &rarr;</a></p>
     <p>This is a private link for your eyes only &mdash; please don&rsquo;t share it with others.</p>
-    <p class="note">Questions about your service? Reply to this email or call us at <strong>(778) 846-9273</strong>.</p>
+    <p class="note">Questions about your service? Reply to this email{$__b['callLine']}.</p>
   </div>
   <div class="ft">
-    &copy; {$year} Mowology Landscaping &nbsp;&middot;&nbsp; <a href="https://mowology.ca">mowology.ca</a>
+    &copy; {$year} {$__b['full']} &nbsp;&middot;&nbsp; <a href="{$__b['site']}">{$__b['siteLabel']}</a>
   </div>
 </div>
 </body>
@@ -184,7 +186,7 @@ try {
 HTML;
                     $sent = sendCrmEmail(
                         $cinfo['email'],
-                        "Your {$svcLabel} Photos Are Ready \u{2014} Mowology",
+                        "Your {$svcLabel} Photos Are Ready \u{2014} " . _idFromName(),
                         $emailHtml
                     );
 
@@ -192,7 +194,7 @@ HTML;
                         $notified = true;
                         // SMS — NO URL, plain text only, max 160 chars per CLAUDE.md rule 10
                         if (!empty($cinfo['mobile']) && !empty($cinfo['receive_sms'])) {
-                            $smsText = "Hi {$firstName}, your Mowology service photos from {$visitDate} are ready. Check your email for the gallery link. Questions? Call (778) 846-9273";
+                            $smsText = "Hi {$firstName}, your " . _idFromName() . " service photos from {$visitDate} are ready. Check your email for the gallery link." . _idSmsTail('Questions? Call');
                             if (strlen($smsText) <= 160) {
                                 sendSms($cinfo['mobile'], $smsText);
                             }

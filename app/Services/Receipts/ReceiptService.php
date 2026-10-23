@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -139,7 +140,7 @@ function sendReceiptToAccountingOnce(array $opts, ?int $userIdOverride = null): 
     ]);
 
     // 6. Send the email with attachment (outside any transaction)
-    $fromName = $config['from_name'] ?: 'Mowology Receipts';
+    $fromName = $config['from_name'] ?: _idFromName() . ' Receipts';
     $result = $alreadySent ? ['success' => true] : sendEmail($toEmail, $subject, $body, $filePath, $fromName);
 
     // 7. The send is recorded the moment it happens, in its own write, so a failure in the books
@@ -195,7 +196,7 @@ function getReceiptForwardingConfig(PDO $db): array
     $defaults = [
         'enabled'          => false,
         'accounting_email' => '',
-        'from_name'        => 'Mowology Receipts',
+        'from_name'        => '',
         'auto_send'        => false,
     ];
 
@@ -207,7 +208,7 @@ function getReceiptForwardingConfig(PDO $db): array
         return [
             'enabled'          => !empty($rows['receipt_forwarding_enabled']) && $rows['receipt_forwarding_enabled'] !== 'false' && $rows['receipt_forwarding_enabled'] !== '0',
             'accounting_email' => $rows['receipt_accounting_email'] ?? '',
-            'from_name'        => $rows['receipt_from_name'] ?? 'Mowology Receipts',
+            'from_name'        => $rows['receipt_from_name'] ?? '',
             'auto_send'        => !empty($rows['receipt_auto_send']) && $rows['receipt_auto_send'] !== 'false' && $rows['receipt_auto_send'] !== '0',
         ];
     } catch (Throwable $e) {
@@ -271,9 +272,10 @@ function buildReceiptEmailBody(array $opts, array $config): string
 
     $crmLink = '';
     if ($expenseId) {
-        $crmLink = '<p><a href="https://mowology.ca/crm/expenses_appstack.php?id=' . (int)$expenseId . '">View in CRM</a></p>';
+        $crmLink = '<p><a href="' . _idSiteUrl() . '/crm/expenses_appstack.php?id=' . (int)$expenseId . '">View in CRM</a></p>';
     }
 
+    $brand = htmlspecialchars(_idFromName());
     $jobRef = $jobId ? "Job #" . (int)$jobId : 'n/a';
     $clientRef = $clientName ? " ({$clientName})" : '';
 
@@ -297,7 +299,7 @@ function buildReceiptEmailBody(array $opts, array $config): string
 
     <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
     <p style="font-size: 12px; color: #999;">
-        Sent from Mowology CRM &bull; Receipt image attached
+        Sent from {$brand} CRM &bull; Receipt image attached
     </p>
 </body>
 </html>

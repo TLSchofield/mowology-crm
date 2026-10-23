@@ -24,6 +24,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT    . '/Services/CrmFunctions.php';
@@ -66,7 +67,7 @@ $db = getDB();
 if ($action === 'generate') {
     require_once APP_ROOT . '/Services/Salt/SaltReportPdfGenerator.php';
 
-    $siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $siteUrl    = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $forceRegen = !empty($_POST['force']);
     try {
         $gen    = new SaltReportPdfGenerator($db, PUBLIC_ROOT, $siteUrl, (int)($user['id'] ?? 0));
@@ -132,7 +133,7 @@ if ($action === 'email_pm') {
 
     $body  = '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">';
     $body .= '<div style="background:#0D3B2E;padding:20px 24px;">';
-    $body .= '<span style="color:#7FD858;font-size:20px;font-weight:bold;">Mowology</span>';
+    $body .= '<span style="color:#7FD858;font-size:20px;font-weight:bold;">' . htmlspecialchars(_idFromName()) . '</span>';
     $body .= '<span style="color:#a0c8b8;font-size:12px;margin-left:12px;">Winter Service Record</span>';
     $body .= '</div>';
 
@@ -176,12 +177,12 @@ if ($action === 'email_pm') {
     }
 
     $body .= '<p style="color:#555;font-size:13px;margin-top:4px;">The attached PDF is your official service record and may be used for insurance, strata, or liability documentation purposes.</p>';
-    $body .= '<p style="color:#555;font-size:13px;margin-top:10px;">If you have any questions, please contact us at <a href="tel:7788469273" style="color:#2D8659;">(778) 846-9273</a>.</p>';
-    $body .= '<p style="color:#333;margin-top:20px;">Thank you for choosing Mowology.</p>';
+    $body .= '<p style="color:#555;font-size:13px;margin-top:10px;">If you have any questions, please contact us' . (_idPhone() !== '' ? ' at <a href="tel:' . preg_replace('/\D+/', '', _idPhone()) . '" style="color:#2D8659;">' . htmlspecialchars(_idPhone()) . '</a>' : '') . '.</p>';
+    $body .= '<p style="color:#333;margin-top:20px;">Thank you for choosing ' . htmlspecialchars(_idFromName()) . '.</p>';
     $body .= '</div>';
 
     $body .= '<div style="background:#f5f5f5;padding:12px 24px;font-size:11px;color:#999;">';
-    $body .= 'Mowology Landscaping &bull; Vancouver, BC &bull; <a href="https://mowology.ca" style="color:#2D8659;">mowology.ca</a>';
+    $body .= htmlspecialchars(_idCompanyInfo()['company_name']) . (_idSiteUrl() !== '' ? ' &bull; <a href="' . htmlspecialchars(_idSiteUrl()) . '" style="color:#2D8659;">' . htmlspecialchars(preg_replace('#^https?://#', '', _idSiteUrl())) . '</a>' : '');
     $body .= '</div></div>';
 
     $sent = sendCrmEmail($report['contact_email'], $subject, $body, $pdfAbs);

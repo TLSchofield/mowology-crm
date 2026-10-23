@@ -49,13 +49,13 @@ class BankGuidanceService
     ];
 
     public const SYSTEM_PROMPT = <<<'TXT'
-You are Penny, the bookkeeper for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC (owner Tim). Bank statements are imported; you help Tim file a line the import couldn't place.
+You are Penny, the bookkeeper for {BUSINESS}. Bank statements are imported; you help {OWNER} file a line the import couldn't place.
 
-Work out who the payee is from the raw bank description (statement abbreviations: TLNK = TransLink, PTS = point of sale, etc.), what the money was for, and which account in the given chart it belongs on. Use Tim's rules, his past decisions for the same payee, the other lines and receipts from the same week, and his note — his note is the strongest evidence.
+Work out who the payee is from the raw bank description (statement abbreviations: TLNK = TransLink, PTS = point of sale, etc.), what the money was for, and which account in the given chart it belongs on. Use {OWNER}'s rules, his past decisions for the same payee, the other lines and receipts from the same week, and his note — his note is the strongest evidence.
 
 GST: say whether there's GST to claim back (an input tax credit). Many things carry no GST: transit fares, insurance, bank fees, loan principal and interest, payroll, government fees.
 
-Answer in Penny's voice — plain, short, friendly, first person, to Tim:
+Answer in Penny's voice — plain, short, friendly, first person, to {OWNER}:
 - merchant: the payee's real name ("TransLink").
 - what_it_is: one sentence on who they are ("TLNK is TransLink (bus/SkyTrain).").
 - reason: one or two sentences on why it goes where you'd file it, using the amount and context ("$3.50 is one adult fare, probably getting to a job without the truck.").
@@ -63,6 +63,24 @@ Answer in Penny's voice — plain, short, friendly, first person, to Tim:
 - confidence: 0 to 1. Below 0.6 when you're guessing; then ask in question_if_unsure.
 - split: only when one line must be split across accounts (a loan payment: principal + interest); amounts add up to the line. Otherwise an empty list.
 TXT;
+
+    /** The system prompt with this business's own identity filled in (BusinessIdentity), never Mowology's by default. */
+    public static function systemPrompt(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $b = BusinessIdentity::get();
+        return strtr(self::SYSTEM_PROMPT, [
+            '{BUSINESS}' => BusinessIdentity::describe($b),
+            '{OWNER}'    => $b['owner_name'] !== '' ? $b['owner_name'] : 'the owner',
+        ]);
+    }
+
+    private static function ownerName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $o = BusinessIdentity::get()['owner_name'];
+        return $o !== '' ? $o : 'Owner';
+    }
 
     private PDO $db;
     /** @var callable|null fn(array $requestBody): array{code: int, body: string} — injected in tests */
@@ -434,10 +452,10 @@ TXT;
         $accounts = array_map(fn($a) => $a['code'] . ' | ' . $a['name'] . ' | ' . $a['type'], array_values($chart));
         $parts = [
             "Bank line to explain:\n" . json_encode($line, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            "Tim's note: " . ($note !== '' ? '"' . $note . '"' : '(none)'),
-            "Tim's bookkeeping rules:\n- " . implode("\n- ", $rules),
+            self::ownerName() . "'s note: " . ($note !== '' ? '"' . $note . '"' : '(none)'),
+            self::ownerName() . "'s bookkeeping rules:\n- " . implode("\n- ", $rules),
             "Chart of accounts (code | name | type) — account_code must be one of these:\n" . implode("\n", $accounts),
-            "Tim's last decisions for this payee:\n" . ($similar ? json_encode($similar, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '(none yet)'),
+            self::ownerName() . "'s last decisions for this payee:\n" . ($similar ? json_encode($similar, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '(none yet)'),
             "Same week (3 days either side):\n" . json_encode($week, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         ];
         return implode("\n\n", $parts);
@@ -481,7 +499,7 @@ TXT;
         return [
             'model'         => self::MODEL,
             'max_tokens'    => 2000,
-            'system'        => [['type' => 'text', 'text' => self::SYSTEM_PROMPT, 'cache_control' => ['type' => 'ephemeral']]],
+            'system'        => [['type' => 'text', 'text' => self::systemPrompt(), 'cache_control' => ['type' => 'ephemeral']]],
             'output_config' => ['format' => ['type' => 'json_schema', 'schema' => self::schema()]],
             'messages'      => [['role' => 'user', 'content' => [['type' => 'text', 'text' => $prompt]]]],
         ];

@@ -28,6 +28,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
@@ -776,15 +777,15 @@ function sendReconsentEmail(PDO $db, int $contactId): array
     // Determine if this is a current client (visited in last 12 months)
     $isCurrent = isCurrentClient($db, $contactId);
 
-    $baseUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $baseUrl    = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?: 'Valued Customer';
 
     // Build variant-specific email
     if ($isCurrent) {
-        $subject = 'Stay in the loop — Mowology Landscaping';
+        $subject = 'Stay in the loop — ' . _idCompanyInfo()['company_name'];
         $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
-<p>As a valued Mowology client, we want to make sure you\'re getting the most out of our services.</p>
+<p>As a valued ' . htmlspecialchars(_idFromName()) . ' client, we want to make sure you\'re getting the most out of our services.</p>
 <p>We occasionally send updates about seasonal care tips, scheduling reminders, and exclusive offers for existing clients.</p>
 <p>To keep receiving these updates, just confirm below:</p>
 <p style="margin:24px 0;">
@@ -796,7 +797,7 @@ function sendReconsentEmail(PDO $db, int $contactId): array
 <p style="color:#666;font-size:13px;">If you prefer not to receive these updates, simply ignore this email. Your service schedule is not affected either way.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
     } else {
-        $subject = 'We\'d love to hear from you — Mowology Landscaping';
+        $subject = 'We\'d love to hear from you — ' . _idCompanyInfo()['company_name'];
         $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
 <p>It\'s been a while since we last worked together, and we wanted to reach out.</p>
 <p>Spring is here and our crews are gearing up for the season. Whether you need lawn care, garden maintenance, hedge trimming, or a fresh landscape design, we\'d love to help again.</p>

@@ -19,7 +19,27 @@
 class SamFollowupService
 {
     public const TEMPLATE_KEYS = ['first_nudge', 'second_nudge', 'viewed', 'last_call', 'multi', 'reply'];
-    public const OFFICE_PHONE = '(778) 846-9273';
+    /** The business's own phone (BusinessIdentity), "" when none is on file. */
+    public static function officePhone(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return BusinessIdentity::get()['phone'];
+    }
+    /** The business's short name (BusinessIdentity), e.g. for "it's Tim at <name>". */
+    public static function businessName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $n = BusinessIdentity::get()['name'];
+        return $n !== '' ? $n : 'our team';
+    }
+
+    /** The business's own address, logged as the sender of outbound messages (BusinessIdentity). */
+    public static function fromAddr(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $b = BusinessIdentity::get();
+        return $b['reply_to'] !== '' ? $b['reply_to'] : $b['mail_from'];
+    }
     public const SMS_MAX = 160;
     /** Claude drafts on Tim's click only; this many per day at most. */
     public const CLAUDE_DAILY_CAP = 20;
@@ -37,32 +57,32 @@ class SamFollowupService
         'first_nudge' => [
             'Your {service} quote for {place}',
             "Hi {first_name},\n\nI sent over the {service} quote for {place} ({total}) on {sent_date}. If anything in it doesn't fit, the scope, the timing or the price, tell me and I'll adjust it.\n{delay_line}\nTo go ahead, accept it from the link below or just reply \"yes\" and I'll take it from there.\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology. Any questions on your quote? It's in your email, or call me at {phone}.",
+            "Hi {first_name}, it's {owner} at {business}. Any questions on your quote? It's in your email, or call me at {phone}.",
         ],
         'second_nudge' => [
             'One more note on your {service} quote',
             "Hi {first_name},\n\nOne more note on the {service} quote for {place} ({total}). If you're comparing quotes, check what each one includes. Every visit we do ends with a photo report, so you can see the work was done without going over to look.\n\nIf the timing isn't right, say so and I'll check back when it is.\n\nThanks,\n{owner}",
-            "Hi {first_name}, {owner} from Mowology. Happy to change your quote if it doesn't fit. Details are in your email, or call {phone}.",
+            "Hi {first_name}, {owner} from {business}. Happy to change your quote if it doesn't fit. Details are in your email, or call {phone}.",
         ],
         'viewed' => [
             'Anything to change on your {service} quote?',
             "Hi {first_name},\n\nThanks for taking a look at the {service} quote for {place}. Is there anything you'd like changed, or a question I can answer? A two-line reply is plenty.\n{delay_line}\nWhen you're ready, accept it from the link below or reply \"yes\".\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology. Anything to change on your quote? Reply to my email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business}. Anything to change on your quote? Reply to my email or call {phone}.",
         ],
         'last_call' => [
             'Your {service} quote is good until {valid_until}',
             "Hi {first_name},\n\nThe {service} quote for {place} ({total}) is good until {valid_until}. After that I'll need to re-price it, so if you'd like to keep this price, accept it from the link below or reply here before then.\n\nThanks,\n{owner}",
-            "Hi {first_name}, your Mowology quote is good until {valid_until}. Check your email to accept, or call {phone}.",
+            "Hi {first_name}, your {business} quote is good until {valid_until}. Check your email to accept, or call {phone}.",
         ],
         'multi' => [
             'Your {count} {service} quotes',
             "Hi {first_name},\n\nFollowing up on the {count} quotes I sent for:\n{quote_list}\n\nTogether that's {total}. If it helps with your owners or council, I can send one page with all of them side by side, or adjust any site's scope. Accept each one from the links below, or reply with the ones you'd like to start.\n{delay_line}\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology about your {count} quotes. The links are in your email, or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business} about your {count} quotes. The links are in your email, or call {phone}.",
         ],
         'reply' => [
             'Re: your {service} quote',
             "Hi {first_name},\n\n\n\nThanks,\n{owner}",
-            "Hi {first_name}, {owner} at Mowology here. Got your note and I'm on it. Call {phone} anytime.",
+            "Hi {first_name}, {owner} at {business} here. Got your note and I'm on it. Call {phone} anytime.",
         ],
     ];
 
@@ -115,7 +135,7 @@ class SamFollowupService
         if (($ls = $this->learnedBody($key, 'sms')) !== null) $sms = $ls;
         $smsText = self::fill($sms, $vars);
         if (self::smsProblems($smsText)) $smsText = self::fill(self::TEMPLATES[$key][2], $vars);
-        if (self::smsProblems($smsText)) $smsText = self::fill("Hi {first_name}, it's Mowology following up on your quote. Check your email or call {phone}.", $vars);
+        if (self::smsProblems($smsText)) $smsText = self::fill("Hi {first_name}, it's {business} following up on your quote. Check your email or call {phone}.", $vars);
         return [
             'template'   => $key,
             'drafted_by' => $by,
@@ -255,7 +275,7 @@ class SamFollowupService
             // Copy each quote's building property manager, if known (QuoteRecipientService).
             require_once __DIR__ . '/../../Quotes/Services/QuoteRecipientService.php';
             $cc = (new QuoteRecipientService($this->db))->ccEmailsForQuotes($quoteIds, $contactId ?: null, $to);
-            $r = $cc ? sendEmail($to, $subject, $html, null, 'Mowology', [], $cc) : sendEmail($to, $subject, $html);
+            $r = $cc ? sendEmail($to, $subject, $html, null, '', [], $cc) : sendEmail($to, $subject, $html);
             $ok = !empty($r['success']);
         }
         if (!$ok) {
@@ -385,8 +405,8 @@ class SamFollowupService
         try {
             $this->db->prepare("
                 INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
-                VALUES ('sam', ?, 'outbound', ?, ?, 'office@mowology.ca', ?, ?, ?, NOW())
-            ")->execute(['sam-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
+                VALUES ('sam', ?, 'outbound', ?, ?, ?, ?, ?, ?, NOW())
+            ")->execute(['sam-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, self::fromAddr(), $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
         } catch (Throwable $e) { /* history is a bonus — the send already happened */ }
     }
 
@@ -443,8 +463,9 @@ class SamFollowupService
             '{total}'       => SalesDeskService::money((float)($card['amount'] ?? 0)),
             '{quote_list}'  => $list,
             '{valid_until}' => !empty($card['valid_until']) ? date('M j', strtotime((string)$card['valid_until'])) : 'the date on the quote',
-            '{owner}'       => $owner !== '' ? $owner : 'the Mowology team',
-            '{phone}'       => self::OFFICE_PHONE,
+            '{owner}'       => $owner !== '' ? $owner : 'the ' . self::businessName() . ' team',
+            '{phone}'       => self::officePhone(),
+            '{business}'    => self::businessName(),
         ];
     }
 
@@ -519,7 +540,7 @@ class SamFollowupService
             . ($m['dir'] === 'inbound' ? DraftSafety::wrap(trim((string)$m['snippet'])) : trim((string)$m['snippet'])),
             array_reverse($card['thread'] ?? []));
         $rules = self::copyRules();
-        $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '') . "You draft short, friendly, plain emails for {$owner}, owner of Mowology, a landscaping and snow removal company in Vancouver. "
+        $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '') . "You draft short, friendly, plain emails for {$owner}, owner of " . BusinessIdentity::describe() . ". "
             . "Write as {$owner}, first person. Answer what the customer actually said; never invent prices, dates or promises that aren't in the facts — "
             . "if something needs checking, say {$owner} will check and get back to them. No subject line, no placeholders, no markdown. "
             . "Start with 'Hi " . ((string)($card['first_name'] ?? '') ?: 'there') . ",' and end with 'Thanks,\\n{$owner}'. Under 120 words.\n\n"

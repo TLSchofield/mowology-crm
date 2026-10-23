@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Rules (owner's decisions, 2026-10-06 — docs/crm/field-ask-first-plan.md):
  *   - Only someone with billing.edit (admin, manager) sends an ask. Crew create a draft.
  *     Nothing here ever sends on its own.
- *   - Plain letter signed by the sender, Mowology's name + address and an unsubscribe link
+ *   - Plain letter signed by the sender, the business's name + address and an unsubscribe link
  *     in a plain footer. Up to 4 photos as 1024px JPEG attachments. sendEmail() only.
  *   - CASL: company-managed property → business-to-business note; otherwise the consent
  *     ledger (Mia) when it exists, else canSendMarketing(). Unsubscribed always blocks.
@@ -33,14 +33,34 @@ class FieldAskService
     public const SILENT_DAYS = 7;
     /** Asks older than this drop off Sam's card. */
     public const MAX_AGE_DAYS = 45;
-    public const OFFICE_PHONE = '(778) 846-9273';
+    /** The business's own phone (BusinessIdentity), "" when none is on file. */
+    public static function officePhone(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return BusinessIdentity::get()['phone'];
+    }
+    /** The business's short name (BusinessIdentity), e.g. for "it's Tim at <name>". */
+    public static function businessName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $n = BusinessIdentity::get()['name'];
+        return $n !== '' ? $n : 'our team';
+    }
+
+    /** The business's own address, logged as the sender of outbound messages (BusinessIdentity). */
+    public static function fromAddr(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $b = BusinessIdentity::get();
+        return $b['reply_to'] !== '' ? $b['reply_to'] : $b['mail_from'];
+    }
 
     public const DEFAULT_SUBJECT = '{place}: {service} (photos from {day})';
     public const DEFAULT_BODY = "Hi {first_name},\n\n"
         . "We were at {place} {when} and took a few photos of {area}. They're attached.\n\n"
         . "{pitch}\n\n"
         . "Would you like us to go ahead? Just reply \"yes\" and {next_step}.\n\n"
-        . "Thanks,\n{owner}\nMowology · {phone}";
+        . "Thanks,\n{owner}\n{business} · {phone}";
 
     /**
      * Per-service wording, written to the voice card (.agents/product-marketing-context.md §7)
@@ -425,8 +445,9 @@ class FieldAskService
             '{day}'           => $day,
             '{next_step}'     => $next,
             '{billing_first}' => $same ? '' : $billFirst,
-            '{owner}'         => $owner !== '' ? $owner : 'Tim',
-            '{phone}'         => self::OFFICE_PHONE,
+            '{owner}'         => $owner !== '' ? $owner : 'the ' . self::businessName() . ' team',
+            '{phone}'         => self::officePhone(),
+            '{business}'      => self::businessName(),
         ];
     }
 
@@ -635,7 +656,7 @@ class FieldAskService
         foreach ($paras as $p) {
             $html .= '<p style="margin:0 0 14px">' . nl2br($e($p)) . '</p>';
         }
-        $footer = $e($company['name'] ?? 'Mowology') . (!empty($company['address']) ? ' · ' . $e($company['address']) : '')
+        $footer = $e($company['name'] ?? self::businessName()) . (!empty($company['address']) ? ' · ' . $e($company['address']) : '')
             . '<br>You are getting this because we look after ' . $e($place) . '. '
             . ($unsubUrl !== '' ? '<a href="' . $e($unsubUrl) . '" style="color:#888">Unsubscribe</a> from notes like this.' : 'Reply "stop" and we won\'t send notes like this.');
         return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:16px;">'
@@ -690,12 +711,12 @@ class FieldAskService
 
         require_once self::appRoot() . '/Services/Messaging/MessagingService.php';
         require_once self::appRoot() . '/Services/Messaging/TemplateRenderer.php';
-        $company = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['name' => 'Mowology', 'address' => ''];
+        $company = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['name' => self::businessName(), 'address' => ''];
         $unsub = function_exists('generateUnsubscribeUrl') ? generateUnsubscribeUrl((string)$to['email']) : '';
         $html = self::emailHtml($body, $company, $unsub, (string)$ctx['place']);
 
         [$files, $temps] = $this->attachments($obsId, (string)$ctx['place']);
-        $fromName = $owner !== '' ? $owner . ' at Mowology' : 'Mowology';
+        $fromName = $owner !== '' ? $owner . ' at ' . self::businessName() : self::businessName();
         try {
             // No photos is still a valid ask — sendEmail() then takes its ordinary path.
             $r = sendEmail((string)$to['email'], $subject, $html, null, $fromName, $files);
@@ -760,8 +781,8 @@ class FieldAskService
         try {
             $this->db->prepare("
                 INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
-                VALUES ('field_ask', ?, 'outbound', 'email', ?, 'office@mowology.ca', ?, ?, ?, NOW())
-            ")->execute(['ask-' . bin2hex(random_bytes(12)), $contactId ?: null, $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
+                VALUES ('field_ask', ?, 'outbound', 'email', ?, ?, ?, ?, ?, NOW())
+            ")->execute(['ask-' . bin2hex(random_bytes(12)), $contactId ?: null, self::fromAddr(), $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
         } catch (Throwable $e) { /* history is a bonus — the send already happened */ }
     }
 

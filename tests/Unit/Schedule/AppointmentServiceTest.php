@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
 
 /** Quote visits booked from an enquiry, shown on the schedule beside the job stops (Anita, Fri 8:15 — 2026-10-15). */
@@ -10,8 +12,15 @@ class AppointmentServiceTest extends TestCase
 {
     private PDO $db;
 
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
+        TestIdentity::mowology();
         $this->db = new PDO('sqlite::memory:');
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->db->exec("CREATE TABLE appointments (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL DEFAULT 'quote_visit',

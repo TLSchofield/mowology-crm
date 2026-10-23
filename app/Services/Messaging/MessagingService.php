@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Services/Messaging/SmsTemplates.php';
 
 // ─── Canadian Carrier Email-to-SMS Gateways ─────────────────────────
@@ -74,7 +75,7 @@ function sendEmail(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $fromName = 'Mowology',
+    string $fromName = '',
     array $attachments = [],
     array $cc = []
 ): array {
@@ -183,7 +184,7 @@ function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, ar
     $mail = _createMailer();
     if ($mail) {
         try {
-            $mail->setFrom('no-reply@mowology.ca', $fromName);
+            $mail->setFrom(_idFromEmail(), _idFromName($fromName));
             $mail->addAddress($to);
             foreach ($cc as $ccAddr) {
                 $mail->addCC($ccAddr);
@@ -223,9 +224,9 @@ function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, ar
 function sendSms(
     string $phone,
     string $message,
-    string $senderName = 'Mowology'
+    string $senderName = ''
 ): array {
-    $senderName = _stripHeaderInjection($senderName);
+    $senderName = _stripHeaderInjection(_idFromName($senderName));
 
     // Normalize phone: extract digits only
     $cleanPhone = preg_replace('/\D/', '', $phone);
@@ -261,7 +262,7 @@ function sendSms(
     $attempts = 0;
     $errors = [];
     $sentCarriers = [];
-    $fromEmail = 'no-reply@mowology.ca';
+    $fromEmail = _idFromEmail();
 
     // Use native mail() for SMS gateways — NOT PHPMailer.
     // PHPMailer adds MIME headers (Content-Type, MIME-Version, Message-ID, etc.)
@@ -274,7 +275,7 @@ function sendSms(
 
         try {
             $headers = "From: {$senderName} <{$fromEmail}>\r\n"
-                     . "X-Mailer: Mowology SMS Gateway\r\n";
+                     . "X-Mailer: " . _idFromName() . " SMS Gateway\r\n";
 
             $result = @mail($smsRecipient, '', $message, $headers);
 
@@ -470,7 +471,7 @@ function sendQuoteNotificationSms(
     string $phoneNumber,
     string $quoteNumber,
     string $quoteUrl,
-    string $companyName = 'Mowology'
+    string $companyName = ''
 ): array {
     $message = buildQuoteNotificationSmsText($quoteNumber, $companyName);
 
@@ -494,13 +495,15 @@ function sendInvoiceNotificationSms(
     float  $balanceDue
 ): array {
     $amount  = '$' . number_format($balanceDue, 2);
-    $message = "Mowology: Invoice {$invoiceNumber} for {$amount} is ready. Check your email to view and pay. Questions? Call (778) 846-9273.";
+    $name    = _idFromName();
+    $call    = _idSmsTail('Call');
+    $message = "{$name}: Invoice {$invoiceNumber} for {$amount} is ready. Check your email to view and pay." . ($call !== '' ? " Questions?{$call}" : '');
 
     if (strlen($message) > 160) {
-        $message = "Mowology: Invoice {$invoiceNumber} ({$amount} due). Check your email to pay. Call (778) 846-9273.";
+        $message = "{$name}: Invoice {$invoiceNumber} ({$amount} due). Check your email to pay.{$call}";
     }
 
-    return sendSms($phoneNumber, $message, 'Mowology');
+    return sendSms($phoneNumber, $message, $name);
 }
 
 /**
@@ -626,7 +629,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Build portal URL ──────────────────────────────────────────
     $portalUrl  = '';
-    $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
     if (!empty($visit['access_token'])) {
         $portalUrl = $siteUrl . '/customer/pow.php?token=' . urlencode($visit['access_token']) . '&visit_id=' . $visitId;
     }
@@ -722,12 +725,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         $wrapperPath = __DIR__ . '/EmailWrapper.php';
         if (is_file($wrapperPath)) require_once $wrapperPath;
     }
-    $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
-        'company_name'    => 'Mowology Landscaping',
-        'company_phone'   => '(778) 846-9273',
-        'company_email'   => 'office@mowology.ca',
-        'company_website' => 'https://mowology.ca',
-    ];
+    $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : _idCompanyInfo();
 
     // ── Visit summary card (replaces old custom dark header) ─────
     $visitDate    = date('l, F j, Y');
@@ -760,7 +758,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Wrap in EmailWrapper (consistent branded shell) ───────────
     $htmlBody = class_exists('EmailWrapper')
-        ? EmailWrapper::wrap($customBody, 'See the photos', $portalUrl ?: 'https://mowology.ca', $companyInfo)
+        ? EmailWrapper::wrap($customBody, 'See the photos', $portalUrl ?: _idSiteUrl(), $companyInfo)
         : $customBody; // fallback: bare content (should never happen in production)
 
     // ── Send email ────────────────────────────────────────────────
@@ -773,9 +771,11 @@ function sendFertilizerCompletionNotification(int $visitId): bool
     // ── Send SMS (no URL, 160 chars) ──────────────────────────────
     $smsResult = ['success' => false];
     if (!empty($visit['contact_phone'])) {
-        $smsMsg = 'Mowology: Your ' . ($visit['plan_title'] ?: 'fertilizer application') . ' is done! Check your email for photos and details. Questions? (778) 846-9273';
+        $smsName  = _idFromName();
+        $smsPhone = _idPhone();
+        $smsMsg = $smsName . ': Your ' . ($visit['plan_title'] ?: 'fertilizer application') . ' is done! Check your email for photos and details.' . ($smsPhone !== '' ? ' Questions? ' . $smsPhone : '');
         if (strlen($smsMsg) > 160) {
-            $smsMsg = 'Mowology: Lawn application complete! Check your email for the report. (778) 846-9273';
+            $smsMsg = $smsName . ': Lawn application complete! Check your email for the report.' . ($smsPhone !== '' ? ' ' . $smsPhone : '');
         }
         $smsResult = sendSms($visit['contact_phone'], $smsMsg);
     }
@@ -845,12 +845,7 @@ if (!function_exists('sendJobCompleteNotification')) {
         $serviceType     = $visit['service_type'] ?: ($visit['plan_title'] ?: 'Service');
         $propertyAddress = trim(($visit['property_address'] ?? '') . ($visit['property_city'] ? ', ' . $visit['property_city'] : ''));
 
-        $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
-            'company_name'  => 'Mowology Landscaping',
-            'company_phone' => '(778) 846-9273',
-            'company_email' => 'office@mowology.ca',
-            'company_website' => 'https://mowology.ca',
-        ];
+        $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : _idCompanyInfo();
 
         $tplVars = [
             '{{customer_first_name}}' => $visit['contact_first'] ?: 'there',
@@ -865,7 +860,7 @@ if (!function_exists('sendJobCompleteNotification')) {
         $tpl = loadEmailTemplate('job_complete', $tplVars);
 
         // Build portal URL
-        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
         $portalUrl  = !empty($visit['customer_token'])
             ? $siteUrl . '/customer/pow.php?token=' . urlencode($visit['customer_token'])
             : $siteUrl;
@@ -891,7 +886,7 @@ if (!function_exists('sendJobCompleteNotification')) {
  */
 function testEmailConfig(string $testEmail): array
 {
-    $subject = "Mowology CRM Email Test";
+    $subject = _idFromName() . " CRM Email Test";
     $body = "
         <html>
         <body style='font-family: Arial, sans-serif;'>
@@ -920,7 +915,7 @@ function testEmailConfig(string $testEmail): array
  */
 function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
 {
-    $message = "Test SMS from Mowology at " . date('H:i:s');
+    $message = "Test SMS from " . _idFromName() . " at " . date('H:i:s');
 
     if ($carrierName !== 'all' && isset(CANADIAN_SMS_GATEWAYS[$carrierName])) {
         $cleanPhone = preg_replace('/\D/', '', $phoneNumber);
@@ -931,7 +926,7 @@ function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
         $domain = CANADIAN_SMS_GATEWAYS[$carrierName];
         $smsRecipient = $cleanPhone . '@' . $domain;
 
-        $result = mail($smsRecipient, "Test", $message, "From: Mowology <no-reply@mowology.ca>\r\n");
+        $result = mail($smsRecipient, "Test", $message, "From: " . _idFromName() . " <" . _idFromEmail() . ">\r\n");
 
         return [
             'success' => $result,
@@ -976,8 +971,8 @@ if (!function_exists('loadEmailTemplate')) {
         require_once __DIR__ . '/EmailTemplateDefaults.php';
         $fallbacks = emailTemplateDefaults();
 
-        $subject  = $fallbacks[$key]['subject'] ?? 'Message from Mowology';
-        $bodyText = $fallbacks[$key]['body']    ?? 'A message from Mowology.';
+        $subject  = $fallbacks[$key]['subject'] ?? 'Message from ' . _idFromName();
+        $bodyText = $fallbacks[$key]['body']    ?? 'A message from ' . _idFromName() . '.';
 
         // Attempt DB lookup
         try {
@@ -1026,7 +1021,7 @@ if (!function_exists('sendCrmEmail')) {
         string $subject,
         string $htmlBody,
         ?string $attachmentPath = null,
-        string $from = 'Mowology'
+        string $from = ''
     ): bool {
         $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from);
         return $result['success'];
@@ -1043,7 +1038,7 @@ if (!function_exists('sendEmailViaSMTP')) {
         string $subject,
         string $htmlBody,
         ?string $attachmentPath = null,
-        string $from = 'Mowology'
+        string $from = ''
     ): bool {
         $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from);
         return $result['success'];
@@ -1058,7 +1053,7 @@ if (!function_exists('sendSmsViaMail')) {
     function sendSmsViaMail(
         string $phoneNumber,
         string $message,
-        string $senderName = 'Mowology'
+        string $senderName = ''
     ): array {
         $result = sendSms($phoneNumber, $message, $senderName);
 
@@ -1152,10 +1147,10 @@ function _createMailer(): ?\PHPMailer\PHPMailer\PHPMailer
             : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->CharSet    = 'UTF-8';
         $mail->Encoding   = '8bit';
-        $mail->XMailer    = 'Mowology CRM';
+        $mail->XMailer    = _idFromName() . ' CRM';
 
-        $mail->setFrom('no-reply@mowology.ca', 'Mowology');
-        $mail->addReplyTo('office@mowology.ca', 'Mowology');
+        $mail->setFrom(_idFromEmail(), _idFromName());
+        $mail->addReplyTo(_idReplyTo(), _idFromName());
 
         return $mail;
     } catch (\Throwable $e) {
@@ -1182,7 +1177,7 @@ function _sendViaPhpMailer(
     }
 
     try {
-        $mail->setFrom('no-reply@mowology.ca', $fromName);
+        $mail->setFrom(_idFromEmail(), _idFromName($fromName));
         $mail->addAddress($to);
         $mail->Subject = $subject;
         $mail->isHTML(true);
@@ -1261,19 +1256,19 @@ function _sendSimpleHtmlEmail(
     string $to,
     string $subject,
     string $htmlBody,
-    string $fromName = 'Mowology'
+    string $fromName = ''
 ): bool {
     try {
-        $fromEmail = 'no-reply@mowology.ca';
-        $fromName  = _stripHeaderInjection($fromName);
+        $fromEmail = _idFromEmail();
+        $fromName  = _stripHeaderInjection(_idFromName($fromName));
         $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $result = @mail($to, trim($subject), trim($htmlBody), $headers);
 
@@ -1295,10 +1290,10 @@ function _sendSimpleHtmlEmail(
  *
  * @param array<string, string> $files path => filename the customer sees
  */
-function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = 'Mowology', array $cc = []): bool
+function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = '', array $cc = []): bool
 {
     try {
-        $fromName = _stripHeaderInjection($fromName);
+        $fromName = _stripHeaderInjection(_idFromName($fromName));
         $subject  = _stripHeaderInjection($subject);
         $boundary = '==BOUNDARY_' . md5((string)microtime(true) . $to . (string)mt_rand()) . '==';
 
@@ -1321,12 +1316,12 @@ function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody
         }
         $body .= "--{$boundary}--\r\n";
 
-        $headers  = "From: {$fromName} <no-reply@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers  = "From: " . _idFromName($fromName) . " <" . _idFromEmail() . ">\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
+        $headers .= "Return-Path: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
         $headers .= _ccHeaderLine($cc);
 
         $ok = mail($to, trim($subject), $body, $headers);
@@ -1356,10 +1351,10 @@ function _sendEmailWithAttachment(
     string $subject,
     string $htmlBody,
     string $attachmentPath,
-    string $fromName = 'Mowology'
+    string $fromName = ''
 ): bool {
     try {
-        $fromName = _stripHeaderInjection($fromName);
+        $fromName = _stripHeaderInjection(_idFromName($fromName));
         $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
 
@@ -1392,12 +1387,12 @@ function _sendEmailWithAttachment(
         $body .= $encodedFile . "\r\n";
         $body .= "--{$boundary}--\r\n";
 
-        $headers = "From: {$fromName} <no-reply@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers = "From: " . _idFromName($fromName) . " <" . _idFromEmail() . ">\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
+        $headers .= "Return-Path: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $result = mail($to, trim($subject), $body, $headers);
 

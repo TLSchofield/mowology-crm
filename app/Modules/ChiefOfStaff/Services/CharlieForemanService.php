@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * CharlieForemanService — puts Charlie's pieces together for the card, the calendar page
  * and the cron: the decision inbox (1172/1173), urgent alerts (1173), deadlines (1171)
@@ -76,7 +78,7 @@ class CharlieForemanService
         }
         $mail = CharlieUrgentService::email($new, CharlieVoice::firstName($owner), $baseUrl);
         $html = class_exists('EmailWrapper') ? EmailWrapper::wrap($mail['body'], 'Open the dashboard', rtrim($baseUrl, '/') . '/crm/dashboard_appstack.php', $company) : $mail['body'];
-        $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? 'Mowology'));
+        $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? ''));
         $err = !empty($res['success']) ? null : (string)($res['error'] ?? 'send failed');
         $this->urgent->record($new, $err);
         return ['sent' => $err === null ? count($new) : 0, 'error' => $err];

@@ -21,6 +21,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -100,7 +101,7 @@ try {
     $force = !$__cli && !empty($_GET['force']);
 
     $company = EmailWrapper::getCompanyInfo();
-    $base = 'https://mowology.ca';
+    $base = _idSiteUrl();
     if (!empty($company['company_website'])) {
         $w = trim((string)$company['company_website']);
         $base = preg_match('#^https?://#', $w) ? $w : 'https://' . $w;
@@ -122,7 +123,7 @@ try {
                 if ($to !== '' && filter_var($to, FILTER_VALIDATE_EMAIL) && function_exists('sendEmail')) {
                     $mail = MonthCloseListService::email($mcl->items($due), $name, $base);
                     $html = EmailWrapper::wrap($mail['body'], "Open Penny's card", rtrim($base, '/') . '/crm/dashboard_appstack.php#mw-penny', $company);
-                    $res = sendEmail($to, $mail['subject'], $html, null, 'Penny at ' . ($company['company_name'] ?? 'Mowology'));
+                    $res = sendEmail($to, $mail['subject'], $html, null, 'Penny at ' . ($company['company_name'] ?? ''));
                     if (!empty($res['success'])) {
                         $mcl->markSent($due['month']);
                         $parts[] = 'month-close list for ' . $due['month'] . ' emailed';
@@ -180,7 +181,7 @@ try {
     $payload = json_decode((string)($brief['payload'] ?? ''), true) ?: CharlieDeskService::payload($view);
     $mail = CharlieBriefEmail::render($payload, $name, $base);
     $html = EmailWrapper::wrap($mail['body'], 'Open your dashboard', rtrim($base, '/') . '/crm/dashboard_appstack.php', $company);
-    $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? 'Mowology'));
+    $res = sendEmail($to, $mail['subject'], $html, null, HeadIdentity::chiefName() . ' at ' . ($company['company_name'] ?? ''));
 
     if (!empty($res['success'])) {
         $desk->markEmailed($today, null);

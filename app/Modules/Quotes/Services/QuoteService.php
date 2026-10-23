@@ -21,6 +21,7 @@
  * All callers must requireLogin() + verifyCSRFToken() before calling mutations.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class QuoteService
 {
@@ -470,7 +471,7 @@ class QuoteService
     public static function quoteSentSms(string $quoteNumber): string
     {
         $n = preg_replace('/[^A-Za-z0-9-]/', '', $quoteNumber);
-        return "Mowology: your quote {$n} is ready. Check your email (and junk folder). Questions? Call (778) 846-9273. Reply STOP to opt out.";
+        return _idFromName() . ": your quote {$n} is ready. Check your email (and junk folder)." . (_idPhone() !== '' ? ' Questions? Call ' . _idPhone() . '.' : '') . ' Reply STOP to opt out.';
     }
 
     /**

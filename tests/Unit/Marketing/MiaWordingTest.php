@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 require_once dirname(__DIR__, 3) . '/app/Services/Messaging/TemplateRenderer.php';
 
 /**
@@ -10,6 +12,18 @@ require_once dirname(__DIR__, 3) . '/app/Services/Messaging/TemplateRenderer.php
  */
 class MiaWordingTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private function vars(): array
     {
         return [

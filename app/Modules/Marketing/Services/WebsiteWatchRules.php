@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * WebsiteWatchRules — what Mia reads out of Search Console each week. Pure, no DB, no HTTP.
  *
@@ -136,7 +138,7 @@ class WebsiteWatchRules
         $q = trim(preg_replace('/\s+/', ' ', $query));
         $t = ucfirst($q);
         if (stripos($q, 'vancouver') === false && mb_strlen($t) + 12 <= 48) $t .= ' in Vancouver';
-        $t .= ' | Mowology';
+        $t .= ' | ' . _idFromName();
         return mb_strlen($t) > 60 ? mb_substr($t, 0, 57) . '...' : $t;
     }
 

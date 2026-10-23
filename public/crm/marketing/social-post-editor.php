@@ -1461,7 +1461,7 @@ $extraHead = '
 
                   if (previewPlatform === 'gbp') {
                       preview.innerHTML = '<div class="mw-soc-prev-gbp">'
-                          + '<div class="mw-soc-prev-gbp-header"><span class="mw-soc-prev-biz">Mowology</span><span class="text-muted small">Google Business</span></div>'
+                          + '<div class="mw-soc-prev-gbp-header"><span class="mw-soc-prev-biz">' + esc((window.MW_BUSINESS || {}).name || '') + '</span><span class="text-muted small">Google Business</span></div>'
                           + imgHtml
                           + '<div class="mw-soc-prev-body">' + nl2br(esc(fullText)) + '</div>'
                           + ctaHtml
@@ -1477,7 +1477,7 @@ $extraHead = '
                           + '</div>';
                   } else {
                       preview.innerHTML = '<div class="mw-soc-prev-fb">'
-                          + '<div class="mw-soc-prev-fb-header"><strong>Mowology Landscaping</strong>'
+                          + '<div class="mw-soc-prev-fb-header"><strong>' + esc((window.MW_BUSINESS || {}).full || '') + '</strong>'
                           + '<div class="text-muted small">Just now · ' + platformIcons.facebook + '</div></div>'
                           + '<div class="mw-soc-prev-body">' + nl2br(esc(fullText)) + '</div>'
                           + imgHtml
@@ -1949,7 +1949,7 @@ $extraHead = '
     function svbSyncBranding() {
         if (!svb) return;
         svb.setBranding({
-            name:    'Mowology',
+            name:    (window.MW_BUSINESS || {}).name || '',
             city:    (document.getElementById('postCity')        || {}).value || '',
             service: (document.getElementById('postServiceType') || {}).value || '',
             caption: (document.getElementById('postCaption')     || {}).value || '',

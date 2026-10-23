@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * ReceiptArchiveService — reclaim live web-disk space used by expense receipt images.
  *
@@ -127,7 +129,7 @@ class ReceiptArchiveService
             'receipt_export_email_owner'     => '',
             'receipt_export_email_accountant'=> '',
             'receipt_accounting_email'       => '',
-            'receipt_from_name'              => 'Mowology Receipts',
+            'receipt_from_name'              => '',
         ];
         try {
             $stmt = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key LIKE 'receipt_%'");
@@ -278,7 +280,7 @@ class ReceiptArchiveService
     /** README placed inside each ZIP — states what this is and the retention obligation. */
     private static function readmeText(string $month, int $count): string
     {
-        return "Mowology — Expense Receipt Archive\n"
+        return _idFromName() . " — Expense Receipt Archive\n"
             . "Period: {$month}\n"
             . "Receipts in this archive: {$count}\n\n"
             . "This ZIP is the retained off-server copy of these expense receipts. The CRM keeps\n"
@@ -318,13 +320,13 @@ class ReceiptArchiveService
             return ['ok' => false, 'sent' => 0, 'failed' => 0, 'errors' => ['sendEmail() unavailable']];
         }
 
-        $fromName = $meta['from_name'] ?? 'Mowology Receipts';
+        $fromName = (($meta['from_name'] ?? '') !== '' ? $meta['from_name'] : _idFromName() . ' Receipts');
         $sent = 0; $failed = 0; $errors = [];
         $total = count($zipPaths);
 
         foreach ($zipPaths as $idx => $zipPath) {
             $partInfo = $total > 1 ? sprintf(' (part %d of %d)', $idx + 1, $total) : '';
-            $subject  = sprintf('Mowology Receipt Archive — %s%s', $meta['range_label'] ?? 'export', $partInfo);
+            $subject  = sprintf('%s Receipt Archive — %s%s', _idFromName(), $meta['range_label'] ?? 'export', $partInfo);
             $body     = $this->buildEmailBody($meta, basename($zipPath), $idx + 1, $total);
             foreach ($recipients as $to) {
                 $res = sendEmail($to, $subject, $body, $zipPath, $fromName);
@@ -345,7 +347,7 @@ class ReceiptArchiveService
         $sum   = number_format((float) ($meta['total_amount'] ?? 0), 2);
         $range = htmlspecialchars((string) ($meta['range_label'] ?? 'export'));
         $partLine = $total > 1 ? "<p><strong>Part {$part} of {$total}</strong> — multiple ZIPs were sent for this period.</p>" : '';
-        return "<h2 style=\"font-family:Arial,sans-serif;color:#1A5F4A\">Mowology Receipt Archive</h2>"
+        return "<h2 style=\"font-family:Arial,sans-serif;color:#1A5F4A\">" . htmlspecialchars(_idFromName()) . " Receipt Archive</h2>"
             . "<p style=\"font-family:Arial,sans-serif\">Attached: <strong>" . htmlspecialchars($zipName) . "</strong></p>"
             . $partLine
             . "<table style=\"font-family:Arial,sans-serif;border-collapse:collapse\">"

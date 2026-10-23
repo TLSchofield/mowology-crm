@@ -38,7 +38,7 @@ class CharlieAskService
     public const ROWS        = 6;
 
     public const SYSTEM_PROMPT = <<<'TXT'
-You are {CHIEF}, Chief of Staff for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC. The owner asks you quick questions about his customers from his phone.
+You are {CHIEF}, Chief of Staff for {BUSINESS}. The owner asks you quick questions about his customers from his phone.
 
 Answer ONLY from the CRM records you are given. They are everything the CRM holds that matched his question; if the answer isn't in them, say plainly that you can't see it in the CRM and what you did find. Never guess or invent names, dates, amounts or statuses.
 
@@ -55,7 +55,8 @@ TXT;
     /** The system prompt with the chief of staff's shown name filled in (the owner may rename them). */
     public static function systemPrompt(): string
     {
-        return str_replace('{CHIEF}', HeadIdentity::chiefName(), self::SYSTEM_PROMPT);
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return strtr(self::SYSTEM_PROMPT, ['{CHIEF}' => HeadIdentity::chiefName(), '{BUSINESS}' => BusinessIdentity::describe()]);
     }
 
     /** Words that are never a name or a street. */

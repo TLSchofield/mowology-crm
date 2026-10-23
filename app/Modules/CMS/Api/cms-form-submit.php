@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -104,7 +105,7 @@ try {
     // messaging.php was never loaded here, so the admin notice silently never fired (Fable 2026-10-12).
     require_once CRM_INCLUDES . '/messaging.php';
     if (function_exists('sendCrmEmail')) {
-        $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : 'office@mowology.ca'; // same inbox as rebook notices
+        $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : _idReplyTo(); // same inbox as rebook notices
         $subject    = 'New Website Enquiry — ' . $formId;
         $body = '<h3>New Form Submission</h3>'
               . '<p><strong>Form:</strong> ' . htmlspecialchars($formId) . '</p>'

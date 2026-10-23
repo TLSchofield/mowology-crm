@@ -161,7 +161,7 @@ class YuiDraftService
         } else {
             $dest = $to['email'];
             if ($dest === '') return ['ok' => false, 'message' => 'No email address on file for ' . $name . '.'];
-            if ($subject === '') $subject = (string)(YuiRules::draft($item, $owner)['subject'] ?? 'Mowology');
+            if ($subject === '') $subject = (string)(YuiRules::draft($item, $owner)['subject'] ?? YuiRules::businessName());
         }
         $suggested = trim(str_replace("\r\n", "\n", (string)($in['suggested_body'] ?? '')));
         $edited = SamFollowupService::isEdited($suggested, $body);
@@ -289,8 +289,8 @@ class YuiDraftService
         try {
             $this->db->prepare("
                 INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
-                VALUES ('yui', ?, 'outbound', ?, ?, 'office@mowology.ca', ?, ?, ?, NOW())
-            ")->execute(['yui-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
+                VALUES ('yui', ?, 'outbound', ?, ?, ?, ?, ?, ?, NOW())
+            ")->execute(['yui-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, YuiRules::fromAddr(), $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
         } catch (Throwable $e) { /* history is a bonus — the send already happened */ }
     }
 

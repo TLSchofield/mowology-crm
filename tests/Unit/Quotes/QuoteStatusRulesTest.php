@@ -3,9 +3,23 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /** Fable review 2026-10-12: a send never undoes the client's answer; accepting needs a live, sent quote. */
 class QuoteStatusRulesTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     public function test_resend_keeps_the_answer(): void
     {
         foreach (['draft', 'sent', 'viewed'] as $s) $this->assertSame('sent', QuoteService::statusAfterSend($s));

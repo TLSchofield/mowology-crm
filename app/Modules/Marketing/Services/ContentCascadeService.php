@@ -15,6 +15,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class ContentCascadeService
 {
@@ -120,8 +121,11 @@ class ContentCascadeService
         // Truncate intro to first 500 chars for the prompt
         $introSnippet = mb_substr(strip_tags($article['body_html'] ?? $intro), 0, 600);
 
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $biz = BusinessIdentity::describe();
+        $tag = preg_replace('/[^A-Za-z0-9]/', '', BusinessIdentity::get()['name']) ?: 'business';
         $systemPrompt = <<<PROMPT
-You write social media posts and email content for a Canadian landscaping company called Mowology.
+You write social media posts and email content for {$biz}.
 Voice: confident, friendly, local. Not corporate or salesy.
 Each platform has specific requirements — follow them exactly.
 Return ONLY valid JSON. No preamble.
@@ -139,11 +143,11 @@ Return this exact JSON structure:
 {
   "facebook": {
     "caption": "120-150 word post. Conversational. End with a question or soft CTA. Include the URL naturally in the text.",
-    "hashtags": ["#Mowology", "#Landscaping", "2-3 more relevant hashtags"]
+    "hashtags": ["#{$tag}", "#Landscaping", "2-3 more relevant hashtags"]
   },
   "instagram": {
     "caption": "First line: a hook under 125 chars that makes people tap 'more'. Then 3-5 short punchy lines. End with CTA: 'Link in bio →'",
-    "hashtags": ["#Mowology", "#LawnCare", "8-10 relevant hashtags for reach"]
+    "hashtags": ["#{$tag}", "#LawnCare", "8-10 relevant hashtags for reach"]
   },
   "gbp": {
     "caption": "80-100 word Google Business Profile post. Local focus. Include the URL. Professional but warm."

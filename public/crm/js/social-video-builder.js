@@ -220,7 +220,7 @@ class SocialVideoBuilder {
 
     _branding(t) {
         var c = this.ctx, W = this.W, H = this.H, b = this.branding;
-        var name    = b.name    || 'Mowology';
+        var name    = b.name    || (window.MW_BUSINESS || {}).name || '';
         var city    = b.city    || '';
         var service = b.service || '';
         var caption = ((b.caption || '').split('\n')[0]) || '';
@@ -260,7 +260,7 @@ class SocialVideoBuilder {
         else if (t > 0.7) this._pill('AFTER', W - 200, H - 148, '#c9a84c');
 
         c.fillStyle = 'rgba(255,255,255,.3)'; c.font = '22px Arial';
-        c.fillText('mowology.ca', W - 232, H - 36);
+        c.fillText((window.MW_BUSINESS || {}).site || '', W - 232, H - 36);
     }
 
     _pill(text, x, y, color) {

@@ -15,6 +15,8 @@
  * marks, one button per email labelled verb + what the reader gets, the fact first.
  */
 
+require_once __DIR__ . '/IdentityMail.php';
+
 if (!function_exists('emailTemplateDefaults')) {
     /**
      * @return array<string, array{name:string, subject:string, body:string, cta:string, vars:string[]}>
@@ -26,7 +28,7 @@ if (!function_exists('emailTemplateDefaults')) {
         return [
             'quote_sent' => [
                 'name'    => 'Quote Sent',
-                'subject' => 'Your quote from Mowology: {{quote_number}}',
+                'subject' => 'Your quote from ' . _idFromName() . ': {{quote_number}}',
                 'cta'     => 'Read the quote',
                 'body'    => "Hi {{customer_first_name}},\n\n"
                     . "Your quote is ready: {{quote_amount}}, and it holds until {{quote_valid_until}}.\n\n"
@@ -48,7 +50,7 @@ if (!function_exists('emailTemplateDefaults')) {
             ],
             'invoice_sent' => [
                 'name'    => 'Invoice Sent',
-                'subject' => 'Invoice {{invoice_number}} from Mowology: {{amount_due}} due {{due_date}}',
+                'subject' => 'Invoice {{invoice_number}} from ' . _idFromName() . ': {{amount_due}} due {{due_date}}',
                 'cta'     => 'Pay the invoice',
                 'body'    => "Hi {{customer_first_name}},\n\n"
                     . "Here's your invoice for the recent work: {{invoice_number}}, {{amount_due}}, due {{due_date}}.\n\n"

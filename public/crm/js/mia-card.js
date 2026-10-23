@@ -191,7 +191,7 @@
               '<div class="mw-mia-to">To ' + esc(s.email || '—') + (s.address ? ' · ' + esc(s.address) : '') + '</div></div>' +
             '<label class="mw-mia-lbl">Subject<input class="mw-mia-in" data-f="subject" value="' + esc(s.subject) + '"></label>' +
             '<label class="mw-mia-lbl">Email<textarea class="mw-mia-in mw-mia-body" data-f="body" rows="9">' + esc(s.body) + '</textarea></label>' +
-            '<div class="mw-mia-nosms">Email only. Sent with Mowology\'s address and an unsubscribe link; consent is checked again when you send.</div>' +
+            '<div class="mw-mia-nosms">Email only. Sent with the business address and an unsubscribe link; consent is checked again when you send.</div>' +
             '<div class="mw-mia-actions">' +
               '<button type="button" class="mw-mia-send" data-do="send">Send email</button>' +
               '<button type="button" class="mw-mia-skip" data-do="skip">Skip…</button>' +

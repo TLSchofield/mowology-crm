@@ -4,6 +4,7 @@
  * AppStack layout via shared includes.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
@@ -133,7 +134,7 @@ if (empty($invoice['access_token']) || $_tokenExpired) {
     $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
        ->execute([$invoice['access_token'], $invoiceId]);
 }
-$invoicePortalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+$invoicePortalUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
 
 // Get activity for this invoice
 $stmt = $db->prepare("
@@ -398,8 +399,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $billToLines       = [];
         if ($billToCompany)     { $billToLines[] = '<strong>' . htmlspecialchars($billToCompany) . '</strong>'; }
         if ($billToContactName) { $billToLines[] = htmlspecialchars($billToContactName); }
-        $invoiceViewUrl   = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
-        $invoicePdfUrl    = 'https://mowology.ca/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl   = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoicePdfUrl    = _idSiteUrl() . '/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
         $invoicePrintUrl  = $invoicePdfUrl . '&inline=1';
 
         // Send to each recipient
@@ -690,7 +691,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 ];
 
                 $receiptTpl  = loadEmailTemplate('receipt_sent', $receiptVars);
-                $receiptUrl  = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+                $receiptUrl  = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
                 $receiptBody = EmailWrapper::wrap(
                     $receiptTpl['body_html'],
                     'Get the receipt',

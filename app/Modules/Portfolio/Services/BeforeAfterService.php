@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 /**
  * BeforeAfterService — the road from a crew endorsement to the public portfolio.
@@ -144,8 +145,8 @@ class BeforeAfterService
         $service = strtolower(self::serviceName($serviceType));
         $place   = $area ? ' in ' . $area : ' in Metro Vancouver';
         return $which === 'before'
-            ? ucfirst($service) . $place . ' before Mowology'
-            : ucfirst($service) . $place . ' after Mowology';
+            ? ucfirst($service) . $place . ' before ' . _idFromName()
+            : ucfirst($service) . $place . ' after ' . _idFromName();
     }
 
     /**

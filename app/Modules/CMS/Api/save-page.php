@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -60,7 +61,7 @@ try {
     // Auto-SEO: fill empty meta_title with "{Title} | Mowology Landscaping"
     $metaTitle = trim($_POST['meta_title'] ?? '');
     if ($metaTitle === '' && $title !== '') {
-        $siteName = defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping';
+        $siteName = defined('SITE_NAME') ? SITE_NAME : _idFromName();
         $candidate = $title . ' | ' . $siteName;
         $metaTitle = mb_substr($candidate, 0, 60);
     }

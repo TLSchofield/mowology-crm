@@ -1,4 +1,5 @@
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 /**
  * Contract PDF Template
  * Rendered by PdfGenerator::generateContractPdf()
@@ -42,7 +43,7 @@ if ($clientName === '') { $clientName = (string)($contract['company_name'] ?? 'C
 $propertyLine = $esc($contract['property_address'] ?? '');
 if (!empty($contract['property_city'])) { $propertyLine .= ', ' . $esc($contract['property_city']); }
 
-$companyName = trim((string)($biz['company_name'] ?? '')) ?: 'Mowology';
+$companyName = trim((string)($biz['company_name'] ?? '')) ?: _idFromName();
 $companyBits = array_filter([
     trim((string)($biz['company_address'] ?? '')),
     trim((string)($biz['company_phone'] ?? '')),

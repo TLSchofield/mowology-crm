@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -168,7 +169,7 @@ try {
             }
 
             $link = ReferralRewardService::getOrCreateLink($contactId, $db);
-            $link['full_url'] = 'https://mowology.ca/quote?referral_code=' . $link['referral_code'];
+            $link['full_url'] = _idSiteUrl() . '/quote?referral_code=' . $link['referral_code'];
 
             echo json_encode(['success' => true, 'link' => $link]);
             break;

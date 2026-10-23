@@ -13,6 +13,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class ArticleGeneratorService
 {
@@ -323,12 +324,12 @@ PROMPT;
                     'headline'  => $articleTitle,
                     'author'    => [
                         '@type' => 'Organization',
-                        'name'  => 'Mowology Landscaping',
+                        'name'  => _idCompanyInfo()['company_name'],
                     ],
                     'publisher' => [
                         '@type' => 'Organization',
-                        'name'  => 'Mowology Landscaping',
-                        'url'   => 'https://mowology.ca',
+                        'name'  => _idCompanyInfo()['company_name'],
+                        'url'   => _idSiteUrl(),
                     ],
                 ],
             ],

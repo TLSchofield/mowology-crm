@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 require_once dirname(__DIR__, 3) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 session_write_close();
@@ -170,20 +171,20 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
 // ── Create new PaymentIntent ─────────────────────────────────────────────────
 try {
     \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
-    \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
+    \Stripe\Stripe::setAppInfo(_idFromName() . ' CRM', '1.0', _idSiteUrl());
 
     $intent = \Stripe\PaymentIntent::create([
         'amount'                      => $amountCents,
         'currency'                    => 'cad',
         'automatic_payment_methods'   => ['enabled' => true],
-        'description'                 => 'Invoice ' . $invoice['invoice_number'] . ' — Mowology Landscaping',
+        'description'                 => 'Invoice ' . $invoice['invoice_number'] . ' — ' . _idCompanyInfo()['company_name'],
         'metadata'                    => [
             'invoice_id'     => (string) $invoice['id'],
             'invoice_number' => $invoice['invoice_number'],
             'company_id'     => (string) ($invoice['company_id'] ?? ''),
             'crm_source'     => 'mowology_crm',
         ],
-        'statement_descriptor_suffix' => 'Mowology',
+        'statement_descriptor_suffix' => (substr(preg_replace('/[^A-Za-z0-9 ]/', '', _idFromName()), 0, 22) ?: 'Invoice'),
     ]);
 
     // Persist the PaymentIntent ID so we can reuse it and match it in the webhook

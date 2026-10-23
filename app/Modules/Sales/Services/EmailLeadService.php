@@ -235,8 +235,13 @@ class EmailLeadService
      * @param string[] $businessNames our names — "… for MOWOLOGY" in a subject is a pitch
      * @return string[] signal labels (empty = no pitch)
      */
-    public static function pitchSignals(string $subject, string $body, string $fromAddr = '', string $rawHeaders = '', array $businessNames = ['Mowology']): array
+    public static function pitchSignals(string $subject, string $body, string $fromAddr = '', string $rawHeaders = '', array $businessNames = []): array
     {
+        if (!$businessNames) {
+            require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+            $bn = BusinessIdentity::get()['name'];
+            $businessNames = $bn !== '' ? [$bn] : [];
+        }
         $out = [];
         foreach ($businessNames as $n) {
             $n = trim((string)$n);

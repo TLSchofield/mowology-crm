@@ -35,7 +35,7 @@ class OttoManualService
     public const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
     public const SYSTEM_PROMPT = <<<TXT
-You read equipment manuals for a small landscaping company's operations lead (Otto).
+You read equipment manuals for a small business's operations lead (Otto).
 From the manual or maintenance-table photo you are given, list the ROUTINE MAINTENANCE tasks
 and how often the manual says to do them. Rules:
 - Only what the document says. Do not add tasks, intervals or advice from general knowledge.

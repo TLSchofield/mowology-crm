@@ -1,4 +1,5 @@
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 /**
  * Quote PDF Template
  * Rendered by PdfGenerator::generateQuotePdf()
@@ -302,14 +303,11 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
                 }
             ?>
             <?php if ($logoPath && file_exists($logoPath)): ?>
-                <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="Mowology" style="max-height: 50px; margin-bottom: 8px;">
+                <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="<?php echo htmlspecialchars(_idFromName()); ?>" style="max-height: 50px; margin-bottom: 8px;">
             <?php endif; ?>
-            <div class="brand-name">MOWOLOGY</div>
+            <div class="brand-name"><?php echo htmlspecialchars(strtoupper(_idFromName())); ?></div>
             <div class="brand-info">
-                Vancouver, BC<br>
-                (778) 846-9273<br>
-                office@mowology.ca<br>
-                mowology.ca
+                <?php $__idb = BusinessIdentity::get(); foreach (array_filter([$__idb['address'] ?: trim($__idb['city'] . ($__idb['province'] !== '' ? ', ' . $__idb['province'] : '')), $__idb['phone'], $__idb['email'], preg_replace('#^https?://#', '', _idSiteUrl())]) as $__l) { echo htmlspecialchars($__l) . '<br>'; } ?>
             </div>
         </td>
         <td style="width: 48%; vertical-align: top;">
@@ -446,5 +444,5 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
 
 <!-- Footer -->
 <div class="footer">
-    Mowology &bull; Vancouver, BC &bull; (778) 846-9273 &bull; mowology.ca
+    <?php echo htmlspecialchars(implode(' • ', array_filter([_idFromName(), trim(BusinessIdentity::get()['city'] . (BusinessIdentity::get()['province'] !== '' ? ', ' . BusinessIdentity::get()['province'] : '')), _idPhone(), preg_replace('#^https?://#', '', _idSiteUrl())]))); ?>
 </div>

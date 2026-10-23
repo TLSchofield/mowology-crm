@@ -14,6 +14,8 @@
  * Migrated from: public/crm/includes/email_helper.php
  */
 
+require_once __DIR__ . '/IdentityMail.php';
+
 /**
  * Send an HTML email, optionally with a PDF attachment.
  *
@@ -29,8 +31,9 @@ function sendCrmEmail(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $from = 'Mowology <noreply@mowology.ca>'
+    string $from = ''
 ): bool {
+    if ($from === '') $from = _idFromName() . ' <' . _idFromEmail() . '>';
     // Validate email address
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         error_log("sendCrmEmail: invalid recipient email: {$to}");
@@ -46,7 +49,7 @@ function sendCrmEmail(
     // --- Simple HTML email (no attachment) ---
     if (!$attachmentPath) {
         $headers = "From: {$from}\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
 
@@ -61,7 +64,7 @@ function sendCrmEmail(
     }
 
     // --- Multipart MIME with PDF attachment ---
-    $boundary = 'MOWOLOGY_' . md5(uniqid((string)time(), true));
+    $boundary = 'BOUNDARY_' . md5(uniqid((string)time(), true));
     $filename = basename($attachmentPath);
 
     try {
@@ -72,7 +75,7 @@ function sendCrmEmail(
     }
 
     $headers = "From: {$from}\r\n";
-    $headers .= "Reply-To: office@mowology.ca\r\n";
+    $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
     $headers .= "MIME-Version: 1.0\r\n";
     $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
 

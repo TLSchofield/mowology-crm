@@ -7,6 +7,7 @@
  * Admin-only. Returns JSON.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 
@@ -234,13 +235,13 @@ $smsSent = false;
 
 if ($sendNow && !empty($visit['email'])) {
     $clientName = trim(($visit['first_name'] ?? '') . ' ' . ($visit['last_name'] ?? '')) ?: 'Valued Client';
-    $portalUrl  = 'https://mowology.ca/customer/invoice.php?token=' . $accessToken;
+    $portalUrl  = _idSiteUrl() . '/customer/invoice.php?token=' . $accessToken;
     $totalFmt   = '$' . number_format($total, 2);
     $dueFmt     = date('F j, Y', strtotime($dueDate));
 
-    $subject = "Invoice {$invoiceNumber} from Mowology — {$totalFmt} due {$dueFmt}";
+    $subject = "Invoice {$invoiceNumber} from " . _idFromName() . " — {$totalFmt} due {$dueFmt}";
     $htmlBody = '<p>Hi ' . htmlspecialchars($clientName) . ',</p>'
-              . '<p>Thank you for choosing Mowology! Please find your invoice below.</p>'
+              . '<p>Thank you for choosing ' . htmlspecialchars(_idFromName()) . '! Please find your invoice below.</p>'
               . '<table style="border-collapse:collapse;width:100%;max-width:460px;">'
               . '<tr><td style="padding:8px;border:1px solid #eee;color:#666;">Invoice</td><td style="padding:8px;border:1px solid #eee;font-weight:600;">' . htmlspecialchars($invoiceNumber) . '</td></tr>'
               . '<tr><td style="padding:8px;border:1px solid #eee;color:#666;">Amount Due</td><td style="padding:8px;border:1px solid #eee;font-weight:600;color:#2D8659;">' . $totalFmt . '</td></tr>'

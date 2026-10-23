@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * QuoteSendService — send a quote to its client: the one place (2026-10-15, Tim: send quotes from Sam on the iPhone).
  * Moved unchanged from the quote page's "Send to Customer" (public/crm/quotes/view.php), which now calls it, and
@@ -69,7 +71,7 @@ class QuoteSendService
             $host = parse_url(preg_match('#^https?://#i', $w) ? $w : 'https://' . $w, PHP_URL_HOST);
             if (is_string($host) && preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/i', $host)) return 'https://' . strtolower($host);
         }
-        return defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca';
+        return defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : _idSiteUrl();
     }
 
     private function sendLocked(int $quoteId, array $user, bool $draftOnly): array
@@ -160,7 +162,7 @@ class QuoteSendService
 
             // Copy the building's property manager, if known (QuoteRecipientService).
             $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
-            $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath, 'Mowology', [], $ccPerson ? [$ccPerson['email']] : []);
+            $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath, '', [], $ccPerson ? [$ccPerson['email']] : []);
 
             if ($emailResult['success']) {
                 $emailSent = true;

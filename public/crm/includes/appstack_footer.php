@@ -22,7 +22,7 @@
           <div class="row text-muted">
             <div class="col-6 text-left">
               <p class="mb-0">
-                <strong>Mowology CRM</strong> &copy; <?php echo date('Y'); ?>
+                <strong><?php echo htmlspecialchars(function_exists('_idFromName') ? _idFromName() : ''); ?> CRM</strong> &copy; <?php echo date('Y'); ?>
               </p>
             </div>
             <div class="col-6 text-right">

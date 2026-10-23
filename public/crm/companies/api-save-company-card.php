@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
@@ -90,7 +91,7 @@ try {
     require_once PUBLIC_ROOT . '/app_config/secrets.php';
 
     \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
-    \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
+    \Stripe\Stripe::setAppInfo(_idFromName() . ' CRM', '1.0', _idSiteUrl());
 
     // Create or retrieve Stripe Customer for this company
     $stripeCustomerId = $company['stripe_customer_id'] ?? null;
@@ -100,7 +101,7 @@ try {
         $customer = \Stripe\Customer::create([
             'name'        => $company['company_name'],
             'email'       => $billingEmail ?: null,
-            'description' => 'Company ID ' . $companyId . ' — Mowology CRM',
+            'description' => 'Company ID ' . $companyId . ' — ' . _idFromName() . ' CRM',
             'metadata'    => [
                 'company_id'   => (string) $companyId,
                 'company_name' => $company['company_name'],

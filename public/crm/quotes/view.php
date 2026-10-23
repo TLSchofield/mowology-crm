@@ -5,6 +5,7 @@
  * AppStack layout via shared includes.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
@@ -182,21 +183,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
 
             $tpl     = loadEmailTemplate('quote_followup', $tplVars);
-            $subject = $tpl['subject'] ?? 'Following up on your Mowology quote (' . $quote['quote_number'] . ')';
+            $subject = $tpl['subject'] ?? 'Following up on your ' . _idFromName() . ' quote (' . $quote['quote_number'] . ')';
             $body    = EmailWrapper::wrap($tpl['body_html'] ?? '', 'Open the quote', $quoteUrl, $companyInfo);
 
             $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
             $body = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $body);
 
             $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
-            $emailResult = sendEmail($customerEmail, $subject, $body, null, 'Mowology', [], $ccPerson ? [$ccPerson['email']] : []);
+            $emailResult = sendEmail($customerEmail, $subject, $body, null, '', [], $ccPerson ? [$ccPerson['email']] : []);
 
             if ($emailResult['success']) {
                 $svc->recordFollowUp($quoteId);
 
                 // SMS notification (if consented) — no URL, just a nudge
                 if ($customerPhone && $customerConsentsToSms) {
-                    $smsMsg = "Hi {$firstName}, following up on Mowology quote #{$quote['quote_number']}. Check your email for the link. Questions? Call (778) 846-9273.";
+                    $smsMsg = "Hi {$firstName}, following up on " . _idFromName() . " quote #{$quote['quote_number']}. Check your email for the link." . _idSmsTail('Questions? Call');
                     sendSms($customerPhone, $smsMsg);
                 }
 

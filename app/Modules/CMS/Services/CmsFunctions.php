@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 3) . '/Core/paths.php';
@@ -200,7 +201,7 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
 
     // Auto-generate canonical if not provided
     if (!$cannonicalUrl) {
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $cannonicalUrl = $siteUrl . '/' . trim($slug, '/');
     }
 
@@ -1360,7 +1361,7 @@ function cms_invalidateAllPageHtmlCache(): void
 function cms_pingIndexNow(string $slug): void
 {
     try {
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $host    = parse_url($siteUrl, PHP_URL_HOST) ?? 'mowology.ca';
         $pageUrl = rtrim($siteUrl, '/') . '/' . ltrim($slug, '/');
 

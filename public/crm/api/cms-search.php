@@ -8,6 +8,7 @@
 declare(strict_types=1);
 
 require_once dirname(dirname(__DIR__)) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(__DIR__) . '/includes/cms-functions.php';
 
@@ -80,7 +81,7 @@ try {
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     // Add edit/view URLs + excerpt
-    $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $results = array_map(function(array $row) use ($siteUrl, $q): array {
         $desc = $row['meta_description'] ?? '';
         if ($desc && mb_strlen($desc) > 140) {

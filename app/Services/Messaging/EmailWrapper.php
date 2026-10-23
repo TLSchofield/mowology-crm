@@ -2,7 +2,7 @@
 /**
  * EmailWrapper — Branded HTML Email Shell
  *
- * Wraps any email body content in the Mowology branded email template.
+ * Wraps any email body content in the business's branded email template.
  * Uses table-based layout with inline CSS for maximum email client compatibility.
  *
  * Usage:
@@ -18,10 +18,12 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/IdentityMail.php';
+
 class EmailWrapper
 {
     /**
-     * Wrap email body content in the branded Mowology email shell.
+     * Wrap email body content in the branded email shell.
      *
      * @param string      $bodyHtml   HTML body content (use textToHtml() to convert plain text)
      * @param string|null $ctaLabel   CTA button label (null = no button)
@@ -45,12 +47,17 @@ class EmailWrapper
         $colTextLt   = '#7a9e8c';
 
         // Company info
-        $companyName    = htmlspecialchars($company['company_name']    ?? 'Mowology Landscaping');
-        $companyPhone   = htmlspecialchars($company['company_phone']   ?? '(778) 846-9273');
-        $companyEmail   = htmlspecialchars($company['company_email']   ?? 'office@mowology.ca');
-        $companyWebsite = $company['company_website'] ?? 'mowology.ca';
+        $idDefaults     = self::defaultCompanyInfo();
+        $companyName    = htmlspecialchars($company['company_name']    ?? $idDefaults['company_name']);
+        $companyPhone   = htmlspecialchars($company['company_phone']   ?? $idDefaults['company_phone']);
+        $companyEmail   = htmlspecialchars($company['company_email']   ?? $idDefaults['company_email']);
+        $companyWebsite = $company['company_website'] ?? $idDefaults['company_website'];
+        $brandName      = htmlspecialchars(_idFromName());
+        $brandTrade     = htmlspecialchars(ucfirst(BusinessIdentity::get()['trade']));
         $websiteDisplay = preg_replace('#^https?://#', '', $companyWebsite);
         $websiteUrl     = (strpos($companyWebsite, 'http') === 0) ? $companyWebsite : 'https://' . $companyWebsite;
+
+        $brandTradeSpan = $brandTrade === '' ? '' : '<span style="font-family:\'Helvetica Neue\',Helvetica,Arial,sans-serif;font-size:12px;font-weight:400;color:rgba(255,255,255,0.6);margin-left:10px;letter-spacing:0.8px;text-transform:uppercase;">' . $brandTrade . '</span>';
 
         $year = date('Y');
 
@@ -87,7 +94,7 @@ HTML;
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>Mowology</title>
+<title>{$brandName}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f2f4f3;-webkit-font-smoothing:antialiased;">
 
@@ -111,8 +118,8 @@ HTML;
                 <!-- Header -->
                 <tr>
                     <td style="background-color:{$colDark};padding:22px 40px;">
-                        <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">Mowology</span>
-                        <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:400;color:rgba(255,255,255,0.6);margin-left:10px;letter-spacing:0.8px;text-transform:uppercase;">Landscaping</span>
+                        <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">{$brandName}</span>
+                        {$brandTradeSpan}
                     </td>
                 </tr>
 
@@ -223,12 +230,7 @@ HTML;
      */
     private static function defaultCompanyInfo(): array
     {
-        return [
-            'company_name'    => 'Mowology Landscaping',
-            'company_phone'   => '(778) 846-9273',
-            'company_email'   => 'office@mowology.ca',
-            'company_website' => 'mowology.ca',
-        ];
+        return _idCompanyInfo();
     }
 
     /**

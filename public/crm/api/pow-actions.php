@@ -38,6 +38,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     // PowPdfGenerator is loaded inside the generate_pdf action only — not here
@@ -935,7 +936,7 @@ try {
             $gen = new PowPdfGenerator(
                 $db,
                 PUBLIC_ROOT,
-                defined('SITE_URL') ? SITE_URL : 'https://mowology.ca'
+                defined('SITE_URL') ? SITE_URL : _idSiteUrl()
             );
             $result = $gen->generate($visitId, $forceRegen);
             if ($result['success']) {

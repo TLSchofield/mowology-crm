@@ -3,8 +3,22 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 1) . '/Support/TestIdentity.php';
+
 final class BeforeAfterServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     public function testStrataCommercialAndManagedPropertiesNeedConsentResidentialDoesNot(): void
     {
         $this->assertFalse(BeforeAfterService::consentNeeded(['property_type' => 'single_family']));

@@ -3,12 +3,26 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /**
  * Sam's follow-ups: drafts in Tim's voice, texts the carriers will deliver, and learning
  * from Tim's edits.
  */
 class SamFollowupServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private function card(array $extra = []): array
     {
         return $extra + [

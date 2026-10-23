@@ -19,6 +19,7 @@
  *           visit_audit_log (SALT_REPORT_GENERATED action)
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -553,7 +554,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
 
     <div class="cover-footer">
         <div class="cover-footer-left">Generated: <?= htmlspecialchars($generatedAt) ?></div>
-        <div class="cover-footer-right">Mowology Landscaping &bull; (778) 846-9273</div>
+        <div class="cover-footer-right"><?= htmlspecialchars(_idCompanyInfo()['company_name']) ?><?= _idPhone() !== '' ? ' &bull; ' . htmlspecialchars(_idPhone()) : '' ?></div>
     </div>
 </div>
 
@@ -600,7 +601,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
 
     <div class="weather-integrity">
         <strong>Data Integrity Notice:</strong> This forecast data was captured automatically at
-        the time of the service decision and is stored immutably in the Mowology service record system.
+        the time of the service decision and is stored immutably in the <?= htmlspecialchars(_idFromName()) ?> service record system.
         The raw Environment Canada API response is retained on file for legal verification purposes.
         This record cannot be retroactively altered.
     </div>
@@ -857,7 +858,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
     <?php if ($totalShown === 0): ?>
     <div class="no-photos">
         No photos were recorded for this visit. If photos were taken with a device not linked to
-        the Mowology app, they should be attached manually to this service record.
+        the <?= htmlspecialchars(_idFromName()) ?> app, they should be attached manually to this service record.
     </div>
     <?php endif; ?>
 </div>
@@ -902,15 +903,15 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
     <div class="integrity-box">
         <strong>Document Integrity Statement</strong><br><br>
         This document (Report No. <strong><?= htmlspecialchars($reportNumber) ?></strong>) was generated
-        automatically by the Mowology field service management system from cryptographically linked
+        automatically by the <?= htmlspecialchars(_idFromName()) ?> field service management system from cryptographically linked
         GPS location data, photographic evidence, and official meteorological records.<br><br>
         Document generated: <?= htmlspecialchars($generatedAt) ?><br>
         Property: <?= htmlspecialchars($propertyAddress) ?><br>
         Service date: <?= htmlspecialchars($v['scheduled_date'] ?? 'N/A') ?><br><br>
         Any dispute regarding service delivery at this property should reference the above report
-        number and the associated records in the Mowology service management system.
-        Contact (778) 846-9273 or info@mowology.ca to request additional documentation.<br><br>
-        <strong>Mowology Landscaping &bull; Vancouver, BC &bull; mowology.ca</strong>
+        number and the associated records in the <?= htmlspecialchars(_idFromName()) ?> service management system.
+        Contact <?= htmlspecialchars(implode(' or ', array_filter([_idPhone(), _idCompanyInfo()['company_email']]))) ?> to request additional documentation.<br><br>
+        <strong><?= htmlspecialchars(implode(' &bull; ', array_filter([_idCompanyInfo()['company_name'], preg_replace('#^https?://#', '', _idSiteUrl())]))) ?></strong>
     </div>
 </div>
 

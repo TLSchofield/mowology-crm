@@ -161,7 +161,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                         </div>
                         <div class="col-md-6">
                             <label for="company_website" class="form-label">Website</label>
-                            <input type="text" class="form-control" id="company_website" maxlength="255" placeholder="https://mowology.ca">
+                            <input type="text" class="form-control" id="company_website" maxlength="255" placeholder="https://www.example.com">
                         </div>
                     </div>
                     <div class="mb-3">
@@ -415,7 +415,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
             <p class="text-muted mb-3">
                 Edit the subject line and message body for each outbound email. Use
                 <code>{{placeholder}}</code> chips to insert dynamic values.
-                All emails are wrapped in the Mowology branded shell automatically.
+                All emails are wrapped in your branded shell automatically.
             </p>
 
             <!-- Preview Modal -->
@@ -600,7 +600,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                         </div>
                         <div class="col-md-6">
                             <label for="receipt_from_name" class="form-label">From Name</label>
-                            <input type="text" class="form-control" id="receipt_from_name" maxlength="255" placeholder="Mowology Receipts">
+                            <input type="text" class="form-control" id="receipt_from_name" maxlength="255" placeholder="Your Business Receipts">
                             <small class="form-text text-muted">Sender name on forwarded receipt emails.</small>
                         </div>
                     </div>
@@ -953,7 +953,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                 <div class="card-header"><h5 class="card-title mb-0">Google Reviews Automation</h5></div>
                 <div class="card-body">
                     <p class="text-muted mb-3">
-                        After each job visit is completed, Mowology automatically sends a review request to the
+                        After each job visit is completed, the CRM automatically sends a review request to the
                         customer via email (and SMS if they have consent). The email includes a direct link to your
                         Google Business Profile review page.
                     </p>
@@ -1285,7 +1285,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                                 <div class="card-body text-center py-4">
                                     <i data-feather="smartphone" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
                                     <h6 class="mb-1">Mobile Preview</h6>
-                                    <p class="text-muted small mb-3">Preview the Mowology app in a mobile frame.</p>
+                                    <p class="text-muted small mb-3">Preview the app in a mobile frame.</p>
                                     <a href="/crm/mobile-preview_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
                                 </div>
                             </div>

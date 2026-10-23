@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * QuoteViewNotifier — "Sam: Linda Nimmerrichter just opened QUO-2026-0073 ($1,758.75)".
  *
@@ -208,7 +210,7 @@ class QuoteViewNotifier
             return $out;
         }
         if (!$tokens) {
-            $out['message'] = 'No active iPhone registered for you. Open the Mowology app on your phone, allow notifications, then try again.';
+            $out['message'] = 'No active iPhone registered for you. Open the ' . _idFromName() . ' app on your phone, allow notifications, then try again.';
             return $out;
         }
         $out['results'] = $this->sendTo($tokens, self::TITLE, 'Test push — this is how I tell you a customer opened their quote.',

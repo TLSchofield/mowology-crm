@@ -13,6 +13,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 $__dir = __DIR__;
@@ -241,7 +242,7 @@ try {
             $mergeData = buildMergeData($contact, $property, $product, $unsubUrl);
 
             // Add CTA with campaign tracking
-            $mergeData['cta_url'] = 'https://mowology.ca/quote?src=campaign-' . $campaign['id'];
+            $mergeData['cta_url'] = _idSiteUrl() . '/quote?src=campaign-' . $campaign['id'];
 
             // Render
             $renderedSubject = renderTemplate($subject, $mergeData);

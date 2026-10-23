@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 /**
  * app/Modules/Team/Api/tracking-token.php   →  POST /api/team/tracking-token
@@ -79,7 +80,7 @@ try {
         // No tracking token for someone who is not tracked — the GPS engine has nothing to do for them.
         echo json_encode(['success' => true, 'tracking_enabled' => false, 'token' => null,
                           'app_token' => $appToken, 'expires_at' => time() + $ttl, 'user_id' => (int)$row['id'],
-                          'api_base' => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca') . '/api']);
+                          'api_base' => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : _idSiteUrl()) . '/api']);
         exit;
     }
 
@@ -90,7 +91,7 @@ try {
         'app_token'        => $appToken,
         'expires_at'       => time() + $ttl,
         // From config, never the Host header. The native side pins its own host anyway.
-        'api_base'         => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca') . '/api',
+        'api_base'         => (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : _idSiteUrl()) . '/api',
         'user_id'          => (int)$row['id'],
     ]);
 

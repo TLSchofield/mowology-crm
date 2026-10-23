@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // Switched off 2026-10-11 (owner: "work through all of them" — data-centralisation review).
 // Nothing calls this endpoint (iOS invoices through /api/schedule/invoice → InvoiceFromVisitService),
@@ -328,7 +329,7 @@ try {
     // ── Send email + SMS ──────────────────────────────────────────────────────
     $sentTo  = [];
     $smsSent = false;
-    $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
+    $portalUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($accessToken);
 
     // Generate the invoice PDF so the mobile send carries the same attachment as
     // the other four send paths (see Known-Failure-Patterns → invoice-send paths).

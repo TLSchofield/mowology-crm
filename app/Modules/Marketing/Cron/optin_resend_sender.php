@@ -25,6 +25,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 $__dir = __DIR__;
@@ -157,7 +158,7 @@ try {
     }
 
     $result = $svc->processBatch($campaignId, $BATCH_SIZE, static function (string $to, string $subject, string $html, array $extraHeaders = []): array {
-        return sendEmail($to, $subject, $html, null, 'Mowology', $extraHeaders);
+        return sendEmail($to, $subject, $html, null, '', $extraHeaders);
     });
 
     $emit([

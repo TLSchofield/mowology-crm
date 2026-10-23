@@ -23,6 +23,7 @@
  *  loadEmailTemplate(), sendCrmEmail(), sendInvoiceNotificationSms()
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 require_once __DIR__ . '/InvoicePdfGate.php';
 require_once __DIR__ . '/UnbilledWorkFinder.php';
@@ -109,7 +110,7 @@ class InvoiceFromVisitService
                 return null;
             }
             require_once APP_ROOT . '/Services/Salt/SaltReportPdfGenerator.php';
-            $gen = new SaltReportPdfGenerator($this->db, PUBLIC_ROOT, 'https://mowology.ca', $userId);
+            $gen = new SaltReportPdfGenerator($this->db, PUBLIC_ROOT, _idSiteUrl(), $userId);
             $res = $gen->generate($visitId);
             if (empty($res['success']) || empty($res['path'])) {
                 error_log("snowRunProof: no Winter Service Record for visit {$visitId}: " . ($res['error'] ?? 'unknown'));
@@ -715,7 +716,7 @@ class InvoiceFromVisitService
                ->execute([$accessToken, $invoiceId]);
         }
 
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
+        $invoiceViewUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($accessToken);
         $companyInfo    = EmailWrapper::getCompanyInfo();
         $sentTo         = [];
 
@@ -779,7 +780,7 @@ class InvoiceFromVisitService
             if ($this->mailer) {
                 $emailOk = (bool)($this->mailer)($recipient['email_address'], $tpl['subject'], $body, $attachPath);
             } elseif ($proofPath) {
-                $emailOk = !empty(sendEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath, 'Mowology', [$proofPath])['success']);
+                $emailOk = !empty(sendEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath, '', [$proofPath])['success']);
             } else {
                 $emailOk = sendCrmEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath);
             }
@@ -806,7 +807,7 @@ class InvoiceFromVisitService
             }
 
             if (!empty($recipient['sms_phone']) && !empty($recipient['receive_sms'])) {
-                $smsText = 'Mowology: Invoice #' . $invoice['invoice_number'] . ' for $' . number_format(floatval($invoice['balance_due']), 2) . ' is ready. Check your email for the payment link. Questions? (778) 846-9273.';
+                $smsText = _idFromName() . ': Invoice #' . $invoice['invoice_number'] . ' for $' . number_format(floatval($invoice['balance_due']), 2) . ' is ready. Check your email for the payment link.' . (_idPhone() !== '' ? ' Questions? ' . _idPhone() . '.' : '');
                 if (strlen($smsText) <= 160) {
                     sendInvoiceNotificationSms($recipient['sms_phone'], (string)$invoice['invoice_number'], (float)$invoice['balance_due']);
                 }

@@ -24,6 +24,7 @@ for ($__i = 0; $__i < 7; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
@@ -106,7 +107,7 @@ try {
 
         // Build the signing URL for the email
         $scheme  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host    = $_SERVER['HTTP_HOST'] ?? 'mowology.ca';
+        $host    = $_SERVER['HTTP_HOST'] ?? (parse_url(_idSiteUrl(), PHP_URL_HOST) ?: '');
         $signUrl = "{$scheme}://{$host}/customer/contract-sign.php?token={$signToken}";
 
         // Send email via CRM messaging system
@@ -114,7 +115,7 @@ try {
             $contract = getContractById($contractId);
             require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
             $companyInfo = EmailWrapper::getCompanyInfo();
-            $subject  = "Your Mowology contract is ready to sign";
+            $subject  = "Your " . _idFromName() . " contract is ready to sign";
             $text     = "Hi {$signerName},\n\n"
                 . "Your service contract is ready. Read it through, and if it matches what we agreed, sign it from the button below. The link works for 14 days.\n\n"
                 . "Contract: " . ($contract['contract_number'] ?? '')

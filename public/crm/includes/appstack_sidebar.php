@@ -88,7 +88,7 @@ if (!empty($itShell)):
 <nav id="sidebar" class="sidebar">
     <div class="sidebar-content js-simplebar">
         <a class="sidebar-brand" href="/crm/dashboard_appstack.php">
-            <span class="align-middle" style="font-size:1.25rem; letter-spacing:-0.5px;">Mowology</span>
+            <span class="align-middle" style="font-size:1.25rem; letter-spacing:-0.5px;"><?php echo htmlspecialchars(function_exists('_idFromName') ? _idFromName() : ''); ?></span>
         </a>
 
         <ul class="sidebar-nav">

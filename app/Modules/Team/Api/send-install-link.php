@@ -14,6 +14,7 @@
  *   csrf_token     string    required
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -71,7 +72,7 @@ try {
     // Build message body
     $customMessage = trim($input['custom_message'] ?? '');
     if (!$customMessage) {
-        $customMessage = "Hi {$firstName}, please install the Mowology field app using the link below. Contact us if you need help.";
+        $customMessage = "Hi {$firstName}, please install the " . _idFromName() . " field app using the link below. Contact us if you need help.";
     }
 
     $results  = [];
@@ -86,7 +87,7 @@ try {
             $htmlBody = '
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
                 <div style="background:#1A5F4A;padding:20px 24px;border-radius:8px 8px 0 0;">
-                    <h2 style="color:#fff;margin:0;font-size:20px;">Mowology Field App</h2>
+                    <h2 style="color:#fff;margin:0;font-size:20px;">' . htmlspecialchars(_idFromName()) . ' Field App</h2>
                 </div>
                 <div style="padding:24px;background:#fff;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 8px 8px;">
                     <p style="color:#333;">' . nl2br(htmlspecialchars($customMessage)) . '</p>
@@ -94,20 +95,20 @@ try {
                         <a href="' . htmlspecialchars($installUrl) . '"
                            style="display:inline-block;padding:14px 28px;background:#2D8659;color:#fff;
                                   text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;">
-                            Install Mowology App
+                            Install ' . htmlspecialchars(_idFromName()) . ' App
                         </a>
                     </p>
                     <p style="color:#888;font-size:13px;">Or copy this link: ' . htmlspecialchars($installUrl) . '</p>
                     <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
                     <p style="color:#aaa;font-size:12px;margin:0;">
-                        Sent by ' . htmlspecialchars($user['full_name'] ?? 'Admin') . ' via Mowology CRM
+                        Sent by ' . htmlspecialchars($user['full_name'] ?? 'Admin') . ' via ' . htmlspecialchars(_idFromName()) . ' CRM
                     </p>
                 </div>
             </div>';
 
             $emailResult = sendEmail(
                 $emp['email'],
-                'Install the Mowology Field App',
+                'Install the ' . _idFromName() . ' Field App',
                 $htmlBody
             );
 
@@ -128,7 +129,7 @@ try {
             $anyError = true;
         } else {
             // Plain text, no URL, under 160 characters, office phone as the fallback (SMS rules).
-            $smsBody = 'Mowology: your field app install link is in your email. Questions? Call (778) 846-9273';
+            $smsBody = _idFromName() . ': your field app install link is in your email.' . _idSmsTail('Questions? Call');
 
             $smsResult = sendSms($emp['phone'], $smsBody);
             $results['sms'] = $smsResult;

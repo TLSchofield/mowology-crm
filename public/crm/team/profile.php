@@ -1077,7 +1077,7 @@ if ($apiKey) {
                     <h6 class="mb-0">Send App Install Link</h6>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted">Send <?php echo h($empDisplayName ?: 'this employee'); ?> a link to install the Mowology field app on their device.</p>
+                    <p class="text-muted">Send <?php echo h($empDisplayName ?: 'this employee'); ?> a link to install the <?php echo h(function_exists('_idFromName') ? _idFromName() : ''); ?> field app on their device.</p>
 
                     <?php if (!empty($emp['install_link_sent_at'])): ?>
                     <div class="alert alert-info py-2">
@@ -1123,14 +1123,14 @@ if ($apiKey) {
                         <div class="form-group">
                             <label>Install URL <span class="text-danger">*</span></label>
                             <input type="url" class="form-control" name="install_url" id="installUrl"
-                                   placeholder="https://app.mowology.ca/install" required>
+                                   placeholder="https://your-site.example/install" required>
                             <small class="form-text text-muted">The URL the employee will open to install the app.</small>
                         </div>
 
                         <div class="form-group">
                             <label>Custom Message <span class="text-muted">(optional)</span></label>
                             <textarea class="form-control" name="custom_message" rows="3"
-                                      placeholder="Hi [name], please install the Mowology app at the link below..."><?php echo 'Hi ' . h($empFirstName ?: 'there') . ', please install the Mowology field app using the link below. Contact us if you need help.'; ?></textarea>
+                                      placeholder="Hi [name], please install the app at the link below..."><?php echo 'Hi ' . h($empFirstName ?: 'there') . ', please install the ' . h(function_exists('_idFromName') ? _idFromName() : '') . ' field app using the link below. Contact us if you need help.'; ?></textarea>
                         </div>
 
                         <div id="install-result" class="d-none"></div>

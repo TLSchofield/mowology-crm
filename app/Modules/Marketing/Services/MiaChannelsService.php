@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * MiaChannelsService — Mia's channels: Google Business Profile, social, the website and listings.
  *
@@ -433,7 +435,7 @@ class MiaChannelsService
             $w = trim((string)$this->db->query("SELECT company_website FROM business_settings WHERE id = 1")->fetchColumn());
             if ($w !== '') return preg_match('#^https?://#', $w) ? $w : 'https://' . $w;
         } catch (Throwable $e) {}
-        return defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        return defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     }
 
     private function reviewRow(int $id): ?array

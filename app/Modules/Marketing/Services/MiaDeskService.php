@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * MiaDeskService — Mia's desk on the dashboard: what she suggests, what Tim does with it,
  * and what came of it.
@@ -188,7 +190,7 @@ class MiaDeskService
             $p = $m->invoke(null, $contactId, $this->db);
             if (!empty($p['name'])) $reward = "we'll book you in for a free " . strtolower((string)$p['name']) . ', on us.';
         } catch (Throwable $e) {}
-        return ['https://mowology.ca/quote?referral_code=' . $link['referral_code'], $reward];
+        return [_idSiteUrl() . '/quote?referral_code=' . $link['referral_code'], $reward];
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -332,8 +334,8 @@ class MiaDeskService
             $sentBody = str_replace(MiaWording::CONFIRM_MARK, $optin->confirmUrl($optin->issueFreshToken((int)$contact['id'], (string)$contact['email'])), $body);
         }
         $html = MiaWording::compose($sentBody, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
-        if ($html === null) return ['ok' => false, 'error' => 'Not sent: the email must name Mowology and carry an unsubscribe link, and one was missing.'];
-        $r = sendEmail((string)$contact['email'], $subject, $html, null, 'Tim at Mowology');
+        if ($html === null) return ['ok' => false, 'error' => 'Not sent: the email must name the business and carry an unsubscribe link, and one was missing.'];
+        $r = sendEmail((string)$contact['email'], $subject, $html, null, MiaWording::ownerName() . ' at ' . MiaWording::businessName());
         if (empty($r['success'])) return ['ok' => false, 'error' => 'The email did not go: ' . ($r['error'] ?? 'unknown error')];
         $channels = 'email';
         $smsNote = null;

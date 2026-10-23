@@ -16,6 +16,7 @@
  * Global-namespace service: require_once the file. Pure rules are static + tested.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class SnowWeeklyStatementService
 {
@@ -145,7 +146,7 @@ class SnowWeeklyStatementService
         $rows = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $r['service'] = $r['choice'] ? SnowContractService::choiceLabel((string)$r['choice']) : 'Salt & snow';
-            $r['link']    = $r['access_token'] ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode((string)$r['access_token']) : null;
+            $r['link']    = $r['access_token'] ? _idSiteUrl() . '/customer/invoice.php?token=' . urlencode((string)$r['access_token']) : null;
             $rows[] = $r;
         }
         return $rows;

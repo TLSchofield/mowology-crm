@@ -17,6 +17,7 @@
  * Global-namespace class; `require_once` it and `new ArticleService($db)`.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class ArticleService
 {
@@ -305,8 +306,8 @@ class ArticleService
         if ($metaDesc === '') {
             $metaDesc = self::excerpt($body, 155);
         }
-        $siteName  = defined('SITE_NAME') ? SITE_NAME : 'Mowology';
-        $siteUrl   = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteName  = defined('SITE_NAME') ? SITE_NAME : _idFromName();
+        $siteUrl   = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $metaTitle = mb_strlen($title . ' | ' . $siteName) <= 60 ? $title . ' | ' . $siteName : $title;
         $now       = date('Y-m-d H:i:s');
 
