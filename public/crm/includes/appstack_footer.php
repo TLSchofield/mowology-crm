@@ -38,7 +38,12 @@
 
   <script src="/crm/js/feather.min.js"></script>
   <script src="/crm/js/feather-helper.js"></script>
+  <?php if (!empty($crewSlim)): ?>
+  <!-- Crew app, crew page: 3 KB shim (modal / tab / dismiss) instead of the 3.5 MB AppStack bundle -->
+  <script src="<?= _av('/crm/js/mw-ui-shim.js') ?>"></script>
+  <?php else: ?>
   <script src="/crm/js/app.js"></script>
+  <?php endif; ?>
 
   <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)
        Use these for .mw-modal-overlay dialogs. All new modals should use
@@ -113,7 +118,7 @@
     };
   })();
   </script>
-  <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
+  <?php if (empty($crewLite)): ?><script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script><?php endif; ?>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
   <!-- Searchable-select enhancement: any <select class="mw-searchable"> becomes
        a filterable combobox with a "no value" clear row. Styles in mowology-brand.css. -->
@@ -149,6 +154,7 @@
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
   <script>
   (function(){
+    if (!window.jQuery) return;
     // Remove Bootstrap's broken dropdown click handlers from jQuery
     $(document).off('click.bs.dropdown');
     $(document).off('click.bs.dropdown.data-api');

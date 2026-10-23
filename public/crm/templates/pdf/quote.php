@@ -377,7 +377,7 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         <?php foreach ($lineItems as $item): ?>
         <tr>
             <td class="service-name"><?php echo $esc($item['service_type']); ?></td>
-            <td class="description"><?php echo $esc($item['description'] ?: '-'); ?></td>
+            <td class="description"><?php echo nl2br($esc($item['description'] ?: '-')); ?></td>
             <td class="right"><?php echo rtrim(rtrim(number_format(floatval($item['quantity']), 2), '0'), '.'); ?></td>
             <td class="right"><?php echo $fmt($item['unit_price']); ?></td>
             <td class="right"><?php echo $fmt($item['line_total']); ?></td>
