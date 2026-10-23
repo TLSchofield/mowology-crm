@@ -141,6 +141,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php';      // lot borders from ParcelMap BC (2026-10-18)
+require_once __DIR__ . '/../app/Modules/Operations/Services/HttpFetch.php';          // curl-first web reads (allow_url_fopen=0 on cron, 2026-10-22)
 require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.php';     // a city's own lot map, by address (2026-10-19)
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';  // Otto's own pins + lot borders
 require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building

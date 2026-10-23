@@ -22,6 +22,8 @@
 require_once __DIR__ . '/PropertyBorderRules.php';
 require_once __DIR__ . '/ParcelLotService.php';
 
+require_once __DIR__ . '/HttpFetch.php';
+
 class CityParcelService
 {
     public const SOURCES = [
@@ -50,10 +52,7 @@ class CityParcelService
     public function __construct(?callable $fetch = null)
     {
         $this->fetch = $fetch ?? static function (string $url): ?string {
-            $ctx = stream_context_create(['http' => ['timeout' => 12, 'ignore_errors' => true,
-                'header' => "User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)\r\n"]]);
-            $body = @file_get_contents($url, false, $ctx);
-            return $body === false ? null : $body;
+            return HttpFetch::get($url, 12, ['User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)']);
         };
     }
 

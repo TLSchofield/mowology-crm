@@ -18,6 +18,8 @@
  */
 require_once __DIR__ . '/PropertyBorderRules.php';
 
+require_once __DIR__ . '/HttpFetch.php';
+
 class ParcelLotService
 {
     public const ATTRIBUTION = 'Contains information licensed under the Open Government Licence – British Columbia (ParcelMap BC).';
@@ -50,10 +52,7 @@ class ParcelLotService
     {
         $this->pauseMs = $pauseMs ?? ($fetch === null ? 500 : 0);
         $this->fetch = $fetch ?? static function (string $url): ?string {
-            $ctx = stream_context_create(['http' => ['timeout' => 12, 'ignore_errors' => true,
-                'header' => "User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)\r\n"]]);
-            $body = @file_get_contents($url, false, $ctx);
-            return $body === false ? null : $body;
+            return HttpFetch::get($url, 12, ['User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)']);
         };
     }
 
