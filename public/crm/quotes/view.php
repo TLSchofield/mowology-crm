@@ -189,8 +189,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
             $body = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $body);
 
-            $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
-            $emailResult = sendEmail($customerEmail, $subject, $body, null, '', [], $ccPerson ? [$ccPerson['email']] : []);
+            $ccEmails    = $recipientSvc->ccEmailsForQuote($quote, $customer['contact_id'], $customerEmail);
+            $emailResult = sendEmail($customerEmail, $subject, $body, null, '', [], $ccEmails);
 
             if ($emailResult['success']) {
                 $svc->recordFollowUp($quoteId);
@@ -201,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     sendSms($customerPhone, $smsMsg);
                 }
 
-                logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}" . ($ccPerson ? " (cc: {$ccPerson['email']})" : ''), null, null, $quoteId);
+                logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}" . ($ccEmails ? ' (cc: ' . implode(', ', $ccEmails) . ')' : ''), null, null, $quoteId);
 
                 $message     = 'Follow-up sent successfully to ' . $customerEmail . '.';
                 $messageType = 'success';
@@ -256,6 +256,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'set_cc') {
         $recipientSvc->setCcEnabled($quoteId, !empty($_POST['cc_property_manager']), (int)$user['id']);
+        header("Location: view.php?id={$quoteId}&recipient=1");
+        exit;
+    }
+
+    if ($action === 'set_cc_contact') {
+        // Which property manager to copy on this quote ('' = automatic).
+        $recipientSvc->setCcContact($quoteId, (int)($_POST['cc_contact_id'] ?? 0) ?: null, (int)$user['id']);
+        header("Location: view.php?id={$quoteId}&recipient=1");
+        exit;
+    }
+
+    if ($action === 'cc_add') {
+        // Typed CC addresses: kept on this quote and remembered for the building.
+        $res = $recipientSvc->addCcEmails($quoteId, (string)($_POST['cc_emails'] ?? ''), (int)$user['id']);
+        if ($res['ok'] && !$res['invalid']) {
+            header("Location: view.php?id={$quoteId}&recipient=1");
+            exit;
+        }
+        $message     = $res['message'] . ($res['ok'] && $res['invalid'] ? ' Not added (not an email): ' . implode(', ', $res['invalid']) : '');
+        $messageType = 'error';
+    }
+
+    if ($action === 'cc_remove') {
+        // Off this quote only; the building's remembered list is untouched.
+        $recipientSvc->removeCcEmail($quoteId, (string)($_POST['cc_email'] ?? ''), (int)$user['id']);
         header("Location: view.php?id={$quoteId}&recipient=1");
         exit;
     }
@@ -382,8 +407,9 @@ if (isset($_GET['recipient'])) {
 $recipientOptions   = $recipientSvc->pickerOptions($quote);
 $recipientResolved  = $svc->resolveContact($quote);
 $recipientCurrentId = (int)($recipientResolved['contact_id'] ?? 0);
+// Shown even when the box is unticked, so it can be ticked again (a chosen manager wins over the guess).
 $recipientCc        = !empty($quote['property_id'])
-    ? $recipientSvc->ccForProperty((int)$quote['property_id'], $recipientCurrentId ?: null, $recipientResolved['email'])
+    ? $recipientSvc->ccForQuote(array_merge($quote, ['cc_property_manager' => 1]), $recipientCurrentId ?: null, $recipientResolved['email'])
     : null;
 // Yui: the building's manager on file, or her guess to confirm (BuildingManagerService). Never breaks the page.
 $bmOnFile = null;
@@ -399,6 +425,10 @@ if (!empty($quote['property_id']) && !$recipientCc) {
         error_log('Building manager (Yui): ' . get_class($e));
     }
 }
+$ccChosenId         = (int)($quote['cc_contact_id'] ?? 0);
+$ccPickerAvailable  = array_key_exists('cc_contact_id', $quote);
+$ccExtraEmails      = $recipientSvc->ccEmailsAvailable() ? $recipientSvc->extraEmailsForQuote($quote) : [];
+$ccTypedAvailable   = $recipientSvc->ccEmailsAvailable();
 $recipientCcOn      = !array_key_exists('cc_property_manager', $quote) || (int)$quote['cc_property_manager'] === 1;
 $recipientCanToggle = array_key_exists('cc_property_manager', $quote);
 
@@ -636,6 +666,9 @@ $activePage = 'quotes';
                   </form>
 
                   <a href="create.php?id=<?php echo $quoteId; ?>" class="btn btn-secondary">Edit</a>
+                  <button type="button" class="btn btn-outline-secondary" onclick="openPreviewDrawer()" title="See the quote the way the client sees it">
+                      <i data-feather="eye" class="mr-1"></i> Preview as Client
+                  </button>
 
                   <?php if ($quote['status'] === 'draft'): ?>
                       <form method="POST" class="d-inline">
@@ -853,6 +886,45 @@ $activePage = 'quotes';
                                       </form>
                                   <?php else: ?>
                                       <span class="text-muted">No property manager on file for this building.</span>
+                                  <?php endif; ?>
+
+                                  <?php if ($ccPickerAvailable): ?>
+                                  <form method="POST" class="mw-quote-recipient-row mw-cc-row">
+                                      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                      <input type="hidden" name="action" value="set_cc_contact">
+                                      <label class="mw-detail-label" for="ccContactPicker">Property manager</label>
+                                      <select name="cc_contact_id" id="ccContactPicker" class="form-control form-control-sm mw-quote-recipient-select">
+                                          <option value="">Automatic</option>
+                                          <?php foreach ($recipientOptions as $opt): if ($opt['email'] === '') continue; ?>
+                                          <option value="<?php echo (int)$opt['id']; ?>"<?php echo (int)$opt['id'] === $ccChosenId ? ' selected' : ''; ?>>
+                                              <?php echo htmlspecialchars($opt['name'] . ' · ' . $opt['email']); ?>
+                                          </option>
+                                          <?php endforeach; ?>
+                                      </select>
+                                      <button type="submit" class="btn btn-sm btn-primary">Use</button>
+                                  </form>
+                                  <?php endif; ?>
+
+                                  <?php if ($ccTypedAvailable): ?>
+                                  <div class="mw-cc-extra">
+                                      <?php foreach ($ccExtraEmails as $ccE): ?>
+                                      <form method="POST" class="mw-cc-chip">
+                                          <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                          <input type="hidden" name="action" value="cc_remove">
+                                          <input type="hidden" name="cc_email" value="<?php echo htmlspecialchars($ccE); ?>">
+                                          <span><?php echo htmlspecialchars($ccE); ?></span>
+                                          <button type="submit" class="mw-cc-chip-x" title="Remove from this quote" aria-label="Remove <?php echo htmlspecialchars($ccE); ?> from this quote">&times;</button>
+                                      </form>
+                                      <?php endforeach; ?>
+                                  </div>
+                                  <form method="POST" class="mw-quote-recipient-row mw-cc-row">
+                                      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                      <input type="hidden" name="action" value="cc_add">
+                                      <label class="mw-detail-label" for="ccAddInput">Also copy</label>
+                                      <input type="text" name="cc_emails" id="ccAddInput" class="form-control form-control-sm mw-quote-recipient-select" placeholder="name@example.com, another@example.com" autocomplete="off">
+                                      <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                                  </form>
+                                  <small class="text-muted d-block">Added addresses are remembered for this building. &times; removes one from this quote only.</small>
                                   <?php endif; ?>
                               </div>
                           </div>
@@ -1717,5 +1789,67 @@ $activePage = 'quotes';
               }
             })();
           </script>
+
+<!-- ── Client Preview Drawer ──────────────────────────────────────────── -->
+<div id="previewDrawerBackdrop" class="mw-preview-backdrop" onclick="closePreviewDrawer()"></div>
+<div id="previewDrawer" class="mw-preview-drawer">
+    <div class="mw-preview-drawer-header">
+        <div class="mw-preview-drawer-title">
+            <i data-feather="eye" style="width:16px;height:16px;"></i>
+            Client Preview
+            <span class="mw-preview-badge">How your client sees this</span>
+        </div>
+        <div class="mw-preview-drawer-actions">
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="refreshPreview()" title="Reload preview (after saving changes)">
+                <i data-feather="refresh-cw" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>Refresh
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="closePreviewDrawer()" title="Close preview">
+                <i data-feather="x" style="width:15px;height:15px;"></i>
+            </button>
+        </div>
+    </div>
+    <div class="mw-preview-drawer-body">
+        <iframe id="previewIframe" class="mw-preview-iframe" src="" title="Client quote preview"></iframe>
+    </div>
+</div>
+
+<script>
+function openPreviewDrawer() {
+    const drawer = document.getElementById('previewDrawer');
+    const backdrop = document.getElementById('previewDrawerBackdrop');
+    const iframe = document.getElementById('previewIframe');
+    const previewUrl = '/customer/quote.php?_preview=<?php echo (int)$quoteId; ?>';
+    if (!iframe.src || iframe.src === window.location.href || iframe.getAttribute('data-loaded') !== '1') {
+        iframe.src = previewUrl;
+        iframe.setAttribute('data-loaded', '1');
+    }
+    drawer.classList.add('open');
+    backdrop.classList.add('open');
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function closePreviewDrawer() {
+    document.getElementById('previewDrawer').classList.remove('open');
+    document.getElementById('previewDrawerBackdrop').classList.remove('open');
+}
+
+function refreshPreview() {
+    const iframe = document.getElementById('previewIframe');
+    iframe.src = '/customer/quote.php?_preview=<?php echo (int)$quoteId; ?>&_t=' + Date.now();
+    const btn = document.querySelector('#previewDrawer .btn-outline-light');
+    if (btn) {
+        btn.textContent = 'Refreshing…';
+        iframe.onload = () => {
+            btn.innerHTML = '<i data-feather="refresh-cw" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>Refresh';
+            if (typeof feather !== 'undefined') feather.replace();
+        };
+    }
+}
+
+// Keyboard shortcut: Escape closes drawer
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePreviewDrawer();
+});
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
