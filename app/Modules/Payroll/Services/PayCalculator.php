@@ -88,6 +88,7 @@ class PayCalculator
         $history = (array)($in['history'] ?? []);
         $lines = []; $cum = []; $minutes = ['REG' => 0, 'OT15' => 0, 'OT20' => 0, 'STATW15' => 0, 'STATW20' => 0];
         $nonOtByDay = [];   // in-period wages without overtime, for later holidays' look-back
+        $earnedByDay = [];  // in-period days with any wages (a day all past the weekly 40 still counts — Codex 2026-10-23)
         foreach ($all as $d => $day) {
             $m = $day['m'];
             $wk = self::weekStart($d);
@@ -95,10 +96,17 @@ class PayCalculator
             $cum[$wk] = $before + min($m, $ot['daily_regular_minutes']);
             if (!$day['in']) continue;
 
+            // 1) never below the minimum wage in force that day: pay at least it, and say so (Codex 2026-10-23).
+            $min = $this->minimumWage($d);
+            $dayRate = $rate;
+            if ($min !== null && $rate < $min && $m > 0) {
+                $dayRate = $min;
+                $problems[] = self::nice($d) . ': $' . number_format($rate / 100, 2) . '/h is below the BC minimum wage — paid at $' . number_format($min / 100, 2) . '/h.';
+            }
             $isStat = isset($holidays[$d]);
             $avg = null;
             if ($isStat) {
-                $avg = $this->averageDay($d, $hire, $history, $nonOtByDay, $stat, $why);
+                $avg = $this->averageDay($d, $hire, $history, $nonOtByDay, $earnedByDay, $stat, $why);
                 if ($avg === null) {
                     $problems[] = self::nice($d) . ": not eligible for statutory holiday pay — {$why}.";
                     $isStat = false;
@@ -106,12 +114,13 @@ class PayCalculator
             }
             if ($isStat) {
                 $w15 = min($m, $ot['daily_time_and_half_minutes']); $w20 = max(0, $m - $ot['daily_time_and_half_minutes']);
-                if ($w15) $lines[] = $this->line('STATW15', $d, $w15, $rate, $stat['worked_rate'], self::nice($d) . ': worked a statutory holiday — ' . self::h($w15) . ' at 1.5×');
-                if ($w20) $lines[] = $this->line('STATW20', $d, $w20, $rate, $stat['worked_rate_over_12'], self::nice($d) . ': ' . self::h($w20) . ' over 12 h on a statutory holiday at 2×');
+                if ($w15) $lines[] = $this->line('STATW15', $d, $w15, $dayRate, $stat['worked_rate'], self::nice($d) . ': worked a statutory holiday — ' . self::h($w15) . ' at 1.5×');
+                if ($w20) $lines[] = $this->line('STATW20', $d, $w20, $dayRate, $stat['worked_rate_over_12'], self::nice($d) . ': ' . self::h($w20) . ' over 12 h on a statutory holiday at 2×');
                 $minutes['STATW15'] += $w15; $minutes['STATW20'] += $w20;
                 $lines[] = ['code' => 'STAT', 'date' => $d, 'minutes' => 0, 'rate_cents' => $rate, 'multiplier' => 0.0, 'amount_cents' => $avg['cents'],
                             'explain' => self::nice($d) . ": statutory holiday pay — an average day's pay: $" . number_format($avg['wages'] / 100, 2) . " earned in the 30 days before (overtime excluded) ÷ {$avg['days']} days = $" . number_format($avg['cents'] / 100, 2)];
                 $nonOtByDay[$d] = $avg['cents'];
+                $earnedByDay[$d] = true;
                 continue;
             }
             if ($m === 0) continue;
@@ -123,20 +132,17 @@ class PayCalculator
             $cap = $ot['weekly_regular_minutes'];
             $weekly = min($reg, max(0, $cum[$wk] - $cap) - max(0, $before - $cap));
             $reg -= $weekly;
-            $why = [];
-            if ($reg) $lines[] = $this->line('REG', $d, $reg, $rate, 1.0, self::nice($d) . ': ' . self::h($reg) . ' regular');
+            if ($reg) $lines[] = $this->line('REG', $d, $reg, $dayRate, 1.0, self::nice($d) . ': ' . self::h($reg) . ' regular');
             if ($o15 || $weekly) {
                 $parts = [];
                 if ($o15) $parts[] = self::h($o15) . ' over 8 h in the day';
                 if ($weekly) $parts[] = self::h($weekly) . ' past 40 h in the week (Sunday–Saturday)';
-                $lines[] = $this->line('OT15', $d, $o15 + $weekly, $rate, 1.5, self::nice($d) . ': ' . implode(' + ', $parts) . ' at 1.5×');
+                $lines[] = $this->line('OT15', $d, $o15 + $weekly, $dayRate, 1.5, self::nice($d) . ': ' . implode(' + ', $parts) . ' at 1.5×');
             }
-            if ($o20) $lines[] = $this->line('OT20', $d, $o20, $rate, 2.0, self::nice($d) . ': ' . self::h($o20) . ' over 12 h in the day at 2×');
+            if ($o20) $lines[] = $this->line('OT20', $d, $o20, $dayRate, 2.0, self::nice($d) . ': ' . self::h($o20) . ' over 12 h in the day at 2×');
             $minutes['REG'] += $reg; $minutes['OT15'] += $o15 + $weekly; $minutes['OT20'] += $o20;
-            $nonOtByDay[$d] = (int)round($reg * $rate / 60);
-
-            $min = $this->minimumWage($d);
-            if ($min !== null && $rate < $min) $problems[] = self::nice($d) . ': $' . number_format($rate / 100, 2) . '/h is below the BC minimum wage of $' . number_format($min / 100, 2) . '.';
+            $nonOtByDay[$d] = (int)round($reg * $dayRate / 60);
+            $earnedByDay[$d] = true;
         }
 
         // Vacation pay on everything earned, 6% on wages from the 5th anniversary.
@@ -162,7 +168,7 @@ class PayCalculator
     }
 
     /** An average day's pay for a holiday, or null with $why (not eligible). */
-    private function averageDay(string $h, ?string $hire, array $history, array $inPeriod, array $stat, ?string &$why): ?array
+    private function averageDay(string $h, ?string $hire, array $history, array $inPeriod, array $earnedIn, array $stat, ?string &$why): ?array
     {
         $why = '';
         $from = date('Y-m-d', strtotime($h . ' -' . $stat['lookback_days'] . ' days'));
@@ -172,7 +178,7 @@ class PayCalculator
         }
         $wages = 0; $days = 0;
         for ($d = $from; $d < $h; $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
-            if (isset($inPeriod[$d])) { $c = $inPeriod[$d]; $earned = $c > 0; }
+            if (isset($earnedIn[$d]) || isset($inPeriod[$d])) { $c = (int)($inPeriod[$d] ?? 0); $earned = !empty($earnedIn[$d]); }
             else { $c = (int)($history[$d]['wages_cents'] ?? 0); $earned = !empty($history[$d]['earned']); }
             $wages += $c;
             if ($earned) $days++;
@@ -220,7 +226,8 @@ class PayCalculator
 
     private static function isDate(string $d): bool
     {
-        return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d) !== false;
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m)) return false;
+        return checkdate((int)$m[2], (int)$m[3], (int)$m[1]);   // 2026-02-31 is refused, not rolled into March
     }
 
     private static function nice(string $d): string

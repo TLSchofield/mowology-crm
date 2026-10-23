@@ -138,4 +138,32 @@ class PayCalculatorTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->calc(['period_start' => '2026-10-18', 'period_end' => '2026-10-24', 'days' => ['2026-10-30' => 60]]);
     }
+
+    /** Codex 2026-10-23: below the minimum wage is paid at the minimum, stat days included, and said. */
+    public function test_pay_is_raised_to_the_minimum_wage(): void
+    {
+        $r = $this->calc(['period_start' => '2026-06-02', 'period_end' => '2026-06-02', 'rate_cents' => 1000, 'days' => ['2026-06-02' => 480]]);
+        $this->assertSame(8 * 1825, $r['gross_cents'], '8 h at $18.25, not $10');
+        $this->assertStringContainsString('paid at $18.25/h', implode(' ', $r['problems']));
+    }
+
+    /** Codex 2026-10-23: a day that is all weekly overtime still counts as a day wages were earned. */
+    public function test_a_day_all_past_the_weekly_40_counts_toward_stat_eligibility(): void
+    {
+        // 14 days earned in history + Sat Oct 10 worked in the period (all weekly OT) = 15 of 30 → eligible on Mon Oct 12.
+        $history = [];
+        for ($i = 3; $i <= 30; $i++) { $d = date('Y-m-d', strtotime("2026-10-12 -{$i} days")); $history[$d] = ['wages_cents' => $i <= 16 ? 24000 : 0, 'earned' => $i <= 16]; }
+        $r = $this->calc(['period_start' => '2026-10-10', 'period_end' => '2026-10-12', 'history' => $history,
+            'prior_days' => ['2026-10-04' => 480, '2026-10-05' => 480, '2026-10-06' => 480, '2026-10-07' => 480, '2026-10-08' => 480],
+            'days' => ['2026-10-10' => 480]]);
+        $this->assertSame(480, $this->sum($r, 'OT15'), 'Saturday is past 40 h');
+        $this->assertCount(1, array_filter($r['lines'], fn($l) => $l['code'] === 'STAT'), 'still 15 of 30 days earned');
+    }
+
+    public function test_an_impossible_date_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->calc(['period_start' => '2026-02-01', 'period_end' => '2026-02-28', 'days' => ['2026-02-31' => 480]]);
+    }
 }
+

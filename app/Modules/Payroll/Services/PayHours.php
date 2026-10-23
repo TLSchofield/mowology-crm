@@ -32,11 +32,15 @@ class PayHours
      */
     public function forPeriod(int $userId, string $from, string $to): array
     {
+        // One row per clock entry, approved when ANY approved timesheet covers its day — never joined against
+        // every covering timesheet, which double-counted minutes when two sheets overlap (Codex 2026-10-23).
+        // A shift belongs to the day it started (ESA "day": a shift over midnight is the 24 h from its start).
         $st = $this->db->prepare("
             SELECT DATE(e.clock_in) AS d, SUM(e.total_minutes) AS m,
-                   MAX(CASE WHEN t.status = 'approved' THEN 1 ELSE 0 END) AS approved
+                   MIN(CASE WHEN EXISTS (SELECT 1 FROM timesheets t WHERE t.user_id = e.user_id
+                                            AND DATE(e.clock_in) BETWEEN t.week_start AND t.week_end
+                                            AND t.status = 'approved') THEN 1 ELSE 0 END) AS approved
             FROM time_clock_entries e
-            LEFT JOIN timesheets t ON t.user_id = e.user_id AND DATE(e.clock_in) BETWEEN t.week_start AND t.week_end
             WHERE e.user_id = ? AND e.clock_in >= ? AND e.clock_in < ?
               AND e.status IN ('completed', 'edited')
             GROUP BY DATE(e.clock_in)
