@@ -65,4 +65,16 @@ final class OvertimeCalculatorPeriodTest extends TestCase
         $this->assertSame(480, $p['ot_1_5_minutes']);
         $this->assertSame(2400, $p['regular_minutes']);
     }
+
+    /** A Monday–Sunday pay period: the Sunday before it is in the same ESA week and counts toward the 40 h (Codex 2026-10-23). */
+    public function testTheSundayBeforeAMondayPeriodCountsTowardTheFortyButIsNotPaidAgain(): void
+    {
+        $days = [];
+        foreach (['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] as $d) $days[$d] = 480;   // Mon–Fri 40 h
+        $p = OvertimeCalculator::calculatePeriod($days, 10.0, ['2026-10-11' => 480]);                      // Sun 8 h, paid last period
+        $this->assertSame(2400 - 480, $p['regular_minutes']);
+        $this->assertSame(480, $p['ot_1_5_minutes'], 'Friday is past 40 h counting Sunday');
+        $this->assertEqualsWithDelta(32 * 10 + 8 * 15, $p['gross_pay'], 0.001, 'Sunday itself is not paid again');
+    }
 }
+

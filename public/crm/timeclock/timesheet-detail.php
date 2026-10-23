@@ -138,7 +138,12 @@ unset($day);
 // Compute pay via OvertimeCalculator
 $dailyMinutes = array_map(fn($d) => $d['total_shift_min'], $days);
 $hourlyRate   = (float)($ts['hourly_rate'] ?? 0);
-$pay          = OvertimeCalculator::calculate($dailyMinutes, $hourlyRate);
+// BC's overtime week runs Sunday–Saturday: the Sunday before this Monday-start timesheet counts toward the
+// 40 h of the week this timesheet's Monday–Saturday belong to (Codex review 2026-10-23).
+$__prevSun = date('Y-m-d', strtotime($ts['week_start'] . ' -1 day'));
+$__ps = $db->prepare("SELECT COALESCE(SUM(total_minutes), 0) FROM time_clock_entries WHERE user_id = ? AND clock_in >= ? AND clock_in < ? AND status IN ('completed', 'edited')");
+$__ps->execute([$ts['user_id'], $__prevSun, $ts['week_start']]);
+$pay          = OvertimeCalculator::calculatePeriod($dailyMinutes, $hourlyRate, [$__prevSun => (int)$__ps->fetchColumn()]);
 
 $pageTitle = 'Timesheet — ' . htmlspecialchars($ts['employee_name']);
 $activePage = 'timesheets';
@@ -215,7 +220,7 @@ $activePage = 'timesheets';
 
 <!-- Pay summary row -->
 <?php if ($hourlyRate > 0): ?>
-<p class="text-muted small mb-2">An estimate for this timesheet week. Weekly overtime is settled on the pay run, which uses BC&rsquo;s Sunday&ndash;Saturday overtime week.</p>
+<p class="text-muted small mb-2">Weekly overtime follows BC&rsquo;s Sunday&ndash;Saturday week: the Sunday before this timesheet counts toward its 40 h.</p>
 <div class="mw-pay-summary mb-4" id="js-pay-summary">
     <div class="mw-pay-card">
         <div class="mw-pay-card-label">Rate</div>

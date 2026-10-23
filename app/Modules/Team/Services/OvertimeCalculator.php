@@ -33,8 +33,10 @@ class OvertimeCalculator
      *   daily_breakdown:  array
      * }
      */
-    public static function calculate(array $dailyMinutes, float $hourlyRate): array
+    public static function calculate(array $dailyMinutes, float $hourlyRate, int $priorRegularMinutes = 0): array
     {
+        // $priorRegularMinutes: the first-8-hours minutes already worked this Sunday–Saturday week on days before
+        // these (paid earlier); they count toward the 40 h but are not paid again (Codex review 2026-10-23).
         $weekRegMin  = 0;  // running total of minutes paid at regular rate
         $weekOt15Min = 0;  // running total of minutes paid at 1.5×
         $weekOt20Min = 0;  // running total of minutes paid at 2×
@@ -76,10 +78,11 @@ class OvertimeCalculator
 
         // Weekly overtime: regular minutes beyond 40 h (2400 min) shift to 1.5×
         // Only the "regular" bucket is subject to weekly OT; daily OT is already priced above.
-        if ($weekRegMin > self::WEEKLY_REG_MAX) {
-            $weeklyOtMin  = $weekRegMin - self::WEEKLY_REG_MAX;
+        $cap = max(0, self::WEEKLY_REG_MAX - max(0, $priorRegularMinutes));
+        if ($weekRegMin > $cap) {
+            $weeklyOtMin  = $weekRegMin - $cap;
             $weekOt15Min += $weeklyOtMin;
-            $weekRegMin   = self::WEEKLY_REG_MAX;
+            $weekRegMin   = $cap;
         }
 
         $ratePerMin     = $hourlyRate / 60.0;
@@ -111,8 +114,17 @@ class OvertimeCalculator
      * @param array<string,int> $dailyMinutes keyed 'Y-m-d' (any order, any span)
      * @return array same shape as calculate(), plus 'weeks' => [weekStart => calculate() result]
      */
-    public static function calculatePeriod(array $dailyMinutes, float $hourlyRate): array
+    public static function calculatePeriod(array $dailyMinutes, float $hourlyRate, array $priorDays = []): array
     {
+        // $priorDays: days of the period's first Sunday–Saturday week that fall BEFORE it (already paid) —
+        // they count toward that week's 40 h only (Codex review 2026-10-23).
+        $prior = [];
+        foreach ($priorDays as $d => $m) {
+            $ts = strtotime((string)$d);
+            if ($ts === false) continue;
+            $wk = date('Y-m-d', strtotime('-' . (int)date('w', $ts) . ' days', $ts));
+            $prior[$wk] = ($prior[$wk] ?? 0) + min(max(0, (int)$m), self::DAILY_REG_MAX);
+        }
         ksort($dailyMinutes);
         $byWeek = [];
         foreach ($dailyMinutes as $date => $min) {
@@ -125,7 +137,7 @@ class OvertimeCalculator
                 'gross_pay' => 0.0, 'regular_pay' => 0.0, 'ot_1_5_pay' => 0.0, 'ot_2_0_pay' => 0.0,
                 'has_overtime' => false, 'daily_breakdown' => [], 'weeks' => []];
         foreach ($byWeek as $sunday => $days) {
-            $w = self::calculate($days, $hourlyRate);
+            $w = self::calculate($days, $hourlyRate, $prior[$sunday] ?? 0);
             $sum['weeks'][$sunday] = $w;
             foreach (['regular_minutes', 'ot_1_5_minutes', 'ot_2_0_minutes'] as $k) $sum[$k] += $w[$k];
             foreach (['gross_pay', 'regular_pay', 'ot_1_5_pay', 'ot_2_0_pay'] as $k) $sum[$k] = round($sum[$k] + $w[$k], 2);

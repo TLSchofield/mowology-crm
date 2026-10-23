@@ -39,7 +39,7 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
 <section class="mw-head-card mw-charlie" id="mw-charlie" data-name="<?= h($__cName) ?>" data-chief-name="<?= h(HeadIdentity::chiefName()) ?>">
   <div class="mw-charlie-top">
     <div class="mw-charlie-photo">
-      <img class="mw-charlie-face" src="/crm/img/heads/charlie.jpg" alt="<?= h(HeadIdentity::chiefName()) ?>, Foreman" width="72" height="72">
+      <img class="mw-charlie-face" src="<?= h(HeadIdentity::chief()['photo']) ?>" alt="<?= h(HeadIdentity::chiefName()) ?>, Foreman" width="72" height="72">
       <?php if ($__cBrain !== null): ?>
         <button type="button" class="mw-head-brain mw-charlie-brain" aria-label="<?= h(HeadIdentity::chiefName()) ?>'s brain: <?= (int)$__cBrain['units'] ?> things learned"
                 data-head="<?= h(HeadIdentity::chiefName()) ?>" data-head-slug="charlie"

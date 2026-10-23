@@ -48,8 +48,11 @@ final class PushHeads
         if (preg_match('/campaign|review|social|marketing/', $tag)) return 'mia';
         if (preg_match('/message|reply|comms|client/', $tag)) return 'yui';
         foreach (self::HEADS as $slug => $h) {
-            $nm = self::name($slug);
-            if (stripos($title, $nm . ':') === 0 || strcasecmp(trim($title), $nm) === 0) return $slug;
+            // The shown name, and for the chief of staff also the old name "Charlie" (pushes stored before the
+            // rename — Codex review 2026-10-23).
+            foreach (array_unique([self::name($slug), $h[0], $slug === HeadIdentity::CHIEF_KEY ? 'Charlie' : $h[0]]) as $nm) {
+                if (stripos($title, $nm . ':') === 0 || strcasecmp(trim($title), $nm) === 0) return $slug;
+            }
         }
         return null;
     }
