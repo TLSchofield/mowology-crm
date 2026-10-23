@@ -43,6 +43,7 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialPublisher.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -385,7 +386,7 @@ try {
                         'source_id' => (int)$r['source_id'],
                     ];
                 } else {
-                    $origUrl  = '/uploads/photos/' . $r['filename'];
+                    $origUrl  = uploadsUrl('photos') . '/' . $r['filename'];
                     $thumbUrl = $r['thumb_path'] ? '/' . ltrim($r['thumb_path'], '/') : $origUrl;
                     $media[]  = [
                         'id'        => null, // resolved on selection
@@ -428,7 +429,7 @@ try {
 
             // Look for existing import by file_path
             $existStmt = $db->prepare("SELECT id FROM media_assets WHERE file_path = ? LIMIT 1");
-            $existStmt->execute(['uploads/photos/' . $vpRow['filename']]);
+            $existStmt->execute([ltrim(uploadsUrl('photos'), '/') . '/' . $vpRow['filename']]);
             $existRow = $existStmt->fetch(PDO::FETCH_ASSOC);
             if ($existRow) {
                 echo json_encode(['success' => true, 'media_id' => (int)$existRow['id']]);
@@ -436,7 +437,7 @@ try {
             }
 
             // Create media_assets record pointing to existing visit photo file
-            $filePath = 'uploads/photos/' . $vpRow['filename'];
+            $filePath = ltrim(uploadsUrl('photos'), '/') . '/' . $vpRow['filename'];
             $ext      = strtolower(pathinfo($vpRow['filename'], PATHINFO_EXTENSION));
             $mimeMap  = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp','heic'=>'image/heic'];
             $mime     = $mimeMap[$ext] ?? 'image/jpeg';

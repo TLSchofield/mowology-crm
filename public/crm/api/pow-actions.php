@@ -39,6 +39,7 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+    require_once APP_ROOT . '/Core/Uploads.php';
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     // PowPdfGenerator is loaded inside the generate_pdf action only — not here
@@ -753,13 +754,13 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
             if ($imgData === false) throw new InvalidArgumentException('Invalid base64');
             if (strncmp($imgData, "\x89PNG\r\n\x1a\n", 8) !== 0) throw new InvalidArgumentException('Invalid signature format');
 
-            $sigDir = PUBLIC_ROOT . '/uploads/pow/signatures/';
+            $sigDir = uploadsDir('pow/signatures') . '/';
             if (!is_dir($sigDir)) mkdir($sigDir, 0755, true);
 
             $filename = 'sig_' . $visitId . '_' . time() . '.png';
             file_put_contents($sigDir . $filename, $imgData);
 
-            $sigPath = '/uploads/pow/signatures/' . $filename;
+            $sigPath = uploadsUrl('pow/signatures') . '/' . $filename;
             $db->prepare("UPDATE job_visits SET signature_path = ? WHERE id = ?")
                ->execute([$sigPath, $visitId]);
             addAuditLog($db, $visitId, (int)$user['id'], 'signature_saved', null, $ip);
@@ -998,7 +999,7 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
             $caption   = substr(strip_tags($input['caption'] ?? ''), 0, 255);
             $sortOrder = isset($input['sort_order']) ? (int)$input['sort_order'] : 0;
 
-            $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
+            $uploadDir = uploadsDir('photos') . '/';
             if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
 
             // Extension from the VALIDATED type, never the client's file name (2026-10-12).
@@ -1066,10 +1067,10 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
                 'success'    => true,
                 'photo_id'   => $photoId,
                 'filename'   => $filename,
-                'thumb_url'  => $variants['thumb_path'] ?? ('/uploads/photos/' . $filename),
-                'grid_url'   => $variants['grid_path']  ?? ('/uploads/photos/' . $filename),
-                'view_url'   => $variants['view_path']  ?? ('/uploads/photos/' . $filename),
-                'orig_url'   => '/uploads/photos/' . $filename,
+                'thumb_url'  => $variants['thumb_path'] ?? (uploadsUrl('photos') . '/' . $filename),
+                'grid_url'   => $variants['grid_path']  ?? (uploadsUrl('photos') . '/' . $filename),
+                'view_url'   => $variants['view_path']  ?? (uploadsUrl('photos') . '/' . $filename),
+                'orig_url'   => uploadsUrl('photos') . '/' . $filename,
                 'photo_type' => $photoType,
             ]);
             break;
@@ -1182,9 +1183,9 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $outExt  = $canWebP ? 'webp' : 'jpg';
 
     // Create variant subdirectories
-    $tDir = PUBLIC_ROOT . '/uploads/photos/t/' . $visitId . '/';
-    $gDir = PUBLIC_ROOT . '/uploads/photos/g/' . $visitId . '/';
-    $vDir = PUBLIC_ROOT . '/uploads/photos/v/' . $visitId . '/';
+    $tDir = uploadsDir('photos/t') . '/' . $visitId . '/';
+    $gDir = uploadsDir('photos/g') . '/' . $visitId . '/';
+    $vDir = uploadsDir('photos/v') . '/' . $visitId . '/';
     foreach ([$tDir, $gDir, $vDir] as $d) {
         if (!is_dir($d)) @mkdir($d, 0755, true);
     }
@@ -1200,7 +1201,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $tFile = $baseName . '_t.' . $outExt;
     gdSave($thumb, $tDir . $tFile, $outExt, 65); // 65 quality — thumbs
     imagedestroy($thumb);
-    $result['thumb_path'] = '/uploads/photos/t/' . $visitId . '/' . $tFile;
+    $result['thumb_path'] = uploadsUrl('photos/t') . '/' . $visitId . '/' . $tFile;
 
     // ── Grid: 512px max (contain, no upscale) ────────────────────────────
     [$gridW, $gridH] = gdScaleDimensions($origW, $origH, 512);
@@ -1210,7 +1211,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $gFile = $baseName . '_g.' . $outExt;
     gdSave($grid, $gDir . $gFile, $outExt, 70); // 70 quality — grid
     imagedestroy($grid);
-    $result['grid_path'] = '/uploads/photos/g/' . $visitId . '/' . $gFile;
+    $result['grid_path'] = uploadsUrl('photos/g') . '/' . $visitId . '/' . $gFile;
 
     // ── View: 1280px max (contain, no upscale) ───────────────────────────
     [$viewW, $viewH] = gdScaleDimensions($origW, $origH, 1280);
@@ -1220,7 +1221,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $vFile = $baseName . '_v.' . $outExt;
     gdSave($view, $vDir . $vFile, $outExt, 78); // 78 quality — view
     imagedestroy($view);
-    $result['view_path'] = '/uploads/photos/v/' . $visitId . '/' . $vFile;
+    $result['view_path'] = uploadsUrl('photos/v') . '/' . $visitId . '/' . $vFile;
 
     imagedestroy($gd);
     return $result;

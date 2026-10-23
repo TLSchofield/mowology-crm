@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user      = getCurrentUser();
 $userId    = (int)$user['id'];
@@ -1268,10 +1269,10 @@ switch ($action) {
         $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $ext      = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg';
         $filename = 'quiz_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+        $destDir  = uploadsDir('quiz');
         if (!is_dir($destDir)) mkdir($destDir, 0755, true);
         if (!move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) qErr('Failed to save file');
-        qOk(['image_path' => '/uploads/quiz/' . $filename]);
+        qOk(['image_path' => uploadsUrl('quiz') . '/' . $filename]);
 
     // ── Admin: deactivate question ─────────────────────────────────────────────
     case 'delete_question':
@@ -1535,10 +1536,10 @@ switch ($action) {
         $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $ext      = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg';
         $filename = 'lib_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+        $destDir  = uploadsDir('quiz');
         if (!is_dir($destDir)) mkdir($destDir, 0755, true);
         if (!move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) qErr('Failed to save file');
-        qOk(['image_path' => '/uploads/quiz/' . $filename]);
+        qOk(['image_path' => uploadsUrl('quiz') . '/' . $filename]);
 
     default:
         qErr('Unknown action', 404);

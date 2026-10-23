@@ -16,6 +16,7 @@ header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
@@ -103,7 +104,7 @@ if (!$error && $contact) {
     foreach ($rows as $ph) {
         $prId    = (int)$ph['pr_id'];
         $vId     = (int)$ph['visit_id'];
-        $origUrl = '/uploads/photos/' . $ph['filename'];
+        $origUrl = uploadsUrl('photos') . '/' . $ph['filename'];
         $ph['_thumb_url'] = $ph['thumb_path'] ?? $origUrl;
         $ph['_view_url']  = $ph['view_path']  ?? $origUrl;
 

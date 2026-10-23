@@ -12,6 +12,7 @@ $user = getCurrentUser();
 
 // Load media processor
 require_once dirname(__DIR__) . '/includes/media-processor.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // JSON response helper
 function json_response($success, $message = '', $data = []) {
@@ -58,7 +59,7 @@ if ($file['size'] > $maxSize) {
 }
 
 // Upload to centralized media directory
-$uploadDir = __DIR__ . '/../../uploads/cms/';
+$uploadDir = uploadsDir('cms') . '/';
 if (!is_dir($uploadDir)) {
     if (!mkdir($uploadDir, 0755, true)) {
         json_response(false, 'Failed to create upload directory');
@@ -71,7 +72,7 @@ $extByMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif',
 $ext = $extByMime[$mimeType];
 $storedName = 'portfolio-gallery-' . uniqid() . '.' . $ext;
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/cms/' . $storedName;
+$webPath = uploadsUrl('cms') . '/' . $storedName;
 
 // Move uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
@@ -128,7 +129,7 @@ if ($mediaId && function_exists('mp_processUploadedImage')) {
             foreach ($processingResult['variants'] as $variantKey => $variant) {
                 $variantFormat = (strpos($variantKey, 'webp') !== false) ? 'webp' : 'jpeg';
                 $variantType = str_replace('_webp', '', $variantKey);
-                $variantWebPath = '/uploads/cms/' . basename($variant['path']);
+                $variantWebPath = uploadsUrl('cms') . '/' . basename($variant['path']);
 
                 try {
                     $vstmt = $db->prepare('

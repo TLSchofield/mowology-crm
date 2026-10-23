@@ -6,6 +6,7 @@ require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -3741,7 +3742,7 @@ $unconvertedRequests = $db->query("
                   <div class="card-body p-2">
                     <div class="mw-recent-photos-grid">
                       <?php foreach ($recentPhotos as $rp):
-                          $origUrl = '/uploads/photos/' . $rp['filename'];
+                          $origUrl = uploadsUrl('photos') . '/' . $rp['filename'];
                           $thumbUrl = $rp['thumb_path'] ?? $rp['grid_path'] ?? $origUrl;
                           $viewUrl = $rp['view_path'] ?? $origUrl;
                       ?>

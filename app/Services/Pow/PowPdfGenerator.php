@@ -19,6 +19,7 @@ if (!defined('APP_ROOT')) {
 
 // Load Composer autoloader (mPDF)
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once __DIR__ . '/MapSnapshotService.php';
@@ -513,7 +514,7 @@ class PowPdfGenerator
   <div class="section-title">Site Photos</div>
   <div class="photos-grid">
     <?php foreach ($photos as $ph):
-        $imgPath = $this->publicRoot . '/uploads/photos/' . $ph['filename'];
+        $imgPath = $this->publicRoot . uploadsUrl('photos') . '/' . $ph['filename'];
         if (!file_exists($imgPath)) continue;
         $imgData = base64_encode(file_get_contents($imgPath));
         $ext     = strtolower(pathinfo($ph['filename'], PATHINFO_EXTENSION));

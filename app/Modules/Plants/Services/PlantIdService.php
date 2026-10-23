@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/BedLocator.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 /**
  * PlantIdService — "What is this?" on site (2026-10-15, plan docs/plans/2026-10-15-plant-id-to-bed-care.md).
@@ -268,7 +269,7 @@ class PlantIdService
                 $q->execute([$id]);
                 foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $img) {
                     $this->db->prepare("DELETE FROM quiz_question_images WHERE id = ?")->execute([(int)$img['id']]);
-                    if (strpos((string)$img['image_path'], '/uploads/quiz/site_') === 0) @unlink($this->root . $img['image_path']);
+                    if (strpos((string)$img['image_path'], uploadsUrl('quiz') . '/site_') === 0) @unlink($this->root . $img['image_path']);
                 }
             } catch (Throwable $e) { /* before migration 1371 */ }
         }

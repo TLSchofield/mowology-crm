@@ -11,6 +11,7 @@ $user = getCurrentUser();
 
 // Load media processor for cleanup
 require_once dirname(__DIR__) . '/includes/media-processor.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // JSON response helper
 function json_response($success, $message = '', $data = []) {
@@ -56,7 +57,7 @@ if (!$imagePath) {
 }
 
 // Determine if this is a media system file or legacy file
-$isMediaSystem = (strpos($imagePath, '/uploads/cms/') !== false);
+$isMediaSystem = (strpos($imagePath, uploadsUrl('cms') . '/') !== false);
 
 if ($isMediaSystem) {
     // Media system file — clean up via media_assets + variants

@@ -9,6 +9,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('jobs.view');
@@ -95,7 +96,7 @@ $photoGroups = ['before' => [], 'after' => [], 'additional' => [], 'other' => []
 foreach ($photos as $p) {
     $bucket = in_array($p['photo_type'], ['before','after','additional']) ? $p['photo_type'] : 'other';
     // Compute display URLs with fallback to original
-    $origUrl = '/uploads/photos/' . $p['filename'];
+    $origUrl = uploadsUrl('photos') . '/' . $p['filename'];
     $p['_orig_url']  = $origUrl;
     $p['_thumb_url'] = $p['thumb_path'] ?? $origUrl;
     $p['_grid_url']  = $p['grid_path']  ?? $origUrl;

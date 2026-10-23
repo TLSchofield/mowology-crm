@@ -10,6 +10,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/portfolio-functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // Allow CLI or authenticated admin users
 if (php_sapi_name() !== 'cli') {
@@ -52,7 +53,7 @@ try {
         }
 
         // Create output directory
-        $outputDir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/media/web';
+        $outputDir = uploadsDir('media/web');
         if (!is_dir($outputDir)) {
             mkdir($outputDir, 0755, true);
         }
@@ -70,7 +71,7 @@ try {
         }
 
         // Create thumbnail directory
-        $thumbDir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/media/thumbs';
+        $thumbDir = uploadsDir('media/thumbs');
         if (!is_dir($thumbDir)) {
             mkdir($thumbDir, 0755, true);
         }

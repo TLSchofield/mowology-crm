@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once APP_ROOT . '/Services/Pow/MapSnapshotService.php';
@@ -830,7 +831,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
         ?>
             <div class="photo-row">
             <?php foreach ($pair as $ph):
-                $imgPath = $this->publicRoot . '/uploads/photos/' . $ph['filename'];
+                $imgPath = $this->publicRoot . uploadsUrl('photos') . '/' . $ph['filename'];
                 if (!file_exists($imgPath)) continue;
                 $imgData = base64_encode(file_get_contents($imgPath));
                 $ext     = strtolower(pathinfo($ph['filename'], PATHINFO_EXTENSION));

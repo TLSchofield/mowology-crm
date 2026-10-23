@@ -32,6 +32,7 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
 require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once APP_ROOT . '/Services/Messaging/SmsTemplates.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 // ─── Canadian Carrier Email-to-SMS Gateways ─────────────────────────
 
@@ -692,7 +693,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         <tr><td colspan="2" style="padding-bottom:16px;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;">';
         foreach ($photos as $photo) {
-            $photoUrl = $siteUrl . '/uploads/photos/' . rawurlencode($photo['filename']);
+            $photoUrl = $siteUrl . uploadsUrl('photos') . '/' . rawurlencode($photo['filename']);
             $photosHtml .= '<img src="' . htmlspecialchars($photoUrl) . '" alt="' . htmlspecialchars($photo['photo_type']) . '" style="width:120px;height:90px;object-fit:cover;border-radius:6px;" onerror="this.style.display=\'none\'">';
         }
         $photosHtml .= '</div></td></tr>';

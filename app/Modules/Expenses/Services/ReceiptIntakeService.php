@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 /**
  * ReceiptIntakeService — shared capture→OCR→parse→match pipeline for receipt uploads.
  *
@@ -158,7 +159,7 @@ class ReceiptIntakeService
         }
 
         // ── Store in /uploads/receipts/ (separate from CMS media) ────────
-        $uploadDir = PUBLIC_ROOT . '/uploads/receipts/';
+        $uploadDir = uploadsDir('receipts') . '/';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0755, true);
         }
@@ -166,7 +167,7 @@ class ReceiptIntakeService
         $ext = self::resolveStoredExtension($uploadedFile['name']);
         $storedName = 'receipt-' . date('Ymd-His') . '-' . uniqid() . '.' . $ext;
         $filePath = $uploadDir . $storedName;
-        $webPath = '/uploads/receipts/' . $storedName;
+        $webPath = uploadsUrl('receipts') . '/' . $storedName;
 
         if (!move_uploaded_file($uploadedFile['tmp_name'], $filePath)) {
             return ['success' => false, 'error' => 'Failed to save uploaded file', 'http_code' => 500];
@@ -221,7 +222,7 @@ class ReceiptIntakeService
                     $im->stripImage();
                     $newStoredName = preg_replace('/\.(heic|heif)$/i', '.jpg', $storedName);
                     $newFilePath = $uploadDir . $newStoredName;
-                    $newWebPath = '/uploads/receipts/' . $newStoredName;
+                    $newWebPath = uploadsUrl('receipts') . '/' . $newStoredName;
                     $im->writeImage($newFilePath);
                     $im->destroy();
                     @unlink($filePath);

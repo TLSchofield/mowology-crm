@@ -14,6 +14,7 @@
  * linkQuestions() from the care library's names. Tenant-neutral; global namespace (require_once + new).
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class SitePlantQuizService
 {
@@ -166,7 +167,7 @@ class SitePlantQuizService
         foreach ($old->fetchAll(PDO::FETCH_ASSOC) as $o) {
             if ((int)$o['question_id'] !== $qid) {
                 $this->db->prepare("DELETE FROM quiz_question_images WHERE id = ?")->execute([(int)$o['id']]);
-                if (strpos((string)$o['image_path'], '/uploads/quiz/site_') === 0) @unlink($this->root . $o['image_path']);
+                if (strpos((string)$o['image_path'], uploadsUrl('quiz') . '/site_') === 0) @unlink($this->root . $o['image_path']);
             }
         }
         $this->db->prepare("UPDATE quiz_question_images SET caption = ? WHERE plant_record_id = ? AND question_id = ? AND source = 'site'")
@@ -179,7 +180,7 @@ class SitePlantQuizService
         foreach ($media as $mid => $path) {
             $have->execute([$qid, $recordId, $mid]);
             if ($have->fetchColumn()) continue;
-            $rel = '/uploads/quiz/site_' . $recordId . '_' . $mid . '.jpg';
+            $rel = uploadsUrl('quiz') . '/site_' . $recordId . '_' . $mid . '.jpg';
             if (!($this->copier)($this->root . $path, $this->root . $rel)) continue;
             $next->execute([$qid]);
             $ins->execute([$qid, $rel, min(120, (int)$next->fetchColumn()), $caption, $recordId, (int)$rec['property_id'] ?: null, $mid]);
@@ -285,7 +286,7 @@ class SitePlantQuizService
         foreach ($drop as $id) {
             $del->execute([$id]);
             $p = (string)($paths[$id] ?? '');
-            if (strpos($p, '/uploads/quiz/site_') === 0) @unlink($this->root . $p);
+            if (strpos($p, uploadsUrl('quiz') . '/site_') === 0) @unlink($this->root . $p);
         }
     }
 

@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -61,14 +62,14 @@ if ($file['size'] > $maxSize) {
 }
 
 // Determine upload directory
-$uploadDir = dirname(__DIR__) . '/../uploads/';
+$uploadDir = uploadsDir('') . '/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
 $storedName = 'logo-' . time() . '.' . $allowed[$mimeType];
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/' . $storedName;
+$webPath = uploadsUrl('') . '/' . $storedName;
 
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     echo json_encode(['success' => false, 'error' => 'Failed to save file.']);

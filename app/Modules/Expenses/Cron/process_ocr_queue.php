@@ -65,6 +65,7 @@ require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
 require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
 require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 // ── Mutex: prevent overlapping runs ───────────────────────────────────
 // TODO(cron-lock): replace with App\Core\CronLock::acquire('process_ocr_queue')
@@ -325,7 +326,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
             $im->stripImage();
             $newName    = preg_replace('/\.(heic|heif)$/i', '.jpg', basename($filePath));
             $newPath    = dirname($filePath) . '/' . $newName;
-            $newWebPath = '/uploads/receipts/' . $newName;
+            $newWebPath = uploadsUrl('receipts') . '/' . $newName;
             $im->writeImage($newPath);
             $im->destroy();
             @unlink($filePath);

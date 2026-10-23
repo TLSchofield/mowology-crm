@@ -13,6 +13,7 @@
  * - Stores PNG on server under /uploads/pow/maps/
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 class MapSnapshotService
 {
@@ -40,7 +41,7 @@ class MapSnapshotService
     {
         $this->apiKey      = $apiKey;
         $this->storageRoot = rtrim($publicRoot, '/');
-        $this->storageDir  = $this->storageRoot . self::STORAGE_DIR;
+        $this->storageDir  = $this->storageRoot . rtrim(uploadsUrl('pow/maps'), '/') . '/';
 
         if (!is_dir($this->storageDir)) {
             mkdir($this->storageDir, 0755, true);
@@ -69,7 +70,7 @@ class MapSnapshotService
         $hash     = $this->computeHash($filtered);
         $filename = 'visit_' . $visitId . '_' . substr($hash, 0, 12) . '.png';
         $filepath = $this->storageDir . $filename;
-        $webPath  = self::STORAGE_DIR . $filename;
+        $webPath  = uploadsUrl('pow/maps') . '/' . $filename;
 
         if (file_exists($filepath)) {
             return $webPath; // Cache hit

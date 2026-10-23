@@ -42,6 +42,7 @@ requireLogin();
 session_write_close();
 
 require_once APP_ROOT . '/Services/Media/IconGenerator.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -218,8 +219,8 @@ function handleUpload(\PDO $db): void
     $iconSetId = (int)$db->lastInsertId();
 
     // Save original
-    $origDir  = PUBLIC_ROOT . '/uploads/icon-sets/originals';
-    $outDir   = PUBLIC_ROOT . '/uploads/icon-sets/' . $iconSetId;
+    $origDir  = uploadsDir('icon-sets/originals');
+    $outDir   = uploadsDir('icon-sets') . '/' . $iconSetId;
     $ext      = icongen_mimeToExtension($mimeType);
     $origFile = $origDir . '/' . $iconSetId . '_' . time() . '.' . $ext;
 
@@ -247,7 +248,7 @@ function handleUpload(\PDO $db): void
     }
 
     // Update record with final path
-    $iconBasePath = '/uploads/icon-sets/' . $iconSetId . '/';
+    $iconBasePath = uploadsUrl('icon-sets') . '/' . $iconSetId . '/';
     $db->prepare('UPDATE icon_sets SET icon_base_path = ? WHERE id = ?')
        ->execute([$iconBasePath, $iconSetId]);
 

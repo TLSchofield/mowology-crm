@@ -19,6 +19,7 @@
 
 declare(strict_types=1);
 require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class SocialDraftPipeline
 {
@@ -356,7 +357,7 @@ class SocialDraftPipeline
     private static function importVisitPhoto(PDO $db, array $vp): int
     {
         $filename = $vp['filename'];
-        $filePath = '/uploads/photos/' . $filename;
+        $filePath = uploadsUrl('photos') . '/' . $filename;
 
         // Check if already imported
         $chkStmt = $db->prepare(

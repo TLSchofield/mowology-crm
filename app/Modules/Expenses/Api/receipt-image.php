@@ -44,6 +44,7 @@ if ($expiry < time()) {
 }
 
 require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptImageLinks.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 // Derived sub-key + 15-minute ceiling (Fable audit 2026-10-12).
 if (!ReceiptImageLinks::verify($mediaId, $expiry, $sig, ReceiptImageLinks::key(jwtSecret()), time())) {
     http_response_code(403);
@@ -84,7 +85,7 @@ try {
 
     // Safety: the resolved path must stay within uploads/receipts or _media.
     $allowedPrefixes = [
-        realpath(PUBLIC_ROOT . '/uploads/receipts'),
+        realpath(uploadsDir('receipts')),
         realpath(PUBLIC_ROOT . '/_media'),
     ];
     $realPath = realpath($absolutePath);

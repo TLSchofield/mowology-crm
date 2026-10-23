@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 /**
  * ReceiptInboxService — turn a vendor receipt/invoice that arrived by email into an
  * expense record.
@@ -473,7 +474,7 @@ class ReceiptInboxService
     /** Persist the raw bytes to /uploads/receipts/ and register in media_assets. */
     private function storeAttachment(string $bytes, string $filename, string $mime, bool $isPdf, string $sha256, int $userId): array
     {
-        $uploadDir = PUBLIC_ROOT . '/uploads/receipts/';
+        $uploadDir = uploadsDir('receipts') . '/';
         if (!is_dir($uploadDir)) {
             @mkdir($uploadDir, 0755, true);
         }
@@ -483,7 +484,7 @@ class ReceiptInboxService
         }
         $storedName = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
         $diskPath   = $uploadDir . $storedName;
-        $webPath    = '/uploads/receipts/' . $storedName;
+        $webPath    = uploadsUrl('receipts') . '/' . $storedName;
         file_put_contents($diskPath, $bytes);
 
         $w = null; $h = null;

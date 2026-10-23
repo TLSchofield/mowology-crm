@@ -34,6 +34,7 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // ── Helpers (defined before try so they are in global scope) ─────────────────
 
@@ -194,7 +195,7 @@ try {
 
         $out = [];
         foreach ($photos as $p) {
-            $origUrl = '/uploads/photos/' . $p['filename'];
+            $origUrl = uploadsUrl('photos') . '/' . $p['filename'];
             $out[] = [
                 'id'              => (int)$p['id'],
                 'type'            => $p['photo_type'],

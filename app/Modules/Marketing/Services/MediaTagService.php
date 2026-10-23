@@ -24,6 +24,7 @@
  * No namespace / no autoloader in production.
  */
 require_once __DIR__ . '/MediaTagRules.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class MediaTagService
 {
@@ -95,7 +96,7 @@ class MediaTagService
         $vp = $s->fetch(PDO::FETCH_ASSOC);
         if (!$vp || !empty($vp['deleted_at'])) return 0;
 
-        $path = '/uploads/photos/' . $vp['filename'];
+        $path = uploadsUrl('photos') . '/' . $vp['filename'];
         $s = $this->db->prepare("SELECT id FROM media_assets WHERE file_path = ? ORDER BY id LIMIT 1");
         $s->execute([$path]);
         $mid = (int)$s->fetchColumn();

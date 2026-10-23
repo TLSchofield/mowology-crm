@@ -1,5 +1,6 @@
 <?php
 require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 /**
  * ReceiptArchiveService — reclaim live web-disk space used by expense receipt images.
@@ -437,7 +438,7 @@ class ReceiptArchiveService
         $maxDim    = 500;
         $thumbName = preg_replace('/\.[^.]+$/', '', basename($storedFilename)) . '-thumb.jpg';
         $thumbAbs  = dirname($originalAbs) . '/' . $thumbName;
-        $thumbWeb  = '/uploads/receipts/' . $thumbName;
+        $thumbWeb  = uploadsUrl('receipts') . '/' . $thumbName;
         $isPdf     = (strtolower($mime) === 'application/pdf') || (strtolower(pathinfo($originalAbs, PATHINFO_EXTENSION)) === 'pdf');
 
         // Imagick path (preferred — handles PDF + HEIC + everything GD can't).

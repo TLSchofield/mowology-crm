@@ -19,6 +19,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 // Cap for safety — a zip of 500 photos can be ~300MB
@@ -84,7 +85,7 @@ foreach ($photos as $ph) {
     $sourcePath = null;
     $candidates = [
         $ph['view_path'] ? PUBLIC_ROOT . $ph['view_path'] : null,
-        PUBLIC_ROOT . '/uploads/photos/' . $ph['filename'],
+        uploadsDir('photos') . '/' . $ph['filename'],
     ];
     foreach ($candidates as $candidate) {
         if ($candidate && is_file($candidate) && is_readable($candidate)) {

@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // Must be logged in
 requireLogin();
@@ -91,7 +92,7 @@ if (!empty($_GET['id'])) {
 
 // --- Safety: ensure the resolved path stays within uploads/ or _media/ ---
 $allowedPrefixes = [
-    realpath(PUBLIC_ROOT . '/uploads/receipts'),
+    realpath(uploadsDir('receipts')),
     realpath(PUBLIC_ROOT . '/_media'),
 ];
 

@@ -102,7 +102,8 @@ if (!in_array($animType, $validAnims, true)) $animType = 'wipe';
 
 // ── Storage path ─────────────────────────────────────────────────────────────
 // Resolve public root — same as PUBLIC_ROOT but we need the filesystem path
-$uploadDir = defined('PUBLIC_ROOT') ? rtrim(PUBLIC_ROOT, '/') . '/uploads/social-videos/' : '/home/mowology/public_html/uploads/social-videos/';
+require_once APP_ROOT . '/Core/Uploads.php';
+$uploadDir = uploadsDir('social-videos') . '/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
@@ -110,8 +111,8 @@ if (!is_dir($uploadDir)) {
 $slug     = 'anim_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
 $filename = $slug . '.' . $ext;
 $destPath = $uploadDir . $filename;
-$filePath = 'uploads/social-videos/' . $filename;   // relative for DB
-$webUrl   = '/uploads/social-videos/' . $filename;  // web-root relative
+$filePath = ltrim(uploadsUrl('social-videos'), '/') . '/' . $filename;   // relative for DB
+$webUrl   = uploadsUrl('social-videos') . '/' . $filename;  // web-root relative
 
 if (!move_uploaded_file($tmpPath, $destPath)) {
     http_response_code(500);
