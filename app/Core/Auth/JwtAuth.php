@@ -36,6 +36,12 @@ function base64url_decode(string $data): string
 function jwtSecret(): string
 {
     if (defined('BLUEMOON_JWT_SECRET') && strlen((string)BLUEMOON_JWT_SECRET) >= 32) {
+        // Each business signs with its own key, derived from the install's secret, so a token issued at one
+        // business's address is refused at another's (its user #1 is a different person). The original
+        // business keeps the secret itself: existing app sign-ins stay valid (Ittai, 2026-10-23).
+        if (class_exists('Tenant') && !Tenant::isDefault()) {
+            return hash_hmac('sha256', 'tenant:' . Tenant::key(), (string)BLUEMOON_JWT_SECRET);
+        }
         return (string)BLUEMOON_JWT_SECRET;
     }
     // Fail closed (Fable review 2026-10-12): the old fallback derived the key from DB_PASS, so a

@@ -1,6 +1,7 @@
 # Sensitive files & secrets
 crm/config.php
 public/app_config/secrets.php
+public/app_config/tenants.php
 public/app_config/qa-test-credentials.php
 .env
 *.log

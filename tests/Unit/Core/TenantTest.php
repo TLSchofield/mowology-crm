@@ -1,0 +1,50 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+require_once dirname(__DIR__, 3) . '/app/Core/Tenant.php';
+
+/** Which business a request is for (Ittai, 2026-10-23): only *.ittai.ca is routed; unknown routed = not found. */
+class TenantTest extends TestCase
+{
+    private array $reg = ['greenleaf' => ['hosts' => ['greenleaf.ittai.ca'], 'db_name' => 'mowology_greenleaf', 'app_url' => 'https://greenleaf.ittai.ca']];
+
+    public function test_the_original_business_is_unchanged_on_every_other_address(): void
+    {
+        foreach (['mowology.ca', 'www.mowology.ca', 'localhost:8000', '', 'ittai.ca', 'www.ittai.ca', 'junkology.ca'] as $h) {
+            $this->assertSame(Tenant::DEFAULT, Tenant::resolve($h, null, $this->reg)['key'], $h);
+        }
+    }
+
+    public function test_a_registered_ittai_address_gets_its_business(): void
+    {
+        $r = Tenant::resolve('GreenLeaf.Ittai.ca:443', null, $this->reg);
+        $this->assertSame('greenleaf', $r['key']);
+        $this->assertSame('mowology_greenleaf', $r['cfg']['db_name']);
+    }
+
+    public function test_an_unregistered_ittai_address_is_not_found(): void
+    {
+        $this->assertNull(Tenant::resolve('claudia.ittai.ca', null, $this->reg)['key']);
+        $this->assertNull(Tenant::resolve('evil.greenleaf.ittai.ca', null, $this->reg)['key']);
+        $this->assertNull(Tenant::resolve('greenleaf.ittai.ca', null, ['greenleaf' => ['hosts' => ['greenleaf.ittai.ca']]])['key'], 'no database named: refused');
+    }
+
+    public function test_cron_picks_a_business_by_key(): void
+    {
+        $this->assertSame('greenleaf', Tenant::resolve(null, 'greenleaf', $this->reg)['key']);
+        $this->assertSame(Tenant::DEFAULT, Tenant::resolve(null, 'default', $this->reg)['key']);
+        $this->assertNull(Tenant::resolve(null, 'nobody', $this->reg)['key']);
+    }
+
+    public function test_each_business_has_its_own_address_for_links(): void
+    {
+        Tenant::forTests(['key' => 'greenleaf', 'cfg' => $this->reg['greenleaf']]);
+        $this->assertSame('https://greenleaf.ittai.ca', Tenant::appUrl());
+        $this->assertSame('mowology_greenleaf', Tenant::db()[0]);
+        Tenant::forTests(['key' => Tenant::DEFAULT, 'cfg' => []]);
+        $this->assertSame('', Tenant::appUrl());
+        Tenant::forTests(null);
+    }
+}

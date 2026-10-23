@@ -178,7 +178,10 @@ if (!defined('BLUEMOON_JWT_SECRET') || strlen((string)BLUEMOON_JWT_SECRET) < 32)
     echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
     exit;
 }
-$secret = (string)BLUEMOON_JWT_SECRET;
+// The same key validateJwtToken() checks: each business its own, derived from this secret (Ittai, 2026-10-23).
+$secret = (class_exists('Tenant') && !Tenant::isDefault())
+    ? hash_hmac('sha256', 'tenant:' . Tenant::key(), (string)BLUEMOON_JWT_SECRET)
+    : (string)BLUEMOON_JWT_SECRET;
 
 $header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
 $now     = time();

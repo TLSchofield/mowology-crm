@@ -59,7 +59,7 @@ class BusinessIdentity
         }
         // Links use the install's configured address (APP_URL, set per business) or the business's website —
         // never the request's Host header, which a caller controls (Codex 2026-10-23).
-        $appUrl = defined('APP_URL') ? (string)APP_URL : '';
+        $appUrl = defined('APP_URL') ? (string)APP_URL : (class_exists('Tenant') ? Tenant::appUrl() : '');
         $b = self::from($s, $i, $ops, $owner, $staff, defined('MAIL_FROM_ADDRESS') ? (string)MAIL_FROM_ADDRESS : '', $appUrl);
         if ($db) self::$cache[$db] = $b; else self::$noDb = $b;
         return $b;
