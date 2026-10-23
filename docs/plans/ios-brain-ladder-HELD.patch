@@ -1,0 +1,204 @@
+From 607485b763756468eeb01f4356c25540a77a6ea0 Mon Sep 17 00:00:00 2001
+From: Tim Schofield <timschofield@example.com>
+Date: Wed, 21 Oct 2026 06:38:59 -0700
+Subject: [PATCH] =?UTF-8?q?feat(ios):=20the=20brain's=20shapes=20come=20fr?=
+ =?UTF-8?q?om=20the=20web's=20head-brain.js=20(JavaScriptCore):=20shape=20?=
+ =?UTF-8?q?N=20has=20exactly=20N=20triangles,=201=E2=80=93500;=20flat=20fi?=
+ =?UTF-8?q?gures=20sway;=20falls=20back=20to=20the=20Swift=20shapes=20unti?=
+ =?UTF-8?q?l=20downloaded.=20HELD=20=E2=80=94=20not=20pushed=20(another=20?=
+ =?UTF-8?q?chat's=20iOS=20rebuild)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../MowologyCRM/App/MowologyCRMApp.swift      |   1 +
+ .../Design/Ittai/ItKnowledgeGeometry.swift    |   3 +-
+ .../Features/Splash/CharlieBrainSplash.swift  | 108 +++++++++++++++++-
+ 3 files changed, 109 insertions(+), 3 deletions(-)
+
+diff --git a/ios/MowologyCRM/MowologyCRM/App/MowologyCRMApp.swift b/ios/MowologyCRM/MowologyCRM/App/MowologyCRMApp.swift
+index 9cac1171..53ddf260 100644
+--- a/ios/MowologyCRM/MowologyCRM/App/MowologyCRMApp.swift
++++ b/ios/MowologyCRM/MowologyCRM/App/MowologyCRMApp.swift
+@@ -21,6 +21,7 @@ struct MowologyCRMApp: App {
+     init() {
+         AppCrashReports.shared.start()
+         ItFontRegistry.registerAll()
++        BrainLadder.warmUp()   // the brain's shapes (head-brain.js), loaded off the main thread
+         registerBackgroundTask()
+         requestNotificationPermission()
+         // Announce reconnects from launch so every offline queue drains, clocked in or not.
+diff --git a/ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItKnowledgeGeometry.swift b/ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItKnowledgeGeometry.swift
+index 1fe1e6c2..233ddd66 100644
+--- a/ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItKnowledgeGeometry.swift
++++ b/ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItKnowledgeGeometry.swift
+@@ -26,9 +26,10 @@ enum ItKnowledgeGeometry {
+     static func projectedFaces(count: Int, in size: CGSize, yaw: Double = restingYaw, pitch: Double = restingPitch) -> [ItKnowledgeProjectedFace] {
+         guard count > 0 else { return [] }
+         let shape = BrainShape(count)
++        let turn = shape.viewYaw(yaw)   // flat figures sway (BrainShape.flat)
+         let slots = Dictionary(uniqueKeysWithValues: shape.lightOrder.prefix(max(0, count)).enumerated().map { ($0.element, $0.offset) })
+         let radius = Double(min(size.width, size.height)) * 0.36
+-        let cy = cos(yaw), sy = sin(yaw), cp = cos(pitch), sp = sin(pitch)
++        let cy = cos(turn), sy = sin(turn), cp = cos(pitch), sp = sin(pitch)
+         func project(_ v: BrainShape.V) -> (point: CGPoint, depth: Double) {
+             let x = v.x * cy + v.z * sy
+             let z = -v.x * sy + v.z * cy
+diff --git a/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift b/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
+index e522a8bf..cf4b2c3a 100644
+--- a/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
++++ b/ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieBrainSplash.swift
+@@ -17,6 +17,87 @@
+ 
+ import SwiftUI
+ import simd
++import JavaScriptCore
++
++// MARK: - The ladder, from the web (owner, 2026-10-20)
++
++/// Since 2026-10-20 the brain's 500 shapes are the web's: shape N has exactly N triangles (one triangle,
++/// the open book, Sierpinski triangles, the eight equilateral solids, snowflakes, geodesic spheres…), built by
++/// public/crm/js/head-brain.js. Rather than a second copy in Swift, the app runs that same file in
++/// JavaScriptCore: downloaded from the site, kept in Caches, refreshed in the background. Until the first
++/// download (or if the file ever fails its checks) BrainShape falls back to the Swift shapes below.
++/// The file only does arithmetic here: the context gets no bridges, network or storage.
++final class BrainLadder {
++    static let shared = BrainLadder()
++    typealias Built = (tris: [[SIMD3<Double>]], flat: Bool)
++
++    private let source = URL(string: "https://mowology.ca/crm/js/head-brain.js")!
++    private let lock = NSLock()
++    private var shapeFn: JSValue?
++    private var context: JSContext?
++    private var built: [Int: Built] = [:]
++    private var refreshing = false
++
++    private var file: URL {
++        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("head-brain.js")
++    }
++
++    private init() {
++        if let js = try? String(contentsOf: file, encoding: .utf8) { _ = install(js) }
++        refresh()
++    }
++
++    /// Load the cached file off the main thread at app start, so the first brain drawn doesn't wait for it.
++    static func warmUp() { DispatchQueue.global(qos: .userInitiated).async { _ = BrainLadder.shared } }
++
++    /// Shape k from the web's ladder, or nil (not downloaded yet / not valid) → the caller uses its own.
++    func shape(_ k: Int) -> Built? {
++        lock.lock(); defer { lock.unlock() }
++        if let b = built[k] { return b }
++        guard let fn = shapeFn, let s = fn.call(withArguments: [k]),
++              let raw = s.forProperty("tris")?.toArray() as? [[[Double]]], raw.count == k,
++              // Every triangle three points, every point three real numbers — a bad file falls back, never crashes.
++              raw.allSatisfy({ $0.count == 3 && $0.allSatisfy { $0.count == 3 && $0.allSatisfy(\.isFinite) } }) else { return nil }
++        let tris = raw.map { $0.map { SIMD3<Double>($0[0], $0[1], $0[2]) } }
++        let b: Built = (tris, s.forProperty("flat")?.toBool() ?? false)
++        built[k] = b
++        return b
++    }
++
++    /// Fetch the current file; keep it only if it builds the first shapes exactly (each shape is checked again when used).
++    func refresh() {
++        lock.lock()
++        if refreshing { lock.unlock(); return }
++        refreshing = true
++        lock.unlock()
++        var req = URLRequest(url: source, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
++        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
++        URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
++            guard let self else { return }
++            defer { self.lock.lock(); self.refreshing = false; self.lock.unlock() }
++            guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
++                  let js = String(data: data, encoding: .utf8), js.contains("var RECIPES") else { return }
++            if self.install(js) { try? data.write(to: self.file, options: .atomic) }
++        }.resume()
++    }
++
++    @discardableResult
++    private func install(_ js: String) -> Bool {
++        guard let ctx = JSContext() else { return false }
++        // The page globals head-brain.js touches on load; no DOM, so it never draws or mounts anything.
++        ctx.evaluateScript("var window = this; window.matchMedia = function () { return { matches: false }; }; var document = { readyState: 'loading', addEventListener: function () {}, querySelectorAll: function () { return []; } };")
++        ctx.evaluateScript(js)
++        guard ctx.exception == nil, let fn = ctx.evaluateScript("window.HeadBrain && window.HeadBrain.shape"), fn.isObject else { return false }
++        // Small shapes only: this runs on first use, which can be a view on the main thread.
++        for k in [1, 2, 4] {
++            guard let n = fn.call(withArguments: [k])?.forProperty("tris")?.forProperty("length")?.toInt32(), n == k else { return false }
++        }
++        lock.lock()
++        context = ctx; shapeFn = fn; built = [:]
++        lock.unlock()
++        return true
++    }
++}
+ 
+ // MARK: - Shape (port of head-brain.js shape / geodesic / pyramids)
+ 
+@@ -24,6 +105,11 @@ struct BrainShape {
+     typealias V = SIMD3<Double>
+     let k: Int
+     let tris: [[V]]
++    /// A flat figure (Sierpinski, snowflake, whirlpool, mandala): it sways instead of turning, so it never goes edge-on.
++    var flat = false
++
++    /// The turn to draw at: flat figures sway about 40° each way, like the web.
++    func viewYaw(_ yaw: Double) -> Double { flat ? 0.7 * sin(yaw) : yaw }
+ 
+     static let shapes = 500
+ 
+@@ -108,12 +194,29 @@ struct BrainShape {
+     init(_ kIn: Int) {
+         let k = max(1, min(Self.shapes, kIn))
+         self.k = k
++        if let web = BrainLadder.shared.shape(k) {    // the web's ladder, when the app has it
++            self.tris = web.tris
++            self.flat = web.flat
++            return
++        }
+         let need = k + 3
+         var r = RNG(seed: k * 7919)
+         var tris: [[V]]
+         if k == 1 {
+             // A single triangle — the seed (owner, 2026-10-10). Same as head-brain.js.
+             tris = [[V(0, 1, 0), V(-0.866, -0.5, 0), V(0.866, -0.5, 0)]]
++        } else if k <= 4 {
++            // Shapes 2–4 fold out one triangle at a time (owner, 2026-10-20): open book, open pyramid, then the
++            // tetrahedron. Same points as head-brain.js.
++            let t = V(0, 1, 0), b1 = V(0.9428, -0.3333, 0), b2 = V(-0.4714, -0.3333, 0.8165), b3 = V(-0.4714, -0.3333, -0.8165)
++            let a = V(0, 0.45, 0), p0 = V(0.95, -0.55, 0), p1 = V(-0.475, -0.55, 0.8227), p2 = V(-0.475, -0.55, -0.8227)
++            if k == 2 {
++                tris = [[V(0, 0.85, -0.31), V(0, -0.85, -0.31), V(1.02, 0, 0.15)], [V(0, 0.85, -0.31), V(0, -0.85, -0.31), V(-1.02, 0, 0.15)]]
++            } else if k == 3 {
++                tris = [[a, p0, p1], [a, p1, p2], [a, p2, p0]]
++            } else {
++                tris = [[t, b1, b2], [t, b2, b3], [t, b3, b1], [b1, b3, b2]]
++            }
+         } else if k <= 90 && k % 3 != 0 {
+             if k % 3 == 1 { tris = Self.bipyramid(max(3, Int((Double(need) / 2).rounded(.up)))) }
+             else { tris = Self.gyrobipyramid(max(3, Int((Double(need) / 4).rounded(.up)))) }
+@@ -135,7 +238,8 @@ struct BrainShape {
+             let wk = Double(2 + Int((r.next() * (2 + Double(k) / 60)).rounded(.down)))
+             waves.append((d, wk, r.next() * 6.283))
+         }
+-        let ax = r.next() * 6.283, ay = r.next() * 6.283
++        var ax = r.next() * 6.283, ay = r.next() * 6.283
++        if k <= 4 { ax = 0.3; ay = 0.55 }      // the first shapes rest face-on, as in head-brain.js
+         let cx = cos(ax), sx = sin(ax), cy = cos(ay), sy = sin(ay)
+         func fold(_ v: V) -> V {
+             var s = 0.0
+@@ -352,7 +456,7 @@ struct BrainView: View {
+ 
+     private func draw(_ g: GraphicsContext, size: CGSize, time: Double) {
+         let W = size.width, H = size.height, R = min(W, H) * 0.36
+-        let a = motion.yaw(at: time), tilt = motion.pitch
++        let a = prepared.shape.viewYaw(motion.yaw(at: time)), tilt = motion.pitch
+         let ca = cos(a), sa = sin(a), ct = cos(tilt), st = sin(tilt)
+         func P(_ v: BrainShape.V) -> (x: Double, y: Double, z: Double, vx: Double, vy: Double) {
+             let x = v.x * ca + v.z * sa, z = -v.x * sa + v.z * ca, y = v.y
+-- 
+2.39.3 (Apple Git-145)
+
