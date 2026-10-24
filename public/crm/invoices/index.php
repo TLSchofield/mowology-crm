@@ -1385,6 +1385,9 @@ $activePage = 'invoices';
                         var cnt = etPanel.querySelector('.mw-et-count');
                         if (cnt) cnt.textContent = remaining;
                         if (remaining === 0) etPanel.parentNode.removeChild(etPanel);
+                        // A recorded payment changes the invoice list and the totals below this panel: reload so the page
+                        // shows it (2026-10-23: the card vanished but the invoice still looked unpaid until a manual reload).
+                        if (recordBtn) setTimeout(function () { window.location.reload(); }, 900);
                     } else {
                         showToast(data.message || 'Could not record.', 'error');
                         if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
