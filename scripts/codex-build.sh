@@ -69,8 +69,18 @@ gradle_check() {   # → $OUT/test-<n>.txt; returns 0 when tests + compile pass
   return $rc
 }
 
+# Codex usage used up mid-build (scripts/lib/codex-run.sh exit 75): stop, leave the worktree for Claude, and say so —
+# the chat hands the rest to the web-builder / code-reviewer Claude agents.
+. "$(dirname "$0")/lib/codex-run.sh"
+codex_call() {     # <logname> <codex exec args...>
+  local rc=0
+  CODEX_CALLER="codex-build.sh $NAME" codex_run "$OUT/$1" "${@:2}" || rc=$?
+  cat "$OUT/$1" >> "$OUT/codex.log"
+  if [ "$rc" = "$CODEX_LIMIT_RC" ]; then log "CODEX LIMIT — stopped; worktree left for Claude (hand the rest to a Claude agent)"; exit "$rc"; fi
+  return 0
+}
 codex_write() {    # <prompt> <outfile>
-  codex exec --sandbox workspace-write --skip-git-repo-check --ephemeral -C "$WT" -o "$2" "$1" < /dev/null >> "$OUT/codex.log" 2>&1
+  codex_call last-run.jsonl --sandbox workspace-write --skip-git-repo-check --ephemeral -C "$WT" -o "$2" "$1"
 }
 
 # 1. build
@@ -99,7 +109,7 @@ git diff "$BASE" > "$OUT/change.diff"
 if [ ! -s "$OUT/change.diff" ]; then log "Codex made NO change — see build-summary.md"; exit 2; fi
 cp "$OUT/change.diff" .codex-inputs/change.diff
 log "review ($(wc -l < "$OUT/change.diff") diff lines)"
-codex exec --sandbox read-only --skip-git-repo-check --ephemeral -C "$WT" -o "$OUT/review.md" "You are a strict, independent reviewer.
+codex_call last-review.jsonl --sandbox read-only --skip-git-repo-check --ephemeral -C "$WT" -o "$OUT/review.md" "You are a strict, independent reviewer.
 Another engineer made the change in .codex-inputs/change.diff to the Mowology crew Android app at $WT (read any file you need there; inputs in .codex-inputs/).
 The task they were given:
 $(cat "$TASK")
@@ -107,7 +117,7 @@ $(cat "$TASK")
 Find REAL defects only: data lost or sent twice (offline, retries, app killed, phone restarted), crashes, wrong user on a shared tablet,
 sign-in/token handling, permissions, privacy, battery, threading/lifecycle, Android API 26-35 differences, wrong data sent to the server,
 behaviour not behind its switch, tests that don't test the claim, and parts of the task not done.
-For each: file:line, a concrete scenario, High/Medium/Low. End with the line VERDICT: CLEAN or VERDICT: FIX." < /dev/null >> "$OUT/codex.log" 2>&1
+For each: file:line, a concrete scenario, High/Medium/Low. End with the line VERDICT: CLEAN or VERDICT: FIX."
 
 # 4. fix what's real
 if grep -qiE "\b(High|Medium)\b" "$OUT/review.md" 2>/dev/null && ! grep -q "VERDICT: CLEAN" "$OUT/review.md"; then

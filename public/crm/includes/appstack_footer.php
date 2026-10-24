@@ -240,6 +240,18 @@
 
     var isAndroid = /Android/.test(navigator.userAgent);
     var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    var businessName = window.MW_BUSINESS && typeof window.MW_BUSINESS.name === 'string' && window.MW_BUSINESS.name.trim() !== ''
+      ? window.MW_BUSINESS.name
+      : 'Ittai';
+    var escapedBusinessName = businessName.replace(/[&<>"']/g, function(character) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      }[character];
+    });
 
     // Build the splash overlay
     var overlay = document.createElement('div');
@@ -247,8 +259,8 @@
     overlay.className = 'mw-install-splash';
 
     var content = '<div class="mw-install-splash-inner">';
-    content += '<img src="/assets/favicon/android-chrome-512x512.png" alt="Mowology" class="mw-install-splash-icon">';
-    content += '<h1 class="mw-install-splash-title">Mowology Crew</h1>';
+    content += '<img src="/assets/favicon/android-chrome-512x512.png" alt="' + escapedBusinessName + '" class="mw-install-splash-icon">';
+    content += '<h1 class="mw-install-splash-title">' + escapedBusinessName + ' Crew</h1>';
     content += '<p class="mw-install-splash-desc">Install the app for the best experience — GPS tracking, notifications, and quick access from your home screen.</p>';
     content += '<div class="mw-install-splash-actions">';
 

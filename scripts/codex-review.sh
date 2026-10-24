@@ -16,6 +16,7 @@
 #   scripts/codex-review.sh <name> <prompt-file> <path> [<path> …]
 #   paths: files or directories, relative to the repo root, or absolute (e.g. the Android repo).
 #   Findings: $CODEX_OUT (default /tmp/codex-review/<name>.md). Exit 3 = secret found, nothing sent.
+#   Exit 75 = Codex usage used up: hand the same review to the code-reviewer Claude agent.
 # =============================================================================
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -53,52 +54,18 @@ for p in "$@"; do
 done
 [ "$copied" -gt 0 ] || { echo "nothing to review" >&2; exit 2; }
 
-# ── 2. Client names out (fresh from production, kept only in a temp file) ─────
-NAMES_PHP="$(mktemp)"; NAMES_JSON="$(mktemp)"
-trap 'rm -f "$NAMES_PHP" "$NAMES_JSON"' EXIT
-cat > "$NAMES_PHP" <<'PHP'
-$n = [];
-$add = function ($v, $min) use (&$n) { $v = trim((string)$v); if (mb_strlen($v) >= $min && strpos($v, ' ') !== false) $n[] = $v; };
-foreach ($db->query("SELECT CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,'')) FROM contacts")->fetchAll(PDO::FETCH_COLUMN) as $v) $add($v, 5);
-foreach ($db->query("SELECT company_name FROM companies")->fetchAll(PDO::FETCH_COLUMN) as $v) { $v = trim((string)$v); if (mb_strlen($v) >= 6) $n[] = $v; }
-foreach ($db->query("SELECT display_name FROM clients WHERE display_name IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $v) $add($v, 6);
-foreach ($db->query("SELECT property_name FROM properties WHERE property_name IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $v) $add($v, 6);
-foreach ($db->query("SELECT CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,'')) FROM users")->fetchAll(PDO::FETCH_COLUMN) as $v) $add($v, 5);
-$out['names'] = array_values(array_unique($n));
-PHP
-if ! scripts/prod-run.sh "$NAMES_PHP" > "$NAMES_JSON" 2>/dev/null; then
-  echo "could not fetch the name list — nothing sent" >&2; exit 3
-fi
-python3 - "$WORK" "$NAMES_JSON" <<'PY'
-import json, os, re, sys
-work, names_file = sys.argv[1], sys.argv[2]
-names = json.load(open(names_file)).get('names', [])
-if len(names) < 50:
-    sys.exit("name list looks empty — refusing to send unredacted code")
-names.sort(key=len, reverse=True)
-pats = [re.compile(r'(?<![A-Za-z0-9])' + r'[\s\-_]*'.join(map(re.escape, n.split())) + r'(?![A-Za-z0-9])', re.I) for n in names]
-hits = 0
-for root, _, files in os.walk(work):
-    for f in files:
-        p = os.path.join(root, f)
-        s = open(p, encoding='utf-8', errors='replace').read()
-        t = s
-        for rx in pats:
-            t, k = rx.subn('[client]', t)
-            hits += k
-        if t != s:
-            open(p, 'w', encoding='utf-8').write(t)
-print(f"redacted {hits} name mention(s)")
-PY
-
-# ── 3. Secrets: stop rather than send ─────────────────────────────────────────
-if grep -rInE "(sk-[A-Za-z0-9]{20,}|sk_live_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|(password|passwd|secret|api_?key)['\"]?\s*[:=]>?\s*['\"][^'\"\$]{8,}['\"])" "$WORK" >/dev/null; then
-  echo "possible secret in the copy — nothing sent. Matches:" >&2
-  grep -rInE "(sk-[A-Za-z0-9]{20,}|sk_live_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|(password|passwd|secret|api_?key)['\"]?\s*[:=]>?\s*['\"][^'\"\$]{8,}['\"])" "$WORK" | cut -c1-160 >&2
-  exit 3
-fi
+# ── 2–3. Client names out, then secrets stop rather than send ─────────────────
+. "$(dirname "$0")/lib/codex-sanitize.sh"
+SANITIZE_REPO="$(pwd)"
+sanitize_names "$WORK" || exit 3
+sanitize_secret_scan "$WORK" || exit 3
 
 echo "reviewing $copied file(s) in $WORK"
 # ── 4. Codex, read-only ───────────────────────────────────────────────────────
-codex exec --sandbox read-only --skip-git-repo-check --ephemeral -C "$WORK" -o "$OUT" "$(cat "$PROMPT_FILE")" < /dev/null > "$BASE/$NAME.log" 2>&1
+# Exit 75 = Codex usage used up (scripts/lib/codex-run.sh): send this review to the code-reviewer Claude agent instead.
+. "$(dirname "$0")/lib/codex-run.sh"
+rc=0
+CODEX_CALLER="codex-review.sh $NAME" codex_run "$BASE/$NAME.log" --sandbox read-only --skip-git-repo-check --ephemeral -C "$WORK" -o "$OUT" "$(cat "$PROMPT_FILE")" || rc=$?
+if [ "$rc" = "$CODEX_LIMIT_RC" ]; then echo "CODEX LIMIT — use the code-reviewer agent (same prompt, same files)"; exit "$rc"; fi
+[ "$rc" = 0 ] || { echo "codex failed (rc=$rc) — see $BASE/$NAME.log" >&2; exit "$rc"; }
 echo "findings: $OUT"

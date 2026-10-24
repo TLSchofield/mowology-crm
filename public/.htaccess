@@ -99,6 +99,11 @@ DirectoryIndex index.php index.html
 # Ittai businesses (*.ittai.ca, 2026-10-23): only the app answers there — never the Mowology website, its
 # CMS or its files. <If> (core Apache) so it also covers folders with their own .htaccess; THE_REQUEST is the
 # browser's own request line, so internal rewrites (/api → app) are judged by what was asked for.
+# A path with dot segments or encoded dots/slashes ("/crm/../index.php", "%2e%2e") would pass the allow-list below on
+# its first folder while Apache serves what it resolves to — the app never uses them, so they 404 (reviewer, 2026-10-24).
+<If "%{HTTP_HOST} =~ /\.ittai\.ca\.?(:[0-9]+)?$/i && %{THE_REQUEST} =~ m#^[A-Z]+ [^ ?]*(/\.{1,2}(/|\?| |$)|%2e|%2f|%5c|\\\\)#i">
+    Redirect 404 /
+</If>
 <If "%{HTTP_HOST} =~ /\.ittai\.ca\.?(:[0-9]+)?$/i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(crm|loginAuth|api|customer|client|assets|uploads/t|\.well-known)(/|\?|\s)#i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(favicon\.ico|robots\.txt|service-worker\.js|unsubscribe\.php|optin-confirm\.php|forgot-password/?|reset-password/?)?(\?|\s)#i">
     Redirect 404 /
 </If>
@@ -214,8 +219,8 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^([a-z0-9\-\/]+)/?$ /cms-render.php?page=$1 [L,QSA]
 
 # php -- BEGIN cPanel-generated handler, do not edit
-# Set the “ea-php83” package as the default “PHP” programming language.
+# Set the “ea-php81” package as the default “PHP” programming language.
 <IfModule mime_module>
-  AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
+  AddHandler application/x-httpd-ea-php81 .php .php8 .phtml
 </IfModule>
 # php -- END cPanel-generated handler, do not edit
