@@ -65,8 +65,7 @@ if [ "$1" = "--clean" ]; then
   [ $# -eq 2 ] || usage
   NAME="$2"; case "$NAME" in ""|*/*|.|..) echo "unsafe build name: $NAME" >&2; exit 3;; esac
   OUT="$HOME/.mowology-codex/web-builds/$NAME"
-  [ -d "$OUT/real" ] && git -C "$REPO" worktree remove --force "$OUT/real" 2>/dev/null || true
-  rm -rf "$OUT"
+  rm -rf "$OUT"   # the shared scratch worktree (_real) is kept and reset by the next run
   echo "removed $OUT"
   exit 0
 fi
@@ -94,7 +93,9 @@ command -v codex >/dev/null || { echo "codex CLI not installed (npm i -g @openai
 [ ${#LIVE[@]} -eq 0 ] || [ -x "$REPO/scripts/prod-pull.sh" ] || { echo "missing scripts/prod-pull.sh" >&2; exit 3; }
 
 OUT="$HOME/.mowology-codex/web-builds/$NAME"
-REAL="$OUT/real"; COPY="$OUT/codex"
+# One reusable scratch worktree, reset per run (a fresh 5,000-file checkout per run filled the disk, 2026-10-24); one run at a time.
+REAL="$HOME/.mowology-codex/web-builds/_real"; COPY="$OUT/codex"
+LOCK="$HOME/.mowology-codex/web-builds/.lock"
 [ ! -e "$OUT" ] || { echo "$OUT already exists; use --clean $NAME first" >&2; exit 3; }
 mkdir -p "$OUT"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$OUT/run.log"; }
@@ -102,9 +103,18 @@ log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$OUT/run.log"; }
 . "$REPO/scripts/lib/codex-run.sh"
 . "$REPO/scripts/lib/codex-sanitize.sh"
 
-log "creating detached worktree"
-git -C "$REPO" worktree add --detach "$REAL" HEAD >> "$OUT/run.log" 2>&1 || { log "could not create worktree"; exit 3; }
-if [ -d "$REPO/vendor" ]; then ln -s "$REPO/vendor" "$REAL/vendor"; else log "repo vendor/ is missing"; exit 3; fi
+mkdir "$LOCK" 2>/dev/null || { log "another codex-web-build run is active ($LOCK) — wait for it"; exit 3; }
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+if [ -e "$REAL/.git" ]; then
+  log "resetting the scratch worktree to HEAD"
+  git -C "$REAL" checkout -q --detach "$(git -C "$REPO" rev-parse HEAD)" >> "$OUT/run.log" 2>&1 \
+    && git -C "$REAL" reset -q --hard && git -C "$REAL" clean -qfd -e vendor || { log "could not reset $REAL"; exit 3; }
+else
+  log "creating the scratch worktree (once)"
+  git -C "$REPO" worktree add --detach "$REAL" HEAD >> "$OUT/run.log" 2>&1 || { log "could not create worktree"; exit 3; }
+fi
+[ -d "$REPO/vendor" ] || { log "repo vendor/ is missing"; exit 3; }
+[ -L "$REAL/vendor" ] || ln -s "$REPO/vendor" "$REAL/vendor"
 
 if [ ${#LIVE[@]} -gt 0 ]; then
   log "pulling ${#LIVE[@]} live file(s)"
@@ -159,7 +169,7 @@ run_tests() {
   TEST_ROUNDS=$((TEST_ROUNDS + 1)); local output="$OUT/test-$TEST_ROUNDS.txt" rc=0 f
   while IFS= read -r f; do
     [ -f "$REAL/$f" ] || continue
-    "${PHP_BIN:-/Applications/MAMP/bin/php/php8.3.30/bin/php}" -l "$REAL/$f" >> "$output" 2>&1 || rc=$?   # MAMP's PHP: there is no php on PATH
+    "${PHP_BIN:-/Applications/MAMP/bin/php/php8.3.30/bin/php}" -l "$REAL/$f" >> "$output" 2>&1 || rc=$?   # the same PHP the suite runs on
   done < <(cd "$REAL" && git ls-files -m -o --exclude-standard '*.php')
   if [ "$rc" -eq 0 ]; then
     (cd "$REAL" && "${PHP_BIN:-/Applications/MAMP/bin/php/php8.3.30/bin/php}" -c "${PHP_INI:-$REPO/scripts/local/php.ini}" -d "pdo_mysql.default_socket=$HOME/.mowology-local/mysql.sock" vendor/bin/phpunit) >> "$output" 2>&1 || rc=$?
@@ -215,6 +225,7 @@ $(tail -120 "$OUT/test-$TEST_ROUNDS.txt")" "$OUT/fix-review-test-$round.md"
 fi
 
 make_diff_apply
+git -C "$REAL" add -A -N   # new files too: a plain diff skips untracked files (the deploy-guard run lost its two new files, 2026-10-24)
 git -C "$REAL" diff "$BASE" > "$OUT/change.diff"
 git -C "$REAL" diff "$BASE" --stat > "$OUT/diffstat.txt"
 redacted_count="$(wc -l < "$OUT/REDACTED-LINES.txt" | tr -d ' ')"
@@ -243,6 +254,6 @@ cat > "$OUT/REPORT.md" <<EOF
 EOF
 
 log "result: $OUT/REPORT.md"
-echo "Remove when finished: git worktree remove --force \"$REAL\""
+echo "The patched files are in $REAL until the next run resets it."
 if [ "$TEST_OK" -ne 0 ] || [ "$rejected_files" -ne 0 ] || { [ "$REVIEW_VERDICT" != "VERDICT: CLEAN" ] && [ "$REVIEW_VERDICT" != "VERDICT: FIXED" ]; }; then exit 2; fi
 exit 0
