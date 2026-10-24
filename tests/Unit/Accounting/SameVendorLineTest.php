@@ -16,7 +16,25 @@ class SameVendorLineTest extends TestCase
         $d = BankImportService::vendorLine(['expense_date' => '2026-04-02', 'total' => 84.0],
             ['id' => 73059, 'transaction_date' => '2026-04-28', 'description' => 'LAWNBOY', 'amount' => 84.0]);
         $this->assertStringContainsString('check the date', $d['reasons'][1]);
-        $this->assertSame(10, $d['confidence']);
+        $this->assertSame(25, $d['confidence'], 'same amount is a real lead (only the date is off): never tied with a different amount');
+    }
+
+    public function testSameAmountOutranksADifferentAmountEvenWhenFurtherAway(): void
+    {
+        $expense = ['expense_date' => '2026-06-22', 'total' => 48.13];
+        $far  = BankImportService::vendorLine($expense, ['id' => 1, 'transaction_date' => '2026-05-27', 'description' => 'DUNBAR LUMBER', 'amount' => 48.13]);
+        $near = BankImportService::vendorLine($expense, ['id' => 2, 'transaction_date' => '2026-06-01', 'description' => 'DUNBAR LUMBER', 'amount' => 634.86]);
+        $this->assertGreaterThan($near['confidence'], $far['confidence']);
+        $this->assertTrue($far['same_amount']);
+        $this->assertFalse($near['same_amount']);
+    }
+
+    public function testThePrintedReceiptDateCountsAsAnAnchor(): void
+    {
+        $c = BankImportService::vendorLine(['expense_date' => '2026-06-22', 'printed_date' => '2026-05-27', 'total' => 48.13],
+            ['id' => 1, 'transaction_date' => '2026-05-27', 'description' => 'DUNBAR LUMBER', 'amount' => 48.13]);
+        $this->assertSame(45, $c['confidence'], '0 days from the printed date');
+        $this->assertStringContainsString('0 days apart', $c['reasons'][1]);
     }
 
     public function testAttachNeedsAgreeingTotals(): void

@@ -846,6 +846,60 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
+    public function candidateTransactionsForExpense_finds_the_exact_line_by_the_printed_receipt_date(): void
+    {
+        // Dunbar Lumber 2026-10-24: form date Jun 22 (wrong), receipt and bank say May 27 — the exact $48.13 line is 26 days from the form date.
+        $svc = $this->bankImportServiceWith(
+            ['id' => 7, 'expense_date' => '2026-06-22', 'total' => 48.13, 'vendor_name_raw' => 'Dunbar Lumber'],
+            [['id' => 301, 'transaction_date' => '2026-05-27', 'description' => 'POINT OF SALE (DUNBAR LUMBER SUPPLY VANCOUVER BCCA)', 'amount' => 48.13, 'bank_account' => 'Visa']]
+        );
+
+        $without = $svc->candidateTransactionsForExpense(7, 8, null, null, null);
+        $this->assertSame([], array_values(array_filter($without, fn($c) => empty($c['vendor_only']))), 'no printed date: unchanged — beyond the window');
+
+        $with = $svc->candidateTransactionsForExpense(7, 8, null, null, '2026-05-27');
+        $this->assertCount(1, $with);
+        $this->assertSame(301, $with[0]['transaction_id']);
+        $this->assertGreaterThanOrEqual(80, $with[0]['confidence']);
+        $this->assertSame('2026-05-27', $with[0]['suggest_expense_date']);
+        $this->assertStringContainsString('the form says Jun 22', implode(' ', $with[0]['reasons']));
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_keeps_the_date_suggestion_when_both_anchors_tie(): void
+    {
+        // Codex 2026-10-24: both anchors cap at 100 (Otto's printed-basis stop adds 20), the earlier row won the tie and lost the suggestion.
+        $svc = $this->bankImportServiceWith(
+            ['id' => 9, 'expense_date' => '2026-10-23', 'total' => 48.13, 'vendor_name_raw' => 'Dunbar Lumber'],
+            [['id' => 501, 'transaction_date' => '2026-10-24', 'description' => 'DUNBAR LUMBER', 'amount' => 48.13, 'bank_account' => 'Visa']]
+        );
+        $c = $svc->candidateTransactionsForExpense(9, 8, null, null, '2026-10-24');
+        $this->assertSame('2026-10-24', $c[0]['suggest_expense_date']);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_empty_printed_date_falls_back_to_the_stored_one(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 10, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [['id' => 601, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity']]
+        );
+        $this->assertCount(1, $svc->candidateTransactionsForExpense(10, 8, null, null, ''));
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_ignores_a_printed_date_equal_to_the_form_date(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 8, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [['id' => 401, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity']]
+        );
+        $c = $svc->candidateTransactionsForExpense(8, 8, null, null, '2026-07-10');
+        $this->assertCount(1, $c);
+        $this->assertArrayNotHasKey('suggest_expense_date', $c[0]);
+    }
+
+    /** @test */
     public function candidateTransactionsForExpense_returns_empty_for_unknown_expense(): void
     {
         $svc = $this->bankImportServiceWith(null, []);
