@@ -40522,3 +40522,13 @@ body.mw-books {
 .mw-txi-result { margin-top:4px; }
 .mw-txi-ask { margin:8px 0 6px; font-size:.84rem; }
 .mw-txi-empty { font-size:.84rem; color:var(--mw-dark); }
+
+/* ── Timesheet pay summary (timesheet-detail.php): rate, regular, overtime, gross as a row of cards (2026-10-23).
+   The markup shipped on 5d1d7998 without any rules, so it showed as a bare stacked list. ───────────── */
+.mw-pay-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+.mw-pay-card { padding:12px 14px; border:1px solid var(--mw-light); border-radius:8px; background-color:Canvas; }
+.mw-pay-card-label { font-size:.72rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--mw-dark); }
+.mw-pay-card-value { margin-top:2px; font-size:1.4rem; font-weight:700; line-height:1.2; }
+.mw-pay-card-sub { margin-top:2px; font-size:.8rem; color:var(--mw-dark); }
+.mw-pay-card--ot { border-left:3px solid var(--mw-orange); }
+.mw-pay-card--gross { border-color:var(--mw-green); background-color:var(--mw-light); }
