@@ -1,41 +1,6 @@
 # Disable directory browsing
 Options -Indexes
 
-# ── Compression ───────────────────────────────────────────────────────────────
-<IfModule mod_deflate.c>
-    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript \
-        application/javascript application/json application/xml \
-        image/svg+xml font/woff2
-</IfModule>
-
-# ── Browser Caching ───────────────────────────────────────────────────────────
-# mod_expires: used if available (some shared hosts don't enable it)
-<IfModule mod_expires.c>
-    ExpiresActive On
-    ExpiresByType text/css               "access plus 1 year"
-    ExpiresByType application/javascript "access plus 1 year"
-    ExpiresByType text/javascript        "access plus 1 year"
-    ExpiresByType image/jpeg             "access plus 30 days"
-    ExpiresByType image/png              "access plus 30 days"
-    ExpiresByType image/webp             "access plus 30 days"
-    ExpiresByType image/gif              "access plus 30 days"
-    ExpiresByType image/svg+xml          "access plus 30 days"
-    ExpiresByType font/woff2             "access plus 1 year"
-    ExpiresByType application/font-woff  "access plus 1 year"
-    ExpiresByType application/json       "access plus 0 seconds"
-    ExpiresByType text/html              "access plus 0 seconds"
-</IfModule>
-# mod_headers fallback: explicit Cache-Control on static file types
-# CSS/JS have ?v= version params so 1-year cache is safe
-<IfModule mod_headers.c>
-    <FilesMatch "\.(css|js)$">
-        Header set Cache-Control "public, max-age=31536000, immutable"
-    </FilesMatch>
-    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2)$">
-        Header set Cache-Control "public, max-age=2592000"
-    </FilesMatch>
-</IfModule>
-
 # ── Security Headers ──────────────────────────────────────────────────────────
 <IfModule mod_headers.c>
     # Prevent clickjacking
@@ -74,8 +39,15 @@ Options -Indexes
     SetEnvIf Request_URI "^/services(/[a-z0-9-]+(\.php)?)?/?$" MW_NONCE_CSP=1
     SetEnvIf Request_URI "^/[a-z0-9-]+(/[a-z0-9-]+)*/?$" MW_NONCE_CSP=1
     SetEnvIf Request_URI "^/(crm|site-admin|cms|api|client|bluemoon|downloads|uploads|assets|storage|_media|quote|forgot-password|reset-password|unsubscribe|optin-confirm|sitemap)(/|\.php|$)" !MW_NONCE_CSP
+    # Receipt files (serve-receipt.php) get their own strict policy from PHP instead of the page policy below, whose
+    # object-src 'none' makes Chrome refuse to draw a PDF receipt beside the editor form (2026-10-20). Must stay AFTER the /crm line.
+    SetEnvIf Request_URI "^/crm/api/serve-receipt\.php$" MW_NONCE_CSP=1
+    # The Expenses page draws an emailed PDF receipt beside the editor form (2026-10-22). Chrome needs object-src 'self' for that, on THIS page only.
+    SetEnvIf Request_URI "^/crm/expenses_appstack\.php$" MW_PDF_OBJECT=1
     </IfModule>
     Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com; frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';" env=!MW_NONCE_CSP
+    # ...and only the Expenses page: object-src 'none' -> 'self' (see MW_PDF_OBJECT above). Every other page keeps 'none'.
+    Header always edit Content-Security-Policy "object-src 'none'" "object-src 'self'" env=MW_PDF_OBJECT
 
     # Remove server version info
     Header always unset X-Powered-By
@@ -124,8 +96,19 @@ DirectoryIndex index.php index.html
     Deny from all
 </FilesMatch>
 
+# Ittai businesses (*.ittai.ca, 2026-10-23): only the app answers there — never the Mowology website, its
+# CMS or its files. <If> (core Apache) so it also covers folders with their own .htaccess; THE_REQUEST is the
+# browser's own request line, so internal rewrites (/api → app) are judged by what was asked for.
+<If "%{HTTP_HOST} =~ /\.ittai\.ca(:[0-9]+)?$/i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(crm|loginAuth|api|customer|client|assets|uploads/t|\.well-known)(/|\?|\s)#i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(favicon\.ico|robots\.txt|service-worker\.js|unsubscribe\.php|optin-confirm\.php)?(\?|\s)#i">
+    Redirect 404 /
+</If>
+
 # ── URL Rewrites ──
 RewriteEngine On
+
+# A business's address opens on its sign-in (Ittai).
+RewriteCond %{HTTP_HOST} \.ittai\.ca(:[0-9]+)?$ [NC]
+RewriteRule ^$ /loginAuth/login.php [L,R=302]
 
 # ── Canonical URLs (SEO) ─────────────────────────────────────────────────────
 # One URL per page. Google had indexed http://, www., .php and /home variants
@@ -157,13 +140,10 @@ RewriteRule ^sitemap\.xml$ /sitemap.php [L]
 
 # mowology.ca/crew → the crew app download (easy to type on a tablet). Point it at the release APK
 # (/crm/downloads/mowology-crew.apk) once 1.7.0 is released to everyone.
-RewriteRule ^crew/?$ /crm/downloads/mowology-crew-1.7.1-test.apk [NC,L,R=302]
+RewriteRule ^crew/?$ /crm/downloads/mowology-crew-2.2.8-test.apk [NC,L,R=302]
 
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
-
-# /before-after → clean URL for public gallery page
-RewriteRule ^before-after/?$ /before-after.php [L,QSA]
 
 # /forgot-password and /reset-password — iOS app password reset flow
 RewriteRule ^forgot-password/?$ /forgot-password.php [L,QSA]
