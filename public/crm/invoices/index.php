@@ -336,12 +336,14 @@ $activePage = 'invoices';
                     ?>
                     <div class="mw-et-row mw-et-chainrow" data-id="<?php echo (int)$et['id']; ?>">
                         <div class="mw-et-head">
+                            <span class="mw-pm" data-pm aria-hidden="true"></span>
                             <strong class="mw-et-sender"><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
                             <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
                             <?php if ($clientUrl): ?><a class="mw-et-client" href="<?php echo htmlspecialchars($clientUrl); ?>"><i data-feather="user"></i> All invoices &amp; payments</a><?php endif; ?>
                             <span class="mw-et-status mw-et-status--<?php echo $lit === 3 ? 'ready' : ($needsLook ? 'look' : 'wait'); ?>">
                                 <?php echo $lit; ?> of 3<?php echo $lit === 3 ? ' — ready to record' : ($needsLook ? ' — check the amber card' : ''); ?>
                             </span>
+                            <span class="mw-et-pm-state" role="status" aria-live="polite">Not recorded yet. Penny is waiting for you.</span>
                         </div>
 
                         <div class="mw-et-chain">
@@ -850,6 +852,7 @@ $activePage = 'invoices';
 
 <div id="mw-toast" class="mw-toast" role="alert" aria-live="assertive" style="display:none;"></div>
 
+<script src="/crm/js/penny-mark.js?v=20261023a"></script>
 <script>
 (function () {
     'use strict';
@@ -1237,6 +1240,20 @@ $activePage = 'invoices';
 
     // ── Pending e-Transfers panel ──────────────────────────────────────────
     var etPanel = document.getElementById('etransfers');
+    // Penny's mark on each strip: three lines tumble until Record is confirmed by the server, then lock into a triangle.
+    var etMarks = {};
+    function etSay(row, text, cls) {
+        var el = row.querySelector('.mw-et-pm-state');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'mw-et-pm-state' + (cls ? ' ' + cls : '');
+    }
+    if (etPanel && window.PennyMark) {
+        Array.prototype.forEach.call(etPanel.querySelectorAll('.mw-et-row'), function (r) {
+            var host = r.querySelector('[data-pm]');
+            if (host) etMarks[r.getAttribute('data-id')] = window.PennyMark.create(host);
+        });
+    }
     if (etPanel) {
         etPanel.addEventListener('click', function (e) {
             var addSplitBtn = e.target.closest('.mw-et-add-split');
@@ -1352,6 +1369,8 @@ $activePage = 'invoices';
                 body.append('action', 'record');
                 recordBtn.disabled = true;
                 recordBtn.textContent = 'Recording…';
+                if (etMarks[id]) etMarks[id].busy(true);
+                etSay(row, 'Recording… nothing is recorded until the server confirms.', '');
             } else {
                 if (!confirm('Dismiss this e-Transfer? It will no longer show here.')) return;
                 body.append('action', 'dismiss');
@@ -1363,7 +1382,11 @@ $activePage = 'invoices';
                 .then(function (data) {
                     if (data.ok) {
                         showToast(data.message || 'Done.', 'success');
+                        var mk = etMarks[id];
+                        if (mk) mk.busy(false);
                         if (data.fully_allocated === false) {
+                            if (mk) mk.lock([true, true, false]);
+                            etSay(row, 'Part recorded. ' + (typeof data.remaining === 'number' ? '$' + data.remaining.toFixed(2) + ' is still waiting for an invoice.' : 'The rest is still waiting for an invoice.'), 'is-bad');
                             // Partially recorded — keep the row so staff can assign the remainder.
                             var splitsEl = row.querySelector('.mw-et-splits');
                             splitsEl.innerHTML =
@@ -1380,6 +1403,15 @@ $activePage = 'invoices';
                             recordBtn.textContent = 'Record';
                             return;
                         }
+                        if (recordBtn && mk) {
+                            // Server confirmed: lock the triangle, say so in words, then reload so the invoice list shows it.
+                            mk.lock(true);
+                            etSay(row, 'Recorded. The invoice is updated.', 'is-ok');
+                            Array.prototype.forEach.call(row.querySelectorAll('button, input'), function (el) { el.disabled = true; });
+                            recordBtn.textContent = 'Recorded';
+                            setTimeout(function () { window.location.reload(); }, 1700);
+                            return;
+                        }
                         row.parentNode.removeChild(row);
                         var remaining = etPanel.querySelectorAll('.mw-et-row').length;
                         var cnt = etPanel.querySelector('.mw-et-count');
@@ -1390,6 +1422,9 @@ $activePage = 'invoices';
                         if (recordBtn) setTimeout(function () { window.location.reload(); }, 900);
                     } else {
                         showToast(data.message || 'Could not record.', 'error');
+                        if (etMarks[id]) etMarks[id].busy(false);
+                        var why = String(data.message || 'The server did not record it.');
+                        etSay(row, why + (/[.!?]$/.test(why) ? ' ' : '. ') + 'Nothing was changed.', 'is-bad');
                         if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
                         if (dismissBtn) dismissBtn.disabled = false;
                         if (data.can_merge && recordBtn) {
@@ -1423,6 +1458,8 @@ $activePage = 'invoices';
                 .catch(function (err) {
                     console.error('[etransfer]', err);
                     showToast('Network error — please try again.', 'error');
+                    if (etMarks[id]) etMarks[id].busy(false);
+                    etSay(row, 'No connection. Nothing was changed.', 'is-bad');
                     if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
                     if (dismissBtn) dismissBtn.disabled = false;
                 });
