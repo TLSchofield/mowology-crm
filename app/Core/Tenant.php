@@ -82,6 +82,11 @@ final class Tenant
                 if (strpos((string)$a, '--tenant=') === 0) $key = substr((string)$a, 9);
             }
         }
+        // A cron/CLI run with no business named is the original business (never the web's empty-Host rule).
+        if ($cli && ($key === null || $key === '')) {
+            self::$current = ['key' => self::DEFAULT, 'cfg' => []];
+            return;
+        }
         $r = self::resolve($cli ? null : (string)($_SERVER['HTTP_HOST'] ?? ''), $key, $registry);
         if ($r['key'] === null) {
             if ($cli) {

@@ -83,10 +83,16 @@ final class Uploads
         if (!preg_match('/^[a-z0-9_-]+$/', $key) || $key === Tenant::DEFAULT) throw new InvalidArgumentException('Bad tenant key.');
         $root = defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 2) . '/public';
         $dir = rtrim($root, '/') . '/uploads/t/' . $key;
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
-        file_put_contents($dir . '/.htaccess', self::htaccess($hosts));
-        if (!is_dir($dir . '/receipts')) @mkdir($dir . '/receipts', 0755, true);
-        file_put_contents($dir . '/receipts/.htaccess', self::DENY_ALL);
+        // Every step checked and read back: a folder without its rules would be served on any address (Codex 2026-10-23).
+        $want = [$dir . '/.htaccess' => self::htaccess($hosts), $dir . '/receipts/.htaccess' => self::DENY_ALL];
+        foreach ([$dir, $dir . '/receipts'] as $d) {
+            if (!is_dir($d) && !@mkdir($d, 0755, true) && !is_dir($d)) throw new RuntimeException('Could not make ' . basename($d) . ' folder.');
+        }
+        foreach ($want as $f => $body) {
+            if (@file_put_contents($f, $body) !== strlen($body) || @file_get_contents($f) !== $body) {
+                throw new RuntimeException('Could not write the folder rules.');
+            }
+        }
         return $dir;
     }
 
