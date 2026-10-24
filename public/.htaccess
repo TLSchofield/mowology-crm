@@ -99,7 +99,7 @@ DirectoryIndex index.php index.html
 # Ittai businesses (*.ittai.ca, 2026-10-23): only the app answers there — never the Mowology website, its
 # CMS or its files. <If> (core Apache) so it also covers folders with their own .htaccess; THE_REQUEST is the
 # browser's own request line, so internal rewrites (/api → app) are judged by what was asked for.
-<If "%{HTTP_HOST} =~ /\.ittai\.ca(:[0-9]+)?$/i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(crm|loginAuth|api|customer|client|assets|uploads/t|\.well-known)(/|\?|\s)#i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(favicon\.ico|robots\.txt|service-worker\.js|unsubscribe\.php|optin-confirm\.php)?(\?|\s)#i">
+<If "%{HTTP_HOST} =~ /\.ittai\.ca\.?(:[0-9]+)?$/i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(crm|loginAuth|api|customer|client|assets|uploads/t|\.well-known)(/|\?|\s)#i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(favicon\.ico|robots\.txt|service-worker\.js|unsubscribe\.php|optin-confirm\.php|forgot-password/?|reset-password/?)?(\?|\s)#i">
     Redirect 404 /
 </If>
 
@@ -107,7 +107,7 @@ DirectoryIndex index.php index.html
 RewriteEngine On
 
 # A business's address opens on its sign-in (Ittai).
-RewriteCond %{HTTP_HOST} \.ittai\.ca(:[0-9]+)?$ [NC]
+RewriteCond %{HTTP_HOST} \.ittai\.ca\.?(:[0-9]+)?$ [NC]
 RewriteRule ^$ /loginAuth/login.php [L,R=302]
 
 # ── Canonical URLs (SEO) ─────────────────────────────────────────────────────
@@ -145,7 +145,10 @@ RewriteRule ^crew/?$ /crm/downloads/mowology-crew-2.2.8-test.apk [NC,L,R=302]
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
 
-# /forgot-password and /reset-password — iOS app password reset flow
+# /forgot-password and /reset-password — iOS app password reset flow. Those pages are the original business's
+# (they mail mowology.ca links), so on a business's ittai address they go to its own sign-in pages (2026-10-23).
+RewriteCond %{HTTP_HOST} \.ittai\.ca\.?(:[0-9]+)?$ [NC]
+RewriteRule ^(forgot|reset)-password/?$ /loginAuth/$1_password.php [L,R=302,QSA]
 RewriteRule ^forgot-password/?$ /forgot-password.php [L,QSA]
 RewriteRule ^reset-password/?$ /reset-password.php [L,QSA]
 

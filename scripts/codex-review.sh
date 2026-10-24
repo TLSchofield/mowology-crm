@@ -32,7 +32,7 @@ OUT="${CODEX_OUT:-$BASE/$NAME.md}"
 rm -rf "$WORK"; mkdir -p "$WORK"
 
 # ── 1. Code files only ────────────────────────────────────────────────────────
-CODE_EXT='php|js|ts|kt|java|swift|css|html|sh|py|gradle|xml'
+CODE_EXT='php|js|ts|kt|java|swift|css|html|sh|py|gradle|xml|htaccess'   # .htaccess: access rules are code
 copied=0
 for p in "$@"; do
   if [ -d "$p" ]; then

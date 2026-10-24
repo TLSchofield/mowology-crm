@@ -45,6 +45,11 @@ class TenantTest extends TestCase
         $this->assertSame('mowology_greenleaf', Tenant::db()[0]);
         Tenant::forTests(['key' => Tenant::DEFAULT, 'cfg' => []]);
         $this->assertSame('', Tenant::appUrl());
+        // Codex 2026-10-23: an app_url that is not one of the business's own hosts is never used (reset links).
+        foreach (['https://attacker.example', 'https://mowology.ca', 'https://greenleaf.ittai.ca.evil.test'] as $bad) {
+            Tenant::forTests(['key' => 'greenleaf', 'cfg' => ['app_url' => $bad] + $this->reg['greenleaf']]);
+            $this->assertSame('', Tenant::appUrl(), $bad);
+        }
         Tenant::forTests(null);
     }
 

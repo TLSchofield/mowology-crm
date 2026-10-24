@@ -150,8 +150,12 @@ final class Tenant
     /** The tenant's own address for links ('' for the default tenant: BusinessIdentity uses its website). */
     public static function appUrl(): string
     {
-        $u = (string)(self::$current['cfg']['app_url'] ?? '');
-        return preg_match('#^https://[a-z0-9.-]+$#i', rtrim($u, '/')) ? rtrim($u, '/') : '';
+        $u = rtrim((string)(self::$current['cfg']['app_url'] ?? ''), '/');
+        if (!preg_match('#^https://([a-z0-9.-]+)$#i', $u, $m)) return '';
+        // Only one of this business's own registered hosts: a typo or a bad entry can never send its links
+        // (password resets included) to another business or an outside address (Codex 2026-10-23).
+        $hosts = array_map('strtolower', (array)(self::$current['cfg']['hosts'] ?? []));
+        return in_array(strtolower($m[1]), $hosts, true) ? $u : '';
     }
 
     /** Tests only. */
