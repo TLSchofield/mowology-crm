@@ -427,3 +427,4 @@ require_once __DIR__ . '/../app/Modules/Plants/Services/PlantIdService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantCareService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/SitePlantQuizService.php';
 require_once __DIR__ . '/../app/Services/Net/SafeHttpFetcher.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaLlmGateway.php';
