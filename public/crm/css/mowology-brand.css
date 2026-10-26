@@ -7108,6 +7108,12 @@ a.mw-clock-timer-nav:hover {
   padding-top:.75rem;
   margin-top:.5rem;
 }
+.mw-review-total {
+  color:var(--mw-ink-900);
+  font-size:1rem;
+  font-weight:600;
+}
+
 .mw-correct-payment-btn {
   background:none;
   border:none;
@@ -8660,6 +8666,30 @@ a.mw-clock-timer-nav:hover {
   font-weight:400;
   cursor:pointer;
 }
+.mw-quote-recipient-cc .mw-cc-row { flex:1 1 100%; }
+.mw-cc-extra { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
+.mw-cc-chip {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin:0;
+  padding:2px 4px 2px 10px;
+  background:var(--mw-light);
+  border:1px solid var(--mw-light);
+  border-radius:999px;
+  font-size:.85rem;
+  color:var(--mw-ink-900);
+}
+.mw-cc-chip-x {
+  border:none;
+  background:none;
+  padding:0 6px;
+  font-size:1.1rem;
+  line-height:1;
+  color:var(--mw-ink-500);
+  cursor:pointer;
+}
+.mw-cc-chip-x:hover { color:var(--mw-color-danger); }
 /* ════════════════════════════════════════════════════════════════════════
    Quote → Plan Allocation (coverage card on the quote view)
    ════════════════════════════════════════════════════════════════════════ */
@@ -36219,6 +36249,23 @@ span.mw-icon-box--missing {
 }
 .mw-match-item + .mw-match-item { margin-top: .5rem; }
 
+/* Several receipts, one bank line (transactions page; BankLineReceipts 2026-10-16) */
+.mw-rgroup { margin-top: .6rem; }
+.mw-rgroup-head { font-size: .78rem; font-weight: 600; color: var(--mw-dark); margin-bottom: .4rem; }
+.mw-rgroup-item {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--mw-card); border: 1px solid var(--mw-st-off-line);
+  border-radius: 8px; padding: .45rem .7rem; margin: 0 0 .35rem; cursor: pointer;
+}
+.mw-rgroup-item input { flex: none; }
+.mw-rgroup-vendor { font-size: .82rem; font-weight: 600; }
+.mw-rgroup-meta { font-size: .74rem; color: var(--mw-st-off); flex: 1 1 12rem; min-width: 0; }
+.mw-rgroup-amt { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mw-rgroup-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: .4rem; }
+.mw-rgroup-sum { font-size: .8rem; font-weight: 600; color: var(--mw-st-off); flex: 1 1 14rem; }
+.mw-rgroup-ok  { color: var(--mw-st-ok); }
+.mw-rgroup-off { color: var(--mw-st-bad); }
+
 .mw-conf-badge {
   flex: none;
   min-width: 44px;
@@ -38609,6 +38656,17 @@ body.mw-rc-zoom-open { overflow: hidden; }
 /* Otto — Supplier price lists (/crm/suppliers/price-lists.php, migration 1331) */
 .mw-pl-summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
 .mw-pl-summary .card { margin-bottom: 16px; }
+/* Supplier price lists: first list from a new supplier, read automatically, waiting for "looks right" */
+/* Plant reference photo (iNaturalist, copied to uploads/taxa) beside a catalogue plant */
+.mw-plantpic { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; margin-right: 8px; vertical-align: middle; background: var(--mw-light); }
+.mw-plantpic-lg { width: 64px; height: 64px; margin-right: 0; flex: 0 0 64px; }
+.mw-plr { margin-bottom: 16px; border-left: 4px solid var(--mw-orange); }
+.mw-plr-col { display: inline-block; margin: 0 6px 4px 0; padding: 1px 8px; border-radius: 10px; background: var(--mw-light); color: var(--mw-forest); font-size: .8rem; }
+.mw-plr-fix { margin-top: 10px; }
+.mw-plr-fix summary { cursor: pointer; color: var(--mw-green); }
+.mw-plr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.mw-plr-grid label { font-size: .8rem; margin: 0; }
+.mw-plr-skip { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--mw-light); }
 .mw-pl-diff { font-size: .84rem; }
 .mw-pl-new { color: var(--mw-green); font-weight: 600; }
 .mw-pl-up { color: var(--mw-orange); font-weight: 600; }
@@ -38778,6 +38836,15 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-otto-gaps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .mw-otto-gap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-orange); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
 .mw-otto-gap.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }
+/* The map under Otto's card: the pin and the arrival border (2026-10-18). */
+.mw-otto-map-wrap { margin-top: 12px; }
+.mw-otto-map { height: 220px; border-radius: var(--mw-radius-md); overflow: hidden; background: var(--mw-ink-100); }
+.mw-otto-map.is-empty { display: flex; align-items: center; justify-content: center; font-size: .8rem; color: var(--mw-ink-500); }
+.mw-otto-map-cap { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: .78rem; color: var(--mw-ink-500); }
+.mw-otto-map-cap a { color: var(--mw-green); font-weight: 600; white-space: nowrap; }
+.mw-otto-map-acts { display: inline-flex; gap: 12px; align-items: baseline; }
+.mw-otto-map-remove { border: 0; background: none; padding: 0; font-size: .78rem; color: var(--mw-ink-500); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+.mw-otto-map-remove:hover, .mw-otto-map-remove:focus { color: var(--mw-forest); }
 .mw-otto-gap-text { min-width: 0; display: flex; flex-direction: column; }
 .mw-otto-gap-text strong { font-size: .86rem; color: var(--mw-forest); }
 .mw-otto-gap.is-done .mw-otto-gap-text strong::after { content: " \2713"; color: var(--mw-green); }
@@ -39644,7 +39711,7 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-unbilled-dialog-title { font-weight: 700; font-size: 1rem; color: var(--mw-forest); margin-bottom: 8px; }
 .mw-unbilled-dialog-total { margin-top: 10px; font-size: .82rem; color: var(--mw-dark); }
 .mw-unbilled-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-=======
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Otto on the schedule — the strip (includes/otto-schedule-strip.php) on the Schedule,
    the Territory Map and the dashboard's 7-Day Operations; Pins & borders (review page);
@@ -39810,7 +39877,7 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-sam-q-opened   { border-left: 4px solid var(--mw-orange); background: color-mix(in srgb, var(--mw-orange) 7%, transparent); padding-left: 8px; border-radius: 4px; }
 .mw-sam-q-accepted { border-left: 4px solid var(--mw-green);  background: color-mix(in srgb, var(--mw-green) 8%, transparent);  padding-left: 8px; border-radius: 4px; }
 .mw-sam-q-declined { border-left: 4px solid var(--mw-red);    background: color-mix(in srgb, var(--mw-red) 7%, transparent);    padding-left: 8px; border-radius: 4px; }
-=======
+
 
 /* ── Cash-flow forecast (Penny, 2026-10-10) ───────────────────────────── */
 .mw-cf-stat .mw-cf-k { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-dark); }
@@ -40473,3 +40540,232 @@ body.mw-books {
 
 /* Expenses: a field the attached receipt just filled in (expenses_appstack.php, 2026-10-15) */
 .mw-field-updated { border-color: var(--mw-green) !important; box-shadow: 0 0 0 0.15rem var(--mw-light); }
+
+/* ── Cost Factors → Penny's check (ledger suggestions) ──── */
+.mw-penny-check { border-left: 4px solid var(--mw-green); }
+.mw-penny-check .card-header { background: var(--mw-light); }
+.mw-penny-sub { font-size: 0.8rem; color: var(--mw-dark); margin-top: 2px; }
+.mw-penny-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--mw-light); }
+.mw-penny-row:last-of-type { border-bottom: 0; }
+.mw-penny-change { color: var(--mw-dark); font-weight: 600; margin-left: 6px; }
+.mw-penny-src { font-size: 0.78rem; color: var(--mw-ink-soft, var(--mw-dark)); margin-top: 2px; }
+.mw-penny-actions { white-space: nowrap; }
+.mw-penny-clear { color: var(--mw-dark); padding: 4px 0; }
+.mw-penny-note { font-size: 0.82rem; color: var(--mw-ink-soft, var(--mw-dark)); background: var(--mw-light); border-radius: 4px; padding: 8px 10px; margin-top: 10px; }
+.mw-penny-note ul { margin: 6px 0 0 18px; padding: 0; }
+@media (max-width: 575.98px) {
+  .mw-penny-row { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Edit Expense fills the screen (Tim 2026-10-22) ──────────────────────────────────────────────
+   The receipt, an emailed PDF above all, has to be readable beside the form. Wide screens only: on a phone the
+   modal keeps its normal stacked layout. */
+@media (min-width: 992px) {
+  #expenseModal .modal-dialog { max-width:98vw; width:98vw; margin:1vh auto; }
+  #expenseModal .modal-content.mw-expense-modal { height:96vh; max-height:96vh; }
+  #expReceiptCol[style*="block"] { flex:0 0 50%; max-width:50%; }
+  #expReceiptCol[style*="block"] ~ #expFormCol { flex:0 0 50%; max-width:50%; }
+  #expenseModal #mwPdfFrame,
+  #expenseModal #expReceiptFrame { height:calc(96vh - 200px); min-height:480px; }   /* the PDF, and an emailed receipt shown as sent */
+}
+
+/* ── Texts from numbers we don't know (Yui's card, 2026-10-22) ──────────────────────────────────── */
+.mw-txi { margin:16px 0; padding:14px 16px; border:1px solid var(--mw-light); border-left:4px solid var(--mw-orange); border-radius:8px; background-color:Canvas; }
+.mw-txi-head { display:flex; align-items:center; gap:10px; }
+.mw-txi-count { font-size:.78rem; color:var(--mw-dark); background:var(--mw-light); border-radius:10px; padding:1px 8px; }
+.mw-txi-help { margin:6px 0 10px; font-size:.82rem; color:var(--mw-dark); }
+.mw-txi-msg { margin:0 0 10px; padding:8px 10px; border-radius:6px; font-size:.84rem; background:var(--mw-light); }
+.mw-txi-msg.is-bad { border-left:3px solid var(--mw-orange); }
+.mw-txi-thread { padding:10px 0; border-top:1px solid var(--mw-light); }
+.mw-txi-top { display:flex; flex-wrap:wrap; gap:10px; align-items:baseline; }
+.mw-txi-meta { font-size:.78rem; color:var(--mw-dark); }
+.mw-txi-line { display:flex; gap:8px; margin-top:4px; font-size:.86rem; }
+.mw-txi-who { flex:0 0 74px; font-size:.74rem; color:var(--mw-dark); }
+.mw-txi-line.is-out .mw-txi-text { color:var(--mw-dark); }
+.mw-txi-text { min-width:0; overflow-wrap:anywhere; }
+.mw-txi-acts { display:flex; gap:8px; margin-top:10px; }
+.mw-txi-link { margin-top:10px; }
+.mw-txi-results { margin-top:6px; }
+.mw-txi-result { margin-top:4px; }
+.mw-txi-ask { margin:8px 0 6px; font-size:.84rem; }
+.mw-txi-empty { font-size:.84rem; color:var(--mw-dark); }
+
+/* ── Timesheet pay summary (timesheet-detail.php): rate, regular, overtime, gross as a row of cards (2026-10-23).
+   The markup shipped on 5d1d7998 without any rules, so it showed as a bare stacked list. ───────────── */
+.mw-pay-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+.mw-pay-card { padding:12px 14px; border:1px solid var(--mw-light); border-radius:8px; background-color:Canvas; }
+.mw-pay-card-label { font-size:.72rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--mw-dark); }
+.mw-pay-card-value { margin-top:2px; font-size:1.4rem; font-weight:700; line-height:1.2; }
+.mw-pay-card-sub { margin-top:2px; font-size:.8rem; color:var(--mw-dark); }
+.mw-pay-card--ot { border-left:3px solid var(--mw-orange); }
+.mw-pay-card--gross { border-color:var(--mw-green); background-color:var(--mw-light); }
+
+/* ═══ Timesheets, week grid (/crm/timeclock/timesheet-week.php) — Ittai Design System v1.2 (2026-10-23) ═══
+   Tokens below are the generated light values from docs/design/ittai-v1.2 (tenant: Mowology), defined once for
+   this scope. Rows before cards, one hairline list, status as icon + word, sentence case, Inter 400/500/600,
+   tabular figures, 48px touch targets below 1024px, focus ring 2px. */
+.it-ts {
+  --it-page:#F4F5F3; --it-surface:#FFFFFF; --it-sunk:#EEF1EE; --it-selected:#E8ECE9; --it-line:#D9DFDA;
+  --it-text:#131D17; --it-meta:#56635B;
+  --it-complete:#1B5F3C; --it-attention:#84530F; --it-blocked:#A12C1F; --it-progress:#2F5E8C; --it-focus:#2F5E8C;
+  --it-tenant:#1A5A39; --it-on-tenant:#FFFFFF; --it-tenant-soft:#D4F9E2;
+  font-family: Inter, system-ui, sans-serif; font-size:14px; line-height:20px; color:var(--it-text);
+  max-width:1280px;
+}
+.it-ts *, .it-ts *::before, .it-ts *::after { box-sizing:border-box; }
+.it-ts button, .it-ts input { font:inherit; color:inherit; }
+.it-ts .it-sr { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.it-ts .it-ico { flex:0 0 auto; vertical-align:-3px; }
+.it-ts-num { font-variant-numeric:tabular-nums; }
+.it-ts-num-strong { font-weight:600; }
+.it-ts-attn { color:var(--it-attention); }
+
+.it-ts-head { display:flex; flex-wrap:wrap; gap:12px 24px; align-items:flex-end; justify-content:space-between; margin:0 0 16px; }
+.it-ts-title { margin:0; font-size:28px; line-height:36px; font-weight:600; letter-spacing:-.01em; }
+.it-ts-sub { margin:4px 0 0; color:var(--it-meta); }
+.it-ts-tools { display:flex; gap:16px; }
+.it-ts-link { color:var(--it-text); text-decoration:underline; text-underline-offset:3px; text-decoration-color:var(--it-line); }
+.it-ts-link:hover { text-decoration-color:var(--it-text); }
+
+.it-ts-weeknav { display:flex; align-items:center; gap:8px; margin:0 0 12px; }
+.it-ts-range { min-width:190px; text-align:center; font-size:16px; line-height:24px; font-weight:500; font-variant-numeric:tabular-nums; }
+.it-ts-summary { display:flex; flex-wrap:wrap; gap:6px 20px; margin:0 0 16px; color:var(--it-meta); }
+.it-ts-summary strong { color:var(--it-text); font-weight:600; font-variant-numeric:tabular-nums; }
+.it-ts-summary .it-ts-attn strong { color:inherit; }
+.it-ts-empty { padding:32px 16px; border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); color:var(--it-meta); }
+
+/* buttons */
+.it-ts-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:0 14px; border:1px solid var(--it-line); border-radius:10px;
+  background:var(--it-surface); color:var(--it-text); font-weight:500; text-decoration:none; cursor:pointer; }
+.it-ts-btn:hover { background:var(--it-selected); color:var(--it-text); text-decoration:none; }
+.it-ts-btn-icon { width:36px; padding:0; }
+.it-ts-btn-quiet { border-color:transparent; background:transparent; color:var(--it-meta); }
+.it-ts-btn-primary { border-color:var(--it-tenant); background:var(--it-tenant); color:var(--it-on-tenant); font-weight:600; }
+.it-ts-btn-primary:hover { background:var(--it-tenant); color:var(--it-on-tenant); filter:brightness(1.12); }
+.it-ts-btn:disabled { opacity:.6; cursor:default; }
+.it-ts :focus-visible { outline:2px solid var(--it-focus); outline-offset:2px; }
+
+/* the list */
+.it-ts-list { border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); overflow:hidden; }
+.it-ts-colhead, .it-ts-row { display:grid; grid-template-columns:minmax(210px, 1.5fr) repeat(7, minmax(76px, 1fr)) minmax(120px, 1fr); align-items:center; }
+.it-ts-colhead { padding:0 8px; min-height:40px; border-bottom:1px solid var(--it-line); background:var(--it-sunk); color:var(--it-meta); font-size:12px; line-height:16px; }
+.it-ts-day-h, .it-ts-total-h { text-align:right; padding:0 12px; font-variant-numeric:tabular-nums; }
+.it-ts-day-h b { font-weight:600; color:var(--it-text); }
+.it-ts-day-h.is-today b { color:var(--it-tenant); }
+.it-ts-name-h { padding:0 8px; }
+.it-ts-person { border-bottom:1px solid var(--it-line); }
+.it-ts-person:last-child { border-bottom:0; }
+.it-ts-person.is-open { background:var(--it-page); }
+.it-ts-row { padding:0 8px; min-height:60px; }
+.it-ts-who { display:flex; align-items:center; gap:12px; min-height:60px; padding:8px; border:0; background:transparent; text-align:left; cursor:pointer; border-radius:10px; width:100%; }
+.it-ts-who:hover { background:var(--it-selected); }
+.it-ts-avatar { flex:0 0 32px; width:32px; height:32px; border-radius:999px; display:grid; place-items:center; background:var(--it-tenant-soft); color:var(--it-tenant); font-size:12px; font-weight:600; }
+.it-ts-who-text { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.it-ts-name { font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.it-ts-status { display:inline-flex; align-items:center; gap:4px; font-size:12px; line-height:16px; color:var(--it-meta); }
+.it-ts-st-approved { color:var(--it-complete); }
+.it-ts-st-submitted { color:var(--it-progress); }
+.it-ts-st-rejected { color:var(--it-blocked); }
+.it-ts-chev { color:var(--it-meta); transition:transform .15s ease; }
+.it-ts-who[aria-expanded="true"] .it-ts-chev { transform:rotate(180deg); }
+.it-ts-cell { position:relative; min-height:60px; padding:0 12px; border:0; border-radius:8px; background:transparent; text-align:right; cursor:pointer; }
+.it-ts-cell:hover { background:var(--it-selected); }
+.it-ts-cell.is-today { background:var(--it-sunk); }
+.it-ts-cell.is-today:hover { background:var(--it-selected); }
+.it-ts-cell.is-long .it-ts-num { font-weight:600; }
+.it-ts-cell .it-ts-day-label { display:none; }
+.it-ts-mark { position:absolute; top:6px; left:8px; line-height:0; }
+.it-ts-total { padding:0 12px; text-align:right; display:flex; flex-direction:column; align-items:flex-end; }
+.it-ts-ot { display:inline-flex; align-items:center; gap:4px; font-size:12px; line-height:16px; }
+
+/* a person's day-by-day detail */
+.it-ts-detail { padding:4px 16px 16px 56px; border-top:1px solid var(--it-line); }
+.it-ts-note { display:flex; gap:8px; align-items:flex-start; margin:12px 0 0; color:var(--it-meta); }
+.it-ts-note.it-ts-attn { color:var(--it-attention); }
+.it-ts-dayblock { padding:12px 0; border-bottom:1px solid var(--it-line); }
+.it-ts-dayblock:last-child { border-bottom:0; }
+.it-ts-dayblock.is-focus { box-shadow:inset 3px 0 0 var(--it-tenant); background:var(--it-surface); padding-left:12px; }
+.it-ts-dayhead { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+.it-ts-dayhead h3 { margin:0; font-size:14px; line-height:20px; font-weight:600; }
+.it-ts-entry { display:grid; grid-template-columns:minmax(0, 1fr) 84px auto; gap:12px; align-items:center; padding:8px 0; }
+.it-ts-entry + .it-ts-entry { border-top:1px solid var(--it-line); }
+.it-ts-entry-main { display:flex; gap:12px; min-width:0; align-items:baseline; }
+.it-ts-kind { flex:0 0 40px; color:var(--it-meta); font-size:12px; }
+.it-ts-times { min-width:0; font-variant-numeric:tabular-nums; }
+.it-ts-times em { font-style:normal; color:var(--it-attention); }
+.it-ts-times small { display:block; color:var(--it-meta); font-size:12px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.it-ts-entry .it-ts-num { text-align:right; }
+.it-ts-entry-acts { display:flex; gap:4px; }
+.it-ts-add { padding-top:6px; }
+
+/* the change panel: one quiet form under the row it changes */
+.it-ts-panel { margin:8px 0 8px 52px; padding:16px; border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); }
+.it-ts-panel-t { margin:0 0 12px; font-size:14px; line-height:20px; font-weight:600; }
+.it-ts-panel-text { margin:0; color:var(--it-meta); }
+.it-ts-panel-body { display:flex; flex-wrap:wrap; gap:12px 16px; align-items:flex-end; }
+.it-ts-field { display:flex; flex-direction:column; gap:4px; min-width:120px; }
+.it-ts-panel > .it-ts-field { margin-top:12px; max-width:420px; }
+.it-ts-field-l { font-size:12px; line-height:16px; color:var(--it-meta); }
+.it-ts-field-h { font-size:12px; line-height:16px; color:var(--it-meta); }
+.it-ts-input { min-height:40px; padding:0 10px; border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); font-variant-numeric:tabular-nums; }
+.it-ts-input[type="number"] { width:84px; }
+.it-ts-check { display:flex; gap:8px; align-items:center; min-height:40px; }
+.it-ts-check input { width:18px; height:18px; }
+.it-ts-error { margin:12px 0 0; padding:8px 12px; border-left:3px solid var(--it-blocked); background:var(--it-sunk); color:var(--it-blocked); }
+.it-ts-panel-acts { display:flex; gap:8px; margin-top:16px; }
+
+/* tablet and phone: decisions first, a person per row, days inside */
+@media (max-width: 1023.98px) {
+  .it-ts-colhead { display:none; }
+  .it-ts-row { grid-template-columns:minmax(0, 1fr) auto; padding:0 4px; }
+  .it-ts-cell { display:none; }
+  .it-ts-who { min-height:64px; }
+  .it-ts-btn, .it-ts-input, .it-ts-check { min-height:48px; }
+  .it-ts-btn-icon { width:48px; }
+  .it-ts-detail { padding:0 12px 12px; }
+  .it-ts-panel { margin-left:0; }
+  .it-ts-entry { grid-template-columns:minmax(0, 1fr) auto; }
+  .it-ts-entry-acts { grid-column:1 / -1; }
+  .it-ts-entry-acts .it-ts-btn { flex:1 1 0; }
+  .it-ts-title { font-size:22px; line-height:30px; }
+}
+@media (max-width: 600px) {
+  .it-ts { font-size:16px; line-height:24px; }
+  .it-ts-range { min-width:0; flex:1 1 auto; }
+  .it-ts-weeknav { flex-wrap:wrap; }
+  .it-ts-field { flex:1 1 100%; }
+  .it-ts-input[type="number"] { width:100%; }
+  .it-ts-panel-acts .it-ts-btn { flex:1 1 0; }
+}
+@media (prefers-reduced-motion: reduce) { .it-ts-chev { transition:none; } }
+@media (forced-colors: active) { .it-ts-btn-primary { border:2px solid ButtonText; } .it-ts-dayblock.is-focus { border-left:3px solid Highlight; } }
+
+/* ── Penny's mark on the pending e-Transfer strip (2026-10-23): three lines tumble, lock into a triangle on a confirmed Record ── */
+.mw-pm { display:inline-block; width:56px; height:56px; flex:0 0 56px; }
+.mw-pm svg { display:block; width:100%; height:100%; }
+.mw-pm line { stroke-width:6; stroke-linecap:round; }
+.mw-pm line.is-free { stroke:var(--mw-orange); }
+.mw-pm line.is-locked { stroke:var(--mw-green); }
+.mw-pm .pm-dot { fill:var(--mw-green); }
+.mw-et-pm-state { flex:1 1 100%; margin:-.35rem 0 .6rem 0; font-size:.8rem; color:var(--mw-dark); display:flex; gap:.4rem; align-items:center; }
+.mw-et-pm-state.is-ok { color:var(--mw-green); font-weight:600; }
+.mw-et-pm-state.is-bad { color:var(--mw-orange); font-weight:600; }
+
+
+/* ── Invoice deposit matches: evidence cards (green fits, red is a real mismatch) ── */
+.mw-conf-bad { background: color-mix(in srgb, var(--mw-red) 70%, #000); color: #fff; padding: .28rem .4rem; }
+.mw-match-item--bad { border-color: var(--mw-red); }
+.mw-ev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.mw-ev { display: flex; align-items: flex-start; gap: 6px; padding: .4rem .55rem; border-radius: 6px; font-size: .73rem; line-height: 1.35; }
+.mw-ev svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+.mw-ev-label { display: block; font-weight: 600; }
+.mw-ev-detail { display: block; font-size: .68rem; opacity: .85; }
+.mw-ev--ok { background: var(--mw-light); color: var(--mw-dark); }
+.mw-ev--ok svg { color: var(--mw-green); }
+.mw-ev--bad { background: color-mix(in srgb, var(--mw-red) 12%, #fff); color: color-mix(in srgb, var(--mw-red) 70%, #000); }
+.mw-ev--bad svg { color: var(--mw-red); }
+.mw-ev--strong { grid-column: 1 / -1; }
+.mw-ev--ok.mw-ev--strong { background: var(--mw-forest); color: var(--mw-light); }
+.mw-ev--ok.mw-ev--strong svg { color: var(--mw-lime); }
+.mw-ev--bad.mw-ev--strong { background: color-mix(in srgb, var(--mw-red) 70%, #000); color: #fff; }
+.mw-ev--bad.mw-ev--strong svg { color: #fff; }
