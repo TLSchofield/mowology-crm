@@ -458,3 +458,20 @@ its 2026 entry) and never re-date it into 2025. The printed year is OCR: confirm
 Also: the oldest month that can't close is not always the one a receipt explains (January's gap is the opening) —
 look at later months for the receipt cause.
 
+## 2026-10-26 — Tips: the bank charge is the receipt plus a tip the paper didn't carry
+Moxies $90.69 → bank $107.01, Ah Long Sushi $22.52 → $27.02, Whitespot $41.78 → $50.14 (tips $16.32, $4.50, $8.36 = 19–20%). A tip is
+beyond the 2% attach window, so tipped meals never matched on their own and sat as open receipts + unsorted lines. **Rule:** the
+tip goes in the PRE-TAX amount (no GST/PST on a tip: tax stays as printed), pre-tax + GST + PST = the bank charge, category Meals
+(50% treatment — confirm with Steve), a note "Tip $X (bank charge $Y)". `BankImportService::tipSuggestion()` now offers it on the
+same-vendor bank candidate ("Use $107.01 with tip" in the Edit Expense form): Meals receipts only, receipt must add up, gap 5–35%
+of pre-tax, within 3 calendar days, and never when two same-vendor charges could each be the tip (two visits). It only fills the form;
+Save then Attach as before.
+
+## 2026-10-26 — A purchase the bank posts the next morning is "in transit", not drift
+Yellow Cab $22.50 (receipt 2026-02-28 21:50, bank line 2026-03-01) made February $22.50 'below the bank'. Good practice: the
+receipt keeps its true date and the reconciliation lists the item in transit. `MonthCloseService::inTransit()` takes it out of the
+drift only when strict: purchase line, same amount, the receipt's live entry in its month credited to the SAME account, the bank
+line's own entry retired, one line per receipt, bank date within 3 days of month end, unlocked months only. Don't re-date a receipt to
+match the bank. Also: rejecting or re-dating a receipt into a filed year posts a late entry dated today (2026-10-26 #15345) —
+reject it instead (see the 2025-receipts trap).
+
