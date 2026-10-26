@@ -253,7 +253,9 @@ class ExpenseGate
                 }
                 if (function_exists('reverseLineItemInventory')) reverseLineItemInventory($this->db, $id);
                 if ($this->split->ready()) $this->split->clear($id);
-                $this->db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$id]);
+                // Plain statement, id cast to int: on production a PREPARED delete here fails with MySQL 1615 ("needs to be re-prepared")
+                // because the table has four foreign-key children (2026-10-26, #490); the same delete run plainly works.
+                $this->db->exec('DELETE FROM expenses WHERE id = ' . (int)$id);
                 $this->audit($id, 'delete', $source, $actor, array_keys($before), self::auditValues($before), [], null);
                 if ($own) $this->db->commit();
                 return self::result($id, 'delete', [], false);
