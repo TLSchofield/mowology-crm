@@ -43,6 +43,47 @@ final class MiaStoryWriter
 
     /** Capitalised words that are always fine (start of the place line the site already uses). */
     private const ALWAYS_OK = ['vancouver', 'bc', 'metro', 'british', 'columbia', 'canada'];
+    /**
+     * The only words a public card may use besides the facts: plain everyday language for describing outdoor work.
+     * Anything else - a name, a street, a brand, a number word, an invented detail - is rejected. Capital letters are not
+     * trusted to find names ("for john smith" has none), so the check is an allow-list, not a name detector.
+     */
+    private const SAFE_WORDS = [
+        'a', 'after', 'afternoon', 'again', 'all', 'also', 'an', 'and', 'another', 'any', 'appealing', 'are', 'area', 'areas',
+        'around', 'as', 'at', 'attractive', 'autumn', 'away', 'back', 'bare', 'be', 'because', 'bed', 'beds', 'been',
+        'before', 'being', 'best', 'better', 'between', 'big', 'blocks', 'border', 'borders', 'both', 'bright', 'brighter',
+        'building', 'buildings', 'bush', 'bushes', 'but', 'by', 'calm', 'calmer', 'can', 'care', 'cared', 'careful',
+        'carefully', 'caring', 'change', 'changed', 'changes', 'clean', 'cleaned', 'cleaning', 'cleanup', 'clear', 'cleared',
+        'community', 'comparison', 'complete', 'completed', 'completing', 'corner', 'corners', 'could', 'courtyard',
+        'courtyards', 'crew', 'crews', 'crisp', 'crisply', 'day', 'days', 'dense', 'detail', 'detailed', 'details', 'did',
+        'difference', 'do', 'does', 'done', 'driveway', 'each', 'early', 'edge', 'edged', 'edges', 'edging', 'entrance',
+        'entry', 'even', 'evenly', 'every', 'fall', 'fence', 'fences', 'few', 'finish', 'finished', 'finishing', 'first',
+        'flower', 'flowering', 'flowers', 'for', 'fresh', 'freshened', 'from', 'front', 'full', 'fuller', 'further', 'garden',
+        'gardening', 'gardens', 'gate', 'gates', 'gently', 'get', 'got', 'grass', 'great', 'green', 'greener', 'had', 'has',
+        'have', 'healthier', 'healthy', 'heavy', 'hedge', 'hedges', 'here', 'high', 'higher', 'home', 'homes', 'house',
+        'houses', 'how', 'if', 'image', 'images', 'in', 'into', 'inviting', 'is', 'it', 'its', 'job', 'jobs', 'just', 'large',
+        'larger', 'last', 'later', 'lawn', 'lawns', 'less', 'light', 'line', 'lines', 'little', 'local', 'locally', 'long',
+        'longer', 'look', 'looked', 'looking', 'looks', 'lovely', 'low', 'lower', 'lush', 'made', 'maintain', 'maintained',
+        'maintenance', 'make', 'many', 'may', 'messy', 'month', 'months', 'more', 'morning', 'most', 'much', 'mulch',
+        'mulched', 'narrow', 'natural', 'naturally', 'neat', 'neater', 'neatly', 'neighborhood', 'neighbourhood',
+        'neighbourhoods', 'new', 'next', 'nicer', 'no', 'not', 'now', 'of', 'off', 'old', 'on', 'once', 'one', 'only', 'open',
+        'or', 'original', 'other', 'our', 'out', 'over', 'overgrown', 'own', 'part', 'path', 'paths', 'pathway', 'patio',
+        'patios', 'photo', 'photos', 'picture', 'pictures', 'plain', 'plant', 'planted', 'planting', 'plants', 'pleasant',
+        'polished', 'porch', 'presentable', 'pretty', 'project', 'projects', 'properties', 'property', 'quick', 'quickly',
+        'quiet', 'ready', 'recent', 'recently', 'refresh', 'refreshed', 'residence', 'residential', 'rest', 'result',
+        'results', 'rough', 'rugged', 'same', 'season', 'seasonal', 'see', 'seen', 'service', 'services', 'set', 'several',
+        'shape', 'shaped', 'shapes', 'shaping', 'sharp', 'sharper', 'she', 'short', 'shorter', 'shot', 'shots', 'should',
+        'show', 'showing', 'shown', 'shows', 'shrub', 'shrubs', 'side', 'sides', 'simple', 'since', 'small', 'smooth',
+        'smoothed', 'so', 'soil', 'some', 'soon', 'space', 'spaces', 'spring', 'staff', 'stairs', 'steadily', 'steps',
+        'still', 'street', 'such', 'summer', 'tall', 'taller', 'tangled', 'team', 'teams', 'than', 'that', 'the', 'their',
+        'them', 'then', 'there', 'these', 'they', 'thick', 'thicker', 'thin', 'this', 'thorough', 'thoroughly', 'those',
+        'tidied', 'tidier', 'tidy', 'to', 'today', 'too', 'top', 'transformation', 'transformed', 'tree', 'trees', 'tried',
+        'trim', 'trimmed', 'trimming', 'trims', 'turf', 'two', 'under', 'unruly', 'until', 'up', 'update', 'updated',
+        'upkeep', 'us', 'use', 'used', 'very', 'visit', 'visited', 'visits', 'walkway', 'walkways', 'wall', 'walls', 'was',
+        'way', 'we', 'week', 'weeks', 'welcoming', 'well', 'were', 'what', 'when', 'where', 'whether', 'which', 'while',
+        'who', 'why', 'wide', 'wider', 'wild', 'will', 'winter', 'with', 'work', 'worked', 'working', 'would', 'yard',
+        'yards', 'year'
+    ];
     private const SMALL_WORDS = ['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'the', 'to', 'with', 'by', 'from'];
 
     /** @var PDO */
@@ -118,6 +159,24 @@ final class MiaStoryWriter
         return $bad ? ['Contains a name or place that is not in the facts given: ' . implode(', ', array_slice(array_keys($bad), 0, 4))] : [];
     }
 
+    /**
+     * Every word must be one of the facts' words or a SAFE_WORD.
+     * @return string[] problems
+     */
+    public static function wordProblems(string $text, string $factsText, string $label): array
+    {
+        $ok = array_flip(array_merge(self::SAFE_WORDS, self::ALWAYS_OK, preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($factsText, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: []));
+        $bad = [];
+        foreach (preg_split('/[^\p{L}\'-]+/u', mb_strtolower($text, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $w) {
+            $w = trim($w, "'-");
+            if ($w === '' || isset($ok[$w])) { continue; }
+            $base = preg_replace('/(?:\'s|s)$/u', '', $w);                      // hedge's, hedges
+            if (isset($ok[$base])) { continue; }
+            $bad[$w] = true;
+        }
+        return $bad ? ["The $label uses words outside the plain vocabulary allowed for a public card: " . implode(', ', array_slice(array_keys($bad), 0, 6)) . '. Use simple everyday words and only the facts given.'] : [];
+    }
+
     /** All checks for one candidate. @return string[] problems; empty = acceptable */
     public static function lint(array $cand, array $facts, string $company, array $prohibited): array
     {
@@ -125,6 +184,7 @@ final class MiaStoryWriter
         $ctx = ['current_title' => null, 'current_desc' => null, 'allowed_numbers' => MiaRecommendationWriter::numbers($factsText),
                 'public_facts' => $factsText, 'prohibited' => $prohibited, 'known_facts' => $factsText];
         $p = MiaRecommendationWriter::lint($cand, $ctx);
+        $p = array_merge($p, self::wordProblems((string)$cand['title'], $factsText, 'title'), self::wordProblems((string)$cand['meta_description'], $factsText, 'description'));
         $p = array_merge($p, self::nameProblems((string)$cand['title'], $factsText, true));
         $p = array_merge($p, self::nameProblems((string)$cand['meta_description'], $factsText, false));
         $p = array_merge($p, self::nameProblems((string)$cand['explanation'], $factsText, false));
@@ -156,6 +216,9 @@ final class MiaStoryWriter
             if (!$pair) { return $this->fail($res, 'gate', 'The photos are no longer approved with consent covered on a completed visit'); }
 
             $facts = self::facts($pair);
+            foreach (['work', 'area'] as $k) {
+                if ($facts[$k] !== '' && (count(preg_split('/\s+/', $facts[$k])) > 4 || !preg_match('/^[\p{L} &\'.-]+$/u', $facts[$k]))) { $facts[$k] = ''; }   // not a plain label: no model call
+            }
             if ($facts['work'] === '' || $facts['area'] === '') { return $this->fail($res, 'thin', 'The photo pair does not say what work was done and where, so there is nothing to build a story on'); }
             $company = $this->companyName();
             $prohibited = $this->prohibited();

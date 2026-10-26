@@ -143,4 +143,25 @@ final class MiaStoryPublisherTest extends TestCase
         $r = $this->actions()->propose(['type' => 'gbp_post', 'side_effect' => 'none', 'opportunity_key' => 'k', 'title' => 'T', 'why' => 'w', 'risk' => 'r', 'evidence' => [], 'evidence_basis' => ['a' => 1]], $this->now);
         $this->assertSame('not_supported', $this->pub()->apply((int)$r['id'], 7, $this->now)['code']);
     }
+
+    public function testUndoRefusesWhenAnyFieldWasChangedNotJustTheText(): void
+    {
+        foreach ([["featured = 1"], ["gallery_images = '[\"/_media/other.jpg\"]'"], ["categories = '[\"Lawn\"]'"], ["display_order = 5"], ["tags = '[\"x\"]'"]] as $i => [$set]) {
+            $this->setUp();
+            $id = $this->story();
+            $r = $this->pub()->apply($id, 7, $this->now);
+            $this->db->exec("UPDATE portfolio_projects SET $set");
+            $this->assertSame('conflict', $this->pub()->rollback($r['execution_id'], 7, $this->now)['code'], $set);
+            $this->assertSame(1, $this->n("SELECT COUNT(*) FROM portfolio_projects"), $set);
+        }
+    }
+
+    public function testNothingIsCreatedIfConsentIsWithdrawnBetweenTheChecks(): void
+    {
+        $id = $this->story();
+        $pub = $this->pub();
+        $this->db->exec("UPDATE ba_pairs SET consent_state = 'needed'");
+        $this->assertSame('cannot_apply', $pub->apply($id, 7, $this->now)['code']);
+        $this->assertSame(0, $this->n("SELECT COUNT(*) FROM portfolio_projects"));
+    }
 }

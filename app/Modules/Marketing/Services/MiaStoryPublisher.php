@@ -54,17 +54,26 @@ final class MiaStoryPublisher
         if (!$d) { return $this->fail('no_draft', 'The wording for this story is no longer available.'); }
         if (trim((string)$d['title']) === '' || trim((string)$d['meta_desc']) === '') { return $this->fail('no_draft', 'The wording is incomplete.'); }
         $pairId = (int)preg_replace('/^portfolio:pair:/', '', (string)$d['page_url']);
-        $in = implode(',', array_fill(0, count(MiaFeeds::CONSENT_OK), '?'));
-        $p = $this->db->prepare("SELECT p.id, p.area, p.category, p.web_before_path, p.web_after_path FROM ba_pairs p JOIN job_visits v ON v.id = p.visit_id
-                                  WHERE p.id = ? AND p.status = 'approved' AND p.consent_state IN ($in) AND v.status = 'completed'");
-        $p->execute(array_merge([$pairId], MiaFeeds::CONSENT_OK));
-        $pair = $p->fetch(PDO::FETCH_ASSOC);
+        $pair = $this->usablePair($pairId, false);
         $why = null; $can = true;
         if (!$pair) { $can = false; $why = 'The photos are no longer approved with consent covered, so no card can be made.'; }
         elseif (!self::safeImage((string)$pair['web_after_path'])) { $can = false; $why = 'The approved pair has no web photo yet.'; }
         elseif ($this->liveExecution($actionId)) { $can = false; $why = 'A card for this story already exists. Open the Portfolio page to publish it.'; }
         return ['ok' => true, 'action' => $a, 'draft' => $d, 'pair' => $pair, 'can_apply' => $can, 'why_not' => $why];
     }
+
+    /** The pair, only if it is still approved with consent covered on a completed visit. $lock takes a row lock (MySQL, inside a transaction). */
+    private function usablePair(int $pairId, bool $lock): ?array
+    {
+        $in = implode(',', array_fill(0, count(MiaFeeds::CONSENT_OK), '?'));
+        $p = $this->db->prepare("SELECT p.id, p.area, p.category, p.web_before_path, p.web_after_path FROM ba_pairs p JOIN job_visits v ON v.id = p.visit_id
+                                  WHERE p.id = ? AND p.status = 'approved' AND p.consent_state IN ($in) AND v.status = 'completed'" . ($lock && $this->mysql() ? ' FOR UPDATE' : ''));
+        $p->execute(array_merge([$pairId], MiaFeeds::CONSENT_OK));
+        $r = $p->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    private function mysql(): bool { return $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'; }
 
     /** A site-relative web image from the media folder, nothing else. */
     public static function safeImage(string $path): bool
@@ -110,11 +119,21 @@ final class MiaStoryPublisher
         ];
         try {
             $this->db->beginTransaction();
-            $number = $this->nextNumber($now);
-            $this->db->prepare("INSERT INTO portfolio_projects (project_number, project_name, description, location, status, featured, display_order, categories, tags, gallery_images, created_by, created_at)
-                                VALUES (?, ?, ?, ?, 'draft', 0, 999, ?, '[]', ?, ?, ?)")
-                ->execute([$number, $row['project_name'], $row['description'], $row['location'], $row['categories'], $row['gallery_images'], $userId, $now->format('Y-m-d H:i:s')]);
-            $pid = (int)$this->db->lastInsertId();
+            // Consent and approval can change between the check above and now: look again, holding the row, before anything is created.
+            if ($this->usablePair((int)$pair['id'], true) === null) { throw new MiaPublishConflict('The photos are no longer approved with consent covered, so no card was made.'); }
+            $pid = 0; $number = '';
+            for ($try = 0; $try < 3 && $pid === 0; $try++) {          // two applies at once can pick the same number: the unique key refuses one, so take the next
+                $number = $this->nextNumber($now);
+                try {
+                    $this->db->prepare("INSERT INTO portfolio_projects (project_number, project_name, description, location, status, featured, display_order, categories, tags, gallery_images, created_by, created_at)
+                                        VALUES (?, ?, ?, ?, 'draft', 0, 999, ?, '[]', ?, ?, ?)")
+                        ->execute([$number, $row['project_name'], $row['description'], $row['location'], $row['categories'], $row['gallery_images'], $userId, $now->format('Y-m-d H:i:s')]);
+                    $pid = (int)$this->db->lastInsertId();
+                } catch (PDOException $dup) {
+                    if ($try === 2 || strpos($dup->getMessage(), 'project_number') === false && $dup->getCode() !== '23000') { throw $dup; }
+                }
+            }
+            $row['featured'] = 0; $row['display_order'] = 999; $row['tags'] = '[]';
             $this->db->prepare("INSERT INTO mia_executions (site_id, action_id, draft_id, website_id, connector, target_ref, page_url, before_json, after_json, status, verify_note, applied_by, applied_at)
                                 VALUES (?, ?, ?, ?, 'portfolio', ?, ?, ?, ?, 'applied', ?, ?, ?)")
                 ->execute([$this->siteId, $actionId, (int)$d['id'], (int)$d['website_id'], 'portfolio_projects:' . $pid, 'Portfolio ' . $number, '{}', json_encode($row),
@@ -157,13 +176,20 @@ final class MiaStoryPublisher
         if (!is_array($after) || $pid <= 0) { return $this->fail('no_snapshot', 'The saved copy of the card is missing, so it cannot be removed here.'); }
         try {
             $this->db->beginTransaction();
-            $c = $this->db->prepare("SELECT status, project_name, description, location, gallery_images FROM portfolio_projects WHERE id = ?");
+            // The row is locked while it is compared and deleted (MySQL), so an edit cannot slip in between.
+            $c = $this->db->prepare("SELECT status, project_name, description, location, categories, tags, featured, display_order, gallery_images FROM portfolio_projects WHERE id = ?" . ($this->mysql() ? ' FOR UPDATE' : ''));
             $c->execute([$pid]);
             $cur = $c->fetch(PDO::FETCH_ASSOC);
             if ($cur !== false) {
                 if ($cur['status'] !== 'draft') { throw new MiaPublishConflict('The card has been published, so it was not removed. Unpublish or delete it in the Portfolio page.'); }
                 foreach (['project_name', 'description', 'location'] as $f) {
                     if ((string)$cur[$f] !== (string)$after[$f]) { throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
+                }
+                foreach (['categories', 'tags', 'gallery_images'] as $f) {       // JSON columns: compare the data, not MySQL's spacing
+                    if (json_decode((string)$cur[$f], true) !== json_decode((string)($after[$f] ?? '[]'), true)) { throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
+                }
+                if ((int)$cur['featured'] !== (int)($after['featured'] ?? 0) || (int)$cur['display_order'] !== (int)($after['display_order'] ?? 999)) {
+                    throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.');
                 }
                 $del = $this->db->prepare("DELETE FROM portfolio_projects WHERE id = ? AND status = 'draft'");
                 $del->execute([$pid]);
