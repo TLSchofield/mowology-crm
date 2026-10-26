@@ -298,6 +298,67 @@ final class MiaChannelsTest extends TestCase
         $this->assertSame(1500, mb_strlen(GbpService::postBody(str_repeat('a', 2000))['summary']));
     }
 
+    public function testGbpV4NameAddsTheAccountThatTheConnectScreenLeftOut(): void
+    {
+        $this->assertSame('accounts/9/locations/222', GbpService::v4Name('locations/222', 'accounts/9'));
+        $this->assertSame('accounts/9/locations/222', GbpService::v4Name('locations/222', '9'));
+        $this->assertSame('accounts/1/locations/2', GbpService::v4Name('accounts/1/locations/2', 'accounts/9'), 'already full: unchanged');
+        $this->assertSame('locations/222', GbpService::v4Name('locations/222', null), 'no account known: unchanged');
+    }
+
+    public function testGbpFindsTheAccountOnceAndRemembersIt(): void
+    {
+        $db = new ChannelsTestPdo();
+        $db->exec("CREATE TABLE social_accounts (id INTEGER PRIMARY KEY, platform TEXT, account_name TEXT, is_active INT, is_verified INT, meta_json TEXT,
+                   account_id_external TEXT, location_id_external TEXT, access_token_enc TEXT, refresh_token_enc TEXT, token_expires_at TEXT)");
+        $db->exec("INSERT INTO social_accounts (id, platform, is_active, location_id_external) VALUES (17, 'gbp', 1, 'locations/222')");
+        $calls = 0;
+        $svc = new GbpService($db);
+        $svc->useAccountLookup(function () use (&$calls) { $calls++; return [['name' => 'accounts/9', 'locations' => null]]; });
+        $m = new ReflectionMethod($svc, 'v4Location');
+        $row = ['id' => 17, 'location_id_external' => 'locations/222', 'account_id_external' => null];
+        $this->assertSame('accounts/9/locations/222', $m->invoke($svc, $row));
+        $this->assertSame('accounts/9', $db->query("SELECT account_id_external FROM social_accounts WHERE id = 17")->fetchColumn());
+        $row['account_id_external'] = 'accounts/9';
+        $this->assertSame('accounts/9/locations/222', $m->invoke($svc, $row));
+        $this->assertSame(1, $calls, 'second call used the saved account, no Google lookup');
+    }
+
+    public function testGbpPicksTheAccountThatListsTheLocationWhenThereAreSeveral(): void
+    {
+        $db = new ChannelsTestPdo();
+        $db->exec("CREATE TABLE social_accounts (id INTEGER PRIMARY KEY, account_id_external TEXT)");
+        $svc = new GbpService($db);
+        $svc->useAccountLookup(fn() => [
+            ['name' => 'accounts/1', 'locations' => ['locations/111']],
+            ['name' => 'accounts/2', 'locations' => ['locations/222']],
+        ]);
+        $m = new ReflectionMethod($svc, 'v4Location');
+        $this->assertSame('accounts/2/locations/222', $m->invoke($svc, ['id' => 5, 'location_id_external' => 'locations/222']));
+    }
+
+    public function testGbpDoesNotTreatAnEmptyAccountAsTheOwnerWhenThereAreSeveral(): void
+    {
+        $db = new ChannelsTestPdo();
+        $db->exec("CREATE TABLE social_accounts (id INTEGER PRIMARY KEY, account_id_external TEXT)");
+        $svc = new GbpService($db);
+        $svc->useAccountLookup(fn() => [['name' => 'accounts/1', 'locations' => []], ['name' => 'accounts/2', 'locations' => ['locations/333']]]);
+        $m = new ReflectionMethod($svc, 'v4Location');
+        $this->expectException(RuntimeException::class);
+        $m->invoke($svc, ['id' => 5, 'location_id_external' => 'locations/222']);
+    }
+
+    public function testGbpRefusesToGuessWhenNoAccountOwnsTheLocation(): void
+    {
+        $db = new ChannelsTestPdo();
+        $db->exec("CREATE TABLE social_accounts (id INTEGER PRIMARY KEY, account_id_external TEXT)");
+        $svc = new GbpService($db);
+        $svc->useAccountLookup(fn() => [['name' => 'accounts/1', 'locations' => ['locations/111']], ['name' => 'accounts/2', 'locations' => ['locations/333']]]);
+        $m = new ReflectionMethod($svc, 'v4Location');
+        $this->expectException(RuntimeException::class);
+        $m->invoke($svc, ['id' => 5, 'location_id_external' => 'locations/222']);
+    }
+
     public function testGbpIsDraftsOnlyUntilApprovedAndConnected(): void
     {
         $db = new ChannelsTestPdo();
