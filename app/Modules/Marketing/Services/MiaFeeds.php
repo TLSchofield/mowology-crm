@@ -19,10 +19,11 @@ final class MiaFeeds
     public function __construct(PDO $db) { $this->db = $db; }
 
     /**
-     * Otto: completed visits with an approved before/after pair whose consent allows use.
+     * Otto: completed visits with an approved before/after pair whose consent allows use. $visitId asks about one visit only,
+     * so a caller's answer never depends on the row limit.
      * @return array{visits:array<int,array>, gaps:string[]}
      */
-    public function completedVisitsWithApprovedPhotos(int $sinceDays = 30, int $limit = 50): array
+    public function completedVisitsWithApprovedPhotos(int $sinceDays = 30, int $limit = 50, ?int $visitId = null, int $offset = 0): array
     {
         $since = date('Y-m-d H:i:s', time() - max(1, $sinceDays) * 86400);
         $in = implode(',', array_fill(0, count(self::CONSENT_OK), '?'));
@@ -30,10 +31,10 @@ final class MiaFeeds
             "SELECT p.id AS pair_id, p.visit_id, p.service, p.area, p.consent_state, v.completed_at, v.service_type
                FROM ba_pairs p JOIN job_visits v ON v.id = p.visit_id
               WHERE p.status = 'approved' AND p.consent_state IN ($in)
-                AND v.status = 'completed' AND v.completed_at >= ?
-              ORDER BY v.completed_at DESC LIMIT " . (int)max(1, min(200, $limit))
+                AND v.status = 'completed' AND v.completed_at >= ?" . ($visitId !== null ? ' AND v.id = ?' : '') . "
+              ORDER BY v.completed_at DESC, p.id DESC LIMIT " . (int)max(1, min(200, $limit)) . ' OFFSET ' . (int)max(0, $offset)
         );
-        $st->execute(array_merge(self::CONSENT_OK, [$since]));
+        $st->execute(array_merge(self::CONSENT_OK, [$since], $visitId !== null ? [$visitId] : []));
         $rows = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $rows[] = ['pair_id' => (int)$r['pair_id'], 'visit_id' => (int)$r['visit_id'], 'completed_at' => $r['completed_at'],

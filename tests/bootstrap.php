@@ -447,3 +447,4 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQueueBrief.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaServiceKey.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFunnelRules.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFeeds.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaEventService.php';

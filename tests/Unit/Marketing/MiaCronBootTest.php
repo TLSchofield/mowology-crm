@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
  */
 class MiaCronBootTest extends TestCase
 {
-    private const CRONS = ['mia_audit_weekly', 'mia_search_weekly'];
+    private const CRONS = ['mia_audit_weekly', 'mia_search_weekly', 'mia_events_drain'];
     private string $root = '';
     private string $repo = '';
 
@@ -46,7 +46,7 @@ PHP);
         $db->exec("CREATE TABLE cron_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, cron_key TEXT, triggered_by TEXT, status TEXT, duration_ms INT, summary TEXT, error_message TEXT, ran_at TEXT)");
         $db->exec("CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)");
         $db->exec("CREATE TABLE mia_websites (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, host TEXT, status TEXT DEFAULT 'verified')");
-        foreach (['mia_site_pages', 'mia_site_links', 'mia_audits', 'mia_audit_findings', 'mia_actions', 'mia_action_events', 'mia_decisions', 'mia_memory', 'mia_llm_usage', 'mia_content_drafts'] as $t) {
+        foreach (['mia_events', 'ba_pairs', 'job_visits', 'mia_site_pages', 'mia_site_links', 'mia_audits', 'mia_audit_findings', 'mia_actions', 'mia_action_events', 'mia_decisions', 'mia_memory', 'mia_llm_usage', 'mia_content_drafts'] as $t) {
             $db->exec("CREATE TABLE $t (id INTEGER PRIMARY KEY)");
         }
     }
@@ -103,20 +103,21 @@ PHP);
 
     public function crons(): array
     {
-        return [['mia_audit_weekly'], ['mia_search_weekly']];
+        return [['mia_audit_weekly'], ['mia_search_weekly'], ['mia_events_drain']];
     }
 
     /** @dataProvider crons */
     public function testAMissingMigrationIsAWarningThatNamesTheTable(string $cron): void
     {
         $db = new PDO('sqlite:' . $this->root . '/test.sqlite');
-        $db->exec("DROP TABLE " . ($cron === 'mia_audit_weekly' ? 'mia_site_links' : 'mia_content_drafts'));
+        $gone = ['mia_audit_weekly' => 'mia_site_links', 'mia_search_weekly' => 'mia_content_drafts', 'mia_events_drain' => 'mia_events'][$cron];
+        $db->exec("DROP TABLE " . $gone);
         list($code, $out) = $this->runCron($this->install($cron));
         $this->assertSame(0, $code);
         $this->assertStringContainsString('warning:', $out, 'warnings are printed so they get noticed');
         $r = $this->runs()[0];
         $this->assertSame('warning', $r['status']);
-        $this->assertStringContainsString($cron === 'mia_audit_weekly' ? 'mia_site_links' : 'mia_content_drafts', $r['summary']);
+        $this->assertStringContainsString($gone, $r['summary']);
         $this->assertStringContainsString('Migration not run yet', $r['summary']);
     }
 
