@@ -74,4 +74,17 @@ final class MiaStoryFlowTest extends TestCase
         $this->assertNotSame(200, $c);
         $this->assertSame(0, (int)$this->db->query("SELECT COUNT(*) FROM portfolio_projects")->fetchColumn());
     }
+
+    public function testAStoryDescriptionMayBeAShortParagraphButASearchDescriptionStillMayNot(): void
+    {
+        $long = str_repeat('Hedges were trimmed neatly in Point Grey. ', 10);          // about 410 characters
+        [$c, $r] = $this->call('draft_edit', 'POST', [], ['id' => $this->id, 'title' => 'Hedge Trimming in Point Grey, Vancouver', 'meta_description' => trim($long)]);
+        $this->assertSame(200, $c, json_encode($r));
+        $this->assertSame(trim($long), $this->db->query("SELECT meta_desc FROM mia_content_drafts WHERE kind = 'story'")->fetchColumn());
+        [$c] = $this->call('draft_edit', 'POST', [], ['id' => $this->id, 'title' => 'Hedge Trimming in Point Grey, Vancouver', 'meta_description' => str_repeat('x', 481)]);
+        $this->assertSame(422, $c);
+        $this->db->exec("UPDATE mia_content_drafts SET kind = 'seo_meta'");
+        [$c] = $this->call('draft_edit', 'POST', [], ['id' => $this->id, 'title' => 'Hedge Trimming in Point Grey, Vancouver', 'meta_description' => trim($long)]);
+        $this->assertSame(422, $c, 'a search description is still capped at 320');
+    }
 }

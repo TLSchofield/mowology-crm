@@ -349,9 +349,11 @@ final class MiaApiHandler
             return ($n >= $min && $n <= $max) ? $v : null;
         };
         $title = $clean($in['title'] ?? null, 5, 120);
-        $desc  = $clean($in['meta_description'] ?? null, 20, 320);
+        $story = ($draft['kind'] ?? '') === 'story';
+        $maxDesc = $story ? 480 : 320;                                   // a portfolio card holds a short paragraph, a search description does not
+        $desc  = $clean($in['meta_description'] ?? null, 20, $maxDesc);
         if ($title === null || $desc === null) {
-            return [422, ['ok' => false, 'code' => 'bad_text', 'error' => 'Title (5-120 characters) and description (20-320 characters) are needed, without HTML']];
+            return [422, ['ok' => false, 'code' => 'bad_text', 'error' => 'Title (5-120 characters) and description (20-' . $maxDesc . ' characters) are needed, without HTML']];
         }
         if ($title === $draft['title'] && $desc === $draft['meta_desc']) { return [200, ['ok' => true, 'unchanged' => true, 'item' => $this->view($a, false)]]; }
 

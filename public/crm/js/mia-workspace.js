@@ -473,7 +473,7 @@
   function editForm(it) {
     var d = it.draft, f = el('form', 'mw-mws-edit mw-mws-editslot');
     var t = el('input', 'mw-mws-input', null, { type: 'text', maxlength: '120', value: d.title, id: 'mws-edit-title' });
-    var m = el('textarea', 'mw-mws-input mw-mws-textarea', d.meta_description, { rows: '3', maxlength: '320', id: 'mws-edit-desc' });
+    var m = el('textarea', 'mw-mws-input mw-mws-textarea', d.meta_description, { rows: it.type === 'project_story' ? '6' : '3', maxlength: it.type === 'project_story' ? '480' : '320', id: 'mws-edit-desc' });
     var save = btn('Save wording', 'mw-mws-btn--primary', null, { type: 'submit' });
     add(f, el('label', 'mw-mws-lbl', 'Title (about 60 characters shows in Google)', { 'for': 'mws-edit-title' }), t,
       el('label', 'mw-mws-lbl', 'Description (about 155 characters shows in Google)', { 'for': 'mws-edit-desc' }), m, save,
