@@ -261,7 +261,9 @@ final class MiaPageTest extends TestCase
     public function testTheQuestionsMustBeInTheLastSectionAndReallyBeQuestions(): void
     {
         $f = $this->writer()->facts(self::QUERY);
-        $notLast = str_replace('## Who this suits', "## Frequently asked questions\n\n### One?\nA.\n\n### Two?\nB.\n\n### Three?\nC.\n\n## Who this suits", $this->goodBody());
+        $b0 = $this->goodBody();
+        $at = strpos($b0, '## Frequently asked questions'); $faq = substr($b0, $at); $rest = substr($b0, 0, $at);
+        $notLast = str_replace('## Who this suits', $faq . "\n\n## Who this suits", rtrim($rest));                       // the questions moved into the middle
         $this->assertNotEmpty(MiaPageWriter::lint($this->good(['body' => $notLast]), $f, []));
         $b = $this->goodBody();
         $fake = substr($b, 0, strpos($b, '## Frequently asked questions')) . "## Frequently asked questions\n\nPlease call us with any question you have.";   // a heading with no questions
