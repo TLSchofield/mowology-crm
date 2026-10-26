@@ -40999,6 +40999,7 @@ body.mw-books {
 .it-mws .mw-mws-ph3 { margin:16px 0 4px; font-size:16px; line-height:24px; font-weight:600; color:var(--it-text); }
 .it-mws .mw-mws-pul { margin:0 0 14px; padding-left:20px; line-height:26px; }
 .it-mws .mw-mws-pageadded { margin:16px 0; }
+.it-mws .mw-mws-checks { margin:16px 0; padding:12px 16px; border:1px solid var(--it-line); border-left:3px solid var(--it-attention); border-radius:10px; background:var(--it-surface); max-width:62ch; }
 .it-mws .mw-mws-bodybox { min-height:24rem; font-size:15px; line-height:24px; max-width:62ch; }
 .it-mws .mw-mws-chan { padding:12px 0; border-top:1px solid var(--it-line); }
 .it-mws .mw-mws-chan:first-of-type { border-top:0; }

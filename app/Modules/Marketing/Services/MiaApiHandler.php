@@ -343,8 +343,22 @@ final class MiaApiHandler
     {
         $ev = json_decode((string)$a['evidence'], true);
         $proj = MiaPageExtras::projects($this->db, (string)($ev[0]['query'] ?? ''));
-        return ['body' => (string)$draft['body'], 'words' => MiaPageMarkup::wordCount((string)$draft['body']),
+        return ['body' => (string)$draft['body'], 'words' => MiaPageMarkup::wordCount((string)$draft['body']), 'checks' => $this->pageChecks((string)($ev[0]['query'] ?? ''), $draft),
                 'appended' => array_map(function ($p) { return ['name' => $p['name'], 'location' => $p['location'], 'description' => $p['description'], 'image' => $p['image']]; }, $proj)];
+    }
+
+    /**
+     * Mia's own checks run again on the page as it stands (so after the owner's edits too). They WARN, they never block: the owner may
+     * state things about their own business that Mia cannot know, but they should see which sentences Mia could not stand behind.
+     * @return string[]
+     */
+    private function pageChecks(string $query, array $draft): array
+    {
+        try {
+            $w = $this->pageWriterFactory !== null ? call_user_func($this->pageWriterFactory, $this->db, $this->siteId, $this->actions)
+                : new MiaPageWriter($this->db, $this->siteId, new MiaLlmGateway($this->db, $this->siteId), $this->actions);
+            return MiaPageWriter::lint(['title' => (string)$draft['title'], 'meta_description' => (string)$draft['meta_desc'], 'body' => (string)$draft['body'], 'explanation' => ''], $w->facts($query), $w->prohibitedTerms());
+        } catch (Throwable $e) { return []; }
     }
 
     /**

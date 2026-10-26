@@ -157,12 +157,22 @@ final class MiaPagePublisher
                 'note' => 'Saved as an unpublished page (/' . $saved['slug'] . '). Open it in the website editor to read it and publish it.'];
     }
 
+    /** Remove a page Mia just made, but only while it is still the untouched draft: a page published in the meantime keeps its blocks. */
     private function deletePage(int $pageId): void
     {
         try {
-            $this->db->prepare("DELETE FROM cms_blocks WHERE page_id = ?")->execute([$pageId]);
-            $this->db->prepare("DELETE FROM cms_pages WHERE id = ? AND site_id = ? AND status = 'draft'")->execute([$pageId, $this->siteId]);
-        } catch (Throwable $e) { error_log('MiaPagePublisher deletePage: ' . $e->getMessage()); }
+            $this->db->beginTransaction();
+            $c = $this->db->prepare("SELECT status FROM cms_pages WHERE id = ? AND site_id = ?" . ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
+            $c->execute([$pageId, $this->siteId]);
+            if ($c->fetchColumn() === 'draft') {
+                $this->db->prepare("DELETE FROM cms_blocks WHERE page_id = ?")->execute([$pageId]);
+                $this->db->prepare("DELETE FROM cms_pages WHERE id = ? AND site_id = ? AND status = 'draft'")->execute([$pageId, $this->siteId]);
+            }
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            error_log('MiaPagePublisher deletePage: ' . $e->getMessage());
+        }
     }
 
     /** @return array{ok:bool, code?:string, error?:string, execution_id?:int, status?:string} */

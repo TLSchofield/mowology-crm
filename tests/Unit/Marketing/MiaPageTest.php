@@ -248,4 +248,34 @@ final class MiaPageTest extends TestCase
         $this->db->exec("UPDATE portfolio_projects SET location = 'Point Grey Vancouver BC' WHERE id = 1");
         $this->assertContains('Point Grey', $this->writer()->facts(self::QUERY)['places']);
     }
+
+    public function testWordsInTheSearchDoNotBecomeFacts(): void
+    {
+        $f = $this->writer()->facts('24 hour insured hedge removal');
+        $f['matched'] = [['name' => 'Hedge Trim Light', 'description' => 'Light hedge trimming (up to 1 hour)']];
+        $f['query'] = '24 hour insured hedge removal';
+        $this->assertNotEmpty(MiaPageWriter::lint($this->good(['body' => $this->goodBody(['append' => "\n\nWe offer insured 24 hour hedge removal."])]), $f, []));
+        $this->assertStringNotContainsString('24 hour', MiaPageWriter::factsText($f));
+    }
+
+    public function testTheQuestionsMustBeInTheLastSectionAndReallyBeQuestions(): void
+    {
+        $f = $this->writer()->facts(self::QUERY);
+        $notLast = str_replace('## Who this suits', "## Frequently asked questions\n\n### One?\nA.\n\n### Two?\nB.\n\n### Three?\nC.\n\n## Who this suits", $this->goodBody());
+        $this->assertNotEmpty(MiaPageWriter::lint($this->good(['body' => $notLast]), $f, []));
+        $b = $this->goodBody();
+        $fake = substr($b, 0, strpos($b, '## Frequently asked questions')) . "## Frequently asked questions\n\nPlease call us with any question you have.";   // a heading with no questions
+        $this->assertNotEmpty(MiaPageWriter::lint($this->good(['body' => $fake]), $f, []));
+    }
+
+    public function testACleanupAfterAFailedApplyNeverStripsAPageThatWasPublishedMeanwhile(): void
+    {
+        $pub = $this->approveAndPage();
+        $this->db->exec("CREATE TRIGGER pub_after_save AFTER INSERT ON cms_blocks BEGIN UPDATE cms_pages SET status = 'published' WHERE id = NEW.page_id; END");
+        $this->db->exec("DROP TABLE mia_executions");
+        $r = $pub->apply($this->actionId, 7, $this->now);
+        $this->assertFalse($r['ok']);
+        $this->assertSame(1, $this->n("SELECT COUNT(*) FROM cms_pages WHERE status = 'published'"), 'the published page is left alone');
+        $this->assertSame(1, $this->n("SELECT COUNT(*) FROM cms_blocks"), 'with its text');
+    }
 }

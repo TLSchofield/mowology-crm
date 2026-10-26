@@ -527,6 +527,14 @@
     var meta = el('div', 'mw-mws-pagemeta');
     add(meta, el('span', 'mw-mws-lbl', 'Page title'), el('p', 'mw-mws-quote', d.title), el('span', 'mw-mws-lbl', 'Description shown in Google'), el('p', 'mw-mws-quote', d.meta_description));
     add(wrap, meta, renderMarkup(d.body));
+    if (d.checks && d.checks.length) {
+      var warn = el('div', 'mw-mws-checks');
+      add(warn, el('h4', 'mw-mws-h4', 'Mia could not stand behind these parts'));
+      var wl = el('ul', 'mw-mws-list');
+      d.checks.slice(0, 8).forEach(function (c) { add(wl, el('li', '', c)); });
+      add(warn, wl, el('p', 'mw-mws-fine', 'You can still approve it: it is your business and your words. Change or remove them if they are not true.'));
+      add(wrap, warn);
+    }
     if (d.appended && d.appended.length) {
       var ap = el('div', 'mw-mws-pageadded');
       add(ap, el('h4', 'mw-mws-h4', 'Added from your real projects, word for word'));

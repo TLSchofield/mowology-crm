@@ -100,4 +100,17 @@ final class MiaPageFlowTest extends TestCase
         [$c, $r] = $this->call('action_decide', 'POST', [], ['id' => $this->actionId, 'decision' => 'approve', 'seen_hash' => $det['item']['seen_hash']]);
         $this->assertSame(409, $c); $this->assertSame('changed', $r['code']);
     }
+
+    public function testAnEditedPageShowsMiasChecksButIsNotBlocked(): void
+    {
+        $this->replies[] = $this->good();
+        $this->call('page_write', 'POST', [], ['id' => $this->actionId]);
+        [$c, $w] = $this->call('action_detail', 'GET', ['id' => $this->actionId]);
+        $this->assertSame([], $w['item']['draft']['checks']);
+        $body = $w['item']['draft']['body'] . "\n\nWe are fully insured and licensed.";
+        [$c, $e] = $this->call('draft_edit', 'POST', [], ['id' => $this->actionId, 'title' => 'Garden maintenance in Vancouver', 'meta_description' => $w['item']['draft']['meta_description'], 'body' => $body]);
+        $this->assertSame(200, $c, 'the owner may say what is true of their business');
+        $this->assertNotEmpty($e['item']['draft']['checks']);
+        $this->assertStringContainsString('insured', implode(' ', $e['item']['draft']['checks']));
+    }
 }
