@@ -36,6 +36,15 @@ class PennyFocusServiceTest extends TestCase
         $this->assertStringContainsString('only Home Depot receipt', PennyFocusService::whyTeach(['vendor' => 'Home Depot', 'n' => 1], null));
     }
 
+    public function testAWordLikeAmountIsAReadingMistakeNotAShop(): void
+    {
+        $this->assertTrue(PennyFocusService::isJunkVendor('AMOUNT'));
+        $this->assertTrue(PennyFocusService::isJunkVendor(' total '));
+        $this->assertFalse(PennyFocusService::isJunkVendor('Shell'));
+        $w = PennyFocusService::whyTeach(['vendor' => 'AMOUNT', 'n' => 10], null);
+        $this->assertStringContainsString('10 receipts have "AMOUNT" read as the shop name', $w);
+    }
+
     public function testTheMonthReasonNamesTheGapTheAmountAndTheGuess(): void
     {
         $w = PennyFocusService::whyMonth(['month' => '2026-02', 'amount_off' => -229.75, 'receipt_amount' => -150.0, 'vendor' => 'Shell', 'date' => '2026-02-17',

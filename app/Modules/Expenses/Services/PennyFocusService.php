@@ -51,9 +51,18 @@ class PennyFocusService
         return $best;
     }
 
+    /** Words that are never a vendor: a receipt "from" one of these is a reading mistake, not a shop. */
+    public static function isJunkVendor(string $v): bool
+    {
+        return in_array(strtoupper(trim($v)), ['AMOUNT', 'TOTAL', 'SUBTOTAL', 'BALANCE', 'CASH', 'DEBIT', 'CREDIT', 'VISA', 'MASTERCARD', 'RECEIPT', 'INVOICE', 'CUSTOMER COPY', 'THANK YOU'], true);
+    }
+
     public static function whyTeach(array $g, ?array $strength): string
     {
         $n = (int)$g['n'];
+        if (self::isJunkVendor((string)$g['vendor'])) {
+            return $n . ' receipts have "' . $g['vendor'] . '" read as the shop name. Tell me the real shop on this one and I\'ll fix how I read the rest.';
+        }
         $what = $n === 1 ? 'This is the only ' . $g['vendor'] . ' receipt waiting' : $n . ' ' . $g['vendor'] . ' receipts are waiting, and one answer redoes them all';
         if ($strength === null) return $what . '. I haven\'t learned ' . $g['vendor'] . ' yet.';
         if (!empty($strength['trusted'])) return $what . '. I already know this vendor.';
@@ -119,7 +128,8 @@ class PennyFocusService
         $g = self::pickTeach($this->groups(), $strength);
         if (!$g) return null;
         $s = $strength[strtolower(trim($g['vendor']))] ?? null;
-        return ['kind' => 'teach', 'title' => 'Teach me ' . $g['vendor'], 'why' => self::whyTeach($g, $s),
+        $junk = self::isJunkVendor($g['vendor']);
+        return ['kind' => 'teach', 'title' => $junk ? 'I can\'t read the shop on ' . $g['n'] . ' receipts' : 'Teach me ' . $g['vendor'], 'why' => self::whyTeach($g, $s),
                 'expense_id' => $g['expense_id'], 'suggestion_id' => $g['suggestion_id'], 'score' => $g['score']];
     }
 
@@ -129,19 +139,21 @@ class PennyFocusService
         require_once __DIR__ . '/../../Accounting/Services/MonthCloseService.php';
         require_once __DIR__ . '/../../Accounting/Services/MonthDrilldownService.php';
         require_once __DIR__ . '/../../Accounting/Services/BankImportService.php';
-        $target = null;
+        $drill = new MonthDrilldownService($this->db);
+        $target = null; $best = null; $d = null; $tried = 0;
         foreach ((new MonthCloseService($this->db))->months() as $m) {
-            if (!$m['locked'] && !$m['ready'] && !empty($m['blockers'])) { $target = $m; break; }
+            if ($m['locked'] || $m['ready'] || empty($m['blockers'])) continue;
+            if (++$tried > 6) break;
+            $d = $drill->month('1010', $m['month']);
+            if (isset($d['error'])) continue;
+            // A receipt that moves the books away from the bank: approved, booked as paid from chequing, no bank line.
+            foreach ($d['book_only'] as $b) {
+                if (strpos((string)($b['source'] ?? ''), 'expense:') !== 0) continue;
+                if ($best === null || abs((float)$b['amount']) > abs((float)$best['amount'])) $best = $b;
+            }
+            if ($best) { $target = $m; break; }
         }
-        if (!$target) return null;
-        $d = (new MonthDrilldownService($this->db))->month('1010', $target['month']);
-        if (isset($d['error'])) return null;
-        $best = null;
-        foreach ($d['book_only'] as $b) {
-            if (strpos((string)($b['source'] ?? ''), 'expense:') !== 0) continue;
-            if ($best === null || abs((float)$b['amount']) > abs((float)$best['amount'])) $best = $b;
-        }
-        if (!$best) return null;
+        if (!$best || !$target) return null;
         $expenseId = (int)substr((string)$best['source'], 8);
         $e = $this->db->prepare("SELECT COALESCE(v.name, e.vendor_name_raw) AS vendor, e.expense_date FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
         $e->execute([$expenseId]);
