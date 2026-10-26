@@ -228,7 +228,25 @@ class JournalBrowserService
         $e['reverses'] = ($e['source_type'] === 'adjusting' && $e['source_id']) ? $this->brief((int)$e['source_id']) : null;
 
         $e['source'] = $this->source((string)$e['source_type'], $e['source_id'] !== null ? (int)$e['source_id'] : null, $receiptKey);
+
+        // Receipts kept as the paper for this entry or its bank line, though they book nothing themselves (migration 1421).
+        $e['documents'] = [];
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptDocumentLinkService.php';
+            $tx = in_array((string)$e['source_type'], ['bank_import', 'bank_deposit'], true) && $e['source_id'] !== null ? (int)$e['source_id'] : null;
+            foreach ((new ReceiptDocumentLinkService($this->db))->forEntry($id, $tx) as $d) {
+                $d['image_url'] = ($d['media_id'] && $receiptKey) ? self::signedReceiptImage((int)$d['media_id'], $receiptKey) : null;
+                $e['documents'][] = $d;
+            }
+        } catch (Throwable $ex) { /* a bonus: the entry stands without it */ }
         return $e;
+    }
+
+    /** The same 15-minute signed link ReceiptImageLinks hands out (see expenseSource()). */
+    private static function signedReceiptImage(int $mediaId, string $receiptKey): string
+    {
+        $exp = time() + 900;
+        return '/api/expenses/receipt-image?m=' . $mediaId . '&e=' . $exp . '&s=' . hash_hmac('sha256', $mediaId . '.' . $exp, $receiptKey);
     }
 
     private function brief(int $id): ?array
