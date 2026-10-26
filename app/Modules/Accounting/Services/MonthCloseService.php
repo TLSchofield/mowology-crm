@@ -211,6 +211,8 @@ class MonthCloseService
                        OR (t.type = 'transfer' AND a.code = '2400' AND t.matched_expense_id IS NULL
                            AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU|AUTOMATIC PAYMENT|PAYMENT RECEIVED'))
                   AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
+                  -- already sorted by its receipt: a line linked to an APPROVED receipt takes the receipt's category (its own entry is retired)
+                  AND NOT EXISTS (SELECT 1 FROM expenses me WHERE me.id = t.matched_expense_id AND me.status IN ('approved', 'forwarded'))
                 GROUP BY ym")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $out[$r['ym']] = (int)$r['n'];
             }
