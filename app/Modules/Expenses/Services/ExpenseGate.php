@@ -69,6 +69,8 @@ class ExpenseGate
     public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line'];
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
+    /** Receipts dated before this are in a filed, closed year (same date as LedgerService::FY_START — a test keeps them equal). */
+    public const CLOSED_BEFORE = '2026-01-01';
     /** The audited transition that may set each closed status. */
     // 'reopen': an approved receipt back to draft by its audited path (ReceiptBankCheck: no statement line for it, 2026-10-15).
     public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft'];
@@ -116,6 +118,27 @@ class ExpenseGate
     public static function actor(?array $user, string $kind = 'user'): array
     {
         return ['id' => isset($user['id']) && (int)$user['id'] > 0 ? (int)$user['id'] : null, 'kind' => $kind];
+    }
+
+    /**
+     * A receipt dated in a filed year must not be approved or changed in the books (Tim, 2026-10-26). The ledger refuses to post
+     * a 2025-dated receipt into 2025, so approving one posted a NEW entry dated today (#18, Shell $150, 2025-05-14: a second copy of
+     * an expense already in the filed 2025 books). Only a step that would put it in the books, or change what the books carry, is
+     * refused: rejecting, re-opening and edits that leave the books alone (notes, lines) are fine. Pure.
+     * @param array $before the receipt as saved ([] on create)  @param array $cols what the save sets  @param array $set the changed columns
+     * @param bool $structure the save changes the split or its lines (those repost the receipt too — Codex review 2026-10-26)
+     * @return ?string the reason to show, or null
+     */
+    public static function closedYearProblem(array $before, array $cols, array $set, bool $create, bool $structure = false): ?string
+    {
+        $status = (string)($cols['status'] ?? $before['status'] ?? '');
+        if (!in_array($status, self::POSTED, true)) return null;
+        $date = substr((string)($cols['expense_date'] ?? $before['expense_date'] ?? ''), 0, 10);
+        if ($date === '' || $date >= self::CLOSED_BEFORE) return null;
+        $wasPosted = !$create && in_array((string)($before['status'] ?? ''), self::POSTED, true);
+        $booksChange = $create || !$wasPosted || $structure || (bool)array_intersect(array_keys($set), self::BOOKS);
+        if (!$booksChange) return null;
+        return 'This receipt is dated ' . $date . ' — in a year that is already filed. It is the same purchase as an entry already in your 2025 books, and approving it would book it again today. Reject it and keep the photo, or ask your accountant.';
     }
 
     /**
@@ -176,6 +199,10 @@ class ExpenseGate
         }
         if (!$delete && !$set && !$linesChange && !$splitChange) {
             return self::result((int)$expenseId, 'none', [], true);
+        }
+        // A receipt dated in a filed year never reaches the books (see closedYearProblem()); an explicit override exists for history builders.
+        if (!$delete && empty($opts['allow_closed_year']) && ($why = self::closedYearProblem($before, $cols, $set, $create, $linesChange || $splitChange))) {
+            throw new Exception($why);
         }
         // GST that can't be right (owner, 2026-10-19: "surely if the gst is obviously wrong the receipt shouldnt
         // save"; #114, a $2.61 coffee read as $5.00 GST, failed the nightly posting for months). TaxCheck:

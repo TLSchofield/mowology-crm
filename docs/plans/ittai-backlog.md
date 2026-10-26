@@ -88,3 +88,6 @@ trades first. The AI back office is the edge.
 - BLOCKER before a second tenant: there is no "current tenant" lookup yet. Lessons are written and
   read as site_id 1 (HeadLessons default; PennyLessons::forVendor's $siteId). Once tenancy exists,
   every caller passes the tenant's site_id (Codex review 2026-10-14).
+
+- **Organise the AI behind the receipt reader** (Tim, 2026-10-26, asked mid-chat; not started). Scope to settle first: which reads use code only, OCR, the Claude vision/PDF tier and the shared vendor knowledge; the daily cap and cost log; how a correction teaches the next read; the "AMOUNT read as the shop name" error on 10 receipts. Shared vs private: reader layouts and vendor facts are shareable (see the shared knowledge plan); amounts and customers are not. Start a fresh chat for it.
+

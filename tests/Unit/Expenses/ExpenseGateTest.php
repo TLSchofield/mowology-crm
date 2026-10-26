@@ -111,6 +111,46 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(['total' => 218.40], $this->hooks->calls['learnConfirmed'][0][1], 'the inbox baseline is passed through');
     }
 
+    public function test_a_receipt_dated_in_a_filed_year_cannot_be_approved_or_changed_in_the_books(): void
+    {
+        // Shell $150 (#18): printed 2025-05-14, entered 2026-02-17; approving it posted a second entry dated today (2026-10-26).
+        $this->db->exec("UPDATE expenses SET expense_date = '2025-05-14' WHERE id = 412");
+        $approve = fn() => $this->gate->apply(412, ['status' => 'approved', 'approved_by' => 9, 'approved_at' => 'now'], ['id' => 9, 'kind' => 'user'], 'approval', ['transition' => 'approve']);
+        try {
+            $approve();
+            $this->fail('a 2025-dated receipt must not be approved');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('already filed', $e->getMessage());
+        }
+        $this->assertSame('pending_approval', $this->row(412)['status'], 'nothing was written');
+        $this->assertSame(0, $this->hooks->count('learnConfirmed'));
+
+        // Draft edits, notes and rejection are fine.
+        $this->gate->apply(412, ['notes' => 'same receipt as #15'], self::TIM, 'desktop_modal');
+        $res = $this->gate->apply(412, ['status' => 'rejected', 'approved_by' => 9, 'approved_at' => 'now', 'rejection_reason' => 'copy of a filed 2025 expense'],
+                                  ['id' => 9, 'kind' => 'user'], 'approval', ['transition' => 'reject']);
+        $this->assertSame('reject', $res['action']);
+
+        // The explicit override still exists for history builders.
+        $this->db->exec("UPDATE expenses SET status = 'pending_approval' WHERE id = 412");
+        $ok = $this->gate->apply(412, ['status' => 'approved', 'approved_by' => 9, 'approved_at' => 'now'], ['id' => 9, 'kind' => 'user'], 'approval',
+                                 ['transition' => 'approve', 'allow_closed_year' => true]);
+        $this->assertSame('approve', $ok['action']);
+    }
+
+    public function test_the_closed_year_rule_only_fires_when_the_books_would_change(): void
+    {
+        $posted = ['status' => 'approved', 'expense_date' => '2025-05-14'];
+        $this->assertNull(ExpenseGate::closedYearProblem($posted, [], ['notes' => 'x'], false), 'a note on an approved 2025 receipt is fine');
+        $this->assertNotNull(ExpenseGate::closedYearProblem($posted, ['total' => 1.0], ['total' => 1.0], false), 'a money change is not');
+        $this->assertNull(ExpenseGate::closedYearProblem(['status' => 'draft', 'expense_date' => '2025-05-14'], ['expense_date' => '2025-05-15'], ['expense_date' => '2025-05-15'], false), 'a draft is not in the books');
+        $this->assertNotNull(ExpenseGate::closedYearProblem(['status' => 'approved', 'expense_date' => '2026-02-17'], ['expense_date' => '2025-05-14'], ['expense_date' => '2025-05-14'], false), 're-dating an approved receipt into 2025');
+        $this->assertNull(ExpenseGate::closedYearProblem(['status' => 'approved', 'expense_date' => '2026-02-17'], ['total' => 2.0], ['total' => 2.0], false), 'a 2026 receipt is untouched');
+        $this->assertNotNull(ExpenseGate::closedYearProblem($posted, [], [], false, true), 'a split or line change reposts too');
+        $this->assertNull(ExpenseGate::closedYearProblem(['status' => 'draft', 'expense_date' => '2025-05-14'], [], [], false, true), 'a draft has nothing posted');
+        $this->assertSame(LedgerService::FY_START, ExpenseGate::CLOSED_BEFORE, 'the two dates must stay the same');
+    }
+
     public function test_a_receipt_sent_to_accounting_keeps_its_money(): void
     {
         $this->db->exec("UPDATE expenses SET status = 'forwarded', forwarded_to_accounting = 1 WHERE id = 412");
