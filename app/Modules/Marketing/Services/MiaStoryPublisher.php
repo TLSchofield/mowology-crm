@@ -212,8 +212,18 @@ final class MiaStoryPublisher
     /** @return array[] newest first */
     public function executionsFor(int $actionId): array
     {
-        $s = $this->db->prepare("SELECT id, status, page_url, verify_note, applied_at, rolled_back_at FROM mia_executions WHERE action_id = ? AND site_id = ? ORDER BY id DESC");
+        $s = $this->db->prepare("SELECT id, status, page_url, verify_note, applied_at, rolled_back_at, target_ref FROM mia_executions WHERE action_id = ? AND site_id = ? ORDER BY id DESC");
         $s->execute([$actionId, $this->siteId]);
-        return $s->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $rows = $s->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            $pid = (int)preg_replace('/^portfolio_projects:/', '', (string)$r['target_ref']);
+            // Where the owner reads, edits and publishes the card: the CRM's own Portfolio pages. A card that is gone has no link.
+            $live = in_array($r['status'], ['applied', 'verified', 'unverified'], true) && $pid > 0;
+            $r['open_url'] = $live ? '/crm/portfolio/view.php?id=' . $pid : null;
+            $r['edit_url'] = $live ? '/crm/portfolio/edit.php?id=' . $pid : null;
+            unset($r['target_ref']);
+        }
+        unset($r);
+        return $rows;
     }
 }

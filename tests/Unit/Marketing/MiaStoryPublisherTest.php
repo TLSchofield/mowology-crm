@@ -164,4 +164,17 @@ final class MiaStoryPublisherTest extends TestCase
         $this->assertSame('cannot_apply', $pub->apply($id, 7, $this->now)['code']);
         $this->assertSame(0, $this->n("SELECT COUNT(*) FROM portfolio_projects"));
     }
+
+    public function testTheOwnerGetsLinksToTheCardInThePortfolioPagesUntilItIsGone(): void
+    {
+        $id = $this->story();
+        $r = $this->pub()->apply($id, 7, $this->now);
+        $pid = (int)$this->db->query("SELECT id FROM portfolio_projects")->fetchColumn();
+        $x = $this->pub()->executionsFor($id)[0];
+        $this->assertSame('/crm/portfolio/view.php?id=' . $pid, $x['open_url']);
+        $this->assertSame('/crm/portfolio/edit.php?id=' . $pid, $x['edit_url']);
+        $this->assertArrayNotHasKey('target_ref', $x);
+        $this->pub()->rollback($r['execution_id'], 7, $this->now);
+        $this->assertNull($this->pub()->executionsFor($id)[0]['open_url']);
+    }
 }

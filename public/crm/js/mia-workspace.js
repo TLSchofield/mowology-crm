@@ -412,7 +412,7 @@
     Array.prototype.forEach.call(all, function (c) { c.disabled = true; });
     request('POST', 'action_apply', { id: it.id }).then(function (res) {
       if (!res.body.ok) { Array.prototype.forEach.call(all, function (c) { c.disabled = false; }); flash(res.body.error || failText(res), true); return; }
-      flash(res.body.note || 'Applied.', res.body.status !== 'verified');
+      flash(res.body.note || 'Applied.', res.body.status === 'unverified' || res.body.status === 'failed');
       state.filter = 'done'; state.openId = it.id; loadGrowth('filter');
     });
   }
@@ -425,6 +425,11 @@
       var row = el('div', 'mw-mws-execrow');
       add(row, el('p', 'mw-mws-p', (labels[x.status] || x.status) + ' · ' + when(x.applied_at)));
       if (x.verify_note) add(row, el('p', 'mw-mws-fine', x.verify_note));
+      if (x.open_url) {
+        var links = el('p', 'mw-mws-p');
+        add(links, el('a', 'mw-mws-link', 'Open the card in your Portfolio', { href: x.open_url }), document.createTextNode('  ·  '), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
+        add(row, links);
+      }
       if (x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
         var box = el('div', 'mw-mws-actions');
         add(box, btn('Undo this change', 'mw-mws-btn--secondary', function () {
