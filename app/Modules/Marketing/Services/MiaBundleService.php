@@ -91,10 +91,18 @@ final class MiaBundleService
     {
         $out = [];
         foreach ([$area, $service] as $phrase) {
-            $tag = (string)preg_replace('/[^\p{L}\p{N}]+/u', '', ucwords(mb_strtolower($phrase, 'UTF-8')));
+            if (!self::isCoarsePlace($phrase)) { continue; }                      // never a street address or a number
+            $tag = (string)preg_replace('/[^\p{L}]+/u', '', ucwords(mb_strtolower($phrase, 'UTF-8')));
             if (mb_strlen($tag, 'UTF-8') >= 3 && mb_strlen($tag, 'UTF-8') <= 30) { $out['#' . $tag] = true; }
         }
         return array_slice(array_keys($out), 0, self::MAX_HASHTAGS);
+    }
+
+    /** A neighbourhood or service name, not an address: letters, spaces and a few marks, no digits, at most four words. */
+    public static function isCoarsePlace(string $s): bool
+    {
+        $s = trim($s);
+        return $s !== '' && (bool)preg_match('/^[\p{L}][\p{L} .\'&-]{1,59}$/u', $s) && count(preg_split('/\s+/', $s)) <= 4;
     }
 
     /**
@@ -157,6 +165,7 @@ final class MiaBundleService
             if ($pair && MiaStoryPublisher::safeImage((string)$pair[$k])) { $photos[] = $base . $pair[$k]; }
         }
         $service = $pair ? $this->serviceName((int)$pair['id']) : '';
+        $placeOk = $pair && self::isCoarsePlace((string)$pair['area']);          // the place is published as the card's location and as a hashtag
         $caps = self::captions((string)$d['meta_desc'], (string)($pair['area'] ?? ''), $service, $base !== '' ? $base . '/quote' : '');
         $channels = $this->channels();
         $delay = $this->delayMinutes();
@@ -172,7 +181,8 @@ final class MiaBundleService
         }
         $content = self::approvalContent((string)$d['title'], (string)$d['meta_desc'], $photos, $channels, $caps, $delay);
         return ['ok' => true, 'channels' => $out, 'skipped' => $skipped, 'content' => $content, 'content_hash' => sha1($content), 'delay_minutes' => $delay,
-                'can_publish' => $this->isOn() && $ctx['can_apply'] && count($photos) === 2, 'why_not' => !$this->isOn() ? 'Publishing is not switched on yet.' : ($ctx['can_apply'] ? (count($photos) === 2 ? null : 'The approved pair needs both a before and an after photo.') : $ctx['why_not']),
+                'can_publish' => $this->isOn() && $ctx['can_apply'] && count($photos) === 2 && $placeOk,
+                'why_not' => !$this->isOn() ? 'Publishing is not switched on yet.' : (!$ctx['can_apply'] ? $ctx['why_not'] : (count($photos) !== 2 ? 'The approved pair needs both a before and an after photo.' : ($placeOk ? null : 'The place on the photo pair looks like an address. Change it to a neighbourhood first.'))),
                 'instagram_on' => in_array('instagram', $channels, true),
                 'undo_note' => 'Undo works until ' . $delay . ' minutes after you approve. After that, Facebook posts can be removed from Facebook, and Instagram posts cannot be deleted from here.'];
     }
@@ -262,39 +272,50 @@ final class MiaBundleService
 
     /**
      * Take everything back that can still be taken back: queued posts are cancelled, the portfolio card is removed if untouched.
-     * @return array{ok:bool, cancelled:string[], already_posted:string[], website:string, error?:string}
+     * @return array{ok:bool, cancelled:string[], already_posted:string[], in_flight:string[], website:string, error?:string}
      */
     public function undo(int $actionId, int $userId, ?DateTimeImmutable $now = null): array
     {
         $now = $now ?: new DateTimeImmutable('now');
-        $res = ['ok' => false, 'cancelled' => [], 'already_posted' => [], 'website' => 'none'];
+        $res = ['ok' => false, 'cancelled' => [], 'already_posted' => [], 'in_flight' => [], 'website' => 'none'];
         $s = $this->db->prepare("SELECT * FROM mia_executions WHERE action_id = ? AND site_id = ? AND status IN ('queued','applied','verified','unverified') ORDER BY id");
         $s->execute([$actionId, $this->siteId]);
         $execs = $s->fetchAll(PDO::FETCH_ASSOC);
         if (!$execs) { $res['error'] = 'There is nothing to undo.'; return $res; }
-        foreach ($execs as $x) {
-            if (!in_array($x['connector'], self::SOCIAL, true)) { continue; }
-            $postId = (int)preg_replace('/^social_posts:/', '', (string)$x['target_ref']);
-            try {
-                $this->db->beginTransaction();
+        // Every still-waiting post is cancelled in ONE transaction: all of them or none. The publisher claims a row with a conditional
+        // update (status pending -> processing), exactly as this cancels one (pending -> cancelled), so one of the two always wins.
+        $res['in_flight'] = [];
+        try {
+            $this->db->beginTransaction();
+            foreach ($execs as $x) {
+                if (!in_array($x['connector'], self::SOCIAL, true)) { continue; }
+                $postId = (int)preg_replace('/^social_posts:/', '', (string)$x['target_ref']);
                 $q = $this->db->prepare("UPDATE social_queue SET status = 'cancelled' WHERE post_id = ? AND status = 'pending'");
                 $q->execute([$postId]);
-                if ($q->rowCount() > 0) {
+                $state = 'cancelled';
+                if ($q->rowCount() === 0) {                                // not waiting any more: say what actually happened to it
+                    $st = $this->db->prepare("SELECT status FROM social_queue WHERE post_id = ? ORDER BY id DESC LIMIT 1");
+                    $st->execute([$postId]);
+                    $now_ = (string)$st->fetchColumn();
+                    $state = $now_ === 'processing' ? 'in_flight' : ($now_ === 'completed' ? 'posted' : 'cancelled');   // failed or already cancelled: nothing went out
+                }
+                if ($state === 'cancelled') {
                     $this->db->prepare("UPDATE social_posts SET status = 'cancelled' WHERE id = ? AND status IN ('scheduled','approved','draft')")->execute([$postId]);
                     $this->db->prepare("UPDATE social_post_platforms SET status = 'cancelled' WHERE post_id = ? AND status = 'pending'")->execute([$postId]);
                     $this->db->prepare("UPDATE mia_executions SET status = 'rolled_back', rolled_back_by = ?, rolled_back_at = ?, verify_note = 'Cancelled before it posted.' WHERE id = ? AND status = 'queued'")
                         ->execute([$userId, $now->format('Y-m-d H:i:s'), (int)$x['id']]);
                     $res['cancelled'][] = (string)$x['connector'];
+                } elseif ($state === 'in_flight') {
+                    $res['in_flight'][] = (string)$x['connector'];
                 } else {
                     $res['already_posted'][] = (string)$x['connector'];
                 }
-                $this->db->commit();
-            } catch (Throwable $e) {
-                if ($this->db->inTransaction()) { $this->db->rollBack(); }
-                error_log('MiaBundleService undo: ' . $e->getMessage());
-                $res['error'] = 'Mia could not cancel one of the posts. Nothing further was changed.';
-                return $res;
             }
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            error_log('MiaBundleService undo: ' . $e->getMessage());
+            return ['ok' => false, 'cancelled' => [], 'already_posted' => [], 'in_flight' => [], 'website' => 'none', 'error' => 'Mia could not cancel the posts, so nothing was changed.'];
         }
         foreach ($execs as $x) {
             if ($x['connector'] !== 'portfolio') { continue; }
@@ -302,6 +323,7 @@ final class MiaBundleService
             $res['website'] = !empty($r['ok']) ? 'removed' : 'kept';
             if (empty($r['ok'])) { $res['error'] = (string)($r['error'] ?? 'The card could not be removed.'); }
         }
+        if ($res['in_flight'] && !isset($res['error'])) { $res['error'] = 'Posting had just started for ' . implode(', ', $res['in_flight']) . ', so it could not be cancelled. Check there in a minute.'; }
         $res['ok'] = $res['website'] !== 'kept' && !isset($res['error']);
         return $res;
     }

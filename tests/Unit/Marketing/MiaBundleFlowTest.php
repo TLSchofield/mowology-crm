@@ -165,4 +165,20 @@ final class MiaBundleFlowTest extends TestCase
         $this->db->exec("DELETE FROM ops_settings WHERE setting_key = 'mia_publish_mode'");
         $this->assertFalse(MiaHeartFlow::skipsOldDraft($this->db));
     }
+
+    public function testTheSafetyNetApprovesOnlyOwnerEndorsedPairsThatNeedNoAgreement(): void
+    {
+        $this->heartDb();
+        $this->db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('mia_single_operator', '1')");
+        $this->db->exec("ALTER TABLE ba_pairs ADD COLUMN queued_by INT");
+        $this->db->exec("ALTER TABLE ba_pairs ADD COLUMN before_id INT");
+        $this->db->exec("ALTER TABLE ba_pairs ADD COLUMN after_id INT");
+        $this->db->exec("UPDATE ba_pairs SET status = 'pending', queued_by = 8, before_id = 1, after_id = 2");          // a crew member's heart
+        $this->assertSame(0, MiaHeartFlow::sweep($this->db), 'a crew heart still waits for the owner');
+        $this->db->exec("UPDATE ba_pairs SET queued_by = 7, consent_state = 'needed'");
+        $this->assertSame(0, MiaHeartFlow::sweep($this->db), 'consent still has to be recorded');
+        $this->db->exec("DELETE FROM ops_settings WHERE setting_key = 'mia_single_operator'");
+        $this->db->exec("UPDATE ba_pairs SET consent_state = 'not_needed'");
+        $this->assertSame(0, MiaHeartFlow::sweep($this->db), 'and nothing at all unless single-operator mode is on');
+    }
 }

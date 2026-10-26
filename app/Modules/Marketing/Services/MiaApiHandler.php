@@ -517,7 +517,7 @@ final class MiaApiHandler
         if ($this->isBundle($a, $this->draftOf($a)) || $this->hasSocialExecution($actionId)) {
             $u = $this->bundle()->undo($actionId, $this->userId, $now);
             if (!$u['ok']) { return [409, ['ok' => false, 'code' => 'conflict', 'error' => ($u['error'] ?? 'Could not undo it.') . ($u['already_posted'] ? ' Already posted: ' . implode(', ', $u['already_posted']) . '.' : '')]]; }
-            return [200, ['ok' => true, 'status' => 'rolled_back', 'cancelled' => $u['cancelled'], 'already_posted' => $u['already_posted'], 'item' => $this->view($this->actions->get($actionId) ?: $a, true)]];
+            return [200, ['ok' => true, 'status' => 'rolled_back', 'cancelled' => $u['cancelled'], 'already_posted' => $u['already_posted'], 'in_flight' => $u['in_flight'], 'item' => $this->view($this->actions->get($actionId) ?: $a, true)]];
         }
         $r = $pub->rollback($execId, $this->userId, $now);
         if (empty($r['ok'])) {

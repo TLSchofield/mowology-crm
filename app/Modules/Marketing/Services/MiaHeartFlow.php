@@ -44,12 +44,36 @@ final class MiaHeartFlow
             $db = getDB();
             if (!self::singleOperator($db)) { return; }
             register_shutdown_function(static function () use ($visitId, $userId): void {
-                if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }
+                if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }          // PHP-FPM
+                elseif (function_exists('litespeed_finish_request')) { @litespeed_finish_request(); }   // LiteSpeed (common on cPanel hosts)
                 try { self::run(getDB(), $visitId, $userId); } catch (Throwable $e) { error_log('MiaHeartFlow: ' . $e->getMessage()); }
             });
         } catch (Throwable $e) {
             error_log('MiaHeartFlow schedule: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * The safety net for the after-the-reply work above, which cannot be guaranteed on every host: the 15-minute Mia cron approves any
+     * waiting pair that an owner endorsed and that needs no client agreement. Same rules as run(). @return int pairs approved
+     */
+    public static function sweep(PDO $db, int $limit = 5): int
+    {
+        if (!self::singleOperator($db)) { return 0; }
+        if (!class_exists('BeforeAfterService')) { require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php'; }
+        $n = 0;
+        try {
+            $s = $db->prepare("SELECT bp.id, bp.queued_by FROM ba_pairs bp JOIN users u ON u.id = bp.queued_by
+                                WHERE bp.status = 'pending' AND bp.consent_state <> 'needed' AND bp.before_id IS NOT NULL AND bp.after_id IS NOT NULL
+                                  AND u.role IN ('admin', 'owner') ORDER BY bp.id LIMIT " . (int)max(1, min(20, $limit)));
+            $s->execute();
+            $ba = new BeforeAfterService($db);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                try { $ba->approve((int)$p['id'], (int)$p['queued_by']); $n++; }
+                catch (Throwable $e) { error_log('MiaHeartFlow sweep pair ' . $p['id'] . ': ' . $e->getMessage()); }
+            }
+        } catch (Throwable $e) { error_log('MiaHeartFlow sweep: ' . $e->getMessage()); }
+        return $n;
     }
 
     /**

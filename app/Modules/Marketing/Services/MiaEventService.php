@@ -186,6 +186,10 @@ final class MiaEventService
         $now = $now ?: new DateTimeImmutable('now');
         $sites = $db->query("SELECT DISTINCT site_id FROM mia_websites WHERE status = 'verified' ORDER BY site_id")->fetchAll(PDO::FETCH_COLUMN);
         if (!$sites) { return ['status' => 'success', 'summary' => 'No verified websites to work on', 'errors' => []]; }
+        try {                                                                  // single-operator: approve owner-endorsed pairs the heart could not (safety net)
+            if (!class_exists('MiaHeartFlow')) { require_once __DIR__ . '/MiaHeartFlow.php'; }
+            MiaHeartFlow::sweep($db);
+        } catch (Throwable $e) { error_log('[mia_events] heart sweep: ' . $e->getMessage()); }
         $tot = ['swept' => 0, 'processed' => 0, 'proposed' => 0, 'skipped' => 0, 'failed' => 0, 'waiting' => 0]; $errors = [];
         foreach ($sites as $site) {
             try {

@@ -250,4 +250,47 @@ final class MiaBundleServiceTest extends TestCase
         $this->assertSame('token expired', $x[1]['error']);
         $this->assertSame(0, $this->bundle()->reconcile($this->now), 'nothing left to change');
     }
+
+    public function testUndoDistinguishesPostedFromJustStartedAndFailed(): void
+    {
+        $this->setting('publish_mode', 'bundle');
+        $this->setting('publish_channels', 'facebook,instagram');
+        $this->approve();
+        $this->bundle()->publish($this->actionId, 7, $this->now);
+        $this->db->exec("UPDATE social_queue SET status = 'processing' WHERE platform = 'facebook'");
+        $this->db->exec("UPDATE social_queue SET status = 'failed' WHERE platform = 'instagram'");
+        $u = $this->bundle()->undo($this->actionId, 7, $this->now->modify('+10 minutes'));
+        $this->assertSame(['facebook'], $u['in_flight'], 'posting had just started: not reported as posted');
+        $this->assertSame([], $u['already_posted']);
+        $this->assertSame(['instagram'], $u['cancelled'], 'a failed post never went out');
+        $this->assertStringContainsString('just started', (string)$u['error']);
+    }
+
+    public function testACancelThatFailsHalfwayChangesNothing(): void
+    {
+        $this->setting('publish_mode', 'bundle');
+        $this->setting('publish_channels', 'facebook,instagram');
+        $this->approve();
+        $this->bundle()->publish($this->actionId, 7, $this->now);
+        $this->db->exec("DROP TABLE social_post_platforms");                          // breaks the second step of the first channel
+        $u = $this->bundle()->undo($this->actionId, 7, $this->now);
+        $this->assertFalse($u['ok']);
+        $this->assertSame(2, $this->n("SELECT COUNT(*) FROM social_queue WHERE status = 'pending'"), 'neither channel was cancelled');
+        $this->assertSame(1, $this->n("SELECT COUNT(*) FROM portfolio_projects"), 'and the card stays too');
+    }
+
+    public function testAnAddressLikePlaceBlocksPublishingAndNeverBecomesAHashtag(): void
+    {
+        $this->assertTrue(MiaBundleService::isCoarsePlace('Point Grey'));
+        $this->assertTrue(MiaBundleService::isCoarsePlace("St. John's"));
+        foreach (['123 Cedar Street', '', 'Point Grey 4', '<b>x</b>', str_repeat('a', 80), 'One two three four five'] as $bad) { $this->assertFalse(MiaBundleService::isCoarsePlace($bad), $bad); }
+        $this->assertSame([], MiaBundleService::hashtags('123 Cedar Street', '45 Oak'));
+        $this->setting('publish_mode', 'bundle');
+        $this->approve();
+        $this->db->exec("UPDATE ba_pairs SET area = '123 Cedar Street'");
+        $p = $this->bundle()->preview($this->actionId);
+        $this->assertFalse($p['can_publish']);
+        $this->assertStringContainsString('address', (string)$p['why_not']);
+        $this->assertSame('cannot_publish', $this->bundle()->publish($this->actionId, 7, $this->now)['code']);
+    }
 }
