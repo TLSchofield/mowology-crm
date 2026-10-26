@@ -40912,3 +40912,6 @@ body.mw-books {
   .mw-focus-go { grid-column: 2; justify-self: start; }
 }
 
+/* Ledger entry: a tall right column (bank line + supporting documents) must not stretch the lines table (2026-10-26). */
+.mw-ledger-detail-body { align-items: start; }
+
