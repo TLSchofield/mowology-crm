@@ -89,10 +89,42 @@ final class MiaActionService
         return sha1($content);
     }
 
+    /**
+     * Text prepared for wording checks: compatibility-normalised (full-width digits, ligatures), invisible characters
+     * removed, all dash/hyphen look-alikes turned into "-", and common Cyrillic/Greek look-alike letters turned into
+     * Latin ones, so "bеst" (Cyrillic е) or "risk‑free" (non-breaking hyphen) cannot slip past a blocklist.
+     */
+    public static function normalizeForChecks(string $text): string
+    {
+        if (class_exists('Normalizer')) {
+            $n = Normalizer::normalize($text, Normalizer::FORM_KC);
+            if (is_string($n)) { $text = $n; }
+        }
+        $text = preg_replace('/[\x{00AD}\x{200B}-\x{200F}\x{2060}\x{FEFF}]/u', '', $text) ?? $text;
+        // Digits of any script (Arabic-Indic, Devanagari ...) become ASCII digits, so "٢٥ years" is checked like "25 years".
+        $text = preg_replace_callback('/\p{Nd}/u', function ($m) {
+            if (class_exists('IntlChar')) {
+                $v = IntlChar::charDigitValue(IntlChar::ord($m[0]));
+                return $v >= 0 ? (string)$v : $m[0];
+            }
+            $cp = mb_ord($m[0], 'UTF-8');
+            foreach ([0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0xFF10] as $base) {
+                if ($cp >= $base && $cp <= $base + 9) { return (string)($cp - $base); }
+            }
+            return $m[0];
+        }, $text) ?? $text;
+        $text = preg_replace('/[\x{2010}-\x{2015}\x{2212}\x{FE58}\x{FE63}\x{FF0D}]/u', '-', $text) ?? $text;
+        return strtr($text, [
+            "\u{0430}" => 'a', "\u{0435}" => 'e', "\u{043E}" => 'o', "\u{0440}" => 'p', "\u{0441}" => 'c', "\u{0445}" => 'x', "\u{0443}" => 'y', "\u{0456}" => 'i',
+            "\u{0410}" => 'A', "\u{0412}" => 'B', "\u{0415}" => 'E', "\u{041A}" => 'K', "\u{041C}" => 'M', "\u{041D}" => 'H', "\u{041E}" => 'O', "\u{0420}" => 'P', "\u{0421}" => 'C', "\u{0422}" => 'T', "\u{0425}" => 'X',
+            "\u{03BF}" => 'o', "\u{03B1}" => 'a', "\u{03B5}" => 'e', "\u{0391}" => 'A', "\u{0392}" => 'B', "\u{0395}" => 'E', "\u{039F}" => 'O', "\u{03A1}" => 'P',
+        ]);
+    }
+
     /** @return string[] problems with an "expected benefit" sentence */
     public static function benefitProblems(string $text): array
     {
-        return preg_match(self::PROMISE, $text) ? ['Benefits must be estimates, not promises'] : [];
+        return preg_match(self::PROMISE, self::normalizeForChecks($text)) ? ['Benefits must be estimates, not promises'] : [];
     }
 
     // ---- propose ------------------------------------------------------------------------------
@@ -265,6 +297,41 @@ final class MiaActionService
             error_log('MiaActionService verifyApproval: ' . $e->getMessage());
         }
         return $this->fail('draft_changed', 'The draft changed after it was approved. Approve it again.');
+    }
+
+    /**
+     * Attach a prepared draft to a still-open proposal (and optionally replace its explanation). Refused once the
+     * action is decided: approved wording must never change underneath the owner's approval.
+     * @param string|null $why  new plain-English reason (same promise lint as propose())
+     */
+    public function attachDraft(int $actionId, string $table, int $draftId, ?string $why = null, ?DateTimeImmutable $now = null): array
+    {
+        if ($table !== 'mia_content_drafts' || $draftId <= 0) { return $this->fail('bad_draft_ref', 'Draft reference not allowed'); }
+        if ($why !== null) {
+            $why = trim($why);
+            if ($why === '' || mb_strlen($why) > 600) { return $this->fail('bad_why', 'A reason is required (600 characters at most)'); }
+            if (self::benefitProblems($why)) { return $this->fail('promise', 'Text promises a result'); }
+        }
+        try {
+            return $this->atomic(function () use ($actionId, $table, $draftId, $why, $now) {
+                $row = $this->row($actionId);
+                if (!$row) { return $this->fail('not_found', 'No such action'); }
+                if ($row['status'] !== 'proposed') { return $this->fail('not_open', 'This action is already ' . $row['status']); }
+                // The draft must exist, belong to THIS site and THIS action (a draft of another site or action cannot be attached).
+                $d = $this->db->prepare("SELECT id FROM mia_content_drafts WHERE id = ? AND site_id = ? AND action_id = ? AND status = 'draft'");
+                $d->execute([$draftId, $this->siteId, $actionId]);
+                if ($d->fetchColumn() === false) { return $this->fail('bad_draft_ref', 'That draft does not belong to this action'); }
+                $u = $this->db->prepare("UPDATE mia_actions SET draft_ref_table = ?, draft_ref_id = ?, draft_hash = NULL" . ($why !== null ? ", why = ?" : "") . "
+                                          WHERE id = ? AND site_id = ? AND status = 'proposed'");
+                $u->execute(array_merge([$table, $draftId], $why !== null ? [$why] : [], [$actionId, $this->siteId]));
+                if ($u->rowCount() !== 1) { return $this->fail('not_open', 'This action was just decided'); }
+                if (!$this->event($actionId, 'drafted', 'mia', $table . '#' . $draftId, $now)) { throw new RuntimeException('audit event could not be written'); }
+                return ['ok' => true, 'code' => null, 'error' => null, 'id' => $actionId, 'existing' => false];
+            });
+        } catch (Throwable $e) {
+            error_log('MiaActionService attachDraft: ' . $e->getMessage());
+            return $this->fail('db', 'Could not attach the draft');
+        }
     }
 
     // ---- read ---------------------------------------------------------------------------------
