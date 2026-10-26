@@ -450,3 +450,5 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFeeds.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaEventService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaStoryWriter.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaStoryPublisher.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBundleService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaHeartFlow.php';

@@ -40990,6 +40990,12 @@ body.mw-books {
 .it-mws .mw-mws-col--new { border-color:var(--it-line); background:var(--it-surface); }
 .it-mws .mw-mws-col--now { background:var(--it-sunk); }
 .it-mws .mw-mws-draft { padding-top:0; border-top:0; }
+.it-mws .mw-mws-bundle { margin:24px 0; }
+.it-mws .mw-mws-chan { padding:12px 0; border-top:1px solid var(--it-line); }
+.it-mws .mw-mws-chan:first-of-type { border-top:0; }
+.it-mws .mw-mws-chan-name { display:block; font-weight:600; }
+.it-mws .mw-mws-chan-text { margin:8px 0 0; padding:12px 16px; border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); white-space:pre-line; max-width:62ch; }
+.it-mws .mw-mws-fine--warn { color:var(--it-attention); font-weight:500; }
 
 /* ── Mia: buttons. One dominant action per decision ── */
 .it-mws .mw-mws-btn { min-height:44px; padding:0 18px; border:1px solid var(--it-line); border-radius:10px; background:var(--it-surface); color:var(--it-text); font-size:inherit; font-weight:500; }

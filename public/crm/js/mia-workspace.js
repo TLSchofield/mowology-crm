@@ -375,6 +375,7 @@
     var story = it.type === 'project_story';
     add(body, section('Why Mia suggests it', it.why));
     if (story && it.draft) add(body, draftBlock(it));                    // the card comes first: it is what the owner is deciding on
+    if (it.bundle) add(body, bundleBlock(it));                           // then exactly what each channel will say
     var small = el('details', 'mw-mws-more');                            // gain, risk and the numbers are there when wanted, folded when not
     add(small, el('summary', 'mw-mws-summary', 'Show what this is based on'));
     add(small, section('What you might gain', it.expected_benefit || 'No estimate for this one.', 'mw-mws-sec--estimate'));
@@ -430,7 +431,7 @@
   function executionsBlock(it) {
     var wrap = el('div', 'mw-mws-sec mw-mws-exec');
     add(wrap, el('h3', 'mw-mws-h3', 'What was changed'));
-    var labels = { applied: 'Applied', verified: 'Applied and seen on the live page', unverified: 'Applied, not yet seen on the live page', rolled_back: 'Undone', failed: 'Failed' };
+    var labels = { queued: 'Waiting to post', applied: 'Applied', verified: 'Applied and seen on the live page', unverified: 'Applied, not yet seen on the live page', rolled_back: 'Undone', failed: 'Failed' };
     it.executions.forEach(function (x) {
       var row = el('div', 'mw-mws-execrow');
       add(row, el('p', 'mw-mws-p', (labels[x.status] || x.status) + ' · ' + when(x.applied_at)));
@@ -440,7 +441,7 @@
         add(links, el('a', 'mw-mws-link', 'Open the card in your Portfolio', { href: x.open_url }), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
         add(row, links);
       }
-      if (x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
+      if (x.status === 'queued' || x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
         var box = el('div', 'mw-mws-actions');
         add(box, btn('Undo this change', 'mw-mws-btn--secondary', function () {
           clear(box);
@@ -484,6 +485,22 @@
     if (imgs.length > 1) add(b, el('p', 'mw-mws-fine', 'The before photo is saved with the card too.'));
     add(card, b);
     return card;
+  }
+
+  // One decision, every channel: the exact words each place will show, then what Undo can and cannot do.
+  function bundleBlock(it) {
+    var b = it.bundle, wrap = el('div', 'mw-mws-sec mw-mws-bundle');
+    add(wrap, el('h3', 'mw-mws-h3', 'Where it will go'));
+    Object.keys(b.channels).forEach(function (k) {
+      var c = b.channels[k], row = el('div', 'mw-mws-chan');
+      add(row, el('strong', 'mw-mws-chan-name', c.label), status(c.ready ? 'ok' : 'warn', c.ready ? (k === 'website' ? 'Goes live at once' : 'Posts ' + b.delay_minutes + ' minutes after you approve') : 'Not connected: skipped'));
+      if (k !== 'website') add(row, el('p', 'mw-mws-chan-text', c.text));
+      add(wrap, row);
+    });
+    add(wrap, el('p', 'mw-mws-fine', b.undo_note));
+    if (b.instagram_on) add(wrap, el('p', 'mw-mws-fine mw-mws-fine--warn', 'Instagram posts cannot be deleted from here once they are up.'));
+    if (!b.can_publish && b.why_not) add(wrap, el('p', 'mw-mws-note mw-mws-note--bad', b.why_not));
+    return wrap;
   }
 
   function draftBlock(it) {
@@ -531,8 +548,11 @@
 
   function decisionBar(it) {
     var bar = el('div', 'mw-mws-decide');
-    var note = el('p', 'mw-mws-fine', 'Approving records your decision. Mia does not change your website.');
-    var approve = btn('Approve', 'mw-mws-btn--primary', function () { decide(it, 'approve', {}, bar); });
+    var note = el('p', 'mw-mws-fine', it.bundle ? 'Approving posts exactly what is shown above.' : 'Approving records your decision. Mia does not change your website.');
+    var approve = it.bundle
+      ? btn('Approve and post', 'mw-mws-btn--primary', function () { approvePublish(it, bar); }, { disabled: it.bundle.can_publish ? null : 'disabled' })
+      : btn('Approve', 'mw-mws-btn--primary', function () { decide(it, 'approve', {}, bar); });
+    if (it.bundle && it.bundle.can_publish) approve.removeAttribute('disabled');
     var later = btn('Not now', 'mw-mws-btn--secondary', function () { decide(it, 'later', {}, bar); });
     var reject = btn('No thanks…', 'mw-mws-btn--quiet', function () { rejectBox.hidden = !rejectBox.hidden; reject.setAttribute('aria-expanded', rejectBox.hidden ? 'false' : 'true'); }, { 'aria-expanded': 'false' });
     var rejectBox = el('div', 'mw-mws-reject'); rejectBox.hidden = true;
@@ -544,6 +564,23 @@
     add(bar, note, el('div', 'mw-mws-actions', null), rejectBox);
     add(bar.children[1], approve, later, reject);
     return bar;
+  }
+
+  // Posting to every channel takes a confirm; Instagram takes a second one because it cannot be deleted from here.
+  function approvePublish(it, bar) {
+    var b = it.bundle, names = Object.keys(b.channels).filter(function (k) { return b.channels[k].ready; }).map(function (k) { return b.channels[k].label; });
+    if (!window.confirm('Post this to ' + names.join(', ') + '? It posts ' + b.delay_minutes + ' minutes from now and you can undo it until then.')) return;
+    var ig = !!b.instagram_on;
+    if (ig && !window.confirm('Instagram posts cannot be deleted from here once they are up. Post to Instagram too?')) return;
+    var all = bar.querySelectorAll('button, select, input');
+    function freeze(on) { Array.prototype.forEach.call(all, function (c) { c.disabled = on; }); }
+    freeze(true);
+    request('POST', 'action_approve_publish', { id: it.id, seen_hash: it.seen_hash, confirm: true, confirm_instagram: ig }).then(function (res) {
+      if (res.status === 409 && res.body.code === 'changed') { flash(res.body.error, true); loadGrowth('row'); return; }
+      if (!res.body.ok) { freeze(false); flash(res.body.error || failText(res), true); if (res.body.approved) { state.filter = 'approved'; loadGrowth('filter'); } return; }
+      flash(res.body.note || 'Posted.');
+      state.filter = 'done'; state.openId = it.id; loadGrowth('filter');
+    });
   }
 
   function decide(it, decision, extra, bar) {

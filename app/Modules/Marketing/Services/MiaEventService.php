@@ -190,6 +190,10 @@ final class MiaEventService
         foreach ($sites as $site) {
             try {
                 $r = (new self($db, (int)$site, null, null, self::storyDrafter($db, (int)$site)))->drain(20, $now);
+                try {                                                      // queued posts the publisher has finished: mark them posted or failed
+                    require_once __DIR__ . '/MiaBundleService.php';
+                    (new MiaBundleService($db, (int)$site, new MiaActionService($db, (int)$site)))->reconcile($now);
+                } catch (Throwable $e) { error_log('[mia_events] reconcile: ' . $e->getMessage()); }
                 foreach ($tot as $k => $_) { $tot[$k] += $r[$k]; }
                 foreach ($r['errors'] as $e) { $errors[] = $e; }
             } catch (Throwable $e) {

@@ -89,6 +89,9 @@ final class MiaStoryPublisher
         return $r ?: null;
     }
 
+    /** The action, its wording, its photo pair and whether it can be applied right now (for the bundle service). */
+    public function inspect(int $actionId): array { return $this->load($actionId, false); }
+
     public function preview(int $actionId): array
     {
         $ctx = $this->load($actionId, false);
@@ -98,14 +101,21 @@ final class MiaStoryPublisher
                 'before' => ['title' => null, 'description' => null], 'after' => ['title' => $d['title'], 'description' => $d['meta_desc']]];
     }
 
-    /** @return array{ok:bool, code?:string, error?:string, execution_id?:int, status?:string, note?:string} */
-    public function apply(int $actionId, int $userId, ?DateTimeImmutable $now = null): array
+    /**
+     * @param array $opts  content: the exact text the owner's approval was bound to (default: the card wording);
+     *                     publish: true makes the card public at once (default: a hidden draft);
+     *                     extra: callable(int $projectId, string $number, int $executionId, array $ctx) run INSIDE the transaction after the
+     *                     card exists, for the other channels of a bundle. If it throws, nothing at all is created.
+     * @return array{ok:bool, code?:string, error?:string, execution_id?:int, status?:string, note?:string}
+     */
+    public function apply(int $actionId, int $userId, ?DateTimeImmutable $now = null, array $opts = []): array
     {
         $now = $now ?: new DateTimeImmutable('now');
         $ctx = $this->load($actionId, true);
         if (!$ctx['ok']) { return $ctx; }
         $d = $ctx['draft'];
-        $v = $this->actions->verifyApproval($actionId, MiaRecommendationWriter::draftText($d['title'], $d['meta_desc']), $now);
+        $publish = !empty($opts['publish']);
+        $v = $this->actions->verifyApproval($actionId, isset($opts['content']) ? (string)$opts['content'] : MiaRecommendationWriter::draftText($d['title'], $d['meta_desc']), $now);
         if (empty($v['ok'])) { return $this->fail($v['code'] ?? 'not_approved', $v['error'] ?? 'Not approved'); }
         if (!$ctx['can_apply']) { return $this->fail('cannot_apply', (string)$ctx['why_not']); }
 
@@ -128,21 +138,22 @@ final class MiaStoryPublisher
                 $number = $this->nextNumber($now);
                 try {
                     $this->db->prepare("INSERT INTO portfolio_projects (project_number, project_name, description, location, status, featured, display_order, categories, tags, gallery_images, after_image_path, before_image_path, created_by, created_at)
-                                        VALUES (?, ?, ?, ?, 'draft', 0, 999, ?, '[]', ?, ?, ?, ?, ?)")
-                        ->execute([$number, $row['project_name'], $row['description'], $row['location'], $row['categories'], $row['gallery_images'], $row['after_image_path'], $row['before_image_path'], $userId, $now->format('Y-m-d H:i:s')]);
+                                        VALUES (?, ?, ?, ?, ?, 0, 999, ?, '[]', ?, ?, ?, ?, ?)")
+                        ->execute([$number, $row['project_name'], $row['description'], $row['location'], $publish ? 'published' : 'draft', $row['categories'], $row['gallery_images'], $row['after_image_path'], $row['before_image_path'], $userId, $now->format('Y-m-d H:i:s')]);
                     $pid = (int)$this->db->lastInsertId();
                 } catch (PDOException $dup) {
                     if ($try === 2 || strpos($dup->getMessage(), 'project_number') === false && $dup->getCode() !== '23000') { throw $dup; }
                 }
             }
-            $row['featured'] = 0; $row['display_order'] = 999; $row['tags'] = '[]';
+            $row['featured'] = 0; $row['display_order'] = 999; $row['tags'] = '[]'; $row['status'] = $publish ? 'published' : 'draft';
             $this->db->prepare("INSERT INTO mia_executions (site_id, action_id, draft_id, website_id, connector, target_ref, page_url, before_json, after_json, status, verify_note, applied_by, applied_at)
                                 VALUES (?, ?, ?, ?, 'portfolio', ?, ?, ?, ?, 'applied', ?, ?, ?)")
                 ->execute([$this->siteId, $actionId, (int)$d['id'], (int)$d['website_id'], 'portfolio_projects:' . $pid, 'Portfolio ' . $number, '{}', json_encode($row),
-                           'Saved as a draft card. It is not public until you publish it in the Portfolio page.', $userId, $now->format('Y-m-d H:i:s')]);
+                           $publish ? 'Published on your portfolio page.' : 'Saved as a draft card. It is not public until you publish it in the Portfolio page.', $userId, $now->format('Y-m-d H:i:s')]);
             $execId = (int)$this->db->lastInsertId();
+            if (!empty($opts['extra'])) { call_user_func($opts['extra'], $pid, $number, $execId, $ctx); }
             $this->db->prepare("UPDATE mia_content_drafts SET status = 'applied' WHERE id = ? AND site_id = ?")->execute([(int)$d['id'], $this->siteId]);
-            if (!$this->actions->markExecuted($actionId, $userId, 'Saved as draft portfolio card ' . $number . ' (execution #' . $execId . ')', $now)) {
+            if (!$this->actions->markExecuted($actionId, $userId, ($publish ? 'Published portfolio card ' : 'Saved as draft portfolio card ') . $number . ' (execution #' . $execId . ')', $now)) {
                 throw new MiaPublishConflict('This action was just changed by someone else. Nothing was created.');
             }
             $this->db->commit();
@@ -152,7 +163,8 @@ final class MiaStoryPublisher
             error_log('MiaStoryPublisher apply: ' . get_class($e) . ' ' . $e->getMessage());
             return $this->fail('db', 'Mia could not save the card. Nothing was created.');
         }
-        return ['ok' => true, 'execution_id' => $execId, 'status' => 'applied', 'note' => 'Saved as a draft card ' . $number . '. It is not public: open the Portfolio page to read it and publish it.'];
+        return ['ok' => true, 'execution_id' => $execId, 'status' => 'applied', 'number' => $number, 'project_id' => $pid,
+                'note' => $publish ? 'Published as ' . $number . ' on your portfolio page.' : 'Saved as a draft card ' . $number . '. It is not public: open the Portfolio page to read it and publish it.'];
     }
 
     /** PORT-YYYY-NNNN, the same format the Portfolio page uses. The unique key on project_number is the backstop. */
@@ -183,7 +195,8 @@ final class MiaStoryPublisher
             $c->execute([$pid]);
             $cur = $c->fetch(PDO::FETCH_ASSOC);
             if ($cur !== false) {
-                if ($cur['status'] !== 'draft') { throw new MiaPublishConflict('The card has been published, so it was not removed. Unpublish or delete it in the Portfolio page.'); }
+                $expected = (string)($after['status'] ?? 'draft');                      // a bundle publishes the card at once: it is expected to be live
+                if ($cur['status'] !== $expected) { throw new MiaPublishConflict($expected === 'draft' ? 'The card has been published, so it was not removed. Unpublish or delete it in the Portfolio page.' : 'The card was unpublished or changed after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
                 foreach (['project_name', 'description', 'location'] as $f) {
                     if ((string)$cur[$f] !== (string)$after[$f]) { throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
                 }
@@ -196,8 +209,8 @@ final class MiaStoryPublisher
                 if ((int)$cur['featured'] !== (int)($after['featured'] ?? 0) || (int)$cur['display_order'] !== (int)($after['display_order'] ?? 999)) {
                     throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.');
                 }
-                $del = $this->db->prepare("DELETE FROM portfolio_projects WHERE id = ? AND status = 'draft'");
-                $del->execute([$pid]);
+                $del = $this->db->prepare("DELETE FROM portfolio_projects WHERE id = ? AND status = ?");
+                $del->execute([$pid, $expected]);
                 if ($del->rowCount() !== 1) { throw new MiaPublishConflict('The card just changed, so it was not removed.'); }
             }   // already gone: nothing to delete, the undo is still recorded
             $u = $this->db->prepare("UPDATE mia_executions SET status = 'rolled_back', rolled_back_by = ?, rolled_back_at = ? WHERE id = ? AND site_id = ? AND status IN ('applied','verified','unverified')");

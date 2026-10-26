@@ -300,6 +300,10 @@ class VisitLifecycleService
 
             require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
             (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+            if ($userId) {                                                     // single-operator mode: the owner's heart also approves the pair (after the reply)
+                require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+                MiaHeartFlow::schedule($visitId, (int)$userId);
+            }
         } catch (Throwable $e) {
             // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
             error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());

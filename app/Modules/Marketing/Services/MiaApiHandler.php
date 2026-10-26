@@ -33,11 +33,12 @@ require_once __DIR__ . '/Site/SiteAuditRules.php';
 require_once __DIR__ . '/Site/CmsConnector.php';
 require_once __DIR__ . '/MiaPublishService.php';
 require_once __DIR__ . '/MiaStoryPublisher.php';
+require_once __DIR__ . '/MiaBundleService.php';
 
 final class MiaApiHandler
 {
     public const MODES_GET  = ['websites', 'health', 'actions', 'action_detail'];
-    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide', 'action_apply', 'action_rollback'];
+    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide', 'action_apply', 'action_rollback', 'action_approve_publish'];
     /** Single-tenant today: the platform has no "current tenant" lookup yet (docs/plans/ittai-backlog.md). */
     public const SITE_ID = 1;
     public const MAX_WEBSITES = 10;
@@ -131,6 +132,7 @@ final class MiaApiHandler
                 case 'action_decide':      return $this->decide($input, $now);
                 case 'action_apply':       return $this->applyAction($input, $now);
                 case 'action_rollback':    return $this->rollbackAction($input, $now);
+                case 'action_approve_publish': return $this->approvePublish($input, $now);
             }
             return [400, ['ok' => false, 'error' => 'Unknown mode']];
         } catch (Throwable $e) {
@@ -306,6 +308,13 @@ final class MiaApiHandler
                 $v['apply'] = ['can_apply' => false, 'why_not' => 'The website is not connected and verified, so Mia cannot change it.'];
             }
         }
+        if ($this->isBundle($a, $draft) && $a['status'] === 'proposed') {
+            $p = $this->bundle()->preview((int)$a['id']);
+            if (!empty($p['ok'])) {
+                $v['bundle'] = ['channels' => $p['channels'], 'skipped' => $p['skipped'], 'delay_minutes' => $p['delay_minutes'], 'can_publish' => $p['can_publish'], 'why_not' => $p['why_not'],
+                                'instagram_on' => $p['instagram_on'], 'undo_note' => $p['undo_note']];
+            }
+        }
         if ($full) {
             $v['evidence'] = json_decode((string)$a['evidence'], true) ?: [];
             $v['score_inputs'] = json_decode((string)$a['score_inputs'], true) ?: null;
@@ -344,9 +353,21 @@ final class MiaApiHandler
         return $r ?: null;
     }
 
+    private function bundle(): MiaBundleService { return new MiaBundleService($this->db, $this->siteId, $this->actions); }
+
+    /** Is this action a story whose approval covers every channel (bundle mode)? */
+    private function isBundle(array $a, ?array $draft): bool
+    {
+        return $a['type'] === 'project_story' && $draft !== null && ($draft['kind'] ?? '') === 'story' && $this->bundle()->isOn();
+    }
+
     /** The exact text an approval is bound to: the draft wording, or (no draft) the proposal as the owner read it. */
     private function contentFor(array $a, ?array $draft): string
     {
+        if ($this->isBundle($a, $draft)) {                                   // the words, photos, channels and delay the owner is shown
+            $p = $this->bundle()->preview((int)$a['id']);
+            if (!empty($p['ok'])) { return (string)$p['content']; }
+        }
         if ($draft) { return MiaRecommendationWriter::draftText($draft['title'], $draft['meta_desc']); }
         return "ACTION: {$a['title']}\nWHY: {$a['why']}\nBENEFIT: {$a['expected_benefit']}\nRISK: {$a['risk']}";
     }
@@ -437,12 +458,49 @@ final class MiaApiHandler
         if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
         $pub = $this->publisherFor($this->draftOf($a));
         if (!$pub) { return [409, ['ok' => false, 'code' => 'no_website', 'error' => 'The website is not connected and verified, so Mia cannot change it.']]; }
-        $r = $pub->apply($id, $this->userId, $now);
+        $r = $this->isBundle($a, $this->draftOf($a)) ? $this->bundle()->publish($id, $this->userId, $now) : $pub->apply($id, $this->userId, $now);
         if (empty($r['ok'])) {
             $map = ['not_found' => 404, 'not_approved' => 409, 'draft_changed' => 409, 'conflict' => 409, 'db' => 500];
             return [$map[$r['code'] ?? ''] ?? 422, ['ok' => false, 'code' => $r['code'] ?? 'failed', 'error' => $r['error'] ?? 'Could not apply it']];
         }
-        return [200, ['ok' => true, 'status' => $r['status'], 'note' => $r['note'], 'item' => $this->view($this->actions->get($id) ?: $a, true)]];
+        return [200, ['ok' => true, 'status' => $r['status'] ?? 'applied', 'note' => $r['note'], 'item' => $this->view($this->actions->get($id) ?: $a, true)]];
+    }
+
+    /**
+     * One decision, every channel: records the approval of the exact preview, then publishes. Instagram posts cannot be deleted
+     * from here once they are up, so when Instagram is on the caller must also send confirm_instagram.
+     */
+    private function approvePublish(array $in, DateTimeImmutable $now): array
+    {
+        if (!$this->executionsReady()) { return [503, ['ok' => false, 'code' => 'not_ready', 'error' => 'Publishing needs migration 1403, which has not been run yet.']]; }
+        $id = self::id($in['id'] ?? null);
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+        $draft = $this->draftOf($a);
+        if (!$this->isBundle($a, $draft)) { return [409, ['ok' => false, 'code' => 'not_available', 'error' => 'Publishing to every channel is not switched on for this one.']]; }
+        if (empty($in['confirm'])) { return [422, ['ok' => false, 'code' => 'confirm', 'error' => 'Confirm that you want this posted.']]; }
+        $p = $this->bundle()->preview($id);
+        if (empty($p['ok'])) { return [409, ['ok' => false, 'code' => $p['code'] ?? 'preview', 'error' => $p['error'] ?? 'Mia cannot show this yet.']]; }
+        if (!$p['can_publish']) { return [409, ['ok' => false, 'code' => 'cannot_publish', 'error' => (string)$p['why_not']]]; }
+        if (!empty($p['instagram_on']) && empty($in['confirm_instagram'])) {
+            return [422, ['ok' => false, 'code' => 'confirm_instagram', 'error' => 'Instagram posts cannot be deleted from here once they are up. Confirm to continue.']];
+        }
+        [$code, $body] = $this->decide(['id' => $id, 'decision' => 'approve', 'seen_hash' => $in['seen_hash'] ?? ''], $now);
+        if ($code !== 200) { return [$code, $body]; }
+        $r = $this->bundle()->publish($id, $this->userId, $now);
+        $item = $this->view($this->actions->get($id) ?: $a, true);
+        if (empty($r['ok'])) {
+            $map = ['draft_changed' => 409, 'conflict' => 409, 'not_approved' => 409, 'db' => 500];
+            return [$map[$r['code'] ?? ''] ?? 422, ['ok' => false, 'code' => $r['code'] ?? 'failed', 'error' => ($r['error'] ?? 'Could not publish it') . ' Your approval is saved: you can publish it again from Approved.', 'approved' => true, 'item' => $item]];
+        }
+        return [200, ['ok' => true, 'note' => $r['note'], 'scheduled_at' => $r['scheduled_at'], 'channels' => $r['channels'], 'skipped' => $r['skipped'], 'item' => $item]];
+    }
+
+    private function hasSocialExecution(int $actionId): bool
+    {
+        $s = $this->db->prepare("SELECT 1 FROM mia_executions WHERE action_id = ? AND site_id = ? AND connector IN ('facebook','instagram') LIMIT 1");
+        $s->execute([$actionId, $this->siteId]);
+        return $s->fetchColumn() !== false;
     }
 
     private function rollbackAction(array $in, DateTimeImmutable $now): array
@@ -456,6 +514,11 @@ final class MiaApiHandler
         if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such change']]; }
         $pub = $this->publisherFor($this->draftOf($a));
         if (!$pub) { return [409, ['ok' => false, 'code' => 'no_website', 'error' => 'The website is not connected and verified, so Mia cannot undo it.']]; }
+        if ($this->isBundle($a, $this->draftOf($a)) || $this->hasSocialExecution($actionId)) {
+            $u = $this->bundle()->undo($actionId, $this->userId, $now);
+            if (!$u['ok']) { return [409, ['ok' => false, 'code' => 'conflict', 'error' => ($u['error'] ?? 'Could not undo it.') . ($u['already_posted'] ? ' Already posted: ' . implode(', ', $u['already_posted']) . '.' : '')]]; }
+            return [200, ['ok' => true, 'status' => 'rolled_back', 'cancelled' => $u['cancelled'], 'already_posted' => $u['already_posted'], 'item' => $this->view($this->actions->get($actionId) ?: $a, true)]];
+        }
         $r = $pub->rollback($execId, $this->userId, $now);
         if (empty($r['ok'])) {
             $map = ['not_found' => 404, 'not_undoable' => 409, 'conflict' => 409, 'db' => 500];
