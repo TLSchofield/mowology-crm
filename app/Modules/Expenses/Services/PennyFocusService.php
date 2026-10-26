@@ -83,10 +83,18 @@ class PennyFocusService
     }
 
     /** Penny's guess at the bank line, in words; a line from a closed year says so. Pure. */
-    public static function hintFor(array $c, string $expenseDate): string
+    public static function hintFor(array $c, string $expenseDate, ?float $receiptAmount = null): string
     {
         $when = date('M j, Y', strtotime((string)$c['date']));
-        $s = 'Could it be the $' . number_format((float)$c['amount'], 2) . ' bank line on ' . $when . ' (' . trim(substr((string)$c['description'], 0, 38)) . ')?';
+        // The bank's own words, without reference numbers: "e-Transfer debit Ref 2026031816…" -> "e-Transfer debit".
+        $what = trim(preg_replace('/\s*\(?\bRef\b.*$/i', '', (string)$c['description']));
+        $what = trim(preg_replace('/\d{6,}/', '', $what), " \t()#-");
+        $what = $what === '' ? 'bank line' : substr($what, 0, 38);
+        $s = 'Could it be the $' . number_format((float)$c['amount'], 2) . ' bank line on ' . $when . ' (' . $what . ')';
+        if ($receiptAmount !== null && abs(abs($receiptAmount) - (float)$c['amount']) >= 0.005) {
+            $s .= ' — the receipt says $' . number_format(abs($receiptAmount), 2) . ', check the total';
+        }
+        $s .= '?';
         if ((string)$c['date'] < '2026-01-01' && $expenseDate >= '2026-01-01') {
             $s .= ' That is in the filed 2025 books, so this receipt may be a second copy of it.';
         }
@@ -208,7 +216,7 @@ class PennyFocusService
         try {
             foreach ((new BankImportService($this->db))->candidateTransactionsForExpense($expenseId, 3) as $c) {
                 if (!empty($c['vendor_only'])) continue;
-                $hint = self::hintFor($c, (string)$ex['expense_date']);
+                $hint = self::hintFor($c, (string)$ex['expense_date'], abs((float)$best['amount']));
                 break;
             }
         } catch (Throwable $e2) { /* a hint is a bonus */ }

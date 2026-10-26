@@ -95,5 +95,14 @@ class PennyFocusServiceTest extends TestCase
         $this->assertNull(PennyFocusService::pickMonthReceipt($book, [42, 18]), 'bank-import entries are not receipts');
         $this->assertSame(42, (int)substr(PennyFocusService::pickMonthReceipt([$book[0]], [])['source'], 8));
     }
+
+    public function testTheHintDropsReferenceNumbersAndSaysWhenTheAmountsDiffer(): void
+    {
+        $c = ['amount' => 695.0, 'date' => '2026-03-18', 'description' => 'e-Transfer debit Ref 20260318164949668'];
+        $h = PennyFocusService::hintFor($c, '2026-03-11', 686.70);
+        $this->assertSame('Could it be the $695.00 bank line on Mar 18, 2026 (e-Transfer debit) — the receipt says $686.70, check the total?', $h);
+        $this->assertStringNotContainsString('20260318164949668', $h);
+        $this->assertStringNotContainsString('check the total', PennyFocusService::hintFor($c, '2026-03-11', 695.0));
+    }
 }
 
