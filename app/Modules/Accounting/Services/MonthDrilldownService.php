@@ -29,7 +29,7 @@ class MonthDrilldownService
 
     /**
      * Pure. $stmt rows: ['id','date','amount' (signed, book sign), 'description'?]; $book rows: ['id','date','amount','memo'?,'source'?].
-     * @return array{matched:int, date_differs:list<array>, statement_only:list<array>, book_only:list<array>,
+     * @return array{matched:int, cancelled_pairs:int, date_differs:list<array>, statement_only:list<array>, book_only:list<array>,
      *               statement_only_total:float, book_only_total:float, explains:float}
      */
     public static function compare(array $stmt, array $book): array
@@ -63,12 +63,31 @@ class MonthDrilldownService
         }
         $bookOnly = [];
         foreach ($book as $i => $b) if (!isset($usedBook[$i])) $bookOnly[] = $b;
+        // An entry and its exact opposite (a reversal and what it reversed, or a repost after a move) net to nothing:
+        // set them aside so the list shows only what actually moves the balance.
+        $cancelled = 0;
+        $open = [];
+        $byOpp = [];
+        foreach ($bookOnly as $i => $b) $byOpp[-$cent((float)$b['amount'])][] = $i;
+        $drop = [];
+        foreach ($bookOnly as $i => $b) {
+            if (isset($drop[$i])) continue;
+            $a = $cent((float)$b['amount']);
+            if ($a === 0 || empty($byOpp[$a])) continue;
+            while (!empty($byOpp[$a])) {
+                $j = array_shift($byOpp[$a]);
+                if ($j !== $i && !isset($drop[$j])) { $drop[$i] = $drop[$j] = true; $cancelled++; break; }
+            }
+        }
+        foreach ($bookOnly as $i => $b) if (!isset($drop[$i])) $open[] = $b;
+        $bookOnly = $open;
 
         // Sum cents, the unit the pairing used, so a total never disagrees with its own lines.
         $sTotal = array_sum(array_map(fn($r) => $cent((float)$r['amount']), $statementOnly)) / 100;
         $bTotal = array_sum(array_map(fn($r) => $cent((float)$r['amount']), $bookOnly)) / 100;
         return [
             'matched' => $matched + count($dateDiffers),
+            'cancelled_pairs' => $cancelled,
             'date_differs' => $dateDiffers,
             'statement_only' => $statementOnly,
             'book_only' => $bookOnly,

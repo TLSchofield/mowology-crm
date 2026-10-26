@@ -65,6 +65,15 @@ class MonthDrilldownServiceTest extends TestCase
         $this->assertSame(-0.01, $r['explains']);
     }
 
+    public function testAReversalAndWhatItReversedAreSetAside(): void
+    {
+        $r = MonthDrilldownService::compare([$this->s(1, '2026-01-05', -45.00)],
+            [$this->b(10, '2026-01-05', -45.00), $this->b(11, '2026-01-13', 253.96), $this->b(12, '2026-01-13', -253.96), $this->b(13, '2026-01-20', 7.01)]);
+        $this->assertSame(1, $r['cancelled_pairs']);
+        $this->assertCount(1, $r['book_only'], 'only the $7.01 is left');
+        $this->assertSame(7.01, $r['explains']);
+    }
+
     public function testAnImpossibleMonthIsRefused(): void
     {
         $svc = new MonthDrilldownService($this->createMock(PDO::class));
