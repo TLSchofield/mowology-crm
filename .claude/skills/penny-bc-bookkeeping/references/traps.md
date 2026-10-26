@@ -485,3 +485,6 @@ Gap −$229.75 → +$7.01 (January's opening difference only). Each piece had a 
 - A bank line linked to an approved receipt is already sorted (the month check no longer counts it).
 - Every write was previewed with `scripts/prod-run.sh` first; the permission layer asks for an explicit "commit" in chat for each.
 
+## 2026-10-26 — The closed-year guard on receipts (`ExpenseGate::closedYearProblem()`)
+Approving a receipt dated before 2026-01-01 (or changing the money fields / split / lines of an approved one) is refused with "this receipt is dated … in a year that is already filed": the ledger won't post into 2025 and used to post a NEW entry dated today (#18, Shell $150: 2025-05-14 receipt, a second copy of an expense already in the filed 2025 books). Reject it (keep the photo). Not blocked: rejecting, re-opening to draft, drafts, notes, and sending an approved receipt to accounting. Override for history builders only: `opts['allow_closed_year']`. On 2026-10-26, 17 receipts dated 2024–2025 were waiting (15 drafts, 2 pending, e.g. #461 Shell $150 2025-04-24, #347 "AMOUNT" 2021): they can no longer be approved — check each against its 2025 bank line, then reject.
+
