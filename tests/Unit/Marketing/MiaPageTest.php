@@ -280,4 +280,14 @@ final class MiaPageTest extends TestCase
         $this->assertSame(1, $this->n("SELECT COUNT(*) FROM cms_pages WHERE status = 'published'"), 'the published page is left alone');
         $this->assertSame(1, $this->n("SELECT COUNT(*) FROM cms_blocks"), 'with its text');
     }
+
+    public function testAReplyInTheWrongShapeIsAskedForOnceMoreInsteadOfFailing(): void
+    {
+        $this->replies[] = ['title' => 'Only a title'];
+        $this->replies[] = $this->good();
+        $r = $this->writer()->prepare($this->actionId, 1, $this->now);
+        $this->assertTrue($r['ok'], json_encode($r));
+        $this->assertSame(2, $r['attempts']);
+        $this->assertStringContainsString('required JSON format', json_encode($this->sent[1]['messages']));
+    }
 }

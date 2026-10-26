@@ -50,7 +50,7 @@ final class MiaPageWriter
             'title'            => ['type' => 'string', 'minLength' => 10, 'maxLength' => 120],
             'meta_description' => ['type' => 'string', 'minLength' => 40, 'maxLength' => 300],
             'body'             => ['type' => 'string', 'minLength' => 1500, 'maxLength' => 11000],
-            'explanation'      => ['type' => 'string', 'minLength' => 20, 'maxLength' => 700],
+            'explanation'      => ['type' => 'string', 'minLength' => 10, 'maxLength' => 900],
         ],
     ];
 
@@ -281,7 +281,7 @@ final class MiaPageWriter
 
     /**
      * The model call and the checks, with no saving: one try plus one repair. Also what a rolled-back production run uses.
-     * @return array{out:?array, problems:string[], attempts:int, cost_usd:float, last:?array, code:?string}
+     * @return array{out:?array, problems:string[], attempts:int, cost_usd:float, last:?array, code:?string, detail?:string}
      */
     public function generate(array $facts, array $prohibited): array
     {
@@ -290,7 +290,13 @@ final class MiaPageWriter
             $g['attempts']++;
             $r = $this->llm->call('page_write', $this->systemPrompt($facts, $prohibited), $this->userPrompt($facts, $g['problems']), ['schema' => self::SCHEMA, 'max_tokens' => 6000, 'known_facts' => self::factsText($facts), 'untrusted' => [$facts['query']]]);
             $g['cost_usd'] += (float)$r['cost_usd'];
-            if (!$r['ok']) { $g['code'] = (string)$r['code']; return $g; }
+            if (!$r['ok']) {
+                if ($r['code'] === 'schema' && $try < self::REPAIR_ATTEMPTS) {          // the reply was not in the required shape: ask once more, saying so
+                    $g['problems'] = ['Your last reply did not match the required JSON format or its length limits (title 10-120 characters, search description 40-300, page text 1500-11000, note under 400 characters). Reply with exactly the four fields.'];
+                    continue;
+                }
+                $g['code'] = (string)$r['code']; $g['detail'] = (string)($r['error'] ?? ''); return $g;
+            }
             $cand = ['title' => (string)$r['data']['title'], 'meta_description' => (string)$r['data']['meta_description'], 'body' => MiaPageMarkup::normalise((string)$r['data']['body']), 'explanation' => (string)$r['data']['explanation']];
             $g['last'] = $cand;
             $g['problems'] = self::lint($cand, $facts, $prohibited);
