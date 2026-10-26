@@ -475,3 +475,13 @@ line's own entry retired, one line per receipt, bank date within 3 days of month
 match the bank. Also: rejecting or re-dating a receipt into a filed year posts a late entry dated today (2026-10-26 #15345) —
 reject it instead (see the 2025-receipts trap).
 
+## 2026-10-26 — How February 2026 was cleared (the pattern for the other months)
+Gap −$229.75 → +$7.01 (January's opening difference only). Each piece had a different cause; read the lines (`/crm/api/month-drilldown.php`) before choosing:
+- **A receipt printed in a filed year** (#18 Shell $150, #17 TWN PNTY, #16 Midland $53.21 — photographed together on 2026-02-17): same purchase as a bank line already in the filed 2025 books → reject, keep the photo. Never link it to the 2025 line: the nightly sync retires a linked bank line's own entry (`LedgerSyncService` → `retireLinkedBankEntries`), which would remove the filed 2025 expense.
+- **Debit receipt, no bank line anywhere** → check the card on the receipt (receipt_facts.card_last4): a card that isn't a company card (••1462) = personal → payment method `owner_paid` (posts to 1300). "Cash" posts to chequing in this ledger (no petty-cash account): a cash purchase out of Tim's pocket is `owner_paid` too.
+- **Meals with a tip** → pre-tax amount takes the tip, tax unchanged, total = bank charge, note "Tip $X" (`BankImportService::tipSuggestion()`).
+- **Receipt dated the 28th, bank posts the 1st** → in transit, not drift (`MonthCloseService::inTransit()`); never re-date.
+- **Bank lines that are personal** (dental, supplements, groceries, IKEA, sport store) → 1300 via the bank desk (`BankDeskService::decide`); twice on a payee = Penny files that payee herself. **Rent** has its own account now: 6550 Rent (GIFI 8910) — the $600 parking space rented from Vancouver Management Ltd (a client too: its other lines are deposits). GST not claimed until an invoice shows the number.
+- A bank line linked to an approved receipt is already sorted (the month check no longer counts it).
+- Every write was previewed with `scripts/prod-run.sh` first; the permission layer asks for an explicit "commit" in chat for each.
+
