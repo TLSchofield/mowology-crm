@@ -32,6 +32,29 @@ Sep 18 by e-Transfer. Book the overpayment to 2160 Customer Deposits and the ref
 **FY2025 is filed and closed.** Don't propose 2025 write-offs, adjustments or clean-up lists (the
 accountant's June 19 write-off question is settled — Tim, 2026-10-12). 2026 opens from the filed statements.
 
+### The filed FY2025 balance sheet is the UPDATED one (Sit Lim, June 25 2026) — 2026-10-25
+The first signed statements were replaced on June 25 2026 ("Signed FS YE2025 (Updated)"): an **$86,100 dividend**
+(T5 for 2025; Tim's T1 tax owing rose from $217 to $26,566) cleared the shareholder loan. Filed figures:
+cash $11,017 · A/R $51,948 · equipment $19,035 · **due TO shareholder $14** (due from = −14) · A/P $5,848 ·
+due to government $16,432 · income tax payable $10,454 (T2 unchanged) · loan $23,886 · share capital $1 ·
+**retained earnings $25,365** (was $111,465 before the dividend). `Fy2026OpeningService::FILED_2025` and migration
+1242 carry these. **The opening entry #3472 on production was built BEFORE the update** (1300 $86,086, RE $111,465);
+1242's note says undo and rebook, but the cash-split entry (#4551, source `fy2026_opening_split`) must be reversed
+first or the split is applied twice — so a single dated adjusting entry (Dr 3200 / Cr 1300 $86,100) is the lighter fix.
+Read the opening from the entry itself (`/crm/ledger/entry.php?id=3472`), never from a trial balance dated 2026-01-01.
+
+### A/R at Dec 31 2025 and Ricole's QuickBooks entry (Oct 13–14 2026)
+QuickBooks A/R was $51,948.47 (= the filed $51,948); about $48K was pre-2025 and stale (Dorset Realty $12.1K, Kam
+Singh $11.0K, Strata 3775 $7.4K, Dorset–Hamelin $5.3K, Vancouver Coastal Health $4.4K). Jobber showed $10,222.65
+unpaid. Ricole's email: the old balances **can be written off as bad debt in 2026**, and she would match QuickBooks'
+opening A/R to Jobber. Her journal entry "AR Dec 31, 2025" (Oct 14): Dr 5490 Bad debts **$41,725.82**, A/R −$41,725.82
+across 79 customers → QuickBooks A/R **$10,222.65 = Jobber**. Our opening A/R is already the filed $51,948, so the same
+write-off takes ours to the same $10,222.65; book it as **2026 bad-debt expense dated Jan 1 2026** (her words), not
+as a 2025 change. QuickBooks is her WORKING file, not the filed statements (its trial balance has chequing
+$754K, Undeposited Funds $1.76M, retained earnings $1.84M): compare A/R only; the year-end statements live in
+CaseWare. The only cash fact she gave: her bank accounts "tie to the Dec 31 statements" — no figure, so the $7.01
+(filed cash $11,017 vs real $11,009.99) stays a question for her.
+
 ## Two representations of the same money
 
 1. **Single-entry `accounting_transactions`** — what the Accounting page, P&L, monthly trend and

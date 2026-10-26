@@ -96,6 +96,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | GST return (GST34) | `GstReportService` | tax report, reports, accounting |
 | Bank-line category rules | `BankRuleLearning` | transactions, Penny's bank desk |
 | Month-end proof per statement | `StatementCloseService` (+ `StatementCoverageService` for gaps) | Penny |
+| Which lines make a month differ from the bank | `MonthDrilldownService` (`public/crm/api/month-drilldown.php`, read-only) | Penny, the accountant's view |
+| Bank-line candidates for a receipt (both the form date and the printed date) | `BankImportService::candidateTransactionsForExpense()` | Edit Expense → Find Match |
 | Cash-flow forecast | `CashFlowForecastService` | cash-flow page, Penny's brief |
 | Orphan deposits → what they paid | `DepositBackfillService` | one-off backfill, re-runnable |
 | Journal posting | `LedgerSyncService`, `LedgerAccountMap`, `JobberLedgerService` | nightly sync |

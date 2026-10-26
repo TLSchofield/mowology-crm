@@ -412,3 +412,38 @@ read, never a value; a re-read must be able to replace a value that cannot be tr
 - **Card statement sections** imported before the closing-balance parser fix had `closing_balance` NULL; filled
   from the PDFs / the next statement's opening on 2026-10-15. `BankBalanceCheckService::report()` still shows
   one bogus card month (statement 5) — its card statements need fixing; check 2400 directly against closings.
+
+## 2026-10-25 — A trial balance "as of 2026-01-01" is not the opening
+`/crm/accounting/trial-balance.php?as_of=2026-01-01` includes everything posted on Jan 1 — invoices dated
+Jan 1 added $21.7K of "Other Services" and ~$22K to A/R, so A/R read $73,911.60 against the opening entry's filed
+$51,948. A wrong "opening A/R is $63.7K too high" was told to Tim and retracted. **Rule:** read the opening from the
+entry (`/crm/ledger/entry.php?id=3472`) and the filed figures from `Fy2026OpeningService::FILED_2025`; use the
+trial balance for dates after the opening only. Also: don't call an unchanged A/R "the old double-count" without
+checking — A/R only moves when payments are applied to invoices.
+
+## 2026-10-25 — Receipt → bank-line candidates trusted the form date
+`BankImportService::candidateTransactionsForExpense` searched ±14 days of the FORM date only (Dunbar Lumber: form
+Jun 22, receipt and bank May 27) so the exact-amount line fell outside the window and the same-vendor fallback tied
+everything at 10%. Fixed: the date printed on the receipt (`receipt_facts`) is a second anchor, the line carries a
+`suggest_expense_date`, and same-vendor same-amount lines outrank different amounts. Text suggestion only; no
+one-tap "change the date" button yet. When a window is keyed on a date that can be wrong, search both.
+
+## 2026-10-25 — Why a month is off the bank: draw the lines, don't guess
+`BankBalanceCheckService::report()` says a month is off by $X; `MonthDrilldownService::month()`
+(`/crm/api/month-drilldown.php?account=1010&month=2026-02`, admin, read-only) pairs statement lines with journal
+entries and lists what has no partner (a reversal and what it reversed are set aside). What it found: January's
+$7.01 is the opening (filed cash $11,017 vs the real $11,009.99), not a January line; February's −$236.76 is
+three book entries with no bank line (Expense #7 $64.26 — one of four identical Home Depot $64.26 receipts, a $150
+funds-transfer entry, Expense #42 $22.50). Debit-marked receipts posted to chequing with no bank line are the usual
+cause. Statement lines whose amount couldn't be read are skipped, so a month can leave a gap the tool does not explain
+(March −$684.20 left $288.85 unexplained). Per month, add each drift step only after reading its lines.
+
+## 2026-10-25 — How to read the accountant's side without asking Tim
+- Ricole's and Steve's emails are in Tim's Mail app and readable with `osascript` (sender contains "sitlim"):
+  list sender/date/subject first, then read the relevant threads and attachments. The June 24–25 package thread
+  holds the dividend, the updated statements and the T1/T5; Oct 12–14 holds the A/R question and her answers.
+- QuickBooks reports Tim exports land in ~/Downloads (`File.xls` is the old Excel format — no xlrd here; a small
+  stdlib reader works; `.xlsx` is a zip). The Audit Log export names what she changed and when.
+- This skill is not in the Skill tool's list in some chats: read this file and its references directly
+  before any money work. (2026-10-25: skipped, and two wrong claims followed.)
+
