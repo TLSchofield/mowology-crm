@@ -29,4 +29,17 @@ final class MonthCloseServiceTest extends TestCase
         $this->assertSame(['waiting until 2026-10-15 for late statements and receipts'], MonthCloseService::blockers($sep, '2026-10-14'));
         $this->assertSame([], MonthCloseService::blockers($sep, '2026-10-15'));
     }
+
+    public function testAnItemInTransitIsAddedBackToABankDriftAndTakenOffACards(): void
+    {
+        // Feb 2026: the Yellow Cab receipt ($22.50, 21:50 on the 28th) posted by the bank on Mar 1 — books $22.50 lower than the bank.
+        $this->assertSame(7.01, MonthCloseService::withoutInTransit(-15.49, 22.50, 'bank'));
+        $this->assertSame(-0.5, MonthCloseService::withoutInTransit(22.0, 22.50, 'card'));
+        $this->assertSame(7.01, MonthCloseService::withoutInTransit(-15.49, -22.50, 'bank'), 'the sign of the amount does not matter');
+        // And the gap that is left (January's opening) still blocks.
+        $b = MonthCloseService::blockers(['statements_ok' => true, 'drift' => ['1010 Chequing Account' => 7.01], 'receipts' => 0, 'bank_lines' => 0]);
+        $this->assertSame(['1010 Chequing Account: books are $7.01 above the bank'], $b);
+        $this->assertSame([], MonthCloseService::blockers(['statements_ok' => true, 'drift' => ['1010 Chequing Account' => MonthCloseService::withoutInTransit(-22.50, 22.50, 'bank')], 'receipts' => 0, 'bank_lines' => 0]));
+    }
 }
+
