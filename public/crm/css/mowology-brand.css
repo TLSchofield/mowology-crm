@@ -40867,6 +40867,7 @@ body.mw-books {
 .mw-mws-input { width: 100%; min-height: var(--mw-space-12); padding: var(--mw-space-2) var(--mw-space-3); border: 1px solid var(--mw-ink-300); border-radius: var(--mw-radius-sm);
   font: inherit; font-size: var(--mw-text-md); background: var(--mw-ink-0); color: var(--mw-ink-900); }
 .mw-mws-textarea { min-height: 5rem; resize: vertical; }
+.mw-mws-add { margin-top: var(--mw-space-4); }
 .mw-mws-how { margin: var(--mw-space-2) 0; }
 .mw-mws-opt { padding: var(--mw-space-2) 0; border-top: 1px solid var(--mw-ink-100); }
 .mw-mws-opt-what { display: block; font-size: var(--mw-text-sm); color: var(--mw-ink-500); margin: var(--mw-space-1) 0; }

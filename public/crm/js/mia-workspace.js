@@ -152,7 +152,7 @@
       if (!sites.length) add(host, el('p', 'mw-mws-note', 'No website is connected yet. Add yours below so Mia can look at it. She only reads it. She never changes it.'));
       var list = el('div', 'mw-mws-rows');
       sites.forEach(function (w) { add(list, siteRow(w)); });
-      add(host, list, connectForm());
+      add(host, list, connectForm(sites.length > 0));
     });
   }
 
@@ -236,9 +236,11 @@
     else flash('Select the text and copy it by hand.', true);
   }
 
-  function connectForm() {
+  function connectForm(hasSites) {
+    // With a website already connected this is "add ANOTHER one": closed until asked for, so it does not look like a to-do.
+    var wrap = el('div', 'mw-mws-add');
     var f = el('form', 'mw-mws-connect');
-    var label = el('label', 'mw-mws-lbl', 'Your website address', { 'for': 'mws-address' });
+    var label = el('label', 'mw-mws-lbl', hasSites ? 'Address of the other website' : 'Your website address', { 'for': 'mws-address' });
     var input = el('input', 'mw-mws-input', null, { id: 'mws-address', type: 'text', inputmode: 'url', autocomplete: 'off', placeholder: 'yourbusiness.ca', maxlength: '255' });
     var go = btn('Connect website', 'mw-mws-btn--primary', null, { type: 'submit' });
     add(f, label, input, go);
@@ -253,7 +255,11 @@
         loadPresence();
       });
     });
-    return f;
+    if (!hasSites) { add(wrap, f); return wrap; }
+    f.hidden = true;
+    var open = btn('Add another website', 'mw-mws-btn--quiet', function () { f.hidden = !f.hidden; open.setAttribute('aria-expanded', f.hidden ? 'false' : 'true'); if (!f.hidden) input.focus(); }, { 'aria-expanded': 'false' });
+    add(wrap, open, f);
+    return wrap;
   }
   function verify(id, button) {
     button.disabled = true;
