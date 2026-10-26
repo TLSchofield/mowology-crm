@@ -260,6 +260,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 // Bank balance check + each invoice payment its own journal entry (migration 1236)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthDrilldownService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BooksWatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PayerIdentityService.php';
