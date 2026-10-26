@@ -442,7 +442,7 @@ function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
     }
 }
 
-function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null): bool
+function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null, bool $filedCopy = false): bool
 {
     try {
         if (!receiptLearningBaselineReady($db)) {
@@ -456,7 +456,7 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         $stmt->execute([$expenseId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row || $row['learning_recorded_at'] !== null
-            || !in_array($row['status'], ['approved', 'forwarded'], true)) {
+            || !in_array($row['status'], $filedCopy ? ['approved', 'forwarded', 'rejected'] : ['approved', 'forwarded'], true)) {   // a filed copy of an already-booked receipt is rejected but its values are confirmed
             return false;
         }
 

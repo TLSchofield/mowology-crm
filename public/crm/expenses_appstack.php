@@ -1472,6 +1472,10 @@ async function submitReceiptExport() {
                 <button type="button" class="btn btn-outline-danger" id="expRejectBtn" onclick="rejectExpenseFromModal()" style="display:none;">
                     <i data-feather="x" style="width:16px;height:16px;margin-right:4px;"></i> Reject
                 </button>
+                <button type="button" class="btn btn-outline-secondary" id="expFileBookedBtn" onclick="fileBookedFromModal()" style="display:none;"
+                        title="This purchase is already in your filed books: keep the receipt, teach Penny, book nothing">
+                    <i data-feather="archive" style="width:16px;height:16px;margin-right:4px;"></i> Already booked — file it
+                </button>
                 <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
                     <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
                 </button>
@@ -3884,6 +3888,8 @@ async function submitReceiptExport() {
             var canAct = e.status !== 'approved' && e.status !== 'rejected' && e.status !== 'forwarded';
             if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
             if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
+            var fileBtn = document.getElementById('expFileBookedBtn');   // only a receipt dated in a filed year
+            if (fileBtn) fileBtn.style.display = (canAct && String(e.expense_date || '') < '2026-01-01') ? '' : 'none';
             if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
             var personalGrp = document.getElementById('expPersonalGroup');
             if (personalGrp) personalGrp.style.display = (e.status === 'rejected' || e.status === 'forwarded' || e.forwarded_to_accounting) ? 'none' : '';
@@ -4146,7 +4152,7 @@ async function submitReceiptExport() {
         } catch (err) { /* the split is a bonus — the form works without it */ }
     }
 
-    window.saveExpense = async function() {
+    window.saveExpense = async function(opts) {
         var id = document.getElementById('expenseId').value;
         function buildData() {
             var d = {
@@ -4190,10 +4196,34 @@ async function submitReceiptExport() {
                 if (!d.success) throw new Error(d.error);
                 if (d.warning) alert(d.warning);
             });
+            if (!(opts && opts.keepOpen)) {
+                $('#expenseModal').modal('hide');
+                loadExpenses(currentPage);
+                loadStats();
+            }
+            return true;
+        } catch(e) { alert('Error: ' + e.message); return false; }
+    };
+
+    // "Already booked — file it": save what is on screen (so the corrections teach), then keep the receipt and book nothing.
+    window.fileBookedFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        if (!confirm('This purchase is already in your filed books. Keep the receipt and photo, teach Penny from what is on screen, and book nothing?')) return;
+        if (!(await window.saveExpense({ keepOpen: true }))) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'file_booked', csrf_token: CSRF, id: parseInt(id) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
             $('#expenseModal').modal('hide');
+            loadApprovals();
             loadExpenses(currentPage);
             loadStats();
-        } catch(e) { alert('Error: ' + e.message); }
+        } catch (e) { alert('Error: ' + e.message); }
     };
 
     /** Penny's read in the edit modal (shared with the iPhone receipt detail via PennyReadService). */

@@ -136,6 +136,13 @@ try {
             handleReject($db, $input, $user);
             break;
 
+        case 'file_booked':   // a receipt in a filed year: keep it, teach Penny, book nothing
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            if (!$input || !verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+            echo json_encode((new ExpenseApprovalService($db))->fileAsBooked((int)($input['id'] ?? 0), $user));
+            break;
+
         case 'batch_approve':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
