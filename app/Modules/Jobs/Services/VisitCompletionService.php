@@ -269,6 +269,19 @@ class VisitCompletionService
         return ['minutes' => null, 'source' => 'none'];
     }
 
+    /** Measured time this long on a small job is a timer left running and closed at 12 hours (Tim, 2026-10-26). */
+    public const SUSPECT_TIMER_MINUTES = 600;
+    public const SUSPECT_TIMER_MAX_QUOTE = 200.0;
+
+    /**
+     * True when measured minutes are almost certainly a forgotten timer: 10+ hours on a job quoted under $200.
+     * Used by the margin repair to leave such labor UNKNOWN rather than show a false loss. Pure: no database.
+     */
+    public static function isSuspectTimer(int $measuredMinutes, ?float $quoted): bool
+    {
+        return $measuredMinutes >= self::SUSPECT_TIMER_MINUTES && $quoted !== null && $quoted < self::SUSPECT_TIMER_MAX_QUOTE;
+    }
+
     /**
      * Resolve quoted revenue for a visit.
      * Checks invoice_line_items first, falls back to plan-level quote total.

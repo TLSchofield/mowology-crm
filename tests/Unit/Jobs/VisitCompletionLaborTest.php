@@ -72,4 +72,22 @@ final class VisitCompletionLaborTest extends TestCase
         $this->assertStringContainsString("(float)\$c['r']['labor_cost']]);", $src);
         $this->assertStringNotContainsString("jv_labor']);", $src);
     }
+
+    public function testAForgottenTwelveHourTimerOnASmallJobIsSuspectButARealLongJobIsNot(): void
+    {
+        $this->assertTrue(VisitCompletionService::isSuspectTimer(720, 58.0));
+        $this->assertTrue(VisitCompletionService::isSuspectTimer(600, 199.99));
+        $this->assertFalse(VisitCompletionService::isSuspectTimer(599, 58.0));
+        $this->assertFalse(VisitCompletionService::isSuspectTimer(720, 200.0), 'a $200 job can take a long day');
+        $this->assertFalse(VisitCompletionService::isSuspectTimer(720, 4500.0));
+        $this->assertFalse(VisitCompletionService::isSuspectTimer(720, null), 'no quote means no judgement');
+    }
+
+    public function testTheRepairBlanksSuspectTimersAsUnknown(): void
+    {
+        $src = (string)file_get_contents(__DIR__ . '/../../../scripts/snippets/repair-visit-margins.php');
+        $this->assertStringContainsString("'source' => 'suspect'", $src);
+        $this->assertStringContainsString('>= 600', $src);
+        $this->assertStringContainsString('< 200.0', $src);
+    }
 }

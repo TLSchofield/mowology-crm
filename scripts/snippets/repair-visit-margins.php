@@ -4,7 +4,7 @@
 //   scripts/prod-run.sh scripts/snippets/repair-visit-margins.php --commit   apply
 // Rows built on real measured time are re-checked against it: if the stored labor does not match the minutes, it is
 // corrected (phase 2 of the repair, 2026-10-26). The new labor comes from VisitCompletionService::resolveLaborMinutes, the same rule the
-// live code now uses: an implausible estimate (over 8 hours) leaves labor and margin UNKNOWN (null), not guessed.
+// live code now uses (plus the suspect-timer rule below): an implausible estimate (over 8 hours) leaves labor and margin UNKNOWN (null), not guessed.
 require_once APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
 // Before the guard is deployed the live class has no resolveLaborMinutes(): use the same rule inline (8 h estimate cap).
 $resolve = method_exists('VisitCompletionService', 'resolveLaborMinutes')
@@ -29,7 +29,7 @@ $upd = $db->prepare("UPDATE visit_margin_snapshots SET labor_cost = ?, gross_mar
 $updJv = $db->prepare("UPDATE job_visits SET labor_cost_snapshot = ? WHERE id = ? AND labor_cost_snapshot IS NOT NULL AND ROUND(labor_cost_snapshot, 2) = ROUND(?, 2)");
 
 $out = ['rows_total' => count($rows), 'measured_already_right' => 0, 'measured_fixed' => 0, 'estimate_fixed' => 0, 'changed' => 0, 'became_unknown' => 0, 'became_smaller' => 0, 'unchanged' => 0,
-        'labor_before' => 0.0, 'labor_after' => 0.0, 'quoted_in_changed' => 0.0, 'by_service' => [], 'biggest' => [], 'job_visits_snapshots_fixed' => 0];
+        'labor_before' => 0.0, 'labor_after' => 0.0, 'quoted_in_changed' => 0.0, 'by_service' => [], 'biggest' => [], 'job_visits_snapshots_fixed' => 0, 'suspect_timers' => 0, 'suspect_visits' => []];
 $changes = [];
 foreach ($rows as $r) {
     // Measured time is used when the visit has it. The stored labor of a measured visit is replaced only when it does not
@@ -37,6 +37,10 @@ foreach ($rows as $r) {
     $res = call_user_func($resolve, (int)$r['act'], (int)$r['timer'], (int)$r['est']);
     $measured = ((int)$r['act'] > 0 || (int)$r['timer'] > 0);
     $rate = (float)$r['rate'];
+    // Suspect timer (Tim, 2026-10-26): 10+ measured hours on a job quoted under $200 is a timer left running. Unknown, not a loss.
+    $suspect = in_array($res['source'], ['actual', 'timer'], true) && $res['minutes'] !== null
+        && (int)$res['minutes'] >= 600 && $r['quoted_amount'] !== null && (float)$r['quoted_amount'] < 200.0;
+    if ($suspect) { $res = ['minutes' => null, 'source' => 'suspect']; $out['suspect_timers']++; $out['suspect_visits'][] = (int)$r['visit_id']; }
     $newLabor = ($res['minutes'] !== null && $rate > 0) ? round($rate * $res['minutes'] / 60, 2) : null;
     $oldLabor = $r['labor_cost'] !== null ? (float)$r['labor_cost'] : null;
     $same = ($newLabor === null && $oldLabor === null) || ($newLabor !== null && $oldLabor !== null && abs($newLabor - $oldLabor) < 0.5);
