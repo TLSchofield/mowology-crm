@@ -43,6 +43,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // The outside accountant lands on the Ledger (AccountantFence, 2026-10-13).
                 $dest = AccountantFence::isAccountantRole($loginRole) ? AccountantFence::HOME
                     : ($isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php');
+                // Account owners accept the current Terms of Service once (migration 1381). Off
+                // until a terms_versions row is active; any failure here fails open to $dest.
+                if (!$isDriver && in_array($loginRole, ['admin', 'manager'], true)) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Legal/Services/TermsService.php';
+                        // $_SESSION is already closed here (see loginUser), so look the id up again.
+                        $__q = getDB()->prepare("SELECT id FROM users WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?) LIMIT 1");
+                        $__q->execute([$email, $email]);
+                        $__uid = (int)$__q->fetchColumn();
+                        if ($__uid > 0 && (new TermsService(getDB()))->needsAcceptance($__uid)) {
+                            $dest = '/crm/terms-accept.php';
+                        }
+                    } catch (Throwable $e) {
+                        error_log('login terms gate: ' . $e->getMessage());
+                    }
+                }
                 header('Location: ' . $dest);
                 exit();
             } else {

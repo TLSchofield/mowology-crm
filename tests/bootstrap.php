@@ -319,6 +319,9 @@ require_once __DIR__ . '/../app/Modules/CMS/Services/CmsSiteFunctions.php';
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
 
+// Legal (platform Terms of Service)
+require_once __DIR__ . '/../app/Modules/Legal/Services/TermsService.php';
+
 // Quiz / Certification
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php';
