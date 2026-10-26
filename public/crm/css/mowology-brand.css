@@ -40888,7 +40888,7 @@ body.mw-books {
 @media (prefers-reduced-motion: reduce) { .mw-mws * { transition: none !important; animation: none !important; } }
 
 /* Penny's card — three things for you (Tim, 2026-10-26). Rows, hairlines, words with icons, 48 px targets (Ittai v1.2). */
-.mw-focus { margin: 14px 0 12px; }
+.mw-focus { margin: 14px 0 12px; padding-left: 36px; }   /* clear of the portrait badge that overhangs the column */
 .mw-focus-h { font-size: .85rem; font-weight: 600; color: var(--mw-ink-700, #2f3a35); margin: 0 0 6px; }
 .mw-focus-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--mw-ink-200); }
 .mw-focus-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--mw-ink-200); }
@@ -40900,7 +40900,12 @@ body.mw-books {
 .mw-focus-go:hover, .mw-focus-go:focus-visible { background: var(--mw-light); color: var(--mw-forest); }
 .mw-penny-more { margin-top: 4px; }
 .mw-penny-more > summary { display: flex; align-items: center; min-height: 48px; cursor: pointer; font-weight: 600; color: var(--mw-ink-700, #2f3a35); }
+.mw-penny-more > summary { list-style: none; }
+.mw-penny-more > summary::-webkit-details-marker { display: none; }
+.mw-penny-more > summary::before { content: "\25B8"; display: inline-block; width: 1.2em; color: var(--mw-dark); }
+.mw-penny-more[open] > summary::before { content: "\25BE"; }
 @media (max-width: 575px) {
+  .mw-focus { padding-left: 0; }
   .mw-focus-row { grid-template-columns: 24px minmax(0, 1fr); }
   .mw-focus-go { grid-column: 2; justify-self: start; }
 }

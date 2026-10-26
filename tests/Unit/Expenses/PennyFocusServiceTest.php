@@ -86,5 +86,14 @@ class PennyFocusServiceTest extends TestCase
             $this->assertFalse(PennyFocusService::validRow($bad));
         }
     }
+
+    public function testAReceiptMatchedToItsBankLineIsNotWhatHoldsAMonthUp(): void
+    {
+        // Feb 2026: Yellow Cab $22.50 is matched to its bank line (posted Mar 1); Shell-style receipts with no line are the problem.
+        $book = [['source' => 'expense:42', 'amount' => -22.50], ['source' => 'expense:18', 'amount' => -150.0], ['source' => 'bank_import:99', 'amount' => -900.0]];
+        $this->assertSame(18, (int)substr(PennyFocusService::pickMonthReceipt($book, [42])['source'], 8));
+        $this->assertNull(PennyFocusService::pickMonthReceipt($book, [42, 18]), 'bank-import entries are not receipts');
+        $this->assertSame(42, (int)substr(PennyFocusService::pickMonthReceipt([$book[0]], [])['source'], 8));
+    }
 }
 

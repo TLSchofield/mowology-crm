@@ -93,6 +93,23 @@ class PennyFocusService
         return $s;
     }
 
+    /**
+     * The receipt holding a month up: the biggest approved receipt booked as paid from chequing that NO bank line is matched to.
+     * A receipt matched to its bank line (even one the bank posted the next morning) is not the problem. Pure.
+     * @param list<array> $bookOnly drill-down entries with 'source' => 'expense:ID' and 'amount'; @param int[] $matchedIds expense ids with a bank line
+     */
+    public static function pickMonthReceipt(array $bookOnly, array $matchedIds): ?array
+    {
+        $matched = array_flip(array_map('intval', $matchedIds));
+        $best = null;
+        foreach ($bookOnly as $b) {
+            if (strpos((string)($b['source'] ?? ''), 'expense:') !== 0) continue;
+            if (isset($matched[(int)substr((string)$b['source'], 8)])) continue;
+            if ($best === null || abs((float)$b['amount']) > abs((float)$best['amount'])) $best = $b;
+        }
+        return $best;
+    }
+
     /** A link on the card goes to a page inside the CRM, never to another scheme or host. Pure. */
     public static function internalUrl(string $url): string
     {
@@ -170,11 +187,15 @@ class PennyFocusService
             if (++$tried > 6) break;
             $d = $drill->month('1010', $m['month']);
             if (isset($d['error'])) continue;
-            // A receipt that moves the books away from the bank: approved, booked as paid from chequing, no bank line.
-            foreach ($d['book_only'] as $b) {
-                if (strpos((string)($b['source'] ?? ''), 'expense:') !== 0) continue;
-                if ($best === null || abs((float)$b['amount']) > abs((float)$best['amount'])) $best = $b;
+            // A receipt that moves the books away from the bank: approved, booked as paid from chequing, NO bank line matched to it.
+            $ids = [];
+            foreach ($d['book_only'] as $b) if (strpos((string)($b['source'] ?? ''), 'expense:') === 0) $ids[] = (int)substr((string)$b['source'], 8);
+            $matchedIds = [];
+            if ($ids) {
+                $q = $this->db->query("SELECT DISTINCT matched_expense_id FROM accounting_transactions WHERE matched_expense_id IN (" . implode(',', array_map('intval', $ids)) . ")");
+                $matchedIds = $q ? $q->fetchAll(PDO::FETCH_COLUMN) : [];
             }
+            $best = self::pickMonthReceipt($d['book_only'], $matchedIds);
             if ($best) { $target = $m; break; }
         }
         if (!$best || !$target) return null;
@@ -194,7 +215,7 @@ class PennyFocusService
         $off = !empty($target['drift']) ? (float)reset($target['drift']) : (float)($d['books_minus_statement'] ?? 0);   // month-end: books minus bank
         $row = ['month' => $target['month'], 'amount_off' => $off, 'receipt_amount' => (float)$best['amount'], 'vendor' => (string)$ex['vendor'],
                 'date' => (string)$ex['expense_date'], 'hint' => $hint];
-        return ['kind' => 'month', 'title' => date('F', strtotime($target['month'] . '-01')) . ' can\'t close: ' . $ex['vendor'] . ' $' . number_format(abs((float)$best['amount']), 2),
+        return ['kind' => 'month', 'title' => $ex['vendor'] . ' $' . number_format(abs((float)$best['amount']), 2),
                 'why' => self::whyMonth($row), 'expense_id' => $expenseId, 'month' => $target['month']];
     }
 
