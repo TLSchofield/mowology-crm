@@ -32,6 +32,14 @@ final class VisitCompletionLaborTest extends TestCase
         $this->assertSame(['minutes' => null, 'source' => 'none'], VisitCompletionService::resolveLaborMinutes(5000, 5000, 0));
     }
 
+    public function testACrewsCombinedTimerMinutesAreMeasuredTimeNotAnError(): void
+    {
+        // maintenance visits on production carry 250 to 1,322 minutes: several people's timers added together
+        $this->assertSame(['minutes' => 1322, 'source' => 'timer'], VisitCompletionService::resolveLaborMinutes(0, 1322, 1712));
+        $this->assertSame(['minutes' => 2400, 'source' => 'actual'], VisitCompletionService::resolveLaborMinutes(2400, 0, 0));
+        $this->assertSame('none', VisitCompletionService::resolveLaborMinutes(2401, 2401, 0)['source']);
+    }
+
     public function testNothingKnownMeansUnknownNotZero(): void
     {
         $this->assertSame(['minutes' => null, 'source' => 'none'], VisitCompletionService::resolveLaborMinutes(0, 0, 0));

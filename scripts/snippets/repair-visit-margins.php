@@ -2,16 +2,16 @@
 // Run through scripts/prod-run.sh: a PREVIEW (rolled back) by default, `--commit` keeps the changes.
 //   scripts/prod-run.sh scripts/snippets/repair-visit-margins.php            preview
 //   scripts/prod-run.sh scripts/snippets/repair-visit-margins.php --commit   apply
-// Only rows with NO measured time (no actual minutes on the visit, no timer entries) are touched. Rows built on real
-// time are never changed. The new labor comes from VisitCompletionService::resolveLaborMinutes, the same rule the
+// Rows built on real measured time are re-checked against it: if the stored labor does not match the minutes, it is
+// corrected (phase 2 of the repair, 2026-10-26). The new labor comes from VisitCompletionService::resolveLaborMinutes, the same rule the
 // live code now uses: an implausible estimate (over 8 hours) leaves labor and margin UNKNOWN (null), not guessed.
 require_once APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
 // Before the guard is deployed the live class has no resolveLaborMinutes(): use the same rule inline (8 h estimate cap).
 $resolve = method_exists('VisitCompletionService', 'resolveLaborMinutes')
     ? ['VisitCompletionService', 'resolveLaborMinutes']
     : function (int $actual, int $timer, int $estimate): array {
-        if ($actual > 0 && $actual <= 960) { return ['minutes' => $actual, 'source' => 'actual']; }
-        if ($timer > 0 && $timer <= 960) { return ['minutes' => $timer, 'source' => 'timer']; }
+        if ($actual > 0 && $actual <= 2400) { return ['minutes' => $actual, 'source' => 'actual']; }
+        if ($timer > 0 && $timer <= 2400) { return ['minutes' => $timer, 'source' => 'timer']; }
         if ($estimate > 0 && $estimate <= 480) { return ['minutes' => $estimate, 'source' => 'estimate']; }
         return ['minutes' => null, 'source' => 'none'];
     };
@@ -28,17 +28,20 @@ $rows = $db->query("
 $upd = $db->prepare("UPDATE visit_margin_snapshots SET labor_cost = ?, gross_margin = ?, margin_pct = ?, computed_at = NOW() WHERE id = ?");
 $updJv = $db->prepare("UPDATE job_visits SET labor_cost_snapshot = ? WHERE id = ? AND labor_cost_snapshot IS NOT NULL AND ROUND(labor_cost_snapshot, 2) = ROUND(?, 2)");
 
-$out = ['rows_total' => count($rows), 'measured_left_alone' => 0, 'changed' => 0, 'became_unknown' => 0, 'became_smaller' => 0, 'unchanged' => 0,
+$out = ['rows_total' => count($rows), 'measured_already_right' => 0, 'measured_fixed' => 0, 'estimate_fixed' => 0, 'changed' => 0, 'became_unknown' => 0, 'became_smaller' => 0, 'unchanged' => 0,
         'labor_before' => 0.0, 'labor_after' => 0.0, 'quoted_in_changed' => 0.0, 'by_service' => [], 'biggest' => [], 'job_visits_snapshots_fixed' => 0];
 $changes = [];
 foreach ($rows as $r) {
-    if ((int)$r['act'] > 0 || (int)$r['timer'] > 0) { $out['measured_left_alone']++; continue; }
-    $res = call_user_func($resolve, 0, 0, (int)$r['est']);
+    // Measured time is used when the visit has it. The stored labor of a measured visit is replaced only when it does not
+    // match that time (it was charged from the plan estimate before the minutes were saved), by more than 50 cents.
+    $res = call_user_func($resolve, (int)$r['act'], (int)$r['timer'], (int)$r['est']);
+    $measured = ((int)$r['act'] > 0 || (int)$r['timer'] > 0);
     $rate = (float)$r['rate'];
     $newLabor = ($res['minutes'] !== null && $rate > 0) ? round($rate * $res['minutes'] / 60, 2) : null;
     $oldLabor = $r['labor_cost'] !== null ? (float)$r['labor_cost'] : null;
-    $same = ($newLabor === null && $oldLabor === null) || ($newLabor !== null && $oldLabor !== null && abs($newLabor - $oldLabor) < 0.01);
-    if ($same) { $out['unchanged']++; continue; }
+    $same = ($newLabor === null && $oldLabor === null) || ($newLabor !== null && $oldLabor !== null && abs($newLabor - $oldLabor) < 0.5);
+    if ($same) { $out[$measured ? 'measured_already_right' : 'unchanged']++; continue; }
+    $out[$measured ? 'measured_fixed' : 'estimate_fixed']++;
     $q = $r['quoted_amount'] !== null ? (float)$r['quoted_amount'] : null;
     $newGross = ($q !== null && $newLabor !== null) ? round($q - $newLabor - (float)$r['material_cost'] - (float)$r['drive_cost'], 2) : null;
     $newPct = ($newGross !== null && $q > 0) ? round($newGross / $q * 100, 2) : null;
@@ -60,6 +63,11 @@ foreach ($out['by_service'] as $k => $b) {
 usort($changes, function ($a, $b) { return (float)$b['r']['labor_cost'] <=> (float)$a['r']['labor_cost']; });
 foreach (array_slice($changes, 0, 6) as $c) {
     $out['biggest'][] = ['visit' => (int)$c['r']['visit_id'], 'quoted' => $c['r']['quoted_amount'], 'labor_before' => $c['r']['labor_cost'], 'labor_after' => $c['labor'], 'margin_after' => $c['pct']];
+}
+$lowest = array_filter($changes, function ($c) { return $c['pct'] !== null; });
+usort($lowest, function ($a, $b) { return $a['pct'] <=> $b['pct']; });
+foreach (array_slice($lowest, 0, 6) as $c) {
+    $out['lowest_after'][] = ['visit' => (int)$c['r']['visit_id'], 'service' => $c['r']['service_type'], 'quoted' => $c['r']['quoted_amount'], 'labor_after' => $c['labor'], 'margin_after' => $c['pct']];
 }
 foreach ($changes as $c) {
     $upd->execute([$c['labor'], $c['gross'], $c['pct'], (int)$c['r']['id']]);

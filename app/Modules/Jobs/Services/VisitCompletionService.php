@@ -248,8 +248,11 @@ class VisitCompletionService
 
     /** A plan estimate longer than this is a data error, not a plan (8 hours for one visit). */
     public const MAX_ESTIMATE_MINUTES = 480;
-    /** Measured time longer than this for one visit is a forgotten timer (16 hours). */
-    public const MAX_ACTUAL_MINUTES = 960;
+    /**
+     * Measured time longer than this for one visit is a forgotten timer (40 hours). A crew's timers add up (five
+     * people for eight hours is 2,400 minutes), so the cap is far above one person's day.
+     */
+    public const MAX_ACTUAL_MINUTES = 2400;
 
     /**
      * Which minutes may be charged as labor for one visit.
