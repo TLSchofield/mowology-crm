@@ -4178,7 +4178,7 @@ class BankImportService
     public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null, ?string $printedDate = null): array
     {
         $stmt = $this->db->prepare("
-            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name, e.amount, e.gst_amount, e.pst_amount, e.accounting_category
             FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?
         ");
         $stmt->execute([$expenseId]);
@@ -4186,6 +4186,7 @@ class BankImportService
         if (!$expense) return [];
         // What the Edit Expense form shows right now, before Save — a receipt saved without its
         // PST ($196.08) matched its $199.71 bank line as "within 2%" (2026-10-13).
+        $expense['saved_total'] = round((float)$expense['total'], 2);   // what the receipt says, for the tip check
         if ($total !== null && $total > 0) $expense['total'] = round($total, 2);
         if ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $expense['expense_date'] = $date;
         // Penny's read of the PRINTED total, when she disagrees with the saved one (a scanner misread):
@@ -4302,9 +4303,43 @@ class BankImportService
             if (!$hit) continue;
             $out[] = self::vendorLine($expense, $tx);
         }
+        // Two same-vendor charges that could each be "the receipt plus a tip" (two visits): don't pick for the owner.
+        if (count(array_filter($out, fn($l) => !empty($l['tip']))) > 1) {
+            $out = array_map(fn($l) => !empty($l['tip']) ? self::vendorLine(['no_tip' => true] + $expense, ['id' => $l['transaction_id'], 'transaction_date' => $l['date'],
+                    'description' => $l['description'], 'amount' => $l['amount'], 'bank_account' => $l['bank_account']]) : $l, $out);
+        }
         // The same amount first (a date to check), then a different amount; nearest date within each.
         usort($out, fn($a, $b) => [empty($a['same_amount']), -$a['confidence']] <=> [empty($b['same_amount']), -$b['confidence']]);
         return array_slice($out, 0, self::VENDOR_LINES_MAX);
+    }
+
+    /**
+     * A meal's bank charge is the receipt plus a tip the paper didn't carry (Tim, 2026-10-26: Moxies, Ah Long Sushi, Whitespot).
+     * When the receipt is a MEALS receipt, the bank charged $1+ more than the receipt total, the gap is a plausible tip (5–35% of
+     * the pre-tax amount) and the charge is within 3 days of the receipt, say what the tip would be and what the receipt would
+     * become: the tip goes in the PRE-TAX amount (a tip carries no GST or PST), the tax stays as printed, the total is the bank charge.
+     * @return array{tip: float, pct: float, amount: float, total: float}|null
+     */
+    public static function tipSuggestion(array $expense, float $bankAmount, string $bankDate): ?array
+    {
+        if (!in_array(strtolower(trim((string)($expense['accounting_category'] ?? ''))), ['meals', 'meals & entertainment'], true)) return null;
+        $total = round((float)($expense['saved_total'] ?? $expense['total'] ?? 0), 2);
+        $bank = round($bankAmount, 2);
+        $tip = round($bank - $total, 2);
+        if ($total <= 0 || $tip < 1.00) return null;
+        $gst = round((float)($expense['gst_amount'] ?? 0), 2);
+        $pst = round((float)($expense['pst_amount'] ?? 0), 2);
+        $pre = isset($expense['amount']) && (float)$expense['amount'] > 0 ? round((float)$expense['amount'], 2) : round($total - $gst - $pst, 2);
+        if ($pre <= 0) return null;
+        // The receipt must already add up (pre-tax + GST + PST = total); one that doesn't — a tip already in it, a misread — is not ours to guess at.
+        if (abs($pre + $gst + $pst - $total) > 0.011) return null;
+        $pct = $tip / $pre * 100;
+        if ($pct < 5 || $pct > 35) return null;
+        $dates = array_filter([(string)($expense['expense_date'] ?? ''), (string)($expense['printed_date'] ?? '')]);
+        $near = false;
+        foreach ($dates as $d) if (abs((int)round((strtotime(substr($bankDate, 0, 10) . ' 12:00:00 UTC') - strtotime(substr($d, 0, 10) . ' 12:00:00 UTC')) / 86400)) <= 3) $near = true;
+        if (!$near) return null;
+        return ['tip' => $tip, 'pct' => round($pct, 1), 'amount' => round($pre + $tip, 2), 'total' => $bank];
     }
 
     /** One same-vendor candidate, shaped like the others; low confidence, says what to check. Pure. */
@@ -4316,9 +4351,11 @@ class BankImportService
         }
         $amt = round((float)$tx['amount'], 2);
         $same = abs($amt - round((float)$expense['total'], 2)) < 0.01;
+        $tip = ($same || !empty($expense['no_tip'])) ? null : self::tipSuggestion($expense, $amt, (string)$tx['transaction_date']);
         $reasons = ['Same vendor'];
         $reasons[] = $same ? 'Same amount, ' . $days . ' day' . ($days === 1 ? '' : 's') . ' apart — check the date'
-                           : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total';
+                           : ($tip ? 'Adds a $' . number_format($tip['tip'], 2) . ' tip (' . rtrim(rtrim(number_format($tip['pct'], 1), '0'), '.') . '%) to the receipt — check the paper'
+                                   : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total');
         return [
             'transaction_id' => (int)$tx['id'],
             'date'           => substr((string)$tx['transaction_date'], 0, 10),
@@ -4326,10 +4363,11 @@ class BankImportService
             'bank_account'   => (string)($tx['bank_account'] ?? ''),
             'amount'         => $amt,
             // Same vendor AND amount is a real lead, only the date is off: it must not tie with a different amount.
-            'confidence'     => $same ? max(25, 45 - $days) : max(10, 30 - $days),
+            'confidence'     => $same ? max(25, 45 - $days) : ($tip ? max(40, 55 - $days) : max(10, 30 - $days)),
             'reasons'        => $reasons,
             'vendor_only'    => true,
             'same_amount'    => $same,
+            'tip'            => $tip,
         ];
     }
 

@@ -4066,6 +4066,8 @@ async function submitReceiptExport() {
                             var saved = window.mwExpSavedTotal || 0, form = parseFloat(fTot) || 0;
                             if (agree(saved)) return '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>';
                             if (agree(form)) return '<button type="button" class="mw-action-btn" disabled title="Save the new total first">Save, then attach</button>';
+                            // A meal charged more than its receipt by a plausible tip: fill amount + total + a note (the tax is left as printed).
+                            if (c.vendor_only && c.tip) return '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\', ' + c.tip.tip.toFixed(2) + ', ' + c.tip.amount.toFixed(2) + ')">Use $' + c.amount.toFixed(2) + ' with tip</button>';
                             return c.vendor_only ? '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\')">Use $' + c.amount.toFixed(2) + '</button>'
                                                  : '<button type="button" class="mw-action-btn" disabled title="The amounts differ">Totals differ</button>';
                         })() +
@@ -4080,11 +4082,19 @@ async function submitReceiptExport() {
     };
 
     /** Put a same-vendor bank line's amount and date in the form (nothing saved): check the paper, then Save, then Attach. */
-    window.mwUseBankLine = function(amount, date) {
+    window.mwUseBankLine = function(amount, date, tip, preTax) {
         var t = document.getElementById('expTotal'), d = document.getElementById('expDate');
+        // With a tip: the pre-tax amount takes it (a tip carries no GST or PST) and the notes say so.
+        if (tip && preTax) {
+            var a = document.getElementById('expAmount'), n = document.getElementById('expNotes');
+            if (a) { a.value = Number(preTax).toFixed(2); a.dispatchEvent(new Event('input', { bubbles: true })); a.dispatchEvent(new Event('change', { bubbles: true })); }
+            if (n && n.value.indexOf('Tip $') === -1) n.value = (n.value ? n.value + ' · ' : '') + 'Tip $' + Number(tip).toFixed(2) + ' (bank charge $' + Number(amount).toFixed(2) + ')';
+        }
         if (t) { t.value = amount; t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); }
         if (d && date) { d.value = date; d.dispatchEvent(new Event('input', { bubbles: true })); d.dispatchEvent(new Event('change', { bubbles: true })); }
-        if (window.mwToast) mwToast('Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
+        if (window.mwToast) mwToast(tip && preTax
+            ? 'Added a $' + Number(tip).toFixed(2) + ' tip: pre-tax $' + Number(preTax).toFixed(2) + ', total $' + amount + ' (tax unchanged). Check the receipt, then Save Expense and Attach.'
+            : 'Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
     };
 
     window.mwAttachExpenseMatch = async function(transactionId, expenseId) {
