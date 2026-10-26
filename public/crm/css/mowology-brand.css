@@ -39928,6 +39928,8 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-ada-state { font-weight: 400; color: var(--mw-ink-500); margin-left: 6px; }
 .mw-ada-evidence { margin-top: 2px; }
 .mw-ada-when { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
+.mw-ada-basis { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
+.mw-ada-fix { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .mw-ada-handoff { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
 .mw-ada-to { font-weight: 600; color: var(--mw-dark); }
 .mw-ada-task { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
