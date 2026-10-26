@@ -30,11 +30,13 @@ require_once __DIR__ . '/MiaMemoryService.php';
 require_once __DIR__ . '/MiaRecommendationWriter.php';
 require_once __DIR__ . '/MiaOpportunityScorer.php';
 require_once __DIR__ . '/Site/SiteAuditRules.php';
+require_once __DIR__ . '/Site/CmsConnector.php';
+require_once __DIR__ . '/MiaPublishService.php';
 
 final class MiaApiHandler
 {
     public const MODES_GET  = ['websites', 'health', 'actions', 'action_detail'];
-    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide'];
+    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide', 'action_apply', 'action_rollback'];
     /** Single-tenant today: the platform has no "current tenant" lookup yet (docs/plans/ittai-backlog.md). */
     public const SITE_ID = 1;
     public const MAX_WEBSITES = 10;
@@ -54,6 +56,8 @@ final class MiaApiHandler
     private $websites;
     /** @var MiaActionService */
     private $actions;
+    /** @var callable|null fn(array $draft): MiaPublishService, replaced in tests */
+    private $publisherFactory = null;
 
     public function __construct(PDO $db, int $userId, ?MiaWebsiteService $websites = null, ?MiaActionService $actions = null, int $siteId = self::SITE_ID)
     {
@@ -63,6 +67,29 @@ final class MiaApiHandler
         $this->userId   = $userId;
         $this->websites = $websites ?: new MiaWebsiteService($db, $siteId);
         $this->actions  = $actions ?: new MiaActionService($db, $siteId);
+    }
+
+    public function setPublisherFactory(callable $f): void
+    {
+        $this->publisherFactory = $f;
+    }
+
+    /** Applying changes needs migration 1403. Everything else keeps working without it. */
+    private function executionsReady(): bool
+    {
+        try { $this->db->query("SELECT 1 FROM mia_executions LIMIT 0"); return true; } catch (Throwable $e) { return false; }
+    }
+
+    /** The publisher for the website a draft belongs to, or null when that website is not connected and verified. */
+    private function publisherFor(?array $draft): ?MiaPublishService
+    {
+        if (!$draft) { return null; }
+        if ($this->publisherFactory !== null) { return call_user_func($this->publisherFactory, $draft); }
+        $w = $this->db->prepare("SELECT host FROM mia_websites WHERE id = ? AND site_id = ? AND status = 'verified'");
+        $w->execute([(int)$draft['website_id'], $this->siteId]);
+        $host = $w->fetchColumn();
+        if (!is_string($host) || $host === '') { return null; }
+        return new MiaPublishService($this->db, $this->siteId, $this->actions, new CmsConnector($this->db, $host));
     }
 
     /** A request id: a positive integer, or a plain decimal string of one. Arrays, floats, signs and junk become 0 (= not found). */
@@ -100,6 +127,8 @@ final class MiaApiHandler
                 case 'action_detail':      return $this->actionDetail(self::id($query['id'] ?? null));
                 case 'draft_edit':         return $this->draftEdit($input, $now);
                 case 'action_decide':      return $this->decide($input, $now);
+                case 'action_apply':       return $this->applyAction($input, $now);
+                case 'action_rollback':    return $this->rollbackAction($input, $now);
             }
             return [400, ['ok' => false, 'error' => 'Unknown mode']];
         } catch (Throwable $e) {
@@ -222,9 +251,15 @@ final class MiaApiHandler
     {
         $status = array_key_exists('status', $q) ? $q['status'] : 'proposed';
         if (!is_string($status)) { return [422, ['ok' => false, 'error' => 'Unknown status']]; }
-        if (!in_array($status, ['proposed', 'approved', 'rejected', 'expired', 'all'], true)) { return [422, ['ok' => false, 'error' => 'Unknown status']]; }
+        if (!in_array($status, ['proposed', 'approved', 'rejected', 'expired', 'done', 'all'], true)) { return [422, ['ok' => false, 'error' => 'Unknown status']]; }
         $items = [];
-        foreach ($this->actions->listByStatus($status, 50) as $a) { $items[] = $this->view($a, false); }
+        $rows = $this->actions->listByStatus($status, 50);
+        if ($status === 'done') {                       // "Applied" also lists what was undone, so its history stays reachable
+            $rows = array_merge($rows, $this->actions->listByStatus('rolled_back', 50));
+            usort($rows, function ($x, $y) { return (int)$y['id'] <=> (int)$x['id']; });
+            $rows = array_slice($rows, 0, 50);
+        }
+        foreach ($rows as $a) { $items[] = $this->view($a, false); }
         return [200, ['ok' => true, 'status' => $status, 'items' => $items, 'counts' => $this->actions->counts()]];
     }
 
@@ -255,6 +290,20 @@ final class MiaApiHandler
             ] : null,
             'seen_hash' => sha1($this->contentFor($a, $draft)),
         ];
+        if ($full && $a['type'] === 'seo_meta_update' && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
+            $pub = $this->executionsReady() ? $this->publisherFor($draft) : null;
+            if (!$this->executionsReady()) {
+                if ($a['status'] === 'approved') { $v['apply'] = ['can_apply' => false, 'why_not' => 'Applying changes needs one more setup step (migration 1403) that has not been run yet.']; }
+            } elseif ($pub) {
+                if ($a['status'] === 'approved') {
+                    $p = $pub->preview((int)$a['id']);
+                    $v['apply'] = ['can_apply' => !empty($p['ok']) && !empty($p['can_apply']), 'why_not' => $p['ok'] ? $p['why_not'] : ($p['error'] ?? null)];
+                }
+                $v['executions'] = $pub->executionsFor((int)$a['id']);
+            } elseif ($a['status'] === 'approved') {
+                $v['apply'] = ['can_apply' => false, 'why_not' => 'The website is not connected and verified, so Mia cannot change it.'];
+            }
+        }
         if ($full) {
             $v['evidence'] = json_decode((string)$a['evidence'], true) ?: [];
             $v['score_inputs'] = json_decode((string)$a['score_inputs'], true) ?: null;
@@ -266,7 +315,7 @@ final class MiaApiHandler
     private function draftOf(array $a): ?array
     {
         if ($a['draft_ref_table'] !== 'mia_content_drafts' || empty($a['draft_ref_id'])) { return null; }
-        $s = $this->db->prepare("SELECT * FROM mia_content_drafts WHERE id = ? AND site_id = ? AND action_id = ? AND status = 'draft'");
+        $s = $this->db->prepare("SELECT * FROM mia_content_drafts WHERE id = ? AND site_id = ? AND action_id = ? AND status IN ('draft', 'applied')");
         $s->execute([(int)$a['draft_ref_id'], $this->siteId, (int)$a['id']]);
         $r = $s->fetch(PDO::FETCH_ASSOC);
         return $r ?: null;
@@ -348,8 +397,45 @@ final class MiaApiHandler
         if (!$r['ok'] && $r['code'] === 'changed') {
             return [409, ['ok' => false, 'code' => 'changed', 'error' => 'The wording changed since you opened it. Please look at it again before approving.', 'item' => $this->view($this->actions->get($id) ?: $a, false)]];
         }
-        if ($r['ok']) { return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false), 'message' => $decision === 'approve' ? 'Approved. Mia will not change your website: this only records your decision.' : 'Saved.']]; }
+        if ($r['ok']) { return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false), 'message' => $decision === 'approve' ? 'Approved. Nothing has changed on your website yet. Open it under Approved to apply it.' : 'Saved.']]; }
         $map = ['not_found' => 404, 'not_open' => 409, 'no_user' => 403, 'db' => 500];
         return [$map[$r['code']] ?? 422, ['ok' => false, 'code' => $r['code'], 'error' => $r['error']]];
+    }
+
+    // ---- applying an approved change ------------------------------------------------------------------------
+
+    private function applyAction(array $in, DateTimeImmutable $now): array
+    {
+        if (!$this->executionsReady()) { return [503, ['ok' => false, 'code' => 'not_ready', 'error' => 'Applying changes needs migration 1403, which has not been run yet.']]; }
+        $id = self::id($in['id'] ?? null);
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+        $pub = $this->publisherFor($this->draftOf($a));
+        if (!$pub) { return [409, ['ok' => false, 'code' => 'no_website', 'error' => 'The website is not connected and verified, so Mia cannot change it.']]; }
+        $r = $pub->apply($id, $this->userId, $now);
+        if (empty($r['ok'])) {
+            $map = ['not_found' => 404, 'not_approved' => 409, 'draft_changed' => 409, 'conflict' => 409, 'db' => 500];
+            return [$map[$r['code'] ?? ''] ?? 422, ['ok' => false, 'code' => $r['code'] ?? 'failed', 'error' => $r['error'] ?? 'Could not apply it']];
+        }
+        return [200, ['ok' => true, 'status' => $r['status'], 'note' => $r['note'], 'item' => $this->view($this->actions->get($id) ?: $a, true)]];
+    }
+
+    private function rollbackAction(array $in, DateTimeImmutable $now): array
+    {
+        if (!$this->executionsReady()) { return [503, ['ok' => false, 'code' => 'not_ready', 'error' => 'Undoing changes needs migration 1403, which has not been run yet.']]; }
+        $execId = self::id($in['execution_id'] ?? null);
+        $s = $this->db->prepare("SELECT action_id FROM mia_executions WHERE id = ? AND site_id = ?");
+        $s->execute([$execId, $this->siteId]);
+        $actionId = (int)$s->fetchColumn();
+        $a = $actionId > 0 ? $this->actions->get($actionId) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such change']]; }
+        $pub = $this->publisherFor($this->draftOf($a));
+        if (!$pub) { return [409, ['ok' => false, 'code' => 'no_website', 'error' => 'The website is not connected and verified, so Mia cannot undo it.']]; }
+        $r = $pub->rollback($execId, $this->userId, $now);
+        if (empty($r['ok'])) {
+            $map = ['not_found' => 404, 'not_undoable' => 409, 'conflict' => 409, 'db' => 500];
+            return [$map[$r['code'] ?? ''] ?? 422, ['ok' => false, 'code' => $r['code'] ?? 'failed', 'error' => $r['error'] ?? 'Could not undo it']];
+        }
+        return [200, ['ok' => true, 'status' => 'rolled_back', 'item' => $this->view($this->actions->get($actionId) ?: $a, true)]];
     }
 }

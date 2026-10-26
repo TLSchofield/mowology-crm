@@ -40845,6 +40845,8 @@ body.mw-books {
 .mw-mws-quote { margin: var(--mw-space-1) 0 0; font-size: var(--mw-text-base); word-break: break-word; }
 
 /* buttons: one primary per region */
+.mw-mws-apply, .mw-mws-exec { border-top: 1px solid var(--mw-light); padding-top: var(--mw-space-3); }
+.mw-mws-execrow { margin: var(--mw-space-2) 0; }
 .mw-mws-actions, .mw-mws-decide { display: flex; flex-wrap: wrap; gap: var(--mw-space-2); align-items: center; }
 .mw-mws-decide { display: block; margin-top: var(--mw-space-4); padding-top: var(--mw-space-3); border-top: 1px solid var(--mw-ink-200); }
 .mw-mws-decide .mw-mws-actions { margin-bottom: var(--mw-space-2); }

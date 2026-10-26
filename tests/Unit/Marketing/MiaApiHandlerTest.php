@@ -294,7 +294,7 @@ class MiaApiHandlerTest extends TestCase
         list($http, $b) = $this->post('action_decide', ['id' => $id, 'decision' => 'approve', 'seen_hash' => $this->seen($id), 'decided_by' => 8, 'user_id' => 8], 7);
         $this->assertSame(200, $http, json_encode($b));
         $this->assertSame('approved', $b['item']['status']);
-        $this->assertStringContainsString('only records your decision', $b['message']);
+        $this->assertStringContainsString('Nothing has changed on your website yet', $b['message']);
         $svc = new MiaActionService($this->db, 1);
         $row = $svc->get($id);
         $this->assertSame(7, (int)$row['decided_by'], 'the user id comes from the session, not the request');
@@ -369,7 +369,10 @@ class MiaApiHandlerTest extends TestCase
     public function testNothingInTheHandlerCanPublish(): void
     {
         $src = (string)file_get_contents(__DIR__ . '/../../../app/Modules/Marketing/Services/MiaApiHandler.php');
-        foreach (['curl_', 'mail(', 'sendCrmEmail', 'sendSms', 'file_put_contents', 'CmsConnector'] as $bad) { $this->assertStringNotContainsString($bad, $src, $bad); }
+        foreach (['curl_', 'mail(', 'sendCrmEmail', 'sendSms', 'file_put_contents', 'UPDATE cms_', 'INSERT INTO cms_', 'DELETE FROM cms_'] as $bad) { $this->assertStringNotContainsString($bad, $src, $bad); }
+        // The only way to change a website from here is MiaPublishService, which checks the owner's approval first.
+        $this->assertSame(1, substr_count($src, 'new CmsConnector('), 'one place builds the connector');
+        $this->assertSame(2, substr_count($src, '$pub->apply(') + substr_count($src, '$pub->rollback('), 'only apply and rollback reach it');
     }
 
     // ---- Codex round 1 regressions ----

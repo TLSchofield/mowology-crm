@@ -363,7 +363,7 @@ final class MiaActionService
     /** Actions with one status (or every status for 'all'), newest decisions first for decided ones, best score first for open ones. */
     public function listByStatus(string $status, int $limit = 50): array
     {
-        $allowed = ['proposed', 'approved', 'rejected', 'expired', 'done', 'failed'];
+        $allowed = ['proposed', 'approved', 'rejected', 'expired', 'done', 'failed', 'rolled_back'];
         if ($status !== 'all' && !in_array($status, $allowed, true)) { return []; }
         try {
             $order = $status === 'proposed' ? "(score IS NULL), score DESC, id DESC" : "COALESCE(decided_at, proposed_at) DESC, id DESC";
@@ -393,6 +393,32 @@ final class MiaActionService
             error_log('MiaActionService closeAsResolved: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /** An approved action was applied: approved -> done. The audit event and the result text go in the same transaction. */
+    public function markExecuted(int $actionId, int $userId, string $result, ?DateTimeImmutable $now = null): bool
+    {
+        $now = $now ?: new DateTimeImmutable('now');
+        return (bool)$this->atomic(function () use ($actionId, $userId, $result, $now) {
+            $u = $this->db->prepare("UPDATE mia_actions SET status = 'done', executed_at = ?, result = ? WHERE id = ? AND site_id = ? AND status = 'approved'");
+            $u->execute([$now->format('Y-m-d H:i:s'), mb_substr($result, 0, 2000), $actionId, $this->siteId]);
+            if ($u->rowCount() !== 1) { return false; }
+            if (!$this->event($actionId, 'executed', 'user:' . $userId, $result, $now)) { throw new RuntimeException('audit event could not be written'); }
+            return true;
+        });
+    }
+
+    /** An applied action was undone: done -> rolled_back. */
+    public function markRolledBack(int $actionId, int $userId, string $detail, ?DateTimeImmutable $now = null): bool
+    {
+        $now = $now ?: new DateTimeImmutable('now');
+        return (bool)$this->atomic(function () use ($actionId, $userId, $detail, $now) {
+            $u = $this->db->prepare("UPDATE mia_actions SET status = 'rolled_back', result = ? WHERE id = ? AND site_id = ? AND status = 'done'");
+            $u->execute([mb_substr($detail, 0, 2000), $actionId, $this->siteId]);
+            if ($u->rowCount() !== 1) { return false; }
+            if (!$this->event($actionId, 'rolled_back', 'user:' . $userId, $detail, $now)) { throw new RuntimeException('audit event could not be written'); }
+            return true;
+        });
     }
 
     /** Add an audit-trail entry for a person's action on a still-open proposal (e.g. the owner edited the wording). */

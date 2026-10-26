@@ -278,7 +278,7 @@
   }
 
   // ── Growth: the queue ─────────────────────────────────────────────────────────────────────────
-  var FILTERS = [['proposed', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Set aside'], ['expired', 'Passed']];
+  var FILTERS = [['proposed', 'Waiting'], ['approved', 'Approved'], ['done', 'Applied'], ['rejected', 'Set aside'], ['expired', 'Passed']];
 
   function loadGrowth(focus) {
     var host = $('mws-growth'), g = ++gen.growth, filter = state.filter;
@@ -320,7 +320,7 @@
     var head = el('button', 'mw-mws-rowhead mw-mws-rowbtn', null, { type: 'button', 'aria-expanded': open ? 'true' : 'false' });
     add(head, el('span', 'mw-mws-type', it.type_label), el('strong', 'mw-mws-name', it.title));
     if (it.status === 'proposed') add(head, el('span', 'mw-mws-score', it.score !== null ? 'Priority ' + Math.round(it.score) : ''));
-    else add(head, status(it.status === 'approved' ? 'ok' : 'no', it.status === 'approved' ? 'Approved' : it.status === 'rejected' ? 'Set aside' : 'Passed'));
+    else add(head, status(it.status === 'approved' || it.status === 'done' ? 'ok' : 'no', it.status === 'approved' ? 'Approved' : it.status === 'done' ? 'Applied' : it.status === 'rolled_back' ? 'Undone' : it.status === 'rejected' ? 'Set aside' : 'Passed'));
     head.addEventListener('click', function () { state.openId = open ? null : it.id; loadGrowth('row'); });
     add(row, head);
     if (!open) { add(row, el('p', 'mw-mws-why', it.why)); return row; }
@@ -374,11 +374,77 @@
     add(body, section('What could go wrong', it.risk));
     add(body, evidenceBlock(it.evidence));
     if (it.draft) add(body, draftBlock(it));
+    if (it.status === 'approved' && it.apply) add(body, applyBar(it));
+    if (it.executions && it.executions.length) add(body, executionsBlock(it));
     if (!it.can_decide) {
       if (it.decision_note) add(body, section('Your note', it.decision_note));
       return;
     }
     add(body, decisionBar(it));
+  }
+
+  // Applying changes the live website, so it takes two clicks: the second button says what will happen.
+  function applyBar(it) {
+    var wrap = el('div', 'mw-mws-sec mw-mws-apply');
+    add(wrap, el('h3', 'mw-mws-h3', 'Put it on your website'));
+    if (!it.apply.can_apply) {
+      add(wrap, el('p', 'mw-mws-p', 'Mia cannot apply this one for you. ' + (it.apply.why_not || '')));
+      return wrap;
+    }
+    add(wrap, el('p', 'mw-mws-p', 'Nothing has changed on your website yet. Applying changes the title and description on the live page. You can undo it afterwards.'));
+    var actions = el('div', 'mw-mws-actions');
+    var go = btn('Apply to my website', 'mw-mws-btn--primary', function () {
+      clear(actions);
+      var yes = btn('Yes, change my live page', 'mw-mws-btn--primary', function () { doApply(it, wrap); });
+      add(actions, yes, btn('Cancel', 'mw-mws-btn--quiet', function () { loadGrowth('row'); }));
+      yes.focus();
+    });
+    add(actions, go);
+    add(wrap, actions);
+    return wrap;
+  }
+
+  function doApply(it, wrap) {
+    var all = wrap.querySelectorAll('button');
+    Array.prototype.forEach.call(all, function (c) { c.disabled = true; });
+    request('POST', 'action_apply', { id: it.id }).then(function (res) {
+      if (!res.body.ok) { Array.prototype.forEach.call(all, function (c) { c.disabled = false; }); flash(res.body.error || failText(res), true); return; }
+      flash(res.body.note || 'Applied.', res.body.status !== 'verified');
+      state.filter = 'done'; state.openId = it.id; loadGrowth('filter');
+    });
+  }
+
+  function executionsBlock(it) {
+    var wrap = el('div', 'mw-mws-sec mw-mws-exec');
+    add(wrap, el('h3', 'mw-mws-h3', 'What was changed'));
+    var labels = { applied: 'Applied', verified: 'Applied and seen on the live page', unverified: 'Applied, not yet seen on the live page', rolled_back: 'Undone', failed: 'Failed' };
+    it.executions.forEach(function (x) {
+      var row = el('div', 'mw-mws-execrow');
+      add(row, el('p', 'mw-mws-p', (labels[x.status] || x.status) + ' · ' + when(x.applied_at)));
+      if (x.verify_note) add(row, el('p', 'mw-mws-fine', x.verify_note));
+      if (x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
+        var box = el('div', 'mw-mws-actions');
+        add(box, btn('Undo this change', 'mw-mws-btn--secondary', function () {
+          clear(box);
+          var yes = btn('Yes, put the old wording back', 'mw-mws-btn--primary', function () { doRollback(x, row); });
+          add(box, yes, btn('Cancel', 'mw-mws-btn--quiet', function () { loadGrowth('row'); }));
+          yes.focus();
+        }));
+        add(row, box);
+      }
+      add(wrap, row);
+    });
+    return wrap;
+  }
+
+  function doRollback(x, row) {
+    var all = row.querySelectorAll('button');
+    Array.prototype.forEach.call(all, function (c) { c.disabled = true; });
+    request('POST', 'action_rollback', { execution_id: x.id }).then(function (res) {
+      if (!res.body.ok) { Array.prototype.forEach.call(all, function (c) { c.disabled = false; }); flash(res.body.error || failText(res), true); return; }
+      flash('Put back the way it was.');
+      loadGrowth('row');
+    });
   }
 
   function draftBlock(it) {
