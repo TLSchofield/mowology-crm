@@ -488,3 +488,15 @@ Gap −$229.75 → +$7.01 (January's opening difference only). Each piece had a 
 ## 2026-10-26 — The closed-year guard on receipts (`ExpenseGate::closedYearProblem()`)
 Approving a receipt dated before 2026-01-01 (or changing the money fields / split / lines of an approved one) is refused with "this receipt is dated … in a year that is already filed": the ledger won't post into 2025 and used to post a NEW entry dated today (#18, Shell $150: 2025-05-14 receipt, a second copy of an expense already in the filed 2025 books). Reject it (keep the photo). Not blocked: rejecting, re-opening to draft, drafts, notes, and sending an approved receipt to accounting. Override for history builders only: `opts['allow_closed_year']`. On 2026-10-26, 17 receipts dated 2024–2025 were waiting (15 drafts, 2 pending, e.g. #461 Shell $150 2025-04-24, #347 "AMOUNT" 2021): they can no longer be approved — check each against its 2025 bank line, then reject.
 
+## 2026-10-26 — Keeping a rejected receipt as the paper for a filed entry (`receipt_document_links`, migration 1421)
+A receipt that is a second copy of an expense already in a filed year is REJECTED (posts nothing) and linked to the bank line and live entry it
+documents with `ReceiptDocumentLinkService::link()`; the Ledger entry page lists it under "Supporting documents" with the photo. Do NOT use
+`accounting_transactions.matched_expense_id` for this: the nightly sync retires a linked bank line's own entry and would remove the filed expense.
+Nothing in the sync reads the links table. Done for #15/#16 (Midland, entry 823), #18 (Shell, 1238), #17 (TWN PNTY ↔ Chevron line 6165, 1240 — the
+match is by date and amount, confirm on the photo). Audit trail otherwise: rejected receipts are never deleted (54 on 2026-10-26, 51 with photos),
+every change is a row in `expense_change_log`, and a reversed journal entry stays beside the entry that reversed it.
+**Migrations by hand:** the "Run it" page was failing with an internal error. `scripts/prod-run.sh --commit` can apply a migration file (read it from
+`APP_ROOT . '/../database/migrations/…'`, split on ';', insert a `migrations_log` row), but (1) the runners split on ';' so NO semicolon may appear
+inside a column COMMENT, and (2) DDL commits the surrounding transaction, so the run ends with a harmless "no active transaction" error AFTER
+everything persisted — verify with a second read-only run. Never put DDL in a preview run.
+
