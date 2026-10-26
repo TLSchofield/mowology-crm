@@ -289,4 +289,73 @@ class MiaScheduledJobsTest extends TestCase
         $this->assertSame(1, $r['done'], 'a lost race on the marker must not turn finished work into a failure');
         $this->assertSame('success', $r['status']);
     }
+
+    // ---- closing proposals whose problem is fixed ----
+
+    private function openAudit(string $audit, string $crawlStatus, string $rulesStatus, string $rulesAt = '2026-10-26 05:35:00'): void
+    {
+        $this->db->exec("INSERT INTO mia_audits (site_id, website_id, kind, status, started_at) VALUES (1, 1, 'crawl', '$crawlStatus', '2026-10-26 05:30:00')");
+        $this->db->exec("INSERT INTO mia_audits (site_id, website_id, kind, status, started_at) VALUES (1, 1, 'rules', '$rulesStatus', '$rulesAt')");
+    }
+
+    private function closingFixture(): void
+    {
+        require_once __DIR__ . '/../../Support/MiaDemo.php';
+        $this->db = new PDO('sqlite::memory:');
+        $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $this->db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        MiaDemo::schema($this->db);
+        $this->db->exec("INSERT INTO mia_websites (site_id, base_url, host, status) VALUES (1, 'https://a.example', 'a.example', 'verified')");
+        $this->db->exec("INSERT INTO mia_actions (site_id, opportunity_key, type, status, title, why, risk, evidence, score, proposed_at) VALUES
+            (1, 'audit:1:h1_missing', 'fix_technical', 'proposed', 'Add a main heading', 'w', 'r', '[]', 40, '2026-10-19 05:55:00'),
+            (1, 'audit:1:meta_missing', 'seo_meta_update', 'proposed', 'Add a description', 'w', 'r', '[]', 40, '2026-10-19 05:55:00'),
+            (1, 'audit:1:old_renamed_rule', 'fix_technical', 'proposed', 'Old rule', 'w', 'r', '[]', 40, '2026-10-19 05:55:00'),
+            (1, 'audit:12:h1_missing', 'fix_technical', 'proposed', 'Other website', 'w', 'r', '[]', 40, '2026-10-19 05:55:00'),
+            (1, 'page:abc:ctr', 'seo_meta_update', 'proposed', 'Not an audit item', 'w', 'r', '[]', 40, '2026-10-19 05:55:00')");
+        $this->db->exec("INSERT INTO mia_audit_findings (site_id, website_id, rule_key, severity, evidence, fingerprint) VALUES (1, 1, 'meta_missing', 'info', 'e', 'f1')");
+    }
+
+    private function runClose(): array
+    {
+        $jobs = new MiaScheduledJobs($this->db, ['propose' => function () { return ['proposed' => 0, 'existing' => 0, 'held_back' => 0, 'failed' => 0]; },
+                                                   'draft' => function () { return ['drafted' => 0]; }, 'expire' => function () { return 0; }], function () { return 0.0; });
+        $jobs->searchWeekly(new DateTimeImmutable('2026-10-26 05:55:00'), true);
+        return $this->db->query("SELECT opportunity_key, status FROM mia_actions ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    public function testFixedProblemsCloseOnlyAfterACompleteLookAndOnlyForThisWebsite(): void
+    {
+        $this->closingFixture();
+        $this->openAudit('x', 'done', 'done');
+        $st = $this->runClose();
+        $this->assertSame('expired', $st['audit:1:h1_missing'], 'no open finding any more: closed');
+        $this->assertSame('proposed', $st['audit:1:meta_missing'], 'an open finding (even if reclassified to info) keeps it open');
+        $this->assertSame('proposed', $st['audit:1:old_renamed_rule'], 'a rule this build does not know is not proof of a fix');
+        $this->assertSame('proposed', $st['audit:12:h1_missing'], 'website 12 is not website 1');
+        $this->assertSame('proposed', $st['page:abc:ctr'], 'only audit items are closed this way');
+    }
+
+    /** @dataProvider incompleteLooks */
+    public function testNothingIsClosedAfterAnIncompleteLook(string $crawl, string $rules, string $rulesAt): void
+    {
+        $this->closingFixture();
+        $this->openAudit('x', $crawl, $rules, $rulesAt);
+        $this->assertSame('proposed', $this->runClose()['audit:1:h1_missing']);
+    }
+
+    public function incompleteLooks(): array
+    {
+        return [
+            'crawl cut short'    => ['partial', 'done', '2026-10-26 05:35:00'],
+            'crawl failed'       => ['failed', 'done', '2026-10-26 05:35:00'],
+            'rules failed'       => ['done', 'failed', '2026-10-26 05:35:00'],
+            'rules older than the crawl' => ['done', 'done', '2026-10-26 05:00:00'],
+        ];
+    }
+
+    public function testNothingIsClosedBeforeAnyChecksHaveRun(): void
+    {
+        $this->closingFixture();
+        $this->assertSame('proposed', $this->runClose()['audit:1:h1_missing']);
+    }
 }

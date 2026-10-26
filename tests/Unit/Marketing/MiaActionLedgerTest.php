@@ -435,4 +435,31 @@ class MiaActionLedgerTest extends TestCase
         $this->db->exec("INSERT INTO ops_settings VALUES ('mia_paused','1','')");
         $this->assertTrue((new MiaAutonomyPolicy($this->db, 1))->isPaused(), 'shared kill switch stops everyone');
     }
+
+    // ---- closeAsResolved (a fixed problem stops asking for a decision) ----
+
+    public function testClosingAResolvedProposalIsAuditedAndNotAnOwnerDecision(): void
+    {
+        $id = $this->propose();
+        $this->assertTrue($this->svc()->closeAsResolved($id, 'The problem is no longer on the website, so this was closed.'));
+        $a = $this->svc()->get($id);
+        $this->assertSame('expired', $a['status']);
+        $this->assertNull($a['decided_by'], 'no person decided');
+        $ev = $this->svc()->events($id);
+        $this->assertSame('resolved', end($ev)['event']);
+        $this->assertSame('system', end($ev)['actor']);
+        $this->assertSame(0, (int)$this->db->query("SELECT COUNT(*) FROM mia_decisions")->fetchColumn(), 'nothing is remembered as a decision');
+        $this->assertTrue($this->svc()->propose($this->good())['ok'], 'if the problem returns it can be proposed again');
+    }
+
+    public function testClosingOnlyWorksOnOpenProposalsOfThisSite(): void
+    {
+        $id = $this->propose();
+        $this->svc()->decide($id, 7, 'approve', null, null, 'x');
+        $this->assertFalse($this->svc()->closeAsResolved($id, 'x'), 'an approved proposal is not closed behind the owner\'s back');
+        $other = $this->propose(['opportunity_key' => 'k2']);
+        $this->assertFalse($this->svc(2)->closeAsResolved($other, 'x'));
+        $this->assertSame('proposed', $this->svc()->get($other)['status']);
+        $this->assertFalse($this->svc()->closeAsResolved(999, 'x'));
+    }
 }

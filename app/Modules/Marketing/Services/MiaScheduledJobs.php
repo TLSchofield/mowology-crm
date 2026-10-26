@@ -146,6 +146,7 @@ final class MiaScheduledJobs
             if (!$force && $this->doneThisWeek('search', $site, $web, $now)) { $r['skipped']++; continue; }
             if ((self::BUDGET_SECONDS - (($this->clock)() - $t0)) < self::MIN_SECONDS_TO_START) { $r['deferred']++; continue; }
             try {
+                $fixed = $this->closeFixed($site, $web, $now);
                 $p = isset($this->factories['propose'])
                     ? call_user_func($this->factories['propose'], $site, $web, $now)
                     : $this->defaultPropose($site, $web, $now);
@@ -171,6 +172,7 @@ final class MiaScheduledJobs
                 $r['done']++;
                 $line = sprintf('%s: %d new proposals (%d already open, %d held back), %d drafts written',
                     $w['host'], (int)($p['proposed'] ?? 0), (int)($p['existing'] ?? 0), (int)($p['held_back'] ?? 0), (int)($d['drafted'] ?? 0));
+                if ($fixed > 0) { $line .= ', ' . $fixed . ' closed because the problem is fixed'; }
                 if (!empty($d['stopped'])) { $line .= ' — AI limit reached (' . $d['stopped'] . '), plain wording kept'; $r['warn'] = true; }
                 $r['lines'][] = $line;
             } catch (Throwable $e) {
@@ -213,6 +215,43 @@ final class MiaScheduledJobs
             return $fn();
         } finally {
             if ($mysql) { try { $this->db->prepare("SELECT RELEASE_LOCK(?)")->execute([$name]); } catch (Throwable $e) { /* released on disconnect */ } }
+        }
+    }
+
+    /**
+     * Open "audit:<website>:<rule>" proposals whose rule has no open finding any more: the problem was fixed, so the proposal
+     * stops waiting for a decision. Only after the checks have really run for this website (no checks, no conclusions).
+     */
+    private function closeFixed(int $site, int $web, DateTimeImmutable $now): int
+    {
+        if (isset($this->factories['close'])) { return (int)call_user_func($this->factories['close'], $site, $web, $now); }
+        try {
+            // Conclude "fixed" only from a COMPLETE look: the latest crawl finished (not cut short or failed) and the latest rules
+            // run after it succeeded. A partial crawl leaves unseen pages' findings looking resolved, which is not good news.
+            $last = function (string $kind) use ($site, $web): ?array {
+                $q = $this->db->prepare("SELECT status, started_at FROM mia_audits WHERE site_id = ? AND website_id = ? AND kind = ? ORDER BY started_at DESC, id DESC LIMIT 1");
+                $q->execute([$site, $web, $kind]);
+                $r = $q->fetch(PDO::FETCH_ASSOC);
+                return $r ?: null;
+            };
+            $crawl = $last('crawl'); $rules = $last('rules');
+            if (!$crawl || !$rules || $crawl['status'] !== 'done' || $rules['status'] !== 'done' || $rules['started_at'] < $crawl['started_at']) { return 0; }
+            $prefix = 'audit:' . $web . ':';
+            $open = $this->db->prepare("SELECT id, opportunity_key FROM mia_actions WHERE site_id = ? AND status = 'proposed' AND opportunity_key LIKE ?");
+            $open->execute([$site, $prefix . '%']);
+            $chk = $this->db->prepare("SELECT 1 FROM mia_audit_findings WHERE site_id = ? AND website_id = ? AND rule_key = ? AND resolved_at IS NULL LIMIT 1");
+            $actions = new MiaActionService($this->db, $site);
+            $n = 0;
+            foreach ($open->fetchAll(PDO::FETCH_ASSOC) as $a) {
+                $rule = substr((string)$a['opportunity_key'], strlen($prefix));
+                if (!isset(SiteAuditRules::RULES[$rule])) { continue; }                      // a rule this build no longer knows is not proof of a fix
+                $chk->execute([$site, $web, $rule]);
+                if ($chk->fetchColumn() === false && $actions->closeAsResolved((int)$a['id'], 'The problem is no longer on the website, so this was closed.', $now)) { $n++; }
+            }
+            return $n;
+        } catch (Throwable $e) {
+            error_log('MiaScheduledJobs closeFixed: ' . $e->getMessage());
+            return 0;
         }
     }
 

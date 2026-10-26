@@ -375,6 +375,26 @@ final class MiaActionService
         }
     }
 
+    /**
+     * The problem a proposal was about is no longer there (the owner or someone fixed it): close the proposal so it
+     * stops asking for a decision. Not an owner decision, so nothing is remembered about it; the audit trail says why.
+     */
+    public function closeAsResolved(int $actionId, string $detail, ?DateTimeImmutable $now = null): bool
+    {
+        try {
+            return (bool)$this->atomic(function () use ($actionId, $detail, $now) {
+                $u = $this->db->prepare("UPDATE mia_actions SET status = 'expired', decision_note = ? WHERE id = ? AND site_id = ? AND status = 'proposed'");
+                $u->execute([mb_substr($detail, 0, 400), $actionId, $this->siteId]);
+                if ($u->rowCount() !== 1) { return false; }
+                if (!$this->event($actionId, 'resolved', 'system', $detail, $now)) { throw new RuntimeException('audit event could not be written'); }
+                return true;
+            });
+        } catch (Throwable $e) {
+            error_log('MiaActionService closeAsResolved: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     /** Add an audit-trail entry for a person's action on a still-open proposal (e.g. the owner edited the wording). */
     public function recordEdit(int $actionId, int $userId, string $detail, ?DateTimeImmutable $now = null): bool
     {
