@@ -37,6 +37,7 @@ final class SiteCrawler
     public const MAX_SITEMAP_FILES = 10;
     public const MAX_SITEMAP_URLS = 5000;
     public const MAX_LINKS_PER_PAGE = 500;
+    public const MAX_EDGES_PER_PAGE = 150;
     public const PAGE_BYTES = 1048576;
     public const SITEMAP_BYTES = 5242880;
     public const STOP_AFTER_BAD = 3;
@@ -121,7 +122,8 @@ final class SiteCrawler
     /**
      * Pull the audit fields and outgoing links out of a page.
      * @return array{title:?string,meta_desc:?string,h1:?string,canonical:?string,robots_meta:?string,word_count:int,
-     *               schema_types:?string,content_hash:string,links:string[],nofollow:bool,noindex:bool}
+     *               schema_types:?string,content_hash:string,links:string[],nofollow:bool,noindex:bool,
+     *               h1_count:int,images_total:int,images_no_alt:int,has_viewport:bool,lang:?string}
      */
     public static function extract(string $html, string $pageUrl, string $origin, ?string $charset = null): array
     {
@@ -176,6 +178,19 @@ final class SiteCrawler
             }
             $types = array_slice(array_values(array_unique($types)), 0, 20);
 
+            $h1Count = $xp->query('//h1')->length;
+            $imgTotal = 0; $imgNoAlt = 0;
+            foreach ($xp->query('//img') as $img) {
+                /** @var DOMElement $img */
+                $w = $img->getAttribute('width'); $hh = $img->getAttribute('height');
+                if (($w === '1' && $hh === '1')) { continue; }                      // tracking pixel
+                $imgTotal++;
+                if (!$img->hasAttribute('alt')) { $imgNoAlt++; }
+            }
+            $hasViewport = strlen(trim((string)$meta('viewport'))) > 0;
+            $htmlEl = $doc->getElementsByTagName('html')->item(0);
+            $lang = $htmlEl instanceof DOMElement ? $clean($htmlEl->getAttribute('lang'), 20) : null;
+
             // visible text (for word count and the change hash)
             foreach (['script', 'style', 'noscript', 'template'] as $tag) {
                 foreach (iterator_to_array($doc->getElementsByTagName($tag)) as $n) { $n->parentNode->removeChild($n); }
@@ -185,8 +200,8 @@ final class SiteCrawler
             $text = trim((string)$text);           // the whole visible text: a change anywhere must change the hash
             $words = $text === '' ? 0 : count(preg_split('/\s+/u', $text) ?: []);
 
-            $nofollow = (bool)preg_match('/\bnofollow\b|\bnone\b/', $robotsRaw);
-            $noindex  = (bool)preg_match('/\bnoindex\b|\bnone\b/', $robotsRaw);
+            $nofollow = RobotsParser::metaNofollow($robotsRaw);
+            $noindex  = RobotsParser::metaNoindex($robotsRaw);
 
             $links = [];
             if (!$nofollow) {
@@ -203,6 +218,8 @@ final class SiteCrawler
                 'word_count' => $words, 'schema_types' => $types ? implode(',', $types) : null,
                 'content_hash' => sha1(implode("\x1f", [$title, $desc, $h1, $canonical, $robots, implode(',', $types), $text])),
                 'links' => array_keys($links), 'nofollow' => $nofollow, 'noindex' => $noindex,
+                'h1_count' => $h1Count, 'images_total' => $imgTotal, 'images_no_alt' => $imgNoAlt,
+                'has_viewport' => $hasViewport, 'lang' => $lang,
             ];
         } finally {
             libxml_clear_errors();
@@ -213,7 +230,8 @@ final class SiteCrawler
     private static function emptyExtract(): array
     {
         return ['title' => null, 'meta_desc' => null, 'h1' => null, 'canonical' => null, 'robots_meta' => null, 'word_count' => 0,
-                'schema_types' => null, 'content_hash' => sha1(''), 'links' => [], 'nofollow' => false, 'noindex' => false];
+                'schema_types' => null, 'content_hash' => sha1(''), 'links' => [], 'nofollow' => false, 'noindex' => false,
+                'h1_count' => 0, 'images_total' => 0, 'images_no_alt' => 0, 'has_viewport' => false, 'lang' => null];
     }
 
     private static function collectTypes($node, array &$types, int $depth): void
@@ -503,24 +521,37 @@ final class SiteCrawler
         $c = function ($v, int $n) { return $v === null ? null : mb_substr((string)$v, 0, $n); };
         $contentHash = $x['content_hash'] ?? null;
         $kind = !$known ? 'new' : (($isPage && $known['content_hash'] !== $contentHash) ? 'changed' : 'unchanged');
+        $vals = [
+            $c($x['title'] ?? null, 300), $c($x['meta_desc'] ?? null, 500), $c($x['h1'] ?? null, 300), $c($x['canonical'] ?? null, 1000),
+            $c($x['robots_meta'] ?? null, 100), $x['word_count'] ?? null, $c($x['schema_types'] ?? null, 255),
+            $x['h1_count'] ?? null, $x['images_total'] ?? null, $x['images_no_alt'] ?? null,
+            isset($x['has_viewport']) ? ($x['has_viewport'] ? 1 : 0) : null, $c($x['lang'] ?? null, 20),
+            $x !== null ? count($x['links']) : null,
+            $x['etag'] ?? null, $x['last_modified'] ?? null,
+        ];
         if (!$known) {
             $this->db->prepare("INSERT INTO mia_site_pages (site_id, website_id, url_hash, url, status_code, content_hash, title, meta_desc, h1, canonical,
-                                robots_meta, word_count, schema_types, etag, last_modified, first_seen_at, last_seen_at, last_changed_at, last_crawl_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                ->execute([$this->siteId, $websiteId, $hash, mb_substr($url, 0, 1000), $status, $contentHash,
-                           $c($x['title'] ?? null, 300), $c($x['meta_desc'] ?? null, 500), $c($x['h1'] ?? null, 300), $c($x['canonical'] ?? null, 1000),
-                           $c($x['robots_meta'] ?? null, 100), $x['word_count'] ?? null, $c($x['schema_types'] ?? null, 255),
-                           $x['etag'] ?? null, $x['last_modified'] ?? null, $now, $now, $now, $now]);
-            return 'new';
+                                robots_meta, word_count, schema_types, h1_count, images_total, images_no_alt, has_viewport, lang, links_out, etag, last_modified,
+                                first_seen_at, last_seen_at, last_changed_at, last_crawl_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute(array_merge([$this->siteId, $websiteId, $hash, mb_substr($url, 0, 1000), $status, $contentHash], $vals, [$now, $now, $now, $now]));
+        } else {
+            $this->db->prepare("UPDATE mia_site_pages SET status_code = ?, content_hash = ?, title = ?, meta_desc = ?, h1 = ?, canonical = ?, robots_meta = ?,
+                                word_count = ?, schema_types = ?, h1_count = ?, images_total = ?, images_no_alt = ?, has_viewport = ?, lang = ?, links_out = ?,
+                                etag = ?, last_modified = ?, last_seen_at = ?, last_crawl_at = ?,
+                                last_changed_at = CASE WHEN ? = 1 THEN ? ELSE last_changed_at END
+                                WHERE site_id = ? AND website_id = ? AND url_hash = ?")
+                ->execute(array_merge([$status, $contentHash], $vals, [$now, $now, $kind === 'changed' ? 1 : 0, $now, $this->siteId, $websiteId, $hash]));
         }
-        $this->db->prepare("UPDATE mia_site_pages SET status_code = ?, content_hash = ?, title = ?, meta_desc = ?, h1 = ?, canonical = ?, robots_meta = ?,
-                            word_count = ?, schema_types = ?, etag = ?, last_modified = ?, last_seen_at = ?, last_crawl_at = ?,
-                            last_changed_at = CASE WHEN ? = 1 THEN ? ELSE last_changed_at END
-                            WHERE site_id = ? AND website_id = ? AND url_hash = ?")
-            ->execute([$status, $contentHash, $c($x['title'] ?? null, 300), $c($x['meta_desc'] ?? null, 500), $c($x['h1'] ?? null, 300),
-                       $c($x['canonical'] ?? null, 1000), $c($x['robots_meta'] ?? null, 100), $x['word_count'] ?? null,
-                       $c($x['schema_types'] ?? null, 255), $x['etag'] ?? null, $x['last_modified'] ?? null, $now, $now,
-                       $kind === 'changed' ? 1 : 0, $now, $this->siteId, $websiteId, $hash]);
+        // The link graph: replace this page's outgoing links with what we just saw (a page that was only
+        // answered with 304 keeps its old edges).
+        if ($x !== null) {
+            $this->db->prepare("DELETE FROM mia_site_links WHERE site_id = ? AND website_id = ? AND from_hash = ?")->execute([$this->siteId, $websiteId, $hash]);
+            $ins = $this->db->prepare("INSERT INTO mia_site_links (site_id, website_id, from_hash, to_hash) VALUES (?, ?, ?, ?)");
+            foreach (array_slice($x['links'], 0, self::MAX_EDGES_PER_PAGE) as $to) {
+                $ins->execute([$this->siteId, $websiteId, $hash, sha1($to)]);
+            }
+        }
         return $kind;
     }
 

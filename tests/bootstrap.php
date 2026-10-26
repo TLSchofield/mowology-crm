@@ -434,3 +434,4 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaActionService.php'
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWebsiteService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/Site/RobotsParser.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/Site/SiteCrawler.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/Site/SiteAuditRules.php';

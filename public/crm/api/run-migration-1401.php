@@ -1,7 +1,7 @@
 <?php
 /**
- * Run migration 1401 (Mia website intelligence: mia_websites, mia_site_pages, mia_audits,
- * mia_audit_findings).
+ * Run migration 1401 (Mia website intelligence: mia_websites, mia_site_pages, mia_site_links,
+ * mia_audits, mia_audit_findings).
  *
  *   https://mowology.ca/crm/api/run-migration-1401.php?check=1  → reports what exists, changes nothing
  *   https://mowology.ca/crm/api/run-migration-1401.php          → confirm button; the run is POST + CSRF
@@ -30,7 +30,7 @@ $db   = getDB();
 $file = APP_ROOT . '/../database/migrations/1401_mia_website_intel.sql';
 if (!is_file($file)) { http_response_code(404); echo json_encode(['error' => 'migration file not found']); exit; }
 
-$tables = ['mia_websites', 'mia_site_pages', 'mia_audits', 'mia_audit_findings'];
+$tables = ['mia_websites', 'mia_site_pages', 'mia_site_links', 'mia_audits', 'mia_audit_findings'];
 $state  = function () use ($db, $tables) {
     $s = [];
     foreach ($tables as $t) { $s[$t] = $db->query("SHOW TABLES LIKE '{$t}'")->rowCount() > 0; }

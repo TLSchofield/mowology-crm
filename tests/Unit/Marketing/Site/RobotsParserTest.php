@@ -137,4 +137,15 @@ class RobotsParserTest extends TestCase
         $this->assertFalse($r->isAllowed('/private'));
         $this->assertSame(['https://a.example/s.xml'], $r->sitemaps());
     }
+
+    public function testMetaDirectives(): void
+    {
+        $this->assertSame(['index', 'follow', 'max-snippet'], RobotsParser::metaDirectives('Index, Follow, max-snippet:none'));
+        $this->assertTrue(RobotsParser::metaNoindex('noindex,follow'));
+        $this->assertTrue(RobotsParser::metaNoindex('none'));
+        $this->assertFalse(RobotsParser::metaNoindex('max-snippet:none'));
+        $this->assertFalse(RobotsParser::metaNoindex(null));
+        $this->assertTrue(RobotsParser::metaNofollow('noindex nofollow'));
+        $this->assertFalse(RobotsParser::metaNofollow('noindex'));
+    }
 }

@@ -3,6 +3,7 @@
 -- Purpose:
 --   mia_websites         Sites Mia may read. A site must be VERIFIED (the owner proved control) before any crawl.
 --   mia_site_pages       The crawl inventory with change tracking (hash, ETag, Last-Modified), so unchanged pages are skipped.
+--   mia_site_links       Internal link graph, so a broken page can say which pages link to it.
 --   mia_audits           One crawl and audit run.
 --   mia_audit_findings   Deterministic findings, de-duplicated across runs by fingerprint.
 -- Tenancy: every table carries site_id (1 = mowology) as the leading index column. No foreign keys.
@@ -46,6 +47,12 @@ CREATE TABLE IF NOT EXISTS mia_site_pages (
   robots_meta VARCHAR(100) NULL,
   word_count INT NULL,
   schema_types VARCHAR(255) NULL           COMMENT 'comma list of JSON-LD types found',
+  h1_count SMALLINT NULL,
+  images_total INT NULL,
+  images_no_alt INT NULL                   COMMENT 'images with no alt attribute at all (alt="" is a valid decorative choice)',
+  has_viewport TINYINT(1) NULL             COMMENT 'mobile viewport meta tag present',
+  lang VARCHAR(20) NULL                    COMMENT 'html lang attribute',
+  links_out INT NULL                       COMMENT 'internal links found on the page',
   etag VARCHAR(190) NULL,
   last_modified VARCHAR(60) NULL,
   first_seen_at DATETIME NOT NULL,
@@ -56,6 +63,17 @@ CREATE TABLE IF NOT EXISTS mia_site_pages (
   INDEX idx_mia_pages_changed (site_id, website_id, last_changed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
   COMMENT='Mia: crawl inventory with change tracking';
+
+CREATE TABLE IF NOT EXISTS mia_site_links (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  site_id INT NOT NULL DEFAULT 1,
+  website_id INT NOT NULL,
+  from_hash CHAR(40) NOT NULL              COMMENT 'url_hash of the page holding the link',
+  to_hash CHAR(40) NOT NULL                COMMENT 'url_hash of the page it points to',
+  UNIQUE KEY uq_mia_links (site_id, website_id, from_hash, to_hash),
+  INDEX idx_mia_links_to (site_id, website_id, to_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  COMMENT='Mia: internal link graph (at most 150 per page) for broken-link and orphan checks';
 
 CREATE TABLE IF NOT EXISTS mia_audits (
   id INT AUTO_INCREMENT PRIMARY KEY,

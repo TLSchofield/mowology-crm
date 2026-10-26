@@ -29,8 +29,10 @@ class SiteCrawlerTest extends TestCase
             created_by INT, created_at TEXT, UNIQUE(site_id, host))");
         $db->exec("CREATE TABLE mia_site_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT NOT NULL, url_hash TEXT,
             url TEXT, status_code INT, content_hash TEXT, title TEXT, meta_desc TEXT, h1 TEXT, canonical TEXT, robots_meta TEXT, word_count INT,
-            schema_types TEXT, etag TEXT, last_modified TEXT, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_changed_at TEXT,
+            schema_types TEXT, h1_count INT, images_total INT, images_no_alt INT, has_viewport INT, lang TEXT, links_out INT, etag TEXT, last_modified TEXT, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_changed_at TEXT,
             last_crawl_at TEXT, UNIQUE(site_id, website_id, url_hash))");
+        $db->exec("CREATE TABLE mia_site_links (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT NOT NULL,
+            from_hash TEXT NOT NULL, to_hash TEXT NOT NULL, UNIQUE(site_id, website_id, from_hash, to_hash))");
         $db->exec("CREATE TABLE mia_audits (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT, kind TEXT, status TEXT,
             pages INT DEFAULT 0, findings INT DEFAULT 0, started_at TEXT, finished_at TEXT, summary TEXT)");
         $this->db = $db;

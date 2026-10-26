@@ -138,6 +138,34 @@ final class RobotsParser
     }
 
     /**
+     * Directive names in a robots META tag value: "index, follow, max-snippet:none" -> [index, follow, max-snippet].
+     * A value after a colon belongs to its directive ("max-snippet:none" is NOT the "none" directive).
+     * @return string[]
+     */
+    public static function metaDirectives(?string $content): array
+    {
+        $out = [];
+        foreach (explode(',', strtolower((string)$content)) as $part) {
+            $name = trim(explode(':', $part, 2)[0]);
+            // "noindex nofollow" separated by spaces instead of commas is common
+            foreach (preg_split('/\s+/', $name) ?: [] as $n) { if ($n !== '') { $out[] = $n; } }
+        }
+        return $out;
+    }
+
+    public static function metaNoindex(?string $content): bool
+    {
+        $d = self::metaDirectives($content);
+        return in_array('noindex', $d, true) || in_array('none', $d, true);
+    }
+
+    public static function metaNofollow(?string $content): bool
+    {
+        $d = self::metaDirectives($content);
+        return in_array('nofollow', $d, true) || in_array('none', $d, true);
+    }
+
+    /**
      * Decode percent-escapes of unreserved characters (A-Z a-z 0-9 - . _ ~) and upper-case the rest, so
      * "/%61dmin" and "/admin" are the same path (RFC 3986 / 9309). Reserved escapes such as %2F stay encoded.
      */
