@@ -64,6 +64,8 @@ final class MiaStoryPublisherTest extends TestCase
         $this->assertSame('Point Grey', $p['location']);
         $this->assertSame('["Garden"]', $p['categories']);
         $this->assertSame(['/_media/variants/2026/09/a_1280w.jpg', '/_media/variants/2026/09/b_1280w.jpg'], json_decode($p['gallery_images'], true));
+        $this->assertSame('/_media/variants/2026/09/a_1280w.jpg', $p['after_image_path'], 'the Portfolio view page shows these');
+        $this->assertSame('/_media/variants/2026/09/b_1280w.jpg', $p['before_image_path']);
         $this->assertSame('done', $this->actions()->get($id)['status']);
         $x = $this->db->query("SELECT * FROM mia_executions")->fetch();
         $this->assertSame('portfolio', $x['connector']);
@@ -146,7 +148,7 @@ final class MiaStoryPublisherTest extends TestCase
 
     public function testUndoRefusesWhenAnyFieldWasChangedNotJustTheText(): void
     {
-        foreach ([["featured = 1"], ["gallery_images = '[\"/_media/other.jpg\"]'"], ["categories = '[\"Lawn\"]'"], ["display_order = 5"], ["tags = '[\"x\"]'"]] as $i => [$set]) {
+        foreach ([["featured = 1"], ["gallery_images = '[\"/_media/other.jpg\"]'"], ["categories = '[\"Lawn\"]'"], ["display_order = 5"], ["after_image_path = '/_media/variants/other.jpg'"], ["tags = '[\"x\"]'"]] as $i => [$set]) {
             $this->setUp();
             $id = $this->story();
             $r = $this->pub()->apply($id, 7, $this->now);

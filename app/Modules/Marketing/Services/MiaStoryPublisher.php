@@ -116,6 +116,8 @@ final class MiaStoryPublisher
         $row = [
             'project_name' => trim((string)$d['title']), 'description' => trim((string)$d['meta_desc']), 'location' => mb_substr(trim((string)$pair['area']), 0, 255),
             'categories' => json_encode($cat !== '' ? [ucfirst($cat)] : []), 'gallery_images' => json_encode($images, JSON_UNESCAPED_SLASHES),
+            // The Portfolio view page shows these two (the public page prefers the gallery, which starts with the same after photo).
+            'after_image_path' => $images[0], 'before_image_path' => $images[1] ?? null,
         ];
         try {
             $this->db->beginTransaction();
@@ -125,9 +127,9 @@ final class MiaStoryPublisher
             for ($try = 0; $try < 3 && $pid === 0; $try++) {          // two applies at once can pick the same number: the unique key refuses one, so take the next
                 $number = $this->nextNumber($now);
                 try {
-                    $this->db->prepare("INSERT INTO portfolio_projects (project_number, project_name, description, location, status, featured, display_order, categories, tags, gallery_images, created_by, created_at)
-                                        VALUES (?, ?, ?, ?, 'draft', 0, 999, ?, '[]', ?, ?, ?)")
-                        ->execute([$number, $row['project_name'], $row['description'], $row['location'], $row['categories'], $row['gallery_images'], $userId, $now->format('Y-m-d H:i:s')]);
+                    $this->db->prepare("INSERT INTO portfolio_projects (project_number, project_name, description, location, status, featured, display_order, categories, tags, gallery_images, after_image_path, before_image_path, created_by, created_at)
+                                        VALUES (?, ?, ?, ?, 'draft', 0, 999, ?, '[]', ?, ?, ?, ?, ?)")
+                        ->execute([$number, $row['project_name'], $row['description'], $row['location'], $row['categories'], $row['gallery_images'], $row['after_image_path'], $row['before_image_path'], $userId, $now->format('Y-m-d H:i:s')]);
                     $pid = (int)$this->db->lastInsertId();
                 } catch (PDOException $dup) {
                     if ($try === 2 || strpos($dup->getMessage(), 'project_number') === false && $dup->getCode() !== '23000') { throw $dup; }
@@ -177,7 +179,7 @@ final class MiaStoryPublisher
         try {
             $this->db->beginTransaction();
             // The row is locked while it is compared and deleted (MySQL), so an edit cannot slip in between.
-            $c = $this->db->prepare("SELECT status, project_name, description, location, categories, tags, featured, display_order, gallery_images FROM portfolio_projects WHERE id = ?" . ($this->mysql() ? ' FOR UPDATE' : ''));
+            $c = $this->db->prepare("SELECT status, project_name, description, location, categories, tags, featured, display_order, gallery_images, after_image_path, before_image_path FROM portfolio_projects WHERE id = ?" . ($this->mysql() ? ' FOR UPDATE' : ''));
             $c->execute([$pid]);
             $cur = $c->fetch(PDO::FETCH_ASSOC);
             if ($cur !== false) {
@@ -187,6 +189,9 @@ final class MiaStoryPublisher
                 }
                 foreach (['categories', 'tags', 'gallery_images'] as $f) {       // JSON columns: compare the data, not MySQL's spacing
                     if (json_decode((string)$cur[$f], true) !== json_decode((string)($after[$f] ?? '[]'), true)) { throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
+                }
+                foreach (['after_image_path', 'before_image_path'] as $f) {      // cards made before these were written do not have them in the snapshot
+                    if (array_key_exists($f, $after) && (string)$cur[$f] !== (string)$after[$f]) { throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.'); }
                 }
                 if ((int)$cur['featured'] !== (int)($after['featured'] ?? 0) || (int)$cur['display_order'] !== (int)($after['display_order'] ?? 999)) {
                     throw new MiaPublishConflict('The card was edited after Mia made it, so it was not removed. Delete it in the Portfolio page if you do not want it.');
