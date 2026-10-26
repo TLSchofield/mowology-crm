@@ -25,7 +25,7 @@ final class PortfolioPublishButtonTest extends TestCase
         $v = $this->src('view.php');
         $this->assertStringContainsString("setProjectStatus(<?php echo (int)\$project['id']; ?>, 'published')", $v);
         $this->assertStringContainsString("setProjectStatus(<?php echo (int)\$project['id']; ?>, 'draft')", $v);
-        $this->assertStringContainsString("=== 'published'): ?>", $v);
+        $this->assertStringContainsString("\$isLive", $v);
         $this->assertStringContainsString("action = 'status.php'", $v);
         $this->assertStringContainsString('confirm(msg)', $v);
         $this->assertStringContainsString("window.MW_CSRF_TOKEN", $v);

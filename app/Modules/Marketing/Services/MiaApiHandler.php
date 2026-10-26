@@ -289,7 +289,7 @@ final class MiaApiHandler
                 'current_title' => $draft['current_title'], 'current_description' => $draft['current_desc'],
                 'title' => $draft['title'], 'meta_description' => $draft['meta_desc'], 'rationale' => $draft['rationale'],
                 'seen_hash' => sha1(MiaRecommendationWriter::draftText($draft['title'], $draft['meta_desc'])),
-            ] : null,
+            ] + ($draft['kind'] === 'story' ? $this->storyCard($draft) : []) : null,
             'seen_hash' => sha1($this->contentFor($a, $draft)),
         ];
         if ($full && in_array($a['type'], ['seo_meta_update', 'project_story'], true) && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
@@ -311,6 +311,27 @@ final class MiaApiHandler
             $v['score_inputs'] = json_decode((string)$a['score_inputs'], true) ?: null;
         }
         return $v;
+    }
+
+    /**
+     * What a story card will look like to visitors: the pair's neighbourhood and its web photos (site media paths only).
+     * @return array{location:?string, images:string[]}
+     */
+    private function storyCard(array $draft): array
+    {
+        $pairId = (int)preg_replace('/^portfolio:pair:/', '', (string)$draft['page_url']);
+        $out = ['location' => null, 'images' => []];
+        try {
+            $s = $this->db->prepare("SELECT area, web_after_path, web_before_path FROM ba_pairs WHERE id = ?");
+            $s->execute([$pairId]);
+            $p = $s->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { return $out; }
+        if (!$p) { return $out; }
+        $out['location'] = trim((string)$p['area']) !== '' ? mb_substr(trim((string)$p['area']), 0, 120) : null;
+        foreach (['web_after_path', 'web_before_path'] as $k) {
+            if (MiaStoryPublisher::safeImage((string)$p[$k])) { $out['images'][] = (string)$p[$k]; }
+        }
+        return $out;
     }
 
     /** The draft row an action points at, if any (must belong to this site and action). */

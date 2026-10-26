@@ -318,9 +318,12 @@
     var open = state.openId === it.id;
     var row = el('article', 'mw-mws-row mw-mws-action' + (open ? ' is-open' : ''), null, { 'data-id': it.id });
     var head = el('button', 'mw-mws-rowhead mw-mws-rowbtn', null, { type: 'button', 'aria-expanded': open ? 'true' : 'false' });
-    add(head, el('span', 'mw-mws-type', it.type_label), el('strong', 'mw-mws-name', it.title));
-    if (it.status === 'proposed') add(head, el('span', 'mw-mws-score', it.score !== null ? 'Priority ' + Math.round(it.score) : ''));
-    else add(head, status(it.status === 'approved' || it.status === 'done' ? 'ok' : 'no', it.status === 'approved' ? 'Approved' : it.status === 'done' ? 'Applied' : it.status === 'rolled_back' ? 'Undone' : it.status === 'rejected' ? 'Set aside' : 'Passed'));
+    var st = it.status === 'proposed' ? status('wait', 'Waiting')
+      : status(it.status === 'approved' || it.status === 'done' ? 'ok' : 'no', it.status === 'approved' ? 'Approved' : it.status === 'done' ? 'Applied' : it.status === 'rolled_back' ? 'Undone' : it.status === 'rejected' ? 'Set aside' : 'Passed');
+    add(head, st, el('strong', 'mw-mws-name', it.title));
+    var metaBits = [it.type_label];
+    if (it.status === 'proposed' && it.score !== null) metaBits.push('Priority ' + Math.round(it.score));
+    add(head, el('span', 'mw-mws-meta', metaBits.join(' · ')));
     head.addEventListener('click', function () { state.openId = open ? null : it.id; loadGrowth('row'); });
     add(row, head);
     if (!open) { add(row, el('p', 'mw-mws-why', it.why)); return row; }
@@ -369,18 +372,25 @@
   }
 
   function renderDetail(body, it) {
+    var story = it.type === 'project_story';
     add(body, section('Why Mia suggests it', it.why));
-    add(body, section('What you might gain', it.expected_benefit || 'No estimate for this one.', 'mw-mws-sec--estimate'));
-    add(body, section('What could go wrong', it.risk));
-    add(body, evidenceBlock(it.evidence));
-    if (it.draft) add(body, draftBlock(it));
+    if (story && it.draft) add(body, draftBlock(it));                    // the card comes first: it is what the owner is deciding on
+    var small = el('details', 'mw-mws-more');                            // gain, risk and the numbers are there when wanted, folded when not
+    add(small, el('summary', 'mw-mws-summary', 'Show what this is based on'));
+    add(small, section('What you might gain', it.expected_benefit || 'No estimate for this one.', 'mw-mws-sec--estimate'));
+    add(small, section('What could go wrong', it.risk));
+    add(small, evidenceBlock(it.evidence));
+    if (!story) add(body, small);
+    if (!story && it.draft) add(body, draftBlock(it));
     if (it.status === 'approved' && it.apply) add(body, applyBar(it));
     if (it.executions && it.executions.length) add(body, executionsBlock(it));
     if (!it.can_decide) {
       if (it.decision_note) add(body, section('Your note', it.decision_note));
+      if (story) add(body, small);
       return;
     }
     add(body, decisionBar(it));
+    if (story) add(body, small);
   }
 
   // Applying changes the live website, so it takes two clicks: the second button says what will happen.
@@ -426,8 +436,8 @@
       add(row, el('p', 'mw-mws-p', (labels[x.status] || x.status) + ' · ' + when(x.applied_at)));
       if (x.verify_note) add(row, el('p', 'mw-mws-fine', x.verify_note));
       if (x.open_url) {
-        var links = el('p', 'mw-mws-p');
-        add(links, el('a', 'mw-mws-link', 'Open the card in your Portfolio', { href: x.open_url }), document.createTextNode('  ·  '), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
+        var links = el('div', 'mw-mws-links');
+        add(links, el('a', 'mw-mws-link', 'Open the card in your Portfolio', { href: x.open_url }), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
         add(row, links);
       }
       if (x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
@@ -455,19 +465,43 @@
     });
   }
 
+  // Only site media paths are ever drawn as images (the server filters too).
+  function safeImg(p) { return typeof p === 'string' && /^\/(?:_media|assets)\/[A-Za-z0-9\/_.-]{1,200}\.(?:jpe?g|png|webp)$/.test(p) && p.indexOf('..') === -1; }
+
+  // The card as visitors will see it on the portfolio page: after photo, name, place, description.
+  function portfolioCard(d) {
+    var card = el('article', 'mw-mws-pcard');
+    var imgs = (d.images || []).filter(safeImg);
+    if (imgs.length) {
+      var fig = el('div', 'mw-mws-pcard-photo');
+      add(fig, el('img', '', null, { src: imgs[0], alt: 'After photo for ' + (d.title || 'this project'), loading: 'lazy' }));
+      add(card, fig);
+    }
+    var b = el('div', 'mw-mws-pcard-body');
+    add(b, el('h4', 'mw-mws-pcard-name', d.title || '(no name)'));
+    if (d.location) add(b, el('p', 'mw-mws-pcard-place', d.location));
+    add(b, el('p', 'mw-mws-pcard-desc', d.meta_description || '(no description)'));
+    if (imgs.length > 1) add(b, el('p', 'mw-mws-fine', 'The before photo is saved with the card too.'));
+    add(card, b);
+    return card;
+  }
+
   function draftBlock(it) {
     var d = it.draft, wrap = el('div', 'mw-mws-sec mw-mws-draft'), story = it.type === 'project_story';
     add(wrap, el('h3', 'mw-mws-h3', story ? 'The portfolio card' : 'The wording'));
-    add(wrap, el('p', 'mw-mws-p', story ? 'Goes to: your Portfolio page, saved as a draft that stays hidden until you publish it there. Only the kind of work, the neighbourhood and the month were used.' : 'Page: ' + d.page_url));
-    var cols = el('div', 'mw-mws-cols');
-    function col(head, title, desc, cls) {
-      var c = el('div', 'mw-mws-col ' + cls);
-      add(c, el('h4', 'mw-mws-h4', head), el('span', 'mw-mws-lbl', story ? 'Name' : 'Title'), el('p', 'mw-mws-quote', title || '(none)'), el('span', 'mw-mws-lbl', 'Description'), el('p', 'mw-mws-quote', desc || '(none)'));
-      return c;
+    add(wrap, el('p', 'mw-mws-fine', story ? 'It is saved as a draft in your Portfolio and stays hidden until you publish it there.' : 'Page: ' + d.page_url));
+    if (story) {
+      add(wrap, portfolioCard(d));
+    } else {
+      var cols = el('div', 'mw-mws-cols');
+      var col = function (head, title, desc, cls) {
+        var c = el('div', 'mw-mws-col ' + cls);
+        add(c, el('h4', 'mw-mws-h4', head), el('span', 'mw-mws-lbl', 'Title'), el('p', 'mw-mws-quote', title || '(none)'), el('span', 'mw-mws-lbl', 'Description'), el('p', 'mw-mws-quote', desc || '(none)'));
+        return c;
+      };
+      add(cols, col('Now', d.current_title, d.current_description, 'mw-mws-col--now'), col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new'));
+      add(wrap, cols);
     }
-    if (story) { add(cols, col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new')); }
-    else { add(cols, col('Now', d.current_title, d.current_description, 'mw-mws-col--now'), col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new')); }
-    add(wrap, cols);
     if (it.can_decide) {
       var edit = btn('Change the wording', 'mw-mws-btn--quiet', function () { wrap.replaceChild(editForm(it), wrap.querySelector('.mw-mws-editslot') || edit); });
       var slot = el('div', 'mw-mws-editslot'); add(slot, edit); add(wrap, slot);

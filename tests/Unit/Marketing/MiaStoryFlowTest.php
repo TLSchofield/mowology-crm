@@ -87,4 +87,14 @@ final class MiaStoryFlowTest extends TestCase
         [$c] = $this->call('draft_edit', 'POST', [], ['id' => $this->id, 'title' => 'Hedge Trimming in Point Grey, Vancouver', 'meta_description' => trim($long)]);
         $this->assertSame(422, $c, 'a search description is still capped at 320');
     }
+
+    public function testTheDetailCarriesThePhotosAndNeighbourhoodForThePreview(): void
+    {
+        [$c, $d] = $this->call('action_detail', 'GET', ['id' => $this->id]);
+        $this->assertSame('Point Grey', $d['item']['draft']['location']);
+        $this->assertSame(['/_media/variants/a.jpg', '/_media/variants/b.jpg'], $d['item']['draft']['images']);
+        $this->db->exec("UPDATE ba_pairs SET web_after_path = 'https://evil.example/x.jpg'");
+        [$c, $d] = $this->call('action_detail', 'GET', ['id' => $this->id]);
+        $this->assertSame(['/_media/variants/b.jpg'], $d['item']['draft']['images'], 'only site media paths are ever handed to the browser');
+    }
 }

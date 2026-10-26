@@ -23,7 +23,7 @@ $activePage = 'mia';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-          <div class="mw-mws" id="mw-mws" data-api="/crm/api/mia.php" data-csrf="<?= htmlspecialchars(function_exists('generateCSRFToken') ? generateCSRFToken() : '', ENT_QUOTES, 'UTF-8') ?>">
+          <div class="mw-mws it-mws" id="mw-mws" data-api="/crm/api/mia.php" data-csrf="<?= htmlspecialchars(function_exists('generateCSRFToken') ? generateCSRFToken() : '', ENT_QUOTES, 'UTF-8') ?>">
             <header class="mw-mws-top">
               <h1 class="mw-mws-h">Search &amp; Website</h1>
               <p class="mw-mws-sub" id="mws-sub" role="status" aria-live="polite">Loading&hellip;</p>

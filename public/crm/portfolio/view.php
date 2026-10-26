@@ -25,175 +25,112 @@ $activePage = 'portfolio';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-          <div class="mw-page-header mb-4">
-              <div>
-                  <a href="index.php" class="mw-back-link">
-                      <i data-feather="arrow-left"></i> Back to Portfolio
-                  </a>
-                  <div class="d-flex justify-content-between align-items-start">
-                      <div>
-                          <h1 class="h3 mb-1"><?php echo htmlspecialchars($project['project_name']); ?></h1>
-                          <p class="text-muted mb-0"><?php echo htmlspecialchars($project['project_number']); ?></p>
-                      </div>
-                      <div class="d-flex" style="gap: 8px;">
-                          <?php if (($project['status'] ?? '') === 'published'): ?>
-                              <button type="button" class="btn btn-outline-secondary" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'draft')">
-                                  <i data-feather="eye-off"></i> Unpublish
-                              </button>
-                          <?php else: ?>
-                              <button type="button" class="btn btn-success" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'published')">
-                                  <i data-feather="globe"></i> Publish
-                              </button>
-                          <?php endif; ?>
-                          <a href="edit.php?id=<?php echo $project['id']; ?>" class="btn btn-secondary">
-                              <i data-feather="edit"></i> Edit
-                          </a>
-                          <button type="button" class="btn btn-danger" onclick="deleteProject(<?php echo $project['id']; ?>)">
-                              <i data-feather="trash-2"></i> Delete
-                          </button>
-                      </div>
+<?php
+$isLive      = ($project['status'] ?? '') === 'published';
+$categories  = json_decode($project['categories'] ?? '[]', true) ?: [];
+$tags        = json_decode($project['tags'] ?? '[]', true) ?: [];
+$hasBefore   = !empty($project['before_image_path']);
+$hasAfter    = !empty($project['after_image_path']);
+$changed     = $_GET['status_changed'] ?? '';
+?>
+          <div class="it-pf">
+              <a href="index.php" class="it-pf-back"><span aria-hidden="true">&larr;</span>&nbsp;Back to Portfolio</a>
+
+              <header class="it-pf-head">
+                  <div class="it-pf-id">
+                      <h1 class="it-pf-title"><?php echo htmlspecialchars($project['project_name']); ?></h1>
+                      <p class="it-pf-meta">
+                          <span class="it-pf-status<?php echo $isLive ? ' it-pf-status--live' : ''; ?>">
+                              <?php if ($isLive): ?>
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                                  Published: shown on your public portfolio
+                              <?php else: ?>
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6v6l4 2M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"/></svg>
+                                  Draft: hidden from your public portfolio
+                              <?php endif; ?>
+                          </span>
+                          <span class="it-pf-num"><?php echo htmlspecialchars($project['project_number']); ?></span>
+                          <?php if (!empty($project['location'])): ?><span><?php echo htmlspecialchars($project['location']); ?></span><?php endif; ?>
+                      </p>
                   </div>
-              </div>
-          </div>
-
-          <?php if (($_GET['status_changed'] ?? '') === 'published'): ?>
-              <div class="alert alert-success" role="alert">Published. It now shows on your public portfolio page.</div>
-          <?php elseif (($_GET['status_changed'] ?? '') === 'draft'): ?>
-              <div class="alert alert-info" role="alert">Unpublished. It is hidden from your public portfolio page again.</div>
-          <?php elseif (($_GET['error'] ?? '') === 'status_failed'): ?>
-              <div class="alert alert-danger" role="alert">The status could not be changed. Nothing was changed.</div>
-          <?php endif; ?>
-
-          <?php if (isset($_GET['success'])): ?>
-              <div class="alert alert-success alert-dismissible fade show" role="alert">
-                  Project saved successfully!
-                  <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                      <span aria-hidden="true">&times;</span>
-                  </button>
-              </div>
-          <?php endif; ?>
-
-          <div class="row">
-              <div class="col-md-8">
-                  <!-- Images -->
-                  <?php if ($project['before_image_path'] || $project['after_image_path']): ?>
-                      <div class="card mb-4">
-                          <div class="card-header">
-                              <h5 class="mb-0">Before & After</h5>
-                          </div>
-                          <div class="card-body">
-                              <div class="row">
-                                  <?php if ($project['before_image_path']): ?>
-                                      <div class="col-md-6">
-                                          <h6>Before</h6>
-                                          <img src="<?php echo htmlspecialchars($project['before_image_path']); ?>" alt="Before" style="width: 100%; max-height: 300px; object-fit: cover; border-radius: 4px;">
-                                      </div>
-                                  <?php endif; ?>
-                                  <?php if ($project['after_image_path']): ?>
-                                      <div class="col-md-6">
-                                          <h6>After</h6>
-                                          <img src="<?php echo htmlspecialchars($project['after_image_path']); ?>" alt="After" style="width: 100%; max-height: 300px; object-fit: cover; border-radius: 4px;">
-                                      </div>
-                                  <?php endif; ?>
-                              </div>
-                          </div>
-                      </div>
-                  <?php endif; ?>
-
-                  <!-- Description -->
-                  <div class="card mb-4">
-                      <div class="card-header">
-                          <h5 class="mb-0">Project Details</h5>
-                      </div>
-                      <div class="card-body">
-                          <div class="mw-detail-grid">
-                              <div class="mw-detail-row">
-                                  <span class="label">Location</span>
-                                  <span class="value"><?php echo htmlspecialchars($project['location'] ?? '-'); ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Status</span>
-                                  <span class="value"><?php echo getStatusBadge($project['status'], $project['status'] === 'published' ? 'success' : 'secondary'); ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Featured</span>
-                                  <span class="value"><?php echo $project['featured'] ? '<span class="badge badge-warning"><i data-feather="star"></i> Yes</span>' : '<span class="badge badge-light">No</span>'; ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Display Order</span>
-                                  <span class="value"><?php echo intval($project['display_order']); ?></span>
-                              </div>
-                          </div>
-
-                          <?php if (!empty($project['description'])): ?>
-                              <hr>
-                              <div class="mt-4">
-                                  <h6>Description</h6>
-                                  <p><?php echo nl2br(htmlspecialchars($project['description'])); ?></p>
-                              </div>
-                          <?php endif; ?>
-
-                          <?php
-                          $categories = json_decode($project['categories'] ?? '[]', true);
-                          if (!empty($categories)):
-                          ?>
-                              <hr>
-                              <div class="mt-4">
-                                  <h6>Categories</h6>
-                                  <div>
-                                      <?php foreach ($categories as $category): ?>
-                                          <span class="badge badge-primary mr-2"><?php echo htmlspecialchars($category); ?></span>
-                                      <?php endforeach; ?>
-                                  </div>
-                              </div>
-                          <?php endif; ?>
-
-                          <?php
-                          $tags = json_decode($project['tags'] ?? '[]', true);
-                          if (!empty($tags)):
-                          ?>
-                              <hr>
-                              <div class="mt-4">
-                                  <h6>Tags</h6>
-                                  <div>
-                                      <?php foreach ($tags as $tag): ?>
-                                          <span class="badge badge-secondary mr-2"><?php echo htmlspecialchars($tag); ?></span>
-                                      <?php endforeach; ?>
-                                  </div>
-                              </div>
-                          <?php endif; ?>
-                      </div>
+                  <div class="it-pf-actions">
+                      <?php if ($isLive): ?>
+                          <button type="button" class="it-pf-btn" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'draft')">Unpublish</button>
+                          <a href="edit.php?id=<?php echo (int)$project['id']; ?>" class="it-pf-btn">Edit</a>
+                      <?php else: ?>
+                          <button type="button" class="it-pf-btn it-pf-btn--primary" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'published')">Publish</button>
+                          <a href="edit.php?id=<?php echo (int)$project['id']; ?>" class="it-pf-btn">Edit</a>
+                      <?php endif; ?>
                   </div>
+              </header>
+
+              <?php if ($changed === 'published'): ?>
+                  <p class="it-pf-note" role="status">Published. It now shows on your public portfolio page.</p>
+              <?php elseif ($changed === 'draft'): ?>
+                  <p class="it-pf-note" role="status">Unpublished. It is hidden from your public portfolio page again.</p>
+              <?php elseif (($_GET['error'] ?? '') === 'status_failed'): ?>
+                  <p class="it-pf-note it-pf-note--bad" role="alert">The status could not be changed. Nothing was changed.</p>
+              <?php endif; ?>
+              <?php if (isset($_GET['success'])): ?>
+                  <p class="it-pf-note" role="status">Project saved.</p>
+              <?php endif; ?>
+
+              <?php if ($hasBefore || $hasAfter): ?>
+                  <div class="it-pf-photos<?php echo ($hasBefore && $hasAfter) ? '' : ' it-pf-photos--one'; ?>">
+                      <?php if ($hasBefore): ?>
+                          <figure class="it-pf-photo">
+                              <figcaption>Before</figcaption>
+                              <img src="<?php echo htmlspecialchars($project['before_image_path']); ?>" alt="Before: <?php echo htmlspecialchars($project['project_name']); ?>">
+                          </figure>
+                      <?php endif; ?>
+                      <?php if ($hasAfter): ?>
+                          <figure class="it-pf-photo">
+                              <figcaption>After</figcaption>
+                              <img src="<?php echo htmlspecialchars($project['after_image_path']); ?>" alt="After: <?php echo htmlspecialchars($project['project_name']); ?>">
+                          </figure>
+                      <?php endif; ?>
+                  </div>
+              <?php endif; ?>
+
+              <div class="it-pf-body">
+                  <section aria-labelledby="pf-desc-h">
+                      <h2 class="it-pf-h" id="pf-desc-h">Description</h2>
+                      <?php if (!empty($project['description'])): ?>
+                          <p class="it-pf-desc"><?php echo nl2br(htmlspecialchars($project['description'])); ?></p>
+                      <?php else: ?>
+                          <p class="it-pf-desc">No description yet. <a href="edit.php?id=<?php echo (int)$project['id']; ?>">Add one</a>.</p>
+                      <?php endif; ?>
+
+                      <?php if ($categories): ?>
+                          <h2 class="it-pf-h">Categories</h2>
+                          <ul class="it-pf-chips">
+                              <?php foreach ($categories as $category): ?><li><?php echo htmlspecialchars((string)$category); ?></li><?php endforeach; ?>
+                          </ul>
+                      <?php endif; ?>
+                      <?php if ($tags): ?>
+                          <h2 class="it-pf-h">Tags</h2>
+                          <ul class="it-pf-chips">
+                              <?php foreach ($tags as $tag): ?><li><?php echo htmlspecialchars((string)$tag); ?></li><?php endforeach; ?>
+                          </ul>
+                      <?php endif; ?>
+                  </section>
+
+                  <section aria-labelledby="pf-det-h">
+                      <h2 class="it-pf-h" id="pf-det-h">Details</h2>
+                      <dl class="it-pf-dl">
+                          <div><dt>Status</dt><dd><?php echo $isLive ? 'Published' : 'Draft'; ?></dd></div>
+                          <div><dt>Location</dt><dd><?php echo htmlspecialchars($project['location'] ?: 'Not set'); ?></dd></div>
+                          <div><dt>Featured</dt><dd><?php echo $project['featured'] ? 'Yes' : 'No'; ?></dd></div>
+                          <div><dt>Display order</dt><dd><?php echo intval($project['display_order']); ?></dd></div>
+                          <div><dt>Created</dt><dd><?php echo formatDate($project['created_at'], 'M j, Y g:i A'); ?></dd></div>
+                          <div><dt>Last updated</dt><dd><?php echo formatDate($project['updated_at'], 'M j, Y g:i A'); ?></dd></div>
+                      </dl>
+                  </section>
               </div>
 
-              <div class="col-md-4">
-                  <!-- Metadata -->
-                  <div class="card">
-                      <div class="card-header">
-                          <h5 class="mb-0">Metadata</h5>
-                      </div>
-                      <div class="card-body">
-                          <div class="mw-detail-grid">
-                              <div class="mw-detail-row">
-                                  <span class="label">Project ID</span>
-                                  <span class="value"><?php echo $project['id']; ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Project Number</span>
-                                  <span class="value"><?php echo htmlspecialchars($project['project_number']); ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Created</span>
-                                  <span class="value"><?php echo formatDate($project['created_at'], 'M j, Y \a\t g:i A'); ?></span>
-                              </div>
-                              <div class="mw-detail-row">
-                                  <span class="label">Last Updated</span>
-                                  <span class="value"><?php echo formatDate($project['updated_at'], 'M j, Y \a\t g:i A'); ?></span>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-              </div>
+              <footer class="it-pf-foot">
+                  <button type="button" class="it-pf-btn it-pf-btn--quiet" onclick="deleteProject(<?php echo (int)$project['id']; ?>)">Delete this project</button>
+              </footer>
           </div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
