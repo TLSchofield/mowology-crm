@@ -267,6 +267,22 @@ final class MiaWebsiteService
 
     // ---- gate and read ------------------------------------------------------------------------
 
+    /**
+     * Take the right to run a verification NOW. Atomic: only one of several parallel requests gets true, so a burst of
+     * clicks cannot start a burst of DNS/HTTP checks. Records the attempt time as the claim.
+     */
+    public function claimVerifyAttempt(int $websiteId, DateTimeImmutable $now, int $cooldownSeconds): bool
+    {
+        try {
+            $u = $this->db->prepare("UPDATE mia_websites SET last_verify_attempt_at = ? WHERE id = ? AND site_id = ? AND status <> 'disconnected'
+                                      AND (last_verify_attempt_at IS NULL OR last_verify_attempt_at <= ?)");
+            $u->execute([$now->format('Y-m-d H:i:s'), $websiteId, $this->siteId, $now->modify('-' . max(0, $cooldownSeconds) . ' seconds')->format('Y-m-d H:i:s')]);
+            return $u->rowCount() === 1;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     /** Verified, and proved recently enough. */
     public function isVerified(int $websiteId, ?DateTimeImmutable $now = null): bool
     {

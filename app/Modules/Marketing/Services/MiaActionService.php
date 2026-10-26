@@ -228,10 +228,13 @@ final class MiaActionService
      * executor must hand verifyApproval() the content it reads from the draft row itself, not from a client.
      *
      * @param string $decision  approve | reject | later
+     * @param callable|null $freshContent  fn(array $actionRow): string, called INSIDE the decision transaction after the action row is locked.
+     *        If it returns anything other than $draftContent the approval is refused ('changed'): the wording was edited
+     *        between the moment the owner saw it and the moment the approval is stored.
      * @return array{ok:bool,code:?string,error:?string,id:?int,existing:bool}
      */
     public function decide(int $actionId, int $userId, string $decision, ?string $reasonCode = null, ?string $reasonText = null,
-                           ?string $draftContent = null, ?DateTimeImmutable $now = null): array
+                           ?string $draftContent = null, ?DateTimeImmutable $now = null, ?callable $freshContent = null): array
     {
         $now = $now ?: new DateTimeImmutable('now');
         if ($userId <= 0 || !call_user_func($this->userCheck, $userId)) { return $this->fail('no_user', 'Only a signed-in person can decide'); }
@@ -242,10 +245,13 @@ final class MiaActionService
         if ($reasonCode !== null && !isset(MiaMemoryService::SUPPRESS_DAYS[$reasonCode])) { $reasonCode = 'other'; }
 
         try {
-            return $this->atomic(function () use ($actionId, $userId, $decision, $reasonCode, $reasonText, $draftContent, $now) {
-                $row = $this->row($actionId);
+            return $this->atomic(function () use ($actionId, $userId, $decision, $reasonCode, $reasonText, $draftContent, $now, $freshContent) {
+                $row = $this->row($actionId, true);                 // locks the action row (MySQL): edits of its draft wait for us
                 if (!$row) { return $this->fail('not_found', 'No such action'); }
                 if ($row['status'] !== 'proposed') { return $this->fail('not_open', 'This action is already ' . $row['status']); }
+                if ($decision === 'approve' && $freshContent !== null && !hash_equals(sha1((string)$draftContent), sha1((string)call_user_func($freshContent, $row)))) {
+                    return $this->fail('changed', 'The wording changed while you were approving it');
+                }
 
                 $status = ['approve' => 'approved', 'reject' => 'rejected', 'later' => 'expired'][$decision];
                 $hash   = $decision === 'approve' ? self::hashDraft((string)$draftContent) : null;
@@ -354,6 +360,30 @@ final class MiaActionService
         }
     }
 
+    /** Actions with one status (or every status for 'all'), newest decisions first for decided ones, best score first for open ones. */
+    public function listByStatus(string $status, int $limit = 50): array
+    {
+        $allowed = ['proposed', 'approved', 'rejected', 'expired', 'done', 'failed'];
+        if ($status !== 'all' && !in_array($status, $allowed, true)) { return []; }
+        try {
+            $order = $status === 'proposed' ? "(score IS NULL), score DESC, id DESC" : "COALESCE(decided_at, proposed_at) DESC, id DESC";
+            $s = $this->db->prepare("SELECT * FROM mia_actions WHERE site_id = ?" . ($status !== 'all' ? " AND status = ?" : '') . " ORDER BY $order LIMIT " . max(1, min(200, $limit)));
+            $s->execute($status !== 'all' ? [$this->siteId, $status] : [$this->siteId]);
+            return $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Add an audit-trail entry for a person's action on a still-open proposal (e.g. the owner edited the wording). */
+    public function recordEdit(int $actionId, int $userId, string $detail, ?DateTimeImmutable $now = null): bool
+    {
+        if ($userId <= 0 || !call_user_func($this->userCheck, $userId)) { return false; }
+        $row = $this->row($actionId);
+        if (!$row || $row['status'] !== 'proposed') { return false; }
+        return $this->event($actionId, 'edited', 'user:' . $userId, $detail, $now);
+    }
+
     public function events(int $actionId): array
     {
         try {
@@ -449,10 +479,21 @@ final class MiaActionService
         }
     }
 
-    private function row(int $id): ?array
+    /**
+     * Lock an open proposal for an edit of its wording (MySQL: SELECT ... FOR UPDATE; call inside a transaction).
+     * Decisions lock the same row first, so an edit and an approval cannot interleave.
+     * @return array|null the row, or null if it does not exist for this site
+     */
+    public function lockForEdit(int $id): ?array
+    {
+        return $this->row($id, true);
+    }
+
+    private function row(int $id, bool $forUpdate = false): ?array
     {
         try {
-            $s = $this->db->prepare("SELECT * FROM mia_actions WHERE id = ? AND site_id = ?");
+            $lock = $forUpdate && $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' && $this->db->inTransaction() ? ' FOR UPDATE' : '';
+            $s = $this->db->prepare("SELECT * FROM mia_actions WHERE id = ? AND site_id = ?" . $lock);
             $s->execute([$id, $this->siteId]);
             $r = $s->fetch(PDO::FETCH_ASSOC);
             return $r ?: null;

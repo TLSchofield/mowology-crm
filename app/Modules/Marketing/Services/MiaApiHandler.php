@@ -1,0 +1,304 @@
+<?php
+/**
+ * MiaApiHandler — the new "approval queue" and "website" modes of Marketing/Api/mia.php (Phase 1.12).
+ *
+ *   GET  websites                 the connected websites, with how to prove ownership for pending ones
+ *   POST connect_website          {address}               register a website, returns the token and instructions
+ *   POST verify_website           {id, method?}           check the proof (meta | file | dns | any)
+ *   POST disconnect_website       {id}
+ *   GET  actions                  ?status=proposed|approved|rejected|expired|all   the queue, with the draft wording
+ *   GET  action_detail            ?id=                    one proposal, its draft, its audit trail
+ *   POST draft_edit               {id, title, meta_description}   the owner changes the wording (before approving)
+ *   POST action_decide            {id, decision: approve|reject|later, reason_code?, reason_text?, seen_hash?}
+ *
+ * The endpoint file does login, the marketing.approve permission and the CSRF check BEFORE calling this class; this
+ * class trusts none of what the browser sends beyond the ids and the owner's choices:
+ *   - the signed-in user id comes from the session, never from the request;
+ *   - approval is tied to the draft text read from the database, and the browser must send the hash of what it showed
+ *     (seen_hash). If the wording changed since, the approval is refused (409) and nothing is approved;
+ *   - nothing here publishes or sends anything: approving only records the owner's decision.
+ * Every query goes through services that bind site_id. handle() returns [http status, body] and does not throw.
+ *
+ * Global namespace, no autoloader: require_once it. PHP 7.4-compatible.
+ */
+declare(strict_types=1);
+
+require_once __DIR__ . '/MiaWebsiteService.php';
+require_once __DIR__ . '/MiaActionService.php';
+require_once __DIR__ . '/MiaMemoryService.php';
+require_once __DIR__ . '/MiaRecommendationWriter.php';
+
+final class MiaApiHandler
+{
+    public const MODES_GET  = ['websites', 'actions', 'action_detail'];
+    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide'];
+    /** Single-tenant today: the platform has no "current tenant" lookup yet (docs/plans/ittai-backlog.md). */
+    public const SITE_ID = 1;
+    public const MAX_WEBSITES = 10;
+    public const VERIFY_COOLDOWN_SECONDS = 10;
+    public const TYPE_LABELS = [
+        'seo_meta_update' => 'Page title and description', 'page_draft' => 'Page content', 'project_story' => 'Project story',
+        'gbp_post' => 'Google Business post', 'review_reply' => 'Review reply', 'internal_link' => 'Internal links', 'fix_technical' => 'Website fix',
+    ];
+
+    /** @var PDO */
+    private $db;
+    /** @var int */
+    private $siteId;
+    /** @var int */
+    private $userId;
+    /** @var MiaWebsiteService */
+    private $websites;
+    /** @var MiaActionService */
+    private $actions;
+
+    public function __construct(PDO $db, int $userId, ?MiaWebsiteService $websites = null, ?MiaActionService $actions = null, int $siteId = self::SITE_ID)
+    {
+        if ($siteId <= 0) { throw new InvalidArgumentException('MiaApiHandler needs a site'); }
+        $this->db       = $db;
+        $this->siteId   = $siteId;
+        $this->userId   = $userId;
+        $this->websites = $websites ?: new MiaWebsiteService($db, $siteId);
+        $this->actions  = $actions ?: new MiaActionService($db, $siteId);
+    }
+
+    /** A request id: a positive integer, or a plain decimal string of one. Arrays, floats, signs and junk become 0 (= not found). */
+    public static function id($v): int
+    {
+        if (is_int($v)) { return $v > 0 ? $v : 0; }
+        if (is_string($v) && preg_match('/^[1-9][0-9]{0,9}$/', $v)) { return (int)$v; }
+        return 0;
+    }
+
+    public static function handles(string $mode): bool
+    {
+        return in_array($mode, self::MODES_GET, true) || in_array($mode, self::MODES_POST, true);
+    }
+
+    /** @return array{0:int,1:array} http status and JSON body */
+    public function handle(string $mode, string $method, array $query, array $input, ?DateTimeImmutable $now = null): array
+    {
+        $now = $now ?: new DateTimeImmutable('now');
+        $isPost = $method === 'POST';
+        if (in_array($mode, self::MODES_POST, true) && !$isPost) { return [405, ['ok' => false, 'error' => 'This needs a POST']]; }
+        if (in_array($mode, self::MODES_GET, true) && $method !== 'GET') { return [405, ['ok' => false, 'error' => 'This needs a GET']]; }
+        if ($this->userId <= 0) { return [403, ['ok' => false, 'error' => 'Not signed in']]; }
+        if ($missing = $this->missingTables()) {
+            return [503, ['ok' => false, 'code' => 'not_ready', 'error' => 'Mia\'s new tables are not set up yet (migrations 1400-1402 have not been run): ' . implode(', ', $missing)]];
+        }
+        try {
+            switch ($mode) {
+                case 'websites':           return $this->websitesList();
+                case 'connect_website':    return $this->connect($input);
+                case 'verify_website':     return $this->verify($input, $now);
+                case 'disconnect_website': return $this->disconnect($input);
+                case 'actions':            return $this->actionsList($query);
+                case 'action_detail':      return $this->actionDetail(self::id($query['id'] ?? null));
+                case 'draft_edit':         return $this->draftEdit($input, $now);
+                case 'action_decide':      return $this->decide($input, $now);
+            }
+            return [400, ['ok' => false, 'error' => 'Unknown mode']];
+        } catch (Throwable $e) {
+            error_log('MiaApiHandler ' . $mode . ': ' . get_class($e) . ' ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+            return [500, ['ok' => false, 'error' => 'Mia hit a problem. See the error log.']];
+        }
+    }
+
+    /** @return string[] tables these modes need that do not exist yet */
+    private function missingTables(): array
+    {
+        $missing = [];
+        foreach (['mia_websites', 'mia_actions', 'mia_action_events', 'mia_decisions', 'mia_content_drafts'] as $t) {
+            try { $this->db->query("SELECT 1 FROM {$t} LIMIT 0"); } catch (Throwable $e) { $missing[] = $t; }
+        }
+        return $missing;
+    }
+
+    // ---- websites -------------------------------------------------------------------------------------
+
+    private function websitesList(): array
+    {
+        $out = [];
+        foreach ($this->websites->listAll() as $w) {
+            $row = ['id' => (int)$w['id'], 'address' => $w['base_url'], 'host' => $w['host'], 'status' => $w['status'],
+                    'verified_via' => $w['verified_via'], 'verified_at' => $w['verified_at'], 'last_error' => $w['last_verify_error'],
+                    'can_crawl' => $this->websites->isVerified((int)$w['id'])];
+            if ($w['status'] !== 'verified') {                      // the proof is only needed (and only shown) until verified
+                $full = $this->websites->get((int)$w['id']);
+                $row['instructions'] = $full ? MiaWebsiteService::instructions((string)$w['host'], (string)$full['verify_token']) : null;
+            }
+            $out[] = $row;
+        }
+        return [200, ['ok' => true, 'websites' => $out]];
+    }
+
+    private function connect(array $in): array
+    {
+        $address = is_string($in['address'] ?? null) ? $in['address'] : '';
+        if (count($this->websites->listAll()) >= self::MAX_WEBSITES) {
+            return [422, ['ok' => false, 'code' => 'too_many', 'error' => 'That is the most websites that can be connected']];
+        }
+        $r = $this->websites->connect($address, $this->userId);
+        if (!$r['ok']) { return [422, ['ok' => false, 'code' => $r['code'], 'error' => $r['error']]]; }
+        return [200, ['ok' => true, 'id' => $r['id'], 'existing' => $r['existing'], 'instructions' => $r['instructions']]];
+    }
+
+    private function verify(array $in, DateTimeImmutable $now): array
+    {
+        $id = self::id($in['id'] ?? null);
+        $w = $this->websites->get($id);
+        if (!$w) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such website']]; }
+        // Claim the attempt atomically: parallel requests cannot all pass the cooldown.
+        if (!$this->websites->claimVerifyAttempt($id, $now, self::VERIFY_COOLDOWN_SECONDS)) {
+            return [429, ['ok' => false, 'code' => 'too_soon', 'error' => 'Please wait a few seconds before checking again']];
+        }
+        $method = is_string($in['method'] ?? null) ? $in['method'] : 'any';
+        $r = $this->websites->verify($id, $method, $now);
+        if ($r['ok']) { return [200, ['ok' => true, 'verified' => true, 'method' => $r['method']]]; }
+        $http = in_array($r['code'], ['not_found'], true) ? 404 : 422;
+        return [$http, ['ok' => false, 'verified' => false, 'code' => $r['code'], 'error' => $r['error']]];
+    }
+
+    private function disconnect(array $in): array
+    {
+        $ok = $this->websites->disconnect(self::id($in['id'] ?? null));
+        return $ok ? [200, ['ok' => true]] : [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such website']];
+    }
+
+    // ---- the queue ------------------------------------------------------------------------------------
+
+    private function actionsList(array $q): array
+    {
+        $status = array_key_exists('status', $q) ? $q['status'] : 'proposed';
+        if (!is_string($status)) { return [422, ['ok' => false, 'error' => 'Unknown status']]; }
+        if (!in_array($status, ['proposed', 'approved', 'rejected', 'expired', 'all'], true)) { return [422, ['ok' => false, 'error' => 'Unknown status']]; }
+        $items = [];
+        foreach ($this->actions->listByStatus($status, 50) as $a) { $items[] = $this->view($a, false); }
+        return [200, ['ok' => true, 'status' => $status, 'items' => $items, 'counts' => $this->actions->counts()]];
+    }
+
+    private function actionDetail(int $id): array
+    {
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+        $v = $this->view($a, true);
+        $v['events'] = $this->actions->events($id);
+        return [200, ['ok' => true, 'item' => $v]];
+    }
+
+    /** What the browser shows for one proposal. Never includes hashes of the evidence or internal ids of other tables. */
+    private function view(array $a, bool $full): array
+    {
+        $draft = $this->draftOf($a);
+        $v = [
+            'id' => (int)$a['id'], 'type' => $a['type'], 'type_label' => self::TYPE_LABELS[$a['type']] ?? $a['type'], 'status' => $a['status'],
+            'title' => $a['title'], 'why' => $a['why'], 'expected_benefit' => $a['expected_benefit'], 'risk' => $a['risk'],
+            'score' => $a['score'] !== null ? (float)$a['score'] : null, 'proposed_at' => $a['proposed_at'], 'decided_at' => $a['decided_at'],
+            'decision_note' => $a['decision_note'], 'autonomy_level' => (int)$a['autonomy_level'],
+            'can_decide' => $a['status'] === 'proposed',
+            'draft' => $draft ? [
+                'id' => (int)$draft['id'], 'version' => (int)$draft['version'], 'page_url' => $draft['page_url'],
+                'current_title' => $draft['current_title'], 'current_description' => $draft['current_desc'],
+                'title' => $draft['title'], 'meta_description' => $draft['meta_desc'], 'rationale' => $draft['rationale'],
+                'seen_hash' => sha1(MiaRecommendationWriter::draftText($draft['title'], $draft['meta_desc'])),
+            ] : null,
+            'seen_hash' => sha1($this->contentFor($a, $draft)),
+        ];
+        if ($full) {
+            $v['evidence'] = json_decode((string)$a['evidence'], true) ?: [];
+            $v['score_inputs'] = json_decode((string)$a['score_inputs'], true) ?: null;
+        }
+        return $v;
+    }
+
+    /** The draft row an action points at, if any (must belong to this site and action). */
+    private function draftOf(array $a): ?array
+    {
+        if ($a['draft_ref_table'] !== 'mia_content_drafts' || empty($a['draft_ref_id'])) { return null; }
+        $s = $this->db->prepare("SELECT * FROM mia_content_drafts WHERE id = ? AND site_id = ? AND action_id = ? AND status = 'draft'");
+        $s->execute([(int)$a['draft_ref_id'], $this->siteId, (int)$a['id']]);
+        $r = $s->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    /** The exact text an approval is bound to: the draft wording, or (no draft) the proposal as the owner read it. */
+    private function contentFor(array $a, ?array $draft): string
+    {
+        if ($draft) { return MiaRecommendationWriter::draftText($draft['title'], $draft['meta_desc']); }
+        return "ACTION: {$a['title']}\nWHY: {$a['why']}\nBENEFIT: {$a['expected_benefit']}\nRISK: {$a['risk']}";
+    }
+
+    // ---- owner edits and decisions -----------------------------------------------------------------------
+
+    private function draftEdit(array $in, DateTimeImmutable $now): array
+    {
+        $id = self::id($in['id'] ?? null);
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+        if ($a['status'] !== 'proposed') { return [409, ['ok' => false, 'code' => 'not_open', 'error' => 'This proposal is already ' . $a['status']]]; }
+        $draft = $this->draftOf($a);
+        if (!$draft) { return [422, ['ok' => false, 'code' => 'no_draft', 'error' => 'This proposal has no wording to edit']]; }
+
+        $clean = function ($v, int $min, int $max): ?string {
+            if (!is_string($v)) { return null; }
+            $v = trim(preg_replace('/\s+/u', ' ', $v) ?? '');
+            if (preg_match('/[\x00-\x1f\x7f<>]/u', $v)) { return null; }
+            $n = mb_strlen($v, 'UTF-8');
+            return ($n >= $min && $n <= $max) ? $v : null;
+        };
+        $title = $clean($in['title'] ?? null, 5, 120);
+        $desc  = $clean($in['meta_description'] ?? null, 20, 320);
+        if ($title === null || $desc === null) {
+            return [422, ['ok' => false, 'code' => 'bad_text', 'error' => 'Title (5-120 characters) and description (20-320 characters) are needed, without HTML']];
+        }
+        if ($title === $draft['title'] && $desc === $draft['meta_desc']) { return [200, ['ok' => true, 'unchanged' => true, 'item' => $this->view($a, false)]]; }
+
+        // The edit and its audit entry succeed or fail together.
+        $own = !$this->db->inTransaction();
+        if ($own) { $this->db->beginTransaction(); }
+        try {
+            $locked = $this->actions->lockForEdit($id);                // an approval holds this lock while it checks and stores the wording
+            if (!$locked || $locked['status'] !== 'proposed') { throw new RuntimeException('no longer open'); }
+            $u = $this->db->prepare("UPDATE mia_content_drafts SET title = ?, meta_desc = ? WHERE id = ? AND site_id = ? AND action_id = ? AND status = 'draft'");
+            $u->execute([$title, $desc, (int)$draft['id'], $this->siteId, $id]);
+            if ($u->rowCount() !== 1 || !$this->actions->recordEdit($id, $this->userId, 'Owner edited the draft wording', $now)) {
+                throw new RuntimeException('edit could not be recorded');
+            }
+            if ($own) { $this->db->commit(); }
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) { $this->db->rollBack(); }
+            return [409, ['ok' => false, 'code' => 'not_open', 'error' => 'The wording could not be changed. The proposal may have just been decided.']];
+        }
+        return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false)]];
+    }
+
+    private function decide(array $in, DateTimeImmutable $now): array
+    {
+        $id = self::id($in['id'] ?? null);
+        $decision = is_string($in['decision'] ?? null) ? $in['decision'] : '';
+        if (!in_array($decision, ['approve', 'reject', 'later'], true)) { return [422, ['ok' => false, 'code' => 'bad_decision', 'error' => 'Choose approve, reject or later']]; }
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+
+        $reasonCode = is_string($in['reason_code'] ?? null) ? $in['reason_code'] : null;
+        $reasonText = is_string($in['reason_text'] ?? null) ? mb_substr(trim($in['reason_text']), 0, 400) : null;
+        $content = null;
+        if ($decision === 'approve') {
+            $content = $this->contentFor($a, $this->draftOf($a));
+            // The browser must have shown exactly this text. If the wording changed since (an edit in another tab,
+            // a newer draft), nothing is approved and the owner looks again.
+            $seen = is_string($in['seen_hash'] ?? null) ? $in['seen_hash'] : '';
+            if ($seen === '' || !hash_equals(sha1($content), $seen)) {
+                return [409, ['ok' => false, 'code' => 'changed', 'error' => 'The wording changed since you opened it. Please look at it again before approving.', 'item' => $this->view($a, false)]];
+            }
+        }
+        $fresh = $decision === 'approve' ? function (array $row) { return $this->contentFor($row, $this->draftOf($row)); } : null;
+        $r = $this->actions->decide($id, $this->userId, $decision, $reasonCode, $reasonText, $content, $now, $fresh);
+        if (!$r['ok'] && $r['code'] === 'changed') {
+            return [409, ['ok' => false, 'code' => 'changed', 'error' => 'The wording changed since you opened it. Please look at it again before approving.', 'item' => $this->view($this->actions->get($id) ?: $a, false)]];
+        }
+        if ($r['ok']) { return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false), 'message' => $decision === 'approve' ? 'Approved. Mia will not change your website: this only records your decision.' : 'Saved.']]; }
+        $map = ['not_found' => 404, 'not_open' => 409, 'no_user' => 403, 'db' => 500];
+        return [$map[$r['code']] ?? 422, ['ok' => false, 'code' => $r['code'], 'error' => $r['error']]];
+    }
+}

@@ -438,3 +438,4 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/Site/SiteAuditRules.p
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaOpportunityScorer.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaRecommendationWriter.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaScheduledJobs.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaApiHandler.php';
