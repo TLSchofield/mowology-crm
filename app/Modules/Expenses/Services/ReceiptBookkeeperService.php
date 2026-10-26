@@ -35,10 +35,17 @@ class ReceiptBookkeeperService
     public static function systemPrompt(): string
     {
         require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        require_once dirname(__DIR__, 3) . '/Services/Receipts/ReceiptProfile.php';
         $b = BusinessIdentity::get();
+        $p = ReceiptProfile::forBusiness();   // this business's tax rates, wording and rules — neutral unless the business has set them
         return strtr(self::SYSTEM_PROMPT, [
-            '{BUSINESS}' => BusinessIdentity::describe($b),
-            '{OWNER}'    => $b['owner_name'] !== '' ? $b['owner_name'] : 'the owner',
+            '{BUSINESS}'       => BusinessIdentity::describe($b),
+            '{OWNER}'          => $b['owner_name'] !== '' ? $b['owner_name'] : 'the owner',
+            '{TAXES}'          => ReceiptProfile::taxSentence($p),
+            '{GST_NOTE}'       => ReceiptProfile::gstNote($p),
+            '{VEHICLE}'        => $p['vehicle_label'],
+            '{EQUIPMENT}'      => $p['equipment_label'],
+            '{VENDOR_EXAMPLE}' => $p['vendor_example'] !== '' ? $p['vendor_example'] . ' ' : '',
         ]);
     }
 
@@ -215,11 +222,11 @@ class ReceiptBookkeeperService
 You are the bookkeeper for {BUSINESS}. Crew photograph receipts on their phones; you prepare each one for the owner to approve.
 
 For the receipt you're given, decide:
-- vendor: the business that issued it (correct the reader when it named the wrong business). A branded station or chain store is filed under its brand — "Marine Dr Town Pntry" is a Chevron station, so the vendor is Chevron; a branch or store name belongs to the store, not the vendor. When the reader's vendor is a known vendor whose name or aliases match the receipt, keep it.
+- vendor: the business that issued it (correct the reader when it named the wrong business). A branded station or chain store is filed under its brand — {VENDOR_EXAMPLE}a branch or store name belongs to the store, not the vendor. When the reader's vendor is a known vendor whose name or aliases match the receipt, keep it.
 - accounting_category: one of the listed categories.
-- asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
+- asset_tag: "truck" or "equipment" when the cost belongs to {VEHICLE} or to {EQUIPMENT}; "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
 - job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
-- subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts — never compute, round or adjust an amount yourself. If a figure isn't printed, use 0 for a tax, or the nearest printed figure for the total, and say in your reason what was missing; if the reader's value differs from the print, give the printed value. Code checks every amount against the receipt text. When bank_charge is given, that is what the bank actually charged: if the receipt's total is unclear, cut off or missing, use bank_charge.amount as the total and say so; if it disagrees with a clearly printed total, keep the printed one and point out the difference.
+- subtotal, gst, pst, total as printed on the receipt. {TAXES}; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts — never compute, round or adjust an amount yourself. If a figure isn't printed, use 0 for a tax, or the nearest printed figure for the total, and say in your reason what was missing; if the reader's value differs from the print, give the printed value. Code checks every amount against the receipt text. When bank_charge is given, that is what the bank actually charged: if the receipt's total is unclear, cut off or missing, use bank_charge.amount as the total and say so; if it disagrees with a clearly printed total, keep the printed one and point out the difference.{GST_NOTE}
 - line_items: each purchased item as printed, with its amount. Omit non-items (subtotals, tax lines, payment lines, store messages).
 
 The owner's rules are given as rule_hits. A "firm" rule is how the owner books it — follow it. A "soft" rule is a strong hint you may overrule when the receipt clearly says otherwise; say why.
@@ -378,13 +385,15 @@ TXT;
             'line_items'          => $itemNames,
         ];
 
+        require_once dirname(__DIR__, 3) . '/Services/Receipts/ReceiptProfile.php';
+        $profile = ReceiptProfile::forBusiness($this->db);
         $prompt = [
             'vendor'              => $vendor,
             'date'                => $date,
             'time_printed'        => $time,
             'receipt_text'        => mb_substr($ocrText, 0, 12000),
             'reader_captured'     => array_intersect_key($current, array_flip(['subtotal', 'gst', 'pst', 'total', 'accounting_category', 'line_items'])),
-            'rule_hits'           => ReceiptBookkeeperRules::evaluate(['total' => $current['total'] ?? $e['total']], $ocrText, $itemNames),
+            'rule_hits'           => ReceiptBookkeeperRules::evaluateWith($profile['rules'], ['total' => $current['total'] ?? $e['total']], $ocrText, $itemNames),
             'vendor_history'      => $vendorId ? $this->vendorHistory($vendorId, $expenseId, $hideFinal ? $date : null) : [],
             'job_candidates'      => $this->jobCandidates($e, $date, $time),
             'categories'          => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
@@ -411,6 +420,7 @@ TXT;
             'expense'    => $e,
             'current'    => $current,
             'prompt'     => $prompt,
+            'profile'    => $profile,   // internal: the checks use its rates, it is never sent to the model
             'media_path' => !empty($e['media_file_path']) ? PUBLIC_ROOT . $e['media_file_path'] : null,
         ];
     }
@@ -645,6 +655,7 @@ TXT;
      */
     public static function check(array $s, array $ctx): array
     {
+        require_once dirname(__DIR__, 3) . '/Services/Receipts/ReceiptProfile.php';
         $checks = [];
         $add = function (string $check, bool $ok, string $message) use (&$checks) {
             $checks[] = compact('check', 'ok', 'message');
@@ -669,17 +680,23 @@ TXT;
             $add('fuel_tagged', false, 'Fuel without a truck/equipment tag');
         }
 
-        // Amounts add up, and taxes look like BC rates.
+        // Amounts add up, and taxes look like this business's province's rates (BC's by default: the original business; a province with no
+        // rates set up is not judged — it says so, it never guesses).
+        $prof = $ctx['profile'] ?? ['gst_rate' => null, 'pst_rate' => null, 'tax_checked' => false, 'province' => ''];   // no profile: never guess a rate
         [$sub, $gst, $pst, $tot] = [$num('subtotal'), $num('gst'), $num('pst'), $num('total')];
         if ($sub !== null && $gst !== null && $pst !== null && $tot !== null) {
             $add('sum', abs($sub + $gst + $pst - $tot) <= 0.03, sprintf('Subtotal %.2f + GST %.2f + PST %.2f vs total %.2f', $sub, $gst, $pst, $tot));
-            if ($gst > 0 && $sub > 0) {
-                // At most 5%, like PST below: zero-rated groceries and deposits make it lower (Chevron
-                // 2026-09-22: $0.12 on a $2.49 hot drink in a $15.57 basket); only more is wrong.
-                $add('gst_rate', $gst <= $sub * 0.05 + max(0.06, $sub * 0.002), sprintf('GST %.2f vs at most 5%% of %.2f', $gst, $sub));
-            }
-            if ($pst > 0 && $sub > 0) {
-                $add('pst_rate', $pst <= $sub * 0.07 + 0.06, sprintf('PST %.2f vs at most 7%% of %.2f', $pst, $sub));
+            if (!$prof['tax_checked']) {
+                $add('tax_unchecked', false, 'Tax rates for ' . ($prof['province'] !== '' ? $prof['province'] : 'this province') . " aren't set up — GST/PST not checked");
+            } else {
+                if ($gst > 0 && $sub > 0) {
+                    // At most the GST rate, like PST below: zero-rated groceries and deposits make it lower (Chevron
+                    // 2026-09-22: $0.12 on a $2.49 hot drink in a $15.57 basket); only more is wrong.
+                    $add('gst_rate', $gst <= $sub * (float)$prof['gst_rate'] + max(0.06, $sub * 0.002), sprintf('GST %.2f vs at most %s%% of %.2f', $gst, ReceiptProfile::pct((float)$prof['gst_rate']), $sub));
+                }
+                if ($pst > 0 && $sub > 0 && $prof['pst_rate'] !== null) {
+                    $add('pst_rate', $pst <= $sub * (float)$prof['pst_rate'] + 0.06, sprintf('PST %.2f vs at most %s%% of %.2f', $pst, ReceiptProfile::pct((float)$prof['pst_rate']), $sub));
+                }
             }
         }
 

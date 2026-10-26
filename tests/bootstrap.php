@@ -264,6 +264,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthDrilldownServic
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyFocusService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptDocumentLinkService.php';
 require_once __DIR__ . '/../app/Services/LlmUsageLog.php';
+require_once __DIR__ . '/../app/Services/Receipts/ReceiptProfile.php';
+require_once __DIR__ . '/../app/Services/BusinessIdentity.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BooksWatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PayerIdentityService.php';

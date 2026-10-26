@@ -8,6 +8,7 @@ final class CodeSuggestionGateTest extends TestCase
     private function ctx(array $cur = [], array $ruleHits = []): array
     {
         return [
+            'profile' => ['gst_rate' => 0.05, 'pst_rate' => 0.07, 'tax_checked' => true, 'province' => 'BC'], 
             'expense' => ['vendor_id' => 7],
             'current' => $cur + ['vendor' => 'Lawnboy', 'subtotal' => 80.00, 'gst' => 4.00, 'pst' => 0.00, 'total' => 84.00, 'line_items' => ['Blade 21in']],
             'prompt'  => ['rule_hits' => $ruleHits, 'receipt_text' => "LAWNBOY\nSUBTOTAL 80.00\nGST 4.00\nTOTAL 84.00"],
