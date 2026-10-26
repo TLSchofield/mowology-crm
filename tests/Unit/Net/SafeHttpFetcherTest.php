@@ -221,4 +221,55 @@ class SafeHttpFetcherTest extends TestCase
         $this->assertSame('timeout', $r['code']);
         $this->assertSame(1, $n);
     }
+
+    public function testPerCallOptionsOverrideTypesAndBytesAndHeadersAreWhitelisted(): void
+    {
+        $seen = null;
+        $f = $this->fetcher(['example.com' => ['93.184.216.34']], function ($u, $h, $p, $ip, $opts) use (&$seen) {
+            $seen = $opts;
+            return ['status' => 304, 'headers' => [], 'body' => ''];
+        }, ['allowed_types' => ['text/html'], 'max_bytes' => 1000]);
+        $r = $f->fetch('http://example.com/', [
+            'allowed_types' => null, 'max_bytes' => 50,
+            'headers' => ['If-None-Match' => '"abc"', 'If-Modified-Since' => 'Sat, 01 Jan 2026 00:00:00 GMT',
+                          'Host' => 'evil.example', 'X-Forwarded-For' => '127.0.0.1', 'If-None-Match ' => "x\r\nHost: evil"],
+        ]);
+        $this->assertTrue($r['ok']);
+        $this->assertSame(304, $r['status']);
+        $this->assertNull($seen['allowed_types']);
+        $this->assertSame(50, $seen['max_bytes']);
+        $this->assertSame(['if-none-match' => '"abc"', 'if-modified-since' => 'Sat, 01 Jan 2026 00:00:00 GMT'], $seen['request_headers']);
+    }
+
+    public function testCleanRequestHeadersDropsLineBreaksAndLongValues(): void
+    {
+        $this->assertSame([], SafeHttpFetcher::cleanRequestHeaders(['if-none-match' => "a\r\nX: y"]));
+        $this->assertSame([], SafeHttpFetcher::cleanRequestHeaders(['if-none-match' => str_repeat('a', 201)]));
+        $this->assertSame([], SafeHttpFetcher::cleanRequestHeaders(['if-none-match' => '']));
+    }
+
+    public function testSameHostLockBlocksRedirectBeforeAnyRequestToTheOtherHost(): void
+    {
+        $urls = [];
+        $f = $this->fetcher(['a.example' => ['8.8.8.8'], 'b.example' => ['8.8.4.4']], function ($url) use (&$urls) {
+            $urls[] = $url;
+            return ['status' => 302, 'headers' => ['location' => 'http://b.example/collect'], 'body' => ''];
+        });
+        $r = $f->fetch('http://a.example/', ['same_host' => 'a.example']);
+        $this->assertSame('off_site', $r['code']);
+        $this->assertSame(['http://a.example/'], $urls, 'the other host must never be contacted');
+        $this->assertFalse($f->fetch('http://b.example/', ['same_host' => 'a.example'])['ok']);
+    }
+
+    public function testConditionalHeadersAreSentOnTheFirstRequestOnly(): void
+    {
+        $seen = [];
+        $f = $this->fetcher(['a.example' => ['8.8.8.8'], 'b.example' => ['8.8.4.4']], function ($url, $h, $p, $ip, $opts) use (&$seen) {
+            $seen[] = $opts['request_headers'];
+            return count($seen) === 1 ? ['status' => 301, 'headers' => ['location' => 'http://b.example/'], 'body' => ''] : ['status' => 200, 'headers' => [], 'body' => 'ok'];
+        });
+        $f->fetch('http://a.example/', ['headers' => ['If-None-Match' => '"secret"']]);
+        $this->assertSame(['if-none-match' => '"secret"'], $seen[0]);
+        $this->assertSame([], $seen[1], 'validators never follow a redirect');
+    }
 }

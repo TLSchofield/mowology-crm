@@ -9,7 +9,7 @@
  * cannot redirect us inside); follows redirects by hand, re-checking each hop; and caps time and size.
  *
  * Never throws on a bad destination: returns ['ok' => false, 'code' => ..., 'error' => ...].
- * Codes: bad_url, bad_scheme, bad_port, userinfo, blocked_host, blocked_ip, dns_failed,
+ * Codes: bad_url, bad_scheme, bad_port, userinfo, blocked_host, blocked_ip, dns_failed, off_site,
  *        too_many_redirects, bad_redirect, too_large, bad_content_type, timeout, transport.
  *
  * PHP 7.4-compatible (no enums / union types / str_contains).
@@ -50,28 +50,46 @@ class SafeHttpFetcher
         $this->transport = $transport ?: [self::class, 'curlTransport'];
     }
 
+    /** Request headers a caller may add. Anything else is dropped. */
+    public const ALLOWED_REQUEST_HEADERS = ['if-none-match', 'if-modified-since'];
+
     /**
+     * @param array $options  per-call: allowed_types (string[]|null), max_bytes (int), timeout (int),
+     *                        same_host (string: every hop, redirects included, must be exactly this host, else code
+     *                        off_site and NO request is made to the other host),
+     *                        headers (array name => value, only If-None-Match / If-Modified-Since, no line breaks;
+     *                        sent on the first request only, never on redirect hops)
      * @return array{ok:bool,url:string,status:int,headers:array,body:string,redirects:string[],code:?string,error:?string}
      */
-    public function fetch(string $url): array
+    public function fetch(string $url, array $options = []): array
     {
+        $base = $this->opts;
+        foreach (['allowed_types', 'max_bytes', 'timeout'] as $k) {
+            if (array_key_exists($k, $options)) { $base[$k] = $options[$k]; }
+        }
+        $base['request_headers'] = self::cleanRequestHeaders((array)($options['headers'] ?? []));
+
         $result = ['ok' => false, 'url' => $url, 'status' => 0, 'headers' => [], 'body' => '',
                    'redirects' => [], 'code' => null, 'error' => null];
         $current = $url;
         // One budget for the whole fetch, redirects included (Codex review 2026-10-25).
-        $deadline  = microtime(true) + (float)$this->opts['timeout'];
-        $bytesLeft = (int)$this->opts['max_bytes'];
+        $deadline  = microtime(true) + (float)$base['timeout'];
+        $bytesLeft = (int)$base['max_bytes'];
 
-        for ($hop = 0; $hop <= (int)$this->opts['max_redirects']; $hop++) {
+        for ($hop = 0; $hop <= (int)$base['max_redirects']; $hop++) {
             $check = $this->checkUrl($current);
             if (!$check['ok']) {
                 return $this->fail($result, $check['code'], $check['error']);
+            }
+            if (!empty($options['same_host']) && $check['host'] !== strtolower(rtrim((string)$options['same_host'], '.'))) {
+                return $this->fail($result, 'off_site', 'Redirects to a different site');
             }
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0) {
                 return $this->fail($result, 'timeout', 'Timed out');
             }
-            $hopOpts = array_merge($this->opts, ['timeout' => max(1, (int)ceil($remaining)), 'max_bytes' => max(0, $bytesLeft)]);
+            if ($hop > 0) { $base['request_headers'] = []; }      // validators belong to the first URL, never to a redirect target
+            $hopOpts = array_merge($base, ['timeout' => max(0.2, $remaining), 'max_bytes' => max(0, $bytesLeft)]);
             $resp = call_user_func($this->transport, $current, $check['host'], $check['port'], $check['ip'], $hopOpts);
             $bytesLeft -= strlen((string)($resp['body'] ?? ''));
 
@@ -159,6 +177,20 @@ class SafeHttpFetcher
             }
         }
         return ['ok' => true, 'host' => $host, 'port' => $port, 'ip' => $ips[0], 'scheme' => $scheme];
+    }
+
+    /** Keep only whitelisted conditional-request headers with safe values. @return array<string,string> */
+    public static function cleanRequestHeaders(array $headers): array
+    {
+        $out = [];
+        foreach ($headers as $k => $v) {
+            $k = strtolower(trim((string)$k));
+            $v = trim((string)$v);
+            if (in_array($k, self::ALLOWED_REQUEST_HEADERS, true) && $v !== '' && strlen($v) <= 200 && !preg_match('/[\x00-\x1f\x7f]/', $v)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 
     // ---- static helpers (unit-tested directly) ---------------------------------------------------
@@ -318,12 +350,14 @@ class SafeHttpFetcher
             CURLOPT_PROXY           => '',
             CURLOPT_NOPROXY         => '*',
             CURLOPT_USERAGENT       => (string)$opts['user_agent'],
-            CURLOPT_TIMEOUT         => (int)$opts['timeout'],
-            CURLOPT_CONNECTTIMEOUT  => (int)$opts['connect_timeout'],
+            CURLOPT_TIMEOUT_MS      => max(200, (int)round((float)$opts['timeout'] * 1000)),
+            CURLOPT_CONNECTTIMEOUT_MS => max(200, (int)round(min((float)$opts['connect_timeout'], (float)$opts['timeout']) * 1000)),
             CURLOPT_SSL_VERIFYPEER  => true,
             CURLOPT_SSL_VERIFYHOST  => 2,
-            CURLOPT_HTTPHEADER      => ['Accept: text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.5',
-                                        'Accept-Encoding: identity'],
+            CURLOPT_HTTPHEADER      => array_merge(
+                ['Accept: text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.5', 'Accept-Encoding: identity'],
+                array_map(function ($k, $v) { return $k . ': ' . $v; }, array_keys((array)($opts['request_headers'] ?? [])), array_values((array)($opts['request_headers'] ?? [])))
+            ),
             CURLOPT_HEADERFUNCTION  => function ($c, $line) use (&$headers, &$abort, $types) {
                 $len = strlen($line);
                 if (strpos($line, ':') !== false) {
