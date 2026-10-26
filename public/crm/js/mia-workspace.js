@@ -374,6 +374,7 @@
   function renderDetail(body, it) {
     var story = it.type === 'project_story';
     add(body, section('Why Mia suggests it', it.why));
+    if (it.can_write_page) add(body, pageWriteBlock(it));                // an approved idea or a suggestion with no text yet: ask Mia to write it
     if (story && it.draft) add(body, draftBlock(it));                    // the card comes first: it is what the owner is deciding on
     if (it.bundle) add(body, bundleBlock(it));                           // then exactly what each channel will say
     var small = el('details', 'mw-mws-more');                            // gain, risk and the numbers are there when wanted, folded when not
@@ -397,19 +398,20 @@
   // Applying changes the live website, so it takes two clicks: the second button says what will happen.
   function applyBar(it) {
     var wrap = el('div', 'mw-mws-sec mw-mws-apply');
-    var story = it.type === 'project_story';
-    add(wrap, el('h3', 'mw-mws-h3', story ? 'Save the portfolio card' : 'Put it on your website'));
+    var story = it.type === 'project_story', pageType = it.type === 'page_draft';
+    add(wrap, el('h3', 'mw-mws-h3', story ? 'Save the portfolio card' : pageType ? 'Save the page' : 'Put it on your website'));
     if (!it.apply.can_apply) {
       add(wrap, el('p', 'mw-mws-p', 'Mia cannot apply this one for you. ' + (it.apply.why_not || '')));
       return wrap;
     }
     add(wrap, el('p', 'mw-mws-p', story
       ? 'Nothing has changed on your website yet. Saving puts a draft card in your Portfolio page. It stays hidden until you publish it there. You can undo it while it is still an untouched draft.'
+      : pageType ? 'Nothing has changed on your website yet. Saving puts an unpublished page in your website editor. It stays hidden until you publish it there. You can undo it while it is still an untouched draft.'
       : 'Nothing has changed on your website yet. Applying changes the title and description on the live page. You can undo it afterwards.'));
     var actions = el('div', 'mw-mws-actions');
-    var go = btn(story ? 'Save as a draft card' : 'Apply to my website', 'mw-mws-btn--primary', function () {
+    var go = btn(story ? 'Save as a draft card' : pageType ? 'Save as an unpublished page' : 'Apply to my website', 'mw-mws-btn--primary', function () {
       clear(actions);
-      var yes = btn(story ? 'Yes, save the draft card' : 'Yes, change my live page', 'mw-mws-btn--primary', function () { doApply(it, wrap); });
+      var yes = btn(story ? 'Yes, save the draft card' : pageType ? 'Yes, save the page' : 'Yes, change my live page', 'mw-mws-btn--primary', function () { doApply(it, wrap); });
       add(actions, yes, btn('Cancel', 'mw-mws-btn--quiet', function () { loadGrowth('row'); }));
       yes.focus();
     });
@@ -438,7 +440,7 @@
       if (x.verify_note) add(row, el('p', 'mw-mws-fine', x.verify_note));
       if (x.open_url) {
         var links = el('div', 'mw-mws-links');
-        add(links, el('a', 'mw-mws-link', 'Open the card in your Portfolio', { href: x.open_url }), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
+        add(links, el('a', 'mw-mws-link', it.type === 'page_draft' ? 'Open the page in your website editor' : 'Open the card in your Portfolio', { href: x.open_url }), el('a', 'mw-mws-link', 'Edit or publish it', { href: x.edit_url }));
         add(row, links);
       }
       if (x.status === 'queued' || x.status === 'applied' || x.status === 'verified' || x.status === 'unverified') {
@@ -487,6 +489,62 @@
     return card;
   }
 
+  // The page text is Mia's small markup. It is drawn with textContent only, so nothing in it can ever become markup.
+  function renderMarkup(text) {
+    var root = el('div', 'mw-mws-pagebody'), para = [], list = null;
+    function flush() { if (para.length) { add(root, el('p', 'mw-mws-pp', para.join(' '))); para = []; } }
+    String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+      var l = line.replace(/\s+$/, ''), m;
+      if (l === '') { flush(); list = null; return; }
+      if ((m = /^###\s+(.+)$/.exec(l))) { flush(); list = null; add(root, el('h4', 'mw-mws-ph3', m[1])); return; }
+      if ((m = /^##\s+(.+)$/.exec(l)))  { flush(); list = null; add(root, el('h3', 'mw-mws-ph2', m[1])); return; }
+      if ((m = /^[-*]\s+(.+)$/.exec(l))) { flush(); if (!list) { list = el('ul', 'mw-mws-pul'); add(root, list); } add(list, el('li', '', m[1])); return; }
+      list = null; para.push(l.trim());
+    });
+    flush();
+    return root;
+  }
+
+  function pageWriteBlock(it) {
+    var wrap = el('div', 'mw-mws-sec mw-mws-pagewrite');
+    add(wrap, el('h3', 'mw-mws-h3', 'Write this page'), el('p', 'mw-mws-p', it.write_note));
+    var go = btn('Write this page', 'mw-mws-btn--primary', function () {
+      go.disabled = true; go.textContent = 'Writing… about 20 seconds';
+      request('POST', 'page_write', { id: it.id }).then(function (res) {
+        if (!res.body.ok) { go.disabled = false; go.textContent = 'Write this page'; flash(res.body.error || failText(res), true); if (res.body.item) { loadGrowth('row'); } return; }
+        flash(res.body.message || 'The page is written.');
+        state.filter = 'proposed'; state.openId = it.id; loadGrowth('filter');
+      });
+    });
+    add(wrap, go);
+    return wrap;
+  }
+
+  function pagePreview(it) {
+    var d = it.draft, wrap = el('div', 'mw-mws-sec mw-mws-draft mw-mws-page');
+    add(wrap, el('h3', 'mw-mws-h3', 'The page'));
+    add(wrap, el('p', 'mw-mws-fine', 'It is saved as an unpublished page in your website editor. Nothing goes live until you publish it there. ' + d.words + ' words.'));
+    var meta = el('div', 'mw-mws-pagemeta');
+    add(meta, el('span', 'mw-mws-lbl', 'Page title'), el('p', 'mw-mws-quote', d.title), el('span', 'mw-mws-lbl', 'Description shown in Google'), el('p', 'mw-mws-quote', d.meta_description));
+    add(wrap, meta, renderMarkup(d.body));
+    if (d.appended && d.appended.length) {
+      var ap = el('div', 'mw-mws-pageadded');
+      add(ap, el('h4', 'mw-mws-h4', 'Added from your real projects, word for word'));
+      var ul = el('ul', 'mw-mws-list');
+      d.appended.forEach(function (p) { add(ul, el('li', '', p.name + (p.location ? ' (' + p.location + ')' : ''))); });
+      add(ap, ul);
+      add(wrap, ap);
+    } else {
+      add(wrap, el('p', 'mw-mws-fine', 'No published project matches this search, so no "Recent work" section is added. Mia never invents one.'));
+    }
+    add(wrap, el('p', 'mw-mws-fine', 'A "Get a free quote" link is added at the end.'));
+    if (it.can_decide) {
+      var edit = btn('Change the page', 'mw-mws-btn--quiet', function () { wrap.replaceChild(editForm(it), wrap.querySelector('.mw-mws-editslot') || edit); });
+      var slot = el('div', 'mw-mws-editslot'); add(slot, edit); add(wrap, slot);
+    }
+    return wrap;
+  }
+
   // One decision, every channel: the exact words each place will show, then what Undo can and cannot do.
   function bundleBlock(it) {
     var b = it.bundle, wrap = el('div', 'mw-mws-sec mw-mws-bundle');
@@ -504,6 +562,7 @@
   }
 
   function draftBlock(it) {
+    if (it.type === 'page_draft') return pagePreview(it);
     var d = it.draft, wrap = el('div', 'mw-mws-sec mw-mws-draft'), story = it.type === 'project_story';
     add(wrap, el('h3', 'mw-mws-h3', story ? 'The portfolio card' : 'The wording'));
     add(wrap, el('p', 'mw-mws-fine', story ? 'It is saved as a draft in your Portfolio and stays hidden until you publish it there.' : 'Page: ' + d.page_url));
@@ -530,13 +589,15 @@
     var d = it.draft, f = el('form', 'mw-mws-edit mw-mws-editslot');
     var t = el('input', 'mw-mws-input', null, { type: 'text', maxlength: '120', value: d.title, id: 'mws-edit-title' });
     var m = el('textarea', 'mw-mws-input mw-mws-textarea', d.meta_description, { rows: it.type === 'project_story' ? '6' : '3', maxlength: it.type === 'project_story' ? '480' : '320', id: 'mws-edit-desc' });
-    var save = btn('Save wording', 'mw-mws-btn--primary', null, { type: 'submit' });
+    var page = it.type === 'page_draft';
+    var bodyBox = page ? el('textarea', 'mw-mws-input mw-mws-textarea mw-mws-bodybox', d.body, { rows: '22', maxlength: '12000', id: 'mws-edit-body', 'aria-describedby': 'mws-edit-body-help' }) : null;
+    var save = btn(page ? 'Save the page' : 'Save wording', 'mw-mws-btn--primary', null, { type: 'submit' });
     add(f, el('label', 'mw-mws-lbl', 'Title (about 60 characters shows in Google)', { 'for': 'mws-edit-title' }), t,
       el('label', 'mw-mws-lbl', 'Description (about 155 characters shows in Google)', { 'for': 'mws-edit-desc' }), m, save,
       btn('Cancel', 'mw-mws-btn--quiet', function () { loadGrowth('row'); }));
     f.addEventListener('submit', function (e) {
       e.preventDefault(); save.disabled = true;
-      request('POST', 'draft_edit', { id: it.id, title: t.value, meta_description: m.value }).then(function (res) {
+      request('POST', 'draft_edit', page ? { id: it.id, title: t.value, meta_description: m.value, body: bodyBox.value } : { id: it.id, title: t.value, meta_description: m.value }).then(function (res) {
         save.disabled = false;
         if (!res.body.ok) { flash(res.body.error || failText(res), true); return; }
         flash('Wording saved. Look it over, then approve.');

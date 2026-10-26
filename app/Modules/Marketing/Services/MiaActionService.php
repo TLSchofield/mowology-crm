@@ -421,6 +421,22 @@ final class MiaActionService
         });
     }
 
+    /**
+     * The owner takes an approved-but-not-yet-applied proposal back to "waiting", so its wording can be prepared and approved again
+     * (the approval was bound to text that has since been replaced). Only approved actions, never ones already applied.
+     */
+    public function reopen(int $actionId, int $userId, string $detail, ?DateTimeImmutable $now = null): bool
+    {
+        $now = $now ?: new DateTimeImmutable('now');
+        return (bool)$this->atomic(function () use ($actionId, $userId, $detail, $now) {
+            $u = $this->db->prepare("UPDATE mia_actions SET status = 'proposed', draft_hash = NULL, decided_by = NULL, decided_at = NULL WHERE id = ? AND site_id = ? AND status = 'approved'");
+            $u->execute([$actionId, $this->siteId]);
+            if ($u->rowCount() !== 1) { return false; }
+            if (!$this->event($actionId, 'reopened', 'user:' . $userId, mb_substr($detail, 0, 400), $now)) { throw new RuntimeException('audit event could not be written'); }
+            return true;
+        });
+    }
+
     /** Add an audit-trail entry for a person's action on a still-open proposal (e.g. the owner edited the wording). */
     public function recordEdit(int $actionId, int $userId, string $detail, ?DateTimeImmutable $now = null): bool
     {

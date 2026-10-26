@@ -43,7 +43,7 @@ final class MiaStoryWriter
     ];
 
     /** Capitalised words that are always fine (start of the place line the site already uses). */
-    private const ALWAYS_OK = ['vancouver', 'bc', 'metro', 'british', 'columbia', 'canada'];
+    private const ALWAYS_OK = ['vancouver', 'bc', 'metro', 'british', 'columbia', 'canada', 'i'];
     /**
      * The only words a public card may use besides the facts: plain everyday language for describing outdoor work.
      * Anything else - a name, a street, a brand, a number word, an invented detail - is rejected. Capital letters are not
@@ -151,7 +151,7 @@ final class MiaStoryWriter
      * Sentence starts and small words in a title are not counted.
      * @return string[] problems
      */
-    public static function nameProblems(string $text, string $factsText, bool $isTitle): array
+    public static function nameProblems(string $text, string $factsText, bool $isTitle, bool $checkSentenceStart = true): array
     {
         $ok = array_flip(array_merge(self::ALWAYS_OK, preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($factsText, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: []));
         $bad = [];
@@ -161,8 +161,8 @@ final class MiaStoryWriter
             $tokens = preg_split('/[^\p{L}\p{N}\'-]+/u', trim($sentence), -1, PREG_SPLIT_NO_EMPTY) ?: [];
             foreach ($tokens as $i => $tok) {
                 if (!preg_match('/^\p{Lu}/u', $tok)) { continue; }
-                $low = mb_strtolower(rtrim($tok, "'s"), 'UTF-8');
-                if ($i === 0 && !$isTitle && (isset($ok[$low]) || in_array($low, self::SAFE_WORDS, true))) { continue; }   // a sentence starts with a capital: fine for a known word, not for a name
+                $low = mb_strtolower((string)preg_replace("/'s$/u", '', $tok), 'UTF-8');             // possessive only: rtrim() would also eat the s of "This" and "Yes"
+                if ($i === 0 && !$isTitle && (!$checkSentenceStart || isset($ok[$low]) || in_array($low, self::SAFE_WORDS, true))) { continue; }   // a sentence starts with a capital: fine for a known word, not for a name
                 if ($isTitle && in_array($low, self::SMALL_WORDS, true)) { continue; }
                 if (isset($ok[$low]) || isset($ok[mb_strtolower($tok, 'UTF-8')])) { continue; }
                 $bad[$tok] = true;

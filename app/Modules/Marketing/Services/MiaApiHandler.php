@@ -34,11 +34,13 @@ require_once __DIR__ . '/Site/CmsConnector.php';
 require_once __DIR__ . '/MiaPublishService.php';
 require_once __DIR__ . '/MiaStoryPublisher.php';
 require_once __DIR__ . '/MiaBundleService.php';
+require_once __DIR__ . '/MiaPageWriter.php';
+require_once __DIR__ . '/MiaPagePublisher.php';
 
 final class MiaApiHandler
 {
     public const MODES_GET  = ['websites', 'health', 'actions', 'action_detail'];
-    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide', 'action_apply', 'action_rollback', 'action_approve_publish'];
+    public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide', 'action_apply', 'action_rollback', 'action_approve_publish', 'page_write'];
     /** Single-tenant today: the platform has no "current tenant" lookup yet (docs/plans/ittai-backlog.md). */
     public const SITE_ID = 1;
     public const MAX_WEBSITES = 10;
@@ -76,6 +78,11 @@ final class MiaApiHandler
         $this->publisherFactory = $f;
     }
 
+    /** @var callable|null fn(PDO $db, int $siteId, MiaActionService $actions): MiaPageWriter  (tests give it a fake model) */
+    private $pageWriterFactory = null;
+
+    public function setPageWriterFactory(callable $f): void { $this->pageWriterFactory = $f; }
+
     /** Applying changes needs migration 1403. Everything else keeps working without it. */
     private function executionsReady(): bool
     {
@@ -88,6 +95,7 @@ final class MiaApiHandler
         if (!$draft) { return null; }
         if ($this->publisherFactory !== null) { return call_user_func($this->publisherFactory, $draft); }
         if (($draft['kind'] ?? '') === 'story') { return new MiaStoryPublisher($this->db, $this->siteId, $this->actions); }   // a portfolio card, not a website page
+        if (($draft['kind'] ?? '') === 'page') { return new MiaPagePublisher($this->db, $this->siteId, $this->actions); }    // an unpublished page in the website editor
         $w = $this->db->prepare("SELECT host FROM mia_websites WHERE id = ? AND site_id = ? AND status = 'verified'");
         $w->execute([(int)$draft['website_id'], $this->siteId]);
         $host = $w->fetchColumn();
@@ -133,6 +141,7 @@ final class MiaApiHandler
                 case 'action_apply':       return $this->applyAction($input, $now);
                 case 'action_rollback':    return $this->rollbackAction($input, $now);
                 case 'action_approve_publish': return $this->approvePublish($input, $now);
+                case 'page_write':         return $this->pageWrite($input, $now);
             }
             return [400, ['ok' => false, 'error' => 'Unknown mode']];
         } catch (Throwable $e) {
@@ -291,10 +300,14 @@ final class MiaApiHandler
                 'current_title' => $draft['current_title'], 'current_description' => $draft['current_desc'],
                 'title' => $draft['title'], 'meta_description' => $draft['meta_desc'], 'rationale' => $draft['rationale'],
                 'seen_hash' => sha1(MiaRecommendationWriter::draftText($draft['title'], $draft['meta_desc'])),
-            ] + ($draft['kind'] === 'story' ? $this->storyCard($draft) : []) : null,
+            ] + ($draft['kind'] === 'story' ? $this->storyCard($draft) : []) + ($draft['kind'] === 'page' ? $this->pageCard($a, $draft) : []) : null,
             'seen_hash' => sha1($this->contentFor($a, $draft)),
         ];
-        if ($full && in_array($a['type'], ['seo_meta_update', 'project_story'], true) && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
+        if (MiaPageWriter::wantsNewPage($a) && !$draft && in_array($a['status'], ['proposed', 'approved'], true)) {
+            $v['can_write_page'] = true;
+            $v['write_note'] = $a['status'] === 'approved' ? 'You approved the idea. Mia will write the page and ask you to approve the actual text.' : 'Mia writes the page from your own services and real projects, then you read it and decide.';
+        }
+        if ($full && in_array($a['type'], ['seo_meta_update', 'project_story', 'page_draft'], true) && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
             $pub = $this->executionsReady() ? $this->publisherFor($draft) : null;
             if (!$this->executionsReady()) {
                 if ($a['status'] === 'approved') { $v['apply'] = ['can_apply' => false, 'why_not' => 'Applying changes needs one more setup step (migration 1403) that has not been run yet.']; }
@@ -320,6 +333,18 @@ final class MiaApiHandler
             $v['score_inputs'] = json_decode((string)$a['score_inputs'], true) ?: null;
         }
         return $v;
+    }
+
+    /**
+     * What the owner reads for a generated page: the text in Mia's markup, and the real projects that will be appended.
+     * @return array{body:string, slug_hint:string, appended:array}
+     */
+    private function pageCard(array $a, array $draft): array
+    {
+        $ev = json_decode((string)$a['evidence'], true);
+        $proj = MiaPageExtras::projects($this->db, (string)($ev[0]['query'] ?? ''));
+        return ['body' => (string)$draft['body'], 'words' => MiaPageMarkup::wordCount((string)$draft['body']),
+                'appended' => array_map(function ($p) { return ['name' => $p['name'], 'location' => $p['location'], 'description' => $p['description'], 'image' => $p['image']]; }, $proj)];
     }
 
     /**
@@ -364,6 +389,10 @@ final class MiaApiHandler
     /** The exact text an approval is bound to: the draft wording, or (no draft) the proposal as the owner read it. */
     private function contentFor(array $a, ?array $draft): string
     {
+        if ($a['type'] === 'page_draft' && $draft !== null && ($draft['kind'] ?? '') === 'page') {      // the page text and the real projects appended to it
+            $c = (new MiaPagePublisher($this->db, $this->siteId, $this->actions))->inspect((int)$a['id']);
+            if (!empty($c['ok'])) { return (string)$c['content']; }
+        }
         if ($this->isBundle($a, $draft)) {                                   // the words, photos, channels and delay the owner is shown
             $p = $this->bundle()->preview((int)$a['id']);
             if (!empty($p['ok'])) { return (string)$p['content']; }
@@ -392,6 +421,7 @@ final class MiaApiHandler
         };
         $title = $clean($in['title'] ?? null, 5, 120);
         $story = ($draft['kind'] ?? '') === 'story';
+        if (($draft['kind'] ?? '') === 'page') { return $this->pageEdit($in, $a, $draft, $now); }
         $maxDesc = $story ? 480 : 320;                                   // a portfolio card holds a short paragraph, a search description does not
         $desc  = $clean($in['meta_description'] ?? null, 20, $maxDesc);
         if ($title === null || $desc === null) {
@@ -416,6 +446,66 @@ final class MiaApiHandler
             return [409, ['ok' => false, 'code' => 'not_open', 'error' => 'The wording could not be changed. The proposal may have just been decided.']];
         }
         return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false)]];
+    }
+
+    /** The owner edits a generated page: title, search description and the page text. Same lock as every other edit. */
+    private function pageEdit(array $in, array $a, array $draft, DateTimeImmutable $now): array
+    {
+        $id = (int)$a['id'];
+        $clean = function ($v, int $min, int $max): ?string {
+            if (!is_string($v)) { return null; }
+            $v = trim(preg_replace('/\s+/u', ' ', $v) ?? '');
+            if (preg_match('/[\x00-\x1f\x7f<>]/u', $v)) { return null; }
+            $n = mb_strlen($v, 'UTF-8');
+            return ($n >= $min && $n <= $max) ? $v : null;
+        };
+        $title = $clean($in['title'] ?? null, 10, 120);
+        $desc  = $clean($in['meta_description'] ?? null, 40, 300);
+        $body  = is_string($in['body'] ?? null) ? MiaPageMarkup::normalise($in['body']) : null;
+        if ($title === null || $desc === null || $body === null) {
+            return [422, ['ok' => false, 'code' => 'bad_text', 'error' => 'A title (10-120 characters), a search description (40-300 characters) and the page text are needed, without HTML']];
+        }
+        $bp = MiaPageMarkup::problems($body);
+        if ($bp) { return [422, ['ok' => false, 'code' => 'bad_text', 'error' => $bp[0]]]; }
+        if ($title === $draft['title'] && $desc === $draft['meta_desc'] && $body === MiaPageMarkup::normalise((string)$draft['body'])) { return [200, ['ok' => true, 'unchanged' => true, 'item' => $this->view($a, false)]]; }
+        $own = !$this->db->inTransaction();
+        if ($own) { $this->db->beginTransaction(); }
+        try {
+            $locked = $this->actions->lockForEdit($id);
+            if (!$locked || $locked['status'] !== 'proposed') { throw new RuntimeException('no longer open'); }
+            $u = $this->db->prepare("UPDATE mia_content_drafts SET title = ?, meta_desc = ?, body = ? WHERE id = ? AND site_id = ? AND action_id = ? AND status = 'draft'");
+            $u->execute([$title, $desc, $body, (int)$draft['id'], $this->siteId, $id]);
+            if ($u->rowCount() !== 1 || !$this->actions->recordEdit($id, $this->userId, 'Owner edited the page', $now)) { throw new RuntimeException('edit could not be recorded'); }
+            if ($own) { $this->db->commit(); }
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) { $this->db->rollBack(); }
+            return [409, ['ok' => false, 'code' => 'not_open', 'error' => 'The page could not be changed. The proposal may have just been decided.']];
+        }
+        return [200, ['ok' => true, 'item' => $this->view($this->actions->get($id) ?: $a, false)]];
+    }
+
+    /** "Write this page": one model call, then the owner reads the result. An idea approved earlier is reopened first (its approval was of the idea, not of text). */
+    private function pageWrite(array $in, DateTimeImmutable $now): array
+    {
+        $id = self::id($in['id'] ?? null);
+        $a = $id > 0 ? $this->actions->get($id) : null;
+        if (!$a) { return [404, ['ok' => false, 'code' => 'not_found', 'error' => 'No such proposal']]; }
+        if (!MiaPageWriter::wantsNewPage($a)) { return [409, ['ok' => false, 'code' => 'unsupported', 'error' => 'Mia writes new pages only for a search that has no page yet.']]; }
+        if ($this->draftOf($a)) { return [409, ['ok' => false, 'code' => 'has_draft', 'error' => 'This page is already written. Edit it or approve it.']]; }
+        $w = $this->db->prepare("SELECT id FROM mia_websites WHERE site_id = ? AND status = 'verified' ORDER BY id LIMIT 1");
+        $w->execute([$this->siteId]);
+        $websiteId = (int)$w->fetchColumn();
+        if ($websiteId <= 0) { return [409, ['ok' => false, 'code' => 'no_website', 'error' => 'No website is connected and verified.']]; }
+        if ($a['status'] === 'approved' && !$this->actions->reopen($id, $this->userId, 'Reopened to write the page text', $now)) { return [409, ['ok' => false, 'code' => 'not_open', 'error' => 'This proposal changed. Reload and try again.']]; }
+        $writer = $this->pageWriterFactory !== null ? call_user_func($this->pageWriterFactory, $this->db, $this->siteId, $this->actions)
+            : new MiaPageWriter($this->db, $this->siteId, new MiaLlmGateway($this->db, $this->siteId), $this->actions);
+        $r = $writer->prepare($id, $websiteId, $now);
+        $item = $this->view($this->actions->get($id) ?: $a, false);
+        if (!$r['ok']) {
+            $map = ['no_match' => 422, 'lint' => 422, 'cap_month' => 429, 'cap_day' => 429, 'not_ready' => 503, 'no_key' => 503, 'not_open' => 409];
+            return [$map[$r['code']] ?? 500, ['ok' => false, 'code' => $r['code'], 'error' => $r['error'], 'item' => $item]];
+        }
+        return [200, ['ok' => true, 'message' => 'The page is written. Read it, change what you like, then decide.', 'item' => $item]];
     }
 
     private function decide(array $in, DateTimeImmutable $now): array

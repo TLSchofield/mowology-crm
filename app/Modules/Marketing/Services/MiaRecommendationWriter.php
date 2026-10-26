@@ -41,12 +41,12 @@ final class MiaRecommendationWriter
     public const POLICY_VERSION = 2;
 
     /** Claims nobody can check: never allowed in anything we draft. Matched on text normalised by normalizeForChecks(). */
-    private const CLAIMS = '/(?<!\w)(best|cheapest|lowest[- ]price|top[- ]rated|top[- ]notch|number\s+one|no\.?\s*1|#\s*1|leading\s+(?:provider|company|experts?|specialists?|choice|name)|premier|unbeatable|unmatched|unrivall?ed|world[- ]class|guarantee[sd]?|guaranteed|risk[- ]free|100\s*%|most\s+(?:reliable|trusted|experienced|affordable|popular)|(?:five|5)[- ]star|trusted|proven|always\s+(?:deliver|on\s+time)|double\s+your|every\s+time|satisfaction\s+guarantee)(?!\w)/iu';
+    public const CLAIMS = '/(?<!\w)(best|cheapest|lowest[- ]price|top[- ]rated|top[- ]notch|number\s+one|no\.?\s*1|#\s*1|leading\s+(?:provider|company|experts?|specialists?|choice|name)|premier|unbeatable|unmatched|unrivall?ed|world[- ]class|guarantee[sd]?|guaranteed|risk[- ]free|100\s*%|most\s+(?:reliable|trusted|experienced|affordable|popular)|(?:five|5)[- ]star|trusted|proven|always\s+(?:deliver|on\s+time)|double\s+your|every\s+time|satisfaction\s+guarantee)(?!\w)/iu';
     /** Claims that are fine ONLY if the business itself already states them on its page or in the owner's notes. */
-    private const SOFT_CLAIMS = '/(?<!\w)(certified|licen[sc]ed(?:\s+and\s+insured)?|insured|award[- ]winning|family[- ]owned|locally\s+owned)(?!\w)/iu';
+    public const SOFT_CLAIMS = '/(?<!\w)(certified|licen[sc]ed(?:\s+and\s+insured)?|insured|award[- ]winning|family[- ]owned|locally\s+owned)(?!\w)/iu';
     /** Spelled-out numbers that need support in the facts (twenty five years, a hundred homes ...). */
-    private const NUMBER_WORDS = '/(?<!\w)((?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|dozens?|decades?|century)(?:[- ]+(?:one|two|three|four|five|six|seven|eight|nine))?(?:[- ]+(?:of\s+)?(?:stars?|years?|decades?|homes?|propert(?:y|ies)|clients?|customers?|projects?|jobs?|percent|hours?|days?|weeks?|buildings?|strata))?)(?!\w)/iu';
-    private const SMALL_NUMBER_UNITS = '/(?<!\w)(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)[- ]+(?:star|stars|year|years|decade|decades|home|homes|propert(?:y|ies)|client|clients|customer|customers|project|projects|job|jobs|percent|hour|hours|day|days|week|weeks)(?!\w)/iu';
+    public const NUMBER_WORDS = '/(?<!\w)((?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|dozens?|decades?|century)(?:[- ]+(?:one|two|three|four|five|six|seven|eight|nine))?(?:[- ]+(?:of\s+)?(?:stars?|years?|decades?|homes?|propert(?:y|ies)|clients?|customers?|projects?|jobs?|percent|hours?|days?|weeks?|buildings?|strata))?)(?!\w)/iu';
+    public const SMALL_NUMBER_UNITS = '/(?<!\w)(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)[- ]+(?:star|stars|year|years|decade|decades|home|homes|propert(?:y|ies)|client|clients|customer|customers|project|projects|job|jobs|percent|hour|hours|day|days|week|weeks)(?!\w)/iu';
 
     private const SCHEMA = [
         'type' => 'object', 'additionalProperties' => false,

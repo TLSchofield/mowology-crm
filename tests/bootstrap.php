@@ -452,3 +452,7 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaStoryWriter.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaStoryPublisher.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBundleService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaHeartFlow.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaPageMarkup.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaPageExtras.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaPageWriter.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaPagePublisher.php';
