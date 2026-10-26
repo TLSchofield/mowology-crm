@@ -133,6 +133,7 @@ final class MiaStoryWriterTest extends TestCase
         $this->assertSame([], MiaStoryWriter::nameProblems('Hedge Trimming In Point Grey', $f, true));
         $this->assertSame([], MiaStoryWriter::nameProblems('Neat hedges in Point Grey. The Mowology crew did the work.', $f, false));
         $this->assertNotEmpty(MiaStoryWriter::nameProblems('Neat hedges for Margaret in Point Grey.', $f, false));
+        $this->assertNotEmpty(MiaStoryWriter::nameProblems('Alice asked for a refreshed garden.', $f, false), 'a name that starts a sentence is caught');
         $this->assertNotEmpty(MiaStoryWriter::nameProblems('Hedge Trimming For Margaret', $f, true));
     }
 
@@ -169,10 +170,12 @@ final class MiaStoryWriterTest extends TestCase
         $f = MiaStoryWriter::factsText($facts, 'Mowology');
         $this->assertSame([], MiaStoryWriter::wordProblems('A tidy hedge trim in Point Grey, finished in September by the Mowology crew.', $f, 'description'));
         foreach (['Garden cleanup in Point Grey for john smith', 'Alice asked for a refreshed garden in Point Grey.', 'We trimmed hedges on commercial drive.', 'Hedges trimmed with a stihl saw'] as $bad) {
-            $this->assertNotEmpty(MiaStoryWriter::wordProblems($bad, $f, 'description'), $bad);
+            $this->assertNotEmpty(MiaStoryWriter::unknownWords($bad, $f), $bad);
         }
-        $p = MiaStoryWriter::lint($this->good(['meta_description' => 'Alice asked for neat hedges in Point Grey and we finished the work in September.']), $facts, 'Mowology', []);
+        $this->assertSame([], MiaStoryWriter::unknownWords('The work was careful and steady.', $f) === ['steady'] ? [] : ['x'], 'steady is shown to the owner, not blocked');
+        $p = MiaStoryWriter::lint($this->good(['meta_description' => 'Alice asked for neat hedges in Point Grey, and Bob with Carol praised the zesty quirky vibe in September.']), $facts, 'Mowology', []);
         $this->assertNotEmpty($p);
+        $this->assertSame([], MiaStoryWriter::lint($this->good(['meta_description' => 'Mowology trimmed the hedges in Point Grey in September. The work was careful and steady.']), $facts, 'Mowology', []), 'one unusual word is shown, not blocked');
     }
 
     public function testOddLabelsInTheRecordNeverReachTheModel(): void

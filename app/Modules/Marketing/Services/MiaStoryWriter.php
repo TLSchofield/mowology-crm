@@ -29,7 +29,8 @@ final class MiaStoryWriter
     public const KIND = 'story';
     public const REPAIR_ATTEMPTS = 1;
     /** Bump when the prompt or checks change: part of the reuse hash. */
-    public const POLICY_VERSION = 1;
+    public const POLICY_VERSION = 2;
+    public const MAX_UNKNOWN_WORDS = 3;
 
     private const SCHEMA = [
         'type' => 'object', 'additionalProperties' => false,
@@ -49,40 +50,51 @@ final class MiaStoryWriter
      * trusted to find names ("for john smith" has none), so the check is an allow-list, not a name detector.
      */
     private const SAFE_WORDS = [
-        'a', 'after', 'afternoon', 'again', 'all', 'also', 'an', 'and', 'another', 'any', 'appealing', 'are', 'area', 'areas',
-        'around', 'as', 'at', 'attractive', 'autumn', 'away', 'back', 'bare', 'be', 'because', 'bed', 'beds', 'been',
-        'before', 'being', 'best', 'better', 'between', 'big', 'blocks', 'border', 'borders', 'both', 'bright', 'brighter',
-        'building', 'buildings', 'bush', 'bushes', 'but', 'by', 'calm', 'calmer', 'can', 'care', 'cared', 'careful',
-        'carefully', 'caring', 'change', 'changed', 'changes', 'clean', 'cleaned', 'cleaning', 'cleanup', 'clear', 'cleared',
-        'community', 'comparison', 'complete', 'completed', 'completing', 'corner', 'corners', 'could', 'courtyard',
-        'courtyards', 'crew', 'crews', 'crisp', 'crisply', 'day', 'days', 'dense', 'detail', 'detailed', 'details', 'did',
-        'difference', 'do', 'does', 'done', 'driveway', 'each', 'early', 'edge', 'edged', 'edges', 'edging', 'entrance',
-        'entry', 'even', 'evenly', 'every', 'fall', 'fence', 'fences', 'few', 'finish', 'finished', 'finishing', 'first',
-        'flower', 'flowering', 'flowers', 'for', 'fresh', 'freshened', 'from', 'front', 'full', 'fuller', 'further', 'garden',
-        'gardening', 'gardens', 'gate', 'gates', 'gently', 'get', 'got', 'grass', 'great', 'green', 'greener', 'had', 'has',
-        'have', 'healthier', 'healthy', 'heavy', 'hedge', 'hedges', 'here', 'high', 'higher', 'home', 'homes', 'house',
-        'houses', 'how', 'if', 'image', 'images', 'in', 'into', 'inviting', 'is', 'it', 'its', 'job', 'jobs', 'just', 'large',
-        'larger', 'last', 'later', 'lawn', 'lawns', 'less', 'light', 'line', 'lines', 'little', 'local', 'locally', 'long',
-        'longer', 'look', 'looked', 'looking', 'looks', 'lovely', 'low', 'lower', 'lush', 'made', 'maintain', 'maintained',
-        'maintenance', 'make', 'many', 'may', 'messy', 'month', 'months', 'more', 'morning', 'most', 'much', 'mulch',
-        'mulched', 'narrow', 'natural', 'naturally', 'neat', 'neater', 'neatly', 'neighborhood', 'neighbourhood',
-        'neighbourhoods', 'new', 'next', 'nicer', 'no', 'not', 'now', 'of', 'off', 'old', 'on', 'once', 'one', 'only', 'open',
-        'or', 'original', 'other', 'our', 'out', 'over', 'overgrown', 'own', 'part', 'path', 'paths', 'pathway', 'patio',
-        'patios', 'photo', 'photos', 'picture', 'pictures', 'plain', 'plant', 'planted', 'planting', 'plants', 'pleasant',
-        'polished', 'porch', 'presentable', 'pretty', 'project', 'projects', 'properties', 'property', 'quick', 'quickly',
-        'quiet', 'ready', 'recent', 'recently', 'refresh', 'refreshed', 'residence', 'residential', 'rest', 'result',
-        'results', 'rough', 'rugged', 'same', 'season', 'seasonal', 'see', 'seen', 'service', 'services', 'set', 'several',
-        'shape', 'shaped', 'shapes', 'shaping', 'sharp', 'sharper', 'she', 'short', 'shorter', 'shot', 'shots', 'should',
-        'show', 'showing', 'shown', 'shows', 'shrub', 'shrubs', 'side', 'sides', 'simple', 'since', 'small', 'smooth',
-        'smoothed', 'so', 'soil', 'some', 'soon', 'space', 'spaces', 'spring', 'staff', 'stairs', 'steadily', 'steps',
-        'still', 'street', 'such', 'summer', 'tall', 'taller', 'tangled', 'team', 'teams', 'than', 'that', 'the', 'their',
-        'them', 'then', 'there', 'these', 'they', 'thick', 'thicker', 'thin', 'this', 'thorough', 'thoroughly', 'those',
-        'tidied', 'tidier', 'tidy', 'to', 'today', 'too', 'top', 'transformation', 'transformed', 'tree', 'trees', 'tried',
-        'trim', 'trimmed', 'trimming', 'trims', 'turf', 'two', 'under', 'unruly', 'until', 'up', 'update', 'updated',
-        'upkeep', 'us', 'use', 'used', 'very', 'visit', 'visited', 'visits', 'walkway', 'walkways', 'wall', 'walls', 'was',
-        'way', 'we', 'week', 'weeks', 'welcoming', 'well', 'were', 'what', 'when', 'where', 'whether', 'which', 'while',
-        'who', 'why', 'wide', 'wider', 'wild', 'will', 'winter', 'with', 'work', 'worked', 'working', 'would', 'yard',
-        'yards', 'year'
+        'a', 'about', 'above', 'across', 'after', 'afternoon', 'again', 'all', 'along', 'also', 'always', 'an', 'and',
+        'another', 'any', 'appeal', 'appealing', 'appearance', 'are', 'area', 'areas', 'around', 'as', 'at', 'attractive',
+        'autumn', 'away', 'back', 'bare', 'be', 'because', 'bed', 'beds', 'been', 'before', 'began', 'begin', 'begun',
+        'behind', 'being', 'below', 'beside', 'best', 'better', 'between', 'big', 'bit', 'blocks', 'border', 'borders',
+        'both', 'bright', 'brighter', 'bring', 'bringing', 'brought', 'building', 'buildings', 'bunch', 'bush', 'bushes',
+        'but', 'by', 'calm', 'calmer', 'came', 'can', 'care', 'cared', 'careful', 'carefully', 'caring', 'change', 'changed',
+        'changes', 'clean', 'cleaned', 'cleaner', 'cleanest', 'cleaning', 'cleanly', 'cleanup', 'clear', 'cleared', 'closely',
+        'come', 'coming', 'community', 'comparison', 'complete', 'completed', 'completing', 'corner', 'corners', 'correct',
+        'correctly', 'could', 'courtyard', 'courtyards', 'crew', 'crews', 'crisp', 'crisply', 'curb', 'cut', 'cuts',
+        'cutting', 'day', 'days', 'dense', 'detail', 'detailed', 'details', 'did', 'difference', 'dig', 'digging', 'do',
+        'does', 'done', 'down', 'driveway', 'dug', 'during', 'each', 'early', 'edge', 'edged', 'edges', 'edging', 'end',
+        'ended', 'ending', 'entrance', 'entry', 'equipment', 'even', 'evenly', 'every', 'fall', 'fed', 'feed', 'feet',
+        'fence', 'fences', 'few', 'find', 'fine', 'finish', 'finished', 'finishing', 'first', 'flower', 'flowering',
+        'flowers', 'foot', 'for', 'found', 'fresh', 'freshened', 'from', 'front', 'full', 'fuller', 'further', 'garden',
+        'gardening', 'gardens', 'gate', 'gates', 'gave', 'gently', 'get', 'getting', 'give', 'giving', 'go', 'going', 'good',
+        'got', 'grass', 'great', 'green', 'greener', 'had', 'hand', 'hands', 'happy', 'has', 'have', 'healthier', 'healthy',
+        'heavy', 'hedge', 'hedges', 'here', 'high', 'higher', 'home', 'homes', 'house', 'houses', 'how', 'if', 'image',
+        'images', 'in', 'inch', 'inches', 'into', 'inviting', 'is', 'it', 'its', 'job', 'jobs', 'just', 'keep', 'keeping',
+        'kept', 'kerb', 'laid', 'large', 'larger', 'last', 'later', 'lawn', 'lawns', 'lay', 'laying', 'leave', 'leaving',
+        'left', 'less', 'lift', 'lifted', 'light', 'like', 'line', 'lines', 'little', 'local', 'locally', 'long', 'longer',
+        'look', 'looked', 'looking', 'looks', 'lot', 'lots', 'lovely', 'low', 'lower', 'lush', 'machine', 'machines', 'made',
+        'maintain', 'maintained', 'maintenance', 'make', 'many', 'may', 'messy', 'month', 'months', 'more', 'morning', 'most',
+        'mow', 'mowed', 'mowing', 'much', 'mulch', 'mulched', 'narrow', 'natural', 'naturally', 'near', 'neat', 'neater',
+        'neatly', 'neatness', 'neighborhood', 'neighbourhood', 'neighbourhoods', 'never', 'new', 'next', 'nice', 'nicer',
+        'no', 'not', 'now', 'of', 'off', 'often', 'old', 'on', 'once', 'one', 'only', 'onto', 'open', 'or', 'original',
+        'other', 'our', 'out', 'over', 'overgrown', 'own', 'part', 'path', 'paths', 'pathway', 'patio', 'patios', 'per',
+        'photo', 'photos', 'picture', 'pictures', 'piece', 'pieces', 'plain', 'plant', 'planted', 'planting', 'plants',
+        'pleasant', 'pleased', 'plenty', 'polished', 'porch', 'precisely', 'presentable', 'pretty', 'project', 'projects',
+        'proper', 'properly', 'properties', 'property', 'proud', 'prune', 'pruned', 'pruning', 'put', 'putting', 'quick',
+        'quickly', 'quiet', 'rake', 'raked', 'raking', 'ready', 'recent', 'recently', 'refresh', 'refreshed', 'remove',
+        'removed', 'removing', 'residence', 'residential', 'rest', 'result', 'results', 'right', 'rough', 'rugged', 's',
+        'same', 'season', 'seasonal', 'see', 'seen', 'service', 'services', 'set', 'several', 'shape', 'shaped', 'shapes',
+        'shaping', 'sharp', 'sharper', 'she', 'short', 'shorter', 'shot', 'shots', 'should', 'show', 'showing', 'shown',
+        'shows', 'shrub', 'shrubs', 'side', 'sides', 'simple', 'since', 'small', 'smooth', 'smoothed', 'so', 'soil', 'some',
+        'soon', 'space', 'spaces', 'spread', 'spreading', 'spring', 'staff', 'stairs', 'start', 'started', 'starting',
+        'steadily', 'steps', 'still', 'street', 'streets', 'strong', 'such', 'summer', 'sweep', 'sweeping', 'swept', 'take',
+        'taken', 'taking', 'tall', 'taller', 'tangled', 'team', 'teams', 'than', 'that', 'the', 'their', 'them', 'then',
+        'there', 'these', 'they', 'thick', 'thicker', 'thin', 'this', 'thorough', 'thoroughly', 'those', 'through',
+        'throughout', 'tidied', 'tidier', 'tidiness', 'tidy', 'to', 'today', 'together', 'too', 'took', 'tools', 'top',
+        'toward', 'towards', 'transformation', 'transformed', 'tree', 'trees', 'tried', 'trim', 'trimmed', 'trimming',
+        'trims', 'turf', 'two', 'under', 'unlike', 'unruly', 'until', 'up', 'update', 'updated', 'upkeep', 'upon', 'us',
+        'use', 'used', 'usually', 'very', 'visit', 'visited', 'visits', 'walkway', 'walkways', 'wall', 'walls', 'was',
+        'water', 'watered', 'watering', 'way', 'we', 'weed', 'weeded', 'weeding', 'week', 'weeks', 'welcoming', 'well',
+        'went', 'were', 'what', 'when', 'where', 'whether', 'which', 'while', 'who', 'why', 'wide', 'wider', 'wild', 'will',
+        'winter', 'with', 'within', 'without', 'work', 'worked', 'working', 'would', 'yard', 'yards', 'year'
     ];
     private const SMALL_WORDS = ['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'the', 'to', 'with', 'by', 'from'];
 
@@ -150,7 +162,7 @@ final class MiaStoryWriter
             foreach ($tokens as $i => $tok) {
                 if (!preg_match('/^\p{Lu}/u', $tok)) { continue; }
                 $low = mb_strtolower(rtrim($tok, "'s"), 'UTF-8');
-                if ($i === 0 && !$isTitle) { continue; }                          // a sentence starts with a capital
+                if ($i === 0 && !$isTitle && (isset($ok[$low]) || in_array($low, self::SAFE_WORDS, true))) { continue; }   // a sentence starts with a capital: fine for a known word, not for a name
                 if ($isTitle && in_array($low, self::SMALL_WORDS, true)) { continue; }
                 if (isset($ok[$low]) || isset($ok[mb_strtolower($tok, 'UTF-8')])) { continue; }
                 $bad[$tok] = true;
@@ -165,6 +177,13 @@ final class MiaStoryWriter
      */
     public static function wordProblems(string $text, string $factsText, string $label): array
     {
+        $bad = self::unknownWords($text, $factsText);
+        return $bad ? ["The $label uses words outside the plain vocabulary allowed for a public card: " . implode(', ', array_slice($bad, 0, 6)) . '. Use simple everyday words and only the facts given.'] : [];
+    }
+
+    /** @return string[] words that are neither a fact nor a SAFE_WORD */
+    public static function unknownWords(string $text, string $factsText): array
+    {
         $ok = array_flip(array_merge(self::SAFE_WORDS, self::ALWAYS_OK, preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($factsText, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: []));
         $bad = [];
         foreach (preg_split('/[^\p{L}\'-]+/u', mb_strtolower($text, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $w) {
@@ -174,7 +193,7 @@ final class MiaStoryWriter
             if (isset($ok[$base])) { continue; }
             $bad[$w] = true;
         }
-        return $bad ? ["The $label uses words outside the plain vocabulary allowed for a public card: " . implode(', ', array_slice(array_keys($bad), 0, 6)) . '. Use simple everyday words and only the facts given.'] : [];
+        return array_keys($bad);
     }
 
     /** All checks for one candidate. @return string[] problems; empty = acceptable */
@@ -184,7 +203,9 @@ final class MiaStoryWriter
         $ctx = ['current_title' => null, 'current_desc' => null, 'allowed_numbers' => MiaRecommendationWriter::numbers($factsText),
                 'public_facts' => $factsText, 'prohibited' => $prohibited, 'known_facts' => $factsText];
         $p = MiaRecommendationWriter::lint($cand, $ctx);
-        $p = array_merge($p, self::wordProblems((string)$cand['title'], $factsText, 'title'), self::wordProblems((string)$cand['meta_description'], $factsText, 'description'));
+        // A few words outside the plain vocabulary are shown to the owner to check (see prepare()); many mean the model invented details.
+        $unknown = array_unique(array_merge(self::unknownWords((string)$cand['title'], $factsText), self::unknownWords((string)$cand['meta_description'], $factsText)));
+        if (count($unknown) > self::MAX_UNKNOWN_WORDS) { $p[] = 'The title and description use too many words outside the plain vocabulary: ' . implode(', ', array_slice($unknown, 0, 8)) . '. Use simple everyday words and only the facts given.'; }
         $p = array_merge($p, self::nameProblems((string)$cand['title'], $factsText, true));
         $p = array_merge($p, self::nameProblems((string)$cand['meta_description'], $factsText, false));
         $p = array_merge($p, self::nameProblems((string)$cand['explanation'], $factsText, false));
@@ -194,12 +215,12 @@ final class MiaStoryWriter
     // ---- drafting -------------------------------------------------------------------------------------
 
     /**
-     * @return array{ok:bool,code:?string,error:?string,draft_id:?int,reused:bool,attempts:int,problems:string[],cost_usd:float}
+     * @return array{ok:bool,code:?string,error:?string,draft_id:?int,reused:bool,attempts:int,problems:string[],cost_usd:float,last_candidate:?array}
      */
     public function prepare(int $actionId, int $websiteId, ?DateTimeImmutable $now = null): array
     {
         $now = $now ?: new DateTimeImmutable('now');
-        $res = ['ok' => false, 'code' => null, 'error' => null, 'draft_id' => null, 'reused' => false, 'attempts' => 0, 'problems' => [], 'cost_usd' => 0.0];
+        $res = ['ok' => false, 'code' => null, 'error' => null, 'draft_id' => null, 'reused' => false, 'attempts' => 0, 'problems' => [], 'cost_usd' => 0.0, 'last_candidate' => null];
         try {
             $a = $this->actions->get($actionId);
             if (!$a)                          { return $this->fail($res, 'not_found', 'No such action'); }
@@ -240,7 +261,7 @@ final class MiaStoryWriter
             for ($try = 0; $try <= self::REPAIR_ATTEMPTS; $try++) {
                 $res['attempts']++;
                 $r = $this->llm->call('story_write', $this->systemPrompt($company, $prohibited), $this->userPrompt($facts, $company, $problems), [
-                    'schema' => self::SCHEMA, 'max_tokens' => 600, 'known_facts' => self::factsText($facts, $company),
+                    'schema' => self::SCHEMA, 'max_tokens' => 1500, 'known_facts' => self::factsText($facts, $company),
                 ]);
                 $res['cost_usd'] += (float)$r['cost_usd'];
                 if (!$r['ok']) {
@@ -248,10 +269,15 @@ final class MiaStoryWriter
                 }
                 $cand = ['title' => (string)$r['data']['title'], 'meta_description' => (string)$r['data']['meta_description'], 'explanation' => (string)$r['data']['explanation']];
                 $problems = self::lint($cand, $facts, $company, $prohibited);
+                $res['last_candidate'] = $cand;
                 if (!$problems) { $out = $cand; break; }
             }
             if ($out === null) { $res['problems'] = $problems; return $this->fail($res, 'lint', 'The draft did not pass the checks, so no wording is attached'); }
 
+            $unknown = array_unique(array_merge(self::unknownWords($out['title'], self::factsText($facts, $company)), self::unknownWords($out['meta_description'], self::factsText($facts, $company))));
+            if ($unknown) {
+                $out['explanation'] = rtrim($out['explanation']) . ' Check: these words did not come from your records: ' . implode(', ', array_slice($unknown, 0, 3)) . '. Edit them out if they are not true.';
+            }
             $ver = $this->db->prepare("SELECT COALESCE(MAX(version), 0) FROM mia_content_drafts WHERE site_id = ? AND action_id = ?");
             $ver->execute([$this->siteId, $actionId]);
             $version = (int)$ver->fetchColumn() + 1;
@@ -299,6 +325,7 @@ final class MiaStoryWriter
             . "- Title: 20 to 60 characters, plain, saying what was done and where (the neighbourhood). Description: 110 to 155 characters, one or two plain sentences about the job.\n"
             . "- Explanation: at most 2 short sentences to the owner saying what the card says. No jargon.\n"
             . "- Warm and specific, never boastful: no exclamation marks, no capital-letter words, no superlatives, no promises, no numbers at all (write the month as a word, no year).\n"
+            . "- Describe the work itself. Never mention the card, the portfolio, the website, photos or the owner inside the title or description.\n"
             . "- Do not name anyone. The only capitalised words allowed are the business name, the neighbourhood, the month, Vancouver and BC.\n"
             . ($prohibited ? "- Never use these terms: " . implode(', ', $prohibited) . ".\n" : '')
             . "Reply with JSON only: title, meta_description, explanation.";
