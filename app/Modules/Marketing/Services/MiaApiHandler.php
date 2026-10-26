@@ -3,6 +3,7 @@
  * MiaApiHandler — the new "approval queue" and "website" modes of Marketing/Api/mia.php (Phase 1.12).
  *
  *   GET  websites                 the connected websites, with how to prove ownership for pending ones
+ *   GET  health                   per website: pages crawled, last crawl, open findings by severity, top problems, Search Console link
  *   POST connect_website          {address}               register a website, returns the token and instructions
  *   POST verify_website           {id, method?}           check the proof (meta | file | dns | any)
  *   POST disconnect_website       {id}
@@ -27,10 +28,12 @@ require_once __DIR__ . '/MiaWebsiteService.php';
 require_once __DIR__ . '/MiaActionService.php';
 require_once __DIR__ . '/MiaMemoryService.php';
 require_once __DIR__ . '/MiaRecommendationWriter.php';
+require_once __DIR__ . '/MiaOpportunityScorer.php';
+require_once __DIR__ . '/Site/SiteAuditRules.php';
 
 final class MiaApiHandler
 {
-    public const MODES_GET  = ['websites', 'actions', 'action_detail'];
+    public const MODES_GET  = ['websites', 'health', 'actions', 'action_detail'];
     public const MODES_POST = ['connect_website', 'verify_website', 'disconnect_website', 'draft_edit', 'action_decide'];
     /** Single-tenant today: the platform has no "current tenant" lookup yet (docs/plans/ittai-backlog.md). */
     public const SITE_ID = 1;
@@ -89,6 +92,7 @@ final class MiaApiHandler
         try {
             switch ($mode) {
                 case 'websites':           return $this->websitesList();
+                case 'health':             return $this->health();
                 case 'connect_website':    return $this->connect($input);
                 case 'verify_website':     return $this->verify($input, $now);
                 case 'disconnect_website': return $this->disconnect($input);
@@ -126,6 +130,53 @@ final class MiaApiHandler
             if ($w['status'] !== 'verified') {                      // the proof is only needed (and only shown) until verified
                 $full = $this->websites->get((int)$w['id']);
                 $row['instructions'] = $full ? MiaWebsiteService::instructions((string)$w['host'], (string)$full['verify_token']) : null;
+            }
+            $out[] = $row;
+        }
+        return [200, ['ok' => true, 'websites' => $out]];
+    }
+
+    /** What Mia knows about each connected website: the Presence tab. Facts only; nothing is estimated here. */
+    private function health(): array
+    {
+        $out = [];
+        foreach ($this->websites->listAll() as $w) {
+            $wid = (int)$w['id'];
+            $row = ['id' => $wid, 'host' => $w['host'], 'status' => $w['status'], 'can_crawl' => $this->websites->isVerified($wid),
+                    'pages' => 0, 'last_crawl' => null, 'findings' => ['high' => 0, 'medium' => 0, 'low' => 0], 'problems' => [], 'search_console' => ['connected' => false, 'last_data' => null]];
+            try {
+                $s = $this->db->prepare("SELECT COUNT(*) FROM mia_site_pages WHERE site_id = ? AND website_id = ? AND status_code = 200");
+                $s->execute([$this->siteId, $wid]);
+                $row['pages'] = (int)$s->fetchColumn();
+                $a = $this->db->prepare("SELECT status, started_at, finished_at, summary FROM mia_audits WHERE site_id = ? AND website_id = ? AND kind = 'crawl' ORDER BY started_at DESC, id DESC LIMIT 1");
+                $a->execute([$this->siteId, $wid]);
+                $last = $a->fetch(PDO::FETCH_ASSOC);
+                if ($last) { $row['last_crawl'] = ['status' => $last['status'], 'at' => $last['finished_at'] ?: $last['started_at'], 'summary' => $last['summary']]; }
+                $f = $this->db->prepare("SELECT rule_key, severity, COUNT(*) AS n FROM mia_audit_findings WHERE site_id = ? AND website_id = ? AND resolved_at IS NULL AND severity <> 'info'
+                                         GROUP BY rule_key, severity");
+                $f->execute([$this->siteId, $wid]);
+                $rank = ['high' => 0, 'medium' => 1, 'low' => 2];
+                $groups = [];
+                foreach ($f->fetchAll(PDO::FETCH_ASSOC) as $g) {
+                    if (!isset($rank[$g['severity']])) { continue; }
+                    $row['findings'][$g['severity']] += (int)$g['n'];
+                    $meta = SiteAuditRules::RULES[$g['rule_key']] ?? null;
+                    $groups[] = ['rule' => $g['rule_key'], 'severity' => $g['severity'], 'pages' => (int)$g['n'],
+                                 'label' => $meta ? $meta[1] : $g['rule_key'], 'why' => $meta ? $meta[2] : ''];
+                }
+                usort($groups, function ($x, $y) use ($rank) { return [$rank[$x['severity']], -$x['pages'], $x['rule']] <=> [$rank[$y['severity']], -$y['pages'], $y['rule']]; });
+                $row['problems'] = array_slice($groups, 0, 8);
+                foreach ($this->db->query("SELECT id, site_url FROM gsc_properties")->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                    if (MiaOpportunityScorer::propertyMatchesHost((string)$p['site_url'], (string)$w['host'])) {
+                        $row['search_console']['connected'] = true;
+                        $d = $this->db->prepare("SELECT MAX(snapshot_date) FROM gsc_snapshots WHERE property_id = ?");
+                        $d->execute([(int)$p['id']]);
+                        $row['search_console']['last_data'] = $d->fetchColumn() ?: null;
+                        break;
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('MiaApiHandler health: ' . $e->getMessage());              // tables from a later migration may be missing: show what we have
             }
             $out[] = $row;
         }

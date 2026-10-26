@@ -31,6 +31,11 @@ class MiaApiHandlerTest extends TestCase
         $db->exec("CREATE TABLE mia_action_events (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT, action_id INT, event TEXT, actor TEXT, detail TEXT, created_at TEXT)");
         $db->exec("CREATE TABLE mia_decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT, subject_key TEXT, action_type TEXT, evidence_hash TEXT, decision TEXT, reason_code TEXT, reason_text TEXT, decided_by INT, decided_at TEXT, suppress_until TEXT)");
         $db->exec("CREATE TABLE mia_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT, kind TEXT, mem_key TEXT, mem_value TEXT, source TEXT DEFAULT 'owner', updated_by INT, updated_at TEXT, UNIQUE(site_id, kind, mem_key))");
+        $db->exec("CREATE TABLE mia_site_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT, url_hash TEXT, url TEXT, status_code INT)");
+        $db->exec("CREATE TABLE mia_audits (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT, kind TEXT, status TEXT, pages INT, findings INT, started_at TEXT, finished_at TEXT, summary TEXT)");
+        $db->exec("CREATE TABLE mia_audit_findings (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT, audit_id INT, page_id INT, rule_key TEXT, severity TEXT, evidence TEXT, fingerprint TEXT, first_seen_audit_id INT, resolved_at TEXT)");
+        $db->exec("CREATE TABLE gsc_properties (id INTEGER PRIMARY KEY AUTOINCREMENT, site_url TEXT)");
+        $db->exec("CREATE TABLE gsc_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, property_id INT, snapshot_date TEXT)");
         $db->exec("CREATE TABLE mia_content_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT NOT NULL DEFAULT 1, website_id INT NOT NULL, action_id INT, kind TEXT, page_url TEXT, current_title TEXT, current_desc TEXT,
             title TEXT, meta_desc TEXT, rationale TEXT, input_hash TEXT, status TEXT DEFAULT 'draft', version INT DEFAULT 1, created_at TEXT)");
         $this->db = $db;
@@ -423,5 +428,52 @@ class MiaApiHandlerTest extends TestCase
         $this->assertStringContainsString('lockForEdit', $src, 'the edit takes the same lock the approval holds');
         $this->assertNotNull((new MiaActionService($this->db, 1))->lockForEdit($this->proposal()));
         $this->assertNull((new MiaActionService($this->db, 2))->lockForEdit(1));
+    }
+
+    // ---- health (Presence tab) ----
+
+    public function testHealthSummarisesCrawlFindingsAndSearchConsole(): void
+    {
+        $id = $this->post('connect_website', ['address' => 'mowology.ca'])[1]['id'];
+        $this->db->exec("UPDATE mia_websites SET status = 'verified', verified_at = '" . $this->now->format('Y-m-d H:i:s') . "', verified_via = 'dns'");
+        $this->db->exec("INSERT INTO mia_site_pages (site_id, website_id, url_hash, url, status_code) VALUES (1, $id, 'a', 'u1', 200), (1, $id, 'b', 'u2', 200), (1, $id, 'c', 'u3', 404), (2, $id, 'd', 'u4', 200)");
+        $this->db->exec("INSERT INTO mia_audits (site_id, website_id, kind, status, started_at, finished_at, summary) VALUES (1, $id, 'crawl', 'done', '2026-10-26 05:30:00', '2026-10-26 05:34:00', '2 pages fetched'), (1, $id, 'rules', 'done', '2026-10-26 05:35:00', '2026-10-26 05:35:01', 'x')");
+        foreach ([['title_missing', 'high', 0], ['meta_missing', 'medium', 0], ['meta_missing', 'medium', 0], ['title_long', 'low', 0], ['site_stale', 'info', 0], ['meta_missing', 'medium', 1]] as $i => $f) {
+            $this->db->exec("INSERT INTO mia_audit_findings (site_id, website_id, rule_key, severity, evidence, fingerprint, resolved_at) VALUES (1, $id, '{$f[0]}', '{$f[1]}', 'e', 'f$i', " . ($f[2] ? "'2026-10-01'" : 'NULL') . ")");
+        }
+        $this->db->exec("INSERT INTO gsc_properties (site_url) VALUES ('sc-domain:mowology.ca'), ('sc-domain:other.ca')");
+        $this->db->exec("INSERT INTO gsc_snapshots (property_id, snapshot_date) VALUES (1, '2026-10-20'), (1, '2026-10-24'), (2, '2026-10-25')");
+        list($http, $b) = $this->get('health');
+        $this->assertSame(200, $http);
+        $w = $b['websites'][0];
+        $this->assertSame(2, $w['pages'], 'only healthy pages of this site');
+        $this->assertSame(['status' => 'done', 'at' => '2026-10-26 05:34:00', 'summary' => '2 pages fetched'], $w['last_crawl']);
+        $this->assertSame(['high' => 1, 'medium' => 2, 'low' => 1], $w['findings'], 'resolved and info findings do not count');
+        $this->assertSame('title_missing', $w['problems'][0]['rule'], 'worst first');
+        $this->assertSame('A page has no title', $w['problems'][0]['label']);
+        $this->assertSame(2, $w['problems'][1]['pages']);
+        $this->assertTrue($w['search_console']['connected']);
+        $this->assertSame('2026-10-24', $w['search_console']['last_data']);
+        $this->assertTrue($w['can_crawl']);
+    }
+
+    public function testHealthForANewWebsiteIsEmptyNotAnError(): void
+    {
+        $this->post('connect_website', ['address' => 'mowology.ca']);
+        list($http, $b) = $this->get('health');
+        $this->assertSame(200, $http);
+        $this->assertSame(0, $b['websites'][0]['pages']);
+        $this->assertNull($b['websites'][0]['last_crawl']);
+        $this->assertFalse($b['websites'][0]['search_console']['connected']);
+        $this->assertFalse($b['websites'][0]['can_crawl']);
+    }
+
+    public function testHealthSurvivesMissingLaterTablesAndHidesOtherSites(): void
+    {
+        $this->post('connect_website', ['address' => 'mowology.ca']);
+        $this->db->exec("DROP TABLE mia_audits");
+        $this->db->exec("DROP TABLE gsc_properties");
+        $this->assertSame(200, $this->get('health')[0]);
+        $this->assertSame([], $this->get('health', [], 7, 2)[1]['websites']);
     }
 }
