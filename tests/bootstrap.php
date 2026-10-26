@@ -431,3 +431,4 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaLlmGateway.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaAutonomyPolicy.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaMemoryService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaActionService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWebsiteService.php';
