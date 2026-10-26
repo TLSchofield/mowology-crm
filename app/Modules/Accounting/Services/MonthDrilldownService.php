@@ -67,16 +67,20 @@ class MonthDrilldownService
         // set them aside so the list shows only what actually moves the balance.
         $cancelled = 0;
         $open = [];
-        $byOpp = [];
-        foreach ($bookOnly as $i => $b) $byOpp[-$cent((float)$b['amount'])][] = $i;
         $drop = [];
-        foreach ($bookOnly as $i => $b) {
-            if (isset($drop[$i])) continue;
-            $a = $cent((float)$b['amount']);
-            if ($a === 0 || empty($byOpp[$a])) continue;
-            while (!empty($byOpp[$a])) {
-                $j = array_shift($byOpp[$a]);
-                if ($j !== $i && !isset($drop[$j])) { $drop[$i] = $drop[$j] = true; $cancelled++; break; }
+        // Two passes: first opposites on the SAME DATE (a reversal sits beside what it reversed), then any that are left.
+        foreach ([true, false] as $sameDateOnly) {
+            foreach ($bookOnly as $i => $b) {
+                if (isset($drop[$i])) continue;
+                $a = $cent((float)$b['amount']);
+                if ($a === 0) continue;
+                foreach ($bookOnly as $j => $c) {
+                    if ($j === $i || isset($drop[$j]) || $cent((float)$c['amount']) !== -$a) continue;
+                    if ($sameDateOnly && substr((string)$c['date'], 0, 10) !== substr((string)$b['date'], 0, 10)) continue;
+                    $drop[$i] = $drop[$j] = true;
+                    $cancelled++;
+                    break;
+                }
             }
         }
         foreach ($bookOnly as $i => $b) if (!isset($drop[$i])) $open[] = $b;

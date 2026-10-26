@@ -74,6 +74,18 @@ class MonthDrilldownServiceTest extends TestCase
         $this->assertSame(7.01, $r['explains']);
     }
 
+    public function testAReversalPairsWithItsOwnEntryNotAnUnrelatedOneOfTheSameAmount(): void
+    {
+        // Feb 2026: Expense #18 (-150, Feb 17) is the real leftover; the transfers' reversals must cancel each other.
+        $r = MonthDrilldownService::compare([],
+            [$this->b(14989, '2026-02-17', -150.00),
+             $this->b(4570, '2026-02-23', 150.00), $this->b(4571, '2026-02-23', -150.00),
+             $this->b(4572, '2026-02-27', 150.00), $this->b(4573, '2026-02-27', -150.00)]);
+        $this->assertSame(2, $r['cancelled_pairs']);
+        $this->assertCount(1, $r['book_only']);
+        $this->assertSame(14989, $r['book_only'][0]['id']);
+    }
+
     public function testAnImpossibleMonthIsRefused(): void
     {
         $svc = new MonthDrilldownService($this->createMock(PDO::class));
