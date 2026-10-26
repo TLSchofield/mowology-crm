@@ -49,9 +49,17 @@ class PennyFocusServiceTest extends TestCase
     {
         $w = PennyFocusService::whyMonth(['month' => '2026-02', 'amount_off' => -229.75, 'receipt_amount' => -150.0, 'vendor' => 'Shell', 'date' => '2026-02-17',
                                           'hint' => 'Could it be the $150.00 bank line on Feb 14 (POINTOFSALE)?']);
-        $this->assertStringContainsString('February is $229.75 below the bank', $w);
-        $this->assertStringContainsString('$150.00 of it', $w);
+        $this->assertStringContainsString('February ends $229.75 below the bank', $w);
+        $this->assertStringContainsString('($150.00) is booked as paid from chequing', $w);
         $this->assertStringContainsString('Feb 14', $w);
+    }
+
+    public function testAHintFromAClosedYearSaysSo(): void
+    {
+        $c = ['amount' => 150.0, 'date' => '2025-05-14', 'description' => 'POINT OF SALE (SHELL C01303 VANCOUVER BCCA)'];
+        $this->assertStringContainsString('May 14, 2025', PennyFocusService::hintFor($c, '2026-02-17'));
+        $this->assertStringContainsString('filed 2025 books', PennyFocusService::hintFor($c, '2026-02-17'));
+        $this->assertStringNotContainsString('filed 2025', PennyFocusService::hintFor(['date' => '2026-02-14'] + $c, '2026-02-17'));
     }
 
     public function testMoneyPrefersDepositsThenGstThenNothing(): void

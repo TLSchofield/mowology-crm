@@ -76,9 +76,20 @@ class PennyFocusService
     {
         $month = date('F', strtotime($m['month'] . '-01'));
         $dir = $m['amount_off'] < 0 ? 'below' : 'above';
-        $s = $month . ' is $' . number_format(abs($m['amount_off']), 2) . ' ' . $dir . ' the bank. This ' . $m['vendor'] . ' receipt is $'
-           . number_format(abs($m['receipt_amount']), 2) . ' of it: it is booked as paid from chequing, but no bank line matches it.';
+        $s = $month . ' ends $' . number_format(abs($m['amount_off']), 2) . ' ' . $dir . ' the bank. This ' . $m['vendor'] . ' receipt ($'
+           . number_format(abs($m['receipt_amount']), 2) . ') is booked as paid from chequing, but no bank line matches it.';
         if (!empty($m['hint'])) $s .= ' ' . $m['hint'];
+        return $s;
+    }
+
+    /** Penny's guess at the bank line, in words; a line from a closed year says so. Pure. */
+    public static function hintFor(array $c, string $expenseDate): string
+    {
+        $when = date('M j, Y', strtotime((string)$c['date']));
+        $s = 'Could it be the $' . number_format((float)$c['amount'], 2) . ' bank line on ' . $when . ' (' . trim(substr((string)$c['description'], 0, 38)) . ')?';
+        if ((string)$c['date'] < '2026-01-01' && $expenseDate >= '2026-01-01') {
+            $s .= ' That is in the filed 2025 books, so this receipt may be a second copy of it.';
+        }
         return $s;
     }
 
@@ -163,11 +174,11 @@ class PennyFocusService
         try {
             foreach ((new BankImportService($this->db))->candidateTransactionsForExpense($expenseId, 3) as $c) {
                 if (!empty($c['vendor_only'])) continue;
-                $hint = 'Could it be the $' . number_format((float)$c['amount'], 2) . ' bank line on ' . date('M j', strtotime($c['date'])) . ' (' . trim(substr((string)$c['description'], 0, 38)) . ')?';
+                $hint = self::hintFor($c, (string)$ex['expense_date']);
                 break;
             }
         } catch (Throwable $e2) { /* a hint is a bonus */ }
-        $off = (float)($d['books_minus_statement'] ?? 0);
+        $off = !empty($target['drift']) ? (float)reset($target['drift']) : (float)($d['books_minus_statement'] ?? 0);   // month-end: books minus bank
         $row = ['month' => $target['month'], 'amount_off' => $off, 'receipt_amount' => (float)$best['amount'], 'vendor' => (string)$ex['vendor'],
                 'date' => (string)$ex['expense_date'], 'hint' => $hint];
         return ['kind' => 'month', 'title' => date('F', strtotime($target['month'] . '-01')) . ' can\'t close: ' . $ex['vendor'] . ' $' . number_format(abs((float)$best['amount']), 2),
