@@ -6,7 +6,7 @@
 -- MySQL 5.7 safe: utf8mb4_general_ci, no IF NOT EXISTS on indexes (they are inline), idempotent CREATE TABLE IF NOT EXISTS.
 CREATE TABLE IF NOT EXISTS receipt_document_links (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    expense_id          INT NOT NULL COMMENT 'the receipt (expenses.id); kept even when rejected',
+    expense_id          INT NOT NULL COMMENT 'the receipt (expenses.id), kept even when rejected',
     bank_transaction_id INT NULL COMMENT 'accounting_transactions.id of the bank line it documents',
     journal_entry_id    INT NULL COMMENT 'journal_entries.id it documents (the line''s own live entry when known)',
     relation            VARCHAR(30) NOT NULL DEFAULT 'supports' COMMENT 'supports | copy_of',
