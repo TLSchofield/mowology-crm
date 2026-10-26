@@ -26,6 +26,8 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/recaptcha-helpers.php';
 require_once __DIR__ . '/helpers/validators.php';
 require_once __DIR__ . '/helpers/pricing.php';
+// Tracking helpers are optional: the form works without them.
+if (is_file(__DIR__ . '/helpers/arrival.php')) { require_once __DIR__ . '/helpers/arrival.php'; }
 
 if (!function_exists('h')) {
     function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -51,7 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
     }
     if (!isset($_SESSION['jf_track']['referrer']) && !empty($_SERVER['HTTP_REFERER'])) {
-        $_SESSION['jf_track']['referrer'] = substr((string)$_SERVER['HTTP_REFERER'], 0, 500);
+        // Scheme, host and path only: a referer can carry a search query or a name.
+        $_SESSION['jf_track']['referrer'] = function_exists('jfCleanUrl') ? jfCleanUrl((string)$_SERVER['HTTP_REFERER']) : '';
+    }
+    // First touch: which of our pages (or which outside site) sent them here. Set once; a reload or step back never replaces it.
+    if (empty($_SESSION['jf_track']['arrival_done']) && function_exists('jfArrivalFromReferer')) {
+        $_SESSION['jf_track']['arrival_done'] = 1;                     // locked even when there is no usable referer: a later visit never becomes the "first" one
+        $__arrival = jfArrivalFromReferer($_SERVER['HTTP_REFERER'] ?? null, (string)($_SERVER['HTTP_HOST'] ?? ''));
+        if ($__arrival['from_page'] !== null) { $_SESSION['jf_track']['from_page'] = $__arrival['from_page']; }
+        elseif ($__arrival['ref_host'] !== null) { $_SESSION['jf_track']['ref_host'] = $__arrival['ref_host']; }
+        unset($__arrival);
     }
 }
 $jfTrack = $_SESSION['jf_track'] ?? [];

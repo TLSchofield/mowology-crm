@@ -29,6 +29,8 @@ require_once __DIR__ . '/recaptcha-helpers.php';
 require_once __DIR__ . '/helpers/validators.php';
 require_once __DIR__ . '/helpers/pricing.php';
 require_once __DIR__ . '/helpers/classification.php';
+// Tracking helpers are optional: the form works without them.
+if (is_file(__DIR__ . '/helpers/arrival.php')) { require_once __DIR__ . '/helpers/arrival.php'; }
 
 if (!function_exists('h')) {
     function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -217,9 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 // ── 3. Log lead event (ROI tracking) ───────────────────────
                 $leadEventId = logLeadEvent(
-                    $_SERVER['HTTP_REFERER'] ?? null,
+                    (function_exists('jfLandingFor') ? jfLandingFor($data['tracking'], (string)($_SERVER['HTTP_HOST'] ?? ''), (string)($_SERVER['HTTP_REFERER'] ?? '')) : '') ?: null,
                     [
-                        'source'   => $data['tracking']['utm_source']   ?? $quoteSource,
+                        'source'   => function_exists('jfSourceFor') ? jfSourceFor($data['tracking'], $quoteSource) : ($data['tracking']['utm_source'] ?? $quoteSource),
                         'medium'   => $data['tracking']['utm_medium']   ?? 'website',
                         'campaign' => $data['tracking']['utm_campaign']  ?? null,
                         'content'  => $data['tracking']['utm_content']   ?? null,
