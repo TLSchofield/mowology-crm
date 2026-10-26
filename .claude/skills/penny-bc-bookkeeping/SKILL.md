@@ -96,6 +96,7 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | GST return (GST34) | `GstReportService` | tax report, reports, accounting |
 | Bank-line category rules | `BankRuleLearning` | transactions, Penny's bank desk |
 | Month-end proof per statement | `StatementCloseService` (+ `StatementCoverageService` for gaps) | Penny |
+| The three rows for Penny's card (what teaches her most, what holds up the oldest month, money waiting) | `PennyFocusService` (`app/Modules/Expenses/Services/PennyFocusService.php`, read-only, not yet on the card) | Penny's card (planned) |
 | Which lines make a month differ from the bank | `MonthDrilldownService` (`public/crm/api/month-drilldown.php`, read-only) | Penny, the accountant's view |
 | Bank-line candidates for a receipt (both the form date and the printed date) | `BankImportService::candidateTransactionsForExpense()` | Edit Expense → Find Match |
 | Cash-flow forecast | `CashFlowForecastService` | cash-flow page, Penny's brief |

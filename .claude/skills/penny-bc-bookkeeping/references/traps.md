@@ -447,3 +447,14 @@ cause. Statement lines whose amount couldn't be read are skipped, so a month can
 - This skill is not in the Skill tool's list in some chats: read this file and its references directly
   before any money work. (2026-10-25: skipped, and two wrong claims followed.)
 
+## 2026-10-26 — A receipt printed in 2025 but dated 2026 is a second copy of a filed 2025 expense
+February 2026's gap included Expense #18 (Shell $150.00, dated Feb 17 2026, approved, posted Dr fuel / Cr 1010): its
+OCR'd printed date is **2025-05-14 10:43** and the bank line "SHELL C01303 VANCOUVER $150.00" of 2025-05-14 is already
+in the filed 2025 books (journal entry #1238). Counted twice, once in 2025 (filed) and once in 2026. Find them with
+`receipt_facts.printed_date < '2026-01-01'` against `expenses.expense_date >= '2026-01-01'` (on 2026-10-26: #17 TWN PNTY
+$20 draft, #18 Shell $150 approved, #156 Chevron $0.00). **Rule:** a 2026-dated receipt whose printed date is in a filed
+year is checked against that year's bank lines first; if the line is there, the receipt is a copy — reject it (that reverses
+its 2026 entry) and never re-date it into 2025. The printed year is OCR: confirm on the photo before acting.
+Also: the oldest month that can't close is not always the one a receipt explains (January's gap is the opening) —
+look at later months for the receipt cause.
+
