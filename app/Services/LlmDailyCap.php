@@ -9,6 +9,8 @@
  * ops_settings llm_daily_cap_<bucket>, else the CLAUDE_DAILY_CAP constant, else the default given.
  * Without ops_settings (tests, fresh install) it allows the call — the ceiling is a cost guard,
  * never the reason a receipt is lost (the caller falls back to the plain parser).
+ * That fail-open is deliberate and reviewed (audit 2026-10-26): a database error lets the call through (logged), because a cost guard must
+ * never be why a receipt is lost. The first-insert race is NOT fail-open: the loser retries its slot and is refused if the ceiling is reached.
  *
  * Global namespace; require_once it.
  */
@@ -54,9 +56,15 @@ final class LlmDailyCap
             $cur = $s->fetchColumn();
             if ($cur === false) {
                 if ($cap <= 0) return false;
-                $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'AI calls used today (LlmDailyCap)')")
-                   ->execute([$key, $today . ':1']);
-                return true;
+                try {
+                    $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'AI calls used today (LlmDailyCap)')")
+                       ->execute([$key, $today . ':1']);
+                    return true;
+                } catch (PDOException $dup) {
+                    // Two calls created the counter at once (audit 2026-10-26): the other one won — take our slot from its row, never wave this one through.
+                    $up->execute([$today, $today, $key, $today, $cap]);
+                    return $up->rowCount() === 1;
+                }
             }
             return false;   // the row exists and is at the cap
         } catch (Throwable $e) {
