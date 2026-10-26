@@ -36,6 +36,15 @@ $activePage = 'portfolio';
                           <p class="text-muted mb-0"><?php echo htmlspecialchars($project['project_number']); ?></p>
                       </div>
                       <div class="d-flex" style="gap: 8px;">
+                          <?php if (($project['status'] ?? '') === 'published'): ?>
+                              <button type="button" class="btn btn-outline-secondary" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'draft')">
+                                  <i data-feather="eye-off"></i> Unpublish
+                              </button>
+                          <?php else: ?>
+                              <button type="button" class="btn btn-success" onclick="setProjectStatus(<?php echo (int)$project['id']; ?>, 'published')">
+                                  <i data-feather="globe"></i> Publish
+                              </button>
+                          <?php endif; ?>
                           <a href="edit.php?id=<?php echo $project['id']; ?>" class="btn btn-secondary">
                               <i data-feather="edit"></i> Edit
                           </a>
@@ -46,6 +55,14 @@ $activePage = 'portfolio';
                   </div>
               </div>
           </div>
+
+          <?php if (($_GET['status_changed'] ?? '') === 'published'): ?>
+              <div class="alert alert-success" role="alert">Published. It now shows on your public portfolio page.</div>
+          <?php elseif (($_GET['status_changed'] ?? '') === 'draft'): ?>
+              <div class="alert alert-info" role="alert">Unpublished. It is hidden from your public portfolio page again.</div>
+          <?php elseif (($_GET['error'] ?? '') === 'status_failed'): ?>
+              <div class="alert alert-danger" role="alert">The status could not be changed. Nothing was changed.</div>
+          <?php endif; ?>
 
           <?php if (isset($_GET['success'])): ?>
               <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -182,6 +199,23 @@ $activePage = 'portfolio';
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
 
 <script>
+function setProjectStatus(projectId, status) {
+    var msg = status === 'published'
+        ? 'Publish this project? It will be visible to everyone on your public portfolio page.'
+        : 'Unpublish this project? It will be hidden from your public portfolio page.';
+    if (!confirm(msg)) { return; }
+    var f = document.createElement('form');
+    f.method = 'POST';
+    f.action = 'status.php';
+    [['id', projectId], ['status', status], ['csrf_token', window.MW_CSRF_TOKEN || '']].forEach(function (kv) {
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = kv[0]; i.value = kv[1];
+        f.appendChild(i);
+    });
+    document.body.appendChild(f);
+    f.submit();
+}
+
 function deleteProject(projectId) {
     if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
         var f = document.createElement('form');
