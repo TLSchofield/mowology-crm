@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Generate ItTokens.swift from the Ittai v1.2 design tokens (docs/design/ittai-v1.2/tokens.json).
 // usage: node scripts/ittai-swift-tokens.mjs [tenant]   (default tenant: mowology)
+//        node scripts/ittai-swift-tokens.mjs --check     (writes nothing; exit 1 if the committed Swift differs — guards against hand edits, 2026-10-25)
 // The Swift file is GENERATED — never edit it by hand. Field > chosen theme > OS > light is applied by ItPalette.
 import { readFileSync, writeFileSync } from 'node:fs'; import { resolve, dirname } from 'node:path'; import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'), src = resolve(root, 'docs/design/ittai-v1.2');
 const T = JSON.parse(readFileSync(resolve(src, 'tokens.json'), 'utf8'));
-const tenantId = process.argv[2] || 'mowology';
+const CHECK = process.argv.includes('--check');
+const tenantId = process.argv.slice(2).find(a => !a.startsWith('--')) || 'mowology';
 const tenants = JSON.parse(readFileSync(resolve(src, 'tenants.generated.json'), 'utf8'));
 if (!tenants[tenantId]) throw new Error('unknown tenant ' + tenantId);
 const themes = T.color.themes.map(t => t.id); // light, dark, field
@@ -56,5 +58,10 @@ lines.push('    } }', '    var weight: Int { switch self {');
 for (const s of styles) lines.push(`        case .${camel(s.name.replace(/-(\d+)$/, '$1'))}: return ${s.fontWeight}`);
 lines.push('    } }', '}', '');
 const out = resolve(root, 'ios/MowologyCRM/MowologyCRM/Core/Design/Ittai/ItTokens.swift');
-writeFileSync(out, lines.join('\n') + '\n');
+const text = lines.join('\n') + '\n';
+if (CHECK) {
+  if (readFileSync(out, 'utf8') !== text) { console.error('ItTokens.swift differs from tokens.json — the Swift was edited by hand, or the source is behind. Fix tokens.json, then re-run without --check.'); process.exit(1); }
+  console.log('ItTokens.swift matches tokens.json'); process.exit(0);
+}
+writeFileSync(out, text);
 console.log('wrote', out.replace(root + '/', ''), `(${T.color.tokens.length} colours × ${themes.length} themes, ${styles.length} text styles)`);

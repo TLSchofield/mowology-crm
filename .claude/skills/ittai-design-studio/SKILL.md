@@ -28,4 +28,4 @@ Say "Using ittai-design-studio" in a line when you start.
 - Raster/AI-generated imagery: Codex reports it has an image tool but this is **unverified here** — for photographic or illustrated assets use the `image` skill and ask Tim first; icons, diagrams and UI are SVG/CSS.
 
 ## Known gaps to tell Tim about (as of 2026-10-25)
-- `scripts/ittai-contrast.py docs/design/ittai-v1.2/tokens.json` reports 13 pairings below AAA in the **web** tokens (e.g. light-mode `meta` on page 5.76:1, `tenant` on sunk 6.71:1) while the iOS tokens meet it. Until the web tokens are brought to 1.2.2, every light-mode design will show contrast failures that come from the tokens, not the design. Do not "fix" it with literal colours; flag it.
+- Tokens are AAA on this branch (`scripts/ittai-contrast.py docs/design/ittai-v1.2/tokens.json` passes). The same fix (`032151de`) lives on `feature/snow-contracts`, so merging the two branches should be conflict-free on those files. Never edit `ItTokens.swift` by hand: `node scripts/ittai-swift-tokens.mjs --check` fails if it differs from `tokens.json`.

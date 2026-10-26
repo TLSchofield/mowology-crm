@@ -91,5 +91,5 @@ trades first. The AI back office is the edge.
 
 ## Design studio (2026-10-25)
 - Built: skill `.claude/skills/ittai-design-studio`, `/design`, `scripts/codex-design.sh`, `scripts/ittai-design/` (token build + `review-shots.mjs`). Proven on a smoke brief, two rounds.
-- Web tokens below AAA: `scripts/ittai-contrast.py docs/design/ittai-v1.2/tokens.json` reports 13 pairings under 7:1 (light `meta` 5.76:1, `tenant` on sunk 6.71:1, status text 6.3-6.9:1); the iOS tokens meet 1.2.2. Every light-mode design fails the studio's contrast check until the web tokens are raised. Needs Tim's OK: v1.2 is a frozen baseline and `tokens.json` also feeds the iOS generator.
+- Web tokens AAA: done 2026-10-25 by porting snow-contracts `032151de` (tokens.json, tenant.config.json, tenants.generated.json, contrast test) onto this branch; regenerating `ItTokens.swift` is a no-op and `ittai-swift-tokens.mjs --check` + `IttaiSwiftTokensInSyncTest` guard against drift (iOS 1.3.58 had hand-edited the generated Swift while the source stayed behind).
 - Codex raster image generation: Codex says it has an image tool; unverified. Ask Tim before using it for assets.

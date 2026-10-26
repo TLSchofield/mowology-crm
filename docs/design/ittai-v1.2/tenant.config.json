@@ -1,6 +1,6 @@
 { "_note": "Tenant brand INPUTS only. Every tenant-* token is GENERATED from these by tools/build-tokens.mjs (via derive-tenant.mjs) and contrast-checked. Nothing tenant-coloured is hand-written anywhere else.",
   "tenants": {
-    "mowology":   { "name": "Mowology",          "brand": "#2D8659", "pin": { "primary": "#1B5F3C" } },
+    "mowology":   { "name": "Mowology",          "brand": "#2D8659", "pin": { "primary": "#1A5A39" } },
     "brightline": { "name": "Brightline Electric","brand": "#F2C200" },
     "clearflow":  { "name": "Clearflow Plumbing", "brand": "#7EC8E3" }
   },
