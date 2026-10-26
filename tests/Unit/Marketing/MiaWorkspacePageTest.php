@@ -23,7 +23,19 @@ class MiaWorkspacePageTest extends TestCase
         $c = $this->src('public/crm/css/mowology-brand.css');
         $i = strpos($c, 'Mia: Search & Website workspace');
         $this->assertNotFalse($i, 'workspace CSS block is in mowology-brand.css');
-        return substr($c, $i);
+        $j = strpos($c, 'Ittai Design System v1.2 (Kanso) on the Mia flow pages');
+        $this->assertNotFalse($j, 'the Ittai block follows the workspace block');
+        return substr($c, $i, $j - $i);
+    }
+
+    /** The Ittai v1.2 block that restyles the Mia workspace and the Portfolio project page. */
+    private function ittaiCss(): string
+    {
+        $c = $this->src('public/crm/css/mowology-brand.css');
+        $j = strpos($c, 'Ittai Design System v1.2 (Kanso) on the Mia flow pages');
+        $this->assertNotFalse($j);
+        $rest = substr($c, $j);
+        return substr($rest, strpos($rest, '*/') + 2);                      // the rules after the block's own header comment
     }
 
     public function testScriptNeverTurnsServerTextIntoMarkup(): void
@@ -76,7 +88,7 @@ class MiaWorkspacePageTest extends TestCase
             preg_match_all('/mw-mws[a-z0-9-]*/', $this->src($f), $m);
             $used = array_merge($used, $m[0]);
         }
-        $css = $this->css();
+        $css = $this->css() . $this->ittaiCss();                                     // a class may be styled in the workspace block or the Ittai block
         $missing = [];
         foreach (array_unique($used) as $cls) {
             if ($cls === 'mw-mws' || strpos($css, $cls) !== false) { continue; }
@@ -123,5 +135,35 @@ class MiaWorkspacePageTest extends TestCase
             $list = $call[1] === 'GET' ? MiaApiHandler::MODES_GET : MiaApiHandler::MODES_POST;
             $this->assertContains($call[2], $list, "{$call[1]} {$call[2]}");
         }
+    }
+
+    public function testTheIttaiBlockDefinesColoursOnceAndUsesOnlyTokensAfterThat(): void
+    {
+        $css = $this->ittaiCss();
+        $rules = preg_split('/(?<=\})/', preg_replace('#/\*.*?\*/#s', '', $css));
+        $tokenRule = 0;
+        foreach ($rules as $r) {
+            if (!preg_match('/#[0-9a-fA-F]{3,8}\b/', $r)) { continue; }
+            $tokenRule++;
+            $this->assertMatchesRegularExpression('/^\s*\.it-mws, \.it-pf \{/', $r, 'a hex colour outside the one token rule: ' . trim(substr($r, 0, 80)));
+        }
+        $this->assertSame(1, $tokenRule, 'the tokens are defined once');
+        $this->assertSame(0, preg_match('/\b(rgb|rgba|hsl)\(/', $css), 'no raw colour functions');
+        $this->assertStringNotContainsString('!important', preg_replace('/@media \(prefers-reduced-motion.*$/s', '', $css), 'no !important outside the reduced-motion rule');
+        preg_match_all('/^\.([a-z][a-z0-9_-]*)/m', preg_replace('#/\*.*?\*/#s', '', $css), $m);
+        foreach (array_unique($m[1]) as $cls) { $this->assertMatchesRegularExpression('/^(it-mws|it-pf)/', $cls, "stray top-level class .$cls"); }
+        $this->assertStringContainsString('prefers-reduced-motion', $css);
+        $this->assertStringContainsString(':focus-visible', $css);
+    }
+
+    public function testThePortfolioPageUsesTheScopedClassesAndKeepsItsSafeguards(): void
+    {
+        $v = $this->src('public/crm/portfolio/view.php');
+        $this->assertStringContainsString('class="it-pf"', $v);
+        foreach (['<style', ' style='] as $bad) { $this->assertStringNotContainsString($bad, $v, $bad . ' (AppStack pages take no inline styling)'); }
+        $this->assertStringContainsString('htmlspecialchars($project[\'project_name\'])', $v);
+        $this->assertStringContainsString('function deleteProject', $v);
+        $this->assertStringContainsString('function setProjectStatus', $v);
+        $this->assertStringContainsString('class="mw-mws it-mws"', $this->src('public/crm/marketing/mia.php'));
     }
 }
