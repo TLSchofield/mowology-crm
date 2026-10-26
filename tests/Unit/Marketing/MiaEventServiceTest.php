@@ -150,4 +150,17 @@ final class MiaEventServiceTest extends TestCase
         $this->assertSame(1, $this->n("SELECT COUNT(*) FROM mia_actions WHERE opportunity_key = 'visit:80'"));
         $this->assertSame(1, $r['proposed'] + $r['skipped'], 'the event is closed, not repeated');
     }
+
+    public function testStoryWordingIsRequestedOnceForANewQuestionAndAFailureDoesNotUndoIt(): void
+    {
+        $calls = [];
+        $svc = new MiaEventService($this->db, 1, null, null, function (int $actionId) use (&$calls) { $calls[] = $actionId; throw new RuntimeException('model down'); });
+        $this->visit(90);
+        $r = $svc->drain(20, $this->now);
+        $this->assertSame(1, $r['proposed']);
+        $this->assertCount(1, $calls);
+        $this->assertSame(1, $this->n("SELECT COUNT(*) FROM mia_actions WHERE opportunity_key = 'visit:90'"), 'the question stands without wording');
+        $svc->drain(20, $this->now);
+        $this->assertCount(1, $calls, 'not asked again');
+    }
 }

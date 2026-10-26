@@ -34,9 +34,12 @@ final class MiaEventService
     private $actions;
     /** @var MiaFeeds */
     private $feeds;
+    /** @var callable|null fn(int $actionId): void  writes the story wording for a new question; failure never undoes the question */
+    private $drafter;
 
-    public function __construct(PDO $db, int $siteId, ?MiaActionService $actions = null, ?MiaFeeds $feeds = null)
+    public function __construct(PDO $db, int $siteId, ?MiaActionService $actions = null, ?MiaFeeds $feeds = null, ?callable $drafter = null)
     {
+        $this->drafter = $drafter;
         if ($siteId <= 0) { throw new InvalidArgumentException('MiaEventService needs a site'); }
         $this->db = $db;
         $this->siteId = $siteId;
@@ -153,7 +156,25 @@ final class MiaEventService
             if ($p['code'] === 'not_allowed') { return ['status' => 'wait', 'outcome' => 'Mia is paused or observe-only: left for later', 'action_id' => null]; }
             return ['status' => 'skipped', 'outcome' => 'not proposed: ' . (string)$p['code'], 'action_id' => null];
         }
+        if (!$p['existing'] && $this->drafter !== null) {
+            try { call_user_func($this->drafter, (int)$p['id']); } catch (Throwable $e) { error_log('[mia_events] story wording: ' . $e->getMessage()); }   // the question stands without wording
+        }
         return ['status' => 'done', 'outcome' => $p['existing'] ? 'an open action for this visit already existed' : 'proposed', 'action_id' => (int)$p['id']];
+    }
+
+    /** The real wording step: one verified website, the real model gateway. Returns null when there is no website to attach to. */
+    private static function storyDrafter(PDO $db, int $siteId): ?callable
+    {
+        $w = $db->prepare("SELECT id FROM mia_websites WHERE site_id = ? AND status = 'verified' ORDER BY id LIMIT 1");
+        $w->execute([$siteId]);
+        $websiteId = (int)$w->fetchColumn();
+        if ($websiteId <= 0) { return null; }
+        require_once __DIR__ . '/MiaStoryWriter.php';
+        return function (int $actionId) use ($db, $siteId, $websiteId): void {
+            $writer = new MiaStoryWriter($db, $siteId, new MiaLlmGateway($db, $siteId), new MiaActionService($db, $siteId));
+            $r = $writer->prepare($actionId, $websiteId);
+            if (!$r['ok']) { error_log('[mia_events] no story wording for action ' . $actionId . ': ' . (string)$r['code']); }
+        };
     }
 
     /**
@@ -168,7 +189,7 @@ final class MiaEventService
         $tot = ['swept' => 0, 'processed' => 0, 'proposed' => 0, 'skipped' => 0, 'failed' => 0, 'waiting' => 0]; $errors = [];
         foreach ($sites as $site) {
             try {
-                $r = (new self($db, (int)$site))->drain(20, $now);
+                $r = (new self($db, (int)$site, null, null, self::storyDrafter($db, (int)$site)))->drain(20, $now);
                 foreach ($tot as $k => $_) { $tot[$k] += $r[$k]; }
                 foreach ($r['errors'] as $e) { $errors[] = $e; }
             } catch (Throwable $e) {

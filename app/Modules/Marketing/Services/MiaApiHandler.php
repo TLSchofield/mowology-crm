@@ -32,6 +32,7 @@ require_once __DIR__ . '/MiaOpportunityScorer.php';
 require_once __DIR__ . '/Site/SiteAuditRules.php';
 require_once __DIR__ . '/Site/CmsConnector.php';
 require_once __DIR__ . '/MiaPublishService.php';
+require_once __DIR__ . '/MiaStoryPublisher.php';
 
 final class MiaApiHandler
 {
@@ -81,10 +82,11 @@ final class MiaApiHandler
     }
 
     /** The publisher for the website a draft belongs to, or null when that website is not connected and verified. */
-    private function publisherFor(?array $draft): ?MiaPublishService
+    private function publisherFor(?array $draft)
     {
         if (!$draft) { return null; }
         if ($this->publisherFactory !== null) { return call_user_func($this->publisherFactory, $draft); }
+        if (($draft['kind'] ?? '') === 'story') { return new MiaStoryPublisher($this->db, $this->siteId, $this->actions); }   // a portfolio card, not a website page
         $w = $this->db->prepare("SELECT host FROM mia_websites WHERE id = ? AND site_id = ? AND status = 'verified'");
         $w->execute([(int)$draft['website_id'], $this->siteId]);
         $host = $w->fetchColumn();
@@ -290,7 +292,7 @@ final class MiaApiHandler
             ] : null,
             'seen_hash' => sha1($this->contentFor($a, $draft)),
         ];
-        if ($full && $a['type'] === 'seo_meta_update' && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
+        if ($full && in_array($a['type'], ['seo_meta_update', 'project_story'], true) && in_array($a['status'], ['approved', 'done', 'rolled_back'], true)) {
             $pub = $this->executionsReady() ? $this->publisherFor($draft) : null;
             if (!$this->executionsReady()) {
                 if ($a['status'] === 'approved') { $v['apply'] = ['can_apply' => false, 'why_not' => 'Applying changes needs one more setup step (migration 1403) that has not been run yet.']; }

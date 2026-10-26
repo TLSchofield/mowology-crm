@@ -386,16 +386,19 @@
   // Applying changes the live website, so it takes two clicks: the second button says what will happen.
   function applyBar(it) {
     var wrap = el('div', 'mw-mws-sec mw-mws-apply');
-    add(wrap, el('h3', 'mw-mws-h3', 'Put it on your website'));
+    var story = it.type === 'project_story';
+    add(wrap, el('h3', 'mw-mws-h3', story ? 'Save the portfolio card' : 'Put it on your website'));
     if (!it.apply.can_apply) {
       add(wrap, el('p', 'mw-mws-p', 'Mia cannot apply this one for you. ' + (it.apply.why_not || '')));
       return wrap;
     }
-    add(wrap, el('p', 'mw-mws-p', 'Nothing has changed on your website yet. Applying changes the title and description on the live page. You can undo it afterwards.'));
+    add(wrap, el('p', 'mw-mws-p', story
+      ? 'Nothing has changed on your website yet. Saving puts a draft card in your Portfolio page. It stays hidden until you publish it there. You can undo it while it is still an untouched draft.'
+      : 'Nothing has changed on your website yet. Applying changes the title and description on the live page. You can undo it afterwards.'));
     var actions = el('div', 'mw-mws-actions');
-    var go = btn('Apply to my website', 'mw-mws-btn--primary', function () {
+    var go = btn(story ? 'Save as a draft card' : 'Apply to my website', 'mw-mws-btn--primary', function () {
       clear(actions);
-      var yes = btn('Yes, change my live page', 'mw-mws-btn--primary', function () { doApply(it, wrap); });
+      var yes = btn(story ? 'Yes, save the draft card' : 'Yes, change my live page', 'mw-mws-btn--primary', function () { doApply(it, wrap); });
       add(actions, yes, btn('Cancel', 'mw-mws-btn--quiet', function () { loadGrowth('row'); }));
       yes.focus();
     });
@@ -448,16 +451,17 @@
   }
 
   function draftBlock(it) {
-    var d = it.draft, wrap = el('div', 'mw-mws-sec mw-mws-draft');
-    add(wrap, el('h3', 'mw-mws-h3', 'The wording'));
-    add(wrap, el('p', 'mw-mws-p', 'Page: ' + d.page_url));
+    var d = it.draft, wrap = el('div', 'mw-mws-sec mw-mws-draft'), story = it.type === 'project_story';
+    add(wrap, el('h3', 'mw-mws-h3', story ? 'The portfolio card' : 'The wording'));
+    add(wrap, el('p', 'mw-mws-p', story ? 'Goes to: your Portfolio page, saved as a draft that stays hidden until you publish it there. Only the kind of work, the neighbourhood and the month were used.' : 'Page: ' + d.page_url));
     var cols = el('div', 'mw-mws-cols');
     function col(head, title, desc, cls) {
       var c = el('div', 'mw-mws-col ' + cls);
-      add(c, el('h4', 'mw-mws-h4', head), el('span', 'mw-mws-lbl', 'Title'), el('p', 'mw-mws-quote', title || '(none)'), el('span', 'mw-mws-lbl', 'Description'), el('p', 'mw-mws-quote', desc || '(none)'));
+      add(c, el('h4', 'mw-mws-h4', head), el('span', 'mw-mws-lbl', story ? 'Name' : 'Title'), el('p', 'mw-mws-quote', title || '(none)'), el('span', 'mw-mws-lbl', 'Description'), el('p', 'mw-mws-quote', desc || '(none)'));
       return c;
     }
-    add(cols, col('Now', d.current_title, d.current_description, 'mw-mws-col--now'), col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new'));
+    if (story) { add(cols, col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new')); }
+    else { add(cols, col('Now', d.current_title, d.current_description, 'mw-mws-col--now'), col('Mia suggests', d.title, d.meta_description, 'mw-mws-col--new')); }
     add(wrap, cols);
     if (it.can_decide) {
       var edit = btn('Change the wording', 'mw-mws-btn--quiet', function () { wrap.replaceChild(editForm(it), wrap.querySelector('.mw-mws-editslot') || edit); });
