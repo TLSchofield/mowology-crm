@@ -338,8 +338,14 @@ final class MiaStoryWriter
         return $t;
     }
 
+    /** The name the business uses for itself in text: the owner's remembered short name (brand memory 'short_name'), else the business record. */
     private function companyName(): string
     {
+        $short = $this->memory->recall('brand', 'short_name');
+        if (is_string($short) && trim($short) !== '') {
+            $clean = trim((string)preg_replace('/[^\p{L}\p{N} &\'.,-]+/u', '', $short));
+            if ($clean !== '') { return mb_substr($clean, 0, 60); }
+        }
         try {
             $n = $this->db->query("SELECT company_name FROM business_settings WHERE id = 1")->fetchColumn();
             if (is_string($n) && trim($n) !== '') {

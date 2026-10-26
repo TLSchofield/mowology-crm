@@ -186,4 +186,15 @@ final class MiaStoryWriterTest extends TestCase
         $this->assertSame('thin', $r['code']);
         $this->assertCount(0, $this->sent);
     }
+
+    public function testTheOwnersShortNameIsUsedInsteadOfTheLongBusinessName(): void
+    {
+        $this->db->exec("UPDATE business_settings SET company_name = 'Mowology Landscaping' WHERE id = 1");
+        (new MiaMemoryService($this->db, 1))->remember('brand', 'short_name', 'Mowology', 'owner', 7);
+        $this->replies[] = $this->good();
+        $this->writer()->prepare($this->action(), 1, $this->now);
+        $text = json_encode($this->sent[0]['messages']);
+        $this->assertStringContainsString('Business: Mowology', $text);
+        $this->assertStringNotContainsString('Landscaping', $text);
+    }
 }
