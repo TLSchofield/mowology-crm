@@ -69,4 +69,22 @@ class PennyFocusServiceTest extends TestCase
         $this->assertStringContainsString('$10.50 of GST', PennyFocusService::moneyRow(null, 10.5)['title']);
         $this->assertNull(PennyFocusService::moneyRow(['waiting' => 0], 0.0));
     }
+
+    public function testALinkOnTheCardStaysInsideTheCrm(): void
+    {
+        $this->assertSame('/crm/accounting/payment-match.php', PennyFocusService::internalUrl('/crm/accounting/payment-match.php'));
+        $this->assertSame('/crm/expenses_appstack.php?edit=18', PennyFocusService::internalUrl('/crm/expenses_appstack.php?edit=18'));
+        foreach (['javascript:alert(1)', '//evil.example/x', 'https://evil.example', '/\\evil.example', ''] as $bad) $this->assertSame('', PennyFocusService::internalUrl($bad), $bad);
+        $pm = ['waiting' => 1, 'waiting_total' => 10.0, 'high' => 0, 'url' => 'javascript:alert(document.domain)'];
+        $this->assertSame('', PennyFocusService::moneyRow($pm, 0.0)['url']);
+    }
+
+    public function testACachedRowIsUsedOnlyWhenItHasWhatTheCardPrints(): void
+    {
+        $this->assertTrue(PennyFocusService::validRow(['kind' => 'teach', 'title' => 'a', 'why' => 'b']));
+        foreach (['bad', ['kind' => 'x', 'title' => 'a', 'why' => 'b'], ['kind' => 'teach', 'title' => 1, 'why' => 'b'], ['kind' => 'month', 'title' => 'a'], null] as $bad) {
+            $this->assertFalse(PennyFocusService::validRow($bad));
+        }
+    }
 }
+

@@ -93,6 +93,19 @@ class PennyFocusService
         return $s;
     }
 
+    /** A link on the card goes to a page inside the CRM, never to another scheme or host. Pure. */
+    public static function internalUrl(string $url): string
+    {
+        return preg_match('#^/(?![/\\\\])[A-Za-z0-9_\\-./?=&%]*$#', $url) ? $url : '';
+    }
+
+    /** A cached row is only used when it has the three text fields the card prints. Pure. */
+    public static function validRow($r): bool
+    {
+        return is_array($r) && in_array($r['kind'] ?? null, ['teach', 'month', 'money'], true)
+            && is_string($r['title'] ?? null) && is_string($r['why'] ?? null);
+    }
+
     /** One row of money waiting, from the card's deposit line or the GST figure. Pure. */
     public static function moneyRow(?array $pm, float $gstStuck): ?array
     {
@@ -100,7 +113,7 @@ class PennyFocusService
             $n = (int)$pm['waiting']; $high = (int)($pm['high'] ?? 0);
             return ['kind' => 'money', 'title' => $n . ' deposit' . ($n === 1 ? '' : 's') . ' matched to invoices',
                     'why' => 'Worth $' . number_format((float)$pm['waiting_total'], 2) . '. Nothing is booked until you approve it.' . ($high > 0 ? ' ' . $high . ' high-confidence.' : ''),
-                    'url' => (string)($pm['url'] ?? '')];
+                    'url' => self::internalUrl((string)($pm['url'] ?? ''))];
         }
         if ($gstStuck >= 1) {
             return ['kind' => 'money', 'title' => '$' . number_format($gstStuck, 2) . ' of GST to claim back',
@@ -185,14 +198,38 @@ class PennyFocusService
                 'why' => self::whyMonth($row), 'expense_id' => $expenseId, 'month' => $target['month']];
     }
 
-    /** @return list<array> up to three rows, in order: teach, month, money. */
-    public function rows(?array $pm = null, float $gstStuck = 0.0): array
+    /** Seconds the two books-heavy rows (teach, month) are kept: the month row runs the whole balance check. */
+    public const CACHE_SECONDS = 180;
+
+    /** @return list<array> up to three rows, in order: teach, month, money. The money row is never cached. */
+    public function rows(?array $pm = null, float $gstStuck = 0.0, bool $fresh = false, bool $withMonth = true): array
     {
+        $out = $this->heavyRows($fresh, $withMonth);
+        if ($m = self::moneyRow($pm, $gstStuck)) $out[] = $m;
+        return $out;
+    }
+
+    private function heavyRows(bool $fresh, bool $withMonth): array
+    {
+        // The month row shows books-against-bank figures and a bank line: administrators only (its own cache).
+        $key = $withMonth ? 'penny_focus_cache' : 'penny_focus_cache_basic';
+        try {
+            if (!$fresh) {
+                $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+                $s->execute([$key]);
+                $c = json_decode((string)$s->fetchColumn(), true);
+                if (is_array($c) && isset($c['at'], $c['rows']) && is_array($c['rows']) && time() - (int)$c['at'] < self::CACHE_SECONDS
+                    && count(array_filter($c['rows'], [self::class, 'validRow'])) === count($c['rows'])) return $c['rows'];
+            }
+        } catch (Throwable $e) { /* no cache: compute */ }
         $out = [];
-        foreach ([fn() => $this->teach(), fn() => $this->month()] as $f) {
+        foreach ($withMonth ? [fn() => $this->teach(), fn() => $this->month()] : [fn() => $this->teach()] as $f) {
             try { if ($r = $f()) $out[] = $r; } catch (Throwable $e) { error_log('[PennyFocus] ' . $e->getMessage()); }
         }
-        if ($m = self::moneyRow($pm, $gstStuck)) $out[] = $m;
+        try {
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
+                     ->execute([$key, json_encode(['at' => time(), 'rows' => $out])]);
+        } catch (Throwable $e) { /* a cache miss next time is fine */ }
         return $out;
     }
 }

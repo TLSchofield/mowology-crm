@@ -68,6 +68,21 @@ try {
             $__pm = (new PaymentMatchService(getDB()))->cardLine();   // cached; re-matched at most every 4 h
         }
     } catch (Throwable $__e) { /* payments ↔ invoices is a bonus (migration 1260) */ }
+    // Three things for Penny's card (Tim, 2026-10-26): the receipt that teaches her most, the one holding up the oldest
+    // month, money waiting — each with its why. Off unless ops_settings.penny_focus_card = 1; ?focus=1 previews it, ?focus=0 forces the full card.
+    $__focusOn = false; $__focusRows = [];
+    try {
+        $__fs = getDB()->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'penny_focus_card'");
+        $__fs->execute();
+        $__want = (string)($_GET['focus'] ?? '');
+        $__focusOn = $__want === '1' || ($__want !== '0' && (string)$__fs->fetchColumn() === '1');
+        if ($__focusOn) {
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyFocusService.php';
+            $__isAdm = function_exists('isAdmin') && isAdmin();
+            $__focusRows = (new PennyFocusService(getDB()))->rows($__pm, (float)($ps['gst_stuck'] ?? 0), $__isAdm && ($_GET['fresh'] ?? '') === '1', $__isAdm);
+            $__focusRows = array_values(array_filter($__focusRows, [PennyFocusService::class, 'validRow']));
+        }
+    } catch (Throwable $__e) { $__focusOn = false; error_log('Penny focus: ' . $__e->getMessage()); }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -132,6 +147,32 @@ $__team = [
         <?php endif; ?>
       </div>
 
+      <?php if ($__focusOn): ?>
+      <section class="mw-focus" aria-label="Three things for you">
+        <h3 class="mw-focus-h">Three things for you</h3>
+        <?php if (!$__focusRows): ?><p class="mw-focus-why">Nothing needs you right now.</p><?php endif; ?>
+        <ol class="mw-focus-list">
+          <?php foreach ($__focusRows as $__fr):
+              $__fk = (string)$__fr['kind'];
+              $__fl = $__fk === 'teach' ? 'Teach me' : ($__fk === 'month' ? 'Holds up ' . date('F', strtotime((string)$__fr['month'] . '-01')) : 'Money waiting');
+              $__fi = $__fk === 'teach' ? 'book-open' : ($__fk === 'month' ? 'calendar' : 'dollar-sign');
+              $__fu = $__fk === 'money' ? (string)($__fr['url'] ?? '') : '/crm/expenses_appstack.php?edit=' . (int)($__fr['expense_id'] ?? 0);
+          ?>
+          <li class="mw-focus-row is-<?= h($__fk) ?>">
+            <i class="mw-focus-ico" data-feather="<?= h($__fi) ?>" aria-hidden="true"></i>
+            <div class="mw-focus-body">
+              <span class="mw-focus-kind"><?= h($__fl) ?></span>
+              <span class="mw-focus-title"><?= h((string)$__fr['title']) ?></span>
+              <p class="mw-focus-why"><?= h((string)$__fr['why']) ?></p>
+            </div>
+            <?php if ($__fu !== ''): ?><a class="mw-focus-go" href="<?= h($__fu) ?>">Open</a><?php endif; ?>
+          </li>
+          <?php endforeach; ?>
+        </ol>
+      </section>
+      <details class="mw-penny-more">
+        <summary>Everything else — receipts to approve, bank lines, statements, checks</summary>
+      <?php endif; ?>
       <div class="mw-head-stats">
         <div class="mw-head-stat">
           <div class="mw-k">Waiting for you</div>
@@ -251,6 +292,7 @@ $__team = [
       <div class="mw-sc" id="mw-rb" hidden></div>
       <div class="mw-sc" id="mw-sc" hidden></div>
 
+      <?php if ($__focusOn): ?></details><?php endif; ?>
       <div class="mw-head-foot">
         <span>Learning from every approval: store locations · item names · your fuel &amp; EGO rules</span>
         <a class="btn btn-sm btn-success" href="/crm/expenses_appstack.php">All receipts →</a>

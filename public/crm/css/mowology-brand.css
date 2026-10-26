@@ -40886,3 +40886,22 @@ body.mw-books {
   .mw-mws-actions .mw-mws-btn--quiet { flex: 0 0 auto; }
 }
 @media (prefers-reduced-motion: reduce) { .mw-mws * { transition: none !important; animation: none !important; } }
+
+/* Penny's card — three things for you (Tim, 2026-10-26). Rows, hairlines, words with icons, 48 px targets (Ittai v1.2). */
+.mw-focus { margin: 14px 0 12px; }
+.mw-focus-h { font-size: .85rem; font-weight: 600; color: var(--mw-ink-700, #2f3a35); margin: 0 0 6px; }
+.mw-focus-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--mw-ink-200); }
+.mw-focus-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--mw-ink-200); }
+.mw-focus-ico { width: 20px; height: 20px; color: var(--mw-dark); margin-top: 2px; }
+.mw-focus-kind { display: block; font-size: .78rem; font-weight: 600; color: var(--mw-dark); }
+.mw-focus-title { display: block; font-size: 1rem; font-weight: 600; color: var(--mw-forest); }
+.mw-focus-why { margin: 2px 0 0; font-size: .9rem; line-height: 1.4; color: var(--mw-ink-700, #2f3a35); }
+.mw-focus-go { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; min-width: 72px; padding: 0 16px; border: 1px solid var(--mw-dark); border-radius: 8px; color: var(--mw-dark); font-weight: 600; text-decoration: none; background: transparent; }
+.mw-focus-go:hover, .mw-focus-go:focus-visible { background: var(--mw-light); color: var(--mw-forest); }
+.mw-penny-more { margin-top: 4px; }
+.mw-penny-more > summary { display: flex; align-items: center; min-height: 48px; cursor: pointer; font-weight: 600; color: var(--mw-ink-700, #2f3a35); }
+@media (max-width: 575px) {
+  .mw-focus-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .mw-focus-go { grid-column: 2; justify-self: start; }
+}
+
