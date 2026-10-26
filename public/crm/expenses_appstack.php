@@ -48,6 +48,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
            . '<script src="/crm/js/penny-approve.js?v=' . (@filemtime(__DIR__ . '/js/penny-approve.js') ?: '20261014') . '" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Offline / sync status banner -->
@@ -60,6 +61,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h1 class="mw-page-title">Expenses</h1>
+    <?php if ($canApprove): ?>
+    <a class="btn btn-sm btn-success" href="/crm/receipts-review_appstack.php" title="Check waiting receipts against the paper, the bank line and Penny's read">Review receipts</a>
+    <?php endif; ?>
     <?php if ($canSend): ?>
     <button type="button" class="btn btn-sm btn-outline-primary" onclick="showReceiptExportModal()" title="Bundle confirmed receipts into a ZIP, email it, and free up disk space">
         <i data-feather="archive" style="width:15px;height:15px;"></i> Export / Archive receipts
@@ -1471,6 +1475,13 @@ async function submitReceiptExport() {
                 <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
                     <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
                 </button>
+                <div class="btn-group" id="expPersonalGroup" style="display:none;">
+                    <button type="button" class="btn btn-outline-secondary" id="expPersonalBtn" onclick="markPersonalFromModal(null)"
+                            title="Personal: the whole receipt goes on the shareholder's account and no GST is claimed back">Personal</button>
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"
+                            aria-haspopup="true" aria-expanded="false" aria-label="Personal for another shareholder"></button>
+                    <div class="dropdown-menu dropdown-menu-right" id="expPersonalMenu"></div>
+                </div>
                 <?php endif; ?>
                 <?php if ($canSend): ?>
                 <button type="button" class="btn btn-success" id="expSendBtn" onclick="sendExpenseFromModal()" style="display:none;" title="Send to QuickBooks">
@@ -3874,6 +3885,9 @@ async function submitReceiptExport() {
             if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
             if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
             if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
+            var personalGrp = document.getElementById('expPersonalGroup');
+            if (personalGrp) personalGrp.style.display = (e.status === 'rejected' || e.status === 'forwarded' || e.forwarded_to_accounting) ? 'none' : '';
+            if (personalGrp && typeof window.mwPersonalRender === 'function') window.mwPersonalRender();
             // Once forwarded to accounting the header is read-only server-side — say so up
             // front instead of letting Save fail with an error toast.
             var isLocked = (e.status === 'forwarded' || !!e.forwarded_to_accounting);
@@ -3942,22 +3956,6 @@ async function submitReceiptExport() {
                 document.getElementById('matchConfidenceRow').style.display = 'none';
             }
 
-            // Printed on the receipt (receipt_facts, migration 1227): "12:22–12:39 · ticket 43176009 · ••1234"
-            var factsEl = document.getElementById('expFactsLine');
-            if (!factsEl) {
-                var factsAnchor = document.getElementById('matchConfidenceRow');
-                if (factsAnchor && factsAnchor.parentNode) {
-                    factsEl = document.createElement('div');
-                    factsEl.id = 'expFactsLine';
-                    factsEl.className = 'small text-muted mb-2';
-                    factsAnchor.parentNode.insertBefore(factsEl, factsAnchor);
-                }
-            }
-            if (factsEl) {
-                factsEl.textContent = e.receipt_facts_line ? '🧾 Printed: ' + e.receipt_facts_line : '';
-                factsEl.style.display = e.receipt_facts_line ? 'block' : 'none';
-            }
-
             // Anomaly detection display
             var anomalySection = document.getElementById('expAnomalySection');
             var anomalyContent = document.getElementById('expAnomalyContent');
@@ -4018,6 +4016,13 @@ async function submitReceiptExport() {
                 '<div class="text-muted small mb-2">No bank transaction linked yet.</div>' +
                 '<button type="button" class="btn btn-sm btn-outline-primary" onclick="mwFindExpenseMatch(' + e.id + ')">' +
                     '<i data-feather="search"></i> Find Match</button>';
+            // Look for it straight away when the receipt is opened (Tim, 2026-10-19) — once per opening, after the
+            // form has its amount and date; it only lists candidates, attaching is still a click.
+            window.__mwAutoMatched = window.__mwAutoMatched || {};
+            if (!window.__mwAutoMatched[e.id] || Date.now() - window.__mwAutoMatched[e.id] > 5000) {   // each opening, never a loop
+                window.__mwAutoMatched[e.id] = Date.now();
+                setTimeout(function () { if (document.getElementById('expMatchArea')) window.mwFindExpenseMatch(e.id); }, 150);
+            }
         }
         if (window.feather) feather.replace();
     }
@@ -4230,6 +4235,70 @@ async function submitReceiptExport() {
         if (!id) return;
         var ok = await window.approveExpense(parseInt(id));
         if (ok) $('#expenseModal').modal('hide');
+    };
+
+    // ── Personal (2026-10-19): the whole receipt on a shareholder's account, no GST claimed ──
+    // The first shareholder (1300, Tim) is the main button; the others are in its menu. Marks it
+    // through the gate (action:'mark_personal'), then Penny's approve window for an open receipt.
+    var personalChoices = null;
+    function personalLoadChoices() {
+        if (personalChoices) return Promise.resolve(personalChoices);
+        return fetch('/crm/api/expenses.php?action=personal_choices', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { personalChoices = (d && d.success && d.shareholders && d.shareholders.length) ? d.shareholders : [{ name: 'Shareholder', account: '1300' }]; return personalChoices; })
+            .catch(function () { return [{ name: 'Shareholder', account: '1300' }]; });
+    }
+    function personalRender() {
+        personalLoadChoices().then(function (list) {
+            var main = document.getElementById('expPersonalBtn'), menu = document.getElementById('expPersonalMenu');
+            if (!main || !menu) return;
+            main.textContent = 'Personal (' + list[0].name + ')';
+            menu.innerHTML = '';
+            list.slice(1).forEach(function (c) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'dropdown-item';
+                b.textContent = 'Personal (' + c.name + ')';
+                b.addEventListener('click', function () { window.markPersonalFromModal(c.account); });
+                menu.appendChild(b);
+            });
+            var split = menu.previousElementSibling;
+            if (split) split.style.display = list.length > 1 ? '' : 'none';
+        });
+    }
+    window.mwPersonalRender = personalRender;   // called when a receipt's window is filled in
+    window.markPersonalFromModal = async function (account) {
+        var id = parseInt(document.getElementById('expenseId').value, 10);
+        if (!id) return;
+        var grp = document.getElementById('expPersonalGroup');
+        if (grp && grp.getAttribute('data-busy') === '1') return;          // one mark at a time
+        var parts = grp ? grp.querySelectorAll('button') : [];
+        if (grp) grp.setAttribute('data-busy', '1');
+        Array.prototype.forEach.call(parts, function (b) { b.disabled = true; });
+        try {
+            var d = await withCSRFRetry(async function () {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_personal', csrf_token: CSRF, id: id, account: account || '' }),
+                });
+                var j = await r.json();
+                if (!j.success) throw new Error(j.error || 'Not marked personal');
+                return j;
+            });
+            var cat = document.getElementById('expAcctCategory');
+            if (cat) cat.value = 'Personal';
+            if (typeof mwToast === 'function') mwToast('Personal: charged to ' + d.shareholder.name + ' (' + d.shareholder.account + '), no GST claimed');
+            // The window is closed either way: what it holds (an old split, unsaved fields) is no longer
+            // the receipt, and a Save from it would put that back (review 2026-10-19).
+            $('#expenseModal').modal('hide');
+            var st = window._currentExpenseStatus;
+            if (st !== 'approved' && st !== 'forwarded') await window.approveExpense(id);
+            loadExpenses(currentPage);
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            if (grp) grp.removeAttribute('data-busy');
+            Array.prototype.forEach.call(parts, function (b) { b.disabled = false; });
+        }
     };
 
     window.rejectExpenseFromModal = function() {
@@ -6129,8 +6198,129 @@ async function submitReceiptExport() {
             rows += '<tr><td colspan="6" class="text-start py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
         }
 
+        // Saved lines of the open receipt: their shared-catalogue link, filled in after the table is drawn.
+        if (stored && !editableScope && typeof window.mwCatalogFill === 'function') setTimeout(window.mwCatalogFill, 0);
         return header + rows;
     }
+
+
+    // ── Shared catalogue on each saved line (ReceiptCatalogService, 2026-10-19) ─────
+    // Penny links lines by herself (a learned SKU / wording, an exact name); a likely product is asked
+    // as "Is this …?"; nothing alike → "Add to catalogue". Each answer teaches her the vendor's wording.
+    var mwCatFamilies = [], mwCatCanDecide = false, mwCatSeq = 0;
+    function mwCatHow(m) { return m === 'alias' ? 'Penny knew it' : (m === 'exact' ? 'matched by name' : (m === 'added' ? 'added by you' : 'confirmed')); }
+    function mwCatCell(id, c) {
+        if (!c || !c.eligible) return '';
+        var h = '<div class="mw-li-cat small mt-1" data-cat-line="' + id + '">';
+        if (!mwCatCanDecide) return c.product ? h + 'Catalogue: <strong>' + esc(c.product.name) + '</strong></div>' : '';
+        if (c.product) {
+            h += 'Catalogue: <strong>' + esc(c.product.name) + '</strong> <span class="text-muted">(' + esc(mwCatHow(c.match)) + ')</span>'
+               + ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">change</button>';
+        } else if (c.suggested) {
+            h += 'Is this <strong>' + esc(c.suggested.name) + '</strong>? '
+               + '<button type="button" class="btn btn-outline-success btn-sm py-0 px-2" data-cat-act="yes" data-cat-product="' + c.suggested.id + '">Yes</button> '
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="no">No</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">another one</button>';
+        } else {
+            h += (c.match === 'none' ? '<span class="text-muted">Not in the catalogue.</span> ' : '')
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="add">Add to catalogue</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">find it</button>';
+        }
+        return h + '<div data-cat-panel></div></div>';
+    }
+    function mwCatPaint(lines) {
+        var table = document.getElementById('expLineItemsTable');
+        if (!table || !lines) return;
+        Object.keys(lines).forEach(function (id) {
+            var row = table.querySelector('tr[data-li-id="' + id + '"]');
+            if (!row || !row.cells[0]) return;
+            var old = row.cells[0].querySelector('.mw-li-cat');
+            if (old) old.remove();
+            row.cells[0].insertAdjacentHTML('beforeend', mwCatCell(id, lines[id]));
+            var el = row.cells[0].querySelector('.mw-li-cat');
+            if (el) el._cat = lines[id];
+        });
+    }
+    window.mwCatalogFill = function () {
+        var id = parseInt((document.getElementById('expenseId') || {}).value || '0', 10);
+        if (!id) return;
+        fetch('/crm/api/expenses.php?action=catalog_lines&id=' + id, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.success && d.ready) { mwCatFamilies = d.families || []; mwCatCanDecide = !!d.can_decide; mwCatPaint(d.lines); } })
+            .catch(function () { /* the table stands without it */ });
+    };
+    async function mwCatPost(body) {
+        return withCSRFRetry(async function () {
+            var r = await fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify(Object.assign({ csrf_token: CSRF }, body)) });
+            var j = await r.json();
+            if (!j.success) throw new Error(j.error || j.message || 'Not saved');
+            return j;
+        });
+    }
+    document.addEventListener('click', async function (ev) {
+        var b = ev.target.closest('[data-cat-act]');
+        if (!b) return;
+        var box = b.closest('.mw-li-cat');
+        if (!box) return;
+        var line = parseInt(box.getAttribute('data-cat-line'), 10), act = b.getAttribute('data-cat-act');
+        var panel = box.querySelector('[data-cat-panel]'), c = box._cat || {};
+        if (act === 'find') {
+            panel.innerHTML = '<div class="d-flex mt-1" style="gap:6px"><input type="search" class="form-control form-control-sm" data-cat-q placeholder="Search the catalogue" aria-label="Search the catalogue"></div><div data-cat-results></div>';
+            var q = panel.querySelector('[data-cat-q]'), t = null;
+            q.value = (c.add && c.add.name) || '';
+            var run = function () {
+                var my = ++mwCatSeq, out = panel.querySelector('[data-cat-results]');
+                fetch('/crm/api/expenses.php?action=catalog_search&q=' + encodeURIComponent(q.value), { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () { return { results: [], failed: true }; })
+                    .then(function (d) {
+                        if (my !== mwCatSeq || !out.isConnected) return;               // an older search answering late
+                        if (d && d.failed) { out.innerHTML = '<div class="text-danger mt-1">The search failed — try again.</div>'; return; }
+                        var res = (d && d.results) || [];
+                        panel.querySelector('[data-cat-results]').innerHTML = res.length ? res.map(function (x) {
+                            return '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 mt-1 me-1" data-cat-act="pick" data-cat-product="' + x.id + '">' + esc(x.name) + '</button>';
+                        }).join('') : '<div class="text-muted mt-1">Nothing like that yet — use Add to catalogue.</div>';
+                    });
+            };
+            q.addEventListener('input', function () { clearTimeout(t); t = setTimeout(run, 300); });
+            q.focus(); if (q.value) run();
+            return;
+        }
+        if (act === 'add') {
+            var opts = mwCatFamilies.map(function (f) { return '<option value="' + esc(f.slug) + '"' + (c.add && c.add.family === f.slug ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
+            panel.innerHTML = '<div class="d-flex flex-wrap mt-1" style="gap:6px">'
+                + '<input type="text" class="form-control form-control-sm" style="max-width:260px" data-cat-name aria-label="Product name" value="' + esc((c.add && c.add.name) || '') + '">'
+                + '<input type="text" class="form-control form-control-sm" style="max-width:140px" data-cat-brand aria-label="Brand (optional)" placeholder="Brand (optional)">'
+                + '<select class="form-control form-control-sm" style="max-width:180px" data-cat-family aria-label="Kind of product">' + opts + '</select>'
+                + '<button type="button" class="btn btn-success btn-sm" data-cat-act="save">Add</button></div>';
+            var nm = panel.querySelector('[data-cat-name]');
+            if (nm) nm.focus();
+            return;
+        }
+        var body = { line_id: line };
+        if (act === 'yes' || act === 'pick') { body.action = 'catalog_confirm'; body.product_id = parseInt(b.getAttribute('data-cat-product'), 10); }
+        else if (act === 'no') body.action = 'catalog_dismiss';
+        else if (act === 'save') {
+            body.action = 'catalog_add';
+            body.name = (panel.querySelector('[data-cat-name]') || {}).value || '';
+            body.brand = (panel.querySelector('[data-cat-brand]') || {}).value || '';
+            body.family = (panel.querySelector('[data-cat-family]') || {}).value || '';
+        } else return;
+        if (box.getAttribute('data-busy') === '1') return;             // Yes and No can't both go
+        box.setAttribute('data-busy', '1');
+        var all = box.querySelectorAll('button');
+        Array.prototype.forEach.call(all, function (x) { x.disabled = true; });
+        try {
+            var d = await mwCatPost(body);
+            mwCatPaint(d.lines);
+            if (typeof mwToast === 'function' && d.product) mwToast('Catalogue: ' + d.product.name + ' — Penny will link it by herself next time');
+        } catch (e) {
+            box.removeAttribute('data-busy');
+            Array.prototype.forEach.call(all, function (x) { x.disabled = false; });
+            alert('Error: ' + e.message);
+        }
+    });
 
     // ── Product Linking ──────────────────────────────────────────
     var activePopover = null;
@@ -7230,7 +7420,8 @@ async function submitReceiptExport() {
         if (!s) return '';
         var div = document.createElement('div');
         div.textContent = s;
-        return div.innerHTML;
+        // Quotes too: esc() also fills attribute values (title="…", value="…") — review 2026-10-19.
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // ── Vendor Location Management ──────────────────────────────────────────
