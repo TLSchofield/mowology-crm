@@ -28,7 +28,9 @@
     "native_field_tools": true,
     "native_invoice": true,
     "native_trip_report": true,
-    "native_plants": true
+    "native_plants": true,
+    "native_signup": true,
+    "native_crew_schedule": true
   },
   "ios": {
     "version": "1.3.56",

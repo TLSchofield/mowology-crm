@@ -69,9 +69,11 @@ tls_up() {
   if [ ! -f "$TLS/ca.pem" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TLS/ca.key" -out "$TLS/ca.pem" -days 3650 -subj "/CN=Ittai Local Test CA" 2>/dev/null
   fi
-  if [ ! -f "$TLS/site.pem" ] || ! openssl x509 -in "$TLS/site.pem" -noout -ext subjectAltName 2>/dev/null | grep -q "DNS:$HOST"; then
+  # One certificate for every local business: the wildcard covers a second tenant (e.g. an unclaimed one for
+  # testing sign-up) without re-issuing and re-pushing the CA (2026-10-26).
+  if [ ! -f "$TLS/site.pem" ] || ! openssl x509 -in "$TLS/site.pem" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:\*\.ittai\.ca'; then
     openssl req -newkey rsa:2048 -nodes -keyout "$TLS/site.key" -out "$TLS/site.csr" -subj "/CN=$HOST" 2>/dev/null
-    printf 'subjectAltName=DNS:%s,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' "$HOST" > "$TLS/ext.cnf"
+    printf 'subjectAltName=DNS:%s,DNS:*.ittai.ca,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' "$HOST" > "$TLS/ext.cnf"
     openssl x509 -req -in "$TLS/site.csr" -CA "$TLS/ca.pem" -CAkey "$TLS/ca.key" -CAcreateserial -out "$TLS/site.pem" -days 825 -extfile "$TLS/ext.cnf" 2>/dev/null
     chmod 600 "$TLS"/*.key
     proxy_stop

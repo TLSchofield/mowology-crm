@@ -118,15 +118,18 @@ final class BusinessIdentityService
     {$s=$this->db->prepare('SELECT gst_registration FROM business_settings WHERE id = ?');$s->execute([1]);$v=$s->fetchColumn();return $v===false?null:(string)$v;}
     private function upsert(array $values): void
     {
-        $this->db->beginTransaction();
+        // A caller such as mobile sign-up may already own the transaction. Join it so the
+        // identity write commits or rolls back with the rest of that operation.
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
         try{
             $lock=$this->db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql'?' FOR UPDATE':'';
             $s=$this->db->prepare('SELECT id FROM business_identity WHERE id = ?'.$lock);$s->execute([1]);$exists=(bool)$s->fetchColumn();$values['updated_by']=$this->userId;
             if(!$exists){$columns=array_merge(['id'],array_keys($values));$params=array_merge([1],array_values($values));
                 $sql='INSERT INTO business_identity (`'.implode('`,`',$columns).'`) VALUES ('.implode(',',array_fill(0,count($columns),'?')).')';}
             else{$sets=[];foreach(array_keys($values)as$key)$sets[]='`'.$key.'` = ?';$sql='UPDATE business_identity SET '.implode(',',$sets).', updated_at = CURRENT_TIMESTAMP WHERE id = 1';$params=array_values($values);}
-            $this->db->prepare($sql)->execute($params);$this->db->commit();
-        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+            $this->db->prepare($sql)->execute($params);if($ownsTransaction)$this->db->commit();
+        }catch(Throwable $e){if($ownsTransaction&&$this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     private function publicIdentity(array $row): array
     {

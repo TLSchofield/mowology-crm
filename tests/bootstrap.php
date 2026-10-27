@@ -55,6 +55,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitReviewSer
 require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
 require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';
+require_once __DIR__ . '/../app/Core/Tenant.php';
+require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
@@ -449,6 +451,9 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboSyncService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboExpenseSyncService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
+require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresenter.php';
+require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingStepService.php';
+require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService.php';
 // Penny Payroll (2026-10-21): CRA / BC rules by pay date
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayrollRules.php';

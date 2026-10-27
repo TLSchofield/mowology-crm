@@ -119,3 +119,12 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    each step owned by a head; order/skips in ops_settings), plus the planned Penny-first unlock
    (`docs/plans/2026-10-24-claudia-onboarding-penny-first.md`). Sign-up = create the business + owner login, then
    the same steps, on the phone — not a second onboarding.
+   **Built 2026-10-26 (both halves, local only).** App: `codex/native` 9776382…efcf6a9 (Codex builds 24/24b, behind
+   `android.native_signup`). Server: `public/api/auth/signup.php` (claims a pre-provisioned, unclaimed business — owner
+   email must match, claimed = `ops_settings tenant_claimed_at` or the owner has signed in; 2–60-char name),
+   `public/api/onboarding/map.php` + `step.php` (JWT; `SignUpService`, `OnboardingStepService`,
+   `OnboardingApiPresenter`; spec `docs/plans/2026-10-26-signup-onboarding-api-codex-spec.md`). Walked end to end
+   against an unclaimed local tenant (`fern`). **Owed:** deploy the three endpoints + the `native_signup` /
+   `native_crew_schedule` keys in the production feed (both OFF); `user.business_name` in `token.php`; run the real
+   app through sign-up on the emulator (rebuild with `-PtenantTestHost=fern.ittai.ca`); Tim's open calls — crew
+   fifth tab, search scope, map tiles.

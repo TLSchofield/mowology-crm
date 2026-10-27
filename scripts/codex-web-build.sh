@@ -107,7 +107,10 @@ mkdir "$LOCK" 2>/dev/null || { log "another codex-web-build run is active ($LOCK
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 if [ -e "$REAL/.git" ]; then
   log "resetting the scratch worktree to HEAD"
-  git -C "$REAL" checkout -q --detach "$(git -C "$REPO" rev-parse HEAD)" >> "$OUT/run.log" 2>&1 \
+  # Discard what the last run left (its "live copies" commit step may not have run) BEFORE the checkout —
+  # git refuses to switch over local changes, which stopped every run after an interrupted one (2026-10-26).
+  git -C "$REAL" reset -q --hard && git -C "$REAL" clean -qfd -e vendor \
+    && git -C "$REAL" checkout -q --detach "$(git -C "$REPO" rev-parse HEAD)" >> "$OUT/run.log" 2>&1 \
     && git -C "$REAL" reset -q --hard && git -C "$REAL" clean -qfd -e vendor || { log "could not reset $REAL"; exit 3; }
 else
   log "creating the scratch worktree (once)"
