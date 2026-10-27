@@ -134,7 +134,7 @@ emu_up() {
 # ── 4. Build + install ─────────────────────────────────────────────────────────
 build() {
   say "Building tenanttest DEBUG apk for $HOST …"
-  ( cd "$ANDROID_DIR" && ./android/gradlew -p android assembleTenanttestDebug "-PtenantTestHost=$HOST" ${GRADLE_OFFLINE:+--offline} -q )
+  ( cd "$ANDROID_DIR" && ./android/gradlew -p android assembleTenanttestDebug "-PtenantTestHost=$HOST" "-PtenantTestName=$TENANT_NAME" ${GRADLE_OFFLINE:+--offline} -q )
   ls -la "$APK"
 }
 install_app() {
