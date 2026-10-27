@@ -110,3 +110,7 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    strip with MON/TUE day names; each job card shows est. arrival time + distance, the service tag pill, "First
    visit" / "Last done N days ago", the client and the crew names, "n visit(s)", a ··· menu. Android today: eight
    text tabs, no arrival estimate, plainer cards, a "Display" link and a "Web app" button in the header.
+   Map mode too (iOS screenshot 2026-10-26): the list/map toggle in the header, numbered pins with the address
+   label, the current-position dot, a collapsible stop card (time, distance, "1/3", name, address, last-visit
+   line) with **Directions** (filled) and **Move** (tonal) buttons, locate-me button — Android's map icon must
+   open the same thing.
