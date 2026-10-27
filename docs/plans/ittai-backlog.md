@@ -119,3 +119,16 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    each step owned by a head; order/skips in ops_settings), plus the planned Penny-first unlock
    (`docs/plans/2026-10-24-claudia-onboarding-penny-first.md`). Sign-up = create the business + owner login, then
    the same steps, on the phone — not a second onboarding.
+
+### Status 2026-10-26 (evening) — Codex builds 24 + 24b on `codex/native` (9776382, 9bfaa3c), checked on the emulator
+Done in the tenanttest flavor: Ittai symbol launcher + splash; sign-in shows the business name, "Crew app", neutral note, brand-indigo button; per-flavor
+generated tokens (`ittai` neutral tenant, no Mowology green); five icon tabs (Schedule · Time Clock · Search · Receipts · AI Office/Account); crew never
+requests team-mobile; iPhone-style stop cards (est. arrival · distance, service pill, history line, status, client, crew names for admins, n visits, ⋮ menu);
+week-strip chips; map with numbered pins, address chips, position dot, My location, collapsible carousel with Directions / Move (tonal); sign-up screen and
+onboarding map behind `android.native_signup` (server contract named in docs/plans/2026-10-26-android-ittai-crew-app-codex-spec.md §4 — NOT built).
+Left over (small, from the emulator run):
+- The job-22 header week strip still shows ONE-letter day names (M T W); Tim asked for MON/TUE. One-line change in the native header strip when `native_crew_schedule` is on.
+- Map: address chips overlap neighbouring pins on dense fake data; "My location" is a text button, not an icon; no map tiles (no SDK/key in the offline build — Tim: Google Maps key or osmdroid?).
+- "⋮" / "⌄" are text glyphs (render fine in Inter on the emulator); could become drawables like the tab icons.
+- Seeded `crew`/`manager`/`admin` passwords in `scripts/local/.credentials.local` no longer matched the DB (401); the crew one was re-hashed locally to the recorded value. Re-check after the next `seed.php` run.
+- Server side still owed: `POST /api/auth/signup.php` (claim an unclaimed pre-provisioned tenant), `GET/POST /api/onboarding/map.php`, `POST /api/onboarding/step.php`, `user.business_name` in token.php — second spec.
