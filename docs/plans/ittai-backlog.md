@@ -124,7 +124,11 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    email must match, claimed = `ops_settings tenant_claimed_at` or the owner has signed in; 2–60-char name),
    `public/api/onboarding/map.php` + `step.php` (JWT; `SignUpService`, `OnboardingStepService`,
    `OnboardingApiPresenter`; spec `docs/plans/2026-10-26-signup-onboarding-api-codex-spec.md`). Walked end to end
-   against an unclaimed local tenant (`fern`). **Owed:** deploy the three endpoints + the `native_signup` /
-   `native_crew_schedule` keys in the production feed (both OFF); `user.business_name` in `token.php`; run the real
-   app through sign-up on the emulator (rebuild with `-PtenantTestHost=fern.ittai.ca`); Tim's open calls — crew
-   fifth tab, search scope, map tiles.
+   against an unclaimed local tenant (`fern`). **Deployed 2026-10-27 (Tim's go):** the three endpoints, the three
+   services, `JwtService::generateMobileJwt`, the transaction-joining `BusinessIdentityService::upsert`, and the feed
+   keys `native_signup` / `native_crew_schedule` both OFF in `public/crm/downloads/app-version.json`. Checked live:
+   mowology.ca → 404 not_available; testcompany.ittai.ca → 400 field messages, 409 taken, 405, 401 without a token.
+   OPcache reset still owed (admin click) before the first real sign-up — the two edited helpers are only reached on a
+   successful claim. **Owed:** `user.business_name` in `token.php`; run the real app through sign-up on the emulator
+   (rebuild with `-PtenantTestHost=<fresh unclaimed key>.ittai.ca`); Tim's open calls — crew fifth tab, search scope,
+   map tiles.
