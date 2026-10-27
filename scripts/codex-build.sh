@@ -27,6 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # resolved BEFORE t
 
 NAME="${1:?usage: codex-build.sh <name> <task-file> [<reference-dir>]}"
 TASK="${2:?task file}"
+case "$TASK" in /*) ;; *) TASK="$PWD/$TASK" ;; esac   # resolved BEFORE the cd into the worktree (2026-10-26: a relative task path was read from the wrong dir and Codex got an empty brief)
 REF="${3:-}"
 WT="$HOME/Projects/mowology-android-codex"
 OUT="$HOME/.mowology-codex/builds/$NAME"
