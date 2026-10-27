@@ -23,6 +23,7 @@
 # Exit codes: 0 committed · 2 tests still failing (left uncommitted for Claude) · 3 bad setup.
 # =============================================================================
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # resolved BEFORE the cd into the worktree (2026-10-26: a relative dirname broke the source line)
 
 NAME="${1:?usage: codex-build.sh <name> <task-file> [<reference-dir>]}"
 TASK="${2:?task file}"
@@ -71,7 +72,7 @@ gradle_check() {   # → $OUT/test-<n>.txt; returns 0 when tests + compile pass
 
 # Codex usage used up mid-build (scripts/lib/codex-run.sh exit 75): stop, leave the worktree for Claude, and say so —
 # the chat hands the rest to the web-builder / code-reviewer Claude agents.
-. "$(dirname "$0")/lib/codex-run.sh"
+. "$SCRIPT_DIR/lib/codex-run.sh"
 codex_call() {     # <logname> <codex exec args...>
   local rc=0
   CODEX_CALLER="codex-build.sh $NAME" codex_run "$OUT/$1" "${@:2}" || rc=$?
