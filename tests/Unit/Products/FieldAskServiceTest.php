@@ -132,7 +132,8 @@ class FieldAskServiceTest extends TestCase
     public function test_property_manager_wins_when_the_building_is_managed(): void
     {
         // Tisdall 2026-10-27: a managed building's Ask first went to the caretaker on site; the
-        // manager decides and pays, so they get it (same contact invoices route to).
+        // manager decides, so they get it — the firm's PRIMARY contact (who signs), never its
+        // accounts contact (who invoices go to).
         $onsite  = $this->person(31, 'Gaby', 'gaby@example.com', 'onsite');
         $site    = $this->person(4, 'Ron', 'ron@example.com', 'site');
         $manager = $this->person(77, 'Pat', 'pat@manager.example.com', 'manager');

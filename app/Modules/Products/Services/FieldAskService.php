@@ -227,11 +227,10 @@ class FieldAskService
     }
 
     /**
-     * The management firm's contact for a PM-managed property, by the firm's own routing rule
-     * (billing contact first, else primary contact — the InvoiceRouting default; 'primary_contact'
-     * flips the order). Null when the property is not managed, or the firm has no contact with an
-     * email. An ask needs a contact row (consent, learning), so a firm routed to a bare
-     * billing_email ('email_address') still gets its billing/primary contact here, unlike invoices.
+     * The management firm's PRIMARY contact for a PM-managed property — the manager who approves
+     * work. Deliberately not the billing contact (that is who invoices go to, InvoiceRouting).
+     * Null when the property is not managed or the firm has no primary contact with an email;
+     * recipients() then falls back to the property's on-site / site contact.
      */
     public function managerContact(int $propertyId): ?array
     {
@@ -249,10 +248,12 @@ class FieldAskService
             if (!$mgr) {
                 return null;
             }
-            $order = ($mgr['invoice_routing_method'] ?? '') === 'primary_contact'
-                ? [$mgr['primary_contact_id'], $mgr['billing_contact_id']]
-                : [$mgr['billing_contact_id'], $mgr['primary_contact_id']];
-            foreach (array_filter($order) as $cid) {
+            // Asks and quotes go to the person who DECIDES — the firm's primary contact (the
+            // property manager who signs quotes), never its accounts contact: invoices route to
+            // billing, approvals do not (Tim, Tisdall 2026-10-27: "Jodi is the accounts, Ron is the
+            // property manager that signs the quotes"). No primary contact with an email → null,
+            // and the caller falls back to the property's own site / on-site contact.
+            foreach (array_filter([$mgr['primary_contact_id']]) as $cid) {
                 $c = $this->db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE id = ? LIMIT 1");
                 $c->execute([(int)$cid]);
                 $row = $c->fetch(PDO::FETCH_ASSOC);
