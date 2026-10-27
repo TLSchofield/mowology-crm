@@ -105,3 +105,8 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
 5. Bottom tab bar on the day screen has 8 tabs with labels wrapped letter by letter ("To da y", "Se arc h") —
    unreadable on a Pixel-6-width screen.
 6. Crew gets 403 on `team-mobile?mode=brief/brains` at every open (expected for crew, but the app asks anyway).
+7. **Android day screen must match the iOS Schedule screen** (Tim, with the iPhone screenshot 2026-10-26: "they are
+   meant to be similar/same"). iOS: five icon tabs — Schedule · Time Clock · Search · Receipts · AI Office; week
+   strip with MON/TUE day names; each job card shows est. arrival time + distance, the service tag pill, "First
+   visit" / "Last done N days ago", the client and the crew names, "n visit(s)", a ··· menu. Android today: eight
+   text tabs, no arrival estimate, plainer cards, a "Display" link and a "Web app" button in the header.
