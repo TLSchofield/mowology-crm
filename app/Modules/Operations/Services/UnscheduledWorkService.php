@@ -396,9 +396,15 @@ class UnscheduledWorkService
         if (!$v || (string)$v['scheduled_date'] === $toDate) return false;
         $crew = $v['assigned_crew_id'] ?? $v['default_crew_id'];
         $stop = ensureCalendarStop((int)$v['property_id'], $toDate, $crew !== null ? (int)$crew : null);
-        $u = $this->db->prepare("UPDATE job_visits SET scheduled_date = ?, stop_id = ? WHERE id = ? AND status <> 'cancelled'");
-        $u->execute([$toDate, $stop ?: null, $visitId]);
-        if ($u->rowCount() === 0) return false;
+        // Finished work stays on its day (VisitCarryGuard, 2026-10-27): a visit with an After photo is
+        // completed where it is and a fresh visit goes on $toDate instead of carrying the photos along.
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitCarryGuard.php';
+        $fresh = (new VisitCarryGuard($this->db))->splitIfFinished($visitId, $toDate, $stop ?: null);
+        if ($fresh === null) {
+            $u = $this->db->prepare("UPDATE job_visits SET scheduled_date = ?, stop_id = ? WHERE id = ? AND status <> 'cancelled'");
+            $u->execute([$toDate, $stop ?: null, $visitId]);
+            if ($u->rowCount() === 0) return false;
+        }
         if (class_exists('VisitLifecycleService')) {
             foreach (array_filter([(int)$v['stop_id'], (int)$stop]) as $sid) {
                 try { VisitLifecycleService::propagateStopStatus($sid); } catch (Throwable $e) { /* catches up later */ }

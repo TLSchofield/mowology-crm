@@ -294,6 +294,10 @@ class VisitLifecycleService
 
             require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
             (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+            if ($userId) {                                                     // single-operator mode: the owner's heart also approves the pair (after the reply)
+                require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+                MiaHeartFlow::schedule($visitId, (int)$userId);
+            }
         } catch (Throwable $e) {
             // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
             error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());
@@ -654,6 +658,13 @@ class VisitLifecycleService
             // Ensure stop exists for new date
             $crewId = $visit['assigned_crew_id'] ?? $plan['default_crew_id'];
             $newStopId = ensureCalendarStop((int)$plan['property_id'], $newDate, $crewId ? (int)$crewId : null);
+
+            // Finished work stays on its day (VisitCarryGuard, 2026-10-27): a visit that already has an
+            // After photo is completed here and a fresh visit is created on the new date instead.
+            require_once __DIR__ . '/VisitCarryGuard.php';
+            if ((new VisitCarryGuard($db))->splitIfFinished($visitId, $newDate, $newStopId ? (int)$newStopId : null) !== null) {
+                return true;
+            }
 
             // Update visit — always update scheduled_date; only update stop_id if a valid stop was found
             $built = self::buildMoveVisitSet($newDate, (int)$newStopId, $newTimeStart);
