@@ -114,3 +114,8 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    label, the current-position dot, a collapsible stop card (time, distance, "1/3", name, address, last-visit
    line) with **Directions** (filled) and **Move** (tonal) buttons, locate-me button — Android's map icon must
    open the same thing.
+   **Sign-up must flow into the EXISTING onboarding path** (Tim, 2026-10-26): `app/Modules/Onboarding/Services/
+   OnboardingService.php` — Name → Company → QuickBooks → Your books → Accountant → Done (`/crm/onboarding/`,
+   each step owned by a head; order/skips in ops_settings), plus the planned Penny-first unlock
+   (`docs/plans/2026-10-24-claudia-onboarding-penny-first.md`). Sign-up = create the business + owner login, then
+   the same steps, on the phone — not a second onboarding.
