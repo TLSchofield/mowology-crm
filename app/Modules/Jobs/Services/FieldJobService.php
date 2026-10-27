@@ -188,35 +188,41 @@ class FieldJobService
      * New contact + property (pinned at the crew's GPS fix) + job. The contact is flagged for the
      * office to review — a name typed on a phone in a driveway is a starting point, not a record.
      */
+    /**
+     * A new client with one property, no job (the crew app's "New client" row, 2026-10-27).
+     * Same fields as create_client_job minus the service; the office reviews it afterwards.
+     */
+    public function createClient(array $input, string $createdBy): array
+    {
+        if (($missing = self::missingForClient($input)) !== null) {
+            return ['success' => false, 'status' => 400, 'error' => $missing];
+        }
+        $made = $this->createContactWithProperty($input, $createdBy);
+        if (empty($made['success'])) {
+            return $made;
+        }
+        return [
+            'success'      => true,
+            'contact_id'   => $made['contact_id'],
+            'property_id'  => $made['property_id'],
+            'contact_name' => trim(trim((string)$input['first_name']) . ' ' . trim((string)($input['last_name'] ?? ''))),
+            'address'      => trim((string)$input['property_address']),
+            'city'         => self::cityOrDefault($input),
+        ];
+    }
+
     public function createClientJob(array $input, int $userId, string $createdBy): array
     {
         if (($missing = self::missingForJob($input, true)) !== null) {
             return ['success' => false, 'status' => 400, 'error' => $missing];
         }
 
-        $lat = isset($input['lat']) && $input['lat'] !== '' ? (float)$input['lat'] : null;
-        $lng = isset($input['lng']) && $input['lng'] !== '' ? (float)$input['lng'] : null;
-
-        $contactId = (new ContactService($this->db))->createContact([
-            'first_name'               => trim((string)$input['first_name']),
-            'last_name'                => trim((string)($input['last_name'] ?? '')),
-            'phone'                    => trim((string)($input['phone'] ?? '')),
-            'preferred_contact_method' => 'phone',
-            'notes'                    => 'Created in the field by ' . ($createdBy !== '' ? $createdBy : 'crew') . ' — please review.',
-            'property_address'         => trim((string)$input['property_address']),
-            'property_city'            => trim((string)($input['property_city'] ?? 'Vancouver')) ?: 'Vancouver',
-            'property_postal_code'     => trim((string)($input['property_postal_code'] ?? '')),
-            'property_latitude'        => $lat,
-            'property_longitude'       => $lng,
-        ]);
-
-        // The brand-new contact has exactly one property — fetch its id.
-        $pStmt = $this->db->prepare("SELECT id FROM properties WHERE site_contact_id = ? ORDER BY id DESC LIMIT 1");
-        $pStmt->execute([$contactId]);
-        $propertyId = (int)$pStmt->fetchColumn();
-        if ($propertyId <= 0) {
-            return ['success' => false, 'status' => 500, 'error' => 'Client saved but property could not be created.'];
+        $made = $this->createContactWithProperty($input, $createdBy);
+        if (empty($made['success'])) {
+            return $made;
         }
+        $contactId  = $made['contact_id'];
+        $propertyId = $made['property_id'];
 
         $result = createJobPlan(self::buildPlanData($input, $propertyId, $userId, date('Y-m-d')), $userId);
         if (empty($result['success'])) {
@@ -231,7 +237,49 @@ class FieldJobService
         ];
     }
 
-    /** Route one POSTed action. Shared by the session and JWT endpoints. */
+    /** "Name and address are required." — the create_client rule (no service needed). */
+    public static function missingForClient(array $input): ?string
+    {
+        if (trim((string)($input['first_name'] ?? '')) === '' || trim((string)($input['property_address'] ?? '')) === '') {
+            return 'Name and address are required.';
+        }
+        return null;
+    }
+
+    public static function cityOrDefault(array $input): string
+    {
+        return trim((string)($input['property_city'] ?? 'Vancouver')) ?: 'Vancouver';
+    }
+
+    /** The contact + its one property, shared by create_client and create_client_job. */
+    private function createContactWithProperty(array $input, string $createdBy): array
+    {
+        $lat = isset($input['lat']) && $input['lat'] !== '' ? (float)$input['lat'] : null;
+        $lng = isset($input['lng']) && $input['lng'] !== '' ? (float)$input['lng'] : null;
+
+        $contactId = (new ContactService($this->db))->createContact([
+            'first_name'               => trim((string)$input['first_name']),
+            'last_name'                => trim((string)($input['last_name'] ?? '')),
+            'phone'                    => trim((string)($input['phone'] ?? '')),
+            'preferred_contact_method' => 'phone',
+            'notes'                    => 'Created in the field by ' . ($createdBy !== '' ? $createdBy : 'crew') . ' — please review.',
+            'property_address'         => trim((string)$input['property_address']),
+            'property_city'            => self::cityOrDefault($input),
+            'property_postal_code'     => trim((string)($input['property_postal_code'] ?? '')),
+            'property_latitude'        => $lat,
+            'property_longitude'       => $lng,
+        ]);
+
+        // The brand-new contact has exactly one property — fetch its id.
+        $pStmt = $this->db->prepare("SELECT id FROM properties WHERE site_contact_id = ? ORDER BY id DESC LIMIT 1");
+        $pStmt->execute([$contactId]);
+        $propertyId = (int)$pStmt->fetchColumn();
+        if ($propertyId <= 0) {
+            return ['success' => false, 'status' => 500, 'error' => 'Client saved but property could not be created.'];
+        }
+        return ['success' => true, 'contact_id' => $contactId, 'property_id' => $propertyId];
+    }
+
     public function handle(string $action, array $input, int $userId, string $createdBy): array
     {
         switch ($action) {
@@ -241,6 +289,8 @@ class FieldJobService
                 return $this->createJob((int)($input['property_id'] ?? 0), $input, $userId);
             case 'create_client_job':
                 return $this->createClientJob($input, $userId, $createdBy);
+            case 'create_client':
+                return $this->createClient($input, $createdBy);
             default:
                 return ['success' => false, 'status' => 400, 'error' => 'Unknown action.'];
         }

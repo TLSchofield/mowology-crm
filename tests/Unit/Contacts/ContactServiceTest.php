@@ -65,6 +65,53 @@ class ContactServiceTest extends TestCase
         $svc->addNote(1, 'Some note', 'not_a_valid_type', 5);
     }
 
+    // ── addNoteForProperty (crew "Add a note") ───────────────────────────────
+
+    /** @test */
+    public function addNoteForProperty_rejects_empty_or_long_notes_without_touching_the_db(): void
+    {
+        $pdo = $this->mockPdo();
+        $pdo->expects($this->never())->method('prepare');
+        $svc = new ContactService($pdo);
+
+        $empty = $svc->addNoteForProperty(7, "  \n ", 'general', 1);
+        $this->assertFalse($empty['success']);
+        $this->assertSame(400, $empty['status']);
+
+        $long = $svc->addNoteForProperty(7, str_repeat('x', ContactService::NOTE_MAX_CHARS + 1), 'general', 1);
+        $this->assertFalse($long['success']);
+        $this->assertSame(400, $long['status']);
+
+        $noProperty = $svc->addNoteForProperty(0, 'Gate code 1234', 'general', 1);
+        $this->assertSame(400, $noProperty['status']);
+    }
+
+    /** @test */
+    public function addNoteForProperty_is_404_when_the_property_has_no_contact(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt(0);
+        $pdo->expects($this->once())->method('prepare')->with($this->stringContains('FROM properties'))->willReturn($stmt);
+
+        $res = (new ContactService($pdo))->addNoteForProperty(7, 'Gate code 1234', 'general', 1);
+        $this->assertFalse($res['success']);
+        $this->assertSame(404, $res['status']);
+    }
+
+    /** @test */
+    public function addNoteForProperty_resolves_the_site_contact_and_inserts(): void
+    {
+        $pdo    = $this->mockPdo();
+        $lookup = $this->mockStmt(42);
+        $insert = $this->mockStmt();
+        $pdo->method('prepare')->willReturnCallback(fn(string $sql) => str_contains($sql, 'FROM properties') ? $lookup : $insert);
+        $insert->expects($this->once())->method('execute')->with([42, 'issue', 'Dog loose in the yard', 5]);
+
+        $res = (new ContactService($pdo))->addNoteForProperty(7, '  Dog loose in the yard ', 'issue', 5);
+        $this->assertTrue($res['success']);
+        $this->assertSame(42, $res['contact_id']);
+    }
+
     // ── updatePropertyCoords ─────────────────────────────────────────────────
 
     /** @test */
