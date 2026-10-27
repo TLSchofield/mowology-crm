@@ -214,10 +214,57 @@ class FieldAskService
             $onsite = null;
         }
 
-        $out['ask']   = self::pickAskRecipient($onsite, $site);
-        $out['quote'] = $site;
-        $out['same']  = $out['ask'] && $site && $out['ask']['contact_id'] === $site['contact_id'];
+        // A building managed by a firm (properties.property_manager_id): the manager decides and
+        // pays, so Ask first and Send quote both go to the manager's contact — the same contact
+        // invoices already route to (InvoiceRouting). The caretaker on site is not the buyer
+        // (Tisdall, 2026-10-27: a dangerous-tree note had nowhere to go but the site contact).
+        $manager = $this->managerContact($propertyId);
+
+        $out['ask']   = self::pickAskRecipient($onsite, $site, $manager);
+        $out['quote'] = $manager ?: $site;
+        $out['same']  = $out['ask'] && $out['quote'] && $out['ask']['contact_id'] === $out['quote']['contact_id'];
         return $out;
+    }
+
+    /**
+     * The management firm's contact for a PM-managed property, by the firm's own routing rule
+     * (billing contact first, else primary contact — the InvoiceRouting default; 'primary_contact'
+     * flips the order). Null when the property is not managed, or the firm has no contact with an
+     * email. An ask needs a contact row (consent, learning), so a firm routed to a bare
+     * billing_email ('email_address') still gets its billing/primary contact here, unlike invoices.
+     */
+    public function managerContact(int $propertyId): ?array
+    {
+        try {
+            $s = $this->db->prepare("
+                SELECT mgr.id AS company_id, mgr.company_name, mgr.billing_contact_id, mgr.primary_contact_id,
+                       mgr.invoice_routing_method
+                FROM properties p
+                JOIN companies mgr ON mgr.id = p.property_manager_id
+                WHERE p.id = ? AND p.property_manager_id IS NOT NULL
+                LIMIT 1
+            ");
+            $s->execute([$propertyId]);
+            $mgr = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$mgr) {
+                return null;
+            }
+            $order = ($mgr['invoice_routing_method'] ?? '') === 'primary_contact'
+                ? [$mgr['primary_contact_id'], $mgr['billing_contact_id']]
+                : [$mgr['billing_contact_id'], $mgr['primary_contact_id']];
+            foreach (array_filter($order) as $cid) {
+                $c = $this->db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE id = ? LIMIT 1");
+                $c->execute([(int)$cid]);
+                $row = $c->fetch(PDO::FETCH_ASSOC);
+                if ($row && trim((string)$row['email']) !== '') {
+                    return self::person((int)$row['id'], $row['first_name'], $row['last_name'], $row['email'], 'manager')
+                        + ['company' => (string)$mgr['company_name']];
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('FieldAskService::managerContact: ' . $e->getMessage());
+        }
+        return null;
     }
 
     private static function person(int $id, $first, $last, $email, string $role): array
@@ -234,9 +281,15 @@ class FieldAskService
         ];
     }
 
-    /** On-site contact with an email wins; else the site contact with an email; else nobody. */
-    public static function pickAskRecipient(?array $onsite, ?array $site): ?array
+    /**
+     * The property manager's contact wins when the building is managed (they decide and pay);
+     * else the on-site contact with an email; else the site contact with an email; else nobody.
+     */
+    public static function pickAskRecipient(?array $onsite, ?array $site, ?array $manager = null): ?array
     {
+        if ($manager && !empty($manager['email'])) {
+            return $manager;
+        }
         if ($onsite && !empty($onsite['email'])) {
             return $onsite;
         }
@@ -334,6 +387,8 @@ class FieldAskService
     private function companyManaged(int $propertyId, int $contactId): bool
     {
         $checks = [
+            // The management firm's own billing / primary contact (properties.property_manager_id).
+            ["SELECT 1 FROM properties p JOIN companies co ON co.id = p.property_manager_id WHERE p.id = ? AND (co.billing_contact_id = ? OR co.primary_contact_id = ?) LIMIT 1", [$propertyId, $contactId, $contactId]],
             ["SELECT 1 FROM company_properties WHERE property_id = ? LIMIT 1", [$propertyId]],
             ["SELECT 1 FROM contacts WHERE id = ? AND employer_company_id IS NOT NULL AND employer_company_id > 0 LIMIT 1", [$contactId]],
             ["SELECT 1 FROM properties p JOIN companies co ON co.primary_contact_id = p.site_contact_id WHERE p.id = ? AND p.site_contact_id IS NOT NULL LIMIT 1", [$propertyId]],
@@ -380,8 +435,31 @@ class FieldAskService
             $r = $people->fetch(PDO::FETCH_ASSOC);
             return $r ? self::person((int)$r['id'], $r['first_name'], $r['last_name'], $r['email'], $role) : null;
         };
+        $propertyId = (int)($o['property_id'] ?? 0);
+
+        // A draft that has not gone yet follows the live recipient rule, so the recipients preview,
+        // the draft and the send never name different people (Codex, 2026-10-27): a draft opened
+        // after the building got a property manager goes to the manager. Sent asks keep history.
+        if (($o['status'] ?? '') === 'ask_draft' && $propertyId > 0) {
+            $live = $this->recipients($propertyId)['ask'] ?? null;
+            if ($live && (int)$live['contact_id'] !== (int)($o['ask_contact_id'] ?? 0)) {
+                try {
+                    $this->db->prepare("UPDATE field_observations SET ask_contact_id = ?, ask_role = ?, updated_at = NOW() WHERE id = ? AND status = 'ask_draft'")
+                             ->execute([(int)$live['contact_id'], (string)$live['role'], $obsId]);
+                    $o['ask_contact_id'] = (int)$live['contact_id'];
+                    $o['ask_role']       = (string)$live['role'];
+                } catch (Throwable $e) {
+                    error_log('FieldAskService::context recipient refresh: ' . $e->getMessage());
+                }
+            }
+        }
+
         $o['ask_person']     = $load($o['ask_contact_id'] ?? null, (string)($o['ask_role'] ?? 'site'));
-        $o['billing_person'] = $load($o['site_contact_id'] ?: ($o['contact_id'] ?? null), 'site');
+        // Who signs off: the property manager when the building is managed (the quote goes to
+        // them), else the site contact. With the manager asked, ask == billing and the draft
+        // says "I'll send you the quote" instead of naming the caretaker as the approver.
+        $o['billing_person'] = ($propertyId > 0 ? $this->managerContact($propertyId) : null)
+                             ?: $load($o['site_contact_id'] ?: ($o['contact_id'] ?? null), 'site');
         return $o;
     }
 
