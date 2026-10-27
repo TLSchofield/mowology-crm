@@ -62,10 +62,14 @@ Rules:
 
 gradle_check() {   # → $OUT/test-<n>.txt; returns 0 when tests + compile pass
   local n="$1"
-  ( ./android/gradlew -p android --offline testDebugUnitTest compileDebugKotlin -q > "$OUT/test-$n.txt" 2>&1 )
+  # Both flavors, explicitly, and --continue so a failure in one still runs the other (2026-10-26: `testDebugUnitTest`
+  # + a grep of test-results/testDebugUnitTest/ reported "0 failing" from stale files while the mowology flavor had two red tests).
+  rm -rf android/app/build/test-results/testMowologyDebugUnitTest android/app/build/test-results/testTenanttestDebugUnitTest
+  ( ./android/gradlew -p android --offline --continue testMowologyDebugUnitTest testTenanttestDebugUnitTest compileMowologyDebugKotlin compileTenanttestDebugKotlin -q > "$OUT/test-$n.txt" 2>&1 )
   local rc=$?
-  local res; res="$(grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' android/app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null \
-                   | awk -F'"' '{t+=$2; f+=$6+$8} END {print t" tests, "f" failing"}')"
+  local res; res="$(for d in testMowologyDebugUnitTest testTenanttestDebugUnitTest; do
+                     grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "android/app/build/test-results/$d"/*.xml 2>/dev/null \
+                       | awk -F'"' -v f="$d" '{t+=$2; x+=$6+$8} END {printf "%s %d tests %d failing; ", f, t, x}'; done)"
   log "tests/compile round $n: rc=$rc ${res:-no results}"
   return $rc
 }
