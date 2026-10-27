@@ -1,0 +1,41 @@
+{
+  "_comment": "LOCAL TEST ONLY — the crew-app feed the local site serves when scripts/local-android.sh copies this to app-version.local.json: every android.native_* switch ON, so the emulator runs the fully native app a founding business will get. Version matches the tenanttest build so no update banner appears.",
+  "android": {
+    "version": "2.2.8",
+    "build": 40,
+    "min_version": "1.0.0",
+    "min_build": 1,
+    "apk_url": "/crm/downloads/mowology-crew.apk",
+    "released": "2026-10-26",
+    "release_notes": "Local test build.",
+    "force_update": false,
+    "native_auth": true,
+    "native_day": true,
+    "webview_shell_disabled": true,
+    "native_schedule_header": true,
+    "native_schedule_plus": true,
+    "native_timeclock": true,
+    "native_offline_start": true,
+    "native_queue_safety": true,
+    "native_tracking_setup": true,
+    "native_camera": true,
+    "native_visit": true,
+    "native_photo_gallery": true,
+    "native_quiz": true,
+    "native_ai_office": true,
+    "native_receipts": true,
+    "native_receipt_review": true,
+    "native_field_tools": true,
+    "native_invoice": true,
+    "native_trip_report": true,
+    "native_plants": true
+  },
+  "ios": {
+    "version": "1.3.56",
+    "min_version": "1.0.0",
+    "store_url": "",
+    "released": "2026-10-26",
+    "release_notes": "",
+    "force_update": false
+  }
+}

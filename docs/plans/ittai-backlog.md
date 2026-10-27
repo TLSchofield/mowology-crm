@@ -88,3 +88,20 @@ trades first. The AI back office is the edge.
 - BLOCKER before a second tenant: there is no "current tenant" lookup yet. Lessons are written and
   read as site_id 1 (HeadLessons default; PennyLessons::forVendor's $siteId). Once tenancy exists,
   every caller passes the tenant's site_id (Codex review 2026-10-14).
+
+## Android crew app as a founding business sees it — first local run 2026-10-26
+Seen on the emulator against `claudia.ittai.ca` on the local test site (`scripts/local-android.sh up`;
+docs/LOCAL_SITE.md "Android emulator"). The server side is right: Host → tenant database, Ittai sign-in page,
+native sign-in, the tenant's own schedule. The APP still says Mowology. In the order Tim called them:
+1. **Splash shows the Mowology logo** (launcher icon + splash in `android/app/src/main/res`, shared by both
+   flavors). A founding business must never see it.
+2. **Sign-in screen reads "Mowology / Field Manager" and "Access is restricted to Mowology staff."** — hardcoded
+   in the app, not from the server (the server's own sign-in page already says the business's name).
+3. **Sign-in (and every native screen) uses Mowology green** (button, "Show", tabs, pills). Tim: "the sign in
+   page should only be ittai design brand colors" — Ittai Design System v1.2 tokens, nothing of Mowology's.
+4. **Initiation should start from a sign-up screen** (Tim). Today the app only signs in to a business someone
+   already provisioned (TenantProvisioner, owner-run). The first screen for a new business must be sign-up:
+   create the business, then the owner's login — i.e. self-serve provisioning from the phone.
+5. Bottom tab bar on the day screen has 8 tabs with labels wrapped letter by letter ("To da y", "Se arc h") —
+   unreadable on a Pixel-6-width screen.
+6. Crew gets 403 on `team-mobile?mode=brief/brains` at every open (expected for crew, but the app asks anyway).

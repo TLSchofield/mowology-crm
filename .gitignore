@@ -78,3 +78,6 @@ scripts/local/.credentials.local
 
 # Ada backup heartbeat token (scripts/lib/heartbeat.sh) — never commit
 scripts/.backup-heartbeat-token
+scripts/local/app-version.local.json
+public/uploads/t/
+public/app_config/tenants.php.lock

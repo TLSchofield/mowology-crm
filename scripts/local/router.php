@@ -69,6 +69,20 @@ if (preg_match('#\.(md|log|sql|bak|orig|swp)$#i', $__path) || preg_match('#\.git
 if (preg_match('#^/(_media|uploads)/#', $__path) && preg_match('#\.(ph(p\d*|t|tml|ar|ps)|inc|cgi|pl|py|sh|asp|aspx|jsp)$#i', $__path)) { return __mw_local_deny(); }
 if (preg_match('#^/site-admin/css/.*\.php$#', $__path)) { return __mw_local_deny(); }
 
+// ── Crew-app feed override (local only) ──
+// The Android app reads its remote switches (android.native_* …) from this feed. Production edits the JSON on the
+// server; here scripts/local-android.sh writes scripts/local/app-version.local.json (gitignored) with every switch on,
+// and the feed serves that file when it exists, so the repo's app-version.json is never edited for a test.
+if ($__path === '/crm/api/app-version.php' || $__path === '/crm/downloads/app-version.json') {
+    $__override = __DIR__ . '/app-version.local.json';
+    if (is_file($__override)) {
+        header('Content-Type: application/json');
+        header('Cache-Control: no-store');
+        readfile($__override);
+        return true;
+    }
+}
+
 // ── Canonical 301s (production only fires these on the original request line) ──
 if (preg_match('#^/(index\.php|home)/?$#i', $__path)) { return __mw_local_redirect('/' . ($__query !== '' ? '?' . $__query : '')); }
 if (preg_match('#^/(about|contact|portfolio|privacy|privacy-request)\.php$#i', $__path, $__m)) { return __mw_local_redirect('/' . $__m[1] . ($__query !== '' ? '?' . $__query : '')); }
