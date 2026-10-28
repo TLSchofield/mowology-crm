@@ -160,6 +160,29 @@ function enhanceLineItemExtraction(array $ctx): array
 
 
 /**
+ * The whole header ladder for a surface that already holds parsed text (rescan, inbox, queue):
+ * the vendor's learned layout where the rules came up empty, then the AI for what is still
+ * missing. Never throws; a read that cannot be improved comes back unchanged.
+ */
+function runHeaderLadder(PDO $db, array $parsed, string $ocrText, ?int $vendorId): array
+{
+    if (!$parsed || $ocrText === '' || !function_exists('applyHeaderLayouts') || !function_exists('receiptReadMode')) {
+        return $parsed;
+    }
+    try {
+        $profile = $vendorId ? getVendorParseProfile($db, $vendorId) : null;
+        $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($profile));
+        $mode = receiptReadMode($profile);
+        if ($mode === 'strong') $parsed['read_mode'] = 'strong';
+        $out = enhanceHeaders(['parsed' => $parsed, 'ocr_text' => $ocrText, 'read_mode' => $mode]);
+        return $out['parsed'];
+    } catch (Throwable $e) {
+        error_log('Header ladder: ' . $e->getMessage());
+        return $parsed;
+    }
+}
+
+/**
  * Header rung of the ladder: runs after the rules and after enhanceLineItemExtraction. When total or
  * date is missing, or the printed maths fails, the AI is asked ONCE for those fields and only values
  * printed in the OCR text are merged. A printed value that passes the checks is never overwritten;

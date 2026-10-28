@@ -31,7 +31,7 @@
  *   ExpenseGate::DELETE => true remove the expense (its posted entry is reversed first)
  * $actor:  ['id' => ?int, 'kind' => 'user'|'penny'|'system']
  * $opts:   transition (approve|reject|forward|cancel), only_if (fn(array $before): bool),
- *          allow_locked, ocr_parsed (capture baseline), learn_lines (save payload),
+ *          allow_locked, ocr_parsed (capture baseline), learn_lines (save payload), learn_now (office phone save teaches),
  *          learn_baseline (fallback baseline on approval), price_intel (bool)
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -338,6 +338,10 @@ class ExpenseGate
         $nowConfirmed = in_array($after['status'] ?? '', self::POSTED, true) && ($create || !in_array($before['status'] ?? '', self::POSTED, true));
         if ($nowConfirmed) {
             $this->hooks->learnConfirmed($id, isset($opts['learn_baseline']) && is_array($opts['learn_baseline']) ? $opts['learn_baseline'] : null);
+        }
+        // An owner's or manager's phone save is their confirmation: it teaches now, once (claimReceiptLearning).
+        if (!$nowConfirmed && $create && !empty($opts['learn_now']) && ($after['status'] ?? '') === 'pending_approval') {
+            $this->hooks->learnConfirmed($id, null, true);
         }
         if (array_key_exists('allocations', $changes) && !empty($extra['allocations']) && ($person || ($actor['kind'] ?? '') === 'penny')) {
             $this->hooks->learnSplit($id, $extra['allocations']);

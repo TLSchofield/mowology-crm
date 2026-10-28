@@ -106,6 +106,9 @@ try {
             'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
             'learn_lines' => $ocrd ? $input : null,
             'price_intel' => true,
+            // An owner's or manager's phone save is the confirmation: their corrections teach the
+            // reader now. A crew member's capture carries no corrections and waits for the desk.
+            'learn_now'   => $ocrd && ExpenseService::isOffice((string)($jwtUser['role'] ?? ''), jwtUserHasPermission($jwtUser, 'expenses.approve')),
         ]);
         $expenseId = (int)$created['expense_id'];
     } finally {

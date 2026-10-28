@@ -576,6 +576,7 @@ class ReceiptInboxService
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
             require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
             require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
 
             // Tesseract pre-screen → Vision fallback, mirroring receipt-intake.php.
             $pre = tesseractPreScreen($imagePath);
@@ -602,6 +603,9 @@ class ReceiptInboxService
 
             $parsed      = parseReceiptText($text, $ocr['raw_response'] ?? null);
             $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            if (function_exists('runHeaderLadder')) {
+                $parsed = runHeaderLadder($this->db, $parsed, $text, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null);
+            }
 
             return [
                 'readable'    => true,

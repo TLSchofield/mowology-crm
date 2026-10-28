@@ -170,52 +170,223 @@ function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array
         if (!$d['corrected']) continue;
         $hadCorrections = true;
 
-        $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
-        if ($existing) {
-            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-               ->execute([$existing['id']]);
-        } else {
-            $db->prepare("
-                INSERT INTO receipt_parse_lessons
-                    (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ")->execute([
-                $vendorId, $vendorName, $fieldName, $ocrVal, $userVal,
-                extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal),
-            ]);
-        }
+        addFieldLesson($db, $vendorId, $vendorName, $fieldName, $ocrVal, $userVal, $ocrText);
     }
 
     // ── Accounting category corrections ────────────────────────────────
     // After 2+ identical corrections, the learned category overrides vendor default.
     if ($vendorId && $diff['category']) {
-        [$ocrCategory, $userCategory] = [$diff['category']['ocr'], $diff['category']['user']];
         $hadCorrections = true;
-        $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
-        if ($existing) {
-            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-               ->execute([$existing['id']]);
-            // Promote to vendor profile after 2+ consistent corrections
-            if ((int)$existing['times_seen'] >= 2) {
-                $db->prepare("
-                    INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
-                    VALUES (?, ?, 1)
-                    ON DUPLICATE KEY UPDATE
-                        learned_accounting_category = VALUES(learned_accounting_category),
-                        category_correction_count = category_correction_count + 1,
-                        updated_at = NOW()
-                ")->execute([$vendorId, $userCategory]);
-            }
-        } else {
-            $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
-               ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
-        }
+        addCategoryLesson($db, $vendorId, $vendorName, $diff['category']['ocr'], $diff['category']['user']);
     }
 
     // Update vendor parse profile stats
     if ($vendorId) {
         updateVendorProfile($db, $vendorId, $fieldMap, $hadCorrections);
     }
+}
+
+/** One header correction (parser read -> person kept): seen once more, or recorded the first time. */
+function addFieldLesson(PDO $db, ?int $vendorId, ?string $vendorName, string $fieldName, ?string $ocrVal, ?string $userVal, string $ocrText): void
+{
+    $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
+    if ($existing) {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+        return;
+    }
+    $db->prepare("
+        INSERT INTO receipt_parse_lessons
+            (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ")->execute([
+        $vendorId, $vendorName, $fieldName, $ocrVal, $userVal,
+        extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal),
+    ]);
+}
+
+/** A category correction: recorded, and promoted to the vendor's default after 2+ identical ones. */
+function addCategoryLesson(PDO $db, int $vendorId, ?string $vendorName, string $ocrCategory, string $userCategory): void
+{
+    $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    if ($existing) {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+        if ((int)$existing['times_seen'] >= 2) {
+            $db->prepare("
+                INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
+                VALUES (?, ?, 1)
+                ON DUPLICATE KEY UPDATE
+                    learned_accounting_category = VALUES(learned_accounting_category),
+                    category_correction_count = category_correction_count + 1,
+                    updated_at = NOW()
+            ")->execute([$vendorId, $userCategory]);
+        }
+        return;
+    }
+    $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
+       ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
+}
+
+/** Takes a category correction back; a promoted default that no longer has two sightings behind it goes too. */
+function forgetCategoryLesson(PDO $db, int $vendorId, string $ocrCategory, string $userCategory): void
+{
+    forgetFieldLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    $left = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    if (!$left || (int)$left['times_seen'] < 2) {
+        $db->prepare("UPDATE vendor_parse_profiles SET learned_accounting_category = NULL,
+                          category_correction_count = GREATEST(category_correction_count - 1, 0), updated_at = NOW()
+                      WHERE vendor_id = ? AND learned_accounting_category = ?")->execute([$vendorId, $userCategory]);
+    }
+}
+
+/** Takes one sighting back (a lesson the desk overturned); the last one removes the row. */
+function forgetFieldLesson(PDO $db, ?int $vendorId, string $fieldName, ?string $ocrVal, ?string $userVal): void
+{
+    $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
+    if (!$existing) return;
+    if ((int)$existing['times_seen'] <= 1) {
+        $db->prepare("DELETE FROM receipt_parse_lessons WHERE id = ?")->execute([$existing['id']]);
+    } else {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen - 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+    }
+}
+
+/** Does this table have the column? Cached per request (a migration may not have run yet). */
+function receiptTableHasColumn(PDO $db, string $table, string $column): bool
+{
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (!array_key_exists($key, $cache)) {
+        try {
+            $cache[$key] = $db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $db->quote($column))->rowCount() > 0;
+        } catch (Throwable $e) {
+            $cache[$key] = false;
+        }
+    }
+    return $cache[$key];
+}
+
+/** The header values a phone save taught, kept so the desk's approval can confirm or overturn them. */
+function phoneLessonSnapshot(array $row, ?string $vendorName): array
+{
+    return [
+        'vendor_id' => $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null,
+        'total' => $row['total'] ?? null, 'gst_amount' => $row['gst_amount'] ?? null,
+        'pst_amount' => $row['pst_amount'] ?? null, 'amount' => $row['amount'] ?? null,
+        'expense_date' => $row['expense_date'] ?? null, 'accounting_category' => $row['accounting_category'] ?? null,
+        'vendor' => $vendorName,
+    ];
+}
+
+/**
+ * Pure: what the desk's approval changes about the lessons a phone save already taught.
+ * Unchanged -> nothing (the approval confirms the read). A field the desk changed -> the phone's
+ * lesson for it is taken back and the desk's recorded instead; the net change in corrected fields
+ * moves the vendor's accuracy the same way.
+ *
+ * @return array{forget: array<string, array{ocr: ?string, user: ?string}>, add: array<string, array{ocr: ?string, user: ?string}>, delta: int, old_corrections: int, new_corrections: int}
+ */
+function amendmentPlan(array $baseline, array $snapshot, array $final, ?string $vendorName, bool $vendorMoved = false): array
+{
+    $str = static function ($v): ?string { return $v === null ? null : (string)$v; };
+    $diffS = headerCorrections($baseline, $snapshot, $snapshot['vendor'] ?? $vendorName);
+    $diffD = headerCorrections($baseline, $final, $vendorName);
+    $forget = [];
+    $add = [];
+    $delta = 0;
+    $oldN = 0;
+    $newN = 0;
+    foreach (array_unique(array_merge(array_keys($diffS['fields']), array_keys($diffD['fields']))) as $field) {
+        $s = $diffS['fields'][$field] ?? ['ocr' => null, 'user' => null, 'corrected' => false];
+        $d = $diffD['fields'][$field] ?? ['ocr' => null, 'user' => null, 'corrected' => false];
+        $same = $field === 'vendor'
+            ? sameVendorName($str($s['user']), $str($d['user']))
+            : normalizeFieldValue($field, $str($s['user'])) === normalizeFieldValue($field, $str($d['user']));
+        if ($same && !$vendorMoved) continue;   // a moved vendor takes every lesson with it
+        if ($s['corrected']) $forget[$field] = ['ocr' => $str($s['ocr']), 'user' => $str($s['user'])];
+        if ($d['corrected']) $add[$field] = ['ocr' => $str($d['ocr']), 'user' => $str($d['user'])];
+        $delta += ($d['corrected'] ? 1 : 0) - ($s['corrected'] ? 1 : 0);
+        $oldN += $s['corrected'] ? 1 : 0;
+        $newN += $d['corrected'] ? 1 : 0;
+    }
+    $sc = $diffS['category'];
+    $dc = $diffD['category'];
+    if ($vendorMoved || ($sc['user'] ?? null) !== ($dc['user'] ?? null)) {
+        if ($sc) $forget['accounting_category'] = ['ocr' => $sc['ocr'], 'user' => $sc['user']];
+        if ($dc) $add['accounting_category'] = ['ocr' => $dc['ocr'], 'user' => $dc['user']];
+    }
+    return ['forget' => $forget, 'add' => $add, 'delta' => $delta, 'old_corrections' => $oldN, 'new_corrections' => $newN];
+}
+
+/**
+ * The desk approves a receipt a phone save already taught: once, compare what was taught with what
+ * was approved and move the lessons and the vendor's accuracy to match (owner, 2026-10-28:
+ * approval confirms the phone's read, a correction goes the other way).
+ */
+function amendPhoneLessons(PDO $db, array $row, ?array $fallbackBaseline): bool
+{
+    $own = false;
+    try {
+        if (!receiptTableHasColumn($db, 'expenses', 'learning_snapshot')) return false;
+        if (!$db->inTransaction()) { $db->beginTransaction(); $own = true; }
+        // Lock the row: a second approval path waits, then finds the snapshot gone.
+        $lock = $db->prepare("SELECT learning_snapshot FROM expenses WHERE id = ? FOR UPDATE");
+        $lock->execute([(int)$row['id']]);
+        $raw = (string)$lock->fetchColumn();
+        if ($raw === '') { if ($own) $db->rollBack(); return false; }
+
+        $snapshot = json_decode($raw, true);
+        $baseline = captureBaseline($row['ocr_parsed_json'] ?? null) ?? $fallbackBaseline;
+        if (is_array($snapshot) && $baseline) {
+            $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
+            $oldVendor  = isset($snapshot['vendor_id']) ? (int)$snapshot['vendor_id'] : $vendorId;
+            $moved      = $oldVendor !== $vendorId;
+            $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
+            $plan = amendmentPlan($baseline, $snapshot, $row, $vendorName, $moved);
+            $ocrText = ocrTextFromStored($row['raw_ocr_json'] ?? null);
+            foreach ($plan['forget'] as $field => $v) {
+                if ($field === 'accounting_category') { if ($oldVendor) forgetCategoryLesson($db, $oldVendor, (string)$v['ocr'], (string)$v['user']); }
+                else forgetFieldLesson($db, $oldVendor, $field, $v['ocr'], $v['user']);
+            }
+            foreach ($plan['add'] as $field => $v) {
+                if ($field === 'accounting_category') { if ($vendorId) addCategoryLesson($db, $vendorId, $vendorName, (string)$v['ocr'], (string)$v['user']); }
+                else addFieldLesson($db, $vendorId, $vendorName, $field, $v['ocr'], $v['user'], $ocrText);
+            }
+            if ($moved) {
+                if ($oldVendor) adjustVendorCorrections($db, $oldVendor, -$plan['old_corrections']);
+                if ($vendorId) adjustVendorCorrections($db, $vendorId, $plan['new_corrections']);
+            } elseif ($vendorId) {
+                adjustVendorCorrections($db, $vendorId, $plan['delta']);
+            }
+            if ($vendorId && ($plan['forget'] || $plan['add'])) deriveVendorPatterns($db, $vendorId);
+            if ($oldVendor && $moved) deriveVendorPatterns($db, $oldVendor);
+        }
+        // Last: only a finished amendment uses the snapshot up.
+        $db->prepare("UPDATE expenses SET learning_snapshot = NULL WHERE id = ?")->execute([(int)$row['id']]);
+        if ($own) $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        if ($own && $db->inTransaction()) $db->rollBack();
+        error_log('Receipt learning amend #' . ($row['id'] ?? '?') . ': ' . $e->getMessage());
+        return false;
+    }
+}
+
+/** Move a vendor's correction count (and accuracy) by what the desk changed, without counting the receipt twice. */
+function adjustVendorCorrections(PDO $db, int $vendorId, int $delta): void
+{
+    if ($delta === 0) return;
+    $stmt = $db->prepare("SELECT total_receipts, total_corrections FROM vendor_parse_profiles WHERE vendor_id = ?");
+    $stmt->execute([$vendorId]);
+    $p = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$p) return;
+    $corrections = max(0, (int)$p['total_corrections'] + $delta);
+    $fields = (int)$p['total_receipts'] * 5;
+    $accuracy = $fields > 0 ? round((($fields - $corrections) / $fields) * 100, 2) : null;
+    $db->prepare("UPDATE vendor_parse_profiles SET total_corrections = ?, accuracy_rate = ?, updated_at = NOW() WHERE vendor_id = ?")
+       ->execute([$corrections, $accuracy, $vendorId]);
 }
 
 /** Have migration 1123's columns been added? Cached per request. */
@@ -388,6 +559,8 @@ function recordLineItemLessonsAtConfirmation(PDO $db, int $expenseId, int $vendo
  * Non-critical: never throws — learning must not block an approval.
  *
  * @param array|null $fallbackBaseline Used when ocr_parsed_json is empty (emailed receipts)
+ * @param bool $allowPending An owner/manager's phone save (pending_approval) counts as the confirmation —
+ *                           their corrections are the best signal and teach at once (owner, 2026-10-28)
  * @return bool Whether lessons were recorded
  */
 /** Once per receipt: true for the caller that set learning_recorded_at. */
@@ -448,7 +621,7 @@ function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
     }
 }
 
-function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null): bool
+function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null, bool $allowPending = false): bool
 {
     try {
         if (!receiptLearningBaselineReady($db)) {
@@ -461,8 +634,15 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         ");
         $stmt->execute([$expenseId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || $row['learning_recorded_at'] !== null
-            || !in_array($row['status'], ['approved', 'forwarded'], true)) {
+        if (!$row) {
+            return false;
+        }
+        $confirmed = in_array($row['status'], ['approved', 'forwarded'], true);
+        if ($row['learning_recorded_at'] !== null) {
+            // Taught at the phone save; the desk's approval confirms it or overturns part of it.
+            return $confirmed ? amendPhoneLessons($db, $row, $fallbackBaseline) : false;
+        }
+        if (!$confirmed && !($allowPending && $row['status'] === 'pending_approval')) {
             return false;
         }
 
@@ -484,7 +664,19 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         }
 
         $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
-        recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        $phone = $row['status'] === 'pending_approval' && receiptTableHasColumn($db, 'expenses', 'learning_snapshot');
+        try {
+            // What the phone taught is kept first, so a claim is never left without its snapshot.
+            if ($phone) {
+                $db->prepare("UPDATE expenses SET learning_snapshot = ? WHERE id = ?")
+                   ->execute([json_encode(phoneLessonSnapshot($row, $vendorName)), $expenseId]);
+            }
+            recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        } catch (Throwable $e) {
+            // Give the claim back: a failed lesson must not stop the approval from teaching it later.
+            $db->prepare("UPDATE expenses SET learning_recorded_at = NULL" . ($phone ? ", learning_snapshot = NULL" : "") . " WHERE id = ?")->execute([$expenseId]);
+            throw $e;
+        }
         if ($vendorId && !empty($row['ocr_parsed_json']) && is_array($baseline['line_items'] ?? null)) {
             recordLineItemLessonsAtConfirmation($db, $expenseId, $vendorId, $vendorName, $baseline['line_items']);
         }
@@ -1765,11 +1957,10 @@ function ocrTextFromStored(?string $raw): string
 //  returned nothing (or derived/estimated the field itself) or the printed sum fails — and it reads
 //  the amount off the NEW receipt; a past amount is never replayed.
 //
-//  Teaching from a phone save: the approve path learns through learnFromConfirmedExpense(); a
-//  `pending_approval` save (status not yet approved) is skipped there. The phone-save endpoint should
-//  call recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $savedRow, $ocrText) once per
-//  receipt (guard with claimReceiptLearning()) — that records the lessons and runs
-//  deriveVendorPatterns(), which builds these layouts. Wiring that call is API work done separately.
+//  Teaching from a phone save: an owner's or manager's `pending_approval` save counts as the
+//  confirmation (ExpenseGate opt `learn_now`, set by expense-save.php for the office roles) and runs
+//  learnFromConfirmedExpense(..., allowPending: true) once per receipt (claimReceiptLearning). Crew
+//  captures never do — they carry no corrections.
 // ============================================================================
 
 /** Does vendor_parse_profiles have this column? Cached per request. */

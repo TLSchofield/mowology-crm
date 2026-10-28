@@ -104,6 +104,7 @@ class ExpenseRescanService
             $ocrText = $enh['ocr_text'];
             $ocr['raw_response'] = $enh['raw_response'];
             $ocrSource = $enh['ocr_source'];
+            $parsed = runHeaderLadder($this->db, $parsed, $ocrText, $vendorId ? (int)$vendorId : null);
             $suggestions = suggestReceiptMeta($ocrText, null, null, $expense['job_id'] ?? null);
             $matchVendor = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : (int)($vendorId ?? 0);
             if ($matchVendor) {

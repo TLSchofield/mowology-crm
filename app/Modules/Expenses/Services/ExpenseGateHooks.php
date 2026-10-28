@@ -150,11 +150,11 @@ class ExpenseGateHooks
     }
 
     /** Approved or sent: the header (and line) lessons, once per receipt. */
-    public function learnConfirmed(int $expenseId, ?array $fallbackBaseline): void
+    public function learnConfirmed(int $expenseId, ?array $fallbackBaseline, bool $allowPending = false): void
     {
         try {
             $this->receiptLearning();
-            learnFromConfirmedExpense($this->db, $expenseId, $fallbackBaseline);
+            learnFromConfirmedExpense($this->db, $expenseId, $fallbackBaseline, $allowPending);
             // Items taken from Penny's read over the reader's: the reader learns the layout (2026-10-13).
             if (function_exists('teachReaderFromPenny')) teachReaderFromPenny($this->db, $expenseId);
         } catch (Throwable $e) {

@@ -142,6 +142,7 @@ try {
             $ocrSource = $enh['ocr_source'];
             $ocrResult['text']         = $ocrText;
             $ocrResult['raw_response'] = $enh['raw_response'];
+            $parsed = runHeaderLadder(getDB(), $parsed, $ocrText, $rescanEarlyVendorId ? (int)$rescanEarlyVendorId : null);
             $suggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
             if (!empty($suggestions['vendor_id'])) {
                 $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
