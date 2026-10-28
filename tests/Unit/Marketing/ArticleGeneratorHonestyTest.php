@@ -40,7 +40,7 @@ class ArticleGeneratorHonestyTest extends TestCase
     public function testRealProjectIsPassedThrough(): void
     {
         [, $usr] = $this->prompts('Strata lot, 4,200 sq ft, aerated Oct 3');
-        $this->assertStringContainsString('Real project to use as case study: Strata lot', $usr);
+        $this->assertStringContainsString('Real project to use as case study: <untrusted_project_notes>Strata lot', $usr);
         $this->assertStringNotContainsString('do NOT write a case study', $usr);
     }
 }

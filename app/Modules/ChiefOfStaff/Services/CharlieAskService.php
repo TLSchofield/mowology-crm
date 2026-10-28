@@ -22,6 +22,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieFactAnswerer.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 
 class CharlieAskService
 {
@@ -239,28 +240,12 @@ TXT;
 
     private function send(array $body): array
     {
-        if ($this->transport) {
-            return ($this->transport)($body);
-        }
-        $ch = curl_init(self::API_URL);
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 60,
-            CURLOPT_HTTPHEADER     => [
-                'content-type: application/json',
-                'x-api-key: ' . ANTHROPIC_API_KEY,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($body),
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $r = LlmGateway::send($body, [
+            'head' => 'charlie', 'skill' => 'ask', 'db' => $this->db,
+            'timeout' => 60, 'transport' => $this->transport,
         ]);
-        $raw  = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($raw === false) {
-            error_log('Charlie ask curl: ' . curl_error($ch));
-        }
-        curl_close($ch);
-        return ['code' => $code, 'body' => (string)$raw];
+        return ['code' => $r['code'], 'body' => $r['body']];
     }
 
     // ── Context (read-only, prepared statements only) ───────────────────────

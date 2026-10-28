@@ -36,7 +36,7 @@ final class LlmDailyCap
     }
 
     /** Take one call from today's allowance; false = the ceiling is reached, don't call. */
-    public static function take(PDO $db, string $bucket, int $default): bool
+    public static function take(PDO $db, string $bucket, int $default, bool $failClosed = false): bool
     {
         $cap = self::cap($db, $bucket, $default);
         $key = 'llm_calls_' . $bucket;
@@ -61,7 +61,8 @@ final class LlmDailyCap
             return false;   // the row exists and is at the cap
         } catch (Throwable $e) {
             error_log('LlmDailyCap: ' . $e->getMessage());
-            return true;
+            // Money-adjacent buckets pass $failClosed so an unreadable counter stops the call.
+            return !$failClosed;
         }
     }
 }

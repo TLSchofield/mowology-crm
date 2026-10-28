@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 require_once __DIR__ . '/GbifNames.php';
 require_once __DIR__ . '/PlantLibrarySeed.php';
 
@@ -575,6 +576,11 @@ class PlantCareService
     private function call(string $method, string $url, ?array $body): array
     {
         if ($this->http) return ($this->http)($method, $url, $body);
+        if ($method === 'POST' && $url === self::API_URL && is_array($body)) {
+            // The care-card message goes through the one door (retry, kill switch, cost log). The batch endpoint below stays direct.
+            $r = LlmGateway::send($body, ['head' => 'plants', 'skill' => 'care_card', 'db' => $this->db, 'timeout' => 150]);
+            return ['code' => $r['code'], 'body' => $r['body']];
+        }
         $ch = curl_init($url);
         $opts = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 150, CURLOPT_CONNECTTIMEOUT => 10,
                  CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01']];
