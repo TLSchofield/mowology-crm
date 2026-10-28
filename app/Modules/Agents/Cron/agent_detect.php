@@ -80,4 +80,7 @@ try {
 } catch (Throwable $e) {
     error_log('agent_detect: ' . $e->getMessage());
     $__finish('error', 'agent_detect failed', $e->getMessage());
+    if ($__cli) {
+        exit(1);   // cPanel mail / monitoring must see a failed run
+    }
 }

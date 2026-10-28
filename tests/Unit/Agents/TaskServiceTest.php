@@ -24,8 +24,8 @@ class TaskServiceTest extends TestCase
         $this->db->exec("CREATE TABLE agent_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT DEFAULT 1, kind TEXT, owner_head TEXT, origin_head TEXT DEFAULT 'system',
             entity_type TEXT DEFAULT '', entity_id TEXT DEFAULT '', title TEXT DEFAULT '', priority TEXT DEFAULT 'normal', state TEXT DEFAULT 'open',
             attempts INT DEFAULT 0, max_attempts INT DEFAULT 3, escalated INT DEFAULT 0, due_at TEXT, expires_at TEXT, claimed_at TEXT, completed_at TEXT,
-            correlation_id TEXT, parent_task_id INT, depth INT DEFAULT 0, dedupe_key TEXT NOT NULL UNIQUE, payload_json TEXT, result_json TEXT, error TEXT,
-            created_at TEXT, updated_at TEXT)");
+            correlation_id TEXT, parent_task_id INT, depth INT DEFAULT 0, dedupe_key TEXT NOT NULL, payload_json TEXT, result_json TEXT, error TEXT,
+            created_at TEXT, updated_at TEXT, UNIQUE (site_id, dedupe_key))");
         $this->db->exec("CREATE TABLE agent_task_events (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INT, event TEXT, from_state TEXT, to_state TEXT, head TEXT, note TEXT, created_at TEXT)");
     }
 
@@ -169,5 +169,56 @@ class TaskServiceTest extends TestCase
         $esc = $this->svc()->escalations();
         $this->assertCount(1, $esc);
         $this->assertSame('late', $esc[0]['entity_id']);
+    }
+
+    public function testTasksAreScopedToTheirTenant(): void
+    {
+        $a = $this->mk(['entity_id' => 'same']);
+        $this->db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('tenant_site_id', '2')");
+        TenantContext::reset();
+        $other = new TaskService($this->db, fn() => $this->now);   // tenant 2, same key
+        $b = $other->create(['kind' => 'invoice.overdue', 'owner_head' => 'penny', 'entity_type' => 'invoice', 'entity_id' => 'same']);
+        $this->assertTrue($b['created'], 'the same dedupe key in another tenant is a different task');
+        $this->assertNotSame($a['id'], $b['task']['id']);
+        $this->assertNull($other->get((int)$a['id']), 'tenant 2 cannot read tenant 1\'s task');
+        $this->assertFalse($other->claim((int)$a['id'], 'penny'));
+        $this->assertFalse($other->cancel((int)$a['id'], 'penny', 'x'));
+        $this->assertSame(1, $other->closeResolved('invoice.overdue', []), 'closes only tenant 2\'s own task');
+        $this->db->exec("DELETE FROM ops_settings WHERE setting_key = 'tenant_site_id'");
+        TenantContext::reset();
+        $this->assertSame('open', $this->svc()->get((int)$a['id'])['state'], 'tenant 1\'s task is untouched');
+    }
+
+    public function testAResolvedTaskReopensWhenItsItemComesBack(): void
+    {
+        $t = $this->mk(['dedupe_key' => 'invoice.overdue:9']);
+        $this->svc()->closeResolved('invoice.overdue', []);
+        $this->assertSame('cancelled', $this->svc()->get((int)$t['id'])['state']);
+        $again = $this->svc()->create(['kind' => 'invoice.overdue', 'owner_head' => 'penny', 'dedupe_key' => 'invoice.overdue:9']);
+        $this->assertFalse($again['created']);
+        $this->assertSame('open', $again['task']['state'], 'the invoice is overdue again, so the work is back');
+        $this->assertContains('reopened', array_column($this->svc()->events((int)$t['id']), 'event'));
+    }
+
+    public function testShortSourceListDoesNotMassClose(): void
+    {
+        for ($i = 1; $i <= 8; $i++) {
+            $this->mk(['entity_id' => (string)$i, 'dedupe_key' => "invoice.overdue:$i"]);
+        }
+        // A desk that swallowed an error and returned one item must not cancel the other seven.
+        $this->assertSame(0, $this->svc()->closeResolved('invoice.overdue', ['invoice.overdue:1']));
+        $open = (int)$this->db->query("SELECT COUNT(*) FROM agent_tasks WHERE state = 'open'")->fetchColumn();
+        $this->assertSame(8, $open);
+    }
+
+    public function testFailNeverOverwritesATerminalStateAndNeedsWorking(): void
+    {
+        $t = $this->mk();
+        $id = (int)$t['id'];
+        $this->assertSame('', $this->svc()->fail($id, 'penny', 'x'), 'an open task has no attempt in progress to fail');
+        $this->svc()->claim($id, 'penny');
+        $this->svc()->complete($id, 'penny');
+        $this->assertSame('', $this->svc()->fail($id, 'penny', 'late failure report'));
+        $this->assertSame('done', $this->svc()->get($id)['state']);
     }
 }

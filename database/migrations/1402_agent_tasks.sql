@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
     error          VARCHAR(255) NULL,
     created_at     DATETIME     NOT NULL,
     updated_at     DATETIME     NOT NULL,
-    UNIQUE KEY uq_agent_task_dedupe (dedupe_key),
+    UNIQUE KEY uq_agent_task_dedupe (site_id, dedupe_key),
     INDEX idx_agent_task_owner (owner_head, state),
     INDEX idx_agent_task_state_due (state, due_at),
     INDEX idx_agent_task_corr (correlation_id)

@@ -39,8 +39,8 @@ class AgentDetectorsTest extends TestCase
         $db->exec("CREATE TABLE agent_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INT DEFAULT 1, kind TEXT, owner_head TEXT, origin_head TEXT DEFAULT 'system',
             entity_type TEXT DEFAULT '', entity_id TEXT DEFAULT '', title TEXT DEFAULT '', priority TEXT DEFAULT 'normal', state TEXT DEFAULT 'open',
             attempts INT DEFAULT 0, max_attempts INT DEFAULT 3, escalated INT DEFAULT 0, due_at TEXT, expires_at TEXT, claimed_at TEXT, completed_at TEXT,
-            correlation_id TEXT, parent_task_id INT, depth INT DEFAULT 0, dedupe_key TEXT NOT NULL UNIQUE, payload_json TEXT, result_json TEXT, error TEXT,
-            created_at TEXT, updated_at TEXT)");
+            correlation_id TEXT, parent_task_id INT, depth INT DEFAULT 0, dedupe_key TEXT NOT NULL, payload_json TEXT, result_json TEXT, error TEXT,
+            created_at TEXT, updated_at TEXT, UNIQUE (site_id, dedupe_key))");
         $db->exec("CREATE TABLE agent_task_events (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INT, event TEXT, from_state TEXT, to_state TEXT, head TEXT, note TEXT, created_at TEXT)");
         return new TaskService($db, fn() => self::NOW);
     }

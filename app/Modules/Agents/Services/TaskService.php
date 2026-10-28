@@ -26,14 +26,18 @@ class TaskService
     public const DEFAULT_TTL_DAYS = 14;
     public const STUCK_MINUTES = 30;
     public const OPEN_STATES = ['open', 'working', 'waiting_approval'];
+    public const MAX_CLOSE_SHARE = 0.5;
+    public const MIN_CLOSE_FLOOR = 5;
 
     private PDO $db;
+    private int $site;
     /** @var callable fn(): string  "now" in 'Y-m-d H:i:s' — injectable for tests */
     private $clock;
 
     public function __construct(PDO $db, ?callable $clock = null)
     {
         $this->db = $db;
+        $this->site = TenantContext::siteId($db);
         $this->clock = $clock ?? static fn() => date('Y-m-d H:i:s');
     }
 
@@ -94,7 +98,7 @@ class TaskService
 
         $existing = $this->byDedupe($dedupe);
         if ($existing) {
-            return ['ok' => true, 'created' => false, 'task' => $existing];
+            return ['ok' => true, 'created' => false, 'task' => $this->reopenIfResolved($existing)];
         }
 
         $now = $this->now();
@@ -105,7 +109,7 @@ class TaskService
                                     attempts, max_attempts, due_at, expires_at, correlation_id, parent_task_id, depth, dedupe_key, payload_json, created_at, updated_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                ->execute([
-                   TenantContext::siteId($this->db), mb_substr($kind, 0, 48), mb_substr($owner, 0, 24),
+                   $this->site, mb_substr($kind, 0, 48), mb_substr($owner, 0, 24),
                    mb_substr(strtolower((string)($t['origin_head'] ?? 'system')), 0, 24),
                    mb_substr($entityType, 0, 32), mb_substr($entityId, 0, 64), mb_substr((string)($t['title'] ?? ''), 0, 200),
                    $priority,
@@ -119,7 +123,7 @@ class TaskService
             // Lost a race with another run: the row exists now, which is the answer.
             $existing = $this->byDedupe($dedupe);
             if ($existing) {
-                return ['ok' => true, 'created' => false, 'task' => $existing];
+                return ['ok' => true, 'created' => false, 'task' => $this->reopenIfResolved($existing)];
             }
             throw $e;
         }
@@ -135,8 +139,8 @@ class TaskService
     {
         $now = $this->now();
         $s = $this->db->prepare("UPDATE agent_tasks SET state = 'working', attempts = attempts + 1, claimed_at = ?, updated_at = ?
-                                  WHERE id = ? AND state = 'open' AND owner_head = ?");
-        $s->execute([$now, $now, $id, strtolower($head)]);
+                                  WHERE id = ? AND site_id = ? AND state = 'open' AND owner_head = ?");
+        $s->execute([$now, $now, $id, $this->site, strtolower($head)]);
         if ($s->rowCount() !== 1) {
             return false;
         }
@@ -153,8 +157,8 @@ class TaskService
     {
         $now = $this->now();
         $s = $this->db->prepare("UPDATE agent_tasks SET state = 'done', completed_at = ?, updated_at = ?, result_json = ?, error = NULL
-                                  WHERE id = ? AND state IN ('open','working','waiting_approval')");
-        $s->execute([$now, $now, $result ? json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null, $id]);
+                                  WHERE id = ? AND site_id = ? AND state IN ('open','working','waiting_approval')");
+        $s->execute([$now, $now, $result ? json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null, $id, $this->site]);
         if ($s->rowCount() !== 1) {
             return false;
         }
@@ -163,21 +167,25 @@ class TaskService
     }
 
     /**
-     * A failed attempt: back to 'open' for another try, or 'failed' + escalated once attempts are used up.
-     * @return string the new state ('open' | 'failed'), or '' when the task is not in a state that can fail
+     * A failed attempt of a task a head is WORKING on (claim() counted the attempt): back to 'open' for another try,
+     * or 'failed' + escalated once attempts are used up. The update only applies if the task is still 'working', so a
+     * concurrent complete/cancel is never overwritten.
+     * @return string the new state ('open' | 'failed'), or '' when the task was not in the 'working' state
      */
     public function fail(int $id, string $head, string $error): string
     {
         $t = $this->get($id);
-        if (!$t || !in_array($t['state'], ['working', 'open'], true)) {
+        if (!$t || $t['state'] !== 'working') {
             return '';
         }
         $exhausted = (int)$t['attempts'] >= (int)$t['max_attempts'];
         $to = $exhausted ? 'failed' : 'open';
-        $now = $this->now();
-        $this->db->prepare("UPDATE agent_tasks SET state = ?, error = ?, escalated = ?, updated_at = ? WHERE id = ?")
-                 ->execute([$to, mb_substr($error, 0, 255), $exhausted ? 1 : (int)$t['escalated'], $now, $id]);
-        $this->event($id, $exhausted ? 'failed' : 'retry', $t['state'], $to, $head, mb_substr($error, 0, 255));
+        $s = $this->db->prepare("UPDATE agent_tasks SET state = ?, error = ?, escalated = ?, updated_at = ? WHERE id = ? AND site_id = ? AND state = 'working'");
+        $s->execute([$to, mb_substr($error, 0, 255), $exhausted ? 1 : (int)$t['escalated'], $this->now(), $id, $this->site]);
+        if ($s->rowCount() !== 1) {
+            return '';
+        }
+        $this->event($id, $exhausted ? 'failed' : 'retry', 'working', $to, $head, mb_substr($error, 0, 255));
         return $to;
     }
 
@@ -191,8 +199,8 @@ class TaskService
     {
         $now = $this->now();
         $s = $this->db->prepare("UPDATE agent_tasks SET escalated = 1, priority = CASE WHEN priority IN ('low','normal') THEN 'high' ELSE priority END,
-                                        error = ?, updated_at = ? WHERE id = ? AND state IN ('open','working','waiting_approval','failed')");
-        $s->execute([mb_substr($reason, 0, 255), $now, $id]);
+                                        error = ?, updated_at = ? WHERE id = ? AND site_id = ? AND state IN ('open','working','waiting_approval','failed')");
+        $s->execute([mb_substr($reason, 0, 255), $now, $id, $this->site]);
         if ($s->rowCount() !== 1) {
             return false;
         }
@@ -206,7 +214,7 @@ class TaskService
     public function expire(): int
     {
         $now = $this->now();
-        $ids = $this->ids("SELECT id FROM agent_tasks WHERE state IN ('open','working','waiting_approval') AND expires_at IS NOT NULL AND expires_at < ?", [$now]);
+        $ids = $this->ids("SELECT id FROM agent_tasks WHERE site_id = ? AND state IN ('open','working','waiting_approval') AND expires_at IS NOT NULL AND expires_at < ?", [$this->site, $now]);
         foreach ($ids as $id) {
             $this->move($id, self::OPEN_STATES, 'expired', 'expired', 'system', 'past its time limit');
         }
@@ -217,7 +225,7 @@ class TaskService
     public function reapStuck(): int
     {
         $cut = date('Y-m-d H:i:s', strtotime($this->now()) - self::STUCK_MINUTES * 60);
-        $ids = $this->ids("SELECT id FROM agent_tasks WHERE state = 'working' AND claimed_at IS NOT NULL AND claimed_at < ?", [$cut]);
+        $ids = $this->ids("SELECT id FROM agent_tasks WHERE site_id = ? AND state = 'working' AND claimed_at IS NOT NULL AND claimed_at < ?", [$this->site, $cut]);
         foreach ($ids as $id) {
             $this->fail($id, 'system', 'stuck working for over ' . self::STUCK_MINUTES . ' minutes');
         }
@@ -227,44 +235,74 @@ class TaskService
     /**
      * Close open tasks of $kind whose source no longer lists them (the invoice got paid, the customer replied).
      * Only 'open' tasks are closed; one a head is working on or waiting for approval is left alone.
+     *
+     * Safety valve: if one pass would close more than MAX_CLOSE_SHARE of the open tasks of this kind (and more than
+     * MIN_CLOSE_FLOOR of them), a desk that silently returned a short or empty list is far likelier than that many
+     * real resolutions at once — close nothing and log it.
      * @param string[] $liveDedupeKeys keys still present at the source
      */
     public function closeResolved(string $kind, array $liveDedupeKeys): int
     {
         $live = array_flip($liveDedupeKeys);
-        $ids = $this->ids("SELECT id FROM agent_tasks WHERE kind = ? AND state = 'open'", [$kind]);
-        $n = 0;
+        $ids = $this->ids("SELECT id FROM agent_tasks WHERE site_id = ? AND kind = ? AND state = 'open'", [$this->site, $kind]);
+        $gone = [];
         foreach ($ids as $id) {
             $t = $this->get($id);
-            if ($t && !isset($live[$t['dedupe_key']]) && $this->move($id, ['open'], 'cancelled', 'resolved', 'system', 'no longer listed at its source')) {
+            if ($t && !isset($live[$t['dedupe_key']])) {
+                $gone[] = $id;
+            }
+        }
+        if (count($gone) > self::MIN_CLOSE_FLOOR && count($gone) > self::MAX_CLOSE_SHARE * count($ids)) {
+            error_log("TaskService: refusing to close " . count($gone) . " of " . count($ids) . " open '{$kind}' tasks in one pass — the source list looks short");
+            return 0;
+        }
+        $n = 0;
+        foreach ($gone as $id) {
+            if ($this->move($id, ['open'], 'cancelled', 'resolved', 'system', 'no longer listed at its source')) {
                 $n++;
             }
         }
         return $n;
     }
 
+    /** A cancelled or expired task whose source item has come back is reopened, with a fresh time limit and attempts. */
+    private function reopenIfResolved(array $t): array
+    {
+        if (!in_array($t['state'], ['cancelled', 'expired'], true)) {
+            return $t;
+        }
+        $now = $this->now();
+        $s = $this->db->prepare("UPDATE agent_tasks SET state = 'open', attempts = 0, escalated = 0, error = NULL, completed_at = NULL,
+                                        expires_at = ?, updated_at = ? WHERE id = ? AND site_id = ? AND state IN ('cancelled','expired')");
+        $s->execute([date('Y-m-d H:i:s', strtotime($now) + self::DEFAULT_TTL_DAYS * 86400), $now, (int)$t['id'], $this->site]);
+        if ($s->rowCount() === 1) {
+            $this->event((int)$t['id'], 'reopened', $t['state'], 'open', 'system', 'listed at its source again');
+        }
+        return $this->get((int)$t['id']) ?? $t;
+    }
+
     // ── Reads ────────────────────────────────────────────────────────────────
 
     public function get(int $id): ?array
     {
-        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE id = ?");
-        $s->execute([$id]);
+        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE id = ? AND site_id = ?");
+        $s->execute([$id, $this->site]);
         return $s->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     public function byDedupe(string $key): ?array
     {
-        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE dedupe_key = ?");
-        $s->execute([$key]);
+        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE dedupe_key = ? AND site_id = ?");
+        $s->execute([$key, $this->site]);
         return $s->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     /** @return array[] a head's open work, most urgent first */
     public function openFor(string $head, int $limit = 50): array
     {
-        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE owner_head = ? AND state IN ('open','working','waiting_approval')
+        $s = $this->db->prepare("SELECT * FROM agent_tasks WHERE site_id = ? AND owner_head = ? AND state IN ('open','working','waiting_approval')
                                  ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, COALESCE(due_at, created_at), id LIMIT " . max(1, min(200, $limit)));
-        $s->execute([strtolower($head)]);
+        $s->execute([$this->site, strtolower($head)]);
         return $s->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -272,15 +310,18 @@ class TaskService
     public function escalations(int $limit = 20): array
     {
         $s = $this->db->prepare("SELECT * FROM agent_tasks
-                                 WHERE state = 'failed' OR (escalated = 1 AND state IN ('open','working','waiting_approval'))
-                                    OR (state IN ('open','working','waiting_approval') AND due_at IS NOT NULL AND due_at < ?)
+                                 WHERE site_id = ? AND (state = 'failed' OR (escalated = 1 AND state IN ('open','working','waiting_approval'))
+                                    OR (state IN ('open','working','waiting_approval') AND due_at IS NOT NULL AND due_at < ?))
                                  ORDER BY id DESC LIMIT " . max(1, min(200, $limit)));
-        $s->execute([$this->now()]);
+        $s->execute([$this->site, $this->now()]);
         return $s->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function events(int $taskId): array
     {
+        if (!$this->get($taskId)) {
+            return [];
+        }
         $s = $this->db->prepare("SELECT * FROM agent_task_events WHERE task_id = ? ORDER BY id");
         $s->execute([$taskId]);
         return $s->fetchAll(PDO::FETCH_ASSOC);
@@ -290,7 +331,9 @@ class TaskService
     public function summary(): array
     {
         $out = [];
-        foreach ($this->db->query("SELECT owner_head, state, COUNT(*) n FROM agent_tasks GROUP BY owner_head, state")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $q = $this->db->prepare("SELECT owner_head, state, COUNT(*) n FROM agent_tasks WHERE site_id = ? GROUP BY owner_head, state");
+        $q->execute([$this->site]);
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $out[$r['owner_head']][$r['state']] = (int)$r['n'];
         }
         return $out;
@@ -319,12 +362,13 @@ class TaskService
     {
         $in = implode(',', array_fill(0, count($from), '?'));
         $now = $this->now();
-        $s = $this->db->prepare("UPDATE agent_tasks SET state = ?, updated_at = ?" . ($to === 'cancelled' || $to === 'expired' ? ", completed_at = ?" : "") . " WHERE id = ? AND state IN ($in)");
+        $s = $this->db->prepare("UPDATE agent_tasks SET state = ?, updated_at = ?" . ($to === 'cancelled' || $to === 'expired' ? ", completed_at = ?" : "") . " WHERE id = ? AND site_id = ? AND state IN ($in)");
         $args = [$to, $now];
         if ($to === 'cancelled' || $to === 'expired') {
             $args[] = $now;
         }
         $args[] = $id;
+        $args[] = $this->site;
         $s->execute(array_merge($args, $from));
         if ($s->rowCount() !== 1) {
             return false;
