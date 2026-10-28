@@ -332,6 +332,10 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
 // Tenant context
 require_once __DIR__ . '/../app/Services/TenantContext.php';
 
+// Pulse (health monitor)
+require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
+
 // Charlie payment story
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharliePaymentStory.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAnswerStyle.php';

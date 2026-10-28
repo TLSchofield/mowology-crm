@@ -26,7 +26,7 @@ try {
 $counts = AdaRules::counts($checks);
 $groups = [];
 foreach ($checks as $c) $groups[$c['group']][] = $c;
-$order = ['Scheduled jobs', 'Connections', 'Security', 'Ada'];
+$order = ['Live checks', 'Scheduled jobs', 'Connections', 'Security', 'Ada'];
 $rank = static fn($g) => ($i = array_search($g, $order, true)) === false ? 9 : $i;
 uksort($groups, fn($a, $b) => $rank($a) <=> $rank($b));
 $words = ['red' => 'Broken', 'amber' => 'Look at', 'unknown' => "Can't tell", 'green' => 'Working', 'info' => 'Note'];

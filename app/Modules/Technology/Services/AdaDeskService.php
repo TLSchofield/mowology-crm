@@ -61,7 +61,7 @@ class AdaDeskService
     {
         if ($this->checks !== null) return $this->checks;
         $all = [];
-        foreach (['cronChecks', 'connectionChecks', 'securityChecks'] as $part) {
+        foreach (['pulseChecks', 'cronChecks', 'connectionChecks', 'securityChecks'] as $part) {
             try {
                 $all = array_merge($all, $this->$part());
             } catch (Throwable $e) {
@@ -229,6 +229,13 @@ class AdaDeskService
     // ─────────────────────────────────────────────────────────────────────────
     // (3) Security
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** Pulse's live checks (is the app working right now?): one row each, from the 5-minute check. */
+    private function pulseChecks(): array
+    {
+        require_once __DIR__ . '/PulseService.php';
+        return (new PulseService($this->db))->adaChecks();
+    }
 
     private function securityChecks(): array
     {
