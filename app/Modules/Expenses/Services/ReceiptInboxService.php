@@ -134,6 +134,14 @@ class ReceiptInboxService
         }
         try {
             $text = self::htmlToText($html);
+            // A client's accounts system refusing one of OUR invoices ("emailed invoice was not accepted … No PDF found") also says
+            // "invoice", so it landed here as a draft expense and nobody knew. Record it on the invoice instead: Charlie alerts the owner.
+            require_once dirname(__DIR__, 2) . '/Invoices/Services/InvoiceRejectionNotice.php';
+            if ($notice = InvoiceRejectionNotice::parse((string)($msg['subject'] ?? ''), $text)) {
+                $recorded = InvoiceRejectionNotice::record($this->db, $notice, (string)($msg['message_id'] ?? $dedup));
+                $this->finalizeClaim($dedup, null, null, 'skipped', null, 'client rejected invoice ' . $notice['invoice_number']);
+                return ['status' => 'skipped', 'expense_id' => null, 'note' => 'invoice rejection notice' . ($recorded ? ' (recorded)' : '')];
+            }
             if (mb_strlen($text) < 20) {
                 $this->finalizeClaim($dedup, null, null, 'skipped', null, 'email body has no receipt text');
                 return ['status' => 'skipped', 'expense_id' => null, 'note' => 'no text'];

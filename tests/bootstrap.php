@@ -333,6 +333,11 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
 // Tenant context
 require_once __DIR__ . '/../app/Services/TenantContext.php';
 
+// Invoice reminders / rejection notices
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionNotice.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionWatch.php';
+
 // Pulse (health monitor)
 require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';

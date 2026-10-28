@@ -59,6 +59,10 @@ $APPROACHING_DAYS = 3; // days before due_date to send first reminder
 
 // Who a reminder goes to is NOT invoices.contact_id — see resolveReminderRecipients().
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+// Reminders to an accounts-payable inbox (LeapAP, ap@, invoices@) must carry the invoice PDF or that system rejects them (2026-10-28).
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceReminderRules.php';
+$pdfGate = new InvoicePdfGate($db);
 
 try {
     // Find invoices eligible for a reminder:
@@ -121,6 +125,7 @@ try {
             ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($inv['access_token'])
             : '';
         $sentTo   = [];
+        $pdfPath  = false;   // made once per invoice, only if some recipient needs it
 
         foreach ($recipients as $rcpt) {
             $contactName = $rcpt['contact_name'] ?: ($inv['company_name'] ?: 'Valued Customer');
@@ -151,6 +156,20 @@ try {
                           . "<p>If it slipped through, the button below takes you straight to it. If you've paid another way, reply and tell us how, so we can match it up. Sorry for the chase if so.</p>";
             }
 
+            // An accounts-payable inbox gets the PDF, like the invoice email itself. If it cannot be made, send NOTHING to that inbox
+            // (it would only be rejected) and let Charlie's PDF alert tell the owner; the reminder is retried on the next run.
+            $attachPdf = null;
+            if (InvoiceReminderRules::needsPdf((string)$rcpt['email_address'], (string)($rcpt['contact_role'] ?? ''))) {
+                if ($pdfPath === false) $pdfPath = $pdfGate->ensurePdf($invoiceId);
+                if ($pdfPath === null) {
+                    $pdfGate->recordBlocked($invoiceId, 'reminder');
+                    remLog("  HELD {$inv['invoice_number']} for <{$rcpt['email_address']}> — the invoice PDF could not be made");
+                    continue;
+                }
+                $attachPdf = $pdfPath;
+                $bodyText .= '<p>The invoice PDF is attached.</p>';
+            }
+
             $emailBody = EmailWrapper::wrap(
                 $bodyText,
                 'Pay the invoice',
@@ -158,7 +177,7 @@ try {
                 $companyInfo
             );
 
-            $result = sendCrmEmail($rcpt['email_address'], $subject, $emailBody);
+            $result = sendCrmEmail($rcpt['email_address'], $subject, $emailBody, $attachPdf);
             if ($result) {
                 $emailsSent++;
                 $sentTo[] = $contactName . ' <' . $rcpt['email_address'] . '>';
