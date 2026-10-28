@@ -17,7 +17,13 @@ if (!jwtIsAdmin((string)$user['role'])) { http_response_code(403); echo json_enc
 $db = getDB();
 $service = new QboConnectionService($db);
 $missing = $service->missing();
-if ($missing) { http_response_code(409); echo json_encode(['ok' => false, 'error' => 'not_set_up', 'message' => 'QuickBooks is not set up: ' . implode('; ', $missing)]); exit; }
+if ($missing) {
+    // The owner sees `message` as is; the operator's to-do list goes to the log (Android walk, 2026-10-27).
+    error_log('QuickBooks phone start: not set up — ' . implode('; ', $missing));
+    http_response_code(409);
+    echo json_encode(['ok' => false, 'error' => 'not_set_up', 'message' => "QuickBooks isn't switched on for your business yet. You can skip this step and connect it later from Settings."]);
+    exit;
+}
 $state = [];
 $url = $service->startUrl($state);
 $saved = $state['qbo_oauth'];
