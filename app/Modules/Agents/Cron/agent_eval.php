@@ -75,7 +75,11 @@ try {
         if ($v['failures']) $bad[] = $skill . ' (' . implode('; ', $v['failures']) . ')';
     }
     $text = "{$passed} of {$cases} cases passed across " . count($summary) . " skills; {$written} scores stored";
-    $__finish($bad ? 'warning' : 'success', $bad ? $text . ' — failing: ' . implode(' | ', $bad) : $text);
+    // Scores that could not be stored are a failed run too: the Studio would keep showing stale numbers.
+    if ($written < count($summary)) {
+        $bad[] = 'only ' . $written . ' of ' . count($summary) . ' scores could be stored';
+    }
+    $__finish($bad ? 'warning' : 'success', $bad ? $text . ' — ' . implode(' | ', $bad) : $text);
 } catch (Throwable $e) {
     error_log('agent_eval: ' . $e->getMessage());
     $__finish('error', 'agent_eval failed', $e->getMessage());
