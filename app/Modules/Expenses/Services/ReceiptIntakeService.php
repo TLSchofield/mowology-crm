@@ -310,6 +310,12 @@ class ReceiptIntakeService
             $preScreenDecision = $preScreen['decision']; // use_vision (Tesseract failed/missing)
         }
 
+        // Router: a vendor the cheap read keeps getting wrong goes straight to the strong read.
+        $readMode = receiptReadMode($earlyVendorId ? getVendorParseProfile($this->db, $earlyVendorId) : null);
+        if ($readMode === 'strong' && $preScreenDecision === 'use_tesseract') {
+            $preScreenDecision = 'use_vision';
+        }
+
         $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
         $ocrSource = 'none'; // 'tesseract' | 'vision' | 'none'
 
@@ -362,6 +368,17 @@ class ReceiptIntakeService
                 'vendor_id'      => $profileVendorId,
                 'vendor_profile' => $liProfile,
             ]);
+            // Rung 2: this vendor's learned header layout, only where the rules came up empty or the sums fail.
+            $enh['parsed'] = applyHeaderLayouts($enh['parsed'], $enh['ocr_text'], headerLayoutsFromProfile(
+                $profileVendorId ? getVendorParseProfile($this->db, (int)$profileVendorId) : null
+            ));
+            // Header rung: total/date missing or the printed sums fail → AI reads only those fields,
+            // accepted only when printed in the OCR text.
+            if ($readMode === 'strong' || receiptReadMode($profileVendorId ? getVendorParseProfile($this->db, (int)$profileVendorId) : null) === 'strong') {
+                $enh['read_mode'] = 'strong';
+                $enh['parsed']['read_mode'] = 'strong';
+            }
+            $enh = enhanceHeaders($enh);
             $parsed      = $enh['parsed'];
             $ocrText     = $enh['ocr_text'];
             $rawResponse = $enh['raw_response'];
@@ -417,6 +434,7 @@ class ReceiptIntakeService
             if (!empty($suggestions['vendor_gst_exempt'])) {
                 $parsed['gst'] = '0.00';
                 $parsed['gst_estimated'] = false;
+                $parsed['gst_source'] = 'exempt';
                 $parsed['gst_exempt'] = true;
                 if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
                     $parsed['total'] = $parsed['subtotal'];

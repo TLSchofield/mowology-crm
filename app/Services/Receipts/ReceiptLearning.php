@@ -94,9 +94,14 @@ function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, arr
  */
 function headerCorrections(array $original, array $final, ?string $vendorName): array
 {
+    // PST: a stored 0.00 means "none", the same as nothing printed — not a correction.
+    $pstVal = static function ($v) {
+        return ($v === null || $v === '' || (is_numeric($v) && (float)$v == 0.0)) ? null : $v;
+    };
     $pairs = [
         'total'    => [$original['total'] ?? null,       $final['total'] ?? null],
         'gst'      => [$original['gst'] ?? null,         $final['gst_amount'] ?? null],
+        'pst'      => [$pstVal($original['pst'] ?? null), $pstVal($final['pst_amount'] ?? null)],
         'subtotal' => [$original['subtotal'] ?? null,    $final['amount'] ?? null],
         'date'     => [$original['date'] ?? null,        $final['expense_date'] ?? null],
         'vendor'   => [$original['vendor_hint'] ?? null, $vendorName],
@@ -144,7 +149,7 @@ function sameVendorName(?string $printed, ?string $kept): bool
         return true;
     }
     // Containment only for real names — "CO" must not match "COSTCO".
-    return min(strlen($a), strlen($b)) >= 4 && (str_contains($a, $b) || str_contains($b, $a));
+    return min(strlen($a), strlen($b)) >= 4 && (strpos($a, $b) !== false || strpos($b, $a) !== false);
 }
 
 /**
@@ -285,6 +290,7 @@ function baselineFromExpenseRow(array $row): array
     return [
         'total'               => $row['total'] ?? null,
         'gst'                 => $row['gst_amount'] ?? null,
+        'pst'                 => $row['pst_amount'] ?? null,
         'subtotal'            => $row['amount'] ?? null,
         'date'                => $row['expense_date'] ?? null,
         'vendor_hint'         => $row['vendor_name_raw'] ?? null,
@@ -578,7 +584,7 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         if (empty($parsed[$field]) && !empty($fix['corrected_value']) && $fix['times_seen'] >= 3) {
             // Don't auto-fill amounts — those change per receipt
             // Only auto-fill structural patterns (labels, formats)
-            if (!in_array($field, ['total', 'gst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
+            if (!in_array($field, ['total', 'gst', 'pst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
                 $parsed[$field] = $fix['corrected_value'];
                 $parsed[$field . '_source'] = 'learned';
             }
@@ -593,11 +599,31 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
 
     // ── Apply learned accounting category ─────────────────────────────
     // Override suggested category if the user has consistently corrected it (2+).
+    $parsed = resolveLearnedCategory($parsed, $profile, $ocrText);
+
+    // ── Learned header layouts (rung 2 of the ladder: rules → learned layout → AI) ──
+    $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($profile));
+
+    return $parsed;
+}
+
+/**
+ * The vendor's learned category, unless the receipt itself says otherwise: a pump receipt is Fuel
+ * whatever the vendor lesson says (Chevron taught Meals by twenty coffee receipts must not turn a
+ * fill-up into Meals). Pure.
+ */
+function resolveLearnedCategory(array $parsed, array $profile, string $ocrText): array
+{
+    require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptBookkeeperRules.php';
     if (!empty($profile['learned_accounting_category']) && (int)($profile['category_correction_count'] ?? 0) >= 2) {
+        if (ReceiptBookkeeperRules::fuelType(strtoupper($ocrText)) !== null) {
+            $parsed['accounting_category']        = 'Fuel';
+            $parsed['accounting_category_source'] = 'content';
+            return $parsed;
+        }
         $parsed['accounting_category']        = $profile['learned_accounting_category'];
         $parsed['accounting_category_source'] = 'learned';
     }
-
     return $parsed;
 }
 
@@ -801,6 +827,23 @@ function deriveVendorPatterns(PDO $db, int $vendorId): void
             $updates['pst_label'] = 'PST/QST';
         }
 
+        // ── Header layouts + date format, from confirmed corrections (>= 2 consistent) ──
+        // Needs migration 1405's header_layouts column; without it nothing is written.
+        if (vendorProfileHasColumn($db, 'header_layouts')) {
+            $hl = $db->prepare("
+                SELECT field_name, ocr_context, corrected_value, times_seen
+                FROM receipt_parse_lessons
+                WHERE vendor_id = ? AND field_name IN ('total','subtotal','gst','pst','date')
+                  AND ocr_context IS NOT NULL AND ocr_context <> '' AND corrected_value IS NOT NULL
+            ");
+            $hl->execute([$vendorId]);
+            $lessons = $hl->fetchAll(PDO::FETCH_ASSOC);
+            $layouts = deriveHeaderLayouts($lessons);
+            if ($layouts) $updates['header_layouts'] = json_encode($layouts);
+            $fmt = deriveDateFormat($lessons);
+            if ($fmt !== null) $updates['date_format'] = $fmt;
+        }
+
         // ── Auto-derive Tesseract threshold from accuracy history ──────
         $pfStmt = $db->prepare("SELECT accuracy_rate, total_receipts FROM vendor_parse_profiles WHERE vendor_id = ?");
         $pfStmt->execute([$vendorId]);
@@ -894,20 +937,34 @@ function extractOcrContext(string $ocrText, string $fieldName, ?string $ocrVal, 
     $searchVal = $userVal ?? $ocrVal;
     if (empty($searchVal)) return null;
 
-    // Find the value in the OCR text and grab surrounding lines
+    // Find the value in the OCR text and grab surrounding lines. An amount printed twice
+    // ("Fuel sales $ 23.28" and "TOTAL / CAD$ 23.28") is taken where its own label is: the window
+    // is what header-layout learning reads the label and position from.
     $lines = preg_split('/\r?\n/', $ocrText);
     $lineCount = count($lines);
-
+    $hint = headerFieldLabelHint($fieldName);
+    $hits = [];
     for ($i = 0; $i < $lineCount; $i++) {
-        if (stripos($lines[$i], $searchVal) !== false) {
-            $start = max(0, $i - 2);
-            $end = min($lineCount - 1, $i + 2);
-            return implode("\n", array_slice($lines, $start, $end - $start + 1));
+        if (stripos($lines[$i], $searchVal) !== false) $hits[] = $i;
+    }
+    if ($hits && $hint !== null && count($hits) > 1) {
+        foreach ($hits as $i) {
+            $near = ($lines[max(0, $i - 2)] ?? '') . "\n" . ($lines[max(0, $i - 1)] ?? '') . "\n" . $lines[$i];
+            if (preg_match($hint, $near)) {
+                $hits = [$i];
+                break;
+            }
         }
+    }
+    if ($hits) {
+        $i = $hits[0];
+        $start = max(0, $i - 2);
+        $end = min($lineCount - 1, $i + 2);
+        return implode("\n", array_slice($lines, $start, $end - $start + 1));
     }
 
     // For amounts, search by the numeric value
-    if (in_array($fieldName, ['total', 'gst', 'subtotal'])) {
+    if (in_array($fieldName, ['total', 'gst', 'pst', 'subtotal'])) {
         $amount = preg_quote($searchVal, '/');
         for ($i = 0; $i < $lineCount; $i++) {
             if (preg_match('/' . $amount . '/', $lines[$i])) {
@@ -945,6 +1002,11 @@ function extractDateWithFormat(string $text, string $format): ?string
                 return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[2], (int)$m[1]);
             }
             break;
+        case 'MM/DD/YYYY':
+            if (preg_match('/(\d{1,2})\/(\d{1,2})\/(\d{4})/', $text, $m)) {
+                return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[1], (int)$m[2]);
+            }
+            break;
         case 'YYYY-MM-DD':
             if (preg_match('/(\d{4})-(\d{2})-(\d{2})/', $text, $m)) {
                 return $m[0];
@@ -965,7 +1027,7 @@ function normalizeFieldValue(string $fieldName, ?string $value): ?string
     $value = trim($value);
 
     // Normalize amounts to 2 decimal places
-    if (in_array($fieldName, ['total', 'gst', 'subtotal', ''])) {
+    if (in_array($fieldName, ['total', 'gst', 'pst', 'subtotal', ''])) {
         if (preg_match('/^\d+\.?\d*$/', $value)) {
             return number_format((float)$value, 2, '.', '');
         }
@@ -1688,4 +1750,296 @@ function ocrTextFromStored(?string $raw): string
         return $decoded['text'];
     }
     return '';
+}
+
+
+// ============================================================================
+//  Learned header layouts (2026-10-28) — where this vendor prints each header field.
+//
+//  A correction teaches STRUCTURE, never values: for total / subtotal / gst / pst the label text
+//  (normalised), whether the amount sits on the label's line (same_line), the next line, or the line
+//  after next, and the currency prefix ("CAD$"). Stored per vendor as JSON in
+//  vendor_parse_profiles.header_layouts (migration 1405):
+//      {"total":[{"label":"TOTAL","pos":"next_line","cur":"CAD$","seen":3}], ...}
+//  A layout needs >= 2 consistent corrections. It is applied only when the generic extractor
+//  returned nothing (or derived/estimated the field itself) or the printed sum fails — and it reads
+//  the amount off the NEW receipt; a past amount is never replayed.
+//
+//  Teaching from a phone save: the approve path learns through learnFromConfirmedExpense(); a
+//  `pending_approval` save (status not yet approved) is skipped there. The phone-save endpoint should
+//  call recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $savedRow, $ocrText) once per
+//  receipt (guard with claimReceiptLearning()) — that records the lessons and runs
+//  deriveVendorPatterns(), which builds these layouts. Wiring that call is API work done separately.
+// ============================================================================
+
+/** Does vendor_parse_profiles have this column? Cached per request. */
+function vendorProfileHasColumn(PDO $db, string $column): bool
+{
+    static $cache = [];
+    if (!array_key_exists($column, $cache)) {
+        try {
+            $q = $db->prepare("SHOW COLUMNS FROM vendor_parse_profiles LIKE ?");
+            $q->execute([$column]);
+            $cache[$column] = (bool)$q->fetch();
+        } catch (Throwable $e) {
+            $cache[$column] = false;
+        }
+    }
+    return $cache[$column];
+}
+
+/** Regex of the labels a header field is printed under (null for fields without one). Pure. */
+function headerFieldLabelHint(string $field): ?string
+{
+    switch ($field) {
+        case 'total':    return '/(?<!SUB)TOTAL|AMOUNT|BALANCE|\bDUE\b|\bPAY\b/i';
+        case 'subtotal': return '/SUB[\s\-]*TOTAL/i';
+        case 'gst':      return '/GST|HST|TAX/i';
+        case 'pst':      return '/PST|RST/i';
+    }
+    return null;
+}
+
+/** A line's label: letters and single spaces, upper case, currency words dropped ("GST INCLUDED $ 1.11" → "GST INCLUDED"). Pure. */
+function headerLineLabel(string $line): string
+{
+    $l = strtoupper(preg_replace('/\$?\s*\d{1,6}[.,]\d{2}(?!\d)/', ' ', $line));
+    $l = preg_replace('/\b(CAD|CDN|USD)\b/', ' ', (string)$l);
+    $l = preg_replace('/[^A-Z]+/', ' ', (string)$l);
+    return trim((string)preg_replace('/\s{2,}/', ' ', (string)$l));
+}
+
+/** The currency prefix printed just before the amount on a line: 'CAD$' | 'CDN$' | '$' | ''. Pure. */
+function headerLineCurrency(string $line): string
+{
+    if (preg_match('/(CAD|CDN)?\s*(\$)?\s*\d{1,6}[.,]\d{2}(?!\d)/i', $line, $m)) {
+        return strtoupper((string)($m[1] ?? '')) . (!empty($m[2]) ? '$' : '');
+    }
+    return '';
+}
+
+/**
+ * Where does `$value` sit in a window of receipt lines, relative to its label? Pure.
+ *
+ * @return ?array{label: string, pos: string, cur: string}
+ */
+function observeHeaderLayout(string $field, string $contextText, string $value): ?array
+{
+    require_once __DIR__ . '/ReceiptParser.php';
+    if (!is_numeric($value)) return null;
+    $want  = round((float)$value, 2);
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $contextText)), static function ($l) { return $l !== ''; }));
+    $hint  = headerFieldLabelHint($field);
+    $found = [];
+    foreach ($lines as $i => $line) {
+        foreach (lineMoneyAmounts($line) as $a) {
+            if (abs($a - $want) < 0.005) { $found[] = $i; break; }
+        }
+    }
+    $candidates = [];
+    foreach ($found as $i) {
+        $own = headerLineLabel($lines[$i]);
+        if ($own !== '') {
+            $candidates[] = ['label' => $own, 'pos' => 'same_line', 'cur' => headerLineCurrency($lines[$i])];
+            continue;
+        }
+        foreach ([1 => 'next_line', 2 => 'line_after_next'] as $back => $pos) {
+            if ($i - $back < 0) break;
+            $above = $lines[$i - $back];
+            if (lineMoneyAmounts($above)) break;
+            $lab = headerLineLabel($above);
+            if ($lab !== '') {
+                $candidates[] = ['label' => $lab, 'pos' => $pos, 'cur' => headerLineCurrency($lines[$i])];
+                break;
+            }
+        }
+    }
+    if (!$candidates) return null;
+    if ($hint !== null) {
+        foreach ($candidates as $c) {
+            if (preg_match($hint, $c['label'])) return $c;
+        }
+        return null;                        // the amount is there but under another label: teach nothing
+    }
+    return $candidates[0];
+}
+
+/**
+ * Group lessons into layouts; keep those seen >= 2 times. Pure.
+ *
+ * @param list<array{field_name: string, ocr_context: ?string, corrected_value: ?string, times_seen?: int|string}> $lessons
+ * @return array<string, list<array{label: string, pos: string, cur: string, seen: int}>>
+ */
+function deriveHeaderLayouts(array $lessons): array
+{
+    $groups = [];
+    foreach ($lessons as $l) {
+        $f = (string)($l['field_name'] ?? '');
+        if (!in_array($f, ['total', 'subtotal', 'gst', 'pst'], true)) continue;
+        $obs = observeHeaderLayout($f, (string)($l['ocr_context'] ?? ''), (string)($l['corrected_value'] ?? ''));
+        if ($obs === null) continue;
+        $key = $obs['label'] . '|' . $obs['pos'] . '|' . $obs['cur'];
+        if (!isset($groups[$f][$key])) $groups[$f][$key] = $obs + ['seen' => 0];
+        $groups[$f][$key]['seen'] += max(1, (int)($l['times_seen'] ?? 1));
+    }
+    $out = [];
+    foreach ($groups as $f => $g) {
+        $keep = array_values(array_filter($g, static function ($x) { return $x['seen'] >= 2; }));
+        usort($keep, static function ($a, $b) { return $b['seen'] <=> $a['seen']; });
+        if ($keep) $out[$f] = $keep;
+    }
+    return $out;
+}
+
+/**
+ * The date format confirmed by >= 2 date corrections ('DD/MM/YYYY' etc., as extractDateWithFormat reads). Pure.
+ */
+function deriveDateFormat(array $lessons): ?string
+{
+    $counts = [];
+    foreach ($lessons as $l) {
+        if (($l['field_name'] ?? '') !== 'date') continue;
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', (string)($l['corrected_value'] ?? ''), $m)) continue;
+        [$y, $mo, $d] = [$m[1], $m[2], $m[3]];
+        $ctx = (string)($l['ocr_context'] ?? '');
+        $y2 = substr($y, 2);
+        $cands = [
+            'YYYY-MM-DD' => "$y-$mo-$d",
+            'DD/MM/YYYY' => "$d/$mo/$y",
+            'MM/DD/YYYY' => "$mo/$d/$y",
+            'DD/MM/YY'   => "$d/$mo/$y2",
+            'MM/DD/YY'   => "$mo/$d/$y2",
+        ];
+        foreach ($cands as $fmt => $str) {
+            if (preg_match('/(?<!\d)' . preg_quote($str, '/') . '(?!\d)/', $ctx) && $d !== $mo) {
+                $counts[$fmt] = ($counts[$fmt] ?? 0) + max(1, (int)($l['times_seen'] ?? 1));
+                break;
+            }
+        }
+    }
+    arsort($counts);
+    foreach ($counts as $fmt => $n) {
+        return $n >= 2 ? $fmt : null;
+    }
+    return null;
+}
+
+/** The profile's stored layouts as an array (empty when absent or unreadable). Pure. */
+function headerLayoutsFromProfile(?array $profile): array
+{
+    $raw = $profile['header_layouts'] ?? null;
+    if (!is_string($raw) || $raw === '') return [];
+    $d = json_decode($raw, true);
+    return is_array($d) ? $d : [];
+}
+
+/**
+ * Read one amount off the text with a learned layout, or null. Pure.
+ * same_line: label and amount on one line; next_line / line_after_next: the label stands alone and
+ * the amount-only line follows (the line between may hold only a currency mark).
+ */
+function readHeaderAmountWithLayout(string $ocrText, array $layout, bool $last): ?string
+{
+    require_once __DIR__ . '/ReceiptParser.php';
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $ocrText)), static function ($l) { return $l !== ''; }));
+    $label = (string)($layout['label'] ?? '');
+    $pos   = (string)($layout['pos'] ?? '');
+    if ($label === '') return null;
+    $hit = null;
+    foreach ($lines as $i => $line) {
+        if (headerLineLabel($line) !== $label) continue;
+        if ($pos === 'same_line') {
+            $amts = lineMoneyAmounts($line);
+            $j = $i;
+        } else {
+            if (lineMoneyAmounts($line)) continue;
+            $j = $i + ($pos === 'line_after_next' ? 2 : 1);
+            if ($pos === 'line_after_next' && (!isset($lines[$i + 1]) || lineMoneyAmounts($lines[$i + 1]) || headerLineLabel($lines[$i + 1]) !== '')) continue;
+            $amts = isset($lines[$j]) && headerLineLabel($lines[$j]) === '' ? lineMoneyAmounts($lines[$j]) : [];
+        }
+        if (!$amts || $amts[count($amts) - 1] <= 0) continue;
+        $hit = number_format($amts[count($amts) - 1], 2, '.', '');
+        if (!$last) break;
+    }
+    return $hit;
+}
+
+/**
+ * Fill header amounts from a vendor's learned layouts, only where the generic extractor failed:
+ *  - a field that is empty, or that the parser derived/estimated itself, is read with the layout;
+ *  - when the printed sum fails, the layouts' readings replace the four amounts, kept only if the sum then holds.
+ * A value that was printed and passes the checks is never touched. Pure.
+ *
+ * @param array<string, list<array>> $layouts deriveHeaderLayouts() shape
+ */
+function applyHeaderLayouts(array $parsed, string $ocrText, array $layouts): array
+{
+    if (!$layouts || trim($ocrText) === '') return $parsed;
+    require_once __DIR__ . '/ReceiptParser.php';
+    require_once __DIR__ . '/ReceiptLineItemIntelligence.php';
+    $empty = static function (array $p, string $f): bool {
+        if ($p[$f] ?? null) return false;
+        return true;
+    };
+    $weak = [
+        'total'    => !empty($parsed['total_derived']),
+        'subtotal' => !empty($parsed['subtotal_derived']),
+        'gst'      => !empty($parsed['gst_estimated']),
+        'pst'      => false,
+    ];
+    $read = static function (string $f) use ($layouts, $ocrText): ?string {
+        foreach ($layouts[$f] ?? [] as $lay) {
+            $v = readHeaderAmountWithLayout($ocrText, $lay, $f === 'total');
+            if ($v !== null) return $v;
+        }
+        return null;
+    };
+    $changed = [];
+    foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+        if (!($empty($parsed, $f) || $weak[$f])) continue;
+        $v = $read($f);
+        if ($v === null) continue;
+        $parsed[$f] = $v;
+        $parsed[$f . '_source'] = 'learned';
+        unset($parsed[$f . '_derived']);
+        if ($f === 'gst') { $parsed['gst_estimated'] = false; }
+        $changed[] = $f;
+    }
+    // The printed sum fails: try the layouts' readings of all four, keep them only if the sum then holds.
+    if (!$changed && in_array('math_fails', headersNeedBetterExtraction($parsed + ['ocr_text' => $ocrText]), true)) {
+        $try = $parsed;
+        foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+            $v = $read($f);
+            if ($v !== null) $try[$f] = $v;
+        }
+        if (!in_array('math_fails', headersNeedBetterExtraction($try + ['ocr_text' => $ocrText]), true)) {
+            foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+                if (($try[$f] ?? null) !== ($parsed[$f] ?? null)) { $try[$f . '_source'] = 'learned'; $changed[] = $f; }
+            }
+            $parsed = $try;
+        }
+    }
+    if ($changed) $parsed['header_layout_fields'] = $changed;
+    return $parsed;
+}
+
+
+/**
+ * Router: how hard should this vendor's receipts be read? 'cheap' (rules, then AI only when a check
+ * fails) or 'strong' (strongest read straight away and the header AI rung enabled up front).
+ * Strong when the owner set read_mode = 'strong', or the vendor's header accuracy is poor
+ * (accuracy_rate < 60 over 5+ receipts). An explicit owner 'cheap' wins over the accuracy rule.
+ * Pure — depends only on the profile row, not on any OCR engine. Default cheap.
+ */
+function receiptReadMode(?array $profile): string
+{
+    if (!$profile) return 'cheap';
+    $manual = strtolower(trim((string)($profile['read_mode'] ?? '')));
+    if ($manual === 'strong' || $manual === 'cheap') return $manual;
+    $rate  = $profile['accuracy_rate'] ?? null;
+    $count = (int)($profile['total_receipts'] ?? 0);
+    if ($rate !== null && $rate !== '' && is_numeric($rate) && (float)$rate < 60 && $count >= 5) {
+        return 'strong';
+    }
+    return 'cheap';
 }
