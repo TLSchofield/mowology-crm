@@ -621,7 +621,7 @@ function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
     }
 }
 
-function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null, bool $allowPending = false): bool
+function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null, bool $filedCopy = false, bool $allowPending = false): bool
 {
     try {
         if (!receiptLearningBaselineReady($db)) {
@@ -637,9 +637,11 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         if (!$row) {
             return false;
         }
-        $confirmed = in_array($row['status'], ['approved', 'forwarded'], true);
+        // a filed copy of an already-booked receipt is rejected but its values are confirmed
+        $confirmed = in_array($row['status'], $filedCopy ? ['approved', 'forwarded', 'rejected'] : ['approved', 'forwarded'], true);
         if ($row['learning_recorded_at'] !== null) {
             // Taught at the phone save; the desk's approval confirms it or overturns part of it.
+            // A filed copy of an already-booked receipt counts too: the desk confirmed its values by filing it (2026-10-28).
             return $confirmed ? amendPhoneLessons($db, $row, $fallbackBaseline) : false;
         }
         if (!$confirmed && !($allowPending && $row['status'] === 'pending_approval')) {
