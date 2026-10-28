@@ -50,6 +50,8 @@ TXT;
         if (!$detail && preg_match_all('/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2}\b/', $a) >= 3) $bad[] = 'reads out dates';
         if (preg_match('/^(based on|according to|as per|here is|here\'s a summary)/i', $a)) $bad[] = 'starts with a lead-in';
         if (preg_match('/\n\s*—\s*from /', $a)) $bad[] = 'has a source tag';
+        // The CRM never records anyone's pronouns, so any he/she/his/her is a guess.
+        if (preg_match('/\b(he|she|his|hers?|him|himself|herself)\b/i', $a)) $bad[] = 'guesses a pronoun';
         return $bad;
     }
 

@@ -95,4 +95,60 @@ class CharlieAnswerStyleTest extends TestCase
         $this->assertStringContainsString('"total": 500', $prompt, 'the true total across all 10 invoices, not the 8 rows that fit');
         $this->assertStringContainsString('Visa ending 5760 is on file, but Pat is not enrolled in autopay', $prompt);
     }
+
+    public function testAGuessedPronounIsFlagged(): void
+    {
+        $this->assertContains('guesses a pronoun', CharlieAnswerStyle::check('Not quite. She is behind on two small ones.'));
+        $this->assertSame([], CharlieAnswerStyle::check('Not quite. Pat is behind on two small ones, and they have not replied.'));
+    }
+
+    public function testALedgerAnswerGetsOneRewriteAndTheBetterOneWins(): void
+    {
+        $db = $this->db();
+        $calls = 0;
+        $bodies = [];
+        $transport = function (array $b) use (&$calls, &$bodies) {
+            $bodies[] = $b;
+            $calls++;
+            $text = $calls === 1
+                ? "No. INV-2026-1001 for \$50 (due Oct 1), INV-2026-1002 for \$50 (due Oct 2) and INV-2026-1003 for \$50 are overdue.\n- one\n- two"
+                : 'Not quite. Pat owes about $500, all of it small, and a card is on file but autopay is off.';
+            return ['code' => 200, 'body' => json_encode(['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => $text]], 'usage' => ['input_tokens' => 800, 'output_tokens' => 60]])];
+        };
+        $r = (new CharlieAskService($db, $transport, '2026-10-28'))->ask('Has Pat paid all their bills', 1);
+        $this->assertSame(2, $calls, 'one rewrite, no more');
+        $this->assertStringStartsWith('Not quite.', $r['answer']);
+        $this->assertStringContainsString('reads like a ledger', $bodies[1]['messages'][2]['content'][0]['text']);
+        $this->assertSame('assistant', $bodies[1]['messages'][1]['role']);
+        $row = $db->query("SELECT input_tokens, output_tokens FROM charlie_asks")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(1600, (int)$row['input_tokens'], 'both calls are paid for and logged');
+    }
+
+    public function testAGoodAnswerIsNotRewritten(): void
+    {
+        $calls = 0;
+        $transport = function (array $b) use (&$calls) {
+            $calls++;
+            return ['code' => 200, 'body' => json_encode(['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => 'Not quite. Pat owes about $500, all small.']], 'usage' => ['input_tokens' => 800, 'output_tokens' => 20]])];
+        };
+        (new CharlieAskService($this->db(), $transport, '2026-10-28'))->ask('Has Pat paid all their bills', 1);
+        $this->assertSame(1, $calls);
+    }
+
+    public function testACachedAnswerIsNotReusedWhenTheFactsChange(): void
+    {
+        $db = $this->db();
+        $calls = 0;
+        $transport = function (array $b) use (&$calls) {
+            $calls++;
+            return ['code' => 200, 'body' => json_encode(['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => 'Not quite. Pat owes about $500.']], 'usage' => ['input_tokens' => 800, 'output_tokens' => 20]])];
+        };
+        $svc = new CharlieAskService($db, $transport, '2026-10-28');
+        $svc->ask('Has Pat paid all their bills', 1);
+        $svc->ask('Has Pat paid all their bills', 1);
+        $this->assertSame(1, $calls, 'same facts, same question: reused');
+        $db->exec("UPDATE invoices SET reminder_count = 3 WHERE id = 1");   // a reminder went out
+        $svc->ask('Has Pat paid all their bills', 1);
+        $this->assertSame(2, $calls, 'the facts changed, so it asks again');
+    }
 }

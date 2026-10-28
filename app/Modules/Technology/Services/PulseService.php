@@ -31,6 +31,8 @@ class PulseService
     public const SLOW_BRIEF_MS = 6000;
     public const FAIL_BRIEF_MS = 12000;
     public const STUCK_MINUTES = 30;
+    /** A queue stuck this long is a failure, not a warning. */
+    public const FAIL_STUCK_MINUTES = 120;
 
     private PDO $db;
     /** @var callable fn(): int  "now" as a unix time — injectable for tests */
@@ -99,13 +101,35 @@ class PulseService
     {
         $alerts = [];
         foreach (array_keys(PulseRules::LABELS) as $key) {
-            $hist = $this->history($key, 12);
-            $s = PulseRules::streak($hist);
-            if ($s['streak'] < PulseRules::BAD_RUNS_TO_ALERT || $s['since'] === null) continue;
-            $a = PulseRules::alert($key, (string)$hist[0]['detail'], $s['since'], $s['streak']);
+            $inc = $this->incident($key);
+            if ($inc === null || $inc['runs'] < PulseRules::BAD_RUNS_TO_ALERT) continue;
+            $a = PulseRules::alert($key, $inc['detail'], $inc['since'], $inc['runs']);
             if ($a) $alerts[] = $a;
         }
         return $alerts;
+    }
+
+    /**
+     * The current outage of one check, or null when its latest run is not a failure. `since` is the first failure after the
+     * last non-failing run, found in SQL, so it stays the same however long the outage lasts (the alert key depends on it).
+     * @return array{runs:int, since:string, detail:string}|null
+     */
+    private function incident(string $key): ?array
+    {
+        try {
+            $last = $this->history($key, 1);
+            if (!$last || $last[0]['status'] !== 'fail') return null;
+            $g = $this->db->prepare("SELECT MAX(run_at) FROM pulse_checks WHERE check_key = ? AND status <> 'fail'");
+            $g->execute([$key]);
+            $lastGood = (string)($g->fetchColumn() ?: '0000-00-00 00:00:00');
+            $f = $this->db->prepare("SELECT COUNT(*) c, MIN(run_at) s FROM pulse_checks WHERE check_key = ? AND status = 'fail' AND run_at > ?");
+            $f->execute([$key, $lastGood]);
+            $r = $f->fetch(PDO::FETCH_ASSOC) ?: [];
+            if (empty($r['s'])) return null;
+            return ['runs' => (int)$r['c'], 'since' => (string)$r['s'], 'detail' => (string)$last[0]['detail']];
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     /** Ada's rows: one per check, newest result. @return array[] */
@@ -155,13 +179,15 @@ class PulseService
     private function defaultProbes(): array
     {
         return [
-            'head_cards' => fn() => $this->probeHeadCards(),
-            'pages'      => fn() => $this->probePages(),
+            // Quick, local probes first; the two that can wait on the network or on every head last, so a hang in
+            // them cannot stop the others being recorded (and a cron that never finishes shows up on Ada's cron checks).
             'database'   => fn() => $this->probeDatabase(),
             'ai'         => fn() => $this->probeAi(),
             'queues'     => fn() => $this->probeQueues(),
             'requests'   => fn() => $this->probeRequests(),
             'php_fatals' => fn() => $this->probeFatals(),
+            'pages'      => fn() => $this->probePages(),
+            'head_cards' => fn() => $this->probeHeadCards(),
         ];
     }
 
@@ -217,24 +243,40 @@ class PulseService
 
     private function probeQueues(): array
     {
-        $cut = date('Y-m-d H:i:s', $this->now() - self::STUCK_MINUTES * 60);
+        $now = $this->now();
+        $cut = date('Y-m-d H:i:s', $now - self::STUCK_MINUTES * 60);
         $problems = [];
+        $worst = 'ok';
         $checked = 0;
         foreach ([
-            'notifications waiting to send' => ["SELECT COUNT(*) FROM push_queue WHERE status = 'pending' AND created_at < ?", [$cut]],
-            'receipts waiting to be read'   => ["SELECT COUNT(*) FROM expense_ocr_jobs WHERE status IN ('pending','processing') AND created_at < ?", [$cut]],
-            'AI tasks that gave up'          => ["SELECT COUNT(*) FROM agent_tasks WHERE state = 'failed' AND updated_at >= ?", [date('Y-m-d H:i:s', $this->now() - 86400)]],
+            'notifications waiting to send' => ["SELECT COUNT(*) c, MIN(created_at) oldest FROM push_queue WHERE status = 'pending' AND created_at < ?", [$cut]],
+            'receipts waiting to be read'   => ["SELECT COUNT(*) c, MIN(created_at) oldest FROM expense_ocr_jobs WHERE status IN ('pending','processing') AND created_at < ?", [$cut]],
         ] as $label => [$sql, $args]) {
             try {
                 $s = $this->db->prepare($sql);
                 $s->execute($args);
-                $n = (int)$s->fetchColumn();
+                $r = $s->fetch(PDO::FETCH_ASSOC) ?: [];
                 $checked++;
-                if ($n > 0) $problems[] = "$n $label";
+                if ((int)($r['c'] ?? 0) > 0) {
+                    $mins = (int)floor(($now - strtotime((string)$r['oldest'])) / 60);
+                    $problems[] = $r['c'] . ' ' . $label . ' (oldest ' . $mins . ' min)';
+                    // Stuck for a long time is no longer a blip: it has to reach the owner like any other failure.
+                    $worst = $mins >= self::FAIL_STUCK_MINUTES ? 'fail' : ($worst === 'fail' ? 'fail' : 'warn');
+                }
             } catch (Throwable $e) { /* that table is not here on this install */ }
         }
+        try {
+            $s = $this->db->prepare("SELECT COUNT(*) FROM agent_tasks WHERE state = 'failed' AND updated_at >= ?");
+            $s->execute([date('Y-m-d H:i:s', $now - 86400)]);
+            $checked++;
+            if ((int)$s->fetchColumn() > 0) {
+                $problems[] = $s->fetchColumn() === false ? '' : 'AI tasks that gave up';
+                $worst = $worst === 'fail' ? 'fail' : 'warn';
+            }
+        } catch (Throwable $e) { /* not set up here */ }
+        $problems = array_values(array_filter($problems));
         if ($checked === 0) return ['status' => 'unknown', 'detail' => 'No queues to check on this install.'];
-        return $problems ? ['status' => 'warn', 'detail' => 'Stuck: ' . implode(', ', $problems) . '.'] : ['status' => 'ok', 'detail' => 'Nothing is stuck in the queues.'];
+        return $problems ? ['status' => $worst, 'detail' => 'Stuck: ' . implode(', ', $problems) . '.'] : ['status' => 'ok', 'detail' => 'Nothing is stuck in the queues.'];
     }
 
     private function probeRequests(): array

@@ -65,7 +65,7 @@ class CharliePaymentStoryTest extends TestCase
 
     public function testExplainsWhyThroughSignals(): void
     {
-        $t = self::text(CharliePaymentStory::build(self::patRivera()));
+        $t = self::text(CharliePaymentStory::build(self::patRivera(['messages' => ['last_in_at' => null, 'last_in_says_paid' => false]])));
         $this->assertStringContainsString('5 of the 5 overdue invoices have had a reminder', $t);
         $this->assertStringContainsString('4 have used all 3 reminders, so nothing more goes out automatically', $t);
         $this->assertStringContainsString('3 of the overdue invoices were never opened on the invoice page', $t);
@@ -184,5 +184,41 @@ class CharliePaymentStoryTest extends TestCase
         $ctx = ['contacts' => [['id' => 1, 'first_name' => 'Ann', 'last_name' => 'A'], ['id' => 2, 'first_name' => 'Bo', 'last_name' => 'B'], ['id' => 3, 'first_name' => 'Cy', 'last_name' => 'C']]];
         $stories = CharliePaymentStory::forMatches($db, $ctx, self::TODAY);
         $this->assertSame(['Bo B', 'Ann A'], array_column($stories, 'account'), 'Cy has nothing owing and is left out; the largest balance comes first');
+    }
+
+    public function testNoClaimAboutMessagesWhenNoneWereLooked(): void
+    {
+        $t = self::text(CharliePaymentStory::build(self::patRivera()));   // messages => [] (a company, or no messages table)
+        $this->assertStringNotContainsString('written to us', $t);
+        $this->assertStringNotContainsString('last message', $t);
+    }
+
+    public function testAPaidInvoiceWithAStaleBalanceIsNotOwed(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO invoices (id, contact_id, invoice_number, total, balance_due, due_date, status) VALUES (1, 7, 'A', 50, 50, '2026-10-01', 'paid'), (2, 7, 'B', 20, 20, '2026-10-01', 'overdue')");
+        $s = CharliePaymentStory::load($db, ['kind' => 'contact', 'id' => 7, 'name' => 'Pat Rivera', 'first' => 'Pat'], self::TODAY);
+        $this->assertSame(20.0, $s['owing']['total']);
+    }
+
+    public function testMoreThanSixtyInvoicesAreStillCountedAndSaid(): void
+    {
+        $db = $this->db();
+        $ins = $db->prepare("INSERT INTO invoices (id, contact_id, invoice_number, total, balance_due, due_date, status) VALUES (?, 7, ?, 10, 10, '2026-10-01', 'overdue')");
+        for ($i = 1; $i <= 70; $i++) $ins->execute([$i, "INV-$i"]);
+        $s = CharliePaymentStory::load($db, ['kind' => 'contact', 'id' => 7, 'name' => 'Pat Rivera', 'first' => 'Pat'], self::TODAY);
+        $this->assertSame(70, $s['owing']['count'], 'no silent cap at 60');
+        $this->assertSame(700.0, $s['owing']['total']);
+    }
+
+    public function testAContactAndTheirCompanyAreNotTwoDebtors(): void
+    {
+        $db = $this->db();
+        // The same invoice carries both ids; a second, company-only invoice makes the company the bigger story.
+        $db->exec("INSERT INTO invoices (id, contact_id, company_id, invoice_number, total, balance_due, due_date, status) VALUES (1, 1, 9, 'A', 100, 100, '2026-10-01', 'overdue'), (2, NULL, 9, 'B', 400, 400, '2026-10-01', 'overdue')");
+        $ctx = ['contacts' => [['id' => 1, 'first_name' => 'Ann', 'last_name' => 'A']], 'companies' => [['id' => 9, 'company_name' => 'Acme Strata']]];
+        $stories = CharliePaymentStory::forMatches($db, $ctx, self::TODAY);
+        $this->assertSame(['Acme Strata'], array_column($stories, 'account'), "Ann's only invoice is already inside Acme's, so it is not reported again");
+        $this->assertArrayNotHasKey('_invoice_ids', $stories[0]);
     }
 }

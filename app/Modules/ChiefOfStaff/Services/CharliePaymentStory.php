@@ -27,6 +27,8 @@ final class CharliePaymentStory
     public const MAX_UNPAID_ROWS = 12;
     public const MAX_PAID_ROWS = 6;
     public const MAX_ACCOUNTS = 2;
+    /** Unpaid invoices read per account; beyond this the story says so instead of quietly undercounting. */
+    public const MAX_LOADED = 300;
 
     // ── Pure ─────────────────────────────────────────────────────────────────
 
@@ -165,7 +167,7 @@ final class CharliePaymentStory
 
         // What they have said.
         $m = (array)($in['messages'] ?? []);
-        if ($owing['count'] > 0) {
+        if ($owing['count'] > 0 && array_key_exists('last_in_at', $m)) {   // only when we actually looked at messages (companies are not)
             if (!empty($m['last_in_says_paid'])) {
                 $signals[] = $first . ' wrote on ' . self::day((string)$m['last_in_at']) . ' saying they had paid; no matching payment is recorded.';
             } elseif (!empty($m['last_in_at'])) {
@@ -219,7 +221,18 @@ final class CharliePaymentStory
             if ($s && $s['owing']['count'] > 0) $stories[] = $s;
         }
         usort($stories, fn($a, $b) => $b['owing']['total'] <=> $a['owing']['total']);
-        return array_slice($stories, 0, self::MAX_ACCOUNTS);
+        // One invoice is one debt: a contact and their company can both match, so an account whose unpaid invoices were all
+        // already reported under a bigger account is dropped rather than presented as a second person owing the same money.
+        $seen = [];
+        $kept = [];
+        foreach ($stories as $s) {
+            $ids = (array)($s['_invoice_ids'] ?? []);
+            if ($ids && !array_diff($ids, $seen)) continue;
+            $seen = array_merge($seen, $ids);
+            unset($s['_invoice_ids']);
+            $kept[] = $s;
+        }
+        return array_slice($kept, 0, self::MAX_ACCOUNTS);
     }
 
     /** @param array{kind:string,id:int,name:string,first:string} $a */
@@ -231,9 +244,11 @@ final class CharliePaymentStory
 
         $unpaid = self::rows($db, "SELECT id, invoice_number, COALESCE(NULLIF(total, 0), total_amount, 0) AS total, balance_due AS balance, due_date, status,
                                           reminder_count, first_reminder_sent_at, last_reminder_sent_at, view_count, email_opened_at, dispute_status
-                                   FROM invoices WHERE {$col} = ? AND balance_due > 0.005 AND status NOT IN ('cancelled', 'draft', 'void')
-                                   ORDER BY due_date ASC LIMIT 60", [$id]);
-        if (!$unpaid) return self::build(['name' => $a['name'], 'first' => $a['first'], 'today' => $today, 'unpaid' => []]);
+                                   FROM invoices WHERE {$col} = ? AND balance_due > 0.005 AND status NOT IN ('paid', 'cancelled', 'draft', 'void', 'refunded')
+                                   ORDER BY due_date ASC LIMIT " . (self::MAX_LOADED + 1), [$id]);
+        if (!$unpaid) return self::build(['name' => $a['name'], 'first' => $a['first'], 'today' => $today, 'unpaid' => []]) + ['_invoice_ids' => []];
+        $truncated = count($unpaid) > self::MAX_LOADED;
+        if ($truncated) $unpaid = array_slice($unpaid, 0, self::MAX_LOADED);
         $ids = array_map(fn($r) => (int)$r['id'], $unpaid);
         $in = implode(',', $ids);
 
@@ -289,10 +304,13 @@ final class CharliePaymentStory
             $msgs = ['last_in_at' => $in1['sent_at'] ?? null, 'last_in_says_paid' => $says, 'last_out_at' => $out1['sent_at'] ?? null];
         }
 
-        return self::build([
+        $story = self::build([
             'name' => $a['name'], 'first' => $a['first'], 'today' => $today, 'unpaid' => $unpaid, 'paid' => $paid, 'card' => $card, 'live_mode' => $live,
             'messages' => $msgs, 'recipients' => $any ? ['emails' => array_keys($emails), 'bounced' => array_keys($bounced)] : [],
         ]);
+        if ($truncated) array_unshift($story['signals'], 'This account has more than ' . self::MAX_LOADED . ' unpaid invoices; the totals below cover the first ' . self::MAX_LOADED . ' by due date.');
+        $story['_invoice_ids'] = $ids;   // internal: lets forMatches drop an invoice set it already reported under another account
+        return $story;
     }
 
     /** One query, fail soft: a missing table or column simply yields no rows (that fact is left out of the story). */

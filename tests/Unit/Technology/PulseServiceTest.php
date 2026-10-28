@@ -113,4 +113,34 @@ class PulseServiceTest extends TestCase
         if (PHP_VERSION_ID < 80100) { $q->setAccessible(true); }
         $this->assertSame('unknown', $q->invoke($svc)['status'], 'none of the queue tables exist here');
     }
+
+    public function testALongOutageKeepsOneAlertKey(): void
+    {
+        $svc = $this->svc(['head_cards' => fn() => ['status' => 'fail', 'detail' => 'down']]);
+        $svc->run();
+        $this->now += 300;
+        $svc->run();
+        $first = $svc->urgent()[0]['key'];
+        for ($i = 0; $i < 40; $i++) {   // 40 more failing runs, far beyond any history window
+            $this->now += 300;
+            $svc->run();
+        }
+        $this->assertSame($first, $svc->urgent()[0]['key'], 'the key is the incident start, which does not move');
+    }
+
+    public function testAStuckQueueWarnsThenFails(): void
+    {
+        $this->db->exec("CREATE TABLE push_queue (id INTEGER PRIMARY KEY, status TEXT, created_at TEXT)");
+        $svc = new PulseService($this->db, fn() => $this->now);
+        $m = new ReflectionMethod($svc, 'probeQueues');
+        if (PHP_VERSION_ID < 80100) { $m->setAccessible(true); }
+        $this->assertSame('ok', $m->invoke($svc)['status']);
+        $this->db->prepare("INSERT INTO push_queue (status, created_at) VALUES ('pending', ?)")->execute([date('Y-m-d H:i:s', $this->now - 45 * 60)]);
+        $this->assertSame('warn', $m->invoke($svc)['status'], 'stuck 45 minutes');
+        $this->db->exec("DELETE FROM push_queue");
+        $this->db->prepare("INSERT INTO push_queue (status, created_at) VALUES ('pending', ?)")->execute([date('Y-m-d H:i:s', $this->now - 3 * 3600)]);
+        $r = $m->invoke($svc);
+        $this->assertSame('fail', $r['status'], 'stuck three hours is an outage and must reach the owner');
+        $this->assertStringContainsString('oldest 180 min', $r['detail']);
+    }
 }
