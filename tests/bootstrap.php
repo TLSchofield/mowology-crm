@@ -103,6 +103,7 @@ require_once __DIR__ . '/../app/Modules/Referrals/Services/ReferralRules.php';
 require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';
 
 // Mia — marketing & relationships head
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ArticleGeneratorService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWording.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';

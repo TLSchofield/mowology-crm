@@ -107,7 +107,7 @@ RULES — NEVER BREAK THESE:
 2. Use a conversational, confident voice. Write as though the company owner is speaking from 10+ years of hands-on experience.
 3. Forbidden phrases — these signal AI content and WILL be rejected. Never use: "{$forbidden}".
 4. No hedge language ("may", "could", "some experts say") — state things directly.
-5. Include a case study section with specific project details (client type, challenge, outcome, measurements). If no real project details are provided, create a realistic, specific example.
+5. Include a case study section ONLY when real project details are provided in the brief. Use only the facts given; never invent a client, a number, a quote or a result. If no real project is provided, set "case_study" to null.
 6. Every FAQ must answer a real question people search for — not generic questions.
 7. Internal links must use realistic relative URLs for a landscaping company website.
 8. Photo prompts must describe specific real shots that prove the company does this work.
@@ -120,7 +120,7 @@ OUTPUT FORMAT — Return ONLY valid JSON matching this exact structure:
   "sections": [
     {"heading": "H2 heading", "body": "300-400 word section in HTML paragraphs"}
   ],
-  "case_study": {"heading": "H2 heading", "body": "HTML — specific project example with measurements/outcomes"},
+  "case_study": {"heading": "H2 heading", "body": "HTML — the real project from the brief, with only the facts given"} or null when no real project was provided,
   "faq": [
     {"question": "Full question?", "answer": "Concise 2-3 sentence answer."}
   ],
@@ -150,7 +150,7 @@ PROMPT;
         $seasonLine   = $season ? "Season/timing: {$season}" : '';
         $projectLine  = $projectDetails
             ? "Real project to use as case study: {$projectDetails}"
-            : "No real project provided — invent a realistic, specific example for {$city}.";
+            : "No real project provided — do NOT write a case study (set case_study to null) and do not invent any client, result or measurement.";
         $linksSection = !empty($internalLinks)
             ? "Existing pages to link to internally:\n" . implode("\n", array_map(
                 fn($l) => "  - {$l['title']} → {$l['slug']}",
