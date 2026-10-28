@@ -3223,9 +3223,18 @@ async function submitReceiptExport() {
 
         window.__expBank = window.__expBank || {};
         window.__expBank[e.id] = e;
+        // A bank (columns) icon: green = linked to a bank line (click to check); red = should be linked but is not
+        // (a booked or filed receipt paid by card/bank); grey = not expected yet (draft, waiting, rejected, cash).
+        var BANK_SVG = function(color) {
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>';
+        };
+        var bankExpected = (e.status === 'approved' || e.status === 'forwarded' || statusLabel === 'filed')
+            && String(e.payment_method || '').toLowerCase() !== 'cash';
         var bankCell = e.bank_line
-            ? '<a href="#" class="mw-bank-link-ok" onclick="openBankLinkPopup(event,' + e.id + ');return false;" title="Linked to a bank line — click to check"><i data-feather="link" style="width:16px;height:16px;color:var(--mw-green)"></i></a>'
-            : '<span class="text-muted" title="Not linked to a bank line">&ndash;</span>';
+            ? '<a href="#" class="mw-bank-link-ok" onclick="openBankLinkPopup(event,' + e.id + ');return false;" title="Linked to a bank line — click to check">' + BANK_SVG('var(--mw-green)') + '</a>'
+            : (bankExpected
+                ? '<span title="Not linked to a bank line">' + BANK_SVG('#dc3545') + '</span>'
+                : '<span title="Not linked to a bank line (not expected yet)" style="opacity:.45">' + BANK_SVG('#6c757d') + '</span>');
 
         var conf = parseInt(e.match_confidence) || 0;
         var confDot = '';
