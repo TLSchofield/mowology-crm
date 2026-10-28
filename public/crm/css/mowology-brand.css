@@ -40473,3 +40473,19 @@ body.mw-books {
 
 /* Expenses: a field the attached receipt just filled in (expenses_appstack.php, 2026-10-15) */
 .mw-field-updated { border-color: var(--mw-green) !important; box-shadow: 0 0 0 0.15rem var(--mw-light); }
+
+/* Agent Studio (agents_appstack.php, Ittai audit 2026-10-27): one quiet table per question, no dashboard chrome */
+.mw-ag-page { max-width: 1100px; }
+.mw-ag-head { margin-bottom: 16px; }
+.mw-ag-page .card { margin-bottom: 16px; }
+.mw-ag-table th { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-dark); white-space: nowrap; }
+.mw-ag-table td { vertical-align: middle; font-size: .875rem; }
+.mw-ag-who { display: inline-flex; align-items: center; gap: 10px; color: var(--mw-forest); text-decoration: none; }
+.mw-ag-who:hover { text-decoration: none; color: var(--mw-green); }
+.mw-ag-who img { border-radius: 50%; object-fit: cover; }
+.mw-ag-who small { display: block; color: var(--mw-ink-500, #6b7280); font-size: .75rem; }
+.mw-ag-picked { background: var(--mw-light); }
+.mw-ag-detail { margin-top: 24px; }
+.mw-ag-list { margin: 0; padding: 12px 16px 12px 34px; font-size: .9rem; line-height: 1.6; }
+.mw-ag-level { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; text-align: center; font-weight: 700; font-size: .8rem; background: var(--mw-light); color: var(--mw-forest); }
+.mw-ag-level.is-3, .mw-ag-level.is-4 { background: var(--mw-lime); }

@@ -15,8 +15,8 @@ class ArticleGeneratorHonestyTest extends TestCase
         $svc = (new ReflectionClass(ArticleGeneratorService::class))->newInstanceWithoutConstructor();
         $sys = new ReflectionMethod($svc, 'buildSystemPrompt');
         $usr = new ReflectionMethod($svc, 'buildUserPrompt');
-        $sys->setAccessible(true);
-        $usr->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) { $sys->setAccessible(true); }
+        if (PHP_VERSION_ID < 80100) { $usr->setAccessible(true); }
         return [
             $sys->invoke($svc),
             $usr->invoke($svc, 'lawn aeration', 'Vancouver', 'lawn aeration', 'fall', $projectDetails, 1800, []),
