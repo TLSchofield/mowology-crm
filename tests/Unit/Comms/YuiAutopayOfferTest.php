@@ -34,6 +34,20 @@ class YuiAutopayOfferTest extends TestCase
         $this->assertSame('Visa ending 5760', $r['card']);
     }
 
+    public function testANewerOpenInvoiceSuppliesTheLinkWhenTheOldOnesHaveExpired(): void
+    {
+        // The overdue account lists only the 60-day-old invoices, whose links have expired; the client's newer open invoice has a live one.
+        $in = $this->in();
+        $in['invoices'] = [['id' => 100, 'contact_id' => 37, 'company_id' => null, 'access_token' => 'tokDEAD', 'token_expires_at' => '2026-09-01 00:00:00']];
+        $in['token_candidates'] = array_merge($in['invoices'], [['id' => 500, 'contact_id' => 37, 'company_id' => null, 'access_token' => 'tokLIVE', 'token_expires_at' => '2026-12-01 00:00:00']]);
+        $r = YuiAutopayOffer::decide($in);
+        $this->assertTrue($r['offer']);
+        $this->assertStringContainsString('tokLIVE', $r['link']);
+        // ...but never a link that belongs to a different contact.
+        $in['token_candidates'][1]['contact_id'] = 99;
+        $this->assertFalse(YuiAutopayOffer::decide($in)['offer']);
+    }
+
     public function testAnExpiredLinkIsSkippedAndNoneLeftMeansNoOffer(): void
     {
         $in = $this->in();

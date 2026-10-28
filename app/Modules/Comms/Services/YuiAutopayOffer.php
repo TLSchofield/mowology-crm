@@ -18,7 +18,7 @@ declare(strict_types=1);
 final class YuiAutopayOffer
 {
     /**
-     * @param array{payer_contact_id:int, invoices:array<int,array{id:int,contact_id:int,company_id:?int,access_token:?string,token_expires_at:?string}>,
+     * @param array{payer_contact_id:int, token_candidates?:array, invoices:array<int,array{id:int,contact_id:int,company_id:?int,access_token:?string,token_expires_at:?string}>,
      *              contact:?array{autopay_enabled:?int,brand:?string,last4:?string}, live_mode:?bool,
      *              to_contact_id:int, to_email:string, now:string, base_url:string} $in
      * @return array{offer:bool, why:?string, link:?string, card:?string}
@@ -41,6 +41,13 @@ final class YuiAutopayOffer
         if ((int)($in['to_contact_id'] ?? 0) !== $payer) return $no('The note would go to someone other than the person on the invoices.');
         if (trim((string)($in['to_email'] ?? '')) === '') return $no('No email address on file.');
 
+        // The sign-up page only needs ANY open invoice of this client with a live link, not one of the 60-day-old ones (their
+        // links have often expired by now). Ownership was checked on the account's own invoices above; extras are the same client's.
+        $candidates = (array)($in['token_candidates'] ?? []) ?: $invoices;
+        foreach ($candidates as $c) {
+            if ((int)($c['contact_id'] ?? 0) !== $payer) return $no('A candidate invoice link belongs to someone else.');
+        }
+        $invoices = $candidates;
         // The newest open invoice with a link that has not expired.
         usort($invoices, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
         $now = (string)($in['now'] ?? date('Y-m-d H:i:s'));
@@ -77,6 +84,10 @@ final class YuiAutopayOffer
             if (!$ids) return $fail('No open invoices to attach the sign-up to.');
             $in = implode(',', $ids);
             $inv = $db->query("SELECT id, contact_id, company_id, access_token, token_expires_at FROM invoices WHERE id IN ($in)")->fetchAll(PDO::FETCH_ASSOC);
+            $more = $db->prepare("SELECT id, contact_id, company_id, access_token, token_expires_at FROM invoices
+                                  WHERE contact_id = ? AND balance_due > 0.005 AND status IN ('sent', 'viewed', 'partial', 'overdue') ORDER BY id DESC LIMIT 40");
+            $more->execute([$payer]);
+            $candidates = $more->fetchAll(PDO::FETCH_ASSOC);
             $c = $db->prepare("SELECT autopay_enabled, stripe_card_brand AS brand, stripe_card_last4 AS last4 FROM contacts WHERE id = ?");
             $c->execute([$payer]);
             $contact = $c->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -87,7 +98,7 @@ final class YuiAutopayOffer
             } catch (Throwable $e) { /* unknown */ }
             $to = (array)($item['to'] ?? []);
             return self::decide([
-                'payer_contact_id' => $payer, 'invoices' => $inv, 'contact' => $contact, 'live_mode' => $live,
+                'payer_contact_id' => $payer, 'invoices' => $inv, 'token_candidates' => $candidates, 'contact' => $contact, 'live_mode' => $live,
                 'to_contact_id' => (int)($to['contact_id'] ?? 0), 'to_email' => (string)($to['email'] ?? ''), 'now' => $now,
                 'base_url' => defined('SITE_URL') && SITE_URL !== '' ? (string)SITE_URL : 'https://mowology.ca',
             ]);
