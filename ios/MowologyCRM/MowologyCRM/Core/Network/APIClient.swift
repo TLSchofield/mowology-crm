@@ -168,8 +168,16 @@ final class APIClient: ObservableObject {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        // The phone reads the text too; the server compares it with its own read (and may use it once proven).
+        let device = await DeviceTextScanner.read(imageData)
+
         var body = Data()
         body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        if let device = device {
+            body.appendField(name: "client_ocr_text", value: device.text, boundary: boundary)
+            body.appendField(name: "client_ocr_engine", value: device.engine, boundary: boundary)
+            body.appendField(name: "client_ocr_version", value: device.version, boundary: boundary)
+        }
         if let lat = lat { body.appendField(name: "lat", value: "\(lat)", boundary: boundary) }
         if let lng = lng { body.appendField(name: "lng", value: "\(lng)", boundary: boundary) }
         if let jobId = jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }
