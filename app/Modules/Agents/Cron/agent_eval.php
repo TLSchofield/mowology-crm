@@ -65,6 +65,7 @@ try {
     require_once APP_ROOT . '/Services/HeadLessons.php';
     require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
     require_once APP_ROOT . '/Modules/Marketing/Services/ArticleGeneratorService.php';
+    require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAnswerStyle.php';
 
     $summary = AgentEvals::summarise(AgentEvals::run());
     $written = AgentEvals::record($db, $summary);

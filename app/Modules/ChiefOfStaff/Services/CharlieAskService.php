@@ -22,6 +22,8 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieFactAnswerer.php';
+require_once __DIR__ . '/CharliePaymentStory.php';
+require_once __DIR__ . '/CharlieAnswerStyle.php';
 require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 
 class CharlieAskService
@@ -160,6 +162,9 @@ TXT;
             foreach ($summary['heads'] as $h) $from[] = CharlieFactAnswerer::FROM[$h];
         }
         $matched = self::matched($ctx);
+        // Why money is owed (reminders, card/autopay, delivery, what they said), worked out in code: the model phrases it.
+        $story = CharliePaymentStory::forMatches($this->db, $ctx, $this->today());
+        if ($story) $ctx['payment_story'] = $story;
 
         // Nothing in the CRM matched: say so for free.
         if (array_sum($matched) === 0) {
@@ -207,7 +212,9 @@ TXT;
             return ['ok' => false, 'message' => 'I couldn\'t answer that just now (' . $error . '). Try again in a minute.',
                     'left' => self::capLeft($cap, $used + 1)];
         }
-        if ($from) $answer .= "\n— from " . implode(' and ', array_values(array_unique($from)));
+        // "from the CRM" is noise; name a source only when it is something else (Otto's trip log, Penny's receipts …).
+        $others = array_values(array_diff(array_unique($from), ['the CRM']));
+        if ($others) $answer .= "\n— from " . implode(' and ', $others);
         return ['ok' => true, 'answer' => $answer, 'source' => 'claude', 'left' => self::capLeft($cap, $used + 1)];
     }
 
@@ -424,12 +431,20 @@ TXT;
 
     public static function buildRequest(string $prompt): array
     {
-        return [
+        return self::withStyle([
             'model'      => self::MODEL,
             'max_tokens' => 600,
             'system'     => [['type' => 'text', 'text' => self::SYSTEM_PROMPT, 'cache_control' => ['type' => 'ephemeral']]],
             'messages'   => [['role' => 'user', 'content' => [['type' => 'text', 'text' => $prompt]]]],
-        ];
+        ]);
+    }
+
+    /** The speaking-style rules go in as a second cached system block; answers are short, so the output cap is lower. */
+    private static function withStyle(array $req): array
+    {
+        $req['system'][] = ['type' => 'text', 'text' => CharlieAnswerStyle::PROMPT, 'cache_control' => ['type' => 'ephemeral']];
+        $req['max_tokens'] = 400;
+        return $req;
     }
 
     /** The answer's text blocks, joined and trimmed. */

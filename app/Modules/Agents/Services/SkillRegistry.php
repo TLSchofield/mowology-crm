@@ -26,7 +26,7 @@ final class SkillRegistry
             'deterministic' => $llm === null, 'action' => $action, 'eval' => $eval, 'version' => 1,
         ];
         return [
-            $s('charlie', 'ask', 'Answer an owner question from CRM records', 'CharlieAskService', 'ask'),
+            $s('charlie', 'ask', 'Answer an owner question from CRM records', 'CharlieAskService', 'ask', null, 'charlie.ask_style'),
             $s('charlie', 'brief', 'Collect, rank and email each head\'s items', 'CharlieBriefService', null),
             $s('yui', 'reply_draft', 'Draft a reply to a client email', 'YuiDraftService', 'reply_draft'),
             $s('yui', 'send_reply', 'Send a reply the owner approved', 'YuiDraftService', null, 'yui.send_reply', 'draft_safety'),

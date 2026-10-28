@@ -77,6 +77,13 @@ final class AgentEvals
             return stripos($s . $u, 'invent a realistic') === false && stripos($s, 'never invent') !== false;
         }];
 
+        // Charlie: answers sound like a person, and a wall of invoice numbers and dates is caught.
+        $good = 'Not quite. Pat is behind on five small ones, about $250 in all, but did pay the two big ones by e-transfer on the 23rd. There is a card on file but no autopay.';
+        $wall = "No, Pat still owes \$302.40. Two are overdue: INV-2026-0397 for \$50.40 (due Oct 17) and INV-2026-0408 for \$50.40 (due Oct 24). The rest are due Nov 7, Nov 15 and Nov 21.";
+        $cases[] = ['charlie.ask_style', 'a human answer passes', static fn() => CharlieAnswerStyle::check($good) === []];
+        $cases[] = ['charlie.ask_style', 'a wall of invoice numbers fails', static fn() => in_array('reads out invoice numbers', CharlieAnswerStyle::check($wall), true)];
+        $cases[] = ['charlie.ask_style', 'a bullet list fails', static fn() => in_array('markdown or a list', CharlieAnswerStyle::check("Not quite.\n- two are late"), true)];
+
         return $cases;
     }
 

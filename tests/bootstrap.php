@@ -332,6 +332,10 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
 // Tenant context
 require_once __DIR__ . '/../app/Services/TenantContext.php';
 
+// Charlie payment story
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharliePaymentStory.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAnswerStyle.php';
+
 // LLM gateway
 require_once __DIR__ . '/../app/Services/LlmDailyCap.php';
 require_once __DIR__ . '/../app/Services/Llm/ModelCatalog.php';
