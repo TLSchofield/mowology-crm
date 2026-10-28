@@ -253,7 +253,8 @@ class PulseService
         $checked = 0;
         foreach ([
             'notifications waiting to send' => ["SELECT COUNT(*) c, MIN(created_at) oldest FROM push_queue WHERE status = 'pending' AND created_at < ?", [$cut]],
-            'receipts waiting to be read'   => ["SELECT COUNT(*) c, MIN(created_at) oldest FROM expense_ocr_jobs WHERE status IN ('pending','processing') AND created_at < ?", [$cut]],
+            // attempts < 3: the reader still means to try it. A job that has used all 3 attempts is dead, not waiting (below).
+            'receipts waiting to be read'   => ["SELECT COUNT(*) c, MIN(created_at) oldest FROM expense_ocr_jobs WHERE status IN ('pending','processing') AND attempts < 3 AND created_at < ?", [$cut]],
         ] as $label => [$sql, $args]) {
             try {
                 $s = $this->db->prepare($sql);
@@ -268,6 +269,17 @@ class PulseService
                 }
             } catch (Throwable $e) { /* that table is not here on this install */ }
         }
+        try {
+            // Receipts the reader gave up on (3 attempts, still marked pending): nothing will retry them, so someone has to look.
+            $s = $this->db->prepare("SELECT COUNT(*) FROM expense_ocr_jobs WHERE status IN ('pending','processing') AND attempts >= 3 AND created_at >= ?");
+            $s->execute([date('Y-m-d H:i:s', $now - 30 * 86400)]);
+            $dead = (int)$s->fetchColumn();
+            $checked++;
+            if ($dead > 0) {
+                $problems[] = $dead . ' receipt' . ($dead === 1 ? '' : 's') . " the reader couldn't read (it gave up after 3 tries)";
+                $worst = $worst === 'fail' ? 'fail' : 'warn';
+            }
+        } catch (Throwable $e) { /* not here on this install */ }
         try {
             $s = $this->db->prepare("SELECT COUNT(*) FROM agent_tasks WHERE state = 'failed' AND updated_at >= ?");
             $s->execute([date('Y-m-d H:i:s', $now - 86400)]);

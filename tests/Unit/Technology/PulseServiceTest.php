@@ -154,4 +154,22 @@ class PulseServiceTest extends TestCase
         $rows = array_column($svc->adaChecks(), null, 'system');
         $this->assertSame('red', $rows['pulse:php_fatals']['state'], 'but it is red on Ada\'s page');
     }
+
+    public function testDeadReceiptJobsAreReportedAsCouldNotBeReadNotAsStuck(): void
+    {
+        $this->db->exec("CREATE TABLE expense_ocr_jobs (id INTEGER PRIMARY KEY, status TEXT, attempts INT, created_at TEXT)");
+        $old = date('Y-m-d H:i:s', $this->now - 20 * 86400);
+        $this->db->prepare("INSERT INTO expense_ocr_jobs (status, attempts, created_at) VALUES ('pending', 3, ?), ('pending', 3, ?)")->execute([$old, $old]);
+        $svc = new PulseService($this->db, fn() => $this->now);
+        $m = new ReflectionMethod($svc, 'probeQueues');
+        if (PHP_VERSION_ID < 80100) { $m->setAccessible(true); }
+        $r = $m->invoke($svc);
+        $this->assertSame('warn', $r['status'], 'something to look at, but not an outage: 2 dead jobs are not "stuck for 29,000 minutes"');
+        $this->assertStringContainsString("2 receipts the reader couldn't read", $r['detail']);
+        $this->assertStringNotContainsString('waiting to be read', $r['detail']);
+        // A job that still has attempts left and is old IS stuck.
+        $this->db->exec("DELETE FROM expense_ocr_jobs");
+        $this->db->prepare("INSERT INTO expense_ocr_jobs (status, attempts, created_at) VALUES ('pending', 1, ?)")->execute([date('Y-m-d H:i:s', $this->now - 50 * 60)]);
+        $this->assertStringContainsString('waiting to be read', $m->invoke($svc)['detail']);
+    }
 }
