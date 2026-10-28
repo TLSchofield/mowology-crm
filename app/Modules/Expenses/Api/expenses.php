@@ -124,6 +124,46 @@ try {
             echo json_encode(['success' => true] + (new BookkeeperDeskService($db))->approvalPreview((int)($_GET['id'] ?? 0)));
             break;
 
+        // ── Receipt lines ↔ the shared catalogue (ReceiptCatalogService, migration 1378) ──
+        case 'catalog_lines':     // GET id — each line's link / suggestion / "Add" draft, and the families
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $rc = new ReceiptCatalogService($db);
+            $fams = array_map(fn($f) => ['slug' => $f['slug'], 'name' => $f['name']], (new CatalogService($db))->families());
+            $eid = (int)($_GET['id'] ?? 0);
+            $own = $db->prepare("SELECT created_by FROM expenses WHERE id = ?");
+            $own->execute([$eid]);
+            $owner = $own->fetchColumn();
+            $who = expenseActor();
+            if ($owner === false || (empty($who['is_admin']) && (int)$owner !== (int)$who['id'])) throw new Exception('Expense not found');
+            $ready = $rc->ready();
+            echo json_encode(['success' => true, 'ready' => $ready, 'can_decide' => !empty($who['is_admin']),
+                              'lines' => $ready ? $rc->forExpense($eid) : (object)[], 'families' => $fams]);
+            break;
+
+        case 'catalog_search':    // GET q, family?
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $fam = trim((string)($_GET['family'] ?? ''));
+            echo json_encode(['success' => true, 'results' => (new ReceiptCatalogService($db))->search(mb_substr((string)($_GET['q'] ?? ''), 0, 80), $fam !== '' ? $fam : null)]);
+            break;
+
+        case 'catalog_confirm':   // POST line_id, product_id — "yes" / "it's this one"
+        case 'catalog_dismiss':   // POST line_id — "not this"
+        case 'catalog_add':       // POST line_id, family, name, brand? — "Add to catalogue"
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            echo json_encode(handleCatalogLine($db, $input, $action));
+            break;
+
+        case 'personal_choices':  // GET — who a Personal receipt can be charged to (the Personal button, 2026-10-19)
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+            echo json_encode(['success' => true, 'shareholders' => (new ExpensePersonalService($db, expenseGate($db)))->shareholders()]);
+            break;
+
+        case 'mark_personal':     // POST {id, account?} — Personal, charged to a shareholder; no GST claimed
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            handleMarkPersonal($db, $input);
+            break;
+
         case 'approve':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
@@ -134,6 +174,13 @@ try {
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
             handleReject($db, $input, $user);
+            break;
+
+        case 'file_booked':   // a receipt in a filed year: keep it, teach Penny, book nothing
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            if (!$input || !verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+            echo json_encode((new ExpenseApprovalService($db))->fileAsBooked((int)($input['id'] ?? 0), $user));
             break;
 
         case 'batch_approve':
@@ -418,6 +465,19 @@ function handleList(PDO $db): void
     }
     unset($row);
 
+    // Which bank line each receipt is linked to, so the list can show it (and the popup can say which line).
+    $bankLinks = [];
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+        $bankLinks = (new BankLineReceipts($db))->linksFor(array_column($rows, 'id'));
+    } catch (Throwable $e) {
+        error_log('expenses list bank links: ' . $e->getMessage());
+    }
+    foreach ($rows as &$row) {
+        $row['bank_line'] = $bankLinks[(int)$row['id']] ?? null;
+    }
+    unset($row);
+
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
@@ -547,6 +607,20 @@ function handleGet(PDO $db): void
     ");
     $matchStmt->execute([$id]);
     $expense['matched_transaction'] = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    // One of several receipts paid by one line (migration 1372): the line, and the other receipts on it.
+    require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+    $blr = new BankLineReceipts($db);
+    $lineId = $blr->lineFor((int)$id);
+    if ($lineId !== null && !$expense['matched_transaction']) {
+        $m = $db->prepare("SELECT id AS transaction_id, transaction_date, description, amount, bank_account, matched_at, matched_by
+                           FROM accounting_transactions WHERE id = ?");
+        $m->execute([$lineId]);
+        $expense['matched_transaction'] = $m->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if ($lineId !== null && $expense['matched_transaction']) {
+        $g = $blr->group((int)$id);
+        $expense['matched_transaction']['shared_with'] = $g ? array_values(array_filter($g['receipts'], fn($r) => $r !== (int)$id)) : [];
+    }
 
     // Load stored line items (with product details)
     $liStmt = $db->prepare("
@@ -814,6 +888,49 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
 
 
 /** The expense gate for this request — the one door for every expense change. */
+/** A person's catalogue decision on one receipt line: thin controller over ReceiptCatalogService. */
+function handleCatalogLine(PDO $db, ?array $input, string $action): array
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $lineId = (int)($input['line_id'] ?? 0);
+    $s = $db->prepare("SELECT e.id, e.created_by FROM expense_line_items l JOIN expenses e ON e.id = l.expense_id WHERE l.id = ?");
+    $s->execute([$lineId]);
+    $exp = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$exp) throw new Exception('Line not found');
+    // Not money: a receipt sent to accounting can still be linked. The office only: an answer teaches the
+    // SHARED catalogue (every company's next receipt), like approving teaches Penny.
+    $actor = expenseActor();
+    if (empty($actor['is_admin'])) throw new Exception('The office links receipt lines to the catalogue');
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+    $rc = new ReceiptCatalogService($db);
+    $by = (int)$actor['id'] ?: null;
+    if ($action === 'catalog_confirm') $r = $rc->confirm($lineId, (int)($input['product_id'] ?? 0), $by);
+    elseif ($action === 'catalog_dismiss') $r = $rc->dismiss($lineId, $by);
+    else $r = $rc->add($lineId, (string)($input['family'] ?? ''), mb_substr((string)($input['name'] ?? ''), 0, 255),
+                       ($b = trim((string)($input['brand'] ?? ''))) !== '' ? mb_substr($b, 0, 120) : null, $by);
+    return ['success' => !empty($r['ok'])] + $r + (empty($r['ok']) ? ['error' => $r['message'] ?? 'Not saved'] : [])
+           + ['lines' => $rc->forExpense((int)$exp['id'])];
+}
+
+/** The Personal button: thin controller over ExpensePersonalService (the gate does the rest). */
+function handleMarkPersonal(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+    $check = $db->prepare("SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $check->execute([$id]);
+    $existing = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) throw new Exception('Expense not found');
+    if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+    $account = isset($input['account']) && $input['account'] !== '' ? (string)$input['account'] : null;
+    $res = (new ExpensePersonalService($db, expenseGate($db)))->mark($id, $account, ExpenseGate::actor(getCurrentUser()));
+    echo json_encode(['success' => true, 'expense_id' => $id, 'shareholder' => $res['shareholder'], 'changed' => $res['changed'] ?? []]);
+}
+
 function expenseGate(PDO $db): ExpenseGate
 {
     static $gate = null;
