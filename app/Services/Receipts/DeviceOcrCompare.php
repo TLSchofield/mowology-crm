@@ -17,6 +17,8 @@ declare(strict_types=1);
 const DEVICE_OCR_ENGINES = ['apple_vision', 'mlkit'];
 const DEVICE_OCR_MAX_CHARS = 20000;
 const DEVICE_OCR_FIELDS = ['total', 'gst', 'subtotal', 'date', 'vendor_hint'];
+/** In 'on' mode this share of receipts is also read by Vision, so text that doesn't match its photo is caught. */
+const DEVICE_OCR_SPOT_CHECK_PCT = 25;
 
 /** @return 'off'|'shadow'|'on' — anything unknown is 'shadow': measuring is harmless, replacing is not. */
 function deviceOcrMode(?string $setting): string
@@ -120,4 +122,21 @@ function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $devic
     } catch (Throwable $e) {
         error_log('Device OCR compare (non-fatal): ' . $e->getMessage());
     }
+}
+
+/**
+ * Pure: does the device text agree with an independent server read on the facts that matter (total, date)?
+ * The spot-check that stops text which doesn't match its photo from standing in for Vision.
+ */
+function deviceMatchesServer(array $device, array $server): bool
+{
+    foreach (['total', 'date'] as $f) {
+        $a = $device[$f] ?? null;
+        $b = $server[$f] ?? null;
+        if ($a === null || $a === '' || $b === null || $b === '') continue;   // one side didn't read it: not a disagreement
+        $na = function_exists('normalizeFieldValue') ? normalizeFieldValue($f, (string)$a) : (string)$a;
+        $nb = function_exists('normalizeFieldValue') ? normalizeFieldValue($f, (string)$b) : (string)$b;
+        if ($na !== $nb) return false;
+    }
+    return true;
 }

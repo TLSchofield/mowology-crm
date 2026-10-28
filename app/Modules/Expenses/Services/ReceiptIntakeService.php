@@ -333,6 +333,15 @@ class ReceiptIntakeService
                 $devVendorId = !empty($devVendor['vendor_id']) ? (int)$devVendor['vendor_id'] : null;
                 $devStrong = receiptReadMode($devVendorId ? getVendorParseProfile($this->db, $devVendorId) : null) === 'strong';
                 $useDevice = !$devStrong && deviceTextAcceptable($deviceOcr['text'], headersNeedBetterExtraction($devParsed + ['ocr_text' => $deviceOcr['text']]));
+                // Nothing ties the text to the photo, so a share of receipts is also read by Vision: text that
+                // disagrees on total or date is not trusted and this receipt takes the normal Vision route.
+                if ($useDevice && mt_rand(1, 100) <= DEVICE_OCR_SPOT_CHECK_PCT) {
+                    $spot = extractTextFromImage($filePath);
+                    if (!empty($spot['success']) && !empty($spot['text'])) {
+                        $useDevice = deviceMatchesServer($devParsed, parseReceiptText($spot['text'], $spot['raw_response'] ?? null));
+                        if (!$useDevice) error_log('Device OCR rejected by spot-check (media ' . $mediaId . ', ' . $deviceOcr['engine'] . ')');
+                    }
+                }
             } catch (Throwable $e) {
                 error_log('Device OCR gate (falling back to Vision): ' . $e->getMessage());
             }

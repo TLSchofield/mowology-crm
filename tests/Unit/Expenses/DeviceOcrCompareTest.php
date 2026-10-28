@@ -65,4 +65,12 @@ class DeviceOcrCompareTest extends TestCase
         $with = ReceiptCaptureService::crewFields(['client_ocr_text' => self::CHEVRON, 'client_ocr_engine' => 'mlkit']);
         $this->assertSame('mlkit', $with['device_ocr']['engine']);
     }
+
+    public function test_spot_check_rejects_text_that_disagrees_on_total_or_date(): void
+    {
+        $this->assertTrue(deviceMatchesServer(['total' => '23.28', 'date' => '2026-10-28'], ['total' => '23.28', 'date' => '2026-10-28', 'gst' => '1.11']));
+        $this->assertFalse(deviceMatchesServer(['total' => '99.99', 'date' => '2026-10-28'], ['total' => '23.28', 'date' => '2026-10-28']));
+        $this->assertFalse(deviceMatchesServer(['total' => '23.28', 'date' => '2026-01-01'], ['total' => '23.28', 'date' => '2026-10-28']));
+        $this->assertTrue(deviceMatchesServer(['total' => '23.28'], ['date' => '2026-10-28']), 'a field one side did not read is not a disagreement');
+    }
 }
