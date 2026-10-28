@@ -21,6 +21,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once __DIR__ . '/ReceiptBookkeeperService.php';
 require_once __DIR__ . '/ExpenseApprovalService.php';
 if (!function_exists('sameVendorName')) {
@@ -482,6 +483,15 @@ class BookkeeperDeskService
      * @return array{ok: bool, message: string, approved?: bool, saved_draft?: bool}
      */
     public function decide(int $suggestionId, array $overrides, array $user, bool $approve = true): array
+    {
+        if (!$approve) {
+            return $this->doDecide($suggestionId, $overrides, $user, $approve);
+        }
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'penny', 'action' => 'penny.approve_receipt', 'skill' => 'approve_receipt', 'entity_type' => 'expense_suggestion', 'entity_id' => (string)$suggestionId, 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => true], fn() => $this->doDecide($suggestionId, $overrides, $user, $approve));
+    }
+
+    private function doDecide(int $suggestionId, array $overrides, array $user, bool $approve = true): array
     {
         $stmt = $this->db->prepare("
             SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting, e.vendor_id, e.created_by AS expense_created_by,

@@ -320,6 +320,9 @@ require_once __DIR__ . '/../app/Modules/CMS/Services/CmsSiteFunctions.php';
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
 
+// Agents (policy + ledger)
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
+
 // Tenant context
 require_once __DIR__ . '/../app/Services/TenantContext.php';
 

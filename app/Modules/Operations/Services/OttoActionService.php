@@ -22,6 +22,7 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once __DIR__ . '/OttoRules.php';
 require_once __DIR__ . '/DispatchRules.php';
 
@@ -39,6 +40,15 @@ class OttoActionService
      * @return array{ok: bool, message: string, status?: string}
      */
     public function decide(int $suggestionId, array $in, int $actorId): array
+    {
+        if ((string)($in['choice'] ?? '') === 'dismiss') {
+            return $this->doDecide($suggestionId, $in, $actorId);
+        }
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'otto', 'action' => 'otto.apply_suggestion', 'skill' => 'apply_suggestion', 'entity_type' => 'otto_suggestion', 'entity_id' => (string)$suggestionId, 'user_id' => $actorId, 'approved' => true, 'reversible' => false], fn() => $this->doDecide($suggestionId, $in, $actorId));
+    }
+
+    private function doDecide(int $suggestionId, array $in, int $actorId): array
     {
         $s = $this->db->prepare("SELECT * FROM otto_suggestions WHERE id = ?");
         $s->execute([$suggestionId]);

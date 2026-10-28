@@ -32,6 +32,7 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once __DIR__ . '/MiaFinder.php';
 require_once __DIR__ . '/MiaWording.php';
 require_once __DIR__ . '/MiaCalendar.php';
@@ -764,6 +765,12 @@ class MiaCampaignService
 
     /** One tap: create the campaign and its sends for everyone who passes consent now. */
     public function approve(int $id, array $user, ?string $subject = null, ?string $body = null, ?DateTimeImmutable $today = null): array
+    {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'mia', 'action' => 'mia.approve_campaign', 'skill' => 'approve_campaign', 'entity_type' => 'mia_campaign', 'entity_id' => (string)$id, 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doApprove($id, $user, $subject, $body, $today));
+    }
+
+    private function doApprove(int $id, array $user, ?string $subject = null, ?string $body = null, ?DateTimeImmutable $today = null): array
     {
         $today = $today ?? new DateTimeImmutable('today');
         $s = $this->db->prepare("SELECT * FROM mia_campaigns WHERE id = ? AND status = 'proposed'");

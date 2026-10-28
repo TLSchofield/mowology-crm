@@ -15,6 +15,7 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 require_once __DIR__ . '/YuiRules.php';
 
@@ -135,6 +136,12 @@ class YuiDraftService
      * @param array $in channel, subject, body, suggested_body, drafted_by
      */
     public function send(array $item, array $in, array $user, string $owner): array
+    {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'yui', 'action' => 'yui.send_reply', 'skill' => 'send_reply', 'entity_type' => 'yui_item', 'entity_id' => (string)($item['key'] ?? ''), 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doSend($item, $in, $user, $owner));
+    }
+
+    private function doSend(array $item, array $in, array $user, string $owner): array
     {
         $to = $item['to'] ?? null;
         if (!$to || empty($item['template'])) return ['ok' => false, 'message' => 'There is nobody to write to on that one.'];

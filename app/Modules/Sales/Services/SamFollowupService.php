@@ -16,6 +16,7 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 
 class SamFollowupService
@@ -200,6 +201,12 @@ class SamFollowupService
      * @param array $in channel, subject, body, suggested_subject, suggested_body, template, drafted_by
      */
     public function send(array $card, array $in, array $user, string $owner): array
+    {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'sam', 'action' => 'sam.send_followup', 'skill' => 'send_followup', 'entity_type' => 'contact', 'entity_id' => (string)($card['contact_id'] ?? ''), 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doSend($card, $in, $user, $owner));
+    }
+
+    private function doSend(array $card, array $in, array $user, string $owner): array
     {
         // One send at a time per customer, and never the same message twice in ten minutes: a double tap or a retry
         // after the card left the queue must not email them again (Codex review 2026-10-15).
