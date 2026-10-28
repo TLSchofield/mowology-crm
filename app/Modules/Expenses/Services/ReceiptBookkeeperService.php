@@ -74,7 +74,7 @@ class ReceiptBookkeeperService
         }
         // Hard daily ceiling on Claude calls, whatever path asked (security review, low, 2026-10-12).
         require_once dirname(__DIR__, 3) . '/Services/LlmDailyCap.php';
-        if (!LlmDailyCap::take($this->db, 'receipt_bookkeeper', 100, true)) {
+        if (!LlmDailyCap::take($this->db, 'receipt_bookkeeper', 100)) {
             return ['error' => "Today's AI receipt limit is reached — Penny carries on tomorrow."];
         }
         $ctx = $this->buildContext($expenseId, $source === 'backtest');

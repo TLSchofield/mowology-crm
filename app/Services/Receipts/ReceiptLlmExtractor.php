@@ -70,7 +70,7 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     }
     // Hard daily ceiling (security review, low, 2026-10-12): mail from outside can trigger this.
     require_once dirname(__DIR__) . '/LlmDailyCap.php';
-    if (!LlmDailyCap::take(getDB(), 'receipt_llm', 60, true)) {
+    if (!LlmDailyCap::take(getDB(), 'receipt_llm', 60)) {
         return $fail('Daily AI limit reached');
     }
     $ocrText = trim($ocrText);
