@@ -526,6 +526,10 @@ class YuiRules
         $vars = array_intersect_key(self::vars($item, $owner), array_flip(['{first_name}', '{owner}', '{phone}', '{place}', '{end_date}',
                                                                              '{season_start}', '{invoice_list}', '{total}', '{oldest_due}', '{open_phrase}', '{autopay_link}', '{total_exact}']));
         $out = SamFollowupService::unfill($body, $vars);
+        // If Tim touched the link while editing, the exact-match unfill misses it: catch any autopay link and any stray token anyway,
+        // so one client's private invoice link can never become the next client's draft.
+        $out = (string)preg_replace('~(?:https?://)?[A-Za-z0-9.\-]*/customer/autopay\.php\?token=[A-Za-z0-9%._\-]+~i', '{autopay_link}', $out);
+        $out = (string)preg_replace('~token=[A-Za-z0-9%._\-]{6,}~i', 'token=[removed]', $out);
         return (string)preg_replace('/\{invoice_list\} (?:is|are)\b/', '{invoice_list} {is_are}', $out);
     }
 

@@ -140,4 +140,43 @@ class YuiAutopayOfferTest extends TestCase
         $this->assertStringContainsString("can't offer autopay", $r['message']);
         $this->assertStringContainsString('Already on autopay', $r['message']);
     }
+
+    public function testEditingTheLinkNeverLeaksItIntoTheLearnedTemplate(): void
+    {
+        $item = $this->item();
+        foreach ([
+            'https://example.test/customer/autopay.php?token=SECRETtok123',   // untouched
+            'example.test/customer/autopay.php?token=SECRETtok123',           // https:// deleted
+            'https://exampel.test/customer/autopay.php?token=SECRETtok123',   // hostname typo
+            'https://example.test/customer/autopay.php?token=SECRETtok123.', // stray punctuation
+        ] as $variant) {
+            $body = "Hi Pat,\n\nSet it up here: $variant\n\nThanks,\nTim";
+            $learned = YuiRules::learnFrom($body, $item, 'Tim');
+            $this->assertStringNotContainsString('SECRETtok123', $learned, $variant);
+            $this->assertStringContainsString('{autopay_link}', $learned, $variant);
+        }
+        $this->assertStringNotContainsString('SECRETtok123', YuiRules::learnFrom("Use token=SECRETtok123 please", $item, 'Tim'));
+    }
+
+    public function testAnotherClientsLinkInTheBodyIsRefusedBeforeAnythingIsStored(): void
+    {
+        $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $svc = new YuiDraftService($db);
+        $item = $this->item(['template' => 'arrears']);   // server-derived link for THIS client: ...token=SECRETtok123
+        $body = "Hi Pat,\n\nHere: https://example.test/customer/autopay.php?token=SOMEONEelse456\n\nTim";
+        $r = $svc->send($item, ['template' => 'autopay', 'channel' => 'email', 'subject' => 's', 'body' => $body], ['id' => 1], 'Tim');
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString("isn't this client's", $r['message']);
+        // And a body carrying BOTH links is refused too.
+        $both = $body . "\nhttps://example.test/customer/autopay.php?token=SECRETtok123";
+        $this->assertFalse($svc->send($item, ['template' => 'autopay', 'channel' => 'email', 'subject' => 's', 'body' => $both], ['id' => 1], 'Tim')['ok']);
+    }
+
+    public function testTheStoredCopyOfTheEmailHasNoLiveToken(): void
+    {
+        $red = YuiDraftService::redactAutopayToken("Set it up: https://example.test/customer/autopay.php?token=SECRETtok123\nThanks");
+        $this->assertStringNotContainsString('SECRETtok123', $red);
+        $this->assertStringContainsString('/customer/autopay.php?token=[link]', $red);
+        $this->assertSame('Nothing to hide here.', YuiDraftService::redactAutopayToken('Nothing to hide here.'));
+    }
 }
