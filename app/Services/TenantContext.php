@@ -34,6 +34,7 @@ final class TenantContext
             return self::$cache[$key];
         }
         $site = self::DEFAULT_SITE;
+        $resolved = true;
         try {
             $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
             $s->execute([self::SETTING]);
@@ -42,9 +43,14 @@ final class TenantContext
                 $site = (int)$v;
             }
         } catch (Throwable $e) {
+            // Not cached: a lookup that failed must not stick as "site 1" for the rest of the request.
             error_log('TenantContext: ' . $e->getMessage() . ' — using site ' . self::DEFAULT_SITE);
+            $resolved = false;
         }
-        return self::$cache[$key] = $site;
+        if ($resolved) {
+            self::$cache[$key] = $site;
+        }
+        return $site;
     }
 
     /** Forget cached values (tests, or after the setting is changed in the same request). */

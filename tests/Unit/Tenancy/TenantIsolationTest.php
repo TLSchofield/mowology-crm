@@ -82,4 +82,21 @@ class TenantIsolationTest extends TestCase
         // And with no explicit site it follows the install's tenant (site 1 here).
         $this->assertSame(['Materials'], array_column(PennyLessons::forVendor($this->db, 'Rona'), 'owner_set'));
     }
+
+    public function testPayloadSiteIdCannotRedirectAWrite(): void
+    {
+        $lesson = $this->lesson('Rona', 'Materials') + ['site_id' => 1];
+        (new HeadLessons($this->db, 2))->record($lesson);
+        $this->assertSame(2, (int)$this->db->query("SELECT site_id FROM head_lessons")->fetchColumn(),
+            'a tenant-2 writer must not be able to write into tenant 1 by passing site_id in the payload');
+    }
+
+    public function testFailedLookupIsNotCached(): void
+    {
+        $bare = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $this->assertSame(1, TenantContext::siteId($bare));
+        $bare->exec("CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)");
+        $bare->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('tenant_site_id', '6')");
+        $this->assertSame(6, TenantContext::siteId($bare), 'the earlier failure must not have stuck');
+    }
 }

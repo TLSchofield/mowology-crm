@@ -186,7 +186,8 @@ class HeadLessons
         $this->db->prepare("INSERT INTO " . self::TABLE . " (site_id, head, subject_kind, subject_key, field, said, correct, source,
                                 ref_type, ref_id, corrected_by, reason, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-           ->execute([$r['site_id'], $r['head'], $r['subject_kind'], $r['subject_key'], $r['field'], $r['said'], $r['correct'],
+           // The tenant is the one this instance was built for, never a site_id carried inside the lesson payload.
+           ->execute([$this->siteId, $r['head'], $r['subject_kind'], $r['subject_key'], $r['field'], $r['said'], $r['correct'],
                       $r['source'], $r['ref_type'], $r['ref_id'], $r['corrected_by'], $r['reason'], date('Y-m-d H:i:s')]);
         return (int)$this->db->lastInsertId();
     }
