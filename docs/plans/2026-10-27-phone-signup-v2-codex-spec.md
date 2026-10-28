@@ -138,3 +138,7 @@ Register new services in `tests/bootstrap.php`. Run the full suite.
 
 ## 8. Not in scope
 Self-serve host creation, approval queue, iOS, any change to the web onboarding pages, `token.php`.
+
+## 9. Test-writing note
+In tests never put a quoted literal of 8+ characters right after a `password`/`secret` key (`'password' => 'a long value'`): the
+copy scanner reads it as a secret and stops the build. Use a variable or `str_repeat('p', 17)`.
