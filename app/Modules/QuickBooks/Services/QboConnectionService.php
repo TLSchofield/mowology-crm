@@ -62,8 +62,22 @@ class QboConnectionService
             'client_id'     => defined('QBO_CLIENT_ID') ? (string)QBO_CLIENT_ID : '',
             'client_secret' => defined('QBO_CLIENT_SECRET') ? (string)QBO_CLIENT_SECRET : '',
             'environment'   => in_array($env, ['sandbox', 'production'], true) ? $env : 'sandbox',
-            'redirect_uri'  => defined('QBO_REDIRECT_URI') ? (string)QBO_REDIRECT_URI : self::DEFAULT_REDIRECT,
+            'redirect_uri'  => defined('QBO_REDIRECT_URI') ? (string)QBO_REDIRECT_URI : self::redirectForThisBusiness(),
         ];
+    }
+
+    /**
+     * Intuit sends the owner back to ONE registered address, and each business lives on its own host
+     * (<key>.ittai.ca). A business other than the default install returns to its own callback (which the
+     * operator lists in the Intuit app); the default install keeps DEFAULT_REDIRECT. 2026-10-27.
+     */
+    public static function redirectForThisBusiness(): string
+    {
+        if (class_exists('Tenant') && !Tenant::isDefault()) {
+            $base = Tenant::appUrl();
+            if ($base !== '') return $base . '/crm/accounting/quickbooks-callback.php';
+        }
+        return self::DEFAULT_REDIRECT;
     }
 
     /** What the owner still has to set up, in words (empty = ready to connect). */
@@ -116,6 +130,30 @@ class QboConnectionService
         if ((int)($saved['site'] ?? 0) !== $siteId) return false;
         if ($now - (int)($saved['at'] ?? 0) > self::STATE_TTL) return false;
         return hash_equals((string)$saved['state'], $state);
+    }
+
+    /** One in-flight phone OAuth attempt, stored tenant-locally (contains no token). */
+    public static function savePhoneState(PDO $db, array $state): void
+    {
+        $json = json_encode($state);
+        if ($json === false) throw new RuntimeException('QuickBooks state could not be saved.');
+        $u = $db->prepare('UPDATE ops_settings SET setting_value = ?, description = ? WHERE setting_key = ?');
+        $u->execute([$json, 'QuickBooks phone OAuth state', 'qbo_oauth_phone']);
+        if ($u->rowCount() === 0) $db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute(['qbo_oauth_phone', $json, 'QuickBooks phone OAuth state']);
+    }
+
+    public static function phoneState(PDO $db): ?array
+    {
+        $s = $db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
+        $s->execute(['qbo_oauth_phone']);
+        $v = $s->fetchColumn();
+        $decoded = $v === false ? null : json_decode((string)$v, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    public static function clearPhoneState(PDO $db): void
+    {
+        $db->prepare('DELETE FROM ops_settings WHERE setting_key = ?')->execute(['qbo_oauth_phone']);
     }
 
     /**

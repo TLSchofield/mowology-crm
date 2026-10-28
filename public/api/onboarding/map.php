@@ -55,4 +55,5 @@ if ($method === 'POST') {
     }
 }
 
-echo json_encode(OnboardingApiPresenter::present($svc->map(), $svc->next(), $svc->readyToFinish()));
+$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0]);
+echo json_encode(OnboardingApiPresenter::present($svc->map(), $svc->next(), $svc->readyToFinish(), $data));

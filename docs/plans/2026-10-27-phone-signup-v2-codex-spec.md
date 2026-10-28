@@ -75,7 +75,7 @@ the same screens; the modules do the work, the endpoint stays thin. Put the disp
 | name | save | first, last, preferred | `OnboardingNameModule::save` |
 | name | reach | channel (`text`/`email`/`call` — whatever `saveReach` accepts), mobile | `saveReach` |
 | name | quiet | from, to (HH:MM), weekends (bool) | `saveQuiet` |
-| company | search | name | `BusinessIdentityService::start($name)` then `search($name)` → `data.matches` (as the web lookup page shows them: name, registration number, status, record_id) |
+| company | search | name | `BusinessIdentityService::start($name)` then `search($name)` → `data.matches` (name, registration number, status, record_id) + `data.registry` (the provider's status: `ok`, `unavailable`, …) |
 | company | confirm | record_id | `BusinessIdentityService::confirm($recordId)`; also `business_settings.company_name` = the confirmed operating or legal name (what `/crm/penny-onboarding_appstack.php` does on confirm — read it and do the same) |
 | company | manual | name | `manual(['legal_name'=>$name])` + `business_settings.company_name` (v1 behaviour) |
 | quickbooks | yes / no | — | `OnboardingQuickBooksModule::setAnswer`; `no` moves on (next = books) |

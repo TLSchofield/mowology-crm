@@ -12,6 +12,7 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Modules/Onboarding/Services/OnboardingStepService.php';
+require_once APP_ROOT . '/Modules/Onboarding/Services/OnboardingApiPresenter.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -29,10 +30,17 @@ if (!jwtIsAdmin((string)$jwtUser['role'])) {
 }
 $decoded = json_decode((string)file_get_contents('php://input'), true);
 $body = is_array($decoded) ? $decoded : [];
+$body['_site_url'] = Tenant::appUrl();
 $result = (new OnboardingStepService(getDB(), Tenant::db()[0]))->apply((int)$jwtUser['id'], $body);
 if (!$result['ok']) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'validation', 'message' => (string)$result['message']]);
+    echo json_encode(['ok' => false, 'error' => (string)($result['error'] ?? 'validation'), 'message' => (string)$result['message']]);
     exit;
 }
-echo json_encode(['ok' => true, 'next' => $result['next']]);
+$key = trim((string)($body['key'] ?? ''));
+$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0]);
+if (isset($result['matches'])) { $data[$key]['matches'] = $result['matches']; $data[$key]['registry'] = $result['registry'] ?? ''; }
+if (isset($result['invite'])) $data[$key]['invite'] = $result['invite'];
+$out = ['ok' => true, 'next' => $result['next'], 'data' => $data[$key] ?? []];
+if (!empty($result['message'])) $out['message'] = $result['message'];
+echo json_encode($out);
