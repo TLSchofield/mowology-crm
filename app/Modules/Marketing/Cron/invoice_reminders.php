@@ -126,6 +126,7 @@ try {
             : '';
         $sentTo   = [];
         $pdfPath  = false;   // made once per invoice, only if some recipient needs it
+        $held     = false;   // an accounts-payable inbox was skipped for want of a PDF
 
         foreach ($recipients as $rcpt) {
             $contactName = $rcpt['contact_name'] ?: ($inv['company_name'] ?: 'Valued Customer');
@@ -164,6 +165,7 @@ try {
                 if ($pdfPath === null) {
                     $pdfGate->recordBlocked($invoiceId, 'reminder');
                     remLog("  HELD {$inv['invoice_number']} for <{$rcpt['email_address']}> — the invoice PDF could not be made");
+                    $held = true;
                     continue;
                 }
                 $attachPdf = $pdfPath;
@@ -216,9 +218,11 @@ try {
         }
 
         // ── Update reminder tracking on invoice ──────────────────────────
+        // A held AP inbox must not lose its reminder to the others' success: the cooldown still starts (nobody is mailed daily),
+        // but the count does not advance, so that inbox is tried again after the cooldown.
         $db->prepare("
             UPDATE invoices
-            SET reminder_count          = reminder_count + 1,
+            SET reminder_count          = COALESCE(reminder_count, 0) + " . ($held ? '0' : '1') . ",
                 first_reminder_sent_at  = COALESCE(first_reminder_sent_at, NOW()),
                 last_reminder_sent_at   = NOW()
             WHERE id = ?

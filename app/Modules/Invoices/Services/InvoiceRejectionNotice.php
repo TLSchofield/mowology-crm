@@ -27,6 +27,7 @@ final class InvoiceRejectionNotice
             return null;
         }
         if (!preg_match('/\bINV-\d{4}-\d{3,5}\b/i', $hay, $m)) return null;   // can't say which invoice: not ours to act on
+        if (stripos($hay, 'mowology') === false) return null;   // a notice about someone else's invoice, or a forgery without our name on it
         $reason = '';
         if (preg_match('/\bReason:\s*([^\n]{3,200}?)(?:\s{2,}|\n|$)/i', $hay, $r)) $reason = trim($r[1]);
         if ($reason === '' && preg_match('/\bReason:\s*(.{3,160})/is', $hay, $r)) $reason = trim(preg_replace('/\s+/', ' ', $r[1]));
@@ -42,23 +43,22 @@ final class InvoiceRejectionNotice
         ];
     }
 
-    /** Record it once per message on the invoice's activity. @return bool true when a row was written */
+    /**
+     * Record it on the invoice's activity: at most one row per invoice per 24 hours (a client's system re-sending the same refusal with a
+     * new Message-ID is still one problem). Returns true when a row was written, false when it is a repeat or not one of our invoices.
+     * A database error is NOT swallowed: the inbox then retries the message on its next poll instead of losing the notice.
+     */
     public static function record(PDO $db, array $notice, string $messageKey): bool
     {
-        try {
-            $s = $db->prepare("SELECT id FROM invoices WHERE invoice_number = ? LIMIT 1");
-            $s->execute([$notice['invoice_number']]);
-            $id = (int)$s->fetchColumn();
-            if ($id <= 0) return false;
-            $detail = json_encode(['reason' => $notice['reason'], 'client' => $notice['client'], 'message' => mb_substr($messageKey, 0, 120)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $d = $db->prepare("SELECT 1 FROM activity_log WHERE invoice_id = ? AND action = ? AND details = ? LIMIT 1");
-            $d->execute([$id, self::ACTION, $detail]);
-            if ($d->fetchColumn()) return false;
-            $db->prepare("INSERT INTO activity_log (user_id, invoice_id, action, details, created_at) VALUES (NULL, ?, ?, ?, ?)")->execute([$id, self::ACTION, $detail, date('Y-m-d H:i:s')]);
-            return true;
-        } catch (Throwable $e) {
-            error_log('InvoiceRejectionNotice::record: ' . $e->getMessage());
-            return false;
-        }
+        $s = $db->prepare("SELECT id FROM invoices WHERE invoice_number = ? LIMIT 1");
+        $s->execute([$notice['invoice_number']]);
+        $id = (int)$s->fetchColumn();
+        if ($id <= 0) return false;
+        $d = $db->prepare("SELECT 1 FROM activity_log WHERE invoice_id = ? AND action = ? AND created_at >= ? LIMIT 1");
+        $d->execute([$id, self::ACTION, date('Y-m-d H:i:s', time() - 86400)]);
+        if ($d->fetchColumn()) return false;
+        $detail = json_encode(['reason' => $notice['reason'], 'client' => $notice['client'], 'message' => mb_substr($messageKey, 0, 120)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $db->prepare("INSERT INTO activity_log (user_id, invoice_id, action, details, created_at) VALUES (NULL, ?, ?, ?, ?)")->execute([$id, self::ACTION, $detail, date('Y-m-d H:i:s')]);
+        return true;
     }
 }

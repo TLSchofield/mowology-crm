@@ -99,4 +99,26 @@ class InvoiceReminderPdfTest extends TestCase
         InvoiceRejectionNotice::record($db, ['invoice_number' => 'INV-2026-0432', 'reason' => 'x', 'client' => ''], 'm2');
         $this->assertSame([], InvoiceRejectionWatch::urgent($db), 'already paid: nothing to chase');
     }
+
+    public function testANoticeThatDoesNotMentionUsIsIgnored(): void
+    {
+        $other = str_ireplace('mowology', 'Acme', self::LEAPAP);
+        $this->assertNull(InvoiceRejectionNotice::parse('An invoice emailed to VR 1450 was not accepted', $other));
+    }
+
+    public function testTheSameRefusalWithANewMessageIdIsOneAlert(): void
+    {
+        $db = $this->db();
+        $n = InvoiceRejectionNotice::parse('An invoice emailed to VR 1450 was not accepted', self::LEAPAP);
+        $this->assertTrue(InvoiceRejectionNotice::record($db, $n, '<first@leapap>'));
+        $this->assertFalse(InvoiceRejectionNotice::record($db, $n, '<second@leapap>'), 'a resend with a new Message-ID is not a new problem');
+        $this->assertCount(1, InvoiceRejectionWatch::urgent($db));
+    }
+
+    public function testADatabaseErrorIsNotSwallowedSoTheInboxRetries(): void
+    {
+        $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $this->expectException(PDOException::class);
+        InvoiceRejectionNotice::record($db, ['invoice_number' => 'INV-2026-0431', 'reason' => 'x', 'client' => ''], 'm');
+    }
 }
