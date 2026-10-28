@@ -26,10 +26,12 @@ class HeadLessons
     private PDO $db;
     private int $siteId;
 
-    public function __construct(PDO $db, int $siteId = 1)
+    /** @param int|null $siteId the tenant; null = this install's TenantContext (1 until a tenant_site_id is set) */
+    public function __construct(PDO $db, ?int $siteId = null)
     {
+        require_once __DIR__ . '/TenantContext.php';
         $this->db = $db;
-        $this->siteId = $siteId;
+        $this->siteId = $siteId ?? TenantContext::siteId($db);
     }
 
     // ── Pure (unit tested) ────────────────────────────────────────────────────

@@ -320,6 +320,9 @@ require_once __DIR__ . '/../app/Modules/CMS/Services/CmsSiteFunctions.php';
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
 
+// Tenant context
+require_once __DIR__ . '/../app/Services/TenantContext.php';
+
 // LLM gateway
 require_once __DIR__ . '/../app/Services/LlmDailyCap.php';
 require_once __DIR__ . '/../app/Services/Llm/ModelCatalog.php';
