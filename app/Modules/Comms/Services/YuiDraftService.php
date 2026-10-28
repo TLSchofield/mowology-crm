@@ -143,6 +143,13 @@ class YuiDraftService
 
     private function doSend(array $item, array $in, array $user, string $owner): array
     {
+        // "Offer autopay" is a second note for the same overdue account: honoured only when the server's own check says it can be offered.
+        if (($in['template'] ?? '') === 'autopay') {
+            if (empty($item['autopay']['offer'])) {
+                return ['ok' => false, 'message' => "I can't offer autopay to that client: " . rtrim((string)($item['autopay']['why'] ?? 'it is not available'), '.') . '.'];
+            }
+            $item['template'] = 'autopay';
+        }
         $to = $item['to'] ?? null;
         if (!$to || empty($item['template'])) return ['ok' => false, 'message' => 'There is nobody to write to on that one.'];
         $channel = ($in['channel'] ?? 'email') === 'sms' ? 'sms' : 'email';
@@ -299,7 +306,10 @@ class YuiDraftService
     private function emailHtml(string $body): string
     {
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
-        $html = '<p>' . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8')) . '</p>';
+        $safe = htmlspecialchars($body, ENT_QUOTES, 'UTF-8');
+        // The autopay sign-up link must be tappable on a phone: make our own /customer/ links clickable (already escaped, so nothing else can slip in).
+        $safe = (string)preg_replace('~(https://[A-Za-z0-9.\-]+/customer/[A-Za-z0-9_./?=&%+\-]*)~', '<a href="$1">$1</a>', $safe);
+        $html = '<p>' . nl2br($safe) . '</p>';
         return EmailWrapper::wrap($html, null, null, EmailWrapper::getCompanyInfo());
     }
 }

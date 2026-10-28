@@ -80,6 +80,7 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureServi
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';

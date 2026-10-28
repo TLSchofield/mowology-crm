@@ -80,6 +80,13 @@ class YuiRules
             "Hi {first_name},\n\nI'm going through our open invoices and {invoice_list} {is_are} still showing as unpaid on our side ({total}, the oldest due {oldest_due}). If it's already been paid, could you tell me when and how, so I can match it up? If something on {it_them} needs fixing, tell me and I'll sort it out.\n\nThanks,\n{owner}",
             "Hi {first_name}, it's {owner} at Mowology. I sent you an email about an open invoice. Check your email or call {phone}.",
         ],
+        // Offer autopay to an overdue individual client (Tim, 2026-10-28). Written for Tim's voice: short, plain, no pressure, and
+        // honest that the open balance is taken once autopay is on (autopay_charge's next run does exactly that).
+        'autopay' => [
+            'Autopay for {place}',
+            "Hi {first_name},\n\nYou've had a few reminders from me about {open_phrase} ({total_exact}). I'd rather not keep chasing you, and I'd guess you'd rather not get them.\n\nAutopay takes care of it. You enter your card once, we charge it when an invoice goes out, and the invoice still arrives by email so you can see what was charged. You can stop it any time by calling me on {phone}.\n\nSaving the card doesn't charge it on the spot. The {total_exact} that's open now is taken at our next billing run, and future invoices when they're sent.\n\nIt takes about a minute, and the card goes straight into Stripe's secure form: {autopay_link}\n\nIf something on those invoices isn't right, or you'd rather pay another way, reply and tell me.\n\nThanks,\n{owner}",
+            "Hi {first_name}, it's {owner} at Mowology. I sent you an email about setting up autopay. Check your email or call {phone}.",
+        ],
     ];
     public const SMS_FALLBACK = "Hi, it's Mowology. I sent you an email. Check your email or call {phone}.";
 
@@ -503,6 +510,9 @@ class YuiRules
             '{it_them}'      => count($inv) > 1 ? 'them' : 'it',
             '{total}'        => SalesDeskService::money((float)($item['total'] ?? 0)),
             '{oldest_due}'   => !empty($item['oldest_due']) ? date('F j', strtotime((string)$item['oldest_due'])) : 'a while ago',
+            '{total_exact}'  => '$' . number_format((float)($item['total'] ?? 0), 2),   // the autopay note quotes the exact amount, cents included
+            '{open_phrase}'  => count($inv) === 1 ? 'an open invoice' : (count($inv) ?: 'some') . ' open invoices',
+            '{autopay_link}' => (string)($item['autopay']['link'] ?? ''),
         ];
     }
 
@@ -514,7 +524,7 @@ class YuiRules
     public static function learnFrom(string $body, array $item, string $owner): string
     {
         $vars = array_intersect_key(self::vars($item, $owner), array_flip(['{first_name}', '{owner}', '{phone}', '{place}', '{end_date}',
-                                                                             '{season_start}', '{invoice_list}', '{total}', '{oldest_due}']));
+                                                                             '{season_start}', '{invoice_list}', '{total}', '{oldest_due}', '{open_phrase}', '{autopay_link}', '{total_exact}']));
         $out = SamFollowupService::unfill($body, $vars);
         return (string)preg_replace('/\{invoice_list\} (?:is|are)\b/', '{invoice_list} {is_are}', $out);
     }
