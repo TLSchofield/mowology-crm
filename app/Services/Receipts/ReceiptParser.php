@@ -1288,7 +1288,7 @@ function extractTotal(string $text, array $lines): ?string
             stripos($line, 'sub') === false &&
             stripos($line, 'tendered') === false) {
             $nextLine = trim($lines[$i + 1]);
-            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+            if (preg_match('/^(?:CAD|CDN|C)?\s*\$?\s*(\d{1,6}[.,]\d{2})\s*$/i', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
             }
             // Handle three-line: "TOTAL\n$\n202.46"
