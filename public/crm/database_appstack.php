@@ -34,6 +34,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <button class="btn btn-primary" id="btnGenerateSnapshot" onclick="generateSnapshot()">
             <i data-feather="refresh-cw"></i> Generate Snapshot
         </button>
+        <button class="btn btn-outline-secondary" id="btnOpcacheReset" type="button" onclick="mwResetOpcache(this)" title="Needed after every deploy: this host keeps old PHP until it is reset">
+            <i data-feather="zap"></i> Reset OPcache
+        </button>
+        <span id="opcacheResetMsg" class="small text-muted ml-2" role="status"></span>
     </div>
 </div>
 
@@ -518,6 +522,19 @@ $CRON_CAT_LABELS = [
 
 <script src="js/database-manager.js"></script>
 <script>
+// Reset OPcache from the Database Manager (the topbar button is not on the phone layout). Admin only on the server.
+function mwResetOpcache(btn) {
+    var msg = document.getElementById('opcacheResetMsg');
+    btn.disabled = true;
+    msg.textContent = 'Resetting…';
+    fetch('/crm/api/opcache-reset.php', { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'csrf_token=' + encodeURIComponent(window.MW_CSRF_TOKEN || '') })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { msg.textContent = d.opcache_reset ? 'OPcache reset ✓ — new code is live' : (d.error || 'Reset failed (OPcache not enabled?)'); })
+    .catch(function () { msg.textContent = 'Reset failed — reload the page and try again.'; })
+    .then(function () { btn.disabled = false; });
+}
 // ════════════════════════════════════════════════════════════════════
 // CRON MANAGER — Tab activation + status loading
 // ════════════════════════════════════════════════════════════════════
