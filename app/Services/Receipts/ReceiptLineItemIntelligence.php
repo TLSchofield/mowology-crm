@@ -82,7 +82,7 @@ function receiptLooksTaxFree(array $parsed): bool
 /**
  * @param array $ctx {
  *   file_path:      string      image on disk (for Vision escalation)
- *   ocr_source:     string      'tesseract' | 'vision' | 'none'
+ *   ocr_source:     string      'tesseract' | 'vision' | 'device_<engine>' | 'none'
  *   ocr_text:       string
  *   raw_response:   ?array      Vision response when available
  *   parsed:         array       parseReceiptText() output
@@ -102,7 +102,8 @@ function enhanceLineItemExtraction(array $ctx): array
     $profile = $ctx['vendor_profile'] ?? getVendorLineItemProfile($ctx['vendor_id'] ?? null);
 
     // ── Step 1: Tesseract → Vision when items failed ─────────────────
-    if (($ctx['ocr_source'] ?? '') === 'tesseract'
+    $cheapSource = (string)($ctx['ocr_source'] ?? '');
+    if (($cheapSource === 'tesseract' || strpos($cheapSource, 'device_') === 0)   // the phone's own read is a cheap read too
         && lineItemsNeedBetterExtraction($parsed)
         && !empty($ctx['file_path'])
         && function_exists('extractTextFromImage')) {

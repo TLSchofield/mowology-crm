@@ -35,9 +35,9 @@ class ReceiptCaptureService
                                 ?callable $mayUseVisit = null)
     {
         $this->db = $db;
-        $this->intake = $intake ?? function (int $userId, array $file, ?float $lat, ?float $lng): array {
+        $this->intake = $intake ?? function (int $userId, array $file, ?float $lat, ?float $lng, ?array $deviceOcr = null): array {
             require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptIntakeService.php';
-            return (new ReceiptIntakeService($this->db))->intake($userId, $file, $lat, $lng, null);
+            return (new ReceiptIntakeService($this->db))->intake($userId, $file, $lat, $lng, null, $deviceOcr);
         };
         $this->gate = $gate;
         $this->anomaly = $anomaly ?? function (array $data): array {
@@ -71,13 +71,20 @@ class ReceiptCaptureService
         $num = static fn($v, float $lim) => (is_numeric($v) && abs((float)$v) <= $lim) ? (float)$v : null;
         $lat = $num($post['lat'] ?? null, 90); $lng = $num($post['lng'] ?? null, 180);
         if ($lat === null || $lng === null || ($lat == 0.0 && $lng == 0.0)) { $lat = null; $lng = null; }
-        return [
+        $fields = [
             'total'    => $total,
             'note'     => mb_substr($note, 0, 500),
             'visit_id' => ctype_digit((string)($post['visit_id'] ?? '')) && (int)$post['visit_id'] > 0 ? (int)$post['visit_id'] : null,
             'lat'      => $lat,
             'lng'      => $lng,
         ];
+        // The phone's own text read, when it sent one (DeviceOcrCompare.php); absent for older app versions.
+        if (!empty($post['client_ocr_text'])) {
+            require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
+            $device = cleanDeviceOcr($post);
+            if ($device) $fields['device_ocr'] = $device;
+        }
+        return $fields;
     }
 
     /**
@@ -177,7 +184,7 @@ class ReceiptCaptureService
                 }
             }
 
-            $res = ($this->intake)($userId, $file, $crew['lat'], $crew['lng']);
+            $res = ($this->intake)($userId, $file, $crew['lat'], $crew['lng'], $crew['device_ocr'] ?? null);
             if (empty($res['success'])) {
                 $code = (int)($res['http_code'] ?? 500);
                 return ['http' => $code >= 400 ? $code : 500, 'body' => ['success' => false, 'error' => (string)($res['error'] ?? 'Upload failed')]];

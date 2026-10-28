@@ -92,7 +92,7 @@ class ReceiptIntakeService
      *               'http_code'. On success, includes media_id/file_path/ocr fields/parsed/
      *               suggestions/job_suggestions/field_confidences/gst_validation/duplicate_image.
      */
-    public function intake(int $userId, array $uploadedFile, ?float $lat, ?float $lng, ?int $jobId): array
+    public function intake(int $userId, array $uploadedFile, ?float $lat, ?float $lng, ?int $jobId, ?array $deviceOcr = null): array
     {
         require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
         require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
@@ -100,6 +100,7 @@ class ReceiptIntakeService
         require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
         require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
         require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+        require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
 
         // ── Rate limiting: max 20 receipt uploads per user per hour ──────
         // Read-before-write so a rejected upload never permanently consumes a slot.
@@ -317,9 +318,30 @@ class ReceiptIntakeService
         }
 
         $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
-        $ocrSource = 'none'; // 'tesseract' | 'vision' | 'none'
+        $ocrSource = 'none'; // 'tesseract' | 'vision' | 'device_<engine>' | 'none'
 
-        if ($preScreenDecision === 'use_tesseract') {
+        // The phone's own text read (Apple Vision / ML Kit). 'on': used instead of Vision when it parses to a
+        // complete header by itself and the vendor isn't one the cheap read gets wrong. 'shadow' (default):
+        // Vision reads as always and the two are compared afterwards. See DeviceOcrCompare.php.
+        $deviceMode = $deviceOcr ? deviceOcrSetting($this->db) : 'off';
+        $useDevice = false;
+        if ($deviceOcr && $deviceMode === 'on' && $readMode !== 'strong') {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+                $devParsed = parseReceiptText($deviceOcr['text'], null);
+                $devVendor = suggestReceiptMeta($deviceOcr['text'], null, null, null);
+                $devVendorId = !empty($devVendor['vendor_id']) ? (int)$devVendor['vendor_id'] : null;
+                $devStrong = receiptReadMode($devVendorId ? getVendorParseProfile($this->db, $devVendorId) : null) === 'strong';
+                $useDevice = !$devStrong && deviceTextAcceptable($deviceOcr['text'], headersNeedBetterExtraction($devParsed + ['ocr_text' => $deviceOcr['text']]));
+            } catch (Throwable $e) {
+                error_log('Device OCR gate (falling back to Vision): ' . $e->getMessage());
+            }
+        }
+
+        if ($useDevice) {
+            $ocrResult = ['success' => true, 'text' => $deviceOcr['text'], 'raw_response' => null, 'error' => null];
+            $ocrSource = 'device_' . $deviceOcr['engine'];
+        } elseif ($preScreenDecision === 'use_tesseract') {
             $ocrResult = [
                 'success'      => true,
                 'text'         => $preScreen['text'],
@@ -518,6 +540,11 @@ class ReceiptIntakeService
             $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng, $parsed['date'] ?? null, $parsed['time'] ?? null);
         } catch (Throwable $e) {
             error_log('Job suggestion error: ' . $e->getMessage());
+        }
+
+        if ($deviceOcr && $deviceMode === 'shadow' && $ocrAvailable) {
+            logDeviceOcrCompare($this->db, $mediaId, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null,
+                                $deviceOcr, $parsed, $ocrSource);
         }
 
         return [
