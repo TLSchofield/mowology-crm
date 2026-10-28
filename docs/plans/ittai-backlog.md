@@ -132,3 +132,16 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    successful claim. **Owed:** `user.business_name` in `token.php`; run the real app through sign-up on the emulator
    (rebuild with `-PtenantTestHost=<fresh unclaimed key>.ittai.ca`); Tim's open calls — crew fifth tab, search scope,
    map tiles.
+   **Superseded 2026-10-27 — sign-up v2 (Tim: "you would just need your full name, cell phone number, email address, and
+   create a password, verification should be done then go to screen one").** Sign-up asks only for the person; a 6-digit
+   code by email (SMS best effort); then every existing onboarding step on the phone (About you → Company lookup/confirm →
+   QuickBooks connect from the app via a Custom Tab, or Your books → Invite accountant → You're set up). Server: spec
+   `docs/plans/2026-10-27-phone-signup-v2-codex-spec.md`, Codex build signup-v2, commits 5d3af841b + 2222998af
+   (`signup.php` request code, `signup-confirm.php`, map/step `data`, `quickbooks-start.php`, phone path in
+   `quickbooks-callback.php`, QuickBooks redirect URI follows the business host). App: `codex/native` fde10c6 + 6154d9d
+   (Android session spec `docs/plans/2026-10-27-android-phone-signup-v2-codex-spec.md`), walked end to end on the emulator
+   against `sage.ittai.ca`. Tests 3613 web / 516 per Android flavor. **Owed:** production deploy of the 12 server files
+   (blocked by the session's permission mode on 2026-10-27 evening — command in Tim-To-Do) + OPcache reset (signup.php
+   changed shape: v1 bytecode would answer until the reset); add each business's callback URL to the Intuit app
+   (testcompany first) and prove the Intuit tab round trip on production; SMS leg unproven; Tim's call: after "Yes, I use
+   QuickBooks" + Skip, the map marks "Your books" Not needed (existing web rule) — keep, or ask again?
