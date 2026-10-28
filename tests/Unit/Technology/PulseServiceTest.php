@@ -143,4 +143,15 @@ class PulseServiceTest extends TestCase
         $this->assertSame('fail', $r['status'], 'stuck three hours is an outage and must reach the owner');
         $this->assertStringContainsString('oldest 180 min', $r['detail']);
     }
+
+    public function testPhpFatalsShowOnAdaButAreNotEmailedTwice(): void
+    {
+        $svc = $this->svc(['php_fatals' => fn() => ['status' => 'fail', 'detail' => '4 PHP fatal errors in 15 minutes.']]);
+        $svc->run();
+        $this->now += 300;
+        $svc->run();
+        $this->assertSame([], $svc->urgent(), 'AdaServerErrors already emails crashes; Pulse does not send a second one');
+        $rows = array_column($svc->adaChecks(), null, 'system');
+        $this->assertSame('red', $rows['pulse:php_fatals']['state'], 'but it is red on Ada\'s page');
+    }
 }

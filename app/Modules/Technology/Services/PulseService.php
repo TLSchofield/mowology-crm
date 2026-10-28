@@ -33,6 +33,8 @@ class PulseService
     public const STUCK_MINUTES = 30;
     /** A queue stuck this long is a failure, not a warning. */
     public const FAIL_STUCK_MINUTES = 120;
+    /** Shown on Ada's page but never emailed by Pulse: AdaServerErrors (24 h of PHP fatals, 3+ of one crash) already raises that alert. */
+    public const NOT_EMAILED = ['php_fatals'];
 
     private PDO $db;
     /** @var callable fn(): int  "now" as a unix time — injectable for tests */
@@ -101,6 +103,7 @@ class PulseService
     {
         $alerts = [];
         foreach (array_keys(PulseRules::LABELS) as $key) {
+            if (in_array($key, self::NOT_EMAILED, true)) continue;
             $inc = $this->incident($key);
             if ($inc === null || $inc['runs'] < PulseRules::BAD_RUNS_TO_ALERT) continue;
             $a = PulseRules::alert($key, $inc['detail'], $inc['since'], $inc['runs']);
