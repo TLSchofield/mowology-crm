@@ -122,6 +122,14 @@ class BankLineReceipts
         return self::groupLinks($main, $extra);
     }
 
+    /** Date of the newest imported bank line up to today: receipts dated after it are simply waiting for a statement. */
+    public function dataThrough(): ?string
+    {
+        $d = $this->db->query("SELECT MAX(transaction_date) FROM accounting_transactions
+                               WHERE reference_type = 'bank_import' AND transaction_date <= CURDATE()")->fetchColumn();
+        return $d ? (string)$d : null;
+    }
+
     /** Pure: rows from the main and extra sources → the per-expense map (main wins when both exist). */
     public static function groupLinks(array $mainRows, array $extraRows): array
     {

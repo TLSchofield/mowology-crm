@@ -467,9 +467,12 @@ function handleList(PDO $db): void
 
     // Which bank line each receipt is linked to, so the list can show it (and the popup can say which line).
     $bankLinks = [];
+    $bankDataThrough = null;
     try {
         require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
-        $bankLinks = (new BankLineReceipts($db))->linksFor(array_column($rows, 'id'));
+        $bankSvc = new BankLineReceipts($db);
+        $bankLinks = $bankSvc->linksFor(array_column($rows, 'id'));
+        $bankDataThrough = $bankSvc->dataThrough();
     } catch (Throwable $e) {
         error_log('expenses list bank links: ' . $e->getMessage());
     }
@@ -481,6 +484,7 @@ function handleList(PDO $db): void
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
+        'bank_data_through' => $bankDataThrough,
         'total'    => $total,
         'page'     => $page,
         'per_page' => $perPage,
