@@ -126,6 +126,20 @@ try {
         }
     }
 
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinFinder.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinCheckService.php';
+            $tc = new TwinCheckService($db);
+            if ($tc->ready()) {
+                $r = $tc->refreshDaily();
+                if ($r['ran']) $pennyLog('Twin check: ' . $r['open'] . ' open question(s) ($' . number_format($r['dollars'], 2) . '), new ' . $r['new'] . ', closed ' . $r['closed'] . '.');
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Twin check failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
     // Look-back review of 2026 (migration 1250), at night: one full rules scan a day (free), then small
     // Claude batches (5 vendors / payees a run) while some are still unasked and the budget
     // (ops_settings penny_lookback_budget) lasts. Proposals only — nothing in the books changes here.

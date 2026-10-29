@@ -31,6 +31,7 @@ class TwinFinderTest extends TestCase
         $this->assertSame('copy_unlinked', $found[0]['state']);
         $this->assertSame(8, $found[0]['keep_id']);
         $this->assertSame(12, $found[0]['copy_id']);
+        $this->assertSame([8, 12], $found[0]['pair_ids']);
         $this->assertContains('same time 11:04', $found[0]['evidence']);
         $this->assertContains('same number 396190', $found[0]['evidence']);
     }

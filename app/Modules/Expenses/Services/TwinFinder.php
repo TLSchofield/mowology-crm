@@ -138,6 +138,7 @@ class TwinFinder
 
         return [
             'kind' => 'twin', 'grade' => $grade, 'keep_id' => $keepId, 'copy_id' => $copyId,
+            'pair_ids' => [min($aId, $bId), max($aId, $bId)],
             'amount' => self::amount($a['total']), 'date' => (string)$a['expense_date'],
             'vendor' => (string)$keep['vendor'], 'evidence' => $evidence, 'state' => $state,
             'reopens_system_dismissal' => $reopens,

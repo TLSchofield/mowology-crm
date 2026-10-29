@@ -148,8 +148,13 @@ class PennyBriefAdapter
         foreach ($questions as $q) {
             $amount = (float)($q['amount'] ?? 0);
             $source = ($q['kind'] ?? '') === 'payment_source';   // a receipt's payment source fixed from its bank line
-            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => $source ? 'penny:payment_source' : 'penny:unbilled',
-                        'priority' => $source ? (empty($q['ask']) ? 3 : 2) : ($amount >= self::BIG_QUESTION ? 1 : 2),
+            $twin = ($q['kind'] ?? '') === 'possible_twin';
+            $badLink = ($q['kind'] ?? '') === 'bad_link';
+            $kind = $twin ? 'penny:twin' : ($badLink ? 'penny:bad_link' : ($source ? 'penny:payment_source' : 'penny:unbilled'));
+            $priority = ($twin || $badLink) ? ($amount >= 20 ? 1 : 2)
+                : ($source ? (empty($q['ask']) ? 3 : 2) : ($amount >= self::BIG_QUESTION ? 1 : 2));
+            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => $kind,
+                        'priority' => $priority,
                         'text' => self::plainQuestion((string)($q['question'] ?? '')),
                         'url' => '/crm/dashboard_appstack.php#mw-pq', 'value' => round($amount, 2)];
         }
@@ -157,7 +162,9 @@ class PennyBriefAdapter
         $ready = (int)($stats['ready'] ?? 0);
         $bits = [];
         if ($ready > 0) $bits[] = $ready . ' receipt' . ($ready === 1 ? '' : 's') . ' ready';
-        $n -= count(array_filter($questions, fn($q) => ($q['kind'] ?? '') === 'payment_source'));
+        $twins = count(array_filter($questions, fn($q) => ($q['kind'] ?? '') === 'possible_twin'));
+        if ($twins > 0) $bits[] = $twins . ' possible duplicate receipt' . ($twins === 1 ? '' : 's');
+        $n -= count(array_filter($questions, fn($q) => in_array(($q['kind'] ?? ''), ['payment_source', 'possible_twin', 'bad_link'], true)));
         if ($n > 0) $bits[] = $n . ' billing question' . ($n === 1 ? '' : 's');
         return [
             'head'     => 'penny',

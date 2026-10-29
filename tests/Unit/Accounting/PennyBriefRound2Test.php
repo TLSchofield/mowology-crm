@@ -12,6 +12,17 @@ require_once __DIR__ . '/../../../app/Modules/Expenses/Services/MissingReceiptSe
  */
 class PennyBriefRound2Test extends TestCase
 {
+    public function test_twin_questions_have_their_own_brief_items_and_headline(): void
+    {
+        $brief = PennyBriefAdapter::fromStats(['ready' => 0], [
+            ['id' => 1, 'kind' => 'possible_twin', 'amount' => 20, 'question' => 'Is #2 the same purchase?'],
+            ['id' => 2, 'kind' => 'bad_link', 'amount' => 17.81, 'question' => 'The bank line is linked wrongly.'],
+            ['id' => 3, 'kind' => 'unbilled_materials', 'amount' => 10, 'question' => 'Hey Tim — was this billed?'],
+        ]);
+        $this->assertSame(['penny:twin', 'penny:bad_link', 'penny:unbilled'], array_column($brief['items'], 'kind'));
+        $this->assertSame([1, 2, 2], array_column($brief['items'], 'priority'));
+        $this->assertSame('1 possible duplicate receipt, 1 billing question', strtolower($brief['headline']));
+    }
     public function test_late_means_past_due_and_past_the_clients_habit(): void
     {
         $this->assertFalse(CashFlowForecastService::isLateForClient(-5, 0));   // not due yet
