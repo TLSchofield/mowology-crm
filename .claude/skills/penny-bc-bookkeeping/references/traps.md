@@ -15,6 +15,7 @@ happened, the signature, the rule. Start with the one-line rules below; open the
 - **2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)** — Whatever Penny knows about a receipt is shown wherever it is opened; an accepted correction teaches the reader too.
 - **2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)** — An amount that cannot be true is a failed read, never a value; a re-read must be able to replace it.
 
+- **Approved twin receipts were never re-checked (2026-10-29)** — `TwinFinder::find()` plus a daily `TwinCheckService` now ask about approved receipts that copy a purchase already linked to a bank line; Penny's own "different" call from printed facts is not final.
 ## Bank statements and balancing
 
 - **2026-10-05 — Future-dated bank rows** — Before re-dating rows, look for a later session covering the same period and walk the running balance.
@@ -134,6 +135,9 @@ stored amounts on open receipts when the read agrees on the total (`amountRepair
 "Ask Penny" in the modal; picker = `vendorItemSuggestions()`. **Rule:** an amount that cannot be true is a failed
 read, never a value; a re-read must be able to replace a value that cannot be true.
 
+
+### 2026-10-29 — Approved twin receipts: $531.33 in May counted twice
+Eight approved receipts were second photos of purchases whose bank line was linked to another receipt, so chequing was $531.33 under the bank in May. `DuplicateReceiptService::pairsFor()` only looks at draft / pending receipts, `removeCopy()` refuses an approved copy, and two pairs (#229/#148 scale ticket + card slip one minute apart, #152/#261 one misread digit) had been dismissed by Penny herself from the printed facts (`dismissed_by` NULL) minutes before approval. Four bank lines were also linked to the wrong receipt (a $0.00 read, a rejected copy, $0.70 and $50.00 off). **Signature:** same vendor, total and date, one bank line; identical printed time or ticket number. **Rule:** printed time and a 5+ character ticket number lead; a scale ticket's Time Out followed by a card slip within 5 minutes is one visit; a short number (under 5 characters) is never identity evidence (three real $84 loads shared "006"); only a person's dismissal is final. `TwinFinder::find()` detects, `TwinCheckService` asks (phase 1 changes nothing). Plan: `docs/plans/2026-10-29-penny-possible-twin-check.md`.
 
 # Bank statements and balancing
 
