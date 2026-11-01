@@ -712,6 +712,7 @@ $activePage = 'invoices';
                         <div class="mw-form-group">
                             <label class="form-label">Invoice Notes <span class="text-muted">(shown to customer)</span></label>
                             <textarea name="notes" class="form-control" rows="3"><?php echo htmlspecialchars($invoice['notes'] ?? ''); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
 
                         <div class="mw-form-group">
@@ -731,7 +732,8 @@ $activePage = 'invoices';
                 </p>
             </form>
 
-<script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+<script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
+<script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
 <script>
 (function () {
     'use strict';
@@ -836,6 +838,20 @@ $activePage = 'invoices';
             function (svc) {
                 addRow({ title: svc.name, description: svc.description || svc.name, unit_price: svc.base_price });
             });
+        // Mia's note suggestion (/crm/api/mia-invoice-suggestion.php)
+        var miaNote = document.querySelector('textarea[name="notes"]');
+        if (window.MwMiaInvoiceNote && miaNote) {
+            MwMiaInvoiceNote.attach({
+                note: miaNote, host: document.getElementById('miaNoteHost'), invoiceId: <?php echo (int)$invoiceId; ?>,
+                getContext: function () {
+                    var seen = {};
+                    var services = Array.prototype.map.call(document.querySelectorAll('input[name="li_title[]"], input[name="li_description[]"]'),
+                        function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+                    return { property_id: <?php echo (int)($invoice['property_id'] ?? 0); ?>, contact_id: <?php echo (int)($invoice['contact_id'] ?? 0); ?>,
+                             company_id: <?php echo (int)($invoice['company_id'] ?? 0); ?>, services: services };
+                }
+            });
+        }
         // The client's agreed price first (/crm/api/agreed-prices.php), same as invoices/create.php.
         var agreedPid = <?php echo (int)($invoice['property_id'] ?? 0); ?>, agreedCid = <?php echo (int)($invoice['company_id'] ?? 0); ?>;
         if (agreedPid) {

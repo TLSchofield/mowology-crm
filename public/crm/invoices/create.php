@@ -1091,8 +1091,9 @@ if ($apiKey) {
                                 <span class="mw-totals-value" id="totalDisplay">$0.00</span>
                             </div>
                         </div>
-                        <script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+                        <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
                         <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
+                        <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
                         <script>
                         window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
                         window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
@@ -1130,6 +1131,7 @@ if ($apiKey) {
                             ?>
                             <textarea name="notes" class="form-control" rows="3"
                                       placeholder="Payment terms, thank you message, etc."><?php echo htmlspecialchars($notesValue); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
                     </div>
                 </div>
@@ -1641,6 +1643,22 @@ if (invLinesBody) {
     }
 }
 calculateTotals();
+
+// ── Mia's note suggestion (/crm/api/mia-invoice-suggestion.php) ──
+(function () {
+    const note = document.querySelector('#invoiceForm textarea[name="notes"]');
+    if (!window.MwMiaInvoiceNote || !note) return;
+    MwMiaInvoiceNote.attach({
+        note: note, host: document.getElementById('miaNoteHost'), invoiceId: 0,
+        getContext: function () {
+            const seen = {};
+            const services = Array.from(document.querySelectorAll('#invLineItemsBody input[name="li_title[]"], #invLineItemsBody input[name="li_description[]"]'))
+                .map(function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+            return { property_id: parseInt(propertyIdInput.value, 10) || 0, contact_id: parseInt(contactIdInput.value, 10) || 0,
+                     company_id: parseInt(companyIdInput.value, 10) || 0, services: services };
+        }
+    });
+})();
 
 // ── Agreed prices for this client (/crm/api/agreed-prices.php → picker "Agreed price" block) ──
 (function () {
