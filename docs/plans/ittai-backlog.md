@@ -93,3 +93,8 @@ trades first. The AI back office is the edge.
 - Built: skill `.claude/skills/ittai-design-studio`, `/design`, `scripts/codex-design.sh`, `scripts/ittai-design/` (token build + `review-shots.mjs`). Proven on a smoke brief, two rounds.
 - Web tokens AAA: done 2026-10-25 by porting snow-contracts `032151de` (tokens.json, tenant.config.json, tenants.generated.json, contrast test) onto this branch; regenerating `ItTokens.swift` is a no-op and `ittai-swift-tokens.mjs --check` + `IttaiSwiftTokensInSyncTest` guard against drift (iOS 1.3.58 had hand-edited the generated Swift while the source stayed behind).
 - Codex raster image generation: Codex says it has an image tool; unverified. Ask Tim before using it for assets.
+
+## For Mia (Growth): marketing opportunity missed on the invoice (Tim, 2026-11-01)
+- Seen on invoice edit (INV id 511, Susan Lim): the customer-facing Invoice Notes default is only "Thank you for your business!". The invoice is the most-opened message a client gets, and it carries no marketing: no review request, no referral offer, no seasonal/next-service suggestion (e.g. fall clean-up, aeration, hedge trimming upsell), no booking link.
+- Mia to propose: a short, SMS-safe-agnostic block on the invoice email/PDF/portal (review link after payment, referral credit, one seasonal add-on tied to the services actually on the invoice). Respect: invoice emails already carry the PDF; no URLs in SMS; the agreed-price lines must stay untouched.
+- Not built. Needs Mia's proposal, then Tim's OK, before any change to the invoice document.
