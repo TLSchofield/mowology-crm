@@ -831,11 +831,19 @@ $activePage = 'invoices';
     addBtn.addEventListener('click', function () { addRow(); });
 
     if (window.MwServicePicker) {
-        MwServicePicker.attach(document.getElementById('invServicePicker'),
+        var invPicker = MwServicePicker.attach(document.getElementById('invServicePicker'),
             <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>,
             function (svc) {
                 addRow({ title: svc.name, description: svc.description || svc.name, unit_price: svc.base_price });
             });
+        // The client's agreed price first (/crm/api/agreed-prices.php), same as invoices/create.php.
+        var agreedPid = <?php echo (int)($invoice['property_id'] ?? 0); ?>, agreedCid = <?php echo (int)($invoice['company_id'] ?? 0); ?>;
+        if (agreedPid) {
+            fetch('/crm/api/agreed-prices.php?property_id=' + agreedPid + (agreedCid ? '&company_id=' + agreedCid : ''), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (d && d.success) invPicker.setAgreed(d.items); })
+                .catch(function () {});
+        }
     }
 
     // ── Recipients editor ──────────────────────────────
