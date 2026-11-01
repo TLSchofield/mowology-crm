@@ -8434,6 +8434,32 @@ a.mw-clock-timer-nav:hover {
   color:#6c757d;
   text-align:center;
 }
+/* Invoice "Add from services": the client's agreed price (job plan) listed above the catalog */
+.mw-template-header-agreed {
+  color:var(--mw-dark);
+  background:var(--mw-light);
+}
+.mw-template-item-agreed {
+  background:var(--mw-light);
+}
+.mw-template-agreed-tag {
+  display:inline-block;
+  margin-left:6px;
+  padding:1px 7px;
+  border-radius:9px;
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:#fff;
+  background:var(--mw-green);
+  vertical-align:middle;
+}
+.mw-template-agreed-label {
+  font-size:11px;
+  color:#6c757d;
+  margin-top:1px;
+}
 .mw-sticky-summary {
   position:sticky;
   top:40px;

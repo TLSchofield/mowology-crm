@@ -1629,18 +1629,39 @@ if (invLinesBody) {
         addInvoiceLine().querySelector('.mw-li-desc').focus();
     });
     if (window.MwServicePicker) {
-        MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
+        window.MW_INV_PICKER = MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
             // A fresh blank row is replaced rather than left empty above the picked service.
             const rows = invLinesBody.querySelectorAll('.mw-li-row');
             if (rows.length === 1) {
                 const r = rows[0];
                 if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) r.remove();
             }
-            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: 1, unit_price: svc.base_price });
+            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: svc.agreed ? (svc.quantity || 1) : 1, unit_price: svc.base_price });
         });
     }
 }
 calculateTotals();
+
+// ── Agreed prices for this client (/crm/api/agreed-prices.php → picker "Agreed price" block) ──
+(function () {
+    if (!window.MW_INV_PICKER || !propertyIdInput) return;
+    let lastKey = null, seq = 0;
+    function load() {
+        const pid = parseInt(propertyIdInput.value, 10) || 0;
+        const cid = parseInt(companyIdInput.value, 10) || 0;
+        const key = pid + ':' + cid;
+        if (key === lastKey) return;
+        lastKey = key;
+        const mine = ++seq;   // only the newest request may write (A→B→A can't be overwritten by a stale A)
+        if (!pid) { MW_INV_PICKER.setAgreed([]); return; }
+        fetch('/crm/api/agreed-prices.php?property_id=' + pid + (cid ? '&company_id=' + cid : ''), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (mine === seq) MW_INV_PICKER.setAgreed(d && d.success ? d.items : []); })
+            .catch(function () { if (mine === seq) MW_INV_PICKER.setAgreed([]); });
+    }
+    setInterval(load, 800);   // the customer/property pickers set these hidden inputs from several places
+    load();
+})();
 
 // ── Also unbilled at this address (MwUnbilledWork + /crm/api/unbilled-work.php) ──
 (function () {
