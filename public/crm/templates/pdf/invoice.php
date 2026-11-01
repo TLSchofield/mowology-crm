@@ -372,8 +372,8 @@ $isOverdue = ($invoice['status'] === 'overdue');
                 <?php if ($billingLine !== ''): ?>
                     <?php echo $billingLine; ?><br>
                 <?php endif; ?>
-                <?php if (!empty($invoice['contact_phone'] ?: $invoice['billing_phone'])): ?>
-                    <?php echo $esc($invoice['contact_phone'] ?: $invoice['billing_phone']); ?>
+                <?php $billPhone = ($invoice['contact_phone'] ?? '') ?: ($invoice['billing_phone'] ?? ''); if (!empty($billPhone)): ?>
+                    <?php echo $esc($billPhone); ?>
                 <?php endif; ?>
             </div>
         </td>
@@ -498,7 +498,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
 <?php if (!empty($invoice['notes'])): ?>
 <div class="notes-section">
     <div class="section-title">Notes</div>
-    <?php echo nl2br($esc($invoice['notes'])); ?>
+    <?php require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php'; echo InvoiceNoteFormatter::html($invoice['notes']); ?>
 </div>
 <?php endif; ?>
 
