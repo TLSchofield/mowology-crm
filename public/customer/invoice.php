@@ -12,6 +12,7 @@ require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 
 $db    = getDB();
 $error = '';
@@ -362,7 +363,7 @@ function fmtDate(string $d): string {
     <?php if (!empty($invoice['notes'])): ?>
         <div class="portal-info-card">
             <div class="portal-info-card-header">Notes</div>
-            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo htmlspecialchars($invoice['notes']); ?></div>
+            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo InvoiceNoteFormatter::html($invoice['notes'], false); ?></div>
         </div>
     <?php endif; ?>
 

@@ -497,7 +497,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
 <?php if (!empty($invoice['notes'])): ?>
 <div class="notes-section">
     <div class="section-title">Notes</div>
-    <?php echo nl2br($esc($invoice['notes'])); ?>
+    <?php require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php'; echo InvoiceNoteFormatter::html($invoice['notes']); ?>
 </div>
 <?php endif; ?>
 

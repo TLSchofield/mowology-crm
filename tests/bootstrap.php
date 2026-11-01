@@ -307,6 +307,7 @@ require_once __DIR__ . '/../app/Modules/Contracts/Services/SnowWeeklyStatementSe
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/ClientAgreedPrices.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaInvoiceLibrary.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaInvoiceSuggestion.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
