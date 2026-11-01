@@ -29,7 +29,6 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Modules/Marketing/Services/MiaInvoiceLibrary.php';
 require_once APP_ROOT . '/Modules/Marketing/Services/MiaInvoiceSuggestion.php';
-require_once APP_ROOT . '/Modules/Marketing/Services/MiaWording.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -100,7 +99,7 @@ try {
         $companyId = max($companyId, (int)$iv->fetchColumn());
     }
     $suggestion = $svc->suggest($services, $companyId > 0 ? 'pm' : 'home', $invoiceId,
-        (int)($input['property_id'] ?? 0), $contactId, $first, $reviewUrl, MiaWording::PHONE);
+        (int)($input['property_id'] ?? 0), $contactId, $first, $reviewUrl, MiaInvoiceLibrary::PHONE);
 
     $proposals = array_map(function ($p) {
         $p['title'] = ucfirst(str_replace('_', ' ', $p['library_key']));

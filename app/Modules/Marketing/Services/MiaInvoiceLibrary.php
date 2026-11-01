@@ -19,6 +19,9 @@ declare(strict_types=1);
  */
 class MiaInvoiceLibrary
 {
+    /** The house phone line (copy rules). Own constant: production's MiaWording is older than the repo's. */
+    public const PHONE = '(778) 846-9273';
+
     private const ALL = [
         ['review_after_work', 'review', 10, [1,2,3,4,5,6,7,8,9,10,11,12], [], [], 1,
             "Thanks, {first_name}. If you have a minute, a Google review helps your neighbours find a crew they can count on: {review_url}\n\nSomething not right? Call or text me on {phone} and I'll sort it out first.\n\nThanks, Tim"],
