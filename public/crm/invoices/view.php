@@ -8,6 +8,7 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -1263,7 +1264,7 @@ $extraHead = $isPayable
                               <h5 class="card-title mb-0">Notes</h5>
                           </div>
                           <div class="card-body">
-                              <p class="mb-0" style="white-space: pre-line;"><?php echo htmlspecialchars($invoice['notes']); ?></p>
+                              <p class="mb-0" style="white-space: pre-line;"><?php echo InvoiceNoteFormatter::html($invoice['notes'], false); ?></p>
                           </div>
                       </div>
                   <?php endif; ?>
