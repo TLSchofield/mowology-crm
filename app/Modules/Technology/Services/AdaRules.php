@@ -677,7 +677,7 @@ class AdaRules
     public static function evidenceDated(string $evidence, ?string $lastWorked): bool
     {
         if ($lastWorked !== null && $lastWorked !== '') return true;
-        return (bool)preg_match('/\b(\d+ (min|hour|hours|days?) ago|just now|yesterday|today|in \d+ (h|days?)\b|for \d+ days|since \w+|last \d+ (h|days?|runs?)|\d{4}-\d{2}-\d{2}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b|\(\d+ days\)|\d+ h\b|never|ever|checked \d{1,2}:\d{2}|\d{1,2}:\d{2} ?[ap]m)\b/i', $evidence);
+        return (bool)preg_match('/\b(\d+ (min|hour|hours|days?) ago|just now|yesterday|today|in \d+ (h|days?)\b|for \d+ days|since \w+|last \d+ (h|days?|runs?)|\d{4}-\d{2}-\d{2}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b|\(\d+ days\)|\d+\+ days|\d+ h\b|never|ever|checked \d{1,2}:\d{2}|\d{1,2}:\d{2} ?[ap]m)\b/i', $evidence);
     }
 
     /** One info row naming the problem checks whose evidence has no date. Null when every line is dated. */

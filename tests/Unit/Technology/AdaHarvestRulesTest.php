@@ -312,6 +312,7 @@ class AdaHarvestRulesTest extends TestCase
         $this->assertTrue(AdaRules::evidenceDated('11 error lines in the PHP error log in 24 h (of 4527 log lines).', null));
         $this->assertFalse(AdaRules::evidenceDated('app login can change tables — finish step 3 (data-only user). It holds: ALL PRIVILEGES.', null));
         $this->assertTrue(AdaRules::evidenceDated("Stuck: 2 receipts the reader couldn't read. (checked 2:20 pm)", null));
+        $this->assertTrue(AdaRules::evidenceDated('Logins: 2 active logins unused for 90+ days (Test Driver, QA Crawler).', null));   // live, 2026-11-03
         $this->assertTrue(AdaRules::evidenceDated('X: no run on record, ever — most likely it is not in the cPanel schedule.', null));
         $this->assertNull(AdaRules::evidenceCheck([['system' => 'p', 'name' => 'P', 'state' => 'red', 'evidence' => 'no when', 'last_worked' => null, 'checked_at' => '2026-11-03 01:42:05']]));
         $row = AdaRules::evidenceCheck([
