@@ -556,7 +556,7 @@ class SalesDeskService
         try {
             $rows = $this->db->query("
                 SELECT i.issue_date, " . self::AMOUNT_SQL_INV . " AS amt, i.company_id, i.client_id, i.contact_id,
-                       c.company_name, ct.first_name, ct.last_name, COALESCE(c.email, ct.email) AS email, p.city
+                       c.company_name, ct.first_name, ct.last_name, ct.email AS email, p.city
                 FROM invoices i LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN contacts ct ON ct.id = i.contact_id
                 LEFT JOIN properties p ON p.id = i.property_id
                 WHERE i.status NOT IN ('draft','cancelled','void') AND i.issue_date >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH)
