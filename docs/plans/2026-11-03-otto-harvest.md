@@ -97,3 +97,16 @@ production** and are not touched. Deploy per file, OPcache, Charlie's card and t
   - supplier — $10,556 in 90 days: a repair shop 14%, "Mowology INVOICE" 12% (a mis-filed vendor name, Penny's),
     Chevron 8%, Lawnboy 7%, London 6%; SW Garden Supply's newest price list 125 days old; no concentration to
     negotiate (fuel, dump and repairs are fixed; Materials has no 60% vendor).
+- **Codex** (1 review, 8 findings, all addressed, commit 40af9e9df): overlaps now looked for across the week edge
+  (the previous week's rows are passed as neighbours; only pairs touching the week are reported); an open punch is
+  "hours unknown" and never counts (the 125% baseline cannot be inflated by a forgotten clock-out); the plan sanity rule
+  is per plan against its own crew size (≥ 8 h for one person on one visit); visits with no length make a day "unknown —
+  at least N%", never "light"; the week-load key is the Monday of the week, not the morning; a watch pattern is
+  validated in PHP before it reaches MySQL REGEXP and one bad item never hides the others; "Snow season" wording only
+  for the snow item, "The season for X" otherwise; the Proceed sentence states only what the data shows (fixed-category
+  share when ≥ 50%).
+- **Live (2026-11-03 15:40, deployed code called through prod-run, rolled back):** Otto's brief builds in 1.7 s with
+  100 items; the four new lines present — week load now priority 1 because tomorrow's biggest plan (#59 WILLOW FRONT
+  BEDS, 1,319 min for one person) trips the per-plan rule, with #99 (8,009 min) on Thursday and Monday at 121%; the salt
+  line priority 1 (22 snow routes); Dodge 140%; the quarterly supplier line. The charlie_morning_brief cron had already
+  seeded ops_settings `otto_seasonal_stock` within minutes of the deploy. OPcache reset twice (before and after).
