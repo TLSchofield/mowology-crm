@@ -104,3 +104,9 @@ Rules now enforced in code:
   in `sending` >1 h fails ("interrupted") instead of being re-sent.
 - Meta page tokens stay in the session (`?action=pages` no longer returns them).
 Not done: emails sent before 2026-10-12 carry unsigned links — their clicks/opens no longer count.
+
+## 2026-11-03 — A plugin's voice rule measured against Tim's own mail
+The small-business voice profile's "no sentence over 25 words" flagged 15 of Tim's last 30 sent emails. The rule exists to
+stop AI run-ons, not to edit him; it is 40 in `VoiceProfile::MAX_SENTENCE_WORDS`. Also: inbox snippets of sent mail carry
+quoted history, signatures, and Outlook's HTML/CSS (`MsoNormal`, `font-family: Aptos`) — `VoiceProfile::cleanSample()` strips
+them, or the "characteristic phrases" come out as "font face font family". Signature: a learned phrase list full of CSS words.

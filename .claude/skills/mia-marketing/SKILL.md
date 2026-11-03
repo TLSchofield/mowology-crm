@@ -20,7 +20,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/HeadCardView.swift
   - ios/MowologyCRM/MowologyCRM/Features/Team/HeadCardViewModel.swift
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — Mia drafts, Tim approves every public post and every send
 ---
@@ -115,6 +115,11 @@ the task:
 | Daily email-hub run | `MiaEmailHubService::daily()` | `app/Modules/Marketing/Cron/mia_email_daily.php` |
 | Actually sending queued campaign email | `app/Modules/Marketing/Cron/campaign_sender.php` (re-checks `canSendMarketing()`) | — |
 | Post-visit review request | `ReviewRequestService::maybeSend()` | `pow-actions.php`, `VisitLifecycleService` |
+| Tim's voice, learned from sent mail, and the slop test every campaign passes (fillers, superlatives, emoji, "!", run-ons, a price to confirm) | `VoiceProfile::learn()` / `check()`; cached by `MiaChannelsService::voiceProfile()` | `MiaCampaignService::problems()`, channels card |
+| The calendar's balance (40/30/20/10), cadence, first gap, conflicts; caption and email shape | `ContentMix::report()` / `captionProblems()` / `emailProblems()`; `MiaChannelsService::contentMix()` | channels card, campaign checks |
+| The week in one page: bands with comparisons, three ranked actions, quiet weeks, failed sources named | `MarketingWeek::band()` / `page()`; `MiaChannelsService::week()` | channels card |
+| Found by assistants: robots.txt AI-crawler blocks, llms.txt | `MiaChannelsService::findability()` | channels card |
+| Ad bands and the change playbook (not wired: no ads account) | `AdDiagnostics`, `EvidenceMinimums` | — |
 | Google review replies (draft + rules) | `ReviewReplyDrafter::draft()` | `MiaChannelsService` |
 | Google Business Profile (live vs drafts only, API calls) | `GbpService::mode()` and `GbpService` | channels, team-mobile, listings |
 | Weekly Google post / reviews / channel summary | `MiaChannelsService` (`MiaChannelsService::decidePost()`) | web card, iPhone |

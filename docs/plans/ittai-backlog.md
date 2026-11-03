@@ -124,7 +124,7 @@ trades first. The AI back office is the edge.
 ## Head harvest queue (Tim, 2026-11-03): complete each head entirely, in this order
 1. **Sam** — in progress 2026-11-03 (client rhythm, comparables pricing, Penny→Sam payer terms, Sam→Penny pipeline line,
    signals digest, renewal radar, tiering, lead response times, quote hygiene, objection replies).
-2. **Mia** — small-business pieces above + survey the sibling `marketing` plugin; diff against MiaCalendar / MiaSequenceService /
+2. **Mia** — DONE 2026-11-03 (`docs/plans/2026-11-03-mia-harvest.md`); left: ads wiring when an account exists, content-strategy brief after margin-by-service, page-level SEO checks. Was: small-business pieces above + survey the sibling `marketing` plugin; diff against MiaCalendar / MiaSequenceService /
    MiaSocialService / MiaWording / ReviewReplyDrafter / MiaCampaignService.
 3. **Ada** — `operations` plugin (runbook, risk-assessment, compliance-tracking, status-report, process-doc) and finance
    `audit-support`/`sox-testing` evidence standards; diff against AdaSecurityRules / AdaSecurityWatch / BooksWatchService.
