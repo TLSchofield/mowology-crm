@@ -529,3 +529,15 @@ Dropped / not done:
 - `process_ocr_queue` records a run only when there were jobs (a no-op every minute would flood
   cron_runs), so its "last run" can look old.
 
+### 2026-11-03 — Two plugin formulas that failed on our data (Penny harvest, part 1)
+- **A plain "same vendor, same total within 90 days" duplicate rule asked 48 questions**, nearly all $200 fuel prepays and
+  $84 Lawnboy loads — amounts the vendor charges every time. Rule now: an amount seen 3+ times for a vendor in the window
+  is habitual and never asked about; nothing under $25 is asked (`RepeatAmountFinder::HABIT_COUNT`, `MIN_AMOUNT`). 3 questions
+  remained. Signature: a Penny question count that jumps by dozens after a rule change = the rule is matching a habit.
+- **stddev ÷ mean of payment lag is not a confidence band for a weekly forecast.** A client who paid 10 days early 26 times
+  and 12 days late 3 times scored the 50% cap, the same as a client all over the place; with early payments clamped it got
+  worse. Band is now the share of a client's payments more than 7 days off their own median lag
+  (`CashFlowForecastService::band()`): 10% for that client, 40–60% for the erratic ones. Never ship a formula's first number
+  without the `prod-run.sh` dry run — both of these were caught there, not in tests.
+- **The enquiry/first email is not a reply** (same day, Sam's LeadScore): any "engagement" signal must be compared with the
+  record's own creation time, or every email-sourced row looks like it "replied today".

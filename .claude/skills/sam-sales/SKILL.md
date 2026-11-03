@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/SamCard*
   - ios/MowologyCRM/MowologyCRM/Core/Models/SalesModels.swift
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -93,6 +93,7 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 | Who a quote goes to + PM CC | `QuoteRecipientService::forProperty()`, `QuoteRecipientService::ccForQuote()` | `public/crm/quotes/view.php`, `public/crm/quotes/create.php`, companies/properties pages, `SamFollowupService` |
 | Client unticks lines before signing | `QuoteLineChoiceService::setDeclined()` | `public/customer/api/quote-upsell.php`, `public/customer/quote.php`, office lock on `public/crm/quotes/view.php`, plan conversion (`app/Modules/Jobs/Services/Plan/PlanLineItems.php`) |
 | Everything after an approval (summary, tray job, push) | `QuoteApprovalService::afterApproval()` | `public/customer/quote.php`, `public/crm/customer/quote.php`, `public/crm/quotes/view.php` (approve_verbal), nightly `QuoteApprovalService::sweep()` in `app/Modules/Jobs/Cron/generate_visits.php` |
+| New-lead heat (0–100: replies, fit, urgency, minus our own recent touch), bucket hot / qualified / unclear / out_of_scope, flat guard (spread under 10 → ordered by signal, no number) | `LeadScore::score()` / `order()` in `app/Modules/Sales/Services/LeadScore.php`; signals from `SalesDeskService::leadSignals()`; offered services `EmailLeadService::serviceTags()` | `SalesDeskService::rankLeads()` → both sales-head APIs, Charlie's brief, `public/crm/js/sam-card.js` |
 | Follow-up queue (who is waiting, one card per customer) | `SalesDeskService::queue()` | `app/Modules/Sales/Api/sales-head.php`, `app/Modules/Sales/Api/sales-head-mobile.php`, Charlie, Yui |
 | Drafting, sending, parking a follow-up | `SamFollowupService::draft()`, `SamFollowupService::send()`, `SamFollowupService::park()` | Sam web + iPhone, Yui |
 | Claude reply draft (Tim's tap, 20/day) | `SamFollowupService::draftReply()` | Sam web + iPhone |
