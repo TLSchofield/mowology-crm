@@ -17,6 +17,9 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/AutomatedInvoiceInbox.php';
+require_once __DIR__ . '/ReminderGate.php';
+
 /**
  * Determine invoice recipients based on property management relationships
  *
@@ -284,6 +287,31 @@ function preferRecipients(array $routed, array $others): array {
 function resolveReminderRecipients(int $invoiceId, ?PDO $db = null): array {
     $db = $db ?: getDB();
 
+    // Automated invoicing systems (Condoworks/LeapAP) hold the invoice already and
+    // bounce link-only mail, so a reminder never goes to them. An invoice whose only
+    // recipient is one resolves to nobody, which every caller already treats as
+    // "skip without using up a reminder".
+    return AutomatedInvoiceInbox::withoutAutomated(
+        resolveAllInvoiceRecipients($invoiceId, $db),
+        AutomatedInvoiceInbox::extraDomains($db)
+    );
+}
+
+/**
+ * Drop accounts-payable destinations (people stay), preserving every recipient row and its source.
+ * The one rule for "is this an AP inbox" is ReminderGate::isApInbox() (Tim, 2026-11-02: AP inboxes get no chasing).
+ */
+function chaseableRecipients(array $recipients, ?PDO $db = null): array {
+    $extra = AutomatedInvoiceInbox::extraDomains($db);
+    return array_values(array_filter($recipients, static function ($recipient) use ($extra) {
+        return !ReminderGate::isApInbox((string)($recipient['email_address'] ?? $recipient['email'] ?? ''),
+                                        (string)($recipient['contact_role'] ?? ''), $extra);
+    }));
+}
+
+/** Every address the invoice went to, automated inboxes included. @see resolveReminderRecipients() */
+function resolveAllInvoiceRecipients(int $invoiceId, PDO $db): array {
+
     try {
         $inv = $db->prepare("SELECT id, contact_id, property_id FROM invoices WHERE id = ?");
         $inv->execute([$invoiceId]);
@@ -373,7 +401,7 @@ function resolveReminderRecipients(int $invoiceId, ?PDO $db = null): array {
 
         return $recipients;
     } catch (Throwable $e) {
-        error_log('resolveReminderRecipients error: ' . $e->getMessage());
+        error_log('resolveAllInvoiceRecipients error: ' . $e->getMessage());
         return [];
     }
 }

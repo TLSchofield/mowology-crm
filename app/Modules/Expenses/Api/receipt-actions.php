@@ -51,6 +51,8 @@ try {
     $expenseId = (int)($input['expense_id'] ?? 0);
 
     $db = getDB();
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'receipt-actions', (string)$action);
 
     switch ($action) {
         case 'approve':

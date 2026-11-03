@@ -12,6 +12,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 . "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"
+. "$(cd "$(dirname "$0")" && pwd)/lib/deploy-fingerprints.sh"
 mw_ftp_check
 
 INTO_REPO=0
@@ -41,11 +42,14 @@ mw_lftp "set net:max-retries 3; set net:timeout 30; set cmd:fail-exit no; ${GETS
 
 status=0
 for f in "$@"; do
-  if [ ! -s "$OUT/$f" ]; then
+  if [ ! -e "$OUT/$f" ]; then
+    fp_record "$f" MISSING pulled
     printf 'PROD-MISSING  %s\n' "$f"; status=1
   elif [ $INTO_REPO -eq 1 ]; then
+    fp_record "$f" "$OUT/$f" pulled
     mkdir -p "$(dirname "$f")"; cp "$OUT/$f" "$f"; printf 'into repo     %s\n' "$f"
   else
+    fp_record "$f" "$OUT/$f" pulled
     printf 'pulled        %s → %s\n' "$f" "$OUT/$f"
   fi
 done

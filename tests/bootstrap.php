@@ -145,6 +145,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php'
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
@@ -208,6 +209,9 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieFactAnswere
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAskService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/AutomatedInvoiceInbox.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/ReminderGate.php';
 
 // Products
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
@@ -267,6 +271,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
