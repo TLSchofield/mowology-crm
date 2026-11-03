@@ -499,6 +499,39 @@ class CashFlowForecastService
         return $f;
     }
 
+    /**
+     * The year's tax, said honestly (TaxInstalmentNote, 2026-11-03): YTD net from the ledger for the current fiscal year,
+     * annualised only beside the seasonal caveat, instalment schedule from the cashflow settings (payment is not tracked
+     * here, so no "missed" verdict), rate from ops_settings tax_rate_combined when the accountant has confirmed one.
+     */
+    public function taxNote(?string $today = null): ?array
+    {
+        $today = $today ?: date('Y-m-d');
+        try {
+            require_once dirname(__DIR__, 2) . '/Ledger/Services/FiscalYear.php';
+            require_once __DIR__ . '/AccountingService.php';
+            require_once __DIR__ . '/TaxInstalmentNote.php';
+            $fy = FiscalYear::of($today);
+            [$from, $to] = FiscalYear::bounds($fy);
+            $pl = (new AccountingService($this->db))->getProfitLoss($from, $today);
+            $net = (float)($pl['net_profit'] ?? 0);
+            $months = max(1, (int)floor((strtotime($today) - strtotime($from)) / (30.44 * 86400)) + 1);
+            $rate = null; $seasonal = true;
+            try {
+                $st = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('tax_rate_combined','business_seasonal')")->fetchAll(PDO::FETCH_KEY_PAIR);
+                if (!empty($st['tax_rate_combined']) && (float)$st['tax_rate_combined'] > 0) $rate = (float)$st['tax_rate_combined'] / ((float)$st['tax_rate_combined'] > 1 ? 100 : 1);
+                if (isset($st['business_seasonal'])) $seasonal = $st['business_seasonal'] !== '0';
+            } catch (Throwable $e) { /* defaults */ }
+            $note = TaxInstalmentNote::build($fy, $net, $months, $seasonal, [], $rate, $today);
+            $rc = (float)$this->setting('cashflow_rc_instalment');
+            if ($rc > 0) $note['text'] .= ' Instalments: $' . number_format($rc, 0) . ' a month is scheduled (day ' . (int)$this->setting('cashflow_rc_day') . '); whether each was paid is not tracked here.';
+            return $note;
+        } catch (Throwable $e) {
+            error_log('[CashFlow] tax note: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     /** Penny's line for Charlie when the forecast dips under the floor. */
     public function briefItems(?string $today = null): array
     {

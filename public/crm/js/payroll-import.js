@@ -185,6 +185,7 @@
             h += matchSummary(p) + movesTable(labelShareholderLines(p.moves, shList(p)), r.id, !r.bookable);
             h += '<p class="small mt-2 mb-0" id="pi-clear-' + r.id + '"></p>';
         }
+        if (!booked && r.entry_warnings && r.entry_warnings.length) h += '<ul class="small mb-2 mw-pi-checks">' + r.entry_warnings.map(function (w) { return '<li class="mw-pi-check is-journal">Journal entry: ' + esc(w) + '</li>'; }).join('') + '</ul>';
         if (!booked && r.checks !== null && r.checks !== undefined) h += '<h6 class="small text-muted text-uppercase mt-3">Before you book — ' + ((r.checks || []).length ? (r.checks.length + ' thing' + (r.checks.length === 1 ? '' : 's') + ' worth a look') : 'checked') + '</h6>' + checksList(r.checks || []);
         h += '<details class="mt-3 mw-pi-details"><summary class="small">Hours — Wave against the CRM time clock (nothing changes)</summary><div class="mt-2">' + hoursTable(r.hours || []) + '</div></details>';
 

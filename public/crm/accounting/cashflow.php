@@ -21,6 +21,7 @@ if ($isAdmin) {
         require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
         require_once APP_ROOT . '/Modules/Accounting/Services/CashFlowForecastService.php';
         $f = (new CashFlowForecastService(getDB()))->forecast();
+        try { $taxNote = (new CashFlowForecastService(getDB()))->taxNote(); } catch (Throwable $e) { $taxNote = null; }   // the year's tax, honestly (2026-11-03)
     } catch (Throwable $e) {
         error_log('cashflow page: ' . $e->getMessage());
         $err = 'Penny could not build the forecast just now.';
@@ -135,6 +136,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
             <h2 class="h6 mb-2">Not counted</h2>
             <ul class="small mb-0">
                 <?php foreach ($f['notes'] as $n): ?><li><?= h($n) ?></li><?php endforeach; ?>
+                <?php $taxNote = $taxNote ?? null; if ($taxNote && !empty($taxNote['text'])): ?><li><strong>Tax, honestly:</strong> <?= h($taxNote['text']) ?></li><?php endif; ?>
                 <?php foreach ($f['doubtful'] as $d): ?><li>Doubtful (<?= (int)$d['days'] ?> days overdue): <a href="/crm/invoices/view.php?id=<?= (int)$d['id'] ?>"><?= h($d['label']) ?></a> — <?= $money($d['amount']) ?></li><?php endforeach; ?>
                 <li>Tax instalments, payment terms, the alert floor (<?= $money($f['floor']) ?>) and an optional fixed weekly spend are settings (cashflow_*).</li>
             </ul>

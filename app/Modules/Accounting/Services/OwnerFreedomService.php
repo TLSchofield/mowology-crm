@@ -227,6 +227,39 @@ class OwnerFreedomService
     // ══════════════════════════════════════════════════════════════════════════
 
     /** Full dashboard payload for a date range (inclusive). */
+    /**
+     * Green / yellow / red on A/R ageing and revenue month over month (PulseBands, plugin business-pulse cut-offs,
+     * 2026-11-03). Runway is n/a here on purpose: this report never reads the bank, and a guessed cash figure would be
+     * worse than none. Every invoice over 30 days is named.
+     */
+    public function pulse(?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        try {
+            require_once __DIR__ . '/PulseBands.php';
+            $rows = $this->db->prepare("SELECT i.invoice_number, i.balance_due, DATEDIFF(?, i.due_date) AS days_past_due,
+                                               COALESCE(c.company_name, CONCAT(ct.first_name, ' ', ct.last_name), 'client') AS who
+                                        FROM invoices i LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN contacts ct ON ct.id = i.contact_id
+                                        WHERE i.status IN ('sent','viewed','partial','overdue') AND i.balance_due > 0.01");
+            $rows->execute([$today]);
+            $open = array_map(fn($r) => ['number' => $r['invoice_number'], 'who' => $r['who'], 'balance' => (float)$r['balance_due'], 'days_past_due' => (int)$r['days_past_due']], $rows->fetchAll(PDO::FETCH_ASSOC));
+            $ar = PulseBands::ar($open);
+            $m0 = date('Y-m', strtotime(substr($today, 0, 7) . '-01 -1 month')); $m1 = date('Y-m', strtotime(substr($today, 0, 7) . '-01 -2 month'));   // last two FULL months
+            $rev = $this->db->prepare("SELECT DATE_FORMAT(issue_date, '%Y-%m') ym, COALESCE(SUM(COALESCE(subtotal, total - COALESCE(tax_amount,0))),0) r
+                                       FROM invoices WHERE status NOT IN ('draft','cancelled','void') AND DATE_FORMAT(issue_date, '%Y-%m') IN (?, ?) GROUP BY ym");
+            $rev->execute([$m0, $m1]);
+            $by = $rev->fetchAll(PDO::FETCH_KEY_PAIR);
+            $revenue = PulseBands::revenue(isset($by[$m0]) ? (float)$by[$m0] : null, isset($by[$m1]) ? (float)$by[$m1] : null);
+            $runway = PulseBands::runway(null, null);
+            $named = (bool)array_filter($open, fn($o) => $o['days_past_due'] > 60 && $o['balance'] >= 1000);   // a named client, an amount, past the deadline
+            return ['ar' => $ar, 'revenue' => $revenue, 'runway' => $runway, 'overall' => PulseBands::overall([$ar['band'], $revenue['band'], $runway['band']], $named),
+                    'months' => [$m1, $m0]];
+        } catch (Throwable $e) {
+            error_log('[OwnerFreedom] pulse: ' . $e->getMessage());
+            return ['ar' => ['band' => 'na', 'named' => [], 'text' => 'A/R: n/a'], 'revenue' => ['band' => 'na', 'text' => 'revenue: n/a'], 'runway' => ['band' => 'na', 'text' => 'runway: n/a'], 'overall' => 'na', 'months' => []];
+        }
+    }
+
     public function report(string $from, string $to): array
     {
         $settings = $this->settings();
@@ -239,6 +272,7 @@ class OwnerFreedomService
         return [
             'from'     => $from,
             'to'       => $to,
+            'pulse'    => $this->pulse(),
             'settings' => $settings,
             'inputs'   => $inputs,
             'metrics'  => $computed,

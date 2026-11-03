@@ -18,6 +18,7 @@
  */
 require_once __DIR__ . '/MonthCloseService.php';
 require_once __DIR__ . '/BankLineReceipts.php';
+require_once __DIR__ . '/CloseNarrative.php';   // the month in plain words (2026-11-03)
 
 class MonthCloseListService
 {
@@ -78,7 +79,79 @@ class MonthCloseListService
         } catch (Throwable $e) {
             error_log('[MonthCloseList] bank lines: ' . $e->getMessage());
         }
-        return ['month' => $m, 'receipts' => $receipts, 'lines' => $lines];
+        return ['month' => $m, 'receipts' => $receipts, 'lines' => $lines,
+                'since' => $this->openSince($m),                 // blocker text => first date it was on the list (carried items)
+                'na' => self::unavailable($m),                    // sources that could not be read: named, never silent
+                'narrative' => $this->narrative($ym, (array)($m['blockers'] ?? []))];
+    }
+
+    /**
+     * Carried items (plugin close rule, 2026-11-03): a blocker that was on an earlier list is never dropped — it comes back
+     * with the date it first appeared. Kept per month in ops_settings as JSON {text: first_seen}. Returns the map.
+     */
+    public function openSince(array $m, ?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        $key = 'month_close_open_' . (string)$m['month'];
+        $seen = [];
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
+            $seen = json_decode((string)$s->fetchColumn(), true) ?: [];
+        } catch (Throwable $e) { return []; }
+        $now = [];
+        foreach ((array)($m['blockers'] ?? []) as $b) {
+            if (strpos($b, 'waiting until') === 0) continue;
+            $k = preg_replace('/\$[\d,]+\.\d{2}|\b\d+\b/', '#', $b);   // the same item with a different count or amount is the same item
+            $now[$k] = $seen[$k] ?? $today;
+        }
+        try {
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)
+                                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
+                     ->execute([$key, json_encode($now), 'Penny: when each open item first appeared on the ' . $m['month'] . ' close list']);
+        } catch (Throwable $e) { /* cache only */ }
+        $out = [];
+        foreach ((array)($m['blockers'] ?? []) as $b) {
+            $k = preg_replace('/\$[\d,]+\.\d{2}|\b\d+\b/', '#', $b);
+            if (isset($now[$k])) $out[$b] = $now[$k];
+        }
+        return $out;
+    }
+
+    /** Pure: sources the close could not read this time — said in the email as n/a, not left looking clean. */
+    public static function unavailable(array $m): array
+    {
+        $na = [];
+        $st = $m['settlements'] ?? null;
+        if (is_array($st) && !empty($st['error'])) $na[] = 'Stripe (payout check) — ' . $st['error'];
+        if (!is_array($m['bank_age'] ?? null) && array_key_exists('bank_age', $m)) $na[] = 'bank-line ages';
+        return $na;
+    }
+
+    /** The month in 150–250 plain words from the ledger (CloseNarrative); null when the P&L cannot be read. */
+    public function narrative(string $ym, array $blockers): ?string
+    {
+        try {
+            require_once __DIR__ . '/AccountingService.php';
+            $acct = new AccountingService($this->db);
+            $pl = static function (array $r): array {
+                $lines = [];
+                // Income (4xxx) and expense (5xxx–8xxx) accounts only: a liability such as GST collected or the card payable
+                // can ride along in the P&L rows and must not be narrated as an expense that "is new this month".
+                $isPl = static fn($row) => preg_match('/^[45678]/', (string)($row['code'] ?? '')) === 1 || !isset($row['code']);
+                foreach ((array)($r['revenue'] ?? []) as $row) if ($isPl($row)) $lines[(string)$row['name']] = (float)$row['total'];
+                foreach ((array)($r['expenses'] ?? []) as $row) if ($isPl($row)) $lines[(string)$row['name']] = -(float)$row['total'];
+                return ['income' => (float)($r['total_revenue'] ?? array_sum(array_column((array)($r['revenue'] ?? []), 'total'))),
+                        'expenses' => (float)($r['total_expenses'] ?? array_sum(array_column((array)($r['expenses'] ?? []), 'total'))), 'lines' => $lines];
+            };
+            $cur = $pl($acct->getProfitLoss($ym . '-01', date('Y-m-t', strtotime($ym . '-01'))));
+            $pm = date('Y-m', strtotime($ym . '-01 -1 month'));
+            $prior = $pm >= MonthCloseService::FIRST ? $pl($acct->getProfitLoss($pm . '-01', date('Y-m-t', strtotime($pm . '-01')))) : null;
+            return CloseNarrative::write($ym, $cur, $prior, $blockers);
+        } catch (Throwable $e) {
+            error_log('[MonthCloseList] narrative: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** Pure (tested): the email. Returns [subject, html body]. */
@@ -93,9 +166,13 @@ class MonthCloseListService
         $penny = $base . '/crm/dashboard_appstack.php#mw-penny';
 
         $blockers = array_values(array_filter((array)$m['blockers'], fn($b) => strpos($b, 'waiting until') !== 0));
+        $since = (array)($items['since'] ?? []);
+        $na = (array)($items['na'] ?? []);
+        $story = !empty($items['narrative']) ? $p('<strong>The month in plain words.</strong> ' . $e($items['narrative'])) : '';
+        $naLine = $na ? $p('<strong>Not checked this time:</strong> ' . $e(implode('; ', $na)) . ' — n/a is not clean; I will try again tomorrow.') : '';
         if (!$blockers) {
             $html = $p($e($name) . ', ' . $e($label) . ' is exact: every statement checks out, the books match the bank to the cent, '
-                       . 'and nothing is open.')
+                       . 'and nothing is open.') . $story . $naLine
                   . $p('<a href="' . $e($penny) . '" style="color:#0D3B2E;font-weight:bold;">Lock ' . $e($label) . '</a> on my card when you\'re happy. '
                        . 'Once it\'s locked, anything that turns up late for it goes into the current month.')
                   . $p('— Penny');
@@ -104,12 +181,14 @@ class MonthCloseListService
 
         $li = static fn($t) => '<li style="margin:0 0 6px;">' . $t . '</li>';
         $ul = static fn($rows) => '<ul style="margin:0 0 14px;padding-left:18px;font-size:14px;line-height:1.45;' . $font . '">' . implode('', $rows) . '</ul>';
-        $html = $p($e($name) . ', here is what stands between ' . $e($label) . ' and exact. Answer these and it can be locked.');
+        $html = $p($e($name) . ', here is what stands between ' . $e($label) . ' and exact. Answer these and it can be locked.') . $story . $naLine;
 
         $top = [];
         foreach ($blockers as $b) {
             if (preg_match('/^\d+ (open receipt|bank line)/', $b)) continue;   // listed one by one below
-            $top[] = $li($e(ucfirst($b)));
+            $first = $since[$b] ?? null;
+            $carried = $first !== null && (strtotime($first) < strtotime('-7 days')) ? ' <span style="color:#e85d04;">(open since ' . $e(date('M j', strtotime($first))) . ')</span>' : '';
+            $top[] = $li($e(ucfirst($b)) . $carried);
         }
         if ($top) $html .= $ul($top);
 

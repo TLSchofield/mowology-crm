@@ -93,6 +93,7 @@ class MonthCloseService
         }
         $lines = $this->waitingBankLinesByMonth();
         $settlements = $this->settlementsByMonth($current, $locked, $today);
+        $bankAge = $this->bankAgeByMonth($current, $locked, $today);
 
         $out = [];
         for ($m = self::FIRST; $m < $current; $m = date('Y-m', strtotime($m . '-01 +1 month'))) {
@@ -102,6 +103,7 @@ class MonthCloseService
                 'receipts_unmatched' => $receipts[$m][2] ?? 0,
                 'bank_lines' => $lines[$m] ?? 0,
                 'settlements' => $settlements[$m] ?? null,   // Stripe payout states (SettlementStatusService); null = not read
+                'bank_age' => $bankAge[$m] ?? null,          // waiting bank lines by class and age bucket (BankLineAge); null = not read
                 'in_transit' => $transit[$m] ?? [],
             ];
             $row['grace_until'] = self::graceUntil($m);
@@ -194,6 +196,7 @@ class MonthCloseService
         if (($m['bank_lines'] ?? 0) > 0) $b[] = $m['bank_lines'] . ' bank line' . ($m['bank_lines'] === 1 ? '' : 's') . ' still to sort';
         // Stripe payouts against the bank (plugin settlement states, 2026-11-03). Absent is not zero: an unread
         // month says so instead of looking clean.
+        foreach ((array)(($m['bank_age'] ?? [])['say'] ?? []) as $line) $b[] = $line;   // over-90-day and 61–90-day lines, fees to book
         $st = $m['settlements'] ?? null;
         if (is_array($st)) {
             if (!empty($st['error'])) $b[] = 'Stripe payouts could not be checked (' . $st['error'] . ')';
@@ -206,6 +209,27 @@ class MonthCloseService
      * Stripe settlement states for the most recent SETTLEMENT_MONTHS OPEN months (locked months are skipped, not counted):
      * each is one cached Stripe read; older months were closed before this check existed. month => report|null.
      */
+    /** Age classes of the waiting bank lines for the recent open months (same window as the settlement check). */
+    private function bankAgeByMonth(string $current, array $locked, ?string $today): array
+    {
+        $out = [];
+        try {
+            require_once __DIR__ . '/BankDeskService.php';
+            $desk = new BankDeskService($this->db);
+            $checked = 0;
+            for ($i = 1; $checked < self::SETTLEMENT_MONTHS && $i <= 24; $i++) {
+                $ym = date('Y-m', strtotime($current . '-01 -' . $i . ' month'));
+                if ($ym < self::FIRST) break;
+                if (in_array($ym, $locked, true)) continue;
+                $out[$ym] = $desk->ageSummary($ym, $today);
+                $checked++;
+            }
+        } catch (Throwable $e) {
+            error_log('[MonthClose] bank age: ' . $e->getMessage());
+        }
+        return $out;
+    }
+
     private function settlementsByMonth(string $current, array $locked, ?string $today): array
     {
         $out = [];

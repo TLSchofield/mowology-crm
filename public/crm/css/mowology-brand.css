@@ -41219,3 +41219,13 @@ body.mw-books {
 .mw-typemulti-row input { width:20px; height:20px; accent-color:var(--mw-green); }
 .mw-mc-scope-bar .mw-typemulti { flex:1 1 auto; min-width:0; }
 .mw-mc-scope-bar .mw-typemulti > summary { overflow:hidden; text-overflow:ellipsis; }
+
+/* Penny bank card: age chip on lines 61+ days unsorted (BankLineAge, 2026-11-03) */
+.mw-pb-age { display: inline-block; font-size: .68rem; line-height: 1.4; padding: 0 6px; border-radius: 999px; margin-left: 4px; vertical-align: middle; background: var(--mw-light); color: var(--mw-dark); }
+.mw-pb-age.is-stale { background: var(--mw-orange); color: var(--mw-paper); }
+
+/* Owner Freedom: pulse dots (PulseBands, 2026-11-03) — tokens only */
+.mw-fd-pulse { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; background: var(--mw-ink-200); }
+.mw-fd-pulse.is-green { background: var(--mw-green); }
+.mw-fd-pulse.is-yellow { background: var(--mw-orange); }
+.mw-fd-pulse.is-red { background: var(--mw-orange); box-shadow: 0 0 0 2px var(--mw-light); }
