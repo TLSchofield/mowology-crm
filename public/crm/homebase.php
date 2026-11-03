@@ -74,6 +74,7 @@ foreach ($jobs as $j) {
 // Add travel buffer between stops
 $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 
+$snowGate = snowRunVisitPredicate($db); // route stops count only while a run is open (SnowRunGate)
 $revStmt = $db->prepare("
     SELECT COALESCE(SUM(jp.price_per_visit), 0)
     FROM job_visits jv
@@ -81,8 +82,9 @@ $revStmt = $db->prepare("
     WHERE jv.scheduled_date = ?
       AND jv.assigned_crew_id = ?
       AND jv.status IN ('scheduled','in_progress','completed')
+      AND {$snowGate['sql']}
 ");
-$revStmt->execute([$today, $user['id']]);
+$revStmt->execute(array_merge([$today, $user['id']], $snowGate['params']));
 $summaryRevenue = (float)($revStmt->fetchColumn() ?: 0);
 
 // ── Weather — hourly AM/PM split, daily fallback ──────────────────────────────

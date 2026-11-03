@@ -1432,6 +1432,9 @@ if ($apiKey) {
           // Otto owns the schedule: his strip for the day / week in view (jobs.edit only; loads after the page).
           $ottoStrip = $view === 'day' ? ['date' => $dayDate] : ['from' => $startDate, 'to' => $endDate];
           include dirname(__DIR__) . '/includes/otto-schedule-strip.php';
+          // Salt & snow route stops show only while a run is on (SnowRunGate): the strip with Start / End run.
+          $snowRunBanner = ['date' => $view === 'day' ? $dayDate : date('Y-m-d')];
+          include dirname(__DIR__) . '/includes/snow-run-banner.php';
           ?>
 
           <!-- ═══════════════════════════════════════════════

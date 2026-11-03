@@ -39,12 +39,15 @@ class WeekStripService
         try {
             $end = date('Y-m-d', strtotime($monday . ' +6 days'));
             $finished = "'" . implode("','", self::FINISHED) . "'";
+            // Salt & snow route visits count only while a run is open (SnowRunGate), as getCalendarStops().
+            require_once dirname(__DIR__, 2) . '/Schedule/Services/SnowRunGate.php';
+            $gate = (new SnowRunGate($this->db))->visitVisibleSql('jv');
             $sql = "SELECT cs.stop_date AS d, COUNT(DISTINCT cs.id) AS stops,
                            COUNT(DISTINCT CASE WHEN jv.id IS NOT NULL AND COALESCE(jv.status, 'scheduled') NOT IN ({$finished}) THEN jv.id END) AS open_visits
                     FROM calendar_stops cs
-                    LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status <> 'cancelled'
+                    LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status <> 'cancelled' AND {$gate['sql']}
                     WHERE cs.stop_date BETWEEN ? AND ?";
-            $args = [$monday, $end];
+            $args = array_merge($gate['params'], [$monday, $end]);
             if ($crewId) {
                 $sql .= " AND (cs.crew_id = ? OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?))";
                 $args[] = $crewId;

@@ -161,6 +161,12 @@ $extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.is
     </div>
 </div>
 
+<?php
+// Salt & snow route stops are listed only while a run is on (SnowRunGate): the strip with Start / End run.
+$snowRunBanner = ['date' => $viewDate];
+include dirname(__DIR__) . '/includes/snow-run-banner.php';
+?>
+
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">
     <div class="mw-schedule-stat">

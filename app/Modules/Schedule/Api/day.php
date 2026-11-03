@@ -307,6 +307,14 @@ echo json_encode([
     'stops'                => $stops,
     'appointments'         => $appointments,
     'snow_choices'         => class_exists('VisitNeedsService') ? VisitNeedsService::snowChoices() : [],
+    // Salt & snow run state (SnowRunGate): route stops are in `stops` only while `active`;
+    // POST /api/schedule/snow-run {action:start|end, kind} when `may_control`.
+    'snow_run'             => (static function () use ($date, $jwtUser): array {
+        try {
+            require_once APP_ROOT . '/Modules/Schedule/Services/SnowRunGate.php';
+            return (new SnowRunGate(getDB()))->status($date, (string)$jwtUser['role'], (int)$jwtUser['id']);
+        } catch (Throwable $e) { return ['ready' => false, 'active' => false, 'may_control' => false]; }
+    })(),
     // The Android Receipt button shows only for a login that may add receipts (receipt-capture's gate).
     'can_add_receipts'     => (static function () use ($jwtUser): bool {
         try {

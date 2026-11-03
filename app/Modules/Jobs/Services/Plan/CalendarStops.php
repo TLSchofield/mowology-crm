@@ -391,5 +391,15 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     }
     unset($stops);
 
+    // Salt & snow route stops show only while a run is open (SnowRunGate, 2026-11-03): the daily
+    // route visits otherwise sat in every schedule and shared stop cards with normal visits at the
+    // same property. Worked visits (in progress / completed) always stay. No-op before migration 1432.
+    try {
+        require_once dirname(__DIR__, 3) . '/Schedule/Services/SnowRunGate.php';
+        $result = (new SnowRunGate($db))->hideScheduledRouteVisits($result);
+    } catch (Throwable $e) {
+        error_log('[getCalendarStops] snow run gate: ' . $e->getMessage());
+    }
+
     return $result;
 }
