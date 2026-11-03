@@ -149,6 +149,11 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaEmailHubService.ph
 
 // Otto — operations head
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/ClockWeekRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/WeekLoadRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SeasonalStockRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierReviewRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoHarvestService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
