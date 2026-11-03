@@ -42,7 +42,9 @@ class WeekStripService
             // Salt & snow route visits count only while a run is open (SnowRunGate), as getCalendarStops().
             require_once dirname(__DIR__, 2) . '/Schedule/Services/SnowRunGate.php';
             $gate = (new SnowRunGate($this->db))->visitVisibleSql('jv');
-            $sql = "SELECT cs.stop_date AS d, COUNT(DISTINCT cs.id) AS stops,
+            // A stop counts only with a visible visit, as getCalendarStops() drops visit-less stops —
+            // otherwise a day holding only locked route stops read as "done" (Codex 2026-11-03).
+            $sql = "SELECT cs.stop_date AS d, COUNT(DISTINCT CASE WHEN jv.id IS NOT NULL THEN cs.id END) AS stops,
                            COUNT(DISTINCT CASE WHEN jv.id IS NOT NULL AND COALESCE(jv.status, 'scheduled') NOT IN ({$finished}) THEN jv.id END) AS open_visits
                     FROM calendar_stops cs
                     LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status <> 'cancelled' AND {$gate['sql']}
