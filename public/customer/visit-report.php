@@ -370,7 +370,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
-  <link rel="stylesheet" href="/customer/visit-report.css">
+  <link rel="stylesheet" href="/customer/visit-report.css?v=20261102pins">
   <?php $hasMap = ($pingCount > 0) || !empty($photoPins) || ($canEditPins && !empty($unplacedPhotos) && !empty($visit['property_lat']) && !empty($visit['property_lng'])); ?>
   <?php if ($hasMap): ?>
   <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
@@ -797,20 +797,29 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   });
   syncLayerButtons();
 
-  // ── Crew route (unchanged) ───────────────────────────────────────────────
+  // ── Crew route ───────────────────────────────────────────────────────────
+  // A long visit can log thousands of pings (2135 on 2026-11-02). Drawn at full
+  // weight they bury the photo pins, so: at most ~250 dots (evenly sampled, start
+  // and end always kept), and when photo pins exist the dots and line step back.
   var latlngs = pings.map(function(p) { return [p[0], p[1]]; });
+  var quiet   = pins.length > 0;
 
   if (latlngs.length > 1) {
-    L.polyline(latlngs, { color: '#2D8659', weight: 3, opacity: 0.8 }).addTo(map);
+    L.polyline(latlngs, { color: '#2D8659', weight: quiet ? 2 : 3, opacity: quiet ? 0.35 : 0.8 }).addTo(map);
   }
 
+  var MAX_DOTS = 250;
+  var step = Math.max(1, Math.ceil(pings.length / MAX_DOTS));
   pings.forEach(function(p, i) {
+    var isEnd = i === 0 || i === pings.length - 1;
+    if (!isEnd && i % step !== 0) return;
     L.circleMarker([p[0], p[1]], {
-      radius:      i === 0 ? 8 : 4,
+      radius:      i === 0 ? 8 : (quiet ? 2.5 : 4),
       fillColor:   i === 0 ? '#2D8659' : '#7FD858',
       color:       '#fff',
-      weight:      2,
-      fillOpacity: 1,
+      weight:      i === 0 ? 2 : (quiet ? 1 : 2),
+      fillOpacity: quiet && i !== 0 ? 0.55 : 1,
+      interactive: false,
     }).addTo(map);
   });
 
@@ -850,7 +859,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
          + (p.time ? ' <span>' + esc(p.time) + '</span>' : '') + '</div></a>';
   }
   function addPin(p) {
-    var m = L.marker([p.lat, p.lng], { icon: pinIcon(p.n), draggable: isAdmin, title: p.caption }).addTo(map);
+    var m = L.marker([p.lat, p.lng], { icon: pinIcon(p.n), draggable: isAdmin, title: p.caption, zIndexOffset: 1000 }).addTo(map);
     m.bindPopup(popupHtml(p), { maxWidth: 220, closeButton: false });
     if (isAdmin) {
       m.on('dragend', function() {
