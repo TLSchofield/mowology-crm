@@ -186,4 +186,40 @@ final class ReminderGateTest extends TestCase
         $stmt->execute([$id]);
         return array_merge($stmt->fetch(PDO::FETCH_ASSOC), $changes);
     }
+
+    public function testRecentPaymentHoldsAndToneComesFromTwelveMonthsOfHistory(): void
+    {
+        $gate = new ReminderGate($this->db, '2026-11-03');
+        // contact 10, property 20 (no company): overdue invoice due 2026-09-20, past the habit grace computed below
+        $this->db->exec("INSERT INTO invoices VALUES
+            (30,10,NULL,20,'paid',0,100,'2026-01-10','2026-01-09','2026-01-01','2026-01-01'),
+            (31,10,NULL,20,'paid',0,100,'2026-03-10','2026-03-25','2026-03-01','2026-03-01'),
+            (32,10,NULL,20,'paid',0,100,'2026-05-10','2026-05-30','2026-05-01','2026-05-01'),
+            (33,10,NULL,20,'paid',0,100,'2025-05-10','2025-05-09','2025-05-01','2025-05-01')");   // older than 12 months: ignored
+        $history = $gate->historyFor('contact:10');
+        self::assertCount(3, $history);
+        self::assertSame('firm', PayerTone::classify($history)['tone']);           // 2 of 3 late
+        self::assertSame('2026-05-30', $gate->lastPaymentFor('contact:10'));
+
+        $inv = ['id' => 1, 'due_date' => '2026-09-20', 'balance_due' => 100, 'total' => 100, 'issue_date' => '2026-09-01', 'created_at' => '2026-09-01'];   // grace (p75 20 d + 3) passed on Oct 13
+        $rcpt = [['email_address' => 'ann@example.com', 'contact_role' => 'owner']];
+        $d = $gate->decide($inv, $rcpt);
+        self::assertSame('firm', $d['tone']['tone']);
+        self::assertNotSame('recent_payment', $d['reason']);
+
+        // An allocation 10 days ago on ANY of the payer's invoices holds the reminder
+        $this->db->exec("INSERT INTO invoice_payment_allocations VALUES (1, 31, NULL, 100, '2026-10-24')");
+        $d = $gate->decide($inv, $rcpt);
+        self::assertSame('recent_payment', $d['reason']);
+        self::assertFalse($d['send']);
+        self::assertStringContainsString('2026-10-24 (10 days ago)', $d['detail']);
+
+        // 15 days ago is outside the window
+        $this->db->exec("UPDATE invoice_payment_allocations SET payment_date = '2026-10-19'");
+        self::assertNotSame('recent_payment', $gate->decide($inv, $rcpt)['reason']);
+
+        // Tone is only computed for overdue reminders
+        $soon = $inv + []; $soon['due_date'] = '2026-11-05';
+        self::assertNull($gate->decide($soon, $rcpt)['tone']);
+    }
 }

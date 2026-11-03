@@ -66,6 +66,7 @@ require_once APP_ROOT . '/Modules/Invoices/Services/ReminderGate.php';
 // Reminders to an accounts-payable inbox (LeapAP, ap@, invoices@) must carry the invoice PDF or that system rejects them (2026-10-28).
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/PayerTone.php';   // overdue wording by payment history (2026-11-03)
 $pdfGate = new InvoicePdfGate($db);
 $gate = new ReminderGate($db);
 
@@ -99,6 +100,8 @@ try {
     $smsSent    = 0;
     $heldCounts = [];
     $shadowHoldCounts = [];
+    $overdueByPayer = [];   // payer_key => [{inv, recipients, decision}] — sent once per payer after the loop
+    $toneCounts = [];
 
     foreach ($invoices as $inv) {
         $invoiceId     = (int)$inv['id'];
@@ -145,6 +148,12 @@ try {
         // keep legacy delivery untouched (shadow only records what "on" would have done).
         if ($decision['mode'] === 'on' && !empty($decision['recipients'])) {
             $recipients = $decision['recipients'];
+        }
+        // Overdue reminders go per PAYER after this loop: one email listing every overdue invoice, in the payer's
+        // tone from twelve months of payment history (PayerTone, 2026-11-03). Approaching / due today stay per invoice.
+        if ($reminderType === 'overdue') {
+            $overdueByPayer[(string)$decision['payer_key']][] = ['inv' => $inv, 'recipients' => $recipients, 'decision' => $decision];
+            continue;
         }
 
         $amount   = '$' . number_format((float)$inv['balance_due'], 2);
@@ -263,8 +272,93 @@ try {
         ")->execute([$logDetail, $invoiceId]);
     }
 
+    // ── Overdue: one email per payer, in the payer's tone ─────────────────────────────────────────────
+    foreach ($overdueByPayer as $payerKey => $group) {
+        $today = date('Y-m-d');
+        $toneInfo = $group[0]['decision']['tone'] ?? PayerTone::classify([]);
+        $tone = (string)($toneInfo['tone'] ?? PayerTone::NEUTRAL);
+        $toneCounts[$tone] = ($toneCounts[$tone] ?? 0) + 1;
+        $invoices = [];
+        foreach ($group as $g) {
+            $invoices[] = $g['inv'] + ['url' => !empty($g['inv']['access_token'])
+                ? _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($g['inv']['access_token']) : ''];
+        }
+        // Recipients: the union across the payer's invoices, one send per address.
+        $byEmail = [];
+        foreach ($group as $g) foreach ($g['recipients'] as $r) {
+            $addr = strtolower(trim((string)($r['email_address'] ?? '')));
+            if ($addr !== '' && !isset($byEmail[$addr])) $byEmail[$addr] = $r;
+        }
+        $sentFor = [];   // invoice id => [names] — counters advance per invoice actually mailed about
+        $heldFor = [];   // invoice id => true when an AP inbox could not get its PDF (count must not advance)
+        $nums = implode(', ', array_map(static function ($i) { return (string)$i['invoice_number']; }, $invoices));
+        remLog("  Payer {$payerKey}: {$tone} tone ({$toneInfo['reason']}) for {$nums}");
+
+        require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+        $companyInfo = EmailWrapper::getCompanyInfo();
+        foreach ($byEmail as $rcpt) {
+            $contactName = $rcpt['contact_name'] ?: ($group[0]['inv']['company_name'] ?: 'Valued Customer');
+            $firstName = trim(explode(' ', (string)$rcpt['contact_name'])[0] ?? '') ?: 'there';
+            $needsPdf = InvoiceReminderRules::needsPdf((string)$rcpt['email_address'], (string)($rcpt['contact_role'] ?? ''));
+            // An AP inbox needs the PDF, and one email carries one PDF: that inbox gets one email per invoice.
+            $batches = $needsPdf ? array_map(static function ($i) { return [$i]; }, $invoices) : [$invoices];
+            foreach ($batches as $batch) {
+                $mail = PayerTone::overdueEmail($tone, $batch, $firstName, $today);
+                $bodyText = $mail['html'];
+                $attachPdf = null;
+                if ($needsPdf) {
+                    $invoiceId = (int)$batch[0]['id'];
+                    $pdfPath = $pdfGate->ensurePdf($invoiceId);
+                    if ($pdfPath === null) {
+                        $pdfGate->recordBlocked($invoiceId, 'reminder');
+                        remLog("  HELD {$batch[0]['invoice_number']} for <{$rcpt['email_address']}> — the invoice PDF could not be made");
+                        $heldFor[$invoiceId] = true;
+                        continue;
+                    }
+                    $attachPdf = $pdfPath;
+                    $bodyText .= '<p>The invoice PDF is attached.</p>';
+                }
+                $viewUrl = count($batch) === 1 ? ($batch[0]['url'] ?: null) : ($batch[0]['url'] ?: null);
+                $emailBody = EmailWrapper::wrap($bodyText, count($batch) === 1 ? 'Pay the invoice' : 'View the invoices', $viewUrl, $companyInfo);
+                $result = sendCrmEmail($rcpt['email_address'], $mail['subject'], $emailBody, $attachPdf);
+                if ($result) {
+                    $emailsSent++;
+                    foreach ($batch as $i) $sentFor[(int)$i['id']][] = $contactName . ' <' . $rcpt['email_address'] . '>';
+                    remLog("  Email sent to {$contactName} <{$rcpt['email_address']}> ({$rcpt['contact_role']}, via {$rcpt['source']}) — {$tone} overdue, " . count($batch) . ' invoice(s)');
+                } else {
+                    remLog("  Email FAILED for {$contactName} <{$rcpt['email_address']}> ({$tone} overdue)");
+                }
+            }
+            if (!empty($rcpt['receive_sms']) && !empty($rcpt['phone'])) {
+                $smsResult = sendSms($rcpt['phone'], PayerTone::overdueSms($invoices), '');
+                if ($smsResult['success']) { $smsSent++; remLog("  SMS sent to {$contactName}"); }
+                else remLog("  SMS FAILED for {$contactName}");
+            }
+        }
+        foreach ($invoices as $i) {
+            $invoiceId = (int)$i['id'];
+            if (empty($sentFor[$invoiceId])) {
+                remLog("  NOT counted for {$i['invoice_number']} — nobody was mailed about it");
+                continue;
+            }
+            $db->prepare("
+                UPDATE invoices
+                SET reminder_count          = COALESCE(reminder_count, 0) + " . (!empty($heldFor[$invoiceId]) ? '0' : '1') . ",
+                    first_reminder_sent_at  = COALESCE(first_reminder_sent_at, NOW()),
+                    last_reminder_sent_at   = NOW()
+                WHERE id = ?
+            ")->execute([$invoiceId]);
+            $logDetail = ucfirst($tone) . ' overdue reminder sent to ' . implode(', ', array_unique($sentFor[$invoiceId]))
+                       . (count($invoices) > 1 ? ' (one email for ' . count($invoices) . ' invoices)' : '');
+            $db->prepare("
+                INSERT INTO activity_log (user_id, action, details, invoice_id, created_at)
+                VALUES (NULL, 'Payment reminder sent', ?, ?, NOW())
+            ")->execute([$logDetail, $invoiceId]);
+        }
+    }
+
     remLog("Summary: {$emailsSent} email(s), {$smsSent} SMS sent; held " . json_encode($heldCounts)
-        . '; shadow-holds ' . json_encode($shadowHoldCounts));
+        . '; shadow-holds ' . json_encode($shadowHoldCounts) . '; overdue tones ' . json_encode($toneCounts));
 
 } catch (Throwable $e) {
     remLog("ERROR: " . $e->getMessage());

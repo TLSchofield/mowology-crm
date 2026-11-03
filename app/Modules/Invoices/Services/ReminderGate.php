@@ -16,16 +16,24 @@ require_once __DIR__ . '/InvoiceReminderRules.php';
  *   before_grace      first overdue reminder waits for the payer's habit (p75 lag + 3, min 7; defaults 14 company / 7 individual)
  *   deposit_candidate an unlinked income bank line equal to the balance (or total) since the issue date → ask, don't chase
  *   statement_stale   company payers only: no statement covers the days since the due date → "can't tell yet"
+ *   recent_payment    the payer paid something (any invoice) in the last 14 days → don't chase the reliable (2026-11-03)
+ * The decision also carries the payer's tone (PayerTone, from 12 months of paid invoices) for the overdue wording.
  * Mode (ops_settings.reminder_grace_mode): off = legacy; shadow = send but record what would be held; on = enforce.
  * The one "is this an AP inbox" rule is isApInbox(): InvoiceReminderRules::needsPdf() (ap@/invoices@/AP platforms,
  * role accounting) + AutomatedInvoiceInbox (LeapAP/Condoworks + ops_settings domains) + a local part ending in "invoice(s)".
  */
+require_once __DIR__ . '/PayerTone.php';
+
 class ReminderGate
 {
     private PDO $db;
     private string $today;
     private ?string $coveredThrough = null;
     private bool $coverageLoaded = false;
+
+    /** A payment from the payer this recently holds every overdue reminder (plugin rule, 2026-11-03). */
+    public const RECENT_PAYMENT_DAYS = 14;
+    public const HISTORY_MONTHS = 12;
 
     public function __construct(PDO $db, ?string $today = null)
     {
@@ -98,6 +106,60 @@ class ReminderGate
         }
         if (count($lags) < 3) return null;
         return ['lags' => $lags, 'p75' => self::p75($lags), 'n' => count($lags)];
+    }
+
+    /**
+     * The payer's invoices paid in the last HISTORY_MONTHS (due date + the day they were paid), for PayerTone.
+     * @return array<int,array{due_date:string,paid:string}>
+     */
+    public function historyFor(string $payerKey): array
+    {
+        $parts = explode(':', $payerKey, 2);
+        $kind = $parts[0] ?? '';
+        $id = (int)($parts[1] ?? 0);
+        if ($id <= 0 || !in_array($kind, ['company', 'contact'], true)) return [];
+        $payerExpr = "COALESCE(i.company_id, bt_p.billing_company_id, bt_p.property_manager_id,
+                               bt_p.company_id, bt_dc.company_id)";
+        $where = $kind === 'company' ? "$payerExpr = CAST(? AS SIGNED)" : "$payerExpr IS NULL AND i.contact_id = ?";
+        $since = date('Y-m-d', strtotime($this->today . ' -' . self::HISTORY_MONTHS . ' months'));
+        $stmt = $this->db->prepare(
+            "SELECT i.due_date, i.paid_at, MAX(a.payment_date) AS allocation_date
+               FROM invoices i " . BillToResolver::INVOICE_COMPANY_JOINS . "
+               LEFT JOIN invoice_payment_allocations a ON a.invoice_id = i.id
+              WHERE i.status = 'paid' AND i.balance_due <= 0.005 AND $where
+              GROUP BY i.id, i.due_date, i.paid_at
+             HAVING COALESCE(MAX(a.payment_date), i.paid_at) >= ?
+              ORDER BY i.due_date DESC"
+        );
+        $stmt->execute([$id, $since]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $paid = $row['allocation_date'] ?: $row['paid_at'];
+            if (empty($row['due_date']) || empty($paid)) continue;
+            $out[] = ['due_date' => (string)$row['due_date'], 'paid' => substr((string)$paid, 0, 10)];
+        }
+        return $out;
+    }
+
+    /** The most recent day the payer paid anything (any invoice, any amount), or null. */
+    public function lastPaymentFor(string $payerKey): ?string
+    {
+        $parts = explode(':', $payerKey, 2);
+        $kind = $parts[0] ?? '';
+        $id = (int)($parts[1] ?? 0);
+        if ($id <= 0 || !in_array($kind, ['company', 'contact'], true)) return null;
+        $payerExpr = "COALESCE(i.company_id, bt_p.billing_company_id, bt_p.property_manager_id,
+                               bt_p.company_id, bt_dc.company_id)";
+        $where = $kind === 'company' ? "$payerExpr = CAST(? AS SIGNED)" : "$payerExpr IS NULL AND i.contact_id = ?";
+        $stmt = $this->db->prepare(
+            "SELECT MAX(COALESCE(a.payment_date, i.paid_at)) AS last_paid
+               FROM invoices i " . BillToResolver::INVOICE_COMPANY_JOINS . "
+               LEFT JOIN invoice_payment_allocations a ON a.invoice_id = i.id
+              WHERE $where"
+        );
+        $stmt->execute([$id]);
+        $v = $stmt->fetchColumn();
+        return $v ? substr((string)$v, 0, 10) : null;
     }
 
     public static function p75(array $lags): int
@@ -233,10 +295,15 @@ class ReminderGate
             $reason = 'deposit_candidate';
             $detail = 'transaction ' . $deposit['transaction_id'] . ' on ' . $deposit['transaction_date']
                 . ' for $' . number_format((float)$deposit['amount'], 2);
+        } elseif (($lastPaid = $this->lastPaymentFor($payer['key'])) !== null
+                  && $lastPaid <= $this->today && $this->daysBetween($lastPaid, $this->today) <= self::RECENT_PAYMENT_DAYS) {
+            $reason = 'recent_payment';
+            $detail = 'the payer paid on ' . $lastPaid . ' (' . $this->daysBetween($lastPaid, $this->today) . ' days ago)';
         } elseif ($payer['is_company'] && !$this->statementFreshFor($dueDate)) {
             $reason = 'statement_stale';
             $detail = 'statements cover through ' . ($this->statementCoveredThrough() ?? 'no reported date');
         }
+        $tone = $type === 'overdue' ? PayerTone::classify($this->historyFor($payer['key'])) : null;
 
         $allowed = in_array($reason, ['ok', 'approaching', 'due_today'], true);
         return [
@@ -247,6 +314,7 @@ class ReminderGate
             'grace_days' => $grace['days'],
             'first_overdue_date' => $first,
             'payer_key' => $payer['key'],
+            'tone' => $tone,
             'mode' => $mode,
             'recipients' => $chaseable,
         ];
