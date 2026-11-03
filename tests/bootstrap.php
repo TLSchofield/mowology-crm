@@ -70,6 +70,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/VisitTimerStopPolicy.php';
 // Ada — head of Technology
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaDeskService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AppVersionFeed.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AuditDiff.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AuditTrail.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaSecurityRules.php';

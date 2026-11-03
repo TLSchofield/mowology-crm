@@ -1,0 +1,7 @@
+{
+  "android": {
+    "native_auth": true,
+    "native_signup": true,
+    "native_crew_schedule": true
+  }
+}
