@@ -887,6 +887,17 @@
                                   '<button type="button" data-ans="different">Not the same purchase</button>' +
                                 '</div></div>';
                         }
+                        if (q.kind === 'repeat_amount') {
+                            // Same vendor and total weeks apart (RepeatAmountFinder): surfaced only, Tim decides.
+                            var olderId = q.keep_id || q.expense_id;
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(q.expense_id) + '" target="_blank" rel="noopener">Open #' + esc(q.expense_id) + '</a>' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(olderId) + '" target="_blank" rel="noopener">Open #' + esc(olderId) + '</a>' +
+                                  '<button type="button" data-ans="different">Different purchases</button>' +
+                                  '<button type="button" data-ans="seen">I\'ll sort it</button>' +
+                                '</div></div>';
+                        }
                         if (q.kind === 'bad_link') {
                             return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
                                 '<div class="mw-pq-btns">' +

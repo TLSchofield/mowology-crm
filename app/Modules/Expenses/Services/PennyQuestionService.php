@@ -285,7 +285,7 @@ class PennyQuestionService
         try {
             $twins = $this->db->query("SELECT q.id, q.kind, q.expense_id, q.amount, q.question, q.subject, q.category
                 FROM penny_questions q JOIN expenses e ON e.id = q.expense_id
-                WHERE q.status = 'open' AND q.kind IN ('possible_twin','bad_link') AND (q.kind = 'bad_link' OR e.status <> 'rejected')
+                WHERE q.status = 'open' AND q.kind IN ('possible_twin','bad_link','repeat_amount') AND (q.kind = 'bad_link' OR e.status <> 'rejected')
                 ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit)))->fetchAll(PDO::FETCH_ASSOC);
             foreach ($twins as &$q) {
                 $q['expense_id'] = (int)$q['expense_id'];
@@ -349,7 +349,7 @@ class PennyQuestionService
         $out = ['copy_id' => 0, 'keep_id' => 0, 'line_id' => 0, 'right_id' => 0];
         if ($kind === 'possible_twin' && preg_match('/^keep:(\d+)$/', $subject, $m)) {
             $out['keep_id'] = (int)$m[1];
-        } elseif ($kind === 'possible_twin' && preg_match('/^with:(\d+)$/', $subject, $m)) {
+        } elseif (in_array($kind, ['possible_twin', 'repeat_amount'], true) && preg_match('/^with:(\d+)$/', $subject, $m)) {
             $out['keep_id'] = (int)$m[1];
         } elseif ($kind === 'bad_link' && preg_match('/^line:(\d+);right:(\d+)$/', $subject, $m)) {
             $out['line_id'] = (int)$m[1];
@@ -397,17 +397,17 @@ class PennyQuestionService
         if (!$q || $q['status'] !== 'open') {
             return ['ok' => false, 'message' => 'Already answered'];
         }
-        if ($answer === 'different' && (string)$q['kind'] !== 'possible_twin') {
+        if ($answer === 'different' && !in_array((string)$q['kind'], ['possible_twin', 'repeat_amount'], true)) {
             return ['ok' => false, 'message' => 'Unknown answer'];
         }
-        if (in_array((string)$q['kind'], ['possible_twin', 'bad_link'], true)) {
+        if (in_array((string)$q['kind'], ['possible_twin', 'bad_link', 'repeat_amount'], true)) {
             if ($answer === 'seen') {
                 $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = 'seen', answered_by = ?, answered_at = NOW() WHERE id = ?")
                    ->execute([$userId, $id]);
                 return ['ok' => true, 'message' => 'Got it.'];
             }
-            if ($q['kind'] !== 'possible_twin' || $answer !== 'different') return ['ok' => false, 'message' => 'Unknown answer'];
-            $ids = self::parseSubject('possible_twin', (string)$q['subject']);
+            if (!in_array((string)$q['kind'], ['possible_twin', 'repeat_amount'], true) || $answer !== 'different') return ['ok' => false, 'message' => 'Unknown answer'];
+            $ids = self::parseSubject((string)$q['kind'], (string)$q['subject']);
             $a = (int)$q['expense_id'];
             $b = (int)$ids['keep_id'];
             if (!$a || !$b) return ['ok' => false, 'message' => 'Unknown answer'];
@@ -422,7 +422,7 @@ class PennyQuestionService
                 if ($this->db->inTransaction()) $this->db->rollBack();
                 throw $e;
             }
-            $this->lesson($id, 'duplicate_receipt', 'possible twin', 'different purchase', $userId);
+            $this->lesson($id, 'duplicate_receipt', $q['kind'] === 'repeat_amount' ? 'repeat amount' : 'possible twin', 'different purchase', $userId);
             return ['ok' => true, 'message' => 'Got it. I will not ask about these two again.'];
         }
         if (($q['kind'] ?? '') === 'payment_source' || in_array($answer, self::SOURCE_ANSWERS, true)) {

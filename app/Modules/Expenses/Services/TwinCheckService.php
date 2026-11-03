@@ -2,10 +2,13 @@
 declare(strict_types=1);
 
 /** Turns TwinFinder's read-only findings into questions. It never changes the books. */
+require_once __DIR__ . '/RepeatAmountFinder.php';
+
 class TwinCheckService
 {
     public const KIND_TWIN = 'possible_twin';
     public const KIND_BAD_LINK = 'bad_link';
+    public const KIND_REPEAT = 'repeat_amount';   // same vendor + total 4–90 days apart (RepeatAmountFinder, 2026-11-03)
     public const SINCE = '2026-01-01';
     public const CACHE_KEY = 'penny_twin_check_last';
 
@@ -40,7 +43,8 @@ class TwinCheckService
         $lines = $this->lines();
         $dismissals = $this->dismissals();
         $finds = TwinFinder::find($receipts, $facts, $lines, $dismissals);
-        $rows = self::uniqueRows(self::rows($finds, $byId));
+        $repeats = RepeatAmountFinder::find($receipts, $dismissals);
+        $rows = self::uniqueRows(array_merge(self::rows($finds, $byId), self::repeatRows($repeats)));
         $plan = self::plan($this->existing(), $rows);
         if (!$dryRun) $this->apply($plan);
 
@@ -58,7 +62,7 @@ class TwinCheckService
         $dollars = 0.0;
         foreach ($openRows as $row) if ($row['kind'] === self::KIND_TWIN) $dollars += (float)$row['amount'];
         return [
-            'finds' => count($finds), 'new' => count($plan['insert']), 'updated' => count($plan['update']),
+            'finds' => count($finds), 'repeats' => count($repeats), 'new' => count($plan['insert']), 'updated' => count($plan['update']),
             'reopened' => count($plan['reopen']), 'closed' => count($plan['close']),
             'open' => count($openRows), 'dollars' => round($dollars, 2),
         ];
@@ -127,7 +131,7 @@ class TwinCheckService
     private function existing(): array
     {
         return $this->db->query("SELECT id, kind, expense_id, status, answer, amount, question FROM penny_questions
-            WHERE kind IN ('possible_twin','bad_link')")->fetchAll(PDO::FETCH_ASSOC);
+            WHERE kind IN ('possible_twin','bad_link','repeat_amount')")->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public static function rows(array $finds, array $receiptsById): array
@@ -152,6 +156,18 @@ class TwinCheckService
             $rows[] = ['kind' => $kind, 'expense_id' => $expenseId, 'amount' => (float)$find['amount'],
                 'vendor_name' => $vendor, 'category' => $category, 'subject' => $subject,
                 'question' => self::wording($find, $receiptsById)];
+        }
+        return $rows;
+    }
+
+    /** RepeatAmountFinder findings as question rows: the NEWER receipt carries the question, subject names the older. */
+    public static function repeatRows(array $repeats): array
+    {
+        $rows = [];
+        foreach ($repeats as $find) {
+            $rows[] = ['kind' => self::KIND_REPEAT, 'expense_id' => (int)$find['newer_id'], 'amount' => (float)$find['amount'],
+                'vendor_name' => (string)$find['vendor'], 'category' => 'repeat', 'subject' => 'with:' . (int)$find['older_id'],
+                'question' => RepeatAmountFinder::wording($find)];
         }
         return $rows;
     }

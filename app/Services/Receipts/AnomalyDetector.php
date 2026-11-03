@@ -188,9 +188,13 @@ function checkDuplicateDay(array $e, PDO $db): ?array
 
 // ── Rule 4: No Receipt Image ─────────────────────────────────────────
 
+/** Below this total a missing receipt image is not worth a flag (parking, coffee) — plugin floor, Tim 2026-11-03. */
+const ANOMALY_NO_RECEIPT_MIN_TOTAL = 25.0;
+
 function checkNoReceipt(array $e, PDO $db): ?array
 {
     $mediaId = $e['receipt_media_id'] ?? null;
+    if ((float)($e['total'] ?? 0) < ANOMALY_NO_RECEIPT_MIN_TOTAL) return null;
     if (empty($mediaId)) {
         return [
             'code'   => 'NO_RECEIPT',
