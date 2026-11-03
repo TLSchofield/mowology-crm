@@ -485,8 +485,8 @@ class SalesDeskService
     }
 
     /**
-     * What the CRM knows about each lead's contact (2026-11-03): replies and our own touches in the
-     * last 30 days (sales_messages) and whether they have said yes to a quote before. One batch of
+     * What the CRM knows about each lead's contact (2026-11-03): last reply and last touch of ours
+     * (sales_messages, all time; touch count over 30 days) and whether they have said yes to a quote before. One batch of
      * two queries; if either fails every lead is marked `available => false` so the score says
      * "no reply data" instead of quietly treating absence as zero.
      * @return array<int, array> contact_id => signals (see LeadScore)
@@ -499,8 +499,11 @@ class SalesDeskService
         $out = [];
         foreach ($ids as $id) $out[$id] = ['available' => true, 'inbound_at' => null, 'outbound_at' => null, 'outbound_count' => 0, 'repeat' => false];
         try {
-            $s = $this->db->prepare("SELECT contact_id, direction, MAX(sent_at) AS last_at, COUNT(*) AS n
-                                     FROM sales_messages WHERE contact_id IN ($in) AND sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+            // Last touch either way is all-time (a lead we wrote to 40 days ago is not "untouched");
+            // only the touch COUNT is windowed to 30 days.
+            $s = $this->db->prepare("SELECT contact_id, direction, MAX(sent_at) AS last_at,
+                                            SUM(CASE WHEN sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS n
+                                     FROM sales_messages WHERE contact_id IN ($in)
                                      GROUP BY contact_id, direction");
             $s->execute($ids);
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $m) {
@@ -835,7 +838,7 @@ class SalesDeskService
             $first = trim((string)($r['first_name'] ?? ''));
             $name = trim($first . ' ' . (string)($r['last_name'] ?? '')) ?: 'New lead';
             $what = $services ? implode(' & ', array_map(fn($s) => str_replace('_', ' ', $s), array_slice($services, 0, 2))) : 'a quote';
-            $hot = $heat['bucket'] === 'hot' || $tier === 'high' || $r['urgency'] === 'asap';
+            $hot = $heat['bucket'] === 'hot' || ($heat['bucket'] !== 'out_of_scope' && ($tier === 'high' || $r['urgency'] === 'asap'));
             $phone = trim((string)($r['phone'] ?? ''));
             $visitAt = !empty($r['visit_date']) ? strtotime($r['visit_date'] . ' ' . ($r['visit_time'] ?? '00:00')) : false;
             if ($visitAt) {

@@ -21,7 +21,7 @@ class LeadScoreTest extends TestCase
 
     private function score(array $lead = [], array $signals = [], float $value = 400.0): array
     {
-        return LeadScore::score($this->lead($lead), $signals, self::AVG, $value, self::OFFERED, self::NOW);
+        return LeadScore::score($this->lead($lead), $signals + ['available' => true], self::AVG, $value, self::OFFERED, self::NOW);
     }
 
     public function test_a_plain_new_lead_scores_fit_and_a_little_freshness(): void
@@ -96,12 +96,23 @@ class LeadScoreTest extends TestCase
         $this->assertSame(0, $this->score([], ['inbound_at' => '2026-12-01 10:00:00'])['engagement']);
     }
 
-    public function test_failed_signal_lookup_is_reported_not_scored(): void
+    public function test_unknown_or_failed_signals_are_reported_not_scored(): void
     {
-        $s = $this->score([], ['available' => false]);
-        $this->assertSame(0, $s['engagement']);
-        $this->assertContains('no reply data (lookup failed)', $s['reasons']);
-        $this->assertFalse($s['untouched']);
+        foreach ([['available' => false], []] as $signals) {
+            $s = LeadScore::score($this->lead(), $signals, self::AVG, 400.0, self::OFFERED, self::NOW);
+            $this->assertSame(0, $s['engagement']);
+            $this->assertContains('no reply data', $s['reasons']);
+            $this->assertFalse($s['untouched']);          // unknown is not "nobody has touched it"
+        }
+    }
+
+    public function test_out_of_scope_is_never_flagged_hot_by_the_desk(): void
+    {
+        $rows = [['id' => 9, 'service_types' => 'roofing', 'urgency' => 'asap', 'project_description' => '[Classification: tier:high]', 'created_at' => '2026-11-02 09:00:00',
+                  'first_name' => 'Al', 'last_name' => '', 'email' => '', 'phone' => '', 'address' => '', 'city' => '', 'source' => '']];
+        $r = SalesDeskService::rankLeads($rows, self::AVG, self::NOW);
+        $this->assertSame('out_of_scope', $r[0]['bucket']);
+        $this->assertFalse($r[0]['hot']);
     }
 
     public function test_hot_when_urgent_repeat_referral_or_big_value_even_with_thin_fit(): void

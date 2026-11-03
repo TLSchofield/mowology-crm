@@ -151,10 +151,11 @@ class SalesDeskServiceTest extends TestCase
         $this->assertStringContainsString('What work are you after', $r[1]['ask']);
         $this->assertContains('we wrote to them today', $r[2]['reasons']);
 
-        // No signals at all and the same service: flat → ordered by what the CRM knows, no number
+        // No signals at all and the same service: flat → ordered by what the CRM knows, no number; unknown ≠ untouched
         $flat = SalesDeskService::rankLeads([$rows[0], $rows[1]], $avg, self::NOW);
         $this->assertSame('signal', $flat[0]['ranked_by']);
-        $this->assertTrue($flat[0]['untouched']);
+        $this->assertFalse($flat[0]['untouched']);
+        $this->assertContains('no reply data', $flat[0]['reasons']);
     }
 
     public function test_jobflow_tags_are_read_from_the_description(): void

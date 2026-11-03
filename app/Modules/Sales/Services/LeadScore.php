@@ -19,7 +19,7 @@ declare(strict_types=1);
  *   opened_at        last quote open/view (only once a quote exists)
  *   repeat           bool — the contact has an accepted quote before
  *   not_lead         bool — the sender was learned as "not a lead"
- *   available        bool — false when the signal lookup failed (reasons say so)
+ *   available        bool — true only when the lookup ran; absent/false = unknown (reasons say "no reply data")
  */
 final class LeadScore
 {
@@ -49,7 +49,8 @@ final class LeadScore
     {
         $nowTs = strtotime($now);
         $reasons = [];
-        $available = $signals['available'] ?? true;
+        // No signals at all means unknown, not quiet: say so, never mark the lead untouched.
+        $available = (bool)($signals['available'] ?? false);
 
         // ── Engagement 0–25 ───────────────────────────────────────────────────
         $eng = 0;
@@ -62,7 +63,7 @@ final class LeadScore
         $openedDays = self::daysSince($signals['opened_at'] ?? null, $nowTs);
         $outCount = (int)($signals['outbound_count'] ?? 0);
         if (!$available) {
-            $reasons[] = 'no reply data (lookup failed)';
+            $reasons[] = 'no reply data';
         } elseif ($inboundDays !== null && $inboundDays <= 14) {
             $eng += 15;
             $reasons[] = 'replied ' . self::agoWord($inboundDays);
