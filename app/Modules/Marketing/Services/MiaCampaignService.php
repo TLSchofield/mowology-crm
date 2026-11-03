@@ -881,7 +881,9 @@ class MiaCampaignService
         require_once __DIR__ . '/VoiceProfile.php';
         require_once __DIR__ . '/ContentMix.php';
         foreach (VoiceProfile::check($all) as $v) if (strpos($v, 'price or percentage') === false && strpos($v, 'exclamation') === false) $p[] = lcfirst($v);
-        foreach (ContentMix::emailProblems($subject, $body) as $v) $p[] = lcfirst($v);
+        // Length is a note, never a block: Tim's own seeded campaigns run 92 and 276 words and his reminders are one line
+        // (dry run 2026-11-03). Subject length and "one ask" still count.
+        foreach (ContentMix::emailProblems($subject, $body) as $v) if (strpos($v, 'Body is') !== 0) $p[] = lcfirst($v);
         return $p;
     }
 
