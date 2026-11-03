@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 /** Turns TwinFinder's read-only findings into questions. It never changes the books. */
+require_once __DIR__ . '/TwinFinder.php';          // no autoloader in production: the service loads what it uses (2026-11-03)
 require_once __DIR__ . '/RepeatAmountFinder.php';
 
 class TwinCheckService
