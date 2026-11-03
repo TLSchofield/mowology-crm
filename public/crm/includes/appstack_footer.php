@@ -22,7 +22,7 @@
           <div class="row text-muted">
             <div class="col-6 text-left">
               <p class="mb-0">
-                <strong>Mowology CRM</strong> &copy; <?php echo date('Y'); ?>
+                <strong><?php echo htmlspecialchars(function_exists('_idFromName') ? _idFromName() : ''); ?> CRM</strong> &copy; <?php echo date('Y'); ?>
               </p>
             </div>
             <div class="col-6 text-right">
@@ -38,7 +38,12 @@
 
   <script src="/crm/js/feather.min.js"></script>
   <script src="/crm/js/feather-helper.js"></script>
+  <?php if (!empty($crewSlim)): ?>
+  <!-- Crew app, crew page: 3 KB shim (modal / tab / dismiss) instead of the 3.5 MB AppStack bundle -->
+  <script src="<?= _av('/crm/js/mw-ui-shim.js') ?>"></script>
+  <?php else: ?>
   <script src="/crm/js/app.js"></script>
+  <?php endif; ?>
 
   <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)
        Use these for .mw-modal-overlay dialogs. All new modals should use
@@ -113,7 +118,7 @@
     };
   })();
   </script>
-  <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
+  <?php if (empty($crewLite)): ?><script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script><?php endif; ?>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
   <!-- Searchable-select enhancement: any <select class="mw-searchable"> becomes
        a filterable combobox with a "no value" clear row. Styles in mowology-brand.css. -->
@@ -149,6 +154,7 @@
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
   <script>
   (function(){
+    if (!window.jQuery) return;
     // Remove Bootstrap's broken dropdown click handlers from jQuery
     $(document).off('click.bs.dropdown');
     $(document).off('click.bs.dropdown.data-api');
@@ -234,6 +240,18 @@
 
     var isAndroid = /Android/.test(navigator.userAgent);
     var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    var businessName = window.MW_BUSINESS && typeof window.MW_BUSINESS.name === 'string' && window.MW_BUSINESS.name.trim() !== ''
+      ? window.MW_BUSINESS.name
+      : 'Ittai';
+    var escapedBusinessName = businessName.replace(/[&<>"']/g, function(character) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      }[character];
+    });
 
     // Build the splash overlay
     var overlay = document.createElement('div');
@@ -241,8 +259,8 @@
     overlay.className = 'mw-install-splash';
 
     var content = '<div class="mw-install-splash-inner">';
-    content += '<img src="/assets/favicon/android-chrome-512x512.png" alt="Mowology" class="mw-install-splash-icon">';
-    content += '<h1 class="mw-install-splash-title">Mowology Crew</h1>';
+    content += '<img src="/assets/favicon-ittai/android-chrome-512x512.png" alt="' + escapedBusinessName + '" class="mw-install-splash-icon">';
+    content += '<h1 class="mw-install-splash-title">' + escapedBusinessName + ' Crew</h1>';
     content += '<p class="mw-install-splash-desc">Install the app for the best experience — GPS tracking, notifications, and quick access from your home screen.</p>';
     content += '<div class="mw-install-splash-actions">';
 

@@ -1626,7 +1626,7 @@
             'color:#fff;font-family:system-ui,-apple-system,sans-serif;');
 
         el.innerHTML =
-            '<img src="/assets/favicon/android-chrome-192x192.png" ' +
+            '<img src="/assets/favicon-ittai/android-chrome-192x192.png" ' +
                 'style="width:80px;height:80px;border-radius:20px;margin-bottom:1.25rem;" alt="">' +
             '<h2 style="margin:0 0 .4rem;font-size:1.5rem;color:#7FD858;font-weight:700;">Update Required</h2>' +
             '<p style="margin:0 0 .9rem;font-size:1rem;color:#c8e8de;">Mowology Crew' + version + ' is now available.</p>' +

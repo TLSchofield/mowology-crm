@@ -53,14 +53,17 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         // to the full CRM. Runs sync before any resources load — no splash flash.
         (function () {
             var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+            // Tell the AppStack pages they are inside the app (crew-lite head/footer): no sidebar,
+            // no prefetch storm, no iOS splash. One year; refreshed on every launch.
+            document.cookie = 'mw_native=' + (isNative ? '1' : '') + '; path=/; max-age=' + (isNative ? 31536000 : 0) + '; SameSite=Lax; Secure';
             if (!isNative) {
                 window.location.replace('/crm/jobs/schedule.php');
             }
         })();
     </script>
-    <link rel="manifest" href="/assets/favicon/site.webmanifest">
-    <link rel="icon" href="/assets/favicon/favicon.ico">
-    <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
+    <link rel="manifest" href="/assets/favicon-ittai/site.webmanifest">
+    <link rel="icon" href="/assets/favicon-ittai/favicon.ico">
+    <link rel="apple-touch-icon" href="/assets/favicon-ittai/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -69,7 +72,8 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20261008a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20261002a" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261007p" defer></script>
+    <script src="/crm/js/head-brain.js?v=20261008a" defer></script>
     <style>
         :root {
             /* Brand tokens come from /crm/css/tokens.css loaded above.
@@ -124,6 +128,17 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             border-radius: 32px; object-fit: cover;
             animation: al-breathe 2s ease-in-out infinite;
         }
+        /* The brain (head-brain.js) turns while the day loads; the logo sits under it as the mark.
+           Removed from the DOM when the splash exits so its animation loop stops. */
+        .al-splash-brain {
+            width: 168px; height: 168px; padding: 0; border: 0; border-radius: 40px;
+            background: radial-gradient(circle at 50% 42%, var(--mw-dark, #1A5F4A) 0%, var(--mw-forest, #0D3B2E) 72%);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(127, 216, 88, 0.18);
+            pointer-events: none; animation: al-breathe 3s ease-in-out infinite;
+        }
+        .al-splash-brain canvas { width: 100%; height: 100%; display: block; border-radius: 40px; }
+        .al-splash-brain + .al-splash-logo { width: 44px; height: 44px; border-radius: 12px; margin-top: -22px;
+            animation: none; box-shadow: 0 4px 14px rgba(0,0,0,0.35); position: relative; }
         @keyframes al-breathe {
             0%,100% { transform: scale(1); opacity: 1; }
             50%      { transform: scale(1.04); opacity: 0.9; }
@@ -352,6 +367,31 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
 <!-- ════════ Screen 1: Splash ════════ -->
 <div class="al-screen al-splash" id="splashScreen">
+    <?php
+    // Charlie's brain turns while the day loads — the same shape, brightness and lit
+    // triangles as his card on the dashboard (HeadBrain.php). Everything is optional:
+    // if a service is missing or slow, fall back to a shape that grows one step a day.
+    $__brain = ['units' => (int)((time() - strtotime('2026-01-01')) / 86400), 'bright' => 0.85, 'parts' => []];
+    try {
+        if (is_file(APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php') && is_file(APP_ROOT . '/Services/HeadBrain.php')) {
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
+            require_once APP_ROOT . '/Services/HeadBrain.php';
+            $__cDesk = new CharlieDeskService(getDB());
+            if ($__cDesk->ready()) {
+                $__cBadges = (new CharlieBadgeService(getDB()))->badges();
+                $__cHeads  = 1 + count(array_filter(['Sales/Services/SalesDeskService.php', 'Operations/Services/OpsDeskService.php', 'Marketing/Services/MiaDeskService.php'],
+                    static fn($f) => is_file(APP_ROOT . '/Modules/' . $f)));
+                $__b = (new HeadBrain(getDB(), 'charlie'))->learned(
+                    $__cDesk->brainCounts(count($__cBadges['earned'] ?? []), $__cHeads), CharlieDeskService::BRAIN_LABELS);
+                if (is_array($__b) && isset($__b['units'])) $__brain = $__b + $__brain;
+            }
+        }
+    } catch (Throwable $__e) { /* the brain is a bonus — never block the launch */ }
+    ?>
+    <button type="button" class="mw-head-brain al-splash-brain" id="splashBrain" tabindex="-1" aria-hidden="true"
+            data-head="Charlie" data-units="<?= (int)$__brain['units'] ?>" data-bright="<?= htmlspecialchars((string)($__brain['bright'] ?? 0.85)) ?>"
+            data-parts="<?= htmlspecialchars(json_encode($__brain['parts'] ?? []), ENT_QUOTES) ?>"><canvas></canvas></button>
     <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="al-splash-logo">
     <div class="al-splash-name">Mowology</div>
     <div class="al-splash-dots">
@@ -410,7 +450,11 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 s.classList.remove('hidden', 'exit');
             } else {
                 s.classList.add('exit');
-                setTimeout(() => s.classList.add('hidden'), 420);
+                setTimeout(() => {
+                    s.classList.add('hidden');
+                    // Splash gone → drop the brain so its canvas loop stops (head-brain.js checks isConnected)
+                    if (s.id === 'splashScreen') { const b = document.getElementById('splashBrain'); if (b) b.remove(); }
+                }, 420);
             }
         });
     }
