@@ -1,6 +1,26 @@
 {
+  "_comment": "Rehearsal business (Claudia dress rehearsal, 2026-11-03): every native switch ON so the app is fully native, as a founding business gets it. Release details come from the shared app-version.json.",
   "android": {
     "native_auth": true,
+    "native_day": true,
+    "webview_shell_disabled": true,
+    "native_schedule_header": true,
+    "native_schedule_plus": true,
+    "native_timeclock": true,
+    "native_offline_start": true,
+    "native_queue_safety": true,
+    "native_tracking_setup": true,
+    "native_camera": true,
+    "native_visit": true,
+    "native_photo_gallery": true,
+    "native_quiz": true,
+    "native_ai_office": true,
+    "native_receipts": true,
+    "native_receipt_review": true,
+    "native_field_tools": true,
+    "native_invoice": true,
+    "native_trip_report": true,
+    "native_plants": true,
     "native_signup": true,
     "native_crew_schedule": true
   }
