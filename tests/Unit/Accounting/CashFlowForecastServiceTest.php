@@ -112,4 +112,28 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertFalse(CashFlowForecastService::inSeason('2026-11-23', '12-01', '03-01'));
         $this->assertFalse(CashFlowForecastService::inSeason('2027-03-01', '12-01', '03-01'));
     }
+
+    public function test_band_follows_the_plugin_rules_per_client_and_weights_by_inflow(): void
+    {
+        $b = CashFlowForecastService::band([
+            'steady' => [10, 10, 10, 10],        // sd 0 → 0%
+            'uneven' => [0, 40, 5, 60],          // sd/mean > 0.5 → capped 50%, thin
+            'prompt' => [0, 1, 0, 1],            // mean ≤ 1 → 5%
+            'new'    => [30, 2],                 // < 3 payments → 30%
+        ], ['steady' => 1000, 'uneven' => 1000, 'prompt' => 1000, 'new' => 1000, 'nothing_due' => 0]);
+        $this->assertSame(['steady' => 0.0, 'uneven' => 0.5, 'prompt' => 0.05, 'new' => 0.3], $b['by_client']);
+        $this->assertTrue($b['thin']);
+        $this->assertSame(4, $b['clients']);
+        $this->assertSame(21.3, $b['pct']);     // (0 + 50 + 5 + 30) / 4, one decimal
+        $this->assertSame(0.0, CashFlowForecastService::band([], [])['pct']);
+    }
+
+    public function test_band_widens_only_the_money_in_cumulatively(): void
+    {
+        $weeks = CashFlowForecastService::applyBand([
+            ['in' => 1000.0, 'out' => 400.0], ['in' => 0.0, 'out' => 300.0],
+        ], 500.0, 20.0);
+        $this->assertSame([1300.0, 1000.0], [$weeks[0]['closing_high'], $weeks[1]['closing_high']]);   // 500 + 1200 − 400; − 300
+        $this->assertSame([900.0, 600.0], [$weeks[0]['closing_low'], $weeks[1]['closing_low']]);       // 500 + 800 − 400; − 300
+    }
 }

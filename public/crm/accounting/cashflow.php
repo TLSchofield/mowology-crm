@@ -112,7 +112,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
                     </td>
                     <td class="text-end"><?= $money($w['in']) ?></td>
                     <td class="text-end"><?= $money(-$w['out']) ?></td>
-                    <td class="text-end"><b><?= $money($w['closing']) ?></b></td>
+                    <td class="text-end"><b><?= $money($w['closing']) ?></b><?php if (isset($w['closing_low'], $w['closing_high']) && ($f['band']['pct'] ?? 0) > 0): ?><br><small class="text-muted"><?= $money($w['closing_low']) ?> – <?= $money($w['closing_high']) ?></small><?php endif; ?></td>
                     <td class="text-end"><?= $l ? $money($l['closing']) : '—' ?></td>
                     <td class="text-end"><?= ($w['safe_to_pay'] ?? 0) > 0 ? '<b class="mw-cf-spare">' . $money($w['safe_to_pay']) . '</b>' : '—' ?></td>
                     <td class="mw-cf-barcol"><span class="mw-cf-bar<?= $w['closing'] < 0 ? ' is-neg' : '' ?>" style="width: <?= (int)round(min(100, abs($w['closing']) / $max * 100)) ?>%"></span></td>
