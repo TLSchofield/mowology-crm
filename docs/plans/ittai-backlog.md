@@ -140,8 +140,9 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    (`signup.php` request code, `signup-confirm.php`, map/step `data`, `quickbooks-start.php`, phone path in
    `quickbooks-callback.php`, QuickBooks redirect URI follows the business host). App: `codex/native` fde10c6 + 6154d9d
    (Android session spec `docs/plans/2026-10-27-android-phone-signup-v2-codex-spec.md`), walked end to end on the emulator
-   against `sage.ittai.ca`. Tests 3613 web / 516 per Android flavor. **Owed:** production deploy of the 12 server files
-   (blocked by the session's permission mode on 2026-10-27 evening — command in Tim-To-Do) + OPcache reset (signup.php
-   changed shape: v1 bytecode would answer until the reset); add each business's callback URL to the Intuit app
+   against `sage.ittai.ca`. Tests 3613 web / 516 per Android flavor. **Deployed 2026-11-02 (Tim's go, switch still OFF):**
+   the 12 server files via `scripts/deploy-safe.sh`; checked live on testcompany.ittai.ca (v2 four-field 400s, 409 taken,
+   405, 401 on map/step/quickbooks-start, callback with a bad phone state falls through to the login redirect) and
+   mowology.ca (404 not_available); OPcache revalidated on its own. **Owed:** add each business's callback URL to the Intuit app
    (testcompany first) and prove the Intuit tab round trip on production; SMS leg unproven; Tim's call: after "Yes, I use
    QuickBooks" + Skip, the map marks "Your books" Not needed (existing web rule) — keep, or ask again?
