@@ -77,7 +77,8 @@ $serviceTypes  = [];
 try {
     $serviceTypes = getDB()->query("SELECT slug, label FROM service_types WHERE is_active = 1 ORDER BY sort_order, label")->fetchAll(PDO::FETCH_ASSOC);
     $want = (string)($_GET['service'] ?? '');
-    if ($want !== '' && in_array($want, array_column($serviceTypes, 'slug'), true)) $serviceFilter = $want;
+    require_once APP_ROOT . '/Modules/Schedule/Services/ServiceTypeFilter.php';
+    $serviceFilter = ServiceTypeFilter::parse($want, array_column($serviceTypes, 'slug'));
 } catch (Throwable $e) { /* no service_types table: no job-type filter */ }
 
 // ── Fetch stops ───────────────────────────────────────────────────────────────

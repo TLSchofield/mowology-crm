@@ -179,10 +179,13 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         $params[] = $crewId;
     }
 
-    if ($serviceType !== null) {
-        // Filter: only show stops that have at least one visit with this service type
-        $sql .= " AND cs.id IN (SELECT jv2.stop_id FROM job_visits jv2 JOIN job_plans jp2 ON jv2.plan_id = jp2.id WHERE jv2.stop_id IS NOT NULL AND jp2.service_type = ?)";
-        $params[] = $serviceType;
+    // $serviceType may hold several types, comma-separated (ServiceTypeFilter).
+    $serviceSlugs = ($serviceType === null || trim($serviceType) === '') ? []
+        : array_values(array_filter(array_map('trim', explode(',', $serviceType)), 'strlen'));
+    if ($serviceSlugs) {
+        // Filter: only show stops that have at least one visit with one of these service types
+        $sql .= " AND cs.id IN (SELECT jv2.stop_id FROM job_visits jv2 JOIN job_plans jp2 ON jv2.plan_id = jp2.id WHERE jv2.stop_id IS NOT NULL AND jp2.service_type IN (" . implode(',', array_fill(0, count($serviceSlugs), '?')) . "))";
+        foreach ($serviceSlugs as $slug) { $params[] = $slug; }
     }
 
     $sql .= " ORDER BY cs.stop_date, cs.crew_id, cs.route_order, jv.scheduled_time_start";
