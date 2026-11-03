@@ -90,3 +90,38 @@ Only two plugin rules are missing; both become Penny **questions**, never automa
 
 Out of scope: any tax rule from the plugin (none covers GST/HST/PST/CRA); SMS tone; reminders attaching PDFs (stays link-only).
 Roughly 350 lines of PHP + 200 of tests.
+
+---
+
+# Part 2 — the accountancy skills (added 2026-11-03 on Tim's ask)
+
+Surveyed in full: small-business month-end-prep, close-month, ap-processor, pay-the-bills, cash-flow-snapshot,
+payroll-prep, plan-payroll, report-builder, report-pack, business-pulse, tax-season-organizer; finance plugin
+reconciliation, variance-analysis, financial-statements, journal-entry(-prep), close-management, audit-support, sox-testing.
+Everything US-tax (SE tax, 1099, safe harbour, W-9), SOX scoping and multi-entity consolidation is skipped.
+
+## Already in Penny (verified against the code this session — not to be rebuilt)
+- Month close with statement proof, books-vs-bank drift to the cent, open receipts, unsorted bank lines, a grace period, never
+  locking automatically (`MonthCloseService`, `StatementCloseService`, `BankBalanceCheckService`, `MonthCloseListService`).
+- Stripe payout → invoices + fee (`StripePayoutService`), e-Transfer and Yardi EFT pollers, deposit ↔ invoice matching
+  (`InvoiceReconciliationService`, `BankInvoiceMatchService`), duplicates and twins (see Part 1), nightly ledger sync with
+  named failures, Wave payroll month → journal with per-shareholder sweeps, GST report via `TaxEngine`, the accountant's
+  fenced login and journal source documents, cost-spike / revenue-drop / low-margin / unusual-expense alerts (`AlertEngine`).
+
+## What the accountancy skills add (ranked; each is its own small piece)
+| # | Piece | The rule, as harvested | Where it lands |
+|---|---|---|---|
+| D | **Settlement match statuses and tolerances** | net payout vs bank deposit: amount within $0.50 **and** date within 2 days = reconciled; <$0.50 noted not flagged; ≥$0.50 flagged with the delta; five states `reconciled / missing_in_ledger / unmatched_deposit / date_mismatch / unreconciled_in_ledger`; match on payout **arrival** date; refunds match credits, never deposits; holds listed as next-month items (`month-end-prep/SKILL.md:92-106`, `reference/paypal-settlements.md`) | `StripePayoutService` + the e-Transfer matcher report the five states; the close shows counts per state |
+| E | **Close gates, carried items, "n/a — source"** | no packet or forecast while flags are open; deferred items go to an Action Items list, never dropped (empty = "No open action items — books are clean"); sending to the accountant is a separate approval; every missing source is named as "n/a — <source>", never estimated or carried forward (`month-end-prep/SKILL.md:181-195`, `close-month/SKILL.md:25-61`, `report-builder` gotchas, `shared/absent-is-not-zero.md`) | `MonthCloseService::blockers()` gains the carried-items list; `MonthCloseListService::email()` names n/a sources; forecast refresh runs only after the month is locked |
+| F | **P&L narrative + variance explanation format** | 150–250 words, six parts: headline, revenue, margin, expense lines moved >10% month-over-month, bottom line, watch list; each variance = line, favourable/unfavourable $ and %, driver, outlook (one-time / continues / improving / deteriorating), action; banned: "timing" or "one-time" without saying what, "various small items" on a material line; thresholds scaled for us: 15% or $50K vs prior period, 10% vs budget (`month-end-prep/SKILL.md:197-212`, `variance-analysis/SKILL.md:106-159`) | a new `CloseNarrativeService` (pure text from P&L rows); the close email and Steve's year-end packet get it; facts only, Penny writes, Tim approves |
+| G | **Payroll import checks** | before posting a Wave month: OT above 125% of the person's trailing 4-period average (or any OT for someone who has none); hours >10% above schedule; any day >16 h; **any shift >12 h fires even on a first run**; 7 consecutive days; rate change; run gross moved >10% from the prior run; person missing or new; never fill a punch; entry balances with **no suspense plug**; net pay = bank debit; period follows pay date; payroll expense vs ledger difference >$0.50 is an item, totals only, never names in the packet (`payroll-prep/reference/anomaly_rules.md:28-82`, `books_sync.md:31-54`, `month-end-prep/SKILL.md:172-179`) | `WavePayrollImportService::matchMonth()` returns flags in who / when / both numbers / dollar form; the timeclock half (12 h shift, 7 days, OT vs own average) can also run weekly on `time_entries` for Otto |
+| H | **Reconciling-item taxonomy and ageing** | every open bank line is one of timing (clears in 1–5 business days, no entry), adjustment required (fee, interest, wrong amount/account, duplicate, missing entry) or investigate (unidentified, disputed, aged, recurring); ageing 0–30 current, 31–60 investigate, 61–90 escalate, 90+ write off or adjust; **any unreconciled difference blocks the close**; three periods of growth = fix the process (`finance/skills/reconciliation/SKILL.md:90-162`) | Penny's bank desk labels each waiting line with its class and bucket; the close list counts them; the 90+ bucket becomes a Penny question |
+| I | **Journal-entry pre-post checklist** | balanced; open period; valid accounts; supported maths; clear memo; consistent with prior periods; accruals auto-reverse; within authority; **not a duplicate**; unusual or round amounts explained; out-of-period adjustments always need the top approver (`finance/skills/journal-entry-prep/SKILL.md:131-186`) | `LedgerSyncService` / manual journal screen: a `JournalEntryCheck` run before any posting; the closed-year guard already covers "open period" |
+| J | **Receipt/AP coding confidence** | auto-code only when vendor history agrees across ≥3 prior items and nothing on this one contradicts it (our lessons promote at 2 — decision for Tim); no even job split, code to the likeliest job and flag "unsplit"; capitalisation threshold asked once and remembered; card charges coded, never staged as payable; a low-confidence total never enters a payment or match; footing check lines + tax + freight = total else show both; statements find gaps, never create entries (`ap-processor/reference/coding_rules.md:7-48`, `intake_and_extraction.md:39-49`, `matching_and_exceptions.md`) | `ReceiptBookkeeperRules` / `ExpenseSplitService` / `AnomalyDetector` (footing check as a flag); the capitalisation threshold as a Settings value |
+| K | **Instalments and the packet header** | annualise YTD ÷ months × 12 only after asking about seasonality (landscaping is seasonal); a missed instalment on its own line, never estimate penalty or interest; packet states the year, the assumptions, and a "not applied" list (`tax-season-organizer/reference/calculation-assumptions.md`) | Penny's instalment card for Steve's 2026 instalments (memory: `reference_accountant_and_tax_instalments.md`) |
+| L | **Business-pulse finance bands** | A/R green none >31 d, yellow 31–60, red 60+ or the 61+ bucket >10% of A/R; revenue MoM green ≥0, yellow to −5%, red below; runway ≥6 mo / 3–6 / <3; overall = worst, forced red if a named client + amount + deadline within 7 days; retune after 4 weeks (`business-pulse/reference/thresholds.md:13-71`) | `OwnerFreedomService` / Kaname's brief (overlaps harvest piece 5) |
+
+## Recommended order (after Part 1 A–C ship)
+D (payout statuses) → G (payroll checks) → E (close gates + n/a) → H (bank-line classes) → F (narrative) → I → J → K → L.
+Each: plan section above is the spec; pure class + tests; prod-run dry run; Codex; deploy; vault + Penny skill one-place rows.
+Decisions for Tim before D starts: keep learning at 2 or move to 3 for coding (J); the $50K / 15% variance floor for our size (F).
