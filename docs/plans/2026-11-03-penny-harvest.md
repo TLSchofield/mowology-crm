@@ -146,3 +146,12 @@ settlement, 3–5 = date_mismatch. **Dry run (Aug–Oct live):** the first pass 
 orphans — the payouts had been booked at import as single-invoice matches (type transfer, `pi_…` reference), and the
 "deposits" were Stripe fee expense rows sharing the description. After the fix: Aug 14/14 reconciled, Sep 14/14, Oct 5
 reconciled + 9 waiting on Penny's card. e-Transfers already carry their own states (pending/recorded) and are left alone.
+
+## Part 2 — G built 2026-11-03: payroll-run checks on the Wave import page
+`PayrollRunChecks` (pure) reads each loaded run against the runs before it and its clock punches: OT above 125% of the
+person's last-4-payday average (or any OT where there was none), wages or the run total moved >10%, implied rate
+(wages ÷ weighted hours) moved >2%, zero hours / missing person / new person, any punch >12 h (fires on a first run),
+any day >16 h, seven days straight. Flags read who / when / both numbers / impact (rate from `users.hourly_rate`, else
+"rate unknown"), grouped by person, unknown hours first; shown under "Before you book" on the import page; nothing
+blocks booking. Not done: hours against schedule (no per-person scheduled-hours figure exists), rate history (none
+exists; the implied-rate check stands in). Net pay = bank and the balanced journal were already enforced.

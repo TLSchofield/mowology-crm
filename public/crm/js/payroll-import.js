@@ -80,6 +80,34 @@
             }).join('') + '</tbody></table>';
     }
 
+    /**
+     * What each transfer to a shareholder really is. Every one is booked against 2520 Net pay clearing, like an employee's pay;
+     * only the amount BEYOND their Wave net pay is swept to their loan account. The page's rule is "net pay first", so the
+     * oldest transfers count as pay until the net is covered and the rest is the withdrawal (display only: the booking is by amount).
+     */
+    function labelShareholderLines(moves, shareholders) {
+        var bySh = {};
+        (shareholders || []).forEach(function (sh) { bySh[sh.name] = { left: Number(sh.net) || 0, acct: sh.account }; });
+        var rows = moves.map(function (m) { return Object.assign({}, m); });
+        rows.filter(function (m) { return m.role === 'shareholder' && bySh[m.employee]; })
+            .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id; })
+            .forEach(function (m) {
+                var st = bySh[m.employee], amt = Number(m.amount);
+                if (st.left >= amt - 0.005) {
+                    m.label = 'Net pay (shareholder)';
+                    st.left = Math.max(0, st.left - amt);
+                } else if (st.left > 0.005) {
+                    m.label = 'Part net pay, part beyond pay';
+                    m.note = money(st.left) + ' is pay; ' + money(amt - st.left) + ' goes to ' + st.acct;
+                    st.left = 0;
+                } else {
+                    m.label = 'Beyond net pay → ' + st.acct;
+                    m.note = 'a withdrawal, swept to the shareholder\'s loan account';
+                }
+            });
+        return rows;
+    }
+
     function movesTable(moves, runId, editable) {
         if (!moves.length) return '<div class="p-2 small text-muted">No bank lines found for this month.</div>';
         return '<div class="mw-pi-scroll"><table class="table table-sm mb-0 mw-pi-table"><thead><tr>' + (editable ? '<th></th>' : '')
@@ -87,7 +115,7 @@
             + moves.map(function (m) {
                 return '<tr>' + (editable ? '<td><input type="checkbox" class="pi-tick" data-run="' + runId + '" value="' + m.id + '"' + (m.checked ? ' checked' : '') + ' aria-label="Move this line"></td>' : '')
                     + '<td class="text-nowrap">' + esc(m.date) + '</td><td class="mw-pi-desc">' + esc(m.description) + '</td>'
-                    + '<td>' + esc(ROLE[m.role] || m.role) + (m.employee ? '<div class="small text-muted">' + esc(m.employee) + '</div>' : '') + '</td>'
+                    + '<td>' + esc(m.label || ROLE[m.role] || m.role) + (m.employee ? '<div class="small text-muted">' + esc(m.employee) + '</div>' : '') + (m.note ? '<div class="small text-muted">' + esc(m.note) + '</div>' : '') + '</td>'
                     + '<td class="text-nowrap small">' + (m.already ? 'already on ' + esc(m.to) : esc(m.from || '?') + ' → ' + esc(m.to || '')) + '</td>'
                     + '<td class="mw-pi-num">' + money(m.amount) + '</td></tr>';
             }).join('') + '</tbody></table></div>';
@@ -127,6 +155,14 @@
         }).join('');
     }
 
+    function checksList(c) {
+        // PayrollRunChecks: who / when / both numbers / impact, grouped by person. Nothing here blocks booking.
+        if (!c || !c.length) return '<p class="small mb-2"><span class="mw-pi-ok">Nothing odd in this run</span> — overtime, wages, rates, people and clock punches all look like last time.</p>';
+        return '<ul class="small mb-2 mw-pi-checks">' + c.map(function (f) {
+            return '<li class="mw-pi-check is-' + esc(f.kind) + '">' + esc(f.text) + '</li>';
+        }).join('') + '</ul>';
+    }
+
     function month(r) {
         var p = r.proposal;
         var booked = r.status === 'booked';
@@ -146,9 +182,10 @@
             h += '<p class="small mt-2 mb-0">This month on the books: 2310 Source deductions <span class="' + cls(c.source_deductions) + '">' + money(c.source_deductions)
                 + '</span> · 2520 Net pay clearing <span class="' + cls(c.net_pay) + '">' + money(c.net_pay) + '</span> (credit balance moved this month; ~$0 is right).</p>';
         } else if (p) {
-            h += matchSummary(p) + movesTable(p.moves, r.id, !r.bookable);
+            h += matchSummary(p) + movesTable(labelShareholderLines(p.moves, shList(p)), r.id, !r.bookable);
             h += '<p class="small mt-2 mb-0" id="pi-clear-' + r.id + '"></p>';
         }
+        h += '<h6 class="small text-muted text-uppercase mt-3">Before you book — ' + ((r.checks || []).length ? (r.checks.length + ' thing' + (r.checks.length === 1 ? '' : 's') + ' worth a look') : 'checked') + '</h6>' + checksList(r.checks || []);
         h += '<details class="mt-3 mw-pi-details"><summary class="small">Hours — Wave against the CRM time clock (nothing changes)</summary><div class="mt-2">' + hoursTable(r.hours || []) + '</div></details>';
 
         h += '<div class="mw-pi-actions mt-3">';
