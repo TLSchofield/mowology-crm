@@ -319,8 +319,10 @@ if ($visit) {
             : ($durRem . 'm');
     }
 
-    // Visit length hidden from this client: drop the duration AND everything it can be worked
-    // out from — the arrive/depart pair and the per-ping clock times. The route itself stays.
+    // Visit length is never shown on this report (Tim, 2026-11-02: no duration, no crew
+    // arrived/left times, no per-ping clock times — the route and the photos are the proof).
+    // The per-client 'length' setting still gates other places; here it is always off.
+    $clientSees['length'] = false;
     if (!$clientSees['length']) {
         $durationStr = '';
         $arrivalTime = '';
@@ -370,7 +372,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
-  <link rel="stylesheet" href="/customer/visit-report.css?v=20261102pins">
+  <link rel="stylesheet" href="/customer/visit-report.css?v=20261102b">
   <?php $hasMap = ($pingCount > 0) || !empty($photoPins) || ($canEditPins && !empty($unplacedPhotos) && !empty($visit['property_lat']) && !empty($visit['property_lng'])); ?>
   <?php if ($hasMap): ?>
   <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
@@ -585,23 +587,24 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
             <?php endif; ?>
           </div>
         </div>
-        <!-- GPS ping coordinate log -->
+        <!-- GPS ping coordinate log: collapsed by default, no clock times -->
+        <details class="pvr-ping-details">
+          <summary class="pvr-ping-summary">GPS location log &middot; <?php echo $pingCount; ?> pings</summary>
         <div class="pvr-ping-log">
           <div class="pvr-ping-log-head">
             <span class="pvr-ping-log-col-num">#</span>
-            <span class="pvr-ping-log-col-time">Time</span>
             <span class="pvr-ping-log-col-lat">Latitude</span>
             <span class="pvr-ping-log-col-lng">Longitude</span>
           </div>
           <?php foreach ($pings as $pi => $pg): ?>
           <div class="pvr-ping-log-row<?php echo $pi === 0 ? ' pvr-ping-first' : ($pi === $pingCount - 1 ? ' pvr-ping-last' : ''); ?>">
             <span class="pvr-ping-log-col-num"><?php echo $pi + 1; ?></span>
-            <span class="pvr-ping-log-col-time"><?php echo $clientSees['length'] ? date('g:i:s a', strtotime($pg['timestamp'])) : '&mdash;'; ?></span>
             <span class="pvr-ping-log-col-lat"><?php echo number_format(abs((float)$pg['latitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['latitude'] >= 0 ? 'N' : 'S'; ?></span>
             <span class="pvr-ping-log-col-lng"><?php echo number_format(abs((float)$pg['longitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['longitude'] <= 0 ? 'W' : 'E'; ?></span>
           </div>
           <?php endforeach; ?>
         </div>
+        </details>
       <?php endif; ?>
     </div>
 

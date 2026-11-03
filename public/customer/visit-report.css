@@ -265,7 +265,7 @@ img.pvr-gps-img { height: auto; }
 }
 .pvr-ping-log-head {
     display: grid;
-    grid-template-columns: 28px 90px 1fr 1fr;
+    grid-template-columns: 28px 1fr 1fr;
     gap: 0;
     background: var(--p-bg-subtle);
     border-bottom: 1px solid var(--p-border);
@@ -279,7 +279,7 @@ img.pvr-gps-img { height: auto; }
 }
 .pvr-ping-log-row {
     display: grid;
-    grid-template-columns: 28px 90px 1fr 1fr;
+    grid-template-columns: 28px 1fr 1fr;
     gap: 0;
     padding: 4px 14px;
     border-bottom: 1px solid var(--p-bg-subtle);
@@ -1175,3 +1175,22 @@ img.pvr-gps-img { height: auto; }
 @media print {
     .pvr-map-bar, .pvr-pin-admin { display: none; }
 }
+
+/* Ping log collapsed by default; no clock times (2026-11-02) */
+.pvr-ping-details { border-top: 1px solid var(--p-border); }
+.pvr-ping-details > .pvr-ping-log { border-top: 0; }
+.pvr-ping-summary {
+    cursor: pointer;
+    padding: 9px 14px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--p-text-light);
+    background: var(--p-bg-subtle);
+    list-style: none;
+}
+.pvr-ping-summary::-webkit-details-marker { display: none; }
+.pvr-ping-summary::before { content: '\25B8'; display: inline-block; width: 14px; }
+.pvr-ping-details[open] > .pvr-ping-summary::before { content: '\25BE'; }
+@media print { .pvr-ping-details:not([open]) .pvr-ping-log { display: none; } }
