@@ -882,7 +882,8 @@ class WavePayrollImportService
             if ($r['status'] !== 'preview') { $r['checks'] = null; continue; }   // booked months are done; checks are for what is about to be booked
             try {   // the journal pre-post checklist (JournalEntryCheck, 2026-11-03): warnings only, the ledger still enforces balance
                 require_once __DIR__ . '/JournalEntryCheck.php';
-                $r['entry_warnings'] = !empty($r['entry']) ? JournalEntryCheck::check($r['entry'], [], [], date('Y-m-d')) : [];
+                $r['entry_warnings'] = !empty($r['entry'])
+                    ? JournalEntryCheck::check($r['entry'], $this->postedOnDate((string)$r['entry']['entry_date']), $this->lockedMonths(), date('Y-m-d')) : [];
             } catch (Throwable $e) { $r['entry_warnings'] = []; }
             try {
                 $prior = array_values(array_filter(array_slice($runs, 0, $i), fn($x) => $x['month'] < $r['month']));
@@ -1008,6 +1009,25 @@ class WavePayrollImportService
             $out[] = ['name' => $e['name'], 'user_id' => $uid, 'rows' => $rows];
         }
         return $out;
+    }
+
+    /** Journal entries already posted on a date, with their lines as account codes (for the duplicate check). */
+    private function postedOnDate(string $date): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT e.id, e.entry_date, c.code AS account, l.debit, l.credit FROM journal_entries e
+                                     JOIN journal_lines l ON l.entry_id = e.id JOIN chart_of_accounts c ON c.id = l.account_id
+                                     WHERE e.entry_date = ? ORDER BY e.id, l.id");
+            $s->execute([substr($date, 0, 10)]);
+            $by = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $by[(int)$row['id']]['entry_date'] = (string)$row['entry_date'];
+                $by[(int)$row['id']]['lines'][] = ['account' => (string)$row['account'], 'debit' => (float)$row['debit'], 'credit' => (float)$row['credit']];
+            }
+            return array_values($by);
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 
     /** user_id => clock entries inside the run's whole period (for PayrollRunChecks). */

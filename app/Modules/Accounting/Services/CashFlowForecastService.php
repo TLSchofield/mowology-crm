@@ -515,7 +515,7 @@ class CashFlowForecastService
             [$from, $to] = FiscalYear::bounds($fy);
             $pl = (new AccountingService($this->db))->getProfitLoss($from, $today);
             $net = (float)($pl['net_profit'] ?? 0);
-            $months = max(1, (int)floor((strtotime($today) - strtotime($from)) / (30.44 * 86400)) + 1);
+            $months = max(1, ((int)substr($today, 0, 4) * 12 + (int)substr($today, 5, 2)) - ((int)substr($from, 0, 4) * 12 + (int)substr($from, 5, 2)) + 1);   // calendar months, inclusive
             $rate = null; $seasonal = true;
             try {
                 $st = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('tax_rate_combined','business_seasonal')")->fetchAll(PDO::FETCH_KEY_PAIR);

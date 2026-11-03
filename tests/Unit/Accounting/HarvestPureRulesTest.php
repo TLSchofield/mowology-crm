@@ -24,6 +24,13 @@ final class HarvestPureRulesTest extends TestCase
         $this->assertSame(['1 bank line over 90 days unsorted ($500.00) — write off or adjust, but decide', '1 bank line 61–90 days old — needs a look this week', '1 looks like a fee, interest or reversal — a small entry each'], $s['say']);
     }
 
+    public function testCloseItemKeyKeepsAccountCodesButNotAmountsOrCounts(): void
+    {
+        $this->assertSame(MonthCloseListService::itemKey('3 bank lines still to sort'), MonthCloseListService::itemKey('5 bank lines still to sort'));
+        $this->assertSame(MonthCloseListService::itemKey('1010 Chequing Account: books are $7.01 above the bank'), MonthCloseListService::itemKey('1010 Chequing Account: books are $533.69 above the bank'));
+        $this->assertNotSame(MonthCloseListService::itemKey('1010 Chequing Account: books are $7.01 above the bank'), MonthCloseListService::itemKey('2400 Credit Card Payable: books are $7.01 above the bank'));
+    }
+
     public function testPulseBandsAndAbsentIsNotGreen(): void
     {
         $this->assertSame('green', PulseBands::runway(60000, 9000)['band']);
@@ -36,7 +43,7 @@ final class HarvestPureRulesTest extends TestCase
         $this->assertSame(['INV-2 · B — $100 (45 days)'], $ar['named']);
         $ar = PulseBands::ar([['number' => 'INV-1', 'who' => 'A', 'balance' => 900, 'days_past_due' => 10], ['number' => 'INV-3', 'who' => 'C', 'balance' => 101, 'days_past_due' => 70]]);
         $this->assertSame('red', $ar['band']);          // 70 days
-        $this->assertSame('na', PulseBands::ar([])['band']);
+        $this->assertSame('green', PulseBands::ar([])['band']);   // read and empty is green; n/a is for a failed read
         $this->assertSame('yellow', PulseBands::overall(['green', 'yellow', 'na']));
         $this->assertSame('red', PulseBands::overall(['green'], true));
     }

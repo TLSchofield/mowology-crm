@@ -38,7 +38,7 @@ final class PulseBands
             if ($d > 60) $over60 += $bal;
             if ($d > 30) $named[] = ($i['number'] ?? '') . ' · ' . ($i['who'] ?? 'client') . ' — $' . number_format($bal, 0) . ' (' . $d . ' days)';
         }
-        if (!$invoices) return ['band' => 'na', 'named' => [], 'text' => 'A/R: n/a — no open invoices read'];
+        if (!$invoices) return ['band' => 'green', 'named' => [], 'over60_share' => 0.0, 'text' => 'A/R: no open invoices'];   // read and empty = green; unread is the caller's n/a
         $band = ($max > 60 || ($total > 0 && $over60 / $total > 0.10)) ? 'red' : ($max > 30 ? 'yellow' : 'green');
         return ['band' => $band, 'named' => $named, 'over60_share' => $total > 0 ? round($over60 / $total, 3) : 0.0,
                 'text' => $band === 'green' ? 'A/R: nothing past 31 days' : ('A/R: ' . count($named) . ' invoice' . (count($named) === 1 ? '' : 's') . ' past 30 days' . ($over60 > 0 ? ', $' . number_format($over60, 0) . ' past 60' : ''))];

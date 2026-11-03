@@ -59,6 +59,7 @@ class MonthCloseListService
     public function items(array $m): array
     {
         $ym = (string)$m['month'];
+        $failed = [];
         $receipts = [];
         try {
             $s = $this->db->prepare("
@@ -71,6 +72,7 @@ class MonthCloseListService
             $receipts = $s->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             error_log('[MonthCloseList] receipts: ' . $e->getMessage());
+            $failed[] = 'receipts to approve';
         }
         $lines = [];
         try {
@@ -78,11 +80,12 @@ class MonthCloseListService
             $lines = (new BankDeskService($this->db))->queue(30, $ym);
         } catch (Throwable $e) {
             error_log('[MonthCloseList] bank lines: ' . $e->getMessage());
+            $failed[] = 'bank lines to sort';
         }
         return ['month' => $m, 'receipts' => $receipts, 'lines' => $lines,
                 'since' => $this->openSince($m),                 // blocker text => first date it was on the list (carried items)
-                'na' => self::unavailable($m),                    // sources that could not be read: named, never silent
-                'narrative' => $this->narrative($ym, (array)($m['blockers'] ?? []))];
+                'narrative' => $narrative = $this->narrative($ym, (array)($m['blockers'] ?? [])),
+                'na' => array_merge(self::unavailable($m), $failed, $narrative === null ? ['the P&L (no plain-words summary)'] : [])];   // sources that could not be read: named, never silent
     }
 
     /**
@@ -102,7 +105,7 @@ class MonthCloseListService
         $now = [];
         foreach ((array)($m['blockers'] ?? []) as $b) {
             if (strpos($b, 'waiting until') === 0) continue;
-            $k = preg_replace('/\$[\d,]+\.\d{2}|\b\d+\b/', '#', $b);   // the same item with a different count or amount is the same item
+            $k = self::itemKey($b);   // the same item with a different count or amount is the same item
             $now[$k] = $seen[$k] ?? $today;
         }
         try {
@@ -112,10 +115,16 @@ class MonthCloseListService
         } catch (Throwable $e) { /* cache only */ }
         $out = [];
         foreach ((array)($m['blockers'] ?? []) as $b) {
-            $k = preg_replace('/\$[\d,]+\.\d{2}|\b\d+\b/', '#', $b);
+            $k = self::itemKey($b);
             if (isset($now[$k])) $out[$b] = $now[$k];
         }
         return $out;
+    }
+
+    /** Pure: a blocker's identity without its volatile parts — dollar amounts and a leading count — but WITH account codes and dates. */
+    public static function itemKey(string $b): string
+    {
+        return preg_replace(['/\$[\d,]+(?:\.\d{2})?/', '/^\d+\s+/'], ['$#', '# '], $b);
     }
 
     /** Pure: sources the close could not read this time — said in the email as n/a, not left looking clean. */

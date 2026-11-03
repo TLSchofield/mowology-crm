@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * CloseNarrative — the month in 150–250 plain words for the owner (and Steve), the plugin's six-part shape
+ * CloseNarrative — the month in plain words for the owner (and Steve), at most ~250 (a clean month earns fewer; nothing is padded), the plugin's six-part shape
  * (month-end-prep step 7 + variance-analysis explanation rules, 2026-11-03): headline, revenue, margin, expense lines
  * that moved more than 10% month over month (each with the driver when one is known), bottom line, watch list.
  * Banned: "timing" or "one-time" without saying what, "various small items" on a material line. Facts only — Penny
