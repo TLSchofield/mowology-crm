@@ -1,6 +1,6 @@
 ---
 name: otto-operations
-description: Use BEFORE touching anything operations-related in the Mowology CRM / Ittai — Otto (the Operations head) and his card/suggestions, the schedule and calendar stops, crews and crew assignment, visits and job timers, the time clock, timesheets, breaks, GPS/tracking (crew phones, truck tablet, Trackimo), trip/dump/supply runs, trucks and equipment, weather moves, bylaw hours, bulk material deliveries, the supplier directory and supplier account forms, company documents (business licence, insurance), or snow/salt routes. Also when Tim asks "where is the crew…", "why didn't the phone track…", "who forgot to clock out…", "fill this supplier form…", or reports a wrong Otto suggestion. Holds how Otto is allowed to operate, the single source of truth for each job, iPhone vs web/Android parity, and the traps already hit.
+description: Use BEFORE touching anything operations-related in the Mowology CRM / Ittai — Otto (the Operations head) and his card/suggestions, the schedule and calendar stops, crews and crew assignment, visits and job timers, the time clock, timesheets, breaks, GPS/tracking (crew phones, truck tablet, Trackimo), trip/dump/supply runs, trucks and equipment, weather moves, bylaw hours, bulk material deliveries, the supplier directory and supplier account forms, company documents (business licence, insurance), or snow/salt routes. Also when Tim asks "where is the crew…", "why didn't the phone track…", "who forgot to clock out…", "fill this supplier form…", or reports a wrong Otto suggestion, or sends a photo of a tree or shrub and asks how to prune or shape it (niwaki / cloud pruning / Japanese style). Holds how Otto is allowed to operate, the single source of truth for each job, iPhone vs web/Android parity, and the traps already hit.
 covers:
   - app/Modules/Operations/*
   - app/Modules/Team/Api/equipment-mobile.php
@@ -49,6 +49,8 @@ reference that matches the task:
 | Crew phones, truck GPS, time clock, breaks, trips, tracking policy | `references/crew-and-gps.md` |
 | Traps already hit (read before ANY change to schedule, clock or GPS) | `references/traps.md` |
 | iPhone vs Android vs web — keeping Otto the same everywhere | `references/surfaces.md` |
+| Pruning advice from a tree photo, Japanese style (forms, species seasons, cut rules, what a photo cannot show) | `references/pruning-niwaki.md` |
+| Branch selection, styles and shoot work that transfer from bonsai to garden trees | `references/pruning-bonsai-principles.md` |
 
 **Location rules** (taxes, payroll, CASL/SMS, bylaws, licences — by country/province/city) live in the shared
 `regions` skill (`.claude/skills/regions/`), not here. Read the file for the place the job is in.
