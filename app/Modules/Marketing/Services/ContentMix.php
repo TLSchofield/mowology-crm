@@ -81,7 +81,7 @@ final class ContentMix
         if ($words < 100) $w[] = "Body is $words words — 100–250 reads as a real note";
         if ($words > 250) $w[] = "Body is $words words — 100–250; cut to one point";
         $ctas = preg_match_all('/\b(reply|call|book|click|tap|let me know|get in touch|see it here|read more)\b/i', strip_tags($body));
-        if ($ctas > 2) $w[] = 'More than one ask — one call to action per email';
+        if ($ctas > 1) $w[] = 'More than one ask — one call to action per email';
         return $w;
     }
 }

@@ -34,7 +34,7 @@ final class VoiceProfile
         $s = str_replace(["\r\n", "\r"], "\n", $s);
         $s = html_entity_decode(strip_tags(preg_replace('~<(style|script)\b[^>]*>.*?</\1>~is', ' ', $s)), ENT_QUOTES, 'UTF-8');   // HTML mail: tags and style blocks are not words
         $s = preg_replace('/\{[^}]*\}|\b[a-z-]+\s*:\s*[^;\n]{1,60};|\bmso\w*\b|\bmsonormal\b/i', ' ', $s);                       // stray CSS declarations and Outlook class names
-        $s = preg_replace('/\bOn\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|\w{3,9}\s+\d{1,2}|\d{1,2}\s+\w{3,9})[^\n]{0,80}wrote:.*$/is', '', $s);   // quoted history
+        $s = preg_replace('/^\s*On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|\w{3,9}\s+\d{1,2}|\d{1,2}\s+\w{3,9})[^\n]{0,80}wrote:.*$/ims', '', $s);   // quoted history: a header LINE, never prose that happens to say "wrote:"
         $s = preg_replace('/^(from|sent|to|subject):\s.*$/im', '', $s);
         $s = preg_replace('~https?://\S+|www\.\S+|\S+@\S+\.\w+~i', '', $s);
         $s = preg_replace('/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/', '', $s);
@@ -116,7 +116,16 @@ final class VoiceProfile
         foreach (self::sentences(self::cleanSample($text)) as $sent) if (str_word_count($sent) > self::MAX_SENTENCE_WORDS) $long++;
         if ($long) $w[] = $long . ' sentence' . ($long === 1 ? '' : 's') . ' over ' . self::MAX_SENTENCE_WORDS . ' words — split them';
         if (preg_match('/\$\s?\d|\d+\s?%|\bfrom \$|\bonly \$/i', $text)) $w[] = 'A price or percentage — read it fresh from the quote or rate card before this goes out, never from memory';
-        if (!empty($profile['greeting']) && preg_match('/^(hi|hello|hey|dear)\b/i', trim($text)) && stripos(trim($text), explode(' ', (string)$profile['greeting'])[0]) !== 0) $w[] = 'Greeting is not his (he opens with "' . $profile['greeting'] . '")';
+        if (!empty($profile['greeting']) && preg_match('/^(hi|hello|hey|dear|good (?:morning|afternoon))\b/i', trim($text), $g)) {
+            $his = preg_replace('/\s*<name>,?$/', '', (string)$profile['greeting']);
+            if (strcasecmp(trim($g[1]), trim($his)) !== 0) $w[] = 'Greeting is not his (he opens with "' . $profile['greeting'] . '")';
+        }
+        if (!empty($profile['signoff'])) {   // the last three non-empty lines carry the sign-off, if there is one
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $text))));
+            $found = null;
+            for ($i = count($lines) - 1; $i >= max(0, count($lines) - 3); $i--) if (preg_match('/^(cheers|thanks|thank you|best|regards|kind regards|talk soon|all the best|sincerely|warmly)[,.!]?$/i', $lines[$i], $m)) { $found = ucfirst(strtolower($m[1])); break; }
+            if ($found !== null && strcasecmp($found, (string)$profile['signoff']) !== 0) $w[] = 'Sign-off is not his (he signs "' . $profile['signoff'] . '")';
+        }
         return $w;
     }
 }

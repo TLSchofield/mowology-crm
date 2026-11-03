@@ -39,6 +39,11 @@ final class MiaHarvestRulesTest extends TestCase
         foreach (['Not his words', 'exclamation mark', 'claim nobody can back', 'over 40 words', 'price or percentage'] as $n) $this->assertStringContainsString($n, $joined);
         $this->assertSame([], VoiceProfile::check("Hi Ann,\n\nThe hedge is done. Let me know if anything looks off.\n\nThanks,\nTim", ['greeting' => 'Hi <name>,']));
         $this->assertStringContainsString('Greeting is not his', implode("\n", VoiceProfile::check("Hey there,\n\nAll done.", ['greeting' => 'Hi <name>,'])));
+        $this->assertStringContainsString('Sign-off is not his', implode("\n", VoiceProfile::check("Hi Ann,\n\nAll done.\n\nCheers,\nTim", ['greeting' => 'Hi <name>,', 'signoff' => 'Thanks'])));
+        $this->assertSame([], VoiceProfile::check("Good morning Ann,\n\nAll done.\n\nThanks,\nTim", ['greeting' => 'Good morning <name>,', 'signoff' => 'Thanks']));
+        // prose that says "wrote:" is not a quoted-history header
+        $this->assertStringContainsString('agreed', VoiceProfile::cleanSample("Hi Ann,\n\nI followed up on Monday and wrote: we agreed on Friday.\n\nThanks,\nTim"));
+        $this->assertStringNotContainsString('old message', VoiceProfile::cleanSample("Hi Ann,\n\nDone.\n\nThanks,\nTim\n\nOn Oct 3, 2026, at 9:00 AM, Ann <a@x.ca> wrote:\n> old message"));
     }
 
     public function testContentMixReportsGapBalanceAndConflictsAndKeepsHouseCaptionRules(): void
@@ -68,6 +73,7 @@ final class MiaHarvestRulesTest extends TestCase
         $e = ContentMix::emailProblems('A subject line that is far too long to read on a phone screen today', str_repeat('word ', 40), 'short');
         $this->assertCount(3, $e);
         $this->assertSame([], ContentMix::emailProblems('Fall clean-ups', str_repeat('word ', 150) . ' Reply if you want one.'));
+        $this->assertStringContainsString('More than one ask', implode("\n", ContentMix::emailProblems('Fall clean-ups', str_repeat('word ', 150) . ' Reply if you want one. Or call me today.')));
     }
 
     public function testEvidenceMinimumsAndAdBands(): void

@@ -137,7 +137,7 @@ class MiaChannelsService
         $posts = [];
         foreach ($rows as $x) {
             $kind = stripos((string)$x['caption'], 'before and after') !== false ? 'proof' : (preg_match('/\b(crew|team|meet|welcome|thank you to)\b/i', (string)$x['caption']) ? 'people' : (preg_match('/\b(book|spots?|offer|special|now taking)\b/i', (string)$x['caption']) ? 'offer' : 'useful'));
-            $status = $x['status'] === 'published' ? 'published' : (($x['scheduled_at'] && substr((string)$x['scheduled_at'], 0, 10) >= $t && in_array($x['status'], ['publishing', 'scheduled', 'queued'], true)) ? 'scheduled' : 'draft');
+            $status = $x['status'] === 'published' ? 'published' : (($x['scheduled_at'] && in_array($x['status'], ['publishing', 'scheduled', 'queued'], true)) ? 'scheduled' : 'draft');   // a past-dated schedule stays 'scheduled' so report() can call it out
             $posts[] = ['date' => $x['published_at'] ?: ($x['scheduled_at'] ?: $x['created_at']), 'kind' => $kind, 'status' => $status, 'service' => (string)$x['service_type']];
         }
         return ContentMix::report($posts, $t, 'solo', $today->modify('-7 days')->format('Y-m-d'));
@@ -183,7 +183,18 @@ class MiaChannelsService
         $site = defined('SITE_URL') && SITE_URL ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
         $robots = HttpFetch::get($site . '/robots.txt', 8); $llms = HttpFetch::get($site . '/llms.txt', 8);
         $blocked = [];
-        if ($robots !== null) foreach (['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'CCBot'] as $bot) if (preg_match('/User-agent:\s*' . preg_quote($bot, '/') . '\s*\n(?:[^\n]*\n)*?\s*Disallow:\s*\/\s*$/mi', $robots)) $blocked[] = $bot;
+        if ($robots !== null) {   // parse into user-agent groups: a Disallow belongs to the agents named directly above it
+            $groups = []; $current = [];
+            foreach (preg_split('/\r?\n/', $robots) as $line) {
+                $line = trim(preg_replace('/#.*$/', '', $line)); if ($line === '') { continue; }
+                if (preg_match('/^user-agent:\s*(.+)$/i', $line, $m)) { if ($current && isset($current['rules'])) { $groups[] = $current; $current = []; } $current['agents'][] = strtolower(trim($m[1])); continue; }
+                if (preg_match('/^(disallow|allow):\s*(.*)$/i', $line, $m)) $current['rules'][] = [strtolower($m[1]), trim($m[2])];
+            }
+            if ($current) $groups[] = $current;
+            foreach (['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'CCBot'] as $bot) {
+                foreach ($groups as $g) if (in_array(strtolower($bot), $g['agents'] ?? [], true)) foreach ($g['rules'] ?? [] as [$kind, $path]) if ($kind === 'disallow' && $path === '/') { $blocked[] = $bot; break 2; }
+            }
+        }
         $out = ['checked' => date('Y-m-d'), 'robots_read' => $robots !== null, 'ai_blocked' => $blocked, 'llms_txt' => $llms !== null && stripos($llms, '<html') === false && trim($llms) !== '',
                 'say' => []];
         if ($robots === null) $out['say'][] = 'robots.txt could not be read — n/a';
@@ -372,7 +383,7 @@ class MiaChannelsService
             return [];
         }
         foreach ($rows as &$r) {
-            $r['violations'] = ReviewReplyDrafter::violations((string)$r['reply_draft'], (string)$r['reviewer_name']);
+            $r['violations'] = ReviewReplyDrafter::violations((string)$r['reply_draft'], (string)$r['reviewer_name'], isset($r['rating']) ? (int)$r['rating'] : null);
         }
         return $rows;
     }
@@ -397,7 +408,8 @@ class MiaChannelsService
     public function saveReplyDraft(int $id, string $text): array
     {
         $this->db->prepare("UPDATE gbp_reviews SET reply_draft = ? WHERE id = ? AND status = 'waiting'")->execute([mb_substr(trim($text), 0, 4000), $id]);
-        return ['ok' => true, 'violations' => ReviewReplyDrafter::violations($text, (string)$this->reviewField($id, 'reviewer_name'))];
+        $rating = $this->reviewField($id, 'rating');
+        return ['ok' => true, 'violations' => ReviewReplyDrafter::violations($text, (string)$this->reviewField($id, 'reviewer_name'), $rating !== null && $rating !== '' ? (int)$rating : null)];
     }
 
     /**
