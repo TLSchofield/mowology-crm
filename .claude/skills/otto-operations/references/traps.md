@@ -192,3 +192,10 @@ at 2:00 (Android 1.4.0 sent `client_time` and it was ignored too). **Rule:** a q
 never cleared, before reading server state; every offline action carries its tap time as
 `client_time` and the server decides with `OfflineTime::accept()` (clock, timer). Fixed in iOS
 1.3.26 and the timer endpoint the same day.
+
+## 2026-11-03 — A plan length of 8,009 minutes made a day read as 641% booked
+`WeekLoadRules` found job plan #99 (WEEKLY LAWN CUT) with `estimated_duration_minutes` = 8009 on Thu Nov 5: the day's
+load was six times crew capacity. `DwellTimeService::updatePlanDwellAverage()` also writes that column from GPS dwell
+(see the note in `VisitDurationService`), so one bad dwell can poison a plan. Rule: the load check reports a day over
+300% of capacity, or one plan at ≥ a full crew-day, as "a plan length looks wrong" and never as an over-booking;
+fix the plan before reading the week.

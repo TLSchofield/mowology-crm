@@ -31,7 +31,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -149,11 +149,20 @@ reference that matches the task:
 | Visit status changes (guarded) | `VisitLifecycleService::updateVisitStatus()` / `VisitLifecycleService::canTransition()` | every completion/skip path |
 | End-of-day missed-visit review (open at last clock-out or 18:00, Otto's pick per visit, apply, lesson) | `MissedVisitReviewService::tick()` (rides Charlie's 15-min cron) / `MissedVisitReviewService::decide()`; pure pick `MissedVisitRules::pick()` | dashboard card section `public/crm/includes/otto-missed-panel.php`, desk `public/crm/ops/missed-visits.php`, iPhone `OttoMissedReviewSheet` via `/api/schedule/missed-review` |
 | What the nightly rollover does to a past-due visit (roll / skip / hold a contract visit open) | `MissedVisitRules::rolloverAction()` in `app/Modules/Jobs/Cron/auto_rollover.php` | rollover cron |
+| Last week's clock review (Mon–Wed): duplicate / overlapping shifts, double taps, open shifts, >12 h, >16 h a day, 7 days straight, a week > 125% of the person's own average, nobody-clocked (2026-11-03, payroll-prep rules) | `ClockWeekRules::person()` on `PayrollRunChecks::punchFlags()`; rows from `OttoHarvestService::clockWeekItems()` | Charlie's brief, team card, iPhone |
+| The week's load against crew capacity (80% full, 100% over, a plan length that looks wrong first) | `WeekLoadRules::days()` / `WeekLoadRules::briefItem()`; crew count `OttoHarvestService::crewCount()` (ops_settings `otto_crew_count` overrides) | brief |
+| Seasonal stock watch (owner-named items, dated decide-by; seeded with ice melt / salt when snow routes exist) | `SeasonalStockRules::items()`; list in ops_settings `otto_seasonal_stock` via `OttoHarvestService::watchList()` | brief |
+| Quarterly supplier review (90-day receipt spend, concentration > 60% with an alternative in the directory, price lists > 90 days old) | `SupplierReviewRules::build()` / `SupplierReviewRules::briefItem()` | brief |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself
 (`OttoSuggestionViews.swift`, mirroring the per-kind controls in `otto-card.js`); only server-sent buttons are
 shared. A change to an older kind's buttons means both files.
+
+**Harvest 2026-11-03** (`docs/plans/2026-11-03-otto-harvest.md`): the four rows above are the only numbers the
+operations / small-business plugins held that Otto could run on. Not built, on purpose: velocity / reorder quantities
+(there is no stock count — the repeat items on receipts are coffee cups and bottle deposits), change-request states,
+process-optimization tags, call-list blocks. Otto still only suggests: every line is a question with the numbers in it.
 
 ## Keeping this skill true
 

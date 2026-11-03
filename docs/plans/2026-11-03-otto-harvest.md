@@ -1,6 +1,6 @@
 # Otto harvest — what the operations and small-business plugins add to the Operations desk (2026-11-03)
 
-Status: **PLAN — waiting for Tim's yes.** Survey of `operations/skills/{capacity-plan, vendor-review,
+Status: **APPROVED and BUILT 2026-11-03** — see "Build record" at the end. Plan as approved: Survey of `operations/skills/{capacity-plan, vendor-review,
 change-request, process-optimization}`, small-business `inventory-planner`, `restock`, `call-list`,
 `payroll-prep` (punch rules) — Sonnet, numbers only. Diffed against `OttoRules`, `OpsDeskService`,
 `DispatchRules`, `VisitDurationRules`, `MissedVisitRules`, `UnscheduledWorkRules`, `TrainingRules`,
@@ -82,3 +82,18 @@ the salt item today, "season started". D: expect fuel/dump/repair at the top wit
 `OpsDeskService`); `cmp` showed `OpsDeskService` and `OttoRules` equal to live, so they can be edited;
 `otto-card.php`, `otto-card.js`, `otto.php`, `OttoActionService`, `SupplierPriceListService` are **ahead on
 production** and are not touched. Deploy per file, OPcache, Charlie's card and the team card checked in Chrome.
+
+## Build record (2026-11-03)
+- Commit 2f58ab75c: `ClockWeekRules`, `WeekLoadRules`, `SeasonalStockRules`, `SupplierReviewRules` (pure),
+  `OttoHarvestService` (reads; one-time seed of ops_settings `otto_seasonal_stock`), hook at the end of
+  `OpsDeskService::brief()` in its own try; `tests/Unit/Operations/OttoHarvestRulesTest.php` (9 tests, 79 assertions).
+- **Dry run (live, read-only, 24 ms):**
+  - clock — one line: DODGE RAM 42.8 h in the week of Oct 26 against their usual 30.5 h (140%), cost unknown (no rate
+    on file). Tim's 84.5 h / 79 h weeks were two and three weeks back, outside the window; the Oct 11 duplicate pair
+    and the Oct 8 double tap likewise — the rules fire on them in the unit tests with the dates moved.
+  - load — "Wed 94% (full), **Thu 641% (a plan length looks wrong (plan #99 WEEKLY LAWN CUT: 8009 min))**, Sat 39%
+    (light), Mon 121% (over-booked)". Crew count 5 from users (override `otto_crew_count`).
+  - season — priority 1: "Snow season started Nov 1 — no ice melt / salt on any receipt (22 snow routes)".
+  - supplier — $10,556 in 90 days: a repair shop 14%, "Mowology INVOICE" 12% (a mis-filed vendor name, Penny's),
+    Chevron 8%, Lawnboy 7%, London 6%; SW Garden Supply's newest price list 125 days old; no concentration to
+    negotiate (fuel, dump and repairs are fixed; Materials has no 60% vendor).
