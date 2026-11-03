@@ -25,6 +25,7 @@ class SecurityPostureRules
         '/php.ini', '/.user.ini', '/database/migrations/', '/crm/email-logs/',
         '/LANDING_PAGE_MARKETING_INTEGRATION.md',                          // an *.md sample that exists
         '/database/migrations/1340_payment_mail_sender_verified.sql',      // an *.sql sample that exists
+        '/talkinghands.ca/database/fox_content.sql',                       // a sub-site's own database/ (exempt from check 2 because of this)
     ];
 
     /** (2) Data-file extensions that should never sit in the web root outside uploads/ and _media/. */
@@ -139,6 +140,11 @@ class SecurityPostureRules
     {
         $relPath = trim($relPath, '/');
         if (strpos($relPath, 'database/migrations/') === 0) return false;   // expected; denied by .htaccess (check 1)
+        // app/Storage (receipt archive, backups) is the place data belongs: denied, and check 1 fetches /app/Storage/.
+        if (strpos($relPath, 'app/Storage/') === 0) return false;
+        // A sub-site's own database/ folder (a domain-named top-level folder, e.g. talkinghands.ca/database/):
+        // its migrations belong to that site; check 1 fetches one of its .sql files to prove they are denied.
+        if (preg_match('#^[^/]+\.[a-z]{2,}/database/#i', $relPath)) return false;
         $parts = explode('/', $relPath);
         foreach (array_slice($parts, 0, -1) as $dir) {
             if (in_array($dir, self::STRAY_SKIP_DIRS, true)) return false;

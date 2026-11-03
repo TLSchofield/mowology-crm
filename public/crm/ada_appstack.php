@@ -16,9 +16,29 @@ if (($user['role'] ?? '') !== 'admin') {
 
 $checks = [];
 $error = null;
+$desk = null;
+$notice = null;
 try {
     require_once APP_ROOT . '/Modules/Technology/Services/AdaDeskService.php';
-    $checks = (new AdaDeskService(getDB()))->checks();
+    $desk = new AdaDeskService(getDB());
+    // "Mark fixed": Ada rechecks that job on its next run. The problem and evidence are read from her own
+    // fresh check, not from the form, and only a red/amber scheduled job can be marked.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mark_fixed') {
+        $sys = (string)($_POST['system'] ?? '');
+        if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+            $notice = 'That form expired. Reload the page and try again.';
+        } else {
+            foreach ($desk->checks() as $c) {
+                if ($c['system'] === $sys && !empty($c['fixable']) && strncmp($sys, 'cron:', 5) === 0) {
+                    $desk->marks()->mark($sys, (string)$c['problem'], (string)$c['evidence'], (int)($user['id'] ?? 0) ?: null, date('Y-m-d H:i:s'));
+                    header('Location: /crm/ada_appstack.php?marked=1#' . rawurlencode($sys));
+                    exit;
+                }
+            }
+            $notice = 'Ada found nothing to mark on that job — it may already be fine.';
+        }
+    }
+    $checks = $desk->checks();
 } catch (Throwable $e) {
     error_log('System Health: ' . $e->getMessage());
     $error = 'Ada could not run her checks. The error is in the server log.';
@@ -26,11 +46,15 @@ try {
 $counts = AdaRules::counts($checks);
 $groups = [];
 foreach ($checks as $c) $groups[$c['group']][] = $c;
-$order = ['Scheduled jobs', 'Connections', 'Security', 'Ada'];
+$order = ['Live checks', 'Scheduled jobs', 'Connections', 'Security', 'Ada'];
 $rank = static fn($g) => ($i = array_search($g, $order, true)) === false ? 9 : $i;
 uksort($groups, fn($a, $b) => $rank($a) <=> $rank($b));
 $words = ['red' => 'Broken', 'amber' => 'Look at', 'unknown' => "Can't tell", 'green' => 'Working', 'info' => 'Note'];
 
+$cleared = [];
+try { if ($desk) $cleared = $desk->marks()->recent(8); } catch (Throwable $e) { error_log('System Health: ' . $e->getMessage()); }
+$canMark = $desk && $desk->marks()->ready();
+$checkedAt = date('g:i a');
 $pageTitle = 'System Health';
 $activePage = 'system-health';
 ?>
@@ -41,11 +65,13 @@ $activePage = 'system-health';
     <img src="/crm/img/heads/ada.jpg" alt="Ada" width="64" height="64">
     <div>
       <h1 class="h3 mb-1">System Health</h1>
-      <div class="text-muted">Ada checked everything just now. <?= h(AdaRules::headline($counts)) ?>
+      <div class="text-muted">Ada checked everything at <?= h($checkedAt) ?> (every time this page loads). <?= h(AdaRules::headline($counts)) ?>
         She reads and reports; anything to fix goes to a developer session or to you.</div>
     </div>
   </div>
 
+  <?php if ($notice): ?><div class="alert alert-warning"><?= h($notice) ?></div><?php endif; ?>
+  <?php if (!empty($_GET['marked'])): ?><div class="alert alert-success">Marked fixed. Ada will check that job again on its next run and write down what she finds below.</div><?php endif; ?>
   <?php if ($error): ?>
     <div class="alert alert-danger"><?= h($error) ?></div>
   <?php endif; ?>
@@ -66,8 +92,20 @@ $activePage = 'system-health';
             <div class="mw-ada-main">
               <div class="mw-ada-name"><?= h($c['name']) ?> <small class="mw-ada-state"><?= h($words[$c['state']] ?? $c['state']) ?></small></div>
               <div class="mw-ada-evidence"><?= h($c['evidence']) ?></div>
+              <?php if (!empty($c['basis'])): ?>
+                <div class="mw-ada-basis"><?= h($c['basis']) ?></div>
+              <?php endif; ?>
               <?php if (!empty($c['last_worked'])): ?>
                 <div class="mw-ada-when">Last worked <?= h(date('M j, g:i a', strtotime($c['last_worked']))) ?></div>
+              <?php endif; ?>
+              <?php if ($canMark && !empty($c['fixable']) && strncmp($c['system'], 'cron:', 5) === 0): ?>
+                <form method="post" class="mw-ada-fix" action="/crm/ada_appstack.php">
+                  <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+                  <input type="hidden" name="action" value="mark_fixed">
+                  <input type="hidden" name="system" value="<?= h($c['system']) ?>">
+                  <button type="submit" class="btn btn-sm btn-outline-success">Mark fixed</button>
+                  <span class="text-muted small">Ada checks it again on its next run.</span>
+                </form>
               <?php endif; ?>
               <?php if (!empty($c['handoff'])): ?>
                 <div class="mw-ada-handoff">
@@ -96,6 +134,25 @@ $activePage = 'system-health';
       </ul>
     </div>
   <?php endforeach; ?>
+
+  <?php if ($cleared): ?>
+    <div class="card mw-ada-group">
+      <div class="card-header"><h5 class="card-title mb-0">Rechecked after you marked them fixed</h5></div>
+      <ul class="mw-ada-rows">
+        <?php foreach ($cleared as $r): $ok = $r['outcome'] === 'cleared'; ?>
+          <li class="mw-ada-row is-<?= $ok ? 'green' : 'red' ?>">
+            <span class="mw-ada-dot" aria-hidden="true"></span>
+            <div class="mw-ada-main">
+              <div class="mw-ada-name"><?= h(preg_replace('/^cron:/', '', (string)$r['system'])) ?>
+                <small class="mw-ada-state"><?= $ok ? 'Cleared' : 'Came back' ?></small></div>
+              <div class="mw-ada-evidence"><?= h((string)$r['outcome_evidence']) ?></div>
+              <div class="mw-ada-when">Marked fixed <?= h(date('M j, g:i a', strtotime((string)$r['fixed_at']))) ?> · rechecked <?= h(date('M j, g:i a', strtotime((string)$r['outcome_at']))) ?></div>
+            </div>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+  <?php endif; ?>
 
   <p class="text-muted small">More in the <a href="/crm/database_appstack.php">Database Manager</a> (cron history, migrations, schema)
     and the <a href="/crm/system-log_appstack.php">System Log</a>.</p>

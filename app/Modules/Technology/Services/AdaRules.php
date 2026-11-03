@@ -25,6 +25,8 @@ class AdaRules
     public const GRACE_MINUTES = 10;
     /** A job that failed within this many days, then recovered, stays amber. */
     public const RECOVERED_DAYS = 3;
+    /** "Slow" looks at runs from this many days back (was 14: an old spike hid a fix for two weeks). */
+    public const SLOW_DAYS = 3;
     /** A run longer than this share of the job's interval is slow (runs start to overlap). */
     public const SLOW_SHARE = 0.8;
     /** A login unused this long, with no phone seen either, is worth a look. */
@@ -137,7 +139,7 @@ class AdaRules
      * @param bool $records the script's text records its runs
      * @param bool $filesExist the script files the registry names are on the server
      */
-    public static function cronCheck(array $reg, ?array $stats, bool $records, bool $filesExist, string $now, ?string $cronBase = null): array
+    public static function cronCheck(array $reg, ?array $stats, bool $records, bool $filesExist, string $now, ?string $cronBase = null, ?array $fix = null): array
     {
         $config = self::cronConfig($reg, $cronBase);
         $line = $config ? "\n\nThe cPanel line should read exactly:\n" . $config['line'] : '';
@@ -153,6 +155,16 @@ class AdaRules
                 "{$name}: the script it runs ({$runPath}) is not on the server.",
                 "Ada: cron '{$key}' points at {$runPath}, which is missing on production. Restore or deploy it, or remove the registry entry in public/crm/database_appstack.php.",
                 'developer');
+        }
+
+        // Marked fixed and nothing has run since: wait one full cycle for the next run, then judge as usual
+        // (a job that still has not run after that is "missed" again).
+        if ($fix !== null && (int)($fix['runs'] ?? 0) === 0) {
+            $sinceFix = self::minutesBetween((string)$fix['at'], $now);
+            if ($sinceFix !== null && ($every === null || $sinceFix <= self::MISSED_INTERVALS * $every + self::GRACE_MINUTES)) {
+                return $base + self::verdict('info', 'awaiting-run',
+                    "{$name}: marked fixed " . self::ago((string)$fix['at'], $now) . "; waiting for its next run to check it.", null, null);
+            }
         }
 
         if ($stats === null) {
@@ -226,7 +238,7 @@ class AdaRules
         $maxMs = (int)($stats['max_ms'] ?? 0);
         if ($every !== null && $maxMs > 0 && $maxMs > self::SLOW_SHARE * $every * 60000) {
             return $base + self::verdict('amber', 'slow',
-                "{$name}: one run took " . self::duration($maxMs) . ' in the last 14 days, for a job that runs ' . self::everyWords($every) . ' — runs can overlap.',
+                "{$name}: one run took " . self::duration($maxMs) . ' in the last ' . self::SLOW_DAYS . ' days, for a job that runs ' . self::everyWords($every) . ' — runs can overlap.',
                 "Ada: cron '{$key}' took up to " . self::duration($maxMs) . " (interval {$every} min). Find the slow step; cap its work per run.",
                 'developer');
         }
@@ -453,6 +465,23 @@ class AdaRules
         usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, $a['group'], $a['name']]
                                  <=> [self::STATE_ORDER[$b['state']] ?? 9, $b['group'], $b['name']]);
         return $checks;
+    }
+
+    /**
+     * The one line that says what a cron verdict was based on — so the page shows what Ada looked at.
+     * $stats['runs'] = runs considered, ['since'] = oldest of them, ['max_ms'] = slowest.
+     */
+    public static function cronBasis(?array $stats, ?array $fix, string $now): string
+    {
+        $at = date('g:i a', strtotime($now));
+        if ($stats === null) return "Checked {$at} · no run on record";
+        if ($fix !== null && (int)($fix['runs'] ?? 0) === 0) return "Checked {$at} · no run since it was marked fixed";
+        $n = (int)($stats['runs'] ?? count((array)($stats['recent'] ?? [])));
+        $parts = ["Checked {$at}", $fix !== null ? "{$n} run" . ($n === 1 ? '' : 's') . ' since it was marked fixed'
+                                                 : "last {$n} run" . ($n === 1 ? '' : 's')];
+        if (!empty($stats['since'])) $parts[1] .= ' (from ' . date('M j, g:i a', strtotime((string)$stats['since'])) . ')';
+        if ((int)($stats['max_ms'] ?? 0) > 0) $parts[] = 'slowest ' . self::duration((int)$stats['max_ms']);
+        return implode(' · ', $parts);
     }
 
     /** Charlie's contract: red and amber as lines (red first), then one line for "can't tell". */

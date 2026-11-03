@@ -11,7 +11,9 @@
  *       (stripe_payments), truck GPS (vehicle_location_pings);
  *   (3) security — active logins with no login and no phone seen for 90 days, the JWT key, failed
  *       logins and sensitive changes (AdaSecurityWatch), and the nightly security-posture rows
- *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group.
+ *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group;
+ *   (4) server crashes — PHP fatal / parse errors in the server error log's last day, by file:line
+ *       (AdaServerErrors, 2026-10-16: the Stripe webhook crashed on 189 payments and nothing said so).
  * Each check fails on its own (logged, then shown as "can't tell") — one bad query never
  * blanks the page or Charlie's brief.
  *
@@ -39,7 +41,18 @@ class AdaDeskService
 
     private function now(): string { return $this->now ?? date('Y-m-d H:i:s'); }
 
-    /** Ada needs no table of her own. */
+    private ?AdaFixedMarks $marks = null;
+
+    public function marks(): AdaFixedMarks
+    {
+        if ($this->marks === null) {
+            require_once __DIR__ . '/AdaFixedMarks.php';
+            $this->marks = new AdaFixedMarks($this->db);
+        }
+        return $this->marks;
+    }
+
+    /** Ada needs no table of her own (the "Mark fixed" history, migration 1420, is optional). */
     public function ready(): bool { return true; }
 
     /** Charlie's contract. */
@@ -61,7 +74,7 @@ class AdaDeskService
     {
         if ($this->checks !== null) return $this->checks;
         $all = [];
-        foreach (['cronChecks', 'connectionChecks', 'securityChecks'] as $part) {
+        foreach (['pulseChecks', 'cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks'] as $part) {
             try {
                 $all = array_merge($all, $this->$part());
             } catch (Throwable $e) {
@@ -107,11 +120,15 @@ class AdaDeskService
         }
         $maxMs = [];
         $st = $this->db->prepare("SELECT cron_key, MAX(duration_ms) AS m FROM cron_runs WHERE ran_at > ? GROUP BY cron_key");
-        $st->execute([date('Y-m-d H:i:s', strtotime($now) - 14 * 86400)]);
+        $st->execute([date('Y-m-d H:i:s', strtotime($now) - AdaRules::SLOW_DAYS * 86400)]);
         foreach ($st as $r) $maxMs[(string)$r['cron_key']] = (int)$r['m'];
 
         $recentSt = $this->db->prepare("SELECT status, ran_at, error_message, summary FROM cron_runs WHERE cron_key = ? ORDER BY ran_at DESC LIMIT 12");
         $okSt = $this->db->prepare("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = ? AND status <> 'error'");
+        // Problems Tim marked fixed: those jobs are judged on runs after the mark only.
+        $marks = $this->marks();
+        $open = $marks->open();
+        $sinceSt = $this->db->prepare("SELECT status, ran_at, error_message, summary, duration_ms FROM cron_runs WHERE cron_key = ? AND ran_at > ? ORDER BY ran_at DESC LIMIT 12");
 
         $out = [];
         foreach ($reg as $key => $row) {
@@ -147,7 +164,35 @@ class AdaDeskService
                     'recent'      => $recent,
                 ];
             }
-            $out[] = AdaRules::cronCheck($row, $stats, $records, $exist, $now, $base);
+            $fix = null;
+            $mark = $open['cron:' . $key] ?? null;
+            if ($mark !== null) {
+                $sinceSt->execute([$key, $mark['fixed_at']]);
+                $after = $sinceSt->fetchAll(PDO::FETCH_ASSOC);
+                $fix = ['at' => $mark['fixed_at'], 'runs' => count($after)];
+                if ($after && $stats !== null) {
+                    $stats['recent'] = array_map(static fn($r) => [(string)$r['status'], (string)$r['ran_at'], (string)($r['error_message'] ?: $r['summary'])], $after);
+                    $stats['last_status'] = (string)$after[0]['status'];
+                    $stats['last_error'] = (string)($after[0]['error_message'] ?: $after[0]['summary']);
+                    $stats['max_ms'] = (int)max(array_map(static fn($r) => (int)$r['duration_ms'], $after));
+                    if ($stats['last_status'] !== 'error') $stats['last_ok_at'] = (string)$after[0]['ran_at'];
+                }
+            }
+            if ($stats !== null) {
+                $stats['runs'] = count($stats['recent']);
+                $stats['since'] = $stats['recent'] ? (string)end($stats['recent'])[1] : null;
+            }
+            $check = AdaRules::cronCheck($row, $stats, $records, $exist, $now, $base, $fix);
+            $check['basis'] = AdaRules::cronBasis($stats, $fix, $now);
+            $check['fixable'] = in_array($check['state'], ['red', 'amber'], true);
+            if ($mark !== null && $fix !== null && $fix['runs'] > 0) {
+                // A run has landed since the mark: write down how it turned out.
+                try {
+                    if ($check['state'] === 'green') $marks->close($mark['id'], 'cleared', $check['evidence'], $now);
+                    elseif ($check['state'] !== 'info') $marks->close($mark['id'], 'came_back', $check['evidence'], $now);
+                } catch (Throwable $e) { error_log('Ada: could not record outcome: ' . $e->getMessage()); }
+            }
+            $out[] = $check;
         }
         foreach (array_diff_key($lastByKey, $reg) as $key => $lastAt) {
             $out[] = AdaRules::unlistedCron((string)$key, $lastAt, $now);
@@ -230,6 +275,13 @@ class AdaDeskService
     // (3) Security
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** Pulse's live checks (is the app working right now?): one row each, from the 5-minute check. */
+    private function pulseChecks(): array
+    {
+        require_once __DIR__ . '/PulseService.php';
+        return (new PulseService($this->db))->adaChecks();
+    }
+
     private function securityChecks(): array
     {
         $rows = $this->db->query(
@@ -249,5 +301,15 @@ class AdaDeskService
         require_once __DIR__ . '/SecurityPostureService.php';
         foreach ((new SecurityPostureService($this->db, $this->now))->deskChecks() as $c) $out[] = $c;
         return $out;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // (4) Server crashes
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function serverErrorChecks(): array
+    {
+        require_once __DIR__ . '/AdaServerErrors.php';
+        return (new AdaServerErrors(null, $this->now()))->checks();
     }
 }
