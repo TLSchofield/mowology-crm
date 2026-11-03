@@ -1,6 +1,25 @@
-# How Ada operates — PLANNED, NOT BUILT
+# How Ada operates
 
-Agreed with Tim 2026-10-11. None of this is implemented yet.
+Agreed with Tim 2026-10-11; built in steps (health page 2026-10-11, security 2026-10-13, Pulse 2026-10-28,
+the register 2026-11-03). What is still only planned is marked so.
+
+## The register (built 2026-11-03)
+- Every problem carries a **level** from the plugin's 3×3: likelihood (red High, amber Medium, can't-tell Low)
+  × impact (cost of waiting: money/auth/backups/audit High, crew Medium, the rest Low) → Critical / High /
+  Medium / Low (`AdaRiskRegister::level()`).
+- Tim may **accept** a problem for 90 days with a one-line reason (System Health → "Accept for 90 days").
+  It stays on the page under "Accepted" with its colour, but leaves the counts, Charlie's brief and the
+  urgent emails until the review date; then it comes back saying when and by whom it was accepted.
+  **A Critical problem cannot be accepted** — a failing pervasive control (database rights, backups, the
+  audit chain, auth) has to be fixed. An acceptance is released the moment the check clears.
+- **Age on every line**: "— for 17 days" from two days on; brief items carry the day the problem started.
+- **Order within a state** is cost of waiting, not alphabet.
+- **Trend**: the headline says what changed since yesterday ("2 broken (one fewer than yesterday)").
+- **Access review**: who can sign in as admin or manager is listed and asked about every 90 days or
+  when the list changes; "Reviewed" records it. Truck tablets with manager rights are named as such.
+- **Backup read-back**: a backup counts only once the Mac has opened it (gzip test + table count against
+  the live database). It is called a read-back, not a restore — nothing restores it.
+- **Evidence without a time** is named in one info row and treated as unproven.
 
 ## She watches; others fix
 - Ada reads. She never writes to business tables, never deploys, never resets OPcache, never

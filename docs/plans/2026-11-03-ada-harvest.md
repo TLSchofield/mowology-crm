@@ -1,6 +1,6 @@
 # Ada harvest — what the operations and finance plugins add to System Health (2026-11-03)
 
-Status: **PLAN — waiting for Tim's yes.** Survey of `operations/skills/{runbook, risk-assessment,
+Status: **APPROVED ("Go") and BUILT 2026-11-03** — see "Build record" at the end. Plan as approved: Survey of `operations/skills/{runbook, risk-assessment,
 compliance-tracking, status-report, process-doc}` and finance `audit-support` + `sox-testing`
 (Sonnet, numbers only). Diffed against what Ada runs on production today (live copies pulled into the
 branch first — commit e708f4ece: Pulse live checks, server-crash watch, Mark fixed, which the branch
@@ -118,3 +118,19 @@ OPcache reset, System Health checked in Chrome, Charlie's brief line checked, po
 - `composer update symfony/http-foundation` (CVE-2026-108082) — a developer session, your say-so.
 - "116 migrations never run": most are files renamed or applied by hand before `migrations_log`
   existed; a developer session should mark them so the amber means something.
+
+## Build record (2026-11-03)
+- Commit 419dfa6cf on `feature/language`: `AdaRiskRegister`, `AdaAcceptedRisks`, migration 1431, AdaRules
+  additions (costRank, badSince/withAge, headline with yesterday, trendAppend/trendYesterday, handoffCounts,
+  accessReviewCheck/rosterHash, evidenceDated/evidenceCheck), `SecurityPostureRules::backupVerifyCheck`,
+  desk + cron + page wiring, CSS, `scripts/deploy-step.sh` + `deploy-file.sh` manifest call,
+  `scripts/backup-nightly.sh` read-back; test `tests/Unit/Technology/AdaHarvestRulesTest.php` (17 tests).
+- Dry run (live, read-only, inline renamed classes): 8 red, 11 amber, 3 info / 95 rows in 520 ms. Levels:
+  Critical 2 (`db-privileges`, `drift`), High 4 (push_drain, trackimo_poll missed; stripe-webhook; unused logins),
+  Medium 6, Low 7. Hand-offs: 14 for Tim, 5 for a developer. Brief: money first (db rights "for 21 days", drift,
+  then push, trackimo, Search Console token). Access review: never reviewed, 4 logins — TIM (admin),
+  MIGHT-E TRUCK and DODGE RAM (manager, truck tablets), NIGEL (manager). Live tables 496; no read-back yet.
+- Changes from the dry run: truck tablets labelled in the access list; nightly rows count as dated by
+  `checked_at`; "(checked 2:20 pm)" and "no run on record, ever" count as a time. The evidence row then
+  names nothing on today's data and stays hidden, as the plan allowed.
+- G kept (it costs nothing and will speak when a new check forgets its date).

@@ -139,6 +139,22 @@ clears and returns is new. Ada only checks: nothing here changes a setting, cred
 | 14 | posture:php-errors | ≤ 50 error lines (`SecurityPostureRules::isErrorMessage()`: PHP severities, Uncaught, SQLSTATE, error/exception/failed — not progress notes) in 24 h across ini_get('error_log'), ~/error_log and every error_log file in the web root | amber > 50, red > 500; top 5 messages deduped and redacted (`SecurityPostureRules::redact()`) | last 16 MB of each log ("at least" when the window runs past it) |
 | 15 | posture:mail-dns | SPF allows the SMTP host's IP (ip4/a/mx/include evaluated), a DMARC record, a DKIM key at default._domainkey (or DKIM_SELECTOR) | amber when any is missing | dns_get_record |
 
+## (8) The register — BUILT 2026-11-03
+
+| Check / rule | Source | Threshold |
+|---|---|---|
+| Level per problem | `AdaRiskRegister::level()` over state × `AdaRules::costRank()` | plugin 3×3; Critical never acceptable |
+| Accepted risks | table ada_accepted_risks (migration 1431), `AdaAcceptedRisks`, page buttons | 90 days, reason ≤ 300 chars, no token-shaped strings |
+| Age on lines | `AdaRules::badSince()` (red_since / first bad cron run) + `AdaRules::withAge()` | shown from 2 days |
+| Trend | ops_settings `ada_daily_counts` via `AdaDeskService::recordDailyCounts()` in cron `security_posture` | 14 days kept, one per day |
+| security:access-review | users with role admin/manager (+ is_vehicle_tablet) vs ops_settings `ada_access_review` {at, by, hash} | amber never / > 90 d / roster hash changed |
+| posture:backup-verified | backup_heartbeats kind `verify` (Mac: gzip -t + table count) vs information_schema.tables | amber none / > 36 h; red gzip failed or fewer tables than live |
+| ada:evidence (info) | `AdaRules::evidenceCheck()` | any red/amber/unknown row with no time in its line and no last_worked / checked_at / red_since |
+
+Dry run 2026-11-03 14:20 (live, read-only): 8 red, 11 amber, 3 info over 95 rows in 520 ms; levels Critical 2
+(db-privileges, drift), High 4, Medium 6, Low 7; hand-offs 14 for Tim, 5 for a developer; access review "never
+reviewed", 4 logins (2 truck tablets); 496 live tables; no read-back yet.
+
 ## Per tenant (Ittai) — later
 
 No tenant model exists in code (no `tenant_id` anywhere, grep 2026-10-11). Per-tenant health
