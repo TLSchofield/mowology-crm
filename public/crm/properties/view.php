@@ -583,6 +583,7 @@ if ($apiKey) {
                     <p class="small text-muted mt-2 mb-0 mw-plants-attr"></p>
                 </div>
             </div>
+            <script src="/assets/js/photo-markers.js?v=<?= @filemtime(dirname(__DIR__, 2) . '/assets/js/photo-markers.js') ?: '1' ?>" defer></script>
             <script src="/crm/js/plant-id.js?v=<?= @filemtime(dirname(__DIR__) . '/js/plant-id.js') ?: '1' ?>" defer></script>
 
 <?php
