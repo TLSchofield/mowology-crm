@@ -236,7 +236,13 @@
          */
         openAppSettings: function() {
             if (!App || typeof App.openUrl !== 'function') {
-                console.warn('[MwNative] App.openUrl unavailable — cannot open settings');
+                // @capacitor/app is not installed in the crew app: fall back to the
+                // background-geolocation plugin, which opens this app's settings page.
+                if (BackgroundGeolocation && typeof BackgroundGeolocation.openSettings === 'function') {
+                    try { BackgroundGeolocation.openSettings(); } catch (e) {}
+                    return;
+                }
+                console.warn('[MwNative] no settings opener available');
                 return;
             }
             var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
@@ -441,22 +447,92 @@
 
             /**
              * One-shot position capture (for clock-in/out GPS).
-             * Returns a Promise resolving to { lat, lng, accuracy }.
+             * Returns a Promise resolving to { lat, lng, accuracy, stale }.
+             *
+             * 2026-11-03: a cold high-accuracy fix inside a truck cab can outlast
+             * the 10 s timeout, and the page then clocked in with no coordinates
+             * and showed "enable location services" to a correctly set-up tablet.
+             * Now: fresh fix (10 s) → any fix ≤5 min old (8 s) → the last position
+             * the background tracker accepted (≤5 min) → a typed error so the page
+             * can say what actually failed. Errors carry .code:
+             *   LOCATION_OFF  device Location switch is off
+             *   PERMISSION    app not allowed to use location
+             *   NO_FIX        allowed, but no position could be obtained
              */
             getCurrentPosition: function() {
                 if (!Geolocation) {
                     return Promise.reject(new Error('Geolocation plugin not available'));
                 }
+                var STALE_MS = 5 * 60 * 1000;
+                var shape = function(pos, stale) {
+                    return {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy,
+                        stale: !!stale
+                    };
+                };
+                var typed = function(code, msg) {
+                    var e = new Error(msg || code);
+                    e.code = code;
+                    return e;
+                };
+                var classify = function(err) {
+                    var m = String((err && err.message) || err || '');
+                    if (/not enabled|disabled/i.test(m)) return 'LOCATION_OFF';
+                    if (/denied|permission/i.test(m)) return 'PERMISSION';
+                    return null;
+                };
                 return Geolocation.getCurrentPosition({
                     enableHighAccuracy: true,
                     timeout: 10000
                 }).then(function(pos) {
-                    return {
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy
-                    };
+                    return shape(pos, false);
+                }).catch(function(err) {
+                    var code = classify(err);
+                    if (code) throw typed(code, err && err.message);
+                    // Fresh fix timed out: take anything the OS already has from the last 5 min.
+                    return Geolocation.getCurrentPosition({
+                        enableHighAccuracy: false,
+                        timeout: 8000,
+                        maximumAge: STALE_MS
+                    }).then(function(pos) {
+                        return shape(pos, true);
+                    }).catch(function(err2) {
+                        var code2 = classify(err2);
+                        if (code2) throw typed(code2, err2 && err2.message);
+                        var last = locationProcessor.lastAccepted;
+                        if (last && typeof last.lat === 'number' && typeof last.lng === 'number'
+                            && (Date.now() - (last.timestamp || 0)) < STALE_MS) {
+                            return { lat: last.lat, lng: last.lng, accuracy: last.accuracy, stale: true };
+                        }
+                        throw typed('NO_FIX', 'No GPS fix within the time allowed');
+                    });
                 });
+            },
+
+            /**
+             * Open the device's Location settings (the master switch), so a crew
+             * member can turn location on without leaving the app. Best-effort.
+             */
+            openLocationSettings: function() {
+                // The crew app does not ship @capacitor/app, so there is no intent-URL
+                // opener (Plugins.App is undefined; see openAppSettings above, which has
+                // silently done nothing for the same reason). The one settings screen we
+                // can reach is the app's own details page via the background-geolocation
+                // plugin; the device Location switch is one level up from there.
+                if (App && typeof App.openUrl === 'function') {
+                    return App.openUrl({ url: 'intent://#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end' })
+                        .catch(function() { return window.MwNative.geo._openBgSettings(); });
+                }
+                return this._openBgSettings();
+            },
+
+            _openBgSettings: function() {
+                if (BackgroundGeolocation && typeof BackgroundGeolocation.openSettings === 'function') {
+                    try { return Promise.resolve(BackgroundGeolocation.openSettings()); } catch (e) { return Promise.reject(e); }
+                }
+                return Promise.reject(new Error('No way to open settings'));
             }
         },
 

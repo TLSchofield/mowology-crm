@@ -101,7 +101,7 @@ function clockInLocked($userId, $lat = null, $lng = null, $enforceGpsRequirement
     if ($enforceGpsRequirement
         && getTimeClockSetting('require_gps_for_clock_in', '0') === '1'
         && ($lat === null || $lng === null)) {
-        throw new Exception('Location is required to clock in. Enable location services and try again.');
+        throw new Exception('Couldn\'t get a GPS fix for this clock-in. Move into the open and try again.');
     }
 
     $db = getDB();

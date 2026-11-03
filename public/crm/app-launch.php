@@ -72,7 +72,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20261008a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20261007p" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261103gps" defer></script>
     <script src="/crm/js/head-brain.js?v=20261008a" defer></script>
     <style>
         :root {
