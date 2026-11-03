@@ -29,4 +29,15 @@ final class MonthCloseServiceTest extends TestCase
         $this->assertSame(['waiting until 2026-10-15 for late statements and receipts'], MonthCloseService::blockers($sep, '2026-10-14'));
         $this->assertSame([], MonthCloseService::blockers($sep, '2026-10-15'));
     }
+
+    public function testSettlementStatesBecomeBlockersAndAnUnreadMonthSaysSo(): void
+    {
+        $clean = ['statements_ok' => true, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => '2026-01-01'];
+        $this->assertSame([], MonthCloseService::blockers($clean + ['settlements' => null], '2026-11-03'));
+        $this->assertSame([], MonthCloseService::blockers($clean + ['settlements' => ['counts' => ['reconciled' => 4], 'error' => null]], '2026-11-03'));
+        $b = MonthCloseService::blockers($clean + ['settlements' => ['counts' => ['missing_in_ledger' => 1], 'error' => null]], '2026-11-03');
+        $this->assertSame(['1 Stripe payout not on any bank line — a statement may be missing'], $b);
+        $b = MonthCloseService::blockers($clean + ['settlements' => ['counts' => [], 'error' => 'Stripe could not be read: key']], '2026-11-03');
+        $this->assertSame(['Stripe payouts could not be checked (Stripe could not be read: key)'], $b);
+    }
 }

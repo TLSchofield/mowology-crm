@@ -136,3 +136,13 @@ Decisions for Tim before D starts: keep learning at 2 or move to 3 for coding (J
   Replaced by the share of a client's payments more than 7 days off their own median lag (lags clamped at 0). Kept: <3
   payments → 30%, cap 50% + "thin", inflow-weighted overall. Live: ±22.1% overall; biggest payer 10.3%.
 - The $25 floor on the missing-receipt flag silences 3 live expenses.
+
+## Part 2 — D built 2026-11-03: Stripe settlement states on the month close
+`SettlementStatusService` (pure `classify()` + cached `report($ym)`, read-only Stripe `payouts->all`) gives each payout of a
+month one of the plugin's states; `MonthCloseService` adds them to the last 3 open months' blockers ("9 Stripe payouts in the
+bank but not booked yet", "N not on any bank line — a statement may be missing", "N Stripe-looking deposits with no payout").
+Amounts match to the cent (Stripe pays the exact net; the plugin's $0.50 is for processors that round); date ≤2 days = same
+settlement, 3–5 = date_mismatch. **Dry run (Aug–Oct live):** the first pass called 10 payouts "missing" and 15 deposits
+orphans — the payouts had been booked at import as single-invoice matches (type transfer, `pi_…` reference), and the
+"deposits" were Stripe fee expense rows sharing the description. After the fix: Aug 14/14 reconciled, Sep 14/14, Oct 5
+reconciled + 9 waiting on Penny's card. e-Transfers already carry their own states (pending/recorded) and are left alone.

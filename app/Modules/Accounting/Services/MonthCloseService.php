@@ -26,6 +26,7 @@ class MonthCloseService
     public const FIRST = '2026-01';
     /** Days after a month ends before it can be ready: statements, card closings and late crew receipts (Tim, 2026-10-14). */
     public const GRACE_DAYS = 15;
+    public const SETTLEMENT_MONTHS = 3;   // how many recent months get the Stripe settlement check
 
     private PDO $db;
 
@@ -74,6 +75,7 @@ class MonthCloseService
             $receipts[$r['ym']] = [(int)$r['n'], round((float)$r['amt'], 2), (int)$r['unmatched']];
         }
         $lines = $this->waitingBankLinesByMonth();
+        $settlements = $this->settlementsByMonth($current);
 
         $out = [];
         for ($m = self::FIRST; $m < $current; $m = date('Y-m', strtotime($m . '-01 +1 month'))) {
@@ -82,6 +84,7 @@ class MonthCloseService
                 'drift' => $drift[$m] ?? [], 'receipts' => $receipts[$m][0] ?? 0, 'receipts_amount' => $receipts[$m][1] ?? 0.0,
                 'receipts_unmatched' => $receipts[$m][2] ?? 0,
                 'bank_lines' => $lines[$m] ?? 0,
+                'settlements' => $settlements[$m] ?? null,   // Stripe payout states (SettlementStatusService); null = not read
             ];
             $row['grace_until'] = self::graceUntil($m);
             $row['blockers'] = $row['locked'] ? [] : self::blockers($row, $today);
@@ -116,7 +119,35 @@ class MonthCloseService
                  . ($u > 0 ? ' — ' . $u . ' on no bank or card line: if you paid personally, choose "Paid personally (owner)" and approve' : '');
         }
         if (($m['bank_lines'] ?? 0) > 0) $b[] = $m['bank_lines'] . ' bank line' . ($m['bank_lines'] === 1 ? '' : 's') . ' still to sort';
+        // Stripe payouts against the bank (plugin settlement states, 2026-11-03). Absent is not zero: an unread
+        // month says so instead of looking clean.
+        $st = $m['settlements'] ?? null;
+        if (is_array($st)) {
+            if (!empty($st['error'])) $b[] = 'Stripe payouts could not be checked (' . $st['error'] . ')';
+            else foreach (SettlementStatusService::blockers((array)($st['counts'] ?? [])) as $line) $b[] = $line;
+        }
         return $b;
+    }
+
+    /**
+     * Stripe settlement states for the recent open months only (SETTLEMENT_MONTHS back from today): each is one cached
+     * Stripe read; older months were closed before this check existed. month => report|null.
+     */
+    private function settlementsByMonth(string $current): array
+    {
+        $out = [];
+        try {
+            require_once __DIR__ . '/SettlementStatusService.php';
+            $svc = new SettlementStatusService($this->db);
+            for ($i = 1; $i <= self::SETTLEMENT_MONTHS; $i++) {
+                $ym = date('Y-m', strtotime($current . '-01 -' . $i . ' month'));
+                if ($ym < self::FIRST) break;
+                $out[$ym] = $svc->report($ym);
+            }
+        } catch (Throwable $e) {
+            error_log('[MonthClose] settlements: ' . $e->getMessage());
+        }
+        return $out;
     }
 
     /** Pure: the first day a month may be ready (GRACE_DAYS after its last day). */

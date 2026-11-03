@@ -530,6 +530,11 @@ Dropped / not done:
   cron_runs), so its "last run" can look old.
 
 ### 2026-11-03 — Two plugin formulas that failed on our data (Penny harvest, part 1)
+- **"Missing" Stripe payouts that were booked all along (2026-11-03, settlement states):** a single-charge payout is matched
+  at import straight to its invoice (bank line type `transfer`, `payment_reference` = `pi_…` or the invoice number, no
+  `po_` reference). A matcher that only recognises `po_` references calls those payouts missing. And the fee rows
+  ("Payment processing fee — Preauthorized credit STRIPE", type `expense`, positive amount) share the deposit's description:
+  filter bank lines by type income/transfer before calling anything a Stripe deposit.
 - **A plain "same vendor, same total within 90 days" duplicate rule asked 48 questions**, nearly all $200 fuel prepays and
   $84 Lawnboy loads — amounts the vendor charges every time. Rule now: an amount seen 3+ times for a vendor in the window
   is habitual and never asked about; nothing under $25 is asked (`RepeatAmountFinder::HABIT_COUNT`, `MIN_AMOUNT`). 3 questions
