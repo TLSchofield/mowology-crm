@@ -19,6 +19,8 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once dirname(__DIR__, 2) . '/Quotes/Services/QuoteService.php'; // colourState()
+require_once __DIR__ . '/LeadScore.php';                                // heat, buckets, flat guard (2026-11-03)
+require_once __DIR__ . '/EmailLeadService.php';                         // serviceTags(): what we offer
 
 class SalesDeskService
 {
@@ -264,7 +266,8 @@ class SalesDeskService
 
     /**
      * The latest Sam-relevant email in from each company and each mail organisation (120 days):
-     * ['company' => [company_id => [at, by, contact_id]], 'org' => [org => [at, by, contact_id]]].
+     * ['company' => [company_id => [at, by, contact_id, quote_ids]], 'org' => [org => [at, by, contact_id, quote_ids]]];
+     * quote_ids lists the quotes the reply was matched to (empty when it names none).
      */
     public function orgReplies(): array
     {
@@ -274,14 +277,44 @@ class SalesDeskService
         $routed = true;
         try { $this->db->query('SELECT head, head_source FROM sales_messages LIMIT 0'); } catch (Throwable $e) { $routed = false; }
         $rows = $this->db->query("
-            SELECT m.contact_id, m.sent_at, m.from_addr, m.from_name, m.subject, m.snippet" . ($routed ? ", m.head, m.head_source" : "") . ",
+            SELECT m.contact_id, m.message_key, m.sent_at, m.from_addr, m.from_name, m.subject, m.snippet" . ($routed ? ", m.head, m.head_source" : "") . ",
                    c.company_id
             FROM sales_messages m LEFT JOIN contacts c ON c.id = m.contact_id
             WHERE m.direction = 'inbound' AND m.sent_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)
         ")->fetchAll(PDO::FETCH_ASSOC);
+        // A reply the signed-quote matching has already tied to specific quotes (sam_acceptances, migration 1366) pauses
+        // only those quotes, not every quote the company has (2026-10-22: Alena's nine signed quotes made Sam say Eva's
+        // quote for a different building was answered, and he stopped chasing it).
+        $tied = [];
+        if ($this->hasTable('sam_acceptances')) {
+            try {
+                foreach ($this->db->query("SELECT message_key, quote_id FROM sam_acceptances")->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                    $tied[(string)$t['message_key']][] = (int)$t['quote_id'];
+                }
+            } catch (Throwable $e) { $tied = []; }
+        }
+        // No acceptance record? The files kept with the mail still name the quotes ("MOHAWK - MOWOLOGY - SNOW 0062 -
+        // SIGNED.pdf"), so read them the way Sam's acceptance matching does.
+        $files = []; $open = [];
+        if ($this->hasTable('inbound_message_attachments')) {
+            try {
+                foreach ($this->db->query("SELECT message_key, id, filename FROM inbound_message_attachments")->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                    $files[(string)$f['message_key']][(int)$f['id']] = (string)$f['filename'];
+                }
+                // Every recent quote, whatever its status: the ones a reply names may already be accepted. Last 120 days only,
+                // so QUO-2025-0060 and QUO-2026-0060 can never both be candidates for "0060".
+                $open = $this->db->query("SELECT id, quote_number AS number FROM quotes WHERE created_at >= DATE_SUB(NOW(), INTERVAL 120 DAY)")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { $files = []; $open = []; }
+        }
         foreach ($rows as $r) {
             if (!self::countsAsSamReply($r)) continue;
-            $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id']];
+            $key = (string)($r['message_key'] ?? '');
+            $ids = $tied[$key] ?? [];
+            if (!$ids && !empty($files[$key]) && $open) {
+                $ids = self::quoteIdsNamedBy($open, (string)$r['subject'], (string)$r['snippet'], $files[$key]);
+            }
+            $hit = ['at' => (string)$r['sent_at'], 'by' => self::senderLabel($r), 'contact_id' => (int)$r['contact_id'],
+                    'quote_ids' => $ids];
             if (!empty($r['company_id'])) {
                 $k = (int)$r['company_id'];
                 if (!isset($out['company'][$k]) || $hit['at'] > $out['company'][$k]['at']) $out['company'][$k] = $hit;
@@ -291,6 +324,19 @@ class SalesDeskService
             if ($org !== null && (!isset($out['org'][$org]) || $hit['at'] > $out['org'][$org]['at'])) $out['org'][$org] = $hit;
         }
         return $out;
+    }
+
+    /**
+     * The open quotes an email names — by a QUO number in the text, or a quote number in a file name — read the way
+     * Sam's acceptance matching reads them. Empty when it names none. Pure.
+     * @param array<int, array{id: int|string, number: string}> $open
+     * @param array<int, string> $files attachment id => file name
+     * @return int[]
+     */
+    public static function quoteIdsNamedBy(array $open, string $subject, string $text, array $files): array
+    {
+        if (!class_exists('SamAcceptanceService')) require_once __DIR__ . '/SamAcceptanceService.php';
+        return array_values(array_map('intval', array_column(SamAcceptanceService::match($open, $subject, $text, $files), 'quote_id')));
     }
 
     /**
@@ -311,6 +357,8 @@ class SalesDeskService
             if ($org !== null && isset($orgReplies['org'][$org])) $hits[] = $orgReplies['org'][$org];
             foreach ($hits as $h) {
                 if ($h['contact_id'] === $cid) continue;   // their own mail is already counted
+                // tied to specific quotes (signed-quote matching) and not this one: it is about someone else's quote
+                if (!empty($h['quote_ids']) && !in_array((int)($q['id'] ?? 0), $h['quote_ids'], true)) continue;
                 if ($touches[$cid]['last_in'] === null || $h['at'] > (string)$touches[$cid]['last_in']) {
                     $touches[$cid]['last_in'] = $h['at'];
                     $touches[$cid]['last_in_by'] = $h['by'];
@@ -433,7 +481,42 @@ class SalesDeskService
                 unset($r);
             } catch (Throwable $e) { /* before migration 1369: no visits */ }
         }
-        return array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s')), 0, max(1, $limit));
+        return array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s'), $this->leadSignals($rows)), 0, max(1, $limit));
+    }
+
+    /**
+     * What the CRM knows about each lead's contact (2026-11-03): replies and our own touches in the
+     * last 30 days (sales_messages) and whether they have said yes to a quote before. One batch of
+     * two queries; if either fails every lead is marked `available => false` so the score says
+     * "no reply data" instead of quietly treating absence as zero.
+     * @return array<int, array> contact_id => signals (see LeadScore)
+     */
+    public function leadSignals(array $rows): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map(fn($r) => (int)($r['contact_id'] ?? 0), $rows))));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $out = [];
+        foreach ($ids as $id) $out[$id] = ['available' => true, 'inbound_at' => null, 'outbound_at' => null, 'outbound_count' => 0, 'repeat' => false];
+        try {
+            $s = $this->db->prepare("SELECT contact_id, direction, MAX(sent_at) AS last_at, COUNT(*) AS n
+                                     FROM sales_messages WHERE contact_id IN ($in) AND sent_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                                     GROUP BY contact_id, direction");
+            $s->execute($ids);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $cid = (int)$m['contact_id'];
+                if ($m['direction'] === 'inbound') $out[$cid]['inbound_at'] = (string)$m['last_at'];
+                else { $out[$cid]['outbound_at'] = (string)$m['last_at']; $out[$cid]['outbound_count'] = (int)$m['n']; }
+            }
+            $s = $this->db->prepare("SELECT DISTINCT q.contact_id FROM quotes q WHERE q.status = 'accepted' AND q.contact_id IN ($in)");
+            $s->execute($ids);
+            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $cid) $out[(int)$cid]['repeat'] = true;
+        } catch (Throwable $e) {
+            error_log('Sam lead signals: ' . $e->getMessage());
+            foreach ($out as &$o) $o = ['available' => false];
+            unset($o);
+        }
+        return $out;
     }
 
     /** Average accepted quote by service (last 24 months), plus an 'all' fallback. */
@@ -489,13 +572,18 @@ class SalesDeskService
                 'text'     => $c['kind'] === 'replied'
                     ? $c['name'] . ' replied about ' . $c['label'] . ' — they\'re waiting on you'
                     : $c['name'] . ': ' . $c['label'] . ' (' . self::money($c['amount']) . ') — ' . $c['days'] . ' days, no reply',
-                'url'      => '/crm/dashboard_appstack.php#mw-sam',
+                // Opens Sam's card on THIS customer, with their latest emails showing (sam-card.js reads ?sam=).
+                'url'      => '/crm/dashboard_appstack.php?sam=' . rawurlencode((string)$c['key']) . '#mw-sam',
                 'priority' => $c['kind'] === 'replied' ? 1 : 2,
             ];
         }
         foreach ($leads as $l) {
+            $bucket = (string)($l['bucket'] ?? 'qualified');
+            $why = array_slice((array)($l['reasons'] ?? []), 0, 2);
+            $label = ['hot' => 'Hot lead', 'unclear' => 'Unclear lead', 'out_of_scope' => 'Not a fit'][$bucket] ?? 'New lead';
             $items[] = ['key' => 'sam:lead:' . $l['id'], 'kind' => 'new_lead', 'value' => $l['value'], 'since' => null,
-                        'text' => 'New lead: ' . $l['name'] . ' — ' . $l['next'], 'url' => $l['url'], 'priority' => $l['hot'] ? 1 : 3];
+                        'text' => $label . ': ' . $l['name'] . ' — ' . $l['next'] . ($bucket === 'hot' && $why ? ' (' . implode(', ', $why) . ')' : ''),
+                        'url' => $l['url'], 'priority' => $bucket === 'hot' ? 1 : 3];
         }
         // Other replies about a quote nobody has answered (hand-sent emails, texts), kind quote_reply.
         // Replies that aren't about a quote are Yui's (client_reply) — never both.
@@ -712,10 +800,16 @@ class SalesDeskService
     /**
      * Likely value = the average accepted quote for the services asked for (else the
      * overall average), times jobFlow's tier and the urgency, fading as the lead ages.
+     * Beside it, since 2026-11-03, LeadScore's heat (0–100 from replies, fit, urgency and how
+     * recently we wrote) and bucket (hot / qualified / unclear / out_of_scope). Leads are ordered
+     * by heat, then value — unless the heat is flat, when they are ordered by what the CRM knows
+     * and `ranked_by` says 'signal' so no number is shown.
+     * @param array<int,array> $signals contact_id => LeadScore signals (leadSignals()); empty when unknown
      */
-    public static function rankLeads(array $rows, array $avgByService, string $now): array
+    public static function rankLeads(array $rows, array $avgByService, string $now, array $signals = []): array
     {
         $nowTs = strtotime($now);
+        $offered = class_exists('EmailLeadService') ? EmailLeadService::serviceTags() : [];
         $out = [];
         foreach ($rows as $r) {
             $services = array_values(array_filter(array_map('trim', explode(',', strtolower((string)$r['service_types'])))));
@@ -735,11 +829,13 @@ class SalesDeskService
             $ageDays = max(0, ($nowTs - strtotime((string)$r['created_at'])) / 86400);
             $fresh = $ageDays <= 2 ? 1.0 : max(0.6, 1 - ($ageDays - 2) * 0.03);
             $score = round(max(1.0, $value) * $mult * $urg * $fresh, 2);
+            $sig = $signals[(int)($r['contact_id'] ?? 0)] ?? [];
+            $heat = LeadScore::score($r, $sig, $avgByService, $value, $offered, $now);
 
             $first = trim((string)($r['first_name'] ?? ''));
             $name = trim($first . ' ' . (string)($r['last_name'] ?? '')) ?: 'New lead';
             $what = $services ? implode(' & ', array_map(fn($s) => str_replace('_', ' ', $s), array_slice($services, 0, 2))) : 'a quote';
-            $hot = ($tier === 'high' || $r['urgency'] === 'asap');
+            $hot = $heat['bucket'] === 'hot' || $tier === 'high' || $r['urgency'] === 'asap';
             $phone = trim((string)($r['phone'] ?? ''));
             $visitAt = !empty($r['visit_date']) ? strtotime($r['visit_date'] . ' ' . ($r['visit_time'] ?? '00:00')) : false;
             if ($visitAt) {
@@ -752,6 +848,12 @@ class SalesDeskService
                 $next = 'Call ' . ($first ?: 'them') . ' to book a look at ' . $what . ', then quote';
             } else {
                 $next = 'Email ' . ($first ?: 'them') . ' to book a site visit for ' . $what;
+            }
+            if ($heat['bucket'] === 'unclear' && !$visitAt) {
+                $missing = !$services ? 'what work they need' : ((string)($r['address'] ?? '') === '' && (string)($r['city'] ?? '') === '' ? 'where the property is' : 'when they want it done');
+                $next = 'Ask one thing — ' . $missing . ' (reply drafted)';
+            } elseif ($heat['bucket'] === 'out_of_scope') {
+                $next = 'Not work we do — honest reply drafted, or mark not a lead';
             }
             $out[] = [
                 'id'        => (int)$r['id'],
@@ -767,11 +869,17 @@ class SalesDeskService
                 'value'     => round($value, 2),
                 'score'     => $score,
                 'hot'       => $hot,
+                'heat'      => $heat['heat'],
+                'bucket'    => $heat['bucket'],
+                'reasons'   => $heat['reasons'],
+                'ask'       => $heat['ask'],
+                'untouched' => $heat['untouched'],
+                'created_at' => (string)$r['created_at'],
                 'next'      => $next,
                 'url'       => '/crm/quotes/create.php?quote_request_id=' . (int)$r['id'],
             ];
         }
-        usort($out, fn($a, $b) => $b['score'] <=> $a['score']);
-        return $out;
+        $ordered = LeadScore::order($out);
+        return array_map(function ($l) use ($ordered) { $l['ranked_by'] = $ordered['ranked_by']; return $l; }, $ordered['items']);
     }
 }

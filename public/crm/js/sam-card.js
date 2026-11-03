@@ -51,6 +51,8 @@
     var maybes = [];         // enquiries from email the rules weren't sure about (desk.maybe_leads)
     var texts = null;        // messages bridge heartbeat {at, silent, minutes}, null = not set up
     var idx = 0, busy = false;
+    // ?sam=<card key> (from Charlie's list / "Needs you now"): open on that customer, their emails showing.
+    var wanted = (function () { try { return new URLSearchParams(window.location.search).get('sam'); } catch (e) { return null; } })();
     var edits = {};          // card key → {channel, subject, body, sms} while Tim types
 
     function esc(s) {
@@ -101,6 +103,12 @@
                 maybes = d.maybe_leads || [];
                 approved = d.approved || [];
                 acceptances = d.acceptances || [];
+                if (wanted) {
+                    for (var w = 0; w < queue.length; w++) if (queue[w].key === wanted) { idx = w; break; }
+                    wanted = null;   // once: later reloads keep the card the owner moved to
+                    var sec = document.getElementById('mw-sam');
+                    if (sec && sec.scrollIntoView) setTimeout(function () { sec.scrollIntoView({ block: 'start' }); }, 0);
+                }
                 if (idx >= queue.length) idx = 0;
                 render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances();
             })
@@ -318,20 +326,30 @@
         if (!lbox) return;
         if (!leads.length && !maybes.length && !msg) { lbox.hidden = true; return; }
         lbox.hidden = false;
-        lbox.innerHTML = (leads.length ? '<div class="mw-sam-leads-head"><b>New leads</b> <small>best first — likely value, urgency and age</small></div>' : '') +
+        var bySignal = leads.length && leads[0].ranked_by === 'signal';
+        lbox.innerHTML = (leads.length ? '<div class="mw-sam-leads-head"><b>New leads</b> <small>' +
+                (bySignal ? 'ordered by what the CRM knows — no replies or opens logged yet, so no score is shown' : 'warmest first — replies, fit, urgency; then likely value') + '</small></div>' : '') +
             (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
             leads.slice(0, 5).map(function (l) {
                 var tags = [];
                 if (l.tier) tags.push(l.tier + ' value');
                 if (l.urgency === 'asap') tags.push('wants it soon');
                 if (l.source) tags.push(l.source);
-                return '<div class="mw-sam-lead' + (l.hot ? ' is-hot' : '') + '" data-l="' + l.id + '">' +
+                var bucket = l.bucket || 'qualified';
+                var chip = bucket === 'hot' ? 'hot' : bucket === 'unclear' ? 'unclear' : bucket === 'out_of_scope' ? 'not a fit' : '';
+                var why = (l.reasons || []).slice(0, 3).join(' · ');
+                var mailto = l.ask && l.email ? 'mailto:' + encodeURIComponent(l.email) + '?subject=' + encodeURIComponent('Your enquiry') + '&body=' + encodeURIComponent(l.ask) : '';
+                return '<div class="mw-sam-lead is-' + esc(bucket) + (l.hot ? ' is-hot' : '') + '" data-l="' + l.id + '">' +
                     '<div class="mw-sam-lead-main"><b>' + esc(l.name) + '</b> · ' + esc(l.services) +
                     (l.address ? ' <small>· ' + esc(l.address) + '</small>' : '') +
+                    (chip ? ' <span class="mw-sam-bucket">' + esc(chip) + '</span>' : '') +
+                    (!bySignal && typeof l.heat === 'number' ? ' <span class="mw-sam-heat" title="' + esc(why) + '">heat ' + l.heat + '</span>' : '') +
                     '<div class="mw-sam-next">' + esc(l.next) + '</div>' +
+                    (why ? '<small class="mw-sam-why">' + esc(why) + '</small>' : '') +
                     '<small class="mw-sam-meta">' + (l.age_days === 0 ? 'today' : l.age_days + ' day' + (l.age_days === 1 ? '' : 's') + ' old') +
                     (l.value > 0 ? ' · jobs like this average ' + money(l.value) : '') + (tags.length ? ' · ' + esc(tags.join(' · ')) : '') + '</small></div>' +
                     '<div class="mw-sam-lead-act">' +
+                    (mailto ? '<a class="mw-rc-ed" href="' + mailto + '" title="Opens a draft in your mail app — nothing is sent until you send it">' + (bucket === 'unclear' ? 'Ask' : 'Reply') + '</a>' : '') +
                     (l.phone ? '<a class="mw-rc-ed" href="tel:' + esc(l.phone.replace(/[^\d+]/g, '')) + '">Call</a>' : '') +
                     '<a class="mw-rc-ok" href="' + esc(l.url) + '">Start quote</a>' +
                     '<button type="button" class="mw-rc-sk" data-dismiss>Not a lead</button></div></div>';

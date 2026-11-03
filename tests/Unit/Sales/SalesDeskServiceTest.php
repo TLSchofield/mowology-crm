@@ -128,6 +128,35 @@ class SalesDeskServiceTest extends TestCase
         $this->assertSame('Quote visit booked Fri Oct 16, 8:15 am — measure there, then send the quote', $byId[$rows[1]['id']]);
     }
 
+    public function test_leads_carry_heat_bucket_and_reasons_and_a_reply_lifts_a_lead(): void
+    {
+        $avg = ['hedge trimming' => 400.0, 'all' => 600.0];
+        $rows = [
+            ['id' => 1, 'contact_id' => 11, 'service_types' => 'hedge_trimming', 'urgency' => 'inquiring', 'project_description' => '', 'created_at' => '2026-10-18 09:00:00',
+             'first_name' => 'Ann', 'last_name' => 'Lee', 'email' => 'a@x.ca', 'phone' => '', 'address' => '1 Oak St', 'city' => 'Vancouver', 'source' => 'website'],
+            ['id' => 2, 'contact_id' => 12, 'service_types' => 'hedge_trimming', 'urgency' => 'inquiring', 'project_description' => '', 'created_at' => '2026-10-18 09:00:00',
+             'first_name' => 'Bo', 'last_name' => '', 'email' => 'b@x.ca', 'phone' => '', 'address' => '2 Oak St', 'city' => 'Vancouver', 'source' => 'website'],
+            ['id' => 3, 'contact_id' => 13, 'service_types' => '', 'urgency' => 'inquiring', 'project_description' => 'hi', 'created_at' => '2026-10-19 09:00:00',
+             'first_name' => 'Cy', 'last_name' => '', 'email' => 'c@x.ca', 'phone' => '', 'address' => '', 'city' => '', 'source' => ''],
+        ];
+        $signals = [11 => ['available' => true, 'inbound_at' => '2026-10-19 12:00:00', 'outbound_at' => '2026-10-12 09:00:00', 'outbound_count' => 1, 'repeat' => false],
+                    12 => ['available' => true, 'inbound_at' => null, 'outbound_at' => '2026-10-19 20:00:00', 'outbound_count' => 1, 'repeat' => false]];
+        $r = SalesDeskService::rankLeads($rows, $avg, self::NOW, $signals);
+        $this->assertSame([1, 3, 2], array_column($r, 'id'));            // replied (45) > unclear, untouched (10) > we wrote to them last night (5)
+        $this->assertSame('heat', $r[0]['ranked_by']);
+        $this->assertSame('qualified', $r[0]['bucket']);
+        $this->assertContains('replied today', $r[0]['reasons']);
+        $this->assertSame('unclear', $r[1]['bucket']);
+        $this->assertStringStartsWith('Ask one thing — what work they need', $r[1]['next']);
+        $this->assertStringContainsString('What work are you after', $r[1]['ask']);
+        $this->assertContains('we wrote to them today', $r[2]['reasons']);
+
+        // No signals at all and the same service: flat → ordered by what the CRM knows, no number
+        $flat = SalesDeskService::rankLeads([$rows[0], $rows[1]], $avg, self::NOW);
+        $this->assertSame('signal', $flat[0]['ranked_by']);
+        $this->assertTrue($flat[0]['untouched']);
+    }
+
     public function test_jobflow_tags_are_read_from_the_description(): void
     {
         $d = 'Front yard [Classification: job_type:maintenance tier:high freq:weekly lawn_size:large priority:1]';

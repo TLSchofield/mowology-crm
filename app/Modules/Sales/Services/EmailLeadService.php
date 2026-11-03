@@ -48,6 +48,12 @@ class EmailLeadService
         'pruning' => '/\bprun(?:e|ing)\b|\btrim(?:ming)?\b/i',
     ];
 
+    /** The service tags this business offers (LeadScore fit / out-of-scope, 2026-11-03). @return string[] */
+    public static function serviceTags(): array
+    {
+        return array_keys(self::SERVICES);
+    }
+
     /** Words that ask for a price or a visit (kept for the score; intent is what gates). */
     private const ASK = '/\bquote\b|\bquotes\b|\bestimate\b|\bhow much\b|\bare you available\b|\bwould you be available\b|\bpricing\b|\bprice for\b|\bdo you (?:do|offer|service|provide)\b|\bcan you (?:quote|come|do|help)\b|\bcould you (?:quote|come|do)\b|\blooking for (?:someone|a|help)\b|\binterested in\b|\bneed (?:someone|help)\b/i';
 
@@ -235,8 +241,13 @@ class EmailLeadService
      * @param string[] $businessNames our names — "… for MOWOLOGY" in a subject is a pitch
      * @return string[] signal labels (empty = no pitch)
      */
-    public static function pitchSignals(string $subject, string $body, string $fromAddr = '', string $rawHeaders = '', array $businessNames = ['Mowology']): array
+    public static function pitchSignals(string $subject, string $body, string $fromAddr = '', string $rawHeaders = '', array $businessNames = []): array
     {
+        if (!$businessNames) {
+            require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+            $bn = BusinessIdentity::get()['name'];
+            $businessNames = $bn !== '' ? [$bn] : [];
+        }
         $out = [];
         foreach ($businessNames as $n) {
             $n = trim((string)$n);

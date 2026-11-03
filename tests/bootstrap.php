@@ -41,6 +41,7 @@ require_once __DIR__ . '/../app/Services/HeadLessons.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 
 // Sales — Sam, the sales head
+require_once __DIR__ . '/../app/Modules/Sales/Services/LeadScore.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamFollowupService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
