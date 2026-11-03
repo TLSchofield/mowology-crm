@@ -134,3 +134,16 @@ OPcache reset, System Health checked in Chrome, Charlie's brief line checked, po
   `checked_at`; "(checked 2:20 pm)" and "no run on record, ever" count as a time. The evidence row then
   names nothing on today's data and stays hidden, as the plan allowed.
 - G kept (it costs nothing and will speak when a new check forgets its date).
+- **Codex** (1 review, 6 findings): 4 real and fixed (acceptance outliving a turn to Critical; accepted risks still
+  reaching Charlie's urgent email; a missed cron's age counted from its last run instead of the missed line; a
+  non-atomic replace), 1 cheap and done (sort tie-breaker), 1 already fixed after the dry run (checked_at/red_since).
+- **Live (2026-11-03 14:35, Chrome + prod-run):** System Health shows levels (Critical 2, High 5, Medium 6, Low 8),
+  "— for 21 days" / "— for 17 days", "For you: 15 · For a developer session: 6 · Next: …", the access-review row with
+  its Reviewed button, Critical rows marked unacceptable; Accept buttons hidden until migration 1431 runs. The posture
+  cron ran twice by hand: `posture:backup-verified` green ("496 tables, matches the database") after the first
+  read-back heartbeat posted from the iMac; drift fell from 99 to **88** once the 21 stale manifest entries were
+  refreshed — the 88 are real differences between production and `feature/language` (backlog). Trend snapshot
+  written (`ada_daily_counts`: 8 red, 13 amber, 73 green). Ada's evidence row named one undated line ("90+ days"),
+  fixed and redeployed; the row is now hidden. Manifest recorded on every deploy today (`deploy-step.sh`).
+- **Not done by me:** migration 1431 (Tim runs migrations); the iMac backup agent still points at an old worktree, so
+  the nightly read-back waits for Tim to re-point it (Tim-To-Do).
