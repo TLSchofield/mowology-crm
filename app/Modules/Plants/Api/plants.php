@@ -67,6 +67,8 @@ try {
     require_once APP_ROOT . '/Modules/Plants/Services/PlantCareService.php';
     $svc = new PlantIdService($db);
     $care = new PlantCareService($db);
+    require_once APP_ROOT . '/Modules/Plants/Services/PruningPlanService.php';
+    $prune = new PruningPlanService($db);
     // A plant's care as the Plants card shows it: approved cards in full, a draft only as "waiting".
     $careOf = function (array $p) use ($care): ?array {
         $sci = (string)($p['scientific_name'] ?? '');
@@ -98,7 +100,8 @@ try {
             $pid = (int)($_GET['property_id'] ?? 0);
             $beds = array_map(fn($b) => ['id' => $b['id'], 'name' => $b['name'], 'type' => $b['type']], $svc->beds($pid));
             $plants = $svc->forProperty($pid);
-            foreach ($plants as &$p) $p['care'] = $care->ready() ? $careOf($p) : null;
+            $planStatus = $prune->statusByPlant($pid);
+            foreach ($plants as &$p) { $p['care'] = $care->ready() ? $careOf($p) : null; $p['plan'] = $planStatus[(int)$p['id']] ?? null; }
             unset($p);
             echo json_encode(['ok' => true, 'plants' => $plants, 'beds' => $beds, 'can_edit' => $canEdit, 'can_library' => $canLibrary,
                               'attribution' => PlantIdService::ATTRIBUTION, 'left_today' => max(0, PlantIdService::DAILY_CAP - $svc->usedToday())]);
@@ -160,6 +163,32 @@ try {
             echo json_encode(['ok' => true, 'can_edit' => $canLibrary, 'collected' => $got, 'groups_named' => PlantCareService::GROUPS, 'months' => PlantCareService::MONTHS] + $care->library());
             break;
         }
+        // ── Pruning plans (PruningPlanService, migration 1430) ─────────────────────
+        case 'pruning_get': {
+            $id = (int)($_GET['id'] ?? $input['id'] ?? 0);
+            $plantId = (int)($_GET['plant_id'] ?? $input['plant_id'] ?? 0);
+            if (!$prune->ready()) { echo json_encode(['ok' => false, 'error' => 'Pruning plans need migration 1430.']); break; }
+            $plan = $id > 0 ? $prune->get($id) : ($plantId > 0 ? $prune->forPlant($plantId) : null);
+            echo json_encode(['ok' => true, 'plan' => $plan, 'types' => PruningKnowledge::TYPES, 'can_edit' => $canEdit, 'can_draft' => $canLibrary]);
+            break;
+        }
+        case 'pruning_draft':
+            // Spends money (three photos to Claude): catalogue editors, like care_now.
+            if (!$canLibrary) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Ask an admin or manager (product catalogue permission).']); break; }
+            @set_time_limit(200);
+            echo json_encode($prune->draft((int)($input['plant_id'] ?? 0), $uid) + ['types' => PruningKnowledge::TYPES]);
+            break;
+        case 'pruning_approve':
+        case 'pruning_reject':
+        case 'pruning_anchors':
+        case 'pruning_badges':
+            if (!$canEdit) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'You can look but not change plans.']); break; }
+            $id = (int)($input['id'] ?? 0);
+            if ($mode === 'pruning_approve')      echo json_encode($prune->approve($id, $uid));
+            elseif ($mode === 'pruning_reject')  echo json_encode($prune->reject($id, $uid));
+            elseif ($mode === 'pruning_badges')  echo json_encode($prune->setAnchorsUsable($id, !empty($input['usable'])));
+            else                                 echo json_encode($prune->setAnchors($id, (array)($input['anchors'] ?? []), $uid));
+            break;
         case 'care_now':
             if (!$canLibrary) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Ask an admin or manager (product catalogue permission).']); break; }
             @set_time_limit(200);

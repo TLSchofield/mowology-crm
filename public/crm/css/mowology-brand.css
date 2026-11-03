@@ -41238,3 +41238,36 @@ body.mw-books {
 
 /* Quote create: Penny's payer notice above the terms (2026-11-03) */
 .mw-payer-notice { font-size: .82rem; color: var(--mw-dark); background: var(--mw-light); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
+
+/* ============================================================
+   Pruning plan (Plants card: PruningPlanService, plant-id.js, photo-markers.js) — 2026-11-03
+   ============================================================ */
+.mw-pmark-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.mw-pmark-wrap img { max-width: 100%; height: auto; display: block; border-radius: 6px; }
+.mw-pmark { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  background: var(--mw-green); color: #fff; font: 700 13px/26px var(--mw-font-sans, inherit); text-align: center;
+  border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); cursor: default; user-select: none; touch-action: none; }
+.mw-pmark[data-type="remove_ground"], .mw-pmark[data-type="deadwood"] { background: var(--mw-danger, #c0392b); }
+.mw-pmark[data-type="shorten"] { background: var(--mw-orange); }
+.mw-pmark[data-type="thin"] { background: var(--mw-dark); }
+.mw-pmark[data-type="clear_access"] { background: var(--mw-forest); }
+.mw-pmark[data-type="keep"] { background: var(--mw-lime); color: var(--mw-forest); }
+.mw-pmark.is-unsure { opacity: .55; border-style: dashed; }
+.mw-pmark.is-draggable { cursor: grab; }
+.mw-pmark.is-dragging { cursor: grabbing; transform: scale(1.15); }
+.mw-pmark.is-active { outline: 3px solid var(--mw-lime); outline-offset: 1px; }
+.mw-prune-legend { display: flex; flex-wrap: wrap; gap: .25rem .75rem; font-size: .8rem; margin: .5rem 0; }
+.mw-prune-legend .mw-pmark { position: static; display: inline-block; margin: 0 .3rem 0 0; vertical-align: middle; width: 16px; height: 16px; line-height: 16px; font-size: 0; }
+.mw-prune-actions { counter-reset: none; margin: 0; padding: 0; list-style: none; }
+.mw-prune-actions li { display: flex; gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--mw-light); font-size: .875rem; }
+.mw-prune-actions li:first-child { border-top: 0; }
+.mw-prune-actions li.is-active { background: var(--mw-light); }
+.mw-prune-actions .mw-pmark { position: static; flex: 0 0 26px; margin: 0; }
+.mw-prune-actions .mw-prune-why { color: var(--mw-text-muted, #6c757d); display: block; }
+.mw-prune-windows { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .5rem 0; }
+.mw-prune-window { border: 1px solid var(--mw-light); border-radius: 6px; padding: .5rem .75rem; font-size: .85rem; }
+.mw-prune-window b { display: block; color: var(--mw-dark); }
+.mw-prune-summary { background: var(--mw-light); border-left: 3px solid var(--mw-green); padding: .5rem .75rem; border-radius: 4px; font-size: .875rem; }
+.mw-prune-species-warn { font-size: .8rem; color: var(--mw-orange); }
+@media (max-width: 575px) { .mw-prune-windows { grid-template-columns: 1fr; } }
+

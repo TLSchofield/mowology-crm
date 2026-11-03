@@ -11,6 +11,9 @@ covers:
   - public/crm/suppliers/*
   - public/crm/js/supplier-stop.js
   - app/Modules/Team/Services/TimeclockFunctions.php
+  - app/Modules/Plants/Services/PruningPlanService.php
+  - app/Modules/Plants/Services/PruningKnowledge.php
+  - public/assets/js/photo-markers.js
   - app/Modules/Team/Services/TrackingIngestService.php
   - app/Modules/Team/Services/TrackingHealthService.php
   - app/Modules/Team/Api/team-mobile.php
