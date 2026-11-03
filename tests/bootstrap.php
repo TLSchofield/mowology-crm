@@ -208,6 +208,9 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieFactAnswere
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAskService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/AutomatedInvoiceInbox.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/ReminderGate.php';
 
 // Products
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
