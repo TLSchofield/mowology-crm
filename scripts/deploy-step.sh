@@ -14,7 +14,7 @@ case "$LOCAL" in
 esac
 DIR="$(dirname "$REMOTE")/"; NAME="$(basename "$REMOTE")"; TMP="$NAME.deploying"
 SIZE=$(stat -f %z "$LOCAL")
-run() { LFTP_PASSWORD="$(mw_ftp_password)" lftp --user "$(mw_ftp_user)" --env-password -e "$MW_LFTP_TLS $1; quit" "ftp://$MW_FTP_HOST" 2>&1; }
+run() { mw_lftp "$1; quit" 2>&1; }   # one shared-lib session per operation (TLS verification on, Keychain password)
 run "put -O '$DIR' '$LOCAL' -o '$TMP'" | grep -iE "error|not connected|fail" && { echo "PUT FAILED $LOCAL"; exit 1; }
 RS=$(run "cls -l '$DIR$TMP'" | awk '{print $4}' | tail -1)
 [ "$RS" = "$SIZE" ] || { echo "SIZE MISMATCH $LOCAL local=$SIZE remote=$RS"; exit 1; }

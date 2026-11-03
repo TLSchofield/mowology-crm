@@ -261,6 +261,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/SettlementStatusService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineReceipts.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BooksWatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PayerIdentityService.php';

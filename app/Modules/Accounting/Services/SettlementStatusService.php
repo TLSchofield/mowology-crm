@@ -54,7 +54,9 @@ final class SettlementStatusService
         $byRef = [];
         foreach ($bankLines as $i => $l) if (!empty($l['payout_ref'])) $byRef[(string)$l['payout_ref']] = $i;
 
-        foreach ($payouts as $p) {
+        // Pass 1: payouts booked by reference, and payouts with nothing to check yet.
+        $pending = [];   // payout index => row still to match
+        foreach ($payouts as $pi => $p) {
             $row = ['payout' => (string)$p['id'], 'amount' => round(((int)$p['amount']) / 100, 2), 'arrival' => (string)$p['arrival'],
                     'line_id' => null, 'line_date' => null, 'days_off' => null, 'status' => null];
             if (isset($byRef[(string)$p['id']])) {
@@ -62,28 +64,33 @@ final class SettlementStatusService
                 $usedLines[$byRef[(string)$p['id']]] = true;
                 $row['status'] = 'reconciled';
                 $row['line_id'] = (int)$l['id']; $row['line_date'] = (string)$l['date']; $row['days_off'] = self::days((string)$p['arrival'], (string)$l['date']);
-                $rows[] = $row; continue;
-            }
-            if ((string)($p['status'] ?? '') !== 'paid' || self::days((string)$p['arrival'], $today) < self::DATE_DAYS) {
-                $row['status'] = 'in_transit'; $rows[] = $row; continue;
-            }
-            // nearest line of the same cents, by date distance (booked-at-import lines count: that IS the settlement)
-            $best = null;
-            foreach ($bankLines as $i => $l) {
-                if (isset($usedLines[$i]) || !empty($l['payout_ref']) || (int)$l['cents'] !== (int)$p['amount']) continue;
-                $d = abs(self::days((string)$p['arrival'], (string)$l['date']));
-                if ($d > self::LATE_DAYS) continue;
-                if ($best === null || $d < $best[1]) $best = [$i, $d];
-            }
-            if ($best !== null) {
-                $l = $bankLines[$best[0]]; $usedLines[$best[0]] = true;
-                $row['line_id'] = (int)$l['id']; $row['line_date'] = (string)$l['date']; $row['days_off'] = $best[1];
-                $row['status'] = !empty($l['booked']) ? 'reconciled' : ($best[1] <= self::DATE_DAYS ? 'unreconciled_in_ledger' : 'date_mismatch');
+            } elseif ((string)($p['status'] ?? '') !== 'paid' || self::days((string)$p['arrival'], $today) < self::DATE_DAYS) {
+                $row['status'] = 'in_transit';
             } else {
-                $row['status'] = 'missing_in_ledger';
+                $pending[$pi] = true;
             }
-            $rows[] = $row;
+            $rows[$pi] = $row;
         }
+        // Pass 2: every (payout, same-cents line) pair within LATE_DAYS, nearest pairs assigned first across ALL payouts,
+        // so an early payout cannot take a later payout's only line when it had a closer one of its own (Codex review).
+        $pairs = [];
+        foreach ($pending as $pi => $_) {
+            $p = $payouts[$pi];
+            foreach ($bankLines as $li => $l) {
+                if (isset($usedLines[$li]) || !empty($l['payout_ref']) || (int)$l['cents'] !== (int)$p['amount']) continue;
+                $d = abs(self::days((string)$p['arrival'], (string)$l['date']));
+                if ($d <= self::LATE_DAYS) $pairs[] = [$d, $pi, $li];
+            }
+        }
+        usort($pairs, static function (array $a, array $b): int { return ($a[0] <=> $b[0]) ?: ($a[1] <=> $b[1]) ?: ($a[2] <=> $b[2]); });
+        foreach ($pairs as [$d, $pi, $li]) {
+            if (!isset($pending[$pi]) || isset($usedLines[$li])) continue;
+            $l = $bankLines[$li]; $usedLines[$li] = true; unset($pending[$pi]);
+            $rows[$pi]['line_id'] = (int)$l['id']; $rows[$pi]['line_date'] = (string)$l['date']; $rows[$pi]['days_off'] = $d;
+            $rows[$pi]['status'] = !empty($l['booked']) ? 'reconciled' : ($d <= self::DATE_DAYS ? 'unreconciled_in_ledger' : 'date_mismatch');
+        }
+        foreach ($pending as $pi => $_) $rows[$pi]['status'] = 'missing_in_ledger';
+        $rows = array_values($rows);
         foreach ($bankLines as $i => $l) {
             if (isset($usedLines[$i]) || !empty($l['booked'])) continue;
             if (($from !== null && (string)$l['date'] < $from) || ($to !== null && (string)$l['date'] > $to)) continue;   // margin line: another month's

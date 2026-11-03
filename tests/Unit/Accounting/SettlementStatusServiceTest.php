@@ -58,9 +58,20 @@ final class SettlementStatusServiceTest extends TestCase
         $r = SettlementStatusService::classify([$this->po('a', 10000, '2026-10-03'), $this->po('b', 10000, '2026-10-04')],
                                                 [$this->line(1, '2026-10-04', 10000), $this->line(2, '2026-10-04', 10001)], self::TODAY);
         $by = array_column(array_filter($r['rows'], fn($x) => $x['payout'] !== null), 'status', 'payout');
-        $this->assertSame('unreconciled_in_ledger', $by['a']);
-        $this->assertSame('missing_in_ledger', $by['b']);          // line 1 already taken, line 2 is a cent off
+        $this->assertSame('unreconciled_in_ledger', $by['b']);      // nearest pair first: b (same day) takes line 1
+        $this->assertSame('missing_in_ledger', $by['a']);            // line 2 is a cent off, so a has nothing
         $this->assertSame(1, $r['counts']['unmatched_deposit']);    // the 100.01 line
+    }
+
+    public function testNearestPairsAreAssignedAcrossAllPayoutsNotFirstComeFirstServed(): void
+    {
+        // Two $100 payouts (Oct 1, Oct 4) and two $100 lines (Oct 4, Oct 5): greedy-by-payout would give Oct 1 the Oct 4
+        // line (3 days) and leave Oct 4 with Oct 5; nearest-first gives Oct 4 → Oct 4 (0) and Oct 1 → Oct 5 (4 days).
+        $r = SettlementStatusService::classify([$this->po('early', 10000, '2026-10-01'), $this->po('late', 10000, '2026-10-04')],
+                                                [$this->line(1, '2026-10-04', 10000), $this->line(2, '2026-10-05', 10000)], self::TODAY);
+        $by = []; foreach ($r['rows'] as $x) if ($x['payout']) $by[$x['payout']] = [$x['status'], $x['line_id'], $x['days_off']];
+        $this->assertSame(['unreconciled_in_ledger', 1, 0], $by['late']);
+        $this->assertSame(['date_mismatch', 2, 4], $by['early']);
     }
 
     public function testBlockerWordingOnlyWhenSomeoneIsNeeded(): void
