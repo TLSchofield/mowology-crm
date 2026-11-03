@@ -64,7 +64,7 @@ final class MiaHarvestRulesTest extends TestCase
         $this->assertStringContainsString('ask the crew for finished-job photos', $r['say'][1]);
         $joined = implode("\n", $r['conflicts']);
         $this->assertStringContainsString('2 posts on 2026-11-04 about hedges', $joined);
-        $this->assertStringContainsString('dated in the past', $joined);
+        $this->assertStringContainsString('1 scheduled post is dated in the past (2026-10-20)', $joined);
         $this->assertStringContainsString('after its offer ends', $joined);
         $this->assertSame([], ContentMix::captionProblems('Before and after: hedges in Kitsilano this week. #vancouver #hedges'));
         $c = ContentMix::captionProblems('Exciting news! We are thrilled to announce our best in Vancouver service. Book now. Call today. #a #b #c #d');

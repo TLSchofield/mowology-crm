@@ -24,16 +24,17 @@ final class ContentMix
         [$perWeek, $email] = self::CADENCE[$team] ?? self::CADENCE['solo'];
         $t = strtotime($today);
         $horizonEnd = date('Y-m-d', strtotime($today . ' +' . self::HORIZON_DAYS . ' days'));
-        $published = 0; $scheduled = 0; $byDay = []; $mixCount = array_fill_keys(array_keys(self::TARGET), 0); $conf = []; $total = 0;
+        $published = 0; $scheduled = 0; $byDay = []; $mixCount = array_fill_keys(array_keys(self::TARGET), 0); $conf = []; $total = 0; $stale = [];
         foreach ($posts as $p) {
             $d = substr((string)($p['date'] ?? ''), 0, 10); if ($d === '') continue;
             $st = (string)($p['status'] ?? 'draft');
             if ($st === 'published' && ($lastRun === null || $d >= substr($lastRun, 0, 10))) $published++;
             if ($st === 'scheduled' && $d >= $today) { $scheduled++; $byDay[$d][] = $p; }
-            if ($st === 'scheduled' && strtotime((string)$p['date']) < $t) $conf[] = 'A scheduled post is dated in the past (' . $p['date'] . ') — it will never go';
+            if ($st === 'scheduled' && strtotime((string)$p['date']) < $t) $stale[] = $d;
             if (!empty($p['offer_ends']) && (string)$p['offer_ends'] < $d) $conf[] = 'An offer post on ' . $d . ' lands after its offer ends (' . $p['offer_ends'] . ')';
             if ($d >= $today && $d <= $horizonEnd && $st !== 'published') { $k = (string)($p['kind'] ?? 'useful'); if (isset($mixCount[$k])) { $mixCount[$k]++; $total++; } }
         }
+        if ($stale) { sort($stale); $conf[] = count($stale) . ' scheduled post' . (count($stale) === 1 ? ' is' : 's are') . ' dated in the past (' . $stale[0] . (count($stale) > 1 ? ' to ' . end($stale) : '') . ') — they will never go; clear or re-date them'; }   // one line, not one per post
         foreach ($byDay as $d => $list) {
             $svc = array_count_values(array_map(fn($p) => strtolower((string)($p['service'] ?? '')), $list));
             foreach ($svc as $s => $n) if ($s !== '' && $n > 1) $conf[] = "$n posts on $d about $s — one of them should move";
