@@ -121,6 +121,12 @@ final class PayerTone
         $what = count($invoices) === 1 ? 'Invoice ' . (string)($invoices[0]['invoice_number'] ?? '') : count($invoices) . ' invoices';
         $msg = "$brand: $what ($amount) overdue. Check your email to pay. Questions? (778) 846-9273.";
         if (strlen($msg) > 160) $msg = "$brand: $what overdue ($amount). Check email to pay. (778) 846-9273.";
+        if (strlen($msg) > 160) {   // a long invoice number or brand: shorten the variable part, the phone number must survive
+            $tail = ' overdue. Check email to pay. (778) 846-9273.';
+            $room = 160 - strlen("$brand: ") - strlen($tail);
+            $msg = "$brand: " . substr($what, 0, max(0, $room)) . $tail;
+            if (strlen($msg) > 160) $msg = substr($msg, -160);
+        }
         return $msg;
     }
 

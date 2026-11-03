@@ -13,7 +13,7 @@ declare(strict_types=1);
  * not a duplicate, and is never asked about; and nothing under MIN_AMOUNT is worth a question (an owner answers
  * four questions and ignores forty — plugin coding rule). TwinFinder still catches true doubles within 3 days.
  *
- * Pure and static. Receipts: {id, expense_date, total, vendor, status}; dismissals: [[a, b], …].
+ * Pure and static. Receipts: {id, expense_date, total, vendor, status}; dismissals: rows {expense_a, expense_b} or [a, b].
  */
 final class RepeatAmountFinder
 {
@@ -29,16 +29,27 @@ final class RepeatAmountFinder
         $active = array_values(array_filter($receipts, static function (array $r): bool {
             return in_array((string)($r['status'] ?? 'approved'), ['approved', 'forwarded'], true) && (float)($r['total'] ?? 0) >= self::MIN_AMOUNT;
         }));
-        $habit = [];
-        foreach ($active as $r) { $g = self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total']); $habit[$g] = ($habit[$g] ?? 0) + 1; }
-        $active = array_values(array_filter($active, static function (array $r) use ($habit): bool {
-            return $habit[self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total'])] < self::HABIT_COUNT;
+        // Habitual = HABIT_COUNT or more identical vendor+total within MAX_DAYS either side of this receipt
+        // (not across all time: three purchases a year apart are not a habit — Codex review; both sides, because
+        // Penny asks daily and the later charges exist by then).
+        $dates = [];
+        foreach ($active as $r) $dates[self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total'])][] = (string)$r['expense_date'];
+        $active = array_values(array_filter($active, static function (array $r) use ($dates): bool {
+            $g = self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total']);
+            $n = 0;
+            foreach ($dates[$g] as $d) {
+                if (abs(self::days($d, (string)$r['expense_date'])) <= self::MAX_DAYS) $n++;
+            }
+            return $n < self::HABIT_COUNT;
         }));
         usort($active, static function (array $a, array $b): int {
             return strcmp((string)$a['expense_date'], (string)$b['expense_date']) ?: ((int)$a['id'] <=> (int)$b['id']);
         });
         $dismissed = [];
-        foreach ($dismissals as $d) $dismissed[self::pairKey((int)$d[0], (int)$d[1])] = true;
+        foreach ($dismissals as $d) {
+            $a = (int)($d['expense_a'] ?? $d[0] ?? 0); $b = (int)($d['expense_b'] ?? $d[1] ?? 0);
+            if ($a && $b) $dismissed[self::pairKey($a, $b)] = true;
+        }
 
         $finds = [];
         $taken = [];   // newer id → one question only (its nearest earlier match)

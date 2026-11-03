@@ -127,6 +127,8 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertSame(28.3, $b['pct']);     // (0 + 33.3 + 50 + 30) / 4, one decimal
         $this->assertSame(0.0, CashFlowForecastService::band([], [])['pct']);
         $this->assertSame(0.0, CashFlowForecastService::band(['early' => [-20, 0, 1, -3]], ['early' => 100])['by_client']['early']);   // early = on time
+        // Even count: the median averages the two middle values (same convention as median()), so 0,0,10,30 → median 5 → 30 is off, 10 is not
+        $this->assertSame(0.25, CashFlowForecastService::band(['even' => [0, 0, 10, 30]], ['even' => 100])['by_client']['even']);
     }
 
     public function test_band_widens_only_the_money_in_cumulatively(): void

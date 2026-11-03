@@ -120,8 +120,7 @@ class CashFlowForecastService
             if ($inflow <= 0) continue;
             $lags = array_map(static function ($l): int { return max(0, (int)$l); }, $lagsByClient[$key] ?? []);
             if (count($lags) < 3) { $by[$key] = 0.30; continue; }
-            sort($lags);
-            $median = $lags[intdiv(count($lags), 2)];
+            $median = (float)self::median($lags);
             $off = 0;
             foreach ($lags as $l) if (abs($l - $median) > self::BAND_WEEK_DAYS) $off++;
             $pct = $off / count($lags);
@@ -383,8 +382,9 @@ class CashFlowForecastService
                 $doubtful[] = ['label' => $label, 'amount' => round((float)$inv['balance_due'], 2), 'days' => $pastDue, 'id' => (int)$inv['id']];
                 continue;
             }
-            $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$inv['balance_due'];
-            $events[] = ['date' => self::expectedPayDate($due, $lateDays, $today), 'amount' => (float)$inv['balance_due'],
+            $expected = self::expectedPayDate($due, $lateDays, $today);
+            if ($expected <= $until) $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$inv['balance_due'];   // band weight = money inside the horizon only
+            $events[] = ['date' => $expected, 'amount' => (float)$inv['balance_due'],
                          'kind' => 'invoice', 'label' => $label, 'id' => (int)$inv['id'],
                          // Late for THIS client: past due and past their own usual lateness (operating rules).
                          'late' => self::isLateForClient($pastDue, $lateDays),
@@ -409,6 +409,7 @@ class CashFlowForecastService
             $lateDays = $late[$key] ?? $globalLate;
             $date = date('Y-m-d', strtotime($v['date'] . ' +' . ($terms + $lateDays) . ' days'));
             if ($date > $until) continue;
+            $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$v['price'];
             $events[] = ['date' => $date, 'amount' => (float)$v['price'], 'kind' => 'visit_projected',
                          'label' => 'Expected visit ' . date('M j', strtotime($v['date'])) . ' · ' . ($v['address'] ?: 'job'),
                          'why' => "projected from the plan's schedule (not on the calendar yet)"];

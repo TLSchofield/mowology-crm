@@ -93,5 +93,8 @@ final class PayerToneTest extends TestCase
         self::assertStringContainsString('2 invoices ($3.00)', $two);
         self::assertLessThanOrEqual(160, strlen($two));
         self::assertDoesNotMatchRegularExpression('/https?:|www\.|\.ca\b|\.com\b/', $two);
+        $long = PayerTone::overdueSms([['invoice_number' => str_repeat('X', 80), 'balance_due' => 1234567.89]], str_repeat('B', 40));
+        self::assertLessThanOrEqual(160, strlen($long));
+        self::assertStringContainsString('846-9273', $long);
     }
 }

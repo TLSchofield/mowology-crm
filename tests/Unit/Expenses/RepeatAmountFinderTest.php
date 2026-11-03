@@ -19,8 +19,9 @@ final class RepeatAmountFinderTest extends TestCase
             $this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-09-01', 61.00),   // 31 days → question
             $this->r(4, '2026-12-15', 61.00),                                     // > 90 days after #6 → nothing (and makes $61 a trio, so…)
         ], []);
-        // $84 appears 3 times in the window → habitual, never asked; $61 appears 3 times too → also habitual
-        self::assertSame([], $f);
+        // $84 appears 3 times within 90 days → habitual, never asked; $61's third charge is 105 days after the second,
+        // so within #6's window there are only two → #6 asks about #5
+        self::assertSame([[6, 5]], array_map(static fn($x) => [$x['newer_id'], $x['older_id']], $f));
         $f = RepeatAmountFinder::find([$this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-08-03', 61.00), $this->r(7, '2026-09-01', 61.00, 'Rona')], []);
         self::assertSame([], $f);                                                 // #5/#6 are a twin (2 days); Rona is another vendor
         $f = RepeatAmountFinder::find([$this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-09-01', 61.00)], []);
@@ -36,6 +37,7 @@ final class RepeatAmountFinderTest extends TestCase
         $f = RepeatAmountFinder::find($rows, []);
         self::assertSame([[4, 1]], array_map(static fn($x) => [$x['newer_id'], $x['older_id']], $f));
         self::assertSame([], RepeatAmountFinder::find($rows, [[1, 4]]));
+        self::assertSame([], RepeatAmountFinder::find($rows, [['expense_a' => 4, 'expense_b' => 1, 'dismissed_by' => 7]]));   // the table's row shape
     }
 
     public function test_only_approved_or_forwarded_count_and_biggest_first(): void
@@ -55,6 +57,9 @@ final class RepeatAmountFinderTest extends TestCase
         self::assertSame([], $f);
         // Two is still a question
         self::assertCount(1, RepeatAmountFinder::find([$this->r(1, '2026-08-01', 200.00, 'Shell'), $this->r(2, '2026-08-20', 200.00, 'Shell')], []));
+        // Three a year apart are not a habit: the later pair still asks
+        $f = RepeatAmountFinder::find([$this->r(1, '2025-01-10', 200.00, 'Shell'), $this->r(2, '2026-08-01', 200.00, 'Shell'), $this->r(3, '2026-08-20', 200.00, 'Shell')], []);
+        self::assertSame([[3, 2]], array_map(static fn($x) => [$x['newer_id'], $x['older_id']], $f));
         // Under $25 never asks
         self::assertSame([], RepeatAmountFinder::find([$this->r(1, '2026-08-01', 20.00, 'Chevron'), $this->r(2, '2026-08-20', 20.00, 'Chevron')], []));
     }
