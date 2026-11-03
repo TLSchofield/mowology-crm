@@ -108,3 +108,34 @@ trades first. The AI back office is the edge.
 - Product scan (Tim 2026-10-29): when a line has no catalogue match or no unit size, offer "Scan the product" once per new product (barcode first for UPC / part number, label photo as fallback, read like a receipt). Optional; skipping keeps the line unlinked. A scan is the confirmation: it creates the catalogue product directly (no separate "Add to catalogue" tap) and links the line, after first looking up the barcode / part number so it never duplicates. New products start tenant-private and move to the shared layer when a second tenant scans the same barcode or an admin approves. Receipt text alone (no scan) still stays `open` until confirmed. Later purchases link without asking. Unchecked: whether the catalogue stores product photos, whether the phone apps can scan barcodes in the receipt flow.
 - Open: whether catalogue families are a code list or a table; whether the iPhone Review Receipt screen has a catalogue step (web only per surfaces.md, Swift not read); why only 24 of ~700 lines wrote a price row.
 - Tenant-neutral: no trade words in the schema or copy; the unit-size and family fields are shared, the prices stay private per tenant.
+
+## Mia harvest from the plugins (queued by Tim 2026-11-03, after Sam)
+- From the small-business map (`docs/plans/2026-11-03-small-business-skills-harvest.md`, piece 9 and the marketing rows):
+  social content mix 40% useful / 30% proof / 20% offer / 10% people; posts per week by team size (solo 2, with office help
+  3–4, with marketing help 5); caption = hook, benefit, CTA, 3–5 hashtags; email subject under 50 characters, 100–250 words;
+  staged times must be in the future; voice profile learned from 15–30 sent emails (greeting, sign-off, sentence length,
+  never-uses) and the banned-opener slop test; ad diagnostics (pause only after 30 days or 50 results, judge a new campaign
+  after 7 days, raise budget 20–30% at a time, dollar impact never percentages alone); review replies under 60 words;
+  content-strategy brief of 200–400 words (push / hold / reposition / seasonal / offers).
+- Not yet surveyed: the sibling `marketing` plugin (campaign-plan, content-creation, performance-report, brand-review,
+  competitive-brief) — survey like today's, then diff against `MiaCalendar`, `MiaSequenceService`, `MiaSocialService`,
+  `MiaWording`, `ReviewReplyDrafter`.
+
+## Head harvest queue (Tim, 2026-11-03): complete each head entirely, in this order
+1. **Sam** — in progress 2026-11-03 (client rhythm, comparables pricing, Penny→Sam payer terms, Sam→Penny pipeline line,
+   signals digest, renewal radar, tiering, lead response times, quote hygiene, objection replies).
+2. **Mia** — small-business pieces above + survey the sibling `marketing` plugin; diff against MiaCalendar / MiaSequenceService /
+   MiaSocialService / MiaWording / ReviewReplyDrafter / MiaCampaignService.
+3. **Ada** — `operations` plugin (runbook, risk-assessment, compliance-tracking, status-report, process-doc) and finance
+   `audit-support`/`sox-testing` evidence standards; diff against AdaSecurityRules / AdaSecurityWatch / BooksWatchService.
+4. **Otto** — `operations` plugin (capacity-plan, vendor-review, change-request) + small-business inventory/restock
+   (velocity, stockout, reorder maths, buffer = min(30, max(7, lead/2))), payroll-prep punch rules weekly on time_entries;
+   diff against OttoRules / OttoActionService / RecurringBillService / supplier lists.
+5. **Yui** — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
+   voice profile + slop test, outreach cadences (0/+4/+11/+21; never two sends in 48 h; trades 6–8 am or after 5 pm),
+   customer-support `ticket-triage` / `draft-response`; diff against YuiRules / YuiDraftService / IcloudInboxRouter.
+6. **Kaname (Charlie)** — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
+   before posting bad news), business-pulse rollup (worst section; forced red on named client + amount + deadline ≤ 7 d),
+   report-builder sanity checks (partial period, totals tie, "n/a — source" never an estimate), report-pack cadence;
+   diff against CharlieBriefService / CharlieRankService / CharlieUrgentService / HouseBriefAdapter.
+Pattern for each: survey → plan doc → pure classes + tests → wire → prod-run dry run → Codex → deploy → verify → vault + skill.

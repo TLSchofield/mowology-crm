@@ -23,6 +23,8 @@ require_once __DIR__ . '/SiteMinutesModel.php';
 require_once __DIR__ . '/DriveMinutesAdded.php';
 require_once __DIR__ . '/CloserRateCard.php';
 
+require_once __DIR__ . '/SalesDeskService.php';   // AMOUNT_SQL (comparables, 2026-11-03)
+
 class CloserService
 {
     public const ROUTE_WINDOW_DAYS = 28;
@@ -64,6 +66,33 @@ class CloserService
     // ── The quote panel ─────────────────────────────────────────────────────
 
     /** Everything the "Closer's price" panel shows for one quote. */
+    /**
+     * The 2–3 most recent accepted quotes for the same service, as a whole-job comparison with the arithmetic shown
+     * (ComparablePricing, 2026-11-03). Per-unit sizes are not stored on quotes, so size = 1 job and the median is of whole-job
+     * prices; the rate-card figure is the Closer's own price for this quote when it has one. Never writes.
+     */
+    public function comparables(int $quoteId, ?float $closerPrice): array
+    {
+        require_once __DIR__ . '/ComparablePricing.php';
+        try {
+            $q = $this->db->prepare("SELECT service_type FROM quotes WHERE id = ?"); $q->execute([$quoteId]);
+            $service = trim((string)$q->fetchColumn());
+            if ($service === '') return ComparablePricing::suggest([], 0, $closerPrice, 'job') + ['service' => ''];
+            $s = $this->db->prepare("SELECT q.quote_number, q.accepted_at, " . SalesDeskService::AMOUNT_SQL . " AS amount,
+                                            COALESCE(co.company_name, CONCAT(c.first_name, ' ', c.last_name)) AS who
+                                     FROM quotes q LEFT JOIN contacts c ON c.id = q.contact_id LEFT JOIN companies co ON co.id = q.company_id
+                                     WHERE q.status = 'accepted' AND q.id <> ? AND LOWER(TRIM(q.service_type)) = LOWER(?)
+                                       AND COALESCE(q.accepted_at, q.created_at) >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH)
+                                     ORDER BY COALESCE(q.accepted_at, q.created_at) DESC LIMIT 3");
+            $s->execute([$quoteId, $service]);
+            $rows = array_map(fn($r) => ['quote_number' => $r['quote_number'], 'who' => $r['who'], 'accepted_at' => $r['accepted_at'], 'size' => 1.0, 'amount' => (float)$r['amount']], $s->fetchAll(PDO::FETCH_ASSOC));
+            return ComparablePricing::suggest($rows, 1.0, $closerPrice, 'job') + ['service' => $service];
+        } catch (Throwable $e) {
+            error_log('Closer comparables: ' . $e->getMessage());
+            return ComparablePricing::suggest([], 0, $closerPrice, 'job') + ['service' => ''];
+        }
+    }
+
     public function forQuote(int $quoteId): array
     {
         $quote = $this->quoteRow($quoteId);

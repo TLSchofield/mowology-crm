@@ -41229,3 +41229,12 @@ body.mw-books {
 .mw-fd-pulse.is-green { background: var(--mw-green); }
 .mw-fd-pulse.is-yellow { background: var(--mw-orange); }
 .mw-fd-pulse.is-red { background: var(--mw-orange); box-shadow: 0 0 0 2px var(--mw-light); }
+
+/* Sam: objection hint on replies, quiet/renewal states (2026-11-03) */
+.mw-sam-obj { display: block; margin-top: 4px; font-size: .78rem; color: var(--mw-ink-500); }
+.mw-sam-obj summary { cursor: pointer; color: var(--mw-dark); }
+.mw-sam-obj-draft { white-space: pre-wrap; font: inherit; font-size: .78rem; background: var(--mw-light); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; color: var(--mw-ink-900); }
+.mw-sam-lead.is-gone .mw-sam-next, .mw-sam-lead.is-at_risk .mw-sam-next { color: var(--mw-orange); }
+
+/* Quote create: Penny's payer notice above the terms (2026-11-03) */
+.mw-payer-notice { font-size: .82rem; color: var(--mw-dark); background: var(--mw-light); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }

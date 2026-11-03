@@ -42,6 +42,12 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 
 // Sales — Sam, the sales head
 require_once __DIR__ . '/../app/Modules/Sales/Services/LeadScore.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/RenewalRadar.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ClientTier.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ObjectionReply.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamFollowupService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';

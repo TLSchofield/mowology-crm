@@ -90,6 +90,9 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
     <?php endif; ?>
 
     <div class="card mb-3"><div class="card-body">
+        <?php $pl = $f['pipeline'] ?? null; if ($pl && ($pl['count'] ?? 0) > 0): $wk = array_slice($pl['by_week'], 0, 3, true); ?>
+        <p class="small text-muted mb-3"><strong>Sam's open quotes (not in the lines above):</strong> <?= (int)$pl['count'] ?> for <?= $money($pl['total']) ?>. <?php if ($pl['win_rate'] !== null): ?>At his <?= (int)$pl['win_rate'] ?>% win rate about <?= $money($pl['weighted']) ?> would land<?php if ($wk): ?>, mostly the weeks of <?= h(implode(', ', array_map(fn($d) => date('M j', strtotime($d)), array_keys($wk)))) ?><?php endif; ?>. <?php else: ?><?= h($pl['basis']) ?>. <?php endif; ?></p>
+        <?php endif; ?>
         <h2 class="h6 mb-2">Week by week</h2>
         <div class="table-responsive">
         <table class="table table-sm mw-cf-table">

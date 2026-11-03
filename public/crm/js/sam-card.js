@@ -27,6 +27,9 @@
     if (!root) return;
     var qbox = document.getElementById('mw-sq');
     var lbox = document.getElementById('mw-sam-leads');
+    var qbox = document.getElementById('mw-sam-quiet');      // quiet clients (ClientRhythm, 2026-11-03)
+    var nbox = document.getElementById('mw-sam-renewals');   // renewal radar
+    var hbox = document.getElementById('mw-sam-hygiene');    // open quotes not fit to chase
     var abox = document.getElementById('mw-sam-asks');
     var rbox = document.getElementById('mw-sam-replies');
     var apbox = document.getElementById('mw-sam-approved');
@@ -48,6 +51,7 @@
     var SMS_MAX = 160;
 
     var queue = [], leads = [], questions = [];
+    var quiet = [], renewals = [], hygiene = [];
     var maybes = [];         // enquiries from email the rules weren't sure about (desk.maybe_leads)
     var texts = null;        // messages bridge heartbeat {at, silent, minutes}, null = not set up
     var idx = 0, busy = false;
@@ -98,6 +102,7 @@
             .then(function (d) {
                 if (!d || !d.ok) { root.innerHTML = '<div class="mw-rc-empty">Sam isn\'t set up yet.</div>'; return; }
                 queue = d.queue || []; leads = d.leads || []; questions = d.questions || []; texts = d.texts || null;
+                quiet = d.quiet || []; renewals = d.renewals || []; hygiene = d.hygiene || [];
                 asks = d.asks || { replied: [], silent: [], drafts: 0 };
                 replies = d.unclaimed || [];
                 maybes = d.maybe_leads || [];
@@ -110,7 +115,7 @@
                     if (sec && sec.scrollIntoView) setTimeout(function () { sec.scrollIntoView({ block: 'start' }); }, 0);
                 }
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances();
+                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances(); renderQuiet(); renderRenewals(); renderHygiene();
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
     }
@@ -289,7 +294,8 @@
                     '<div class="mw-sam-reply-main">' + (r.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') +
                     '<b>' + esc(r.name) + '</b> ' + (r.channel === 'sms' ? 'texted' : 'replied') +
                     (r.quote ? ' <q>' + esc(r.quote) + '</q>' : '') +
-                    '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' +
+                    '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' + +
+                    (r.objection && r.objection !== 'unclear' ? '<details class="mw-sam-obj"><summary>Reads like a ' + esc(r.objection.replace('_', ' ')) + ' objection — a reply in shape</summary><pre class="mw-sam-obj-draft">' + esc(r.objection_reply || '') + '</pre></details>' : '')
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="' + esc(r.url) + '">Open</a>' +
                     '<button type="button" class="mw-rc-sk" data-handled>Handled</button></div></div>';
             }).join('');
@@ -322,6 +328,44 @@
     });
 
     // ── Leads ────────────────────────────────────────────────────────────
+    function renderQuiet() {
+        if (!qbox) return;
+        if (!quiet.length) { qbox.hidden = true; return; }
+        qbox.hidden = false;
+        qbox.innerHTML = '<div class="mw-sam-leads-head"><b>Gone quiet</b> <small>against their own rhythm — a no-pitch check-in is drafted, nothing is sent</small></div>' +
+            quiet.map(function (q) {
+                var mailto = q.email && q.draft ? 'mailto:' + encodeURIComponent(q.email) + '?subject=' + encodeURIComponent(q.draft.subject) + '&body=' + encodeURIComponent(q.draft.body) : '';
+                return '<div class="mw-sam-lead is-' + esc(q.state) + '"><div class="mw-sam-lead-main"><b>' + esc(q.name) + '</b> <span class="mw-sam-bucket">' + esc(q.state) + '</span>' +
+                    (q.tier ? ' <span class="mw-sam-heat" title="fit ' + q.tier.fit + ' / engagement ' + q.tier.engagement + ', cutoff ' + q.tier.cutoff + '">tier ' + esc(q.tier.tier) + '</span>' : '') +
+                    '<div class="mw-sam-next">' + esc(q.reason) + '</div>' +
+                    '<small class="mw-sam-meta">worth ' + money(q.spend_12m) + ' a year' + (q.tier ? ' · ' + esc(q.tier.motion) : '') + '</small></div>' +
+                    '<div class="mw-sam-lead-act">' + (mailto ? '<a class="mw-rc-ed" href="' + mailto + '" title="Opens a draft in your mail app — nothing is sent until you send it">Check in</a>' : '') +
+                    '<a class="mw-rc-ok" href="' + esc(q.url) + '">Open</a></div></div>';
+            }).join('');
+    }
+    function renderRenewals() {
+        if (!nbox) return;
+        if (!renewals.length) { nbox.hidden = true; return; }
+        nbox.hidden = false;
+        nbox.innerHTML = '<div class="mw-sam-leads-head"><b>Renewals ahead</b> <small>120 days out is a process; two weeks out is a discount</small></div>' +
+            renewals.map(function (r) {
+                return '<div class="mw-sam-lead is-' + esc(r.verdict) + '"><div class="mw-sam-lead-main"><b>' + esc(r.name) + '</b> · ' + esc(r.contract_number) + ' <span class="mw-sam-bucket">' + esc(r.verdict.replace('_', ' ')) + '</span>' +
+                    '<div class="mw-sam-next">renews ' + esc(r.renewal_date) + ' (' + r.days_left + ' days)' + (r.risk_up.length ? ' — ' + esc(r.risk_up.join(', ')) : '') + '</div>' +
+                    '<small class="mw-sam-meta">talk by ' + esc(r.timeline.talk) + ' · terms out ' + esc(r.timeline.terms) + ' · signed by ' + esc(r.timeline.signed) + ' · about ' + money(r.annual_amount) + ' a year</small></div>' +
+                    '<div class="mw-sam-lead-act"><a class="mw-rc-ok" href="' + esc(r.url) + '">Open</a></div></div>';
+            }).join('');
+    }
+    function renderHygiene() {
+        if (!hbox) return;
+        if (!hygiene.length) { hbox.hidden = true; return; }
+        hbox.hidden = false;
+        hbox.innerHTML = '<div class="mw-sam-leads-head"><b>Not fit to chase</b> <small>fix these before a follow-up goes out</small></div>' +
+            hygiene.map(function (q) {
+                return '<div class="mw-sam-lead"><div class="mw-sam-lead-main"><b>' + esc(q.quote_number) + '</b> · ' + esc(q.name) + '<div class="mw-sam-next">' + esc(q.why) + '</div></div>' +
+                    '<div class="mw-sam-lead-act"><a class="mw-rc-ok" href="' + esc(q.url) + '">Open</a></div></div>';
+            }).join('');
+    }
+
     function renderLeads(msg) {
         if (!lbox) return;
         if (!leads.length && !maybes.length && !msg) { lbox.hidden = true; return; }
@@ -335,6 +379,7 @@
                 if (l.tier) tags.push(l.tier + ' value');
                 if (l.urgency === 'asap') tags.push('wants it soon');
                 if (l.source) tags.push(l.source);
+                if (l.respond_by) tags.push('reply ' + l.respond_by);
                 var bucket = l.bucket || 'qualified';
                 var chip = bucket === 'hot' ? 'hot' : bucket === 'unclear' ? 'unclear' : bucket === 'out_of_scope' ? 'not a fit' : '';
                 var why = (l.reasons || []).slice(0, 3).join(' · ');

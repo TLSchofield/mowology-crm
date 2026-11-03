@@ -484,8 +484,14 @@ class CashFlowForecastService
         foreach ($f['weeks'] as $i => &$w) $w['safe_to_pay'] = $safe[$i] ?? 0.0;
         unset($w);
         $notes[] = 'Tax is paid when cash allows, so no instalments are scheduled. "Could spare" shows what each week can put toward tax without the like-last-year balance dropping under the floor later.';
+        // Sam → Penny (2026-11-03): what the open quotes would bring at Sam's win rate — its own sentence, never in the booked line.
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/SalesDeskService.php';
+            $f_pipeline = (new SalesDeskService($this->db))->pipeline($terms, $globalLate, $today);
+        } catch (Throwable $e) { $f_pipeline = null; error_log('[CashFlow] pipeline: ' . $e->getMessage()); }
         $band = self::band($this->lastLags, $inflowByClient);
         $f['band'] = $band;
+        $f['pipeline'] = $f_pipeline;
         $f['weeks'] = self::applyBand($f['weeks'], (float)$opening['balance'], $band['pct']);
         if ($band['thin']) $notes[] = 'Some clients\' payment timing is too uneven to model (band capped at ±50%): treat their money in as a guess, not a date.';
         $f['opening_as_of'] = $opening['as_of'];

@@ -137,6 +137,9 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
     <div class="mw-sam-leads mw-sam-asks" id="mw-sam-asks" hidden></div>
 
     <div class="mw-sam-leads" id="mw-sam-leads" hidden></div>
+    <div class="mw-sam-leads" id="mw-sam-renewals" hidden></div>
+    <div class="mw-sam-leads" id="mw-sam-quiet" hidden></div>
+    <div class="mw-sam-leads" id="mw-sam-hygiene" hidden></div>
 
     <div class="mw-head-foot">
       <span>Learning from every follow-up you send, edit or skip · I never send anything myself</span>

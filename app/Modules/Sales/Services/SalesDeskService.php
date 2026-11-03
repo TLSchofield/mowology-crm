@@ -21,6 +21,10 @@
 require_once dirname(__DIR__, 2) . '/Quotes/Services/QuoteService.php'; // colourState()
 require_once __DIR__ . '/LeadScore.php';                                // heat, buckets, flat guard (2026-11-03)
 require_once __DIR__ . '/EmailLeadService.php';                         // serviceTags(): what we offer
+require_once __DIR__ . '/ClientRhythm.php';     // quiet / gone clients against their own rhythm (2026-11-03)
+require_once __DIR__ . '/ClientTier.php';
+require_once __DIR__ . '/RenewalRadar.php';
+require_once __DIR__ . '/SamSignals.php';
 
 class SalesDeskService
 {
@@ -522,6 +526,161 @@ class SalesDeskService
         return $out;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Harvested 2026-11-03: quiet clients, renewals, hygiene, pipeline (see docs/plans/2026-11-03-penny-harvest.md "Next for Sam")
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Season switch: ops_settings business_seasonal (default on) with season months 3–11 unless season_start/end_month say otherwise. */
+    private function inSeason(?string $today = null): bool
+    {
+        $m = (int)date('n', strtotime($today ?: date('Y-m-d')));
+        $start = 3; $end = 11; $seasonal = true;
+        try {
+            $st = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('business_seasonal','season_start_month','season_end_month')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            if (isset($st['business_seasonal'])) $seasonal = $st['business_seasonal'] !== '0';
+            if (!empty($st['season_start_month'])) $start = (int)$st['season_start_month'];
+            if (!empty($st['season_end_month'])) $end = (int)$st['season_end_month'];
+        } catch (Throwable $e) { /* defaults */ }
+        return !$seasonal || ($m >= $start && $m <= $end);
+    }
+
+    /**
+     * Clients gone quiet against THEIR OWN rhythm (ClientRhythm): purchases = invoices issued in the last 24 months, keyed by
+     * payer (company, else client, else contact); ranked by 12-month spend; each with a tier (ClientTier) and a first win-back
+     * draft that does not pitch. Read-only.
+     */
+    public function quietClients(int $limit = 6, ?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        try {
+            $rows = $this->db->query("
+                SELECT i.issue_date, " . self::AMOUNT_SQL_INV . " AS amt, i.company_id, i.client_id, i.contact_id,
+                       c.company_name, ct.first_name, ct.last_name, COALESCE(c.email, ct.email) AS email, p.city
+                FROM invoices i LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN contacts ct ON ct.id = i.contact_id
+                LEFT JOIN properties p ON p.id = i.property_id
+                WHERE i.status NOT IN ('draft','cancelled','void') AND i.issue_date >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH)
+                  AND CONCAT_WS(' ', ct.first_name, ct.last_name, c.company_name) NOT LIKE '%ZZTEST%'")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            error_log('Sam quiet clients: ' . $e->getMessage());
+            return [];
+        }
+        $clients = []; $cities = [];
+        $cut = date('Y-m-d', strtotime($today . ' -12 months'));
+        foreach ($rows as $r) {
+            $key = !empty($r['company_id']) ? 'company:' . (int)$r['company_id'] : (!empty($r['client_id']) ? 'client:' . (int)$r['client_id'] : 'contact:' . (int)$r['contact_id']);
+            $c = &$clients[$key];
+            $c['name'] = $c['name'] ?? ((string)($r['company_name'] ?: trim((string)$r['first_name'] . ' ' . (string)$r['last_name'])) ?: 'Client');
+            $c['first_name'] = $c['first_name'] ?? (string)($r['company_name'] ? '' : $r['first_name']);
+            $c['email'] = $c['email'] ?? (string)($r['email'] ?? '');
+            $c['purchases'][] = (string)$r['issue_date'];
+            if ((string)$r['issue_date'] >= $cut) $c['spend_12m'] = ($c['spend_12m'] ?? 0) + (float)$r['amt'];
+            if (!empty($r['city'])) { $c['city'] = $c['city'] ?? (string)$r['city']; $cities[(string)$r['city']][$key] = true; }
+            unset($c);
+        }
+        $quiet = array_slice(ClientRhythm::find($clients, $today, $this->inSeason($today)), 0, max(1, $limit));
+        $open = [];
+        try {
+            foreach ($this->db->query("SELECT company_id, contact_id, COUNT(*) n FROM quotes WHERE status IN ('sent','viewed') GROUP BY company_id, contact_id")->fetchAll(PDO::FETCH_ASSOC) as $q) {
+                $open[!empty($q['company_id']) ? 'company:' . (int)$q['company_id'] : 'contact:' . (int)$q['contact_id']] = (int)$q['n'];
+            }
+        } catch (Throwable $e) { /* no open-work signal */ }
+        $signoff = self::ownerName((array)(function_exists('getCurrentUser') ? (getCurrentUser() ?? []) : []));
+        foreach ($quiet as &$q) {
+            $city = $clients[$q['key']]['city'] ?? null;
+            $q['tier'] = ClientTier::score([
+                'recurring' => $q['n'] >= 4, 'on_route' => $city !== null && count($cities[$city] ?? []) >= 4, 'priced_service' => true,
+                'open_work' => !empty($open[$q['key']]), 'last_activity' => $q['last'], 'contacts' => 1,
+            ], $today);
+            $q['draft'] = ClientRhythm::firstMessage($q, $signoff ?: 'Mowology');
+            $q['url'] = strpos($q['key'], 'company:') === 0 ? '/crm/companies_appstack.php?id=' . (int)substr($q['key'], 8) : (strpos($q['key'], 'contact:') === 0 ? '/crm/contacts_appstack.php?id=' . (int)substr($q['key'], 8) : '/crm/clients_appstack.php');
+        }
+        unset($q);
+        return $quiet;
+    }
+
+    /** Contracts renewing inside the radar window with a verdict (RenewalRadar). Read-only. */
+    public function renewals(?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        if (!$this->hasTable('contracts')) return [];
+        try {
+            $auto = $this->hasColumn('contracts', 'auto_renew') ? 'c.auto_renew' : '0 AS auto_renew';
+            $rows = $this->db->prepare("
+                SELECT c.id, c.contract_number, c.title, c.renewal_date, c.billing_amount, c.billing_cycle, c.contact_id, c.property_id, $auto,
+                       COALESCE(co.company_name, CONCAT(ct.first_name, ' ', ct.last_name)) AS name,
+                       (SELECT MAX(m.sent_at) FROM sales_messages m WHERE m.contact_id = c.contact_id) AS last_activity
+                FROM contracts c LEFT JOIN contacts ct ON ct.id = c.contact_id
+                LEFT JOIN properties p ON p.id = c.property_id LEFT JOIN companies co ON co.id = COALESCE(p.company_id, ct.company_id)
+                WHERE c.status = 'active' AND c.renewal_date IS NOT NULL AND c.renewal_date BETWEEN DATE_SUB(?, INTERVAL 30 DAY) AND DATE_ADD(?, INTERVAL ? DAY)");
+            $rows->execute([$today, $today, RenewalRadar::WINDOW_DAYS]);
+            $per = ['monthly' => 12, 'weekly' => 52, 'biweekly' => 26, 'quarterly' => 4, 'annual' => 1, 'yearly' => 1, 'seasonal' => 1, 'one_time' => 1];
+            $in = [];
+            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $in[] = ['id' => (int)$r['id'], 'contract_number' => (string)$r['contract_number'], 'name' => (string)($r['name'] ?: $r['title']), 'renewal_date' => (string)$r['renewal_date'],
+                         'annual_amount' => (float)$r['billing_amount'] * ($per[strtolower((string)$r['billing_cycle'])] ?? 1), 'auto_renew' => !empty($r['auto_renew']),
+                         'last_activity' => $r['last_activity'] ? substr((string)$r['last_activity'], 0, 10) : null, 'open_complaint' => false, 'signer_changed' => false, 'expansion' => false];
+            }
+            $out = RenewalRadar::scan($in, $today);
+            foreach ($out as &$o) $o['url'] = '/crm/contracts/view.php?id=' . $o['id'];
+            unset($o);
+            return $out;
+        } catch (Throwable $e) {
+            error_log('Sam renewals: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Open quotes that are not fit to chase: no amount, or no service named (sales-plugin hygiene). */
+    public function hygiene(): array
+    {
+        $out = [];
+        foreach ($this->openQuotes() as $q) {
+            $why = [];
+            if ((float)($q['amount'] ?? 0) <= 0) $why[] = 'no amount';
+            if (trim((string)($q['service_type'] ?? '')) === '') $why[] = 'no service named';
+            if ($why) $out[] = ['id' => (int)$q['id'], 'quote_number' => (string)$q['quote_number'], 'name' => trim((string)($q['first_name'] ?? '') . ' ' . (string)($q['last_name'] ?? '')) ?: (string)($q['company_name'] ?? 'Client'), 'why' => implode(', ', $why), 'url' => '/crm/quotes/view.php?id=' . (int)$q['id']];
+        }
+        return $out;
+    }
+
+    /** Open quotes expiring within SamSignals::EXPIRY_DAYS with no reply on record. */
+    public function expiringQuotes(?string $today = null): array
+    {
+        $t = strtotime($today ?: date('Y-m-d'));
+        $out = [];
+        foreach ($this->openQuotes() as $q) {
+            if (empty($q['valid_until'])) continue;
+            $left = (int)floor((strtotime((string)$q['valid_until']) - $t) / 86400);
+            if ($left <= SamSignals::EXPIRY_DAYS) $out[] = ['quote_number' => (string)$q['quote_number'], 'name' => trim((string)($q['first_name'] ?? '') . ' ' . (string)($q['last_name'] ?? '')) ?: (string)($q['company_name'] ?? 'Client'), 'amount' => (float)$q['amount'], 'days_left' => $left];
+        }
+        return $out;
+    }
+
+    /**
+     * Sam → Penny: what the open quotes would bring in if they land at Sam's win rate, by week (CashFlowForecastService shows it
+     * as its own sentence, never inside the booked line). Expected date = sent + days-to-yes + terms + the usual lateness.
+     */
+    public function pipeline(int $termsDays, int $lateDays, ?string $today = null): array
+    {
+        $today = $today ?: date('Y-m-d');
+        $st = $this->stats();
+        $win = $st['win_rate'] !== null ? (float)$st['win_rate'] / 100 : null;
+        $days = (int)round((float)($st['avg_days'] ?? 0));
+        $open = $this->openQuotes();
+        $total = 0.0; $weighted = 0.0; $byWeek = [];
+        foreach ($open as $q) {
+            $amt = (float)$q['amount']; $total += $amt;
+            if ($win === null) continue;
+            $exp = date('Y-m-d', strtotime(substr((string)$q['sent_at'], 0, 10) . ' +' . ($days + $termsDays + $lateDays) . ' days'));
+            if ($exp < $today) $exp = $today;
+            $wk = date('Y-m-d', strtotime('monday this week', strtotime($exp)));
+            $byWeek[$wk] = ($byWeek[$wk] ?? 0) + $amt * $win;
+            $weighted += $amt * $win;
+        }
+        ksort($byWeek);
+        return ['count' => count($open), 'total' => round($total, 2), 'win_rate' => $st['win_rate'], 'weighted' => round($weighted, 2), 'by_week' => array_map(fn($v) => round($v, 2), $byWeek), 'basis' => $win === null ? 'no win rate yet (fewer than the minimum decided quotes)' : 'win rate over the last 12 months × open quotes, dated by the average days to a yes plus terms'];
+    }
+
     /** Average accepted quote by service (last 24 months), plus an 'all' fallback. */
     public function averageByService(): array
     {
@@ -566,6 +725,17 @@ class SalesDeskService
         $cards = $this->queue();
         $leads = $this->leads(3);
         $items = [];
+        // The digest (SamSignals): only threshold crossings; an empty one is the good news.
+        $quiet = []; $renewals = []; $expiring = [];
+        try { $quiet = $this->quietClients(4); $renewals = $this->renewals(); $expiring = $this->expiringQuotes(); } catch (Throwable $e) { error_log('Sam brief extras: ' . $e->getMessage()); }
+        foreach ($renewals as $r) {
+            if ($r['verdict'] === 'on_track') continue;
+            $items[] = ['key' => 'sam:renewal:' . $r['id'], 'kind' => 'renewal', 'value' => $r['annual_amount'], 'since' => null, 'text' => 'Renewal ' . $r['text'], 'url' => $r['url'], 'priority' => $r['verdict'] === 'at_risk' ? 1 : 2];
+        }
+        foreach ($quiet as $q) {
+            $items[] = ['key' => 'sam:quiet:' . $q['key'], 'kind' => 'quiet_client', 'value' => $q['spend_12m'], 'since' => $q['last'],
+                        'text' => $q['name'] . ' has gone ' . $q['state'] . ' — ' . $q['reason'] . ' (worth $' . number_format($q['spend_12m'], 0) . ' a year; a no-pitch check-in is drafted)', 'url' => $q['url'], 'priority' => $q['state'] === 'gone' && $q['spend_12m'] >= SamSignals::GONE_WORTH ? 1 : 2];
+        }
         foreach (array_slice($cards, 0, 3) as $c) {
             $items[] = [
                 'key'      => 'sam:contact:' . $c['key'],
@@ -612,6 +782,8 @@ class SalesDeskService
             ? $replied . ' customer' . ($replied === 1 ? '' : 's') . ' wrote back and ' . ($replied === 1 ? 'is' : 'are') . ' waiting on you'
             : (count($cards) > 0 ? count($cards) . ' follow-up' . (count($cards) === 1 ? '' : 's') . ' due · ' . self::money($amount) . ' waiting'
                                  : 'No quotes need a nudge today'));
+        $digest = SamSignals::digest($cards, [], $leads, $quiet, $expiring);
+        if (!$digest['today'] && !$digest['week']) $headline .= ' ' . $digest['line'];
         return ['head' => 'sam', 'headline' => $headline, 'items' => $items, 'count' => count($cards) + count($leads) + count($unclaimed)];
     }
 
@@ -874,6 +1046,7 @@ class SalesDeskService
                 'hot'       => $hot,
                 'heat'      => $heat['heat'],
                 'bucket'    => $heat['bucket'],
+                'respond_by' => ['hot' => 'today', 'qualified' => 'within 48 hours', 'unclear' => 'this week', 'out_of_scope' => 'this week'][$heat['bucket']] ?? 'this week',   // sales-plugin SLAs
                 'reasons'   => $heat['reasons'],
                 'ask'       => $heat['ask'],
                 'untouched' => $heat['untouched'],

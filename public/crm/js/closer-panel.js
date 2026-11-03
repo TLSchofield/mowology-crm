@@ -97,6 +97,11 @@
              ' · minimum visit ' + money(c.min_visit) + '</p>';
         h += '<p class="mw-closer-note">' + esc(d.note) + '</p>';
         if (d.admin) h += '<button type="button" class="btn btn-sm btn-outline-secondary mw-closer-edit">Rate card</button><div class="mw-closer-form"></div>';
+        if (d.comparables) {   // whole-job comparables with the arithmetic shown (ComparablePricing, 2026-11-03)
+            var cp = d.comparables;
+            h += '<div class="mw-closer-comparables"><div class="mw-closer-basis"><b>Jobs like it' + (cp.service ? ' (' + esc(cp.service) + ')' : '') + ':</b> ' + esc(cp.arithmetic) + '</div>' +
+                 (cp.flag ? '<div class="mw-closer-alert">' + esc(cp.flag) + '</div>' : '') + '</div>';
+        }
         body.innerHTML = h;
         var btn = body.querySelector('.mw-closer-edit');
         if (btn) btn.addEventListener('click', function () { openForm(d); });
