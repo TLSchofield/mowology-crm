@@ -192,3 +192,18 @@ piece 8 quote pricing from 2–3 comparables with the arithmetic shown and a >15
 the voice profile. Two head-to-head links worth building: Penny's payer habit → Sam's quote terms (slow payers get a deposit
 line), Sam's hot pipeline → Penny's forecast. Not yet surveyed: the sibling sales plugin (win-loss review, renewal radar, deal
 signals, customer health, call prep, objection handling) — a second survey like today's would say which rules are new.
+
+## Sam finished 2026-11-03 (Tim: "finish Sam", "complete them entirely")
+Built and live: **ClientRhythm** (quiet > 2× / gone > 3× the client's own median purchase gap from invoices, off-season gaps
+ignored, in-season switch from `ops_settings business_seasonal` + season months; ranked by 12-month spend; a no-pitch "Checking
+in" draft; `ClientTier` fit × engagement with a stated cutoff and a motion) on Sam's card and in Charlie's brief; **RenewalRadar**
+(120 days, 90 for small contracts; risk up on 30+ days' silence, verdict, −90/−45/−14 timeline) from `contracts`; **quote
+hygiene** (no amount / no service); **SamSignals** digest headline (empty = success); **ObjectionReply** hints with a 3–5 sentence
+draft on unanswered replies; **ComparablePricing** beside the Closer's price (whole-job comparables, median, >15% rate-card flag);
+**Penny → Sam** payer notice above the terms on quote create (tone + p75 lag; "consider a deposit line" when firm or ≥21 days);
+**Sam → Penny** pipeline sentence on the cash-flow page (open quotes × win rate, dated by days-to-yes + terms + lateness);
+**respond_by** on leads (hot today / qualified 48 h / unclear this week).
+Dry run on live data: 70 clients with a rhythm, 21 quiet or gone (the top one worth $6.7K/yr, last seen June); 12 contracts
+inside the radar, 5 "needs attention" for no contact on record; objection classifier fired on 2 of 40 replies (conservative by
+design); 14 open quotes worth $29K. Not built: hours-against-schedule style signals (no data), win-loss review (needs loss
+reasons recorded first — a `lost_reason` on quotes is the prerequisite; added to the backlog).

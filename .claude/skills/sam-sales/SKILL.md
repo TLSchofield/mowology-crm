@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/SamCard*
   - ios/MowologyCRM/MowologyCRM/Core/Models/SalesModels.swift
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -94,6 +94,14 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 | Client unticks lines before signing | `QuoteLineChoiceService::setDeclined()` | `public/customer/api/quote-upsell.php`, `public/customer/quote.php`, office lock on `public/crm/quotes/view.php`, plan conversion (`app/Modules/Jobs/Services/Plan/PlanLineItems.php`) |
 | Everything after an approval (summary, tray job, push) | `QuoteApprovalService::afterApproval()` | `public/customer/quote.php`, `public/crm/customer/quote.php`, `public/crm/quotes/view.php` (approve_verbal), nightly `QuoteApprovalService::sweep()` in `app/Modules/Jobs/Cron/generate_visits.php` |
 | New-lead heat (0–100: replies, fit, urgency, minus our own recent touch), bucket hot / qualified / unclear / out_of_scope, flat guard (spread under 10 → ordered by signal, no number) | `LeadScore::score()` / `order()` in `app/Modules/Sales/Services/LeadScore.php`; signals from `SalesDeskService::leadSignals()`; offered services `EmailLeadService::serviceTags()` | `SalesDeskService::rankLeads()` → both sales-head APIs, Charlie's brief, `public/crm/js/sam-card.js` |
+| Clients gone quiet against their own rhythm (quiet > 2×, gone > 3× their median purchase gap; season-aware; ranked by 12-month spend; no-pitch check-in draft; tier + motion) | `ClientRhythm::find()` / `firstMessage()`, `ClientTier::score()`; data via `SalesDeskService::quietClients()` | Sam card "Gone quiet", Charlie's brief |
+| Contract renewals inside the radar window (120 d / 90 d small; risk up on silence; −90/−45/−14 timeline) | `RenewalRadar::scan()`; data via `SalesDeskService::renewals()` | Sam card "Renewals ahead", Charlie's brief |
+| Price from the jobs most like this one, arithmetic shown, >15% off the rate card flagged | `ComparablePricing::suggest()`; `CloserService::comparables()` | Closer's price panel on a quote |
+| What a reply really says (price / negotiation / timing / competitor / authority / risk / status quo) and a 3–5 sentence reply in shape | `ObjectionReply::classify()` / `draft()` | Sam card replies (hint + draft), via `sales-head.php` |
+| Sam's digest: only threshold crossings, empty is success | `SamSignals::digest()` | Charlie's brief headline |
+| Open quotes not fit to chase (no amount / no service); quotes expiring within 7 days | `SalesDeskService::hygiene()` / `expiringQuotes()` | Sam card "Not fit to chase", digest |
+| Penny → Sam: how this payer pays, above the terms on a new quote | `ReminderGate::historyFor()` + `PayerTone::classify()` in `public/crm/quotes/create.php` | quote create |
+| Sam → Penny: open quotes at the win rate, by week | `SalesDeskService::pipeline()` → `CashFlowForecastService::forecast()['pipeline']` | cash-flow page |
 | Follow-up queue (who is waiting, one card per customer) | `SalesDeskService::queue()` | `app/Modules/Sales/Api/sales-head.php`, `app/Modules/Sales/Api/sales-head-mobile.php`, Charlie, Yui |
 | Drafting, sending, parking a follow-up | `SamFollowupService::draft()`, `SamFollowupService::send()`, `SamFollowupService::park()` | Sam web + iPhone, Yui |
 | Claude reply draft (Tim's tap, 20/day) | `SamFollowupService::draftReply()` | Sam web + iPhone |

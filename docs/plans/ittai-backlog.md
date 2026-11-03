@@ -139,3 +139,6 @@ trades first. The AI back office is the edge.
    report-builder sanity checks (partial period, totals tie, "n/a — source" never an estimate), report-pack cadence;
    diff against CharlieBriefService / CharlieRankService / CharlieUrgentService / HouseBriefAdapter.
 Pattern for each: survey → plan doc → pure classes + tests → wire → prod-run dry run → Codex → deploy → verify → vault + skill.
+
+## Sam: record why quotes are lost (2026-11-03)
+- Add `lost_reason` (competitor / budget / timing / no decision / other) when a quote is declined or expires, so the plugin's win-loss review (win rate by source, size band and service; where losses die; median cycle) can run in a year. Today 34 accepted and 0 declined are recorded in 12 months — losses are not being marked.
