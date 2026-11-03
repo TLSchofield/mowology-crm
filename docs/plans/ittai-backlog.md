@@ -143,6 +143,11 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    against `sage.ittai.ca`. Tests 3613 web / 516 per Android flavor. **Deployed 2026-11-02 (Tim's go, switch still OFF):**
    the 12 server files via `scripts/deploy-safe.sh`; checked live on testcompany.ittai.ca (v2 four-field 400s, 409 taken,
    405, 401 on map/step/quickbooks-start, callback with a bad phone state falls through to the login redirect) and
-   mowology.ca (404 not_available); OPcache revalidated on its own. **Owed:** add each business's callback URL to the Intuit app
+   mowology.ca (404 not_available); OPcache revalidated on its own. **2026-11-03:** Ittai-flavour test APK with the two-people
+   icon, "Ittai" label and Ittai splash at `/crm/downloads/ittai-testcompany-signup-v2-test.apk` (codex/native d28a824 + a3f1083,
+   not pushed). Per-business feed override live: `/crm/api/app-version.php` merges `app-version.<key>.json` over the shared file on
+   a business's own address (`AppVersionFeed`); `app-version.testcompany.json` turns on native_auth, native_signup,
+   native_crew_schedule; mowology.ca feed unchanged (checked). Intuit redirect URI for testcompany added by Tim; the phone
+   connect round trip still needs Tim's Intuit sign-in. **Owed:** add each further business's callback URL to the Intuit app
    (testcompany first) and prove the Intuit tab round trip on production; SMS leg unproven; Tim's call: after "Yes, I use
    QuickBooks" + Skip, the map marks "Your books" Not needed (existing web rule) — keep, or ask again?
