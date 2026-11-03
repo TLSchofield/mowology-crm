@@ -78,7 +78,19 @@ class OttoHarvestRulesTest extends TestCase
         $rows = [$this->e(1, '2026-10-26 08:00:00', '2026-10-26 12:00:00'), $this->e(2, '2026-10-26 11:00:00', '2026-10-26 15:00:00'), $this->e(3, '2026-10-26 15:00:00', '2026-10-26 18:00:00')];
         $this->assertSame([[1, 2]], ClockWeekRules::overlaps($rows, self::NOW));   // touching at 15:00 is not an overlap
         $this->assertSame(11.0, ClockWeekRules::hours($rows, self::NOW));
-        $this->assertSame(7.0, ClockWeekRules::hours([$this->e(4, '2026-11-03 08:00:00', null)], self::NOW));   // open: up to now
+        $this->assertSame(0.0, ClockWeekRules::hours([$this->e(4, '2026-11-03 08:00:00', null)], self::NOW));          // open = hours unknown (Codex)
+        $this->assertSame(7.0, ClockWeekRules::hours([$this->e(4, '2026-11-03 08:00:00', null)], self::NOW, true));
+        // An open punch from three weeks ago does not inflate the baseline, so the 125% rule still fires.
+        $week = []; for ($d = 26; $d <= 31; $d++) $week[] = $this->e($d, "2026-10-{$d} 07:00:00", "2026-10-{$d} 17:00:00");   // 60 h
+        $f = ClockWeekRules::person('Tim', $week, [40.0, 38.0, 41.0, 0.0], null, '2026-10-26', self::NOW);
+        $this->assertContains('week_high', array_column($f, 'kind'));
+        // Overlap across Sunday night: the neighbour week's entry against Monday's.
+        $sun = $this->e(90, '2026-10-25 23:30:00', '2026-10-26 01:00:00');
+        $mon = $this->e(91, '2026-10-26 00:30:00', '2026-10-26 08:00:00');
+        $f = ClockWeekRules::person('Nigel', [$mon], [40.0, 40.0], null, '2026-10-26', self::NOW, [$sun]);
+        $this->assertSame('overlap', $f[0]['kind']);
+        $this->assertStringContainsString('#90 and #91', $f[0]['text']);
+        $this->assertSame([], ClockWeekRules::person('Nigel', [], [40.0, 40.0], null, '2026-10-26', self::NOW, [$sun]));   // a pair wholly in the old week is not this week's
     }
 
     public function test_clock_brief_items_one_per_person_hard_flags_first(): void
@@ -127,10 +139,25 @@ class OttoHarvestRulesTest extends TestCase
         $this->assertSame('n/a', WeekLoadRules::days(['2026-11-03' => ['minutes' => 1200, 'visits' => 10]], 0)[0]['state']);
     }
 
-    public function test_one_plan_of_a_full_crew_day_is_suspect_even_when_the_total_is_sane(): void
+    public function test_one_plan_of_a_full_day_per_person_is_suspect_and_unknown_lengths_are_never_light(): void
     {
-        $rows = WeekLoadRules::days(['2026-11-03' => ['minutes' => 2500, 'visits' => 2, 'biggest' => ['plan_id' => 4, 'title' => 'X', 'minutes' => 2400]]], 5);
+        // 480 min for one person on one visit: suspect, whatever the crew count (Codex: per plan, not per available crew).
+        $rows = WeekLoadRules::days(['2026-11-03' => ['minutes' => 480, 'visits' => 2, 'biggest' => ['plan_id' => 4, 'title' => 'X', 'minutes' => 480, 'crew' => 1]]], 5);
         $this->assertSame('suspect', $rows[0]['state']);
+        $this->assertStringContainsString('plan #4 X: 480 min)', $rows[0]['note']);
+        // A 2 h plan for 5 people is fine even with one person "available".
+        $rows = WeekLoadRules::days(['2026-11-03' => ['minutes' => 600, 'visits' => 1, 'biggest' => ['plan_id' => 5, 'title' => '', 'minutes' => 120, 'crew' => 5]]], 1);
+        $this->assertSame('over', $rows[0]['state']);
+        // Visits with no length: unknown, with "at least".
+        $rows = WeekLoadRules::days(['2026-11-03' => ['minutes' => 300, 'visits' => 6, 'untimed' => 4, 'biggest' => null]], 5);
+        $this->assertSame('unknown', $rows[0]['state']);
+        $this->assertSame('4 visits with no length — at least 13%', $rows[0]['note']);
+        $rows = WeekLoadRules::days(['2026-11-03' => ['minutes' => 2300, 'visits' => 6, 'untimed' => 1, 'biggest' => null]], 5);
+        $this->assertSame('full', $rows[0]['state']);
+        $this->assertStringContainsString(', 1 more with no length', $rows[0]['note']);
+        $this->assertSame('2026-11-02', WeekLoadRules::weekKey('2026-11-03'));
+        $this->assertSame('2026-11-02', WeekLoadRules::weekKey('2026-11-08'));
+        $this->assertSame('otto:week-load:2026-11-02', WeekLoadRules::briefItem($rows, 5, '2026-11-05')['key']);
     }
 
     // C. seasonal stock ───────────────────────────────────────────────────────
@@ -162,6 +189,13 @@ class OttoHarvestRulesTest extends TestCase
         $this->assertCount(1, SeasonalStockRules::items($watch, ['2026-05-01'], ['snow_routes' => true], ['snow_routes' => 43], '2026-11-03'));
         // No snow routes: the item is not needed.
         $this->assertSame([], SeasonalStockRules::items($watch, [null], ['snow_routes' => false], [], '2026-11-03'));
+        // An owner-named item without a need gets its own words, not "snow season".
+        $fert = [['item' => 'spring fertilizer', 'pattern' => 'fertili[sz]er', 'season_start' => '03-15', 'lead_days' => 21, 'needs' => '']];
+        $i = SeasonalStockRules::items($fert, [null], [], [], '2027-03-20');
+        $this->assertStringStartsWith('The season for spring fertilizer started Mar 15', $i[0]['text']);
+        $this->assertTrue(SeasonalStockRules::patternOk('salt|ice ?melt'));
+        $this->assertFalse(SeasonalStockRules::patternOk('['));
+        $this->assertFalse(SeasonalStockRules::patternOk(''));
     }
 
     // D. supplier review ──────────────────────────────────────────────────────
@@ -193,7 +227,11 @@ class OttoHarvestRulesTest extends TestCase
         // Only one vendor in the directory for that category: nothing to negotiate with.
         $r2 = SupplierReviewRules::build($spend, ['Materials' => 1], [], '2026-11-03');
         $this->assertSame([], $r2['concentration']);
-        $this->assertStringContainsString('Proceed', SupplierReviewRules::briefItem($r2, '2026-11-03')['text']);
+        $proceed = SupplierReviewRules::briefItem($r2, '2026-11-03')['text'];
+        $this->assertStringContainsString('No supplier holds over 60% of a category that has an alternative in the directory', $proceed);
+        $this->assertStringContainsString('58% of the spend is fuel, dump fees and the like', $proceed);   // 1277/2209
+        $split = SupplierReviewRules::build([['vendor' => 'A', 'category' => 'Materials', 'spend' => 100, 'n' => 1], ['vendor' => 'B', 'category' => 'Materials', 'spend' => 100, 'n' => 1]], ['Materials' => 2], [], '2026-11-03');
+        $this->assertStringNotContainsString('fuel', SupplierReviewRules::briefItem($split, '2026-11-03')['text']);   // no fixed spend: the sentence is not claimed
         $this->assertNull(SupplierReviewRules::briefItem(SupplierReviewRules::build([], [], [], '2026-11-03'), '2026-11-03'));
     }
 }

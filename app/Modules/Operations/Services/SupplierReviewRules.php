@@ -69,7 +69,9 @@ final class SupplierReviewRules
             $age = (int)floor((strtotime($today) - strtotime((string)$d)) / 86400);
             if ($age > self::STALE_LIST_DAYS) $stale[] = ['vendor' => (string)$v, 'days' => $age];
         }
-        return ['top' => $top, 'concentration' => $conc, 'stale' => $stale, 'total' => round($total, 2)];
+        $fixed = 0.0;
+        foreach ($byCat as $c => $v) if (self::fixedCategory((string)$c)) $fixed += $v;
+        return ['top' => $top, 'concentration' => $conc, 'stale' => $stale, 'total' => round($total, 2), 'fixed_share' => $total > 0 ? round($fixed / $total, 2) : null];
     }
 
     /** One brief item per quarter; null when there is nothing to review (no spend). */
@@ -83,7 +85,11 @@ final class SupplierReviewRules
             $text .= ' ' . $c['vendor'] . ' has ' . (int)round($c['share'] * 100) . '% of ' . $c['category'] . ' with ' . $c['alternatives'] . ' other supplier' . ($c['alternatives'] === 1 ? '' : 's') . ' in the directory — Negotiate.';
         }
         foreach ($r['stale'] as $s) $text .= ' ' . $s['vendor'] . "'s newest price list is {$s['days']} days old.";
-        if (!$r['concentration'] && !$r['stale']) $text .= ' Nothing to renegotiate: fuel, dump and repairs have no alternative here — Proceed.';
+        if (!$r['concentration'] && !$r['stale']) {
+            $fixed = $r['fixed_share'] ?? null;
+            $text .= ' No supplier holds over ' . (int)round(self::CONCENTRATION * 100) . '% of a category that has an alternative in the directory'
+                   . ($fixed !== null && $fixed >= 0.5 ? ', and ' . (int)round($fixed * 100) . '% of the spend is fuel, dump fees and the like with no alternative' : '') . ' — Proceed.';
+        }
         return [
             'key'      => 'otto:supplier-review:' . self::quarterKey($today),
             'kind'     => 'supplier_review',

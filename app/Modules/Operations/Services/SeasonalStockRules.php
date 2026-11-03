@@ -40,6 +40,12 @@ final class SeasonalStockRules
         return $thisYear;
     }
 
+    /** A watch pattern must be a sane regex before it reaches MySQL (Codex: a bad setting must not kill the list). */
+    public static function patternOk(string $pattern): bool
+    {
+        return $pattern !== '' && strlen($pattern) <= 200 && @preg_match('/' . str_replace('/', '\\/', $pattern) . '/i', '') !== false;
+    }
+
     public static function decideBy(string $seasonStart, int $leadDays): string
     {
         return date('Y-m-d', strtotime($seasonStart . ' -' . max(0, $leadDays) . ' days'));
@@ -65,8 +71,9 @@ final class SeasonalStockRules
             $n = (int)($needsCount[$needs] ?? 0);
             $why = $needs === 'snow_routes' && $n > 0 ? " ({$n} snow routes)" : '';
             $started = $today >= $start;
+            $season = $needs === 'snow_routes' ? 'Snow season' : 'The season for ' . $item;   // owner-named items get their own words (Codex)
             $text = $started
-                ? 'Snow season started ' . date('M j', strtotime($start)) . " — no {$item} on any receipt" . ($bought ? ' since ' . date('M j', strtotime($bought)) : '') . "{$why}. Bought elsewhere? Give Penny the receipt, or order it."
+                ? "{$season} started " . date('M j', strtotime($start)) . " — no {$item} on any receipt" . ($bought ? ' since ' . date('M j', strtotime($bought)) : '') . "{$why}. Bought elsewhere? Give Penny the receipt, or order it."
                 : "Order {$item} by " . date('M j', strtotime($start)) . " — season starts then, nothing on a receipt" . ($bought ? ' since ' . date('M j', strtotime($bought)) : ' in ' . self::LOOKBACK_DAYS . ' days') . "{$why}.";
             $out[] = [
                 'key'      => 'otto:season-stock:' . preg_replace('/[^a-z0-9]+/', '-', strtolower($item)) . ':' . substr($start, 0, 4),

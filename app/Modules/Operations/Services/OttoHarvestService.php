@@ -87,7 +87,9 @@ class OttoHarvestService
                 $wk = date('Y-m-d', strtotime($monday . " -{$i} weeks"));
                 $history[] = isset($p['hist'][$wk]) ? ClockWeekRules::hours($p['hist'][$wk], $this->now) : 0.0;
             }
-            $per[] = ['user_id' => $uid, 'flags' => ClockWeekRules::person($p['name'], $p['week'], $history, $p['rate'] > 0 ? $p['rate'] : null, $monday, $this->now)];
+            $prevWk = date('Y-m-d', strtotime($monday . ' -1 week'));
+            $neighbours = $p['hist'][$prevWk] ?? [];   // the week before, for overlaps across Sunday night
+            $per[] = ['user_id' => $uid, 'flags' => ClockWeekRules::person($p['name'], $p['week'], $history, $p['rate'] > 0 ? $p['rate'] : null, $monday, $this->now, $neighbours)];
         }
         return ClockWeekRules::briefItems($per, $monday, $this->today);
     }
@@ -106,7 +108,7 @@ class OttoHarvestService
         $end = date('Y-m-d', strtotime($this->today . ' +' . (WeekLoadRules::DAYS - 1) . ' days'));
         $st = $this->db->prepare(
             "SELECT jv.scheduled_date, jp.id AS plan_id, COALESCE(jp.title, '') AS title,
-                    COALESCE(jp.estimated_duration_minutes, 0) * GREATEST(COALESCE(jp.default_crew_size, 1), 1) AS crew_min
+                    jp.estimated_duration_minutes AS est, GREATEST(COALESCE(jp.default_crew_size, 1), 1) AS crew
                FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id
               WHERE jv.scheduled_date BETWEEN ? AND ? AND jv.status = 'scheduled'"
         );
@@ -114,12 +116,13 @@ class OttoHarvestService
         $days = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $d = (string)$r['scheduled_date'];
-            $days[$d] = $days[$d] ?? ['minutes' => 0, 'visits' => 0, 'biggest' => null];
-            $m = (int)$r['crew_min'];
-            $days[$d]['minutes'] += $m;
+            $days[$d] = $days[$d] ?? ['minutes' => 0, 'visits' => 0, 'untimed' => 0, 'biggest' => null];
             $days[$d]['visits']++;
-            if ($days[$d]['biggest'] === null || $m > $days[$d]['biggest']['minutes']) {
-                $days[$d]['biggest'] = ['plan_id' => (int)$r['plan_id'], 'title' => (string)$r['title'], 'minutes' => $m];
+            if ($r['est'] === null || (int)$r['est'] <= 0) { $days[$d]['untimed']++; continue; }   // no length: unknown, never zero
+            $est = (int)$r['est']; $crew = (int)$r['crew'];
+            $days[$d]['minutes'] += $est * $crew;
+            if ($days[$d]['biggest'] === null || $est > $days[$d]['biggest']['minutes']) {
+                $days[$d]['biggest'] = ['plan_id' => (int)$r['plan_id'], 'title' => (string)$r['title'], 'minutes' => $est, 'crew' => $crew];
             }
         }
         ksort($days);
@@ -170,12 +173,24 @@ class OttoHarvestService
             "SELECT MAX(e.expense_date) FROM expense_line_items li JOIN expenses e ON e.id = li.expense_id
               WHERE e.expense_date >= ? AND LOWER(COALESCE(li.name, '')) REGEXP ?"
         );
+        $good = [];
         foreach ($watch as $i => $w) {
-            $start = SeasonalStockRules::seasonStart((string)$w['season_start'], $this->today);
-            $st->execute([date('Y-m-d', strtotime($start . ' -' . SeasonalStockRules::LOOKBACK_DAYS . ' days')), (string)$w['pattern']]);
-            $d = $st->fetchColumn();
-            $last[$i] = $d ? substr((string)$d, 0, 10) : null;
+            $pattern = (string)($w['pattern'] ?? '');
+            if (!SeasonalStockRules::patternOk($pattern) || !preg_match('/^\d{2}-\d{2}$/', (string)($w['season_start'] ?? ''))) {
+                error_log('Otto harvest: seasonal watch item ' . $i . ' skipped — bad pattern or season_start in ops_settings ' . self::SEASONAL_KEY);
+                continue;   // one bad setting never hides the others (Codex 2026-11-03)
+            }
+            try {
+                $start = SeasonalStockRules::seasonStart((string)$w['season_start'], $this->today);
+                $st->execute([date('Y-m-d', strtotime($start . ' -' . SeasonalStockRules::LOOKBACK_DAYS . ' days')), $pattern]);
+                $d = $st->fetchColumn();
+                $last[$i] = $d ? substr((string)$d, 0, 10) : null;
+                $good[$i] = $w;
+            } catch (Throwable $e) {
+                error_log('Otto harvest: seasonal watch item ' . $i . ' failed: ' . $e->getMessage());
+            }
         }
+        $watch = $good;
         return SeasonalStockRules::items($watch, $last, ['snow_routes' => $snow > 0], ['snow_routes' => $snow], $this->today);
     }
 

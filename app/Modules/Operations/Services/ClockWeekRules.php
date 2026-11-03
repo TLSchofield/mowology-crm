@@ -45,13 +45,17 @@ final class ClockWeekRules
         return (int)round((strtotime((string)$c['clock_out']) - strtotime((string)$c['clock_in'])) / 60);
     }
 
-    /** Hours of a list of entries (open ones count up to $now). */
-    public static function hours(array $entries, string $now): float
+    /**
+     * Hours of a list of entries. An open entry is "hours unknown" and counts nothing (Codex 2026-11-03: a punch
+     * left open three weeks ago is not hundreds of hours), unless $countOpen asks for its hours up to $now.
+     */
+    public static function hours(array $entries, string $now, bool $countOpen = false): float
     {
         $m = 0;
         foreach ($entries as $c) {
             $min = self::minutes($c);
-            $m += $min ?? max(0, (int)round((strtotime($now) - strtotime((string)$c['clock_in'])) / 60));
+            if ($min === null) { if ($countOpen) $m += max(0, (int)round((strtotime($now) - strtotime((string)$c['clock_in'])) / 60)); continue; }
+            $m += $min;
         }
         return round($m / 60, 1);
     }
@@ -84,11 +88,11 @@ final class ClockWeekRules
      * @param ?float $rate     hourly rate when known
      * @return array flags [{kind, text, impact}]
      */
-    public static function person(string $name, array $week, array $history, ?float $rate, string $weekMonday, string $now): array
+    public static function person(string $name, array $week, array $history, ?float $rate, string $weekMonday, string $now, array $neighbours = []): array
     {
         $flags = [];
         $weekLabel = 'the week of ' . date('M j', strtotime($weekMonday));
-        $hrs = self::hours($week, $now);
+        $hrs = self::hours($week, $now);   // closed entries only; an open one is named below as "hours unknown"
 
         if (!$week) {
             $regular = count(array_filter($history, static fn($h) => $h > 0));
@@ -110,9 +114,14 @@ final class ClockWeekRules
                             'text' => "{$name}: a {$min}-minute shift on " . date('D M j, g:i a', strtotime((string)$c['clock_in'])) . ' — a double tap? Delete it or it counts as a day worked.'];
             }
         }
-        foreach (self::overlaps($week, $now) as [$a, $b]) {
+        // Overlaps are looked for across the week's edges too (a Sunday-night shift against Monday's), but only pairs
+        // that touch this week are reported (Codex 2026-11-03).
+        $weekIds = array_map(static fn($c) => (int)$c['id'], $week);
+        $all = array_merge($week, $neighbours);
+        foreach (self::overlaps($all, $now) as [$a, $b]) {
+            if (!in_array($a, $weekIds, true) && !in_array($b, $weekIds, true)) continue;
             $ra = null; $rb = null;
-            foreach ($week as $c) { if ((int)$c['id'] === $a) $ra = $c; if ((int)$c['id'] === $b) $rb = $c; }
+            foreach ($all as $c) { if ((int)$c['id'] === $a) $ra = $c; if ((int)$c['id'] === $b) $rb = $c; }
             $same = $ra && $rb && (string)$ra['clock_in'] === (string)$rb['clock_in'];
             $flags[] = ['kind' => 'overlap', 'impact' => ($rate !== null && $rb && self::minutes($rb) !== null) ? round(self::minutes($rb) / 60 * $rate, 2) : null,
                         'text' => "{$name}: two shifts " . ($same ? 'with the same start' : 'that overlap') . ' on ' . date('D M j', strtotime((string)($ra['clock_in'] ?? $now)))
