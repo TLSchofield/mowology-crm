@@ -132,7 +132,7 @@ trades first. The AI back office is the edge.
    signals digest, renewal radar, tiering, lead response times, quote hygiene, objection replies).
 2. **Mia** — DONE 2026-11-03 (`docs/plans/2026-11-03-mia-harvest.md`); left: ads wiring when an account exists, content-strategy brief after margin-by-service, page-level SEO checks. Was: small-business pieces above + survey the sibling `marketing` plugin; diff against MiaCalendar / MiaSequenceService /
    MiaSocialService / MiaWording / ReviewReplyDrafter / MiaCampaignService.
-3. **Ada** — `operations` plugin (runbook, risk-assessment, compliance-tracking, status-report, process-doc) and finance
+3. **Ada** — DONE 2026-11-03 (`docs/plans/2026-11-03-ada-harvest.md`) — `operations` plugin (runbook, risk-assessment, compliance-tracking, status-report, process-doc) and finance
    `audit-support`/`sox-testing` evidence standards; diff against AdaSecurityRules / AdaSecurityWatch / BooksWatchService.
 4. **Otto** — `operations` plugin (capacity-plan, vendor-review, change-request) + small-business inventory/restock
    (velocity, stockout, reorder maths, buffer = min(30, max(7, lead/2))), payroll-prep punch rules weekly on time_entries;
