@@ -15,7 +15,7 @@ mw_heartbeat_token() {
     || { [ -r "$root/scripts/.backup-heartbeat-token" ] && tr -d '[:space:]' < "$root/scripts/.backup-heartbeat-token"; }
 }
 
-# mw_heartbeat <kind db|files|composer> <ok 1|0> [bytes] [advisories] [detail]
+# mw_heartbeat <kind db|files|composer|verify> <ok 1|0> [bytes] [advisories] [detail]   (verify: advisories = tables in the dump)
 # Never fails the caller: prints one line saying whether the server took it.
 mw_heartbeat() {
   local kind="$1" ok="$2" bytes="${3:-}" adv="${4:-}" detail="${5:-}" tok hdr body code

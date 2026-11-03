@@ -38,6 +38,13 @@ class AdaRules
 
     public const STATE_ORDER = ['red' => 0, 'amber' => 1, 'unknown' => 2, 'green' => 3, 'info' => 4];
 
+    /** Cost of waiting (operating-rules.md): 0 money in or out, auth, backups, audit; 1 crew in the field; 2 the rest. */
+    public const COST_MONEY = '/^(stripe|posture:(stripe-webhook|payment-mail|db-privileges|backup-|audit-copy|drift|blocked-paths)|security:|cron:(autopay|etransfer|yardi|interac|stripe|invoice|contract_billing|sync_ledger|bank|payroll|audit_export|security_posture))/';
+    public const COST_CREW = '/^(apple:push|trackimo|pulse:|errors:|cron:(tracking|trackimo|push|generate_visits|schedule|pulse_check|charlie_morning_brief|icloud_inbox))/';
+    public const AGE_SHOWN_DAYS = 2;          // "— for N days" from this many days
+    public const ACCESS_REVIEW_DAYS = 90;     // audit-support: periodic access recertification
+    public const TREND_DAYS = 14;             // nightly count snapshots kept
+
     // ─────────────────────────────────────────────────────────────────────────
     // The cron registry (public/crm/database_appstack.php $crons) — read as text, never run
     // ─────────────────────────────────────────────────────────────────────────
@@ -188,6 +195,7 @@ class AdaRules
             foreach ($recent as $r) { if (($r[0] ?? '') !== 'error') break; $fails++; }
             $since = $stats['last_ok_at'] ? ' Last worked ' . self::ago((string)$stats['last_ok_at'], $now) . '.' : ' It has not worked on record.';
             $err = self::shortError((string)($stats['last_error'] ?? ''));
+            $base['bad_since'] = (string)($recent[max(0, $fails - 1)][1] ?? $stats['last_at']);
             return $base + self::verdict('red', 'failing',
                 "{$name}: failed its last " . ($fails > 1 ? "{$fails} runs" : 'run') . ($err !== '' ? " — \"{$err}\"" : '') . '.' . $since,
                 "Ada: cron '{$key}' ({$reg['app']}) is failing" . ($err !== '' ? " with \"{$err}\"" : '') . ". Read its cron_runs rows and fix the cause; prove it with one run from the Database Manager.",
@@ -200,6 +208,7 @@ class AdaRules
         foreach ($recent as $r) { if (($r[0] ?? '') !== 'warning') break; $warns++; }
         if ($warns >= self::WARNING_STREAK) {
             $w = self::shortError((string)($recent[0][2] ?? ''));
+            $base['bad_since'] = (string)($recent[$warns - 1][1] ?? $stats['last_at']);
             return $base + self::verdict('red', 'failing',
                 "{$name}: warned on its last {$warns} runs" . ($w !== '' ? " — \"{$w}\"" : '') . '.',
                 "Ada: cron '{$key}' ({$reg['app']}) has ended in 'warning' {$warns} runs in a row" . ($w !== '' ? " (\"{$w}\")" : '') . ". Read its cron_runs rows and fix the cause.",
@@ -213,6 +222,7 @@ class AdaRules
                     "Ada: cron '{$key}' ({$reg['app']}) does not call recordCronRun(), and its last cron_runs row is " . $stats['last_at'] . ". Add recordCronRun('{$key}', …) so its runs can be checked, then confirm it is in the cPanel schedule." . $line,
                     'developer') + ['config' => $config];
             }
+            $base['bad_since'] = (string)$stats['last_at'];
             return $base + self::verdict('red', 'missed',
                 "{$name}: should run " . self::everyWords($every) . ", last ran " . self::ago((string)$stats['last_at'], $now) . '.',
                 "cPanel → Cron Jobs: check the line for this job is still there, matching exactly. Its last recorded run was {$stats['last_at']}." . $line,
@@ -462,9 +472,44 @@ class AdaRules
 
     public static function sortChecks(array $checks): array
     {
-        usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, $a['group'], $a['name']]
-                                 <=> [self::STATE_ORDER[$b['state']] ?? 9, $b['group'], $b['name']]);
+        usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, self::costRank((string)$a['system'], (string)$a['group']), $a['group'], $a['name']]
+                                 <=> [self::STATE_ORDER[$b['state']] ?? 9, self::costRank((string)$b['system'], (string)$b['group']), $b['group'], $b['name']]);
         return $checks;
+    }
+
+    /** 0 money/auth/backups/audit · 1 crew in the field · 2 marketing, reports and the rest (operating-rules.md). */
+    public static function costRank(string $system, string $group = ''): int
+    {
+        if (preg_match(self::COST_MONEY, $system)) return 0;
+        if (preg_match(self::COST_CREW, $system)) return 1;
+        return 2;
+    }
+
+    /** Whole days a problem has stood, from its first bad moment; null when unknown. */
+    public static function ageDays(?string $since, string $now): ?int
+    {
+        if ($since === null || $since === '') return null;
+        $m = self::minutesBetween($since, $now);
+        return $m === null ? null : (int)floor($m / 1440);
+    }
+
+    /**
+     * When a check first went bad: red_since (nightly rows), the oldest consecutive bad run (cron rows),
+     * or null. Pure — reads only what the check carries.
+     */
+    public static function badSince(array $c): ?string
+    {
+        if (!empty($c['red_since'])) return (string)$c['red_since'];
+        if (!empty($c['bad_since'])) return (string)$c['bad_since'];
+        return null;
+    }
+
+    /** "… — for 17 days" appended to an evidence line once a problem is old enough to say so. */
+    public static function withAge(string $evidence, ?string $since, string $now): string
+    {
+        $d = self::ageDays($since, $now);
+        if ($d === null || $d < self::AGE_SHOWN_DAYS) return $evidence;
+        return rtrim($evidence, '.') . " — for {$d} days.";
     }
 
     /**
@@ -493,13 +538,14 @@ class AdaRules
             if ($c['state'] === 'unknown') { $unknown[] = $c['name']; continue; }
             if ($c['state'] !== 'red' && $c['state'] !== 'amber') continue;
             if (count($items) >= self::BRIEF_MAX) continue;
+            $since = self::badSince($c);
             $items[] = [
                 'key'      => 'ada:' . $c['system'] . ':' . $c['problem'],
                 'kind'     => 'ada:' . $c['problem'],
-                'text'     => $c['evidence'],
+                'text'     => self::withAge((string)$c['evidence'], $since, $today . ' 23:59:59'),
                 'url'      => '/crm/ada_appstack.php#' . rawurlencode($c['system']),
                 'priority' => $c['state'] === 'red' ? 1 : 2,
-                'since'    => $today,
+                'since'    => $since !== null ? substr($since, 0, 10) : $today,
             ];
         }
         if ($unknown) {
@@ -524,13 +570,130 @@ class AdaRules
         return $n;
     }
 
-    public static function headline(array $counts): string
+    /** @param ?array $yesterday the previous day's counts (trend: status-report's "what changed since last time") */
+    public static function headline(array $counts, ?array $yesterday = null): string
     {
-        if ($counts['red'] + $counts['amber'] === 0) return 'Everything Ada watches is working.';
+        if ($counts['red'] + $counts['amber'] === 0) {
+            $was = $yesterday ? (int)$yesterday['red'] + (int)$yesterday['amber'] : 0;
+            return 'Everything Ada watches is working.' . ($was > 0 ? " (Yesterday: {$was} to look at.)" : '');
+        }
         $parts = [];
-        if ($counts['red']) $parts[] = $counts['red'] . ' broken';
-        if ($counts['amber']) $parts[] = $counts['amber'] . ' to look at';
+        if ($counts['red']) $parts[] = $counts['red'] . ' broken' . self::trendWords((int)$counts['red'], $yesterday['red'] ?? null);
+        if ($counts['amber']) $parts[] = $counts['amber'] . ' to look at' . self::trendWords((int)$counts['amber'], $yesterday['amber'] ?? null);
         return implode(', ', $parts) . '.';
+    }
+
+    /** " (one fewer than yesterday)" / " (2 more than yesterday)" / "" when unchanged or unknown. */
+    public static function trendWords(int $today, $yesterday): string
+    {
+        if ($yesterday === null) return '';
+        $d = $today - (int)$yesterday;
+        if ($d === 0) return '';
+        $n = abs($d) === 1 ? 'one' : (string)abs($d);
+        return ' (' . $n . ($d < 0 ? ' fewer' : ' more') . ' than yesterday)';
+    }
+
+    /**
+     * Nightly count history: {day => {red, amber, unknown, green, reds: [system…]}}, newest last, TREND_DAYS kept.
+     * One entry per day — a second run the same day replaces it.
+     */
+    public static function trendAppend(array $history, string $day, array $counts, array $redSystems): array
+    {
+        $history[$day] = ['red' => (int)$counts['red'], 'amber' => (int)$counts['amber'], 'unknown' => (int)$counts['unknown'],
+                          'green' => (int)$counts['green'], 'reds' => array_values($redSystems)];
+        ksort($history);
+        return array_slice($history, -self::TREND_DAYS, null, true);
+    }
+
+    /** The newest snapshot strictly before $today (yesterday's, or the last one taken). */
+    public static function trendYesterday(array $history, string $today): ?array
+    {
+        $best = null;
+        foreach ($history as $day => $c) if ((string)$day < $today) $best = $c;
+        return $best;
+    }
+
+    /** How many hand-offs wait on whom: ['tim' => n, 'developer' => n]. */
+    public static function handoffCounts(array $checks): array
+    {
+        $n = ['tim' => 0, 'developer' => 0];
+        foreach ($checks as $c) {
+            if (!in_array($c['state'], ['red', 'amber', 'unknown'], true) || empty($c['handoff'])) continue;
+            $to = (string)($c['handoff_to'] ?? '');
+            if (isset($n[$to])) $n[$to]++;
+        }
+        return $n;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Access review (audit-support: periodic access recertification)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** A stable fingerprint of who holds what: ids, roles, active flags — changes when the roster does. */
+    public static function rosterHash(array $users): string
+    {
+        $rows = [];
+        foreach ($users as $u) $rows[] = (int)$u['id'] . ':' . (string)$u['role'] . ':' . (int)($u['is_active'] ?? 1);
+        sort($rows);
+        return substr(sha1(implode('|', $rows)), 0, 16);
+    }
+
+    /**
+     * @param array  $users      admin and manager logins {id, name, role, is_active, last_login}
+     * @param ?array $lastReview {at, by, hash} from the last time Tim pressed Reviewed; null = never
+     */
+    public static function accessReviewCheck(array $users, ?array $lastReview, string $now): array
+    {
+        $active = array_values(array_filter($users, static fn($u) => (int)($u['is_active'] ?? 1) === 1));
+        $base = ['system' => 'security:access-review', 'group' => 'Security', 'name' => 'Who can sign in as admin or manager',
+                 'last_worked' => $lastReview['at'] ?? null, 'roster_hash' => self::rosterHash($active), 'reviewable' => true];
+        $list = [];
+        foreach ($active as $u) {
+            $list[] = (string)$u['name'] . ' (' . (string)$u['role'] . (!empty($u['is_vehicle_tablet']) ? ', a truck tablet' : '')
+                    . ($u['last_login'] ? ', last signed in ' . self::ago((string)$u['last_login'], $now) : ', never signed in') . ')';
+        }
+        $n = count($active);
+        $who = "{$n} login" . ($n === 1 ? '' : 's') . ' can change the books, clients and settings: ' . implode('; ', $list) . '.';
+        $handoff = 'Read the list on System Health. Switch off anyone who should not have it (Settings → Users), then press Reviewed — Ada asks again in ' . self::ACCESS_REVIEW_DAYS . ' days or when the list changes.';
+        if ($lastReview === null || empty($lastReview['at'])) {
+            return $base + self::verdict('amber', 'never-reviewed', 'Never reviewed. ' . $who, $handoff, 'tim');
+        }
+        $days = self::ageDays((string)$lastReview['at'], $now) ?? 0;
+        if (($lastReview['hash'] ?? '') !== $base['roster_hash']) {
+            return $base + self::verdict('amber', 'roster-changed', 'The list changed since you reviewed it ' . self::ago((string)$lastReview['at'], $now) . '. ' . $who, $handoff, 'tim');
+        }
+        if ($days > self::ACCESS_REVIEW_DAYS) {
+            return $base + self::verdict('amber', 'review-due', "Last reviewed {$days} days ago — due every " . self::ACCESS_REVIEW_DAYS . ' days. ' . $who, $handoff, 'tim');
+        }
+        return $base + self::verdict('green', 'ok', 'Reviewed ' . self::ago((string)$lastReview['at'], $now) . ' by ' . ((string)($lastReview['by'] ?? '') ?: 'you') . "; unchanged since ({$n} login" . ($n === 1 ? '' : 's') . ').', null, null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Evidence grade (audit-support: undated evidence is insufficient)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Does this check's evidence carry a time — "ago", "just now", a date, "for N days" — or a last_worked? */
+    public static function evidenceDated(string $evidence, ?string $lastWorked): bool
+    {
+        if ($lastWorked !== null && $lastWorked !== '') return true;
+        return (bool)preg_match('/\b(\d+ (min|hour|hours|days?) ago|just now|yesterday|today|in \d+ (h|days?)\b|for \d+ days|since \w+|last \d+ (h|days?|runs?)|\d{4}-\d{2}-\d{2}|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b|\(\d+ days\)|\d+ h\b|never|ever|checked \d{1,2}:\d{2}|\d{1,2}:\d{2} ?[ap]m)\b/i', $evidence);
+    }
+
+    /** One info row naming the problem checks whose evidence has no date. Null when every line is dated. */
+    public static function evidenceCheck(array $checks): ?array
+    {
+        $undated = [];
+        foreach ($checks as $c) {
+            if (!in_array($c['state'] ?? '', ['red', 'amber', 'unknown'], true)) continue;
+            // Nightly rows are dated by their check time; a red by when it turned red.
+            $when = $c['last_worked'] ?? $c['checked_at'] ?? $c['red_since'] ?? null;
+            if (!self::evidenceDated((string)($c['evidence'] ?? ''), $when)) $undated[] = (string)$c['name'];
+        }
+        if (!$undated) return null;
+        $n = count($undated);
+        return ['system' => 'ada:evidence', 'group' => 'Ada', 'name' => 'Evidence without a date', 'last_worked' => null]
+            + self::verdict('info', 'undated', "{$n} finding" . ($n === 1 ? ' reports' : 's report') . ' without saying when (' . implode(', ', array_slice($undated, 0, 6)) . ($n > 6 ? ', …' : '') . ') — treat them as unproven until they do.',
+                "Ada: give these checks a dated evidence line or a last_worked value (AdaRules::evidenceDated): " . implode(', ', $undated) . '.', 'developer');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -144,7 +144,7 @@ class SecurityPostureService
             $out[] = ['system' => $r['check_key'], 'group' => SecurityPostureRules::GROUP, 'name' => $r['name'],
                       'last_worked' => $r['last_worked'], 'state' => $r['state'], 'problem' => $r['problem'],
                       'evidence' => $r['evidence'], 'handoff' => $r['handoff'], 'handoff_to' => $r['handoff_to'],
-                      'red_since' => $r['red_since']];
+                      'red_since' => $r['red_since'], 'checked_at' => $r['checked_at']];
         }
         $stale = SecurityPostureRules::staleCheck($last, $this->now());
         if ($stale) $out[] = $stale;
@@ -284,7 +284,18 @@ class SecurityPostureService
         return [
             SecurityPostureRules::backupCheck('db', $this->heartbeat('db', true), $this->heartbeat('db', false), $now),
             SecurityPostureRules::backupCheck('files', $this->heartbeat('files', true), $this->heartbeat('files', false), $now),
+            SecurityPostureRules::backupVerifyCheck($this->heartbeat('verify', false), $this->liveTableCount(), $now),
         ];
+    }
+
+    private function liveTableCount(): ?int
+    {
+        try {
+            $n = $this->db->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")->fetchColumn();
+            return $n === false ? null : (int)$n;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function checkDependencies(): array

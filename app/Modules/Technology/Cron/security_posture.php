@@ -59,6 +59,13 @@ try {
     $summary = count($stored) . ' checks: ' . count($n['red']) . ' red' . ($n['red'] ? ' (' . implode(', ', $n['red']) . ')' : '')
              . ', ' . count($n['amber']) . ' amber' . ($n['amber'] ? ' (' . implode(', ', $n['amber']) . ')' : '')
              . ', ' . count($n['unknown']) . ' can\'t tell, ' . count($n['green']) . ' green.';
+    // Nightly count snapshot for the trend in Ada's headline ("one fewer than yesterday") — never fails the run.
+    try {
+        require_once APP_ROOT . '/Modules/Technology/Services/AdaDeskService.php';
+        (new AdaDeskService(getDB()))->recordDailyCounts();
+    } catch (Throwable $e) {
+        error_log('security_posture: daily counts not recorded: ' . $e->getMessage());
+    }
     // The job worked; what it found is on the desk. 'success' even with reds (they are findings, not job failures).
     $__finish('success', $summary);
 } catch (Throwable $e) {

@@ -21,3 +21,6 @@ RS=$(run "cls -l '$DIR$TMP'" | awk '{print $4}' | tail -1)
 run "mv '$DIR$TMP' '$DIR$NAME'" | grep -iE "error|not connected|fail" && { echo "MV FAILED $LOCAL"; exit 1; }
 RS2=$(run "cls -l '$DIR$NAME'" | awk '{print $4}' | tail -1)
 [ "$RS2" = "$SIZE" ] && echo "DEPLOYED $LOCAL ($SIZE bytes) -> $REMOTE" || { echo "POST-CHECK MISMATCH $LOCAL remote=$RS2"; exit 1; }
+# Record the deploy for Ada's drift check (never fails the deploy). Until 2026-11-03 only deploy-checked.sh did this,
+# so every file shipped this way read as "changed on the server" — 99 ghosts by Nov 3.
+python3 scripts/lib/deploy_manifest.py "$LOCAL" || echo "WARNING: deploy manifest not updated (Ada's drift check will flag $LOCAL)"

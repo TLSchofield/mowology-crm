@@ -20,10 +20,45 @@ $desk = null;
 $notice = null;
 try {
     require_once APP_ROOT . '/Modules/Technology/Services/AdaDeskService.php';
+    require_once APP_ROOT . '/Modules/Technology/Services/AdaRiskRegister.php';
     $desk = new AdaDeskService(getDB());
     // "Mark fixed": Ada rechecks that job on its next run. The problem and evidence are read from her own
     // fresh check, not from the form, and only a red/amber scheduled job can be marked.
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mark_fixed') {
+    $__act = $_SERVER['REQUEST_METHOD'] === 'POST' ? (string)($_POST['action'] ?? '') : '';
+    if (in_array($__act, ['accept_risk', 'release_risk', 'access_reviewed'], true)) {
+        // The register (2026-11-03): accept a non-Critical problem for 90 days with a reason, release it, or record
+        // that the admin/manager list was reviewed. Level and acceptability come from Ada's own fresh check.
+        $sys = (string)($_POST['system'] ?? '');
+        $me = (int)($user['id'] ?? 0) ?: null;
+        $meName = trim((string)(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))) ?: (string)($user['username'] ?? 'admin');
+        if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+            $notice = 'That form expired. Reload the page and try again.';
+        } elseif ($__act === 'access_reviewed') {
+            $desk->markAccessReviewed($me, $meName);
+            header('Location: /crm/ada_appstack.php?reviewed=1#security%3Aaccess-review');
+            exit;
+        } elseif ($__act === 'release_risk') {
+            $desk->risks()->release($sys, 'released', date('Y-m-d H:i:s'));
+            header('Location: /crm/ada_appstack.php?released=1#' . rawurlencode($sys));
+            exit;
+        } else {
+            $reason = (string)($_POST['reason'] ?? '');
+            $why = AdaRiskRegister::reasonProblem($reason);
+            $found = null;
+            foreach ($desk->checks() as $c) if ($c['system'] === $sys) { $found = $c; break; }
+            if ($why !== null) {
+                $notice = $why;
+            } elseif ($found === null || empty($found['acceptable'])) {
+                $notice = 'Ada will not let that one be accepted — it is Critical, or no longer a problem.';
+            } elseif ($desk->risks()->accept($sys, $reason, $me, $meName, date('Y-m-d H:i:s'))) {
+                header('Location: /crm/ada_appstack.php?accepted=1#accepted');
+                exit;
+            } else {
+                $notice = 'Could not record that (is migration 1431 run?).';
+            }
+        }
+    }
+    if ($__act === 'mark_fixed') {
         $sys = (string)($_POST['system'] ?? '');
         if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
             $notice = 'That form expired. Reload the page and try again.';
@@ -39,11 +74,18 @@ try {
         }
     }
     $checks = $desk->checks();
+    $accepted = $desk->accepted();
+    $headline = $desk->headline();
 } catch (Throwable $e) {
     error_log('System Health: ' . $e->getMessage());
     $error = 'Ada could not run her checks. The error is in the server log.';
 }
 $counts = AdaRules::counts($checks);
+$accepted = $accepted ?? [];
+$headline = $headline ?? AdaRules::headline($counts);
+$handoffs = AdaRules::handoffCounts($checks);
+$nextThree = array_slice(array_values(array_filter($checks, static fn($c) => in_array($c['state'], ['red', 'amber'], true))), 0, 3);
+$canAccept = $desk && $desk->risks()->ready();
 $groups = [];
 foreach ($checks as $c) $groups[$c['group']][] = $c;
 $order = ['Live checks', 'Scheduled jobs', 'Connections', 'Security', 'Ada'];
@@ -65,12 +107,15 @@ $activePage = 'system-health';
     <img src="/crm/img/heads/ada.jpg" alt="Ada" width="64" height="64">
     <div>
       <h1 class="h3 mb-1">System Health</h1>
-      <div class="text-muted">Ada checked everything at <?= h($checkedAt) ?> (every time this page loads). <?= h(AdaRules::headline($counts)) ?>
+      <div class="text-muted">Ada checked everything at <?= h($checkedAt) ?> (every time this page loads). <?= h($headline) ?>
         She reads and reports; anything to fix goes to a developer session or to you.</div>
     </div>
   </div>
 
   <?php if ($notice): ?><div class="alert alert-warning"><?= h($notice) ?></div><?php endif; ?>
+  <?php if (!empty($_GET['accepted'])): ?><div class="alert alert-success">Accepted. It stays on this page under "Accepted", out of the counts, the brief and the emails until its review date.</div><?php endif; ?>
+  <?php if (!empty($_GET['released'])): ?><div class="alert alert-success">Released. Ada treats it as open again.</div><?php endif; ?>
+  <?php if (!empty($_GET['reviewed'])): ?><div class="alert alert-success">Noted. Ada asks again in <?= AdaRules::ACCESS_REVIEW_DAYS ?> days, or sooner if the list changes.</div><?php endif; ?>
   <?php if (!empty($_GET['marked'])): ?><div class="alert alert-success">Marked fixed. Ada will check that job again on its next run and write down what she finds below.</div><?php endif; ?>
   <?php if ($error): ?>
     <div class="alert alert-danger"><?= h($error) ?></div>
@@ -82,6 +127,18 @@ $activePage = 'system-health';
     <?php endforeach; ?>
   </div>
 
+  <?php if ($handoffs['tim'] + $handoffs['developer'] > 0 || $nextThree): ?>
+    <div class="mw-ada-decisions">
+      <span>For you: <strong><?= (int)$handoffs['tim'] ?></strong></span>
+      <span>For a developer session: <strong><?= (int)$handoffs['developer'] ?></strong></span>
+      <?php if ($nextThree): ?>
+        <span class="mw-ada-next">Next:
+          <?php foreach ($nextThree as $i => $c): ?><a href="#<?= h($c['system']) ?>"><?= h($c['name']) ?></a><?= $i < count($nextThree) - 1 ? ' · ' : '' ?><?php endforeach; ?>
+        </span>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
   <?php foreach ($groups as $group => $rows): ?>
     <div class="card mw-ada-group">
       <div class="card-header"><h5 class="card-title mb-0"><?= h($group) ?></h5></div>
@@ -90,13 +147,33 @@ $activePage = 'system-health';
           <li class="mw-ada-row is-<?= h($c['state']) ?>" id="<?= h($c['system']) ?>">
             <span class="mw-ada-dot" aria-hidden="true"></span>
             <div class="mw-ada-main">
-              <div class="mw-ada-name"><?= h($c['name']) ?> <small class="mw-ada-state"><?= h($words[$c['state']] ?? $c['state']) ?></small></div>
-              <div class="mw-ada-evidence"><?= h($c['evidence']) ?></div>
+              <div class="mw-ada-name"><?= h($c['name']) ?> <small class="mw-ada-state"><?= h($words[$c['state']] ?? $c['state']) ?></small>
+                <?php if (!empty($c['level'])): ?><small class="mw-ada-level is-<?= h(strtolower($c['level'])) ?>"><?= h($c['level']) ?></small><?php endif; ?></div>
+              <div class="mw-ada-evidence"><?= h(AdaRules::withAge((string)$c['evidence'], AdaRules::badSince($c), date('Y-m-d H:i:s'))) ?></div>
               <?php if (!empty($c['basis'])): ?>
                 <div class="mw-ada-basis"><?= h($c['basis']) ?></div>
               <?php endif; ?>
               <?php if (!empty($c['last_worked'])): ?>
                 <div class="mw-ada-when">Last worked <?= h(date('M j, g:i a', strtotime($c['last_worked']))) ?></div>
+              <?php endif; ?>
+              <?php if (!empty($c['reviewable'])): ?>
+                <form method="post" class="mw-ada-fix" action="/crm/ada_appstack.php">
+                  <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+                  <input type="hidden" name="action" value="access_reviewed">
+                  <button type="submit" class="btn btn-sm btn-outline-success">Reviewed — this list is right</button>
+                  <span class="text-muted small">Switch off anyone who should not be here first (Settings → Users).</span>
+                </form>
+              <?php endif; ?>
+              <?php if ($canAccept && !empty($c['acceptable'])): ?>
+                <form method="post" class="mw-ada-fix mw-ada-accept" action="/crm/ada_appstack.php">
+                  <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+                  <input type="hidden" name="action" value="accept_risk">
+                  <input type="hidden" name="system" value="<?= h($c['system']) ?>">
+                  <input type="text" name="reason" class="form-control form-control-sm" maxlength="<?= AdaRiskRegister::REASON_MAX ?>" placeholder="Why this risk is accepted (one line)" required>
+                  <button type="submit" class="btn btn-sm btn-outline-secondary">Accept for <?= AdaRiskRegister::REVIEW_DAYS ?> days</button>
+                </form>
+              <?php elseif (($c['level'] ?? '') === AdaRiskRegister::CRITICAL): ?>
+                <div class="mw-ada-basis">Critical: cannot be accepted — it has to be fixed.</div>
               <?php endif; ?>
               <?php if ($canMark && !empty($c['fixable']) && strncmp($c['system'], 'cron:', 5) === 0): ?>
                 <form method="post" class="mw-ada-fix" action="/crm/ada_appstack.php">
@@ -134,6 +211,32 @@ $activePage = 'system-health';
       </ul>
     </div>
   <?php endforeach; ?>
+
+  <?php if ($accepted): ?>
+    <div class="card mw-ada-group" id="accepted">
+      <div class="card-header"><h5 class="card-title mb-0">Accepted risks</h5>
+        <div class="text-muted small">Still true, left out of the counts, the brief and the emails until their review date. Release one to put it back.</div></div>
+      <ul class="mw-ada-rows">
+        <?php foreach ($accepted as $c): $a = $c['accepted']; ?>
+          <li class="mw-ada-row is-<?= h($c['state']) ?>" id="<?= h($c['system']) ?>">
+            <span class="mw-ada-dot" aria-hidden="true"></span>
+            <div class="mw-ada-main">
+              <div class="mw-ada-name"><?= h($c['name']) ?> <small class="mw-ada-state">Accepted</small>
+                <?php if (!empty($c['level'])): ?><small class="mw-ada-level is-<?= h(strtolower($c['level'])) ?>"><?= h($c['level']) ?></small><?php endif; ?></div>
+              <div class="mw-ada-evidence"><?= h($c['evidence']) ?></div>
+              <div class="mw-ada-when">Accepted <?= h(date('M j', strtotime($a['at']))) ?> by <?= h($a['by']) ?> — "<?= h($a['reason']) ?>" · review by <?= h(date('M j, Y', strtotime($a['review_by']))) ?></div>
+              <form method="post" class="mw-ada-fix" action="/crm/ada_appstack.php">
+                <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+                <input type="hidden" name="action" value="release_risk">
+                <input type="hidden" name="system" value="<?= h($c['system']) ?>">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Release</button>
+              </form>
+            </div>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+  <?php endif; ?>
 
   <?php if ($cleared): ?>
     <div class="card mw-ada-group">

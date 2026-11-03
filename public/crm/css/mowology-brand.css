@@ -39962,6 +39962,13 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-ada-when { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-ada-basis { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-ada-fix { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.mw-ada-accept .form-control { max-width: 340px; }
+.mw-ada-level { font-size: .68rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid var(--mw-light); color: var(--mw-ink-500); }
+.mw-ada-level.is-critical { color: var(--mw-danger, var(--mw-orange)); border-color: currentColor; }
+.mw-ada-level.is-high { color: var(--mw-orange); border-color: currentColor; }
+.mw-ada-decisions { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin: 0 0 14px; font-size: .9rem; color: var(--mw-ink-500); }
+.mw-ada-decisions strong { color: var(--mw-forest); }
+.mw-ada-next a { color: var(--mw-green); }
 .mw-ada-handoff { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
 .mw-ada-to { font-weight: 600; color: var(--mw-dark); }
 .mw-ada-task { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }

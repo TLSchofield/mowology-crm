@@ -88,6 +88,8 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaFixedMarks.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRiskRegister.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php';
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
