@@ -83,7 +83,7 @@ class AdaHarvestRulesTest extends TestCase
         $this->assertSame('2026-11-01 10:15:00', $c['bad_since']);
         $missed = AdaRules::cronCheck($reg, ['last_at' => '2026-10-20 10:00:00', 'last_ok_at' => '2026-10-20 10:00:00', 'last_status' => 'success', 'last_error' => '', 'max_ms' => 1, 'recent' => [['success', '2026-10-20 10:00:00', '']]], true, true, self::NOW);
         $this->assertSame('missed', $missed['problem']);
-        $this->assertSame('2026-10-20 10:00:00', $missed['bad_since']);
+        $this->assertSame('2026-10-20 10:40:00', $missed['bad_since']);   // 2 × 15 min + 10 min after the last run
         $this->assertStringContainsString('for 14 days', AdaRules::withAge($missed['evidence'], AdaRules::badSince($missed), self::NOW));
     }
 
@@ -139,6 +139,41 @@ class AdaHarvestRulesTest extends TestCase
         $this->assertSame('Critical', $drift['level']);
         $this->assertFalse($drift['acceptable']);
         $this->assertSame(0, $drift['cost_rank']);
+    }
+
+    public function test_an_acceptance_does_not_survive_a_turn_to_critical(): void
+    {
+        $acc = ['posture:stripe-webhook' => ['reason' => 'rare', 'accepted_by_name' => 'Tim', 'accepted_at' => '2026-11-01 10:00:00', 'review_by' => '2027-01-30']];
+        $amber = AdaRiskRegister::apply([$this->check('posture:stripe-webhook', 'amber')], $acc, '2026-11-03');
+        $this->assertCount(1, $amber['accepted']);
+        $red = AdaRiskRegister::apply([$this->check('posture:stripe-webhook', 'red')], $acc, '2026-11-03');   // cost 0 + red = Critical
+        $this->assertCount(0, $red['accepted']);
+        $this->assertSame([], $red['released']);                                   // kept on record, resumes if it drops back
+        $this->assertStringContainsString('has since become Critical, so it is back', $red['active'][0]['evidence']);
+        // Charlie's urgent list is built from the same split: the accepted amber-turned-red IS alerted, an accepted High is not.
+        $rows = [$this->check('posture:x-crew', 'red', 'Security', ['red_since' => '2026-11-03 01:00:00'])];
+        $rows[0]['system'] = 'posture:page-render';   // cost rank 2 → Medium when red → acceptable
+        $kept = AdaRiskRegister::apply($rows, ['posture:page-render' => $acc['posture:stripe-webhook']], '2026-11-03');
+        $this->assertSame([], SecurityPostureRules::urgentAlerts($kept['active']));
+        $this->assertCount(1, SecurityPostureRules::urgentAlerts($rows));
+    }
+
+    public function test_missed_cron_age_counts_from_the_missed_line(): void
+    {
+        $reg = ['key' => 'd', 'title' => 'D', 'expr' => '0 6 * * *', 'app' => '/app/d.php'];   // daily
+        $stats = ['last_at' => '2026-10-30 06:00:00', 'last_ok_at' => '2026-10-30 06:00:00', 'last_status' => 'success', 'last_error' => '', 'max_ms' => 1, 'recent' => [['success', '2026-10-30 06:00:00', '']]];
+        $c = AdaRules::cronCheck($reg, $stats, true, true, self::NOW);
+        $this->assertSame('missed', $c['problem']);
+        $this->assertSame('2026-11-01 06:10:00', $c['bad_since']);   // 2 intervals + 10 min after the last run
+        $this->assertSame(2, AdaRules::ageDays($c['bad_since'], self::NOW));
+    }
+
+    public function test_sort_is_stable_on_system_as_the_last_key(): void
+    {
+        $a = $this->check('cron:b', 'amber', 'Scheduled jobs'); $a['name'] = 'Same';
+        $b = $this->check('cron:a', 'amber', 'Scheduled jobs'); $b['name'] = 'Same';
+        $this->assertSame(['cron:a', 'cron:b'], array_column(AdaRules::sortChecks([$a, $b]), 'system'));
+        $this->assertSame(['cron:a', 'cron:b'], array_column(AdaRules::sortChecks([$b, $a]), 'system'));
     }
 
     public function test_reason_must_be_short_plain_and_free_of_tokens(): void

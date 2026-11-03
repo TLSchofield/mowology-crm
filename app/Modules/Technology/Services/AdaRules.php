@@ -222,7 +222,8 @@ class AdaRules
                     "Ada: cron '{$key}' ({$reg['app']}) does not call recordCronRun(), and its last cron_runs row is " . $stats['last_at'] . ". Add recordCronRun('{$key}', …) so its runs can be checked, then confirm it is in the cPanel schedule." . $line,
                     'developer') + ['config' => $config];
             }
-            $base['bad_since'] = (string)$stats['last_at'];
+            // Bad from the moment it crossed the missed line, not from its last run (Codex 2026-11-03).
+            $base['bad_since'] = date('Y-m-d H:i:s', strtotime((string)$stats['last_at']) + (self::MISSED_INTERVALS * $every + self::GRACE_MINUTES) * 60);
             return $base + self::verdict('red', 'missed',
                 "{$name}: should run " . self::everyWords($every) . ", last ran " . self::ago((string)$stats['last_at'], $now) . '.',
                 "cPanel → Cron Jobs: check the line for this job is still there, matching exactly. Its last recorded run was {$stats['last_at']}." . $line,
@@ -472,8 +473,8 @@ class AdaRules
 
     public static function sortChecks(array $checks): array
     {
-        usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, self::costRank((string)$a['system'], (string)$a['group']), $a['group'], $a['name']]
-                                 <=> [self::STATE_ORDER[$b['state']] ?? 9, self::costRank((string)$b['system'], (string)$b['group']), $b['group'], $b['name']]);
+        usort($checks, fn($a, $b) => [self::STATE_ORDER[$a['state']] ?? 9, self::costRank((string)$a['system'], (string)$a['group']), $a['group'], $a['name'], $a['system']]
+                                 <=> [self::STATE_ORDER[$b['state']] ?? 9, self::costRank((string)$b['system'], (string)$b['group']), $b['group'], $b['name'], $b['system']]);
         return $checks;
     }
 

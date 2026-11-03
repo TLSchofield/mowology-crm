@@ -32,9 +32,17 @@ class AdaAcceptedRisks
     public function accept(string $system, string $reason, ?int $userId, string $userName, string $now, int $days = AdaRiskRegister::REVIEW_DAYS): bool
     {
         if (!$this->ready() || $system === '' || AdaRiskRegister::reasonProblem($reason) !== null) return false;
-        $this->db->prepare("UPDATE ada_accepted_risks SET released_at = ?, released_how = 'replaced' WHERE system_key = ? AND released_at IS NULL")->execute([$now, $system]);
-        $this->db->prepare("INSERT INTO ada_accepted_risks (system_key, reason, accepted_by, accepted_by_name, accepted_at, review_by) VALUES (?, ?, ?, ?, ?, ?)")
-            ->execute([$system, mb_substr(trim(preg_replace('/\s+/', ' ', $reason)), 0, AdaRiskRegister::REASON_MAX), $userId, mb_substr($userName, 0, 80), $now, AdaRiskRegister::reviewBy($now, $days)]);
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->db->prepare("UPDATE ada_accepted_risks SET released_at = ?, released_how = 'replaced' WHERE system_key = ? AND released_at IS NULL")->execute([$now, $system]);
+            $this->db->prepare("INSERT INTO ada_accepted_risks (system_key, reason, accepted_by, accepted_by_name, accepted_at, review_by) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([$system, mb_substr(trim(preg_replace('/\s+/', ' ', $reason)), 0, AdaRiskRegister::REASON_MAX), $userId, mb_substr($userName, 0, 80), $now, AdaRiskRegister::reviewBy($now, $days)]);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();   // the previous acceptance survives (Codex 2026-11-03)
+            throw $e;
+        }
         return true;
     }
 

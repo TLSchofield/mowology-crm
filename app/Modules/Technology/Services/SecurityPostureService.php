@@ -156,6 +156,14 @@ class SecurityPostureService
     {
         $rows = $this->deskChecks();
         foreach ($rows as $r) if ($r['system'] === 'posture:run') return [];   // stale: don't re-alert old reds
+        // An accepted risk (within its review date, not Critical) is not emailed either (Codex 2026-11-03).
+        try {
+            require_once __DIR__ . '/AdaAcceptedRisks.php';
+            $acc = (new AdaAcceptedRisks($this->db))->open();
+            if ($acc) $rows = AdaRiskRegister::apply($rows, $acc, substr($this->now(), 0, 10))['active'];
+        } catch (Throwable $e) {
+            error_log('Ada posture urgent: acceptances unreadable: ' . $e->getMessage());
+        }
         return SecurityPostureRules::urgentAlerts($rows);
     }
 

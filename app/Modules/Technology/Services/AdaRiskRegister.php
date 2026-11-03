@@ -94,6 +94,14 @@ final class AdaRiskRegister
             $due = substr((string)($a['review_by'] ?? ''), 0, 10);
             $who = trim((string)($a['accepted_by_name'] ?? '')) ?: 'you';
             $on = date('M j', strtotime((string)$a['accepted_at']));
+            if (!$c['acceptable']) {
+                // Accepted while it was a lesser problem; it has since become Critical — back in front of the owner
+                // (Codex 2026-11-03). The acceptance stays on record and resumes if it drops back below Critical.
+                $c['evidence'] = rtrim((string)$c['evidence'], '.') . " — accepted on {$on} by {$who} (\"" . (string)$a['reason'] . '"), but it has since become Critical, so it is back.';
+                $c['accepted_overdue'] = true;
+                $active[] = $c;
+                continue;
+            }
             if ($due !== '' && $due < $today) {
                 // Review overdue: back on the list, saying so.
                 $c['evidence'] = rtrim((string)$c['evidence'], '.') . " — accepted on {$on} by {$who} (\"" . (string)$a['reason'] . "\"); the review was due " . date('M j', strtotime($due)) . '.';
