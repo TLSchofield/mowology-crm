@@ -8,9 +8,9 @@ is touched. Each part below says who does it and how it is proven before the day
 
 | Piece | What | State |
 |---|---|---|
-| Business | `rehearsal` → rehearsal.ittai.ca, DB `mowology_rehearsal`, owner email mowology@icloud.com (so the code email lands on Tim's phone). Provisioned by `TenantProvisioner` through `scripts/prod-run.sh --commit` (snippet: provision key/name/owner_email, password stripped — sign-up v2 sets its own). | needs Tim's go (permission mode blocks production from the session) |
-| Feed | `public/crm/downloads/app-version.rehearsal.json` — native_auth, native_signup, native_crew_schedule on; `/crm/api/app-version.php` merges it on that host only (`AppVersionFeed`). | file committed; deploy needs Tim's go |
-| App | Ittai-flavour APK built with `-PtenantTestHost=rehearsal.ittai.ca` (two-people icon, "Ittai" label, Ittai splash) at `/crm/downloads/ittai-rehearsal-signup-v2-test.apk`. | Android session building |
+| Business | `rehearsal` → rehearsal.ittai.ca, DB `mowology_rehearsal`, owner email mowology@icloud.com (so the code email lands on Tim's phone). Provisioned by `TenantProvisioner` through `scripts/prod-run.sh --commit` (snippet: provision key/name/owner_email, password stripped — sign-up v2 sets its own). **Trap:** the provisioner's DDL ends prod-run's wrapper transaction, so the first run died after the tables with "There is no active transaction" and the wrapper's "nothing changed" was wrong (DB + 496 tables + reference rows existed). Re-ran with the provisioner on a plain `new PDO(...)` of its own (the documented way to stay outside the wrapper): registered, owner created. | **LIVE 2026-11-03** — 496 tables, 297 migrations logged, 68-account chart, 1 owner, unclaimed |
+| Feed | `public/crm/downloads/app-version.rehearsal.json` — native_auth, native_signup, native_crew_schedule on; `/crm/api/app-version.php` merges it on that host only (`AppVersionFeed`). | **LIVE** — checked on rehearsal.ittai.ca; mowology.ca unchanged |
+| App | Ittai-flavour APK built with `-PtenantTestHost=rehearsal.ittai.ca` (two-people icon, "Ittai" label, Ittai splash) at `/crm/downloads/ittai-rehearsal-signup-v2-test.apk` (package ca.mowology.crew.test 2.2.8 code 40; replaces the testcompany test build on the same phone). | **LIVE** (codex/native a3f1083, not pushed) |
 | QuickBooks | Intuit app "ittai" (ittai@mowology.ca) → Keys & credentials → Development → Redirect URIs: add `https://rehearsal.ittai.ca/crm/accounting/quickbooks-callback.php`. Sandbox company is the one on that developer account. | Tim |
 
 ## The walk (what Claudia will do, in order)
@@ -26,10 +26,10 @@ is touched. Each part below says who does it and how it is proven before the day
 
 ## Proof before the day
 
-- Server shapes on rehearsal.ittai.ca: signup 400 field set, 405, 401 on map/step/quickbooks-start (curl, after provisioning).
-- Email leg: one real `signup.php` request from the Mac with the owner email → `sent:["email"]` and the code arrives in mowology@icloud.com. (Costs one of the rate-limit slots; the phone's own request re-issues the code.)
-- Feed: `/crm/api/app-version.php` on rehearsal.ittai.ca shows the three switches true; mowology.ca unchanged.
-- QuickBooks: `quickbooks-start` returns an Intuit URL whose redirect_uri is the rehearsal callback; Intuit accepts it (sign-in page, no "invalid redirect_uri").
+- ✓ 2026-11-03 Server shapes on rehearsal.ittai.ca: root → sign-in "Sign in - Rehearsal"; signup 400 four-field set; a non-owner email → "Use the email address this business was set up with."; 401 on map/quickbooks-start without a token.
+- ✓ 2026-11-03 Email leg: one real `signup.php` request from the Mac with the owner email → 200 `sent:["email","sms"]`, expires_in 900. Tim to confirm the code arrived in mowology@icloud.com (the phone's own request re-issues it; 5 requests/hour).
+- ✓ 2026-11-03 Feed: rehearsal.ittai.ca shows the three switches true; mowology.ca unchanged.
+- ✓ 2026-11-03 QuickBooks start URL built under the rehearsal tenant (prod-run preview, `Tenant::forTests`): keys present (`missing` empty), authorize host appcenter.intuit.com/connect/oauth2, redirect_uri `https://rehearsal.ittai.ca/crm/accounting/quickbooks-callback.php`, scope accounting. Intuit will accept it once Tim adds that URI to the app.
 - The phone walk itself is the final proof; Tim does it once before Claudia's day. If anything is off, the fix is server-side or app-side and the business is re-provisionable under a new key (keys are 3–20 lowercase letters/digits; each new host needs its own Intuit redirect line).
 
 ## Known rough edges to decide before Claudia
