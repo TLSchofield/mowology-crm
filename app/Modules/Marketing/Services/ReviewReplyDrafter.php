@@ -17,7 +17,9 @@ class ReviewReplyDrafter
     public const MAX_WORDS = 60;
 
     /** Words that are off-voice in a reply (copy rules). */
-    private const BANNED = ['thrilled', 'exceptional', 'elevate', 'leverage', 'solution', 'touching base', 'circling back'];
+    private const BANNED = ['thrilled', 'exceptional', 'elevate', 'leverage', 'solution', 'touching base', 'circling back',
+        // review-reputation response patterns (2026-11-03): the three phrases every reader recognises as a template
+        'sorry you feel this way', 'pride ourselves', 'our policy', 'per our policy', 'as per policy', 'valued customer', 'feedback is important to us'];
 
     /** keyword in the review => how Tim names the work. First match wins (most specific first). */
     private const WORK = [
@@ -83,9 +85,9 @@ class ReviewReplyDrafter
 
     /**
      * Which of Tim's rules a reply breaks (for an edited reply, and for tests).
-     * @return string[] subset of: exclamation, no_name, too_long, banned_word, empty
+     * @return string[] subset of: exclamation, no_name, too_long, banned_word, empty, no_contact (a 1–2 star reply with no phone or name to call)
      */
-    public static function violations(string $reply, string $reviewerName = ''): array
+    public static function violations(string $reply, string $reviewerName = '', ?int $rating = null): array
     {
         $out = [];
         $t = trim($reply);
@@ -97,6 +99,7 @@ class ReviewReplyDrafter
         foreach (self::BANNED as $w) {
             if (stripos($t, $w) !== false) { $out[] = 'banned_word'; break; }
         }
+        if ($rating !== null && $rating <= 2 && !preg_match('/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/', $t)) $out[] = 'no_contact';   // a negative reply names a person and a number, then stops
         return $out;
     }
 

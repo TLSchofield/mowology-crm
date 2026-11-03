@@ -117,6 +117,11 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/VoiceProfile.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EvidenceMinimums.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ContentMix.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/AdDiagnostics.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MarketingWeek.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCampaignService.php';
 // Mia — channels (GBP, social, website watch, listings) and the media library
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSeasonThemes.php';

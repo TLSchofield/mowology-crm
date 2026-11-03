@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * MiaChannelsService — Mia's channels: Google Business Profile, social, the website and listings.
  *
@@ -92,7 +94,103 @@ class MiaChannelsService
             ],
             'website' => self::webView($web),
             'listings' => $listings->ready() ? $listings->counts() + ['url' => '/crm/marketing/listings.php'] : null,
+            // Harvest 2026-11-03: his voice (learned from sent mail), the calendar's balance, the week in one page, findability
+            'voice'   => $this->voiceProfile(),
+            'mix'     => $this->contentMix($today),
+            'week'    => $this->week($today, $web, $bestPost),
+            'findability' => $this->findability(),
         ];
+    }
+
+    /** Tim's voice from the last 30 office emails (VoiceProfile), cached a week in ops_settings; owner edits are kept across refreshes. */
+    public function voiceProfile(bool $refresh = false): array
+    {
+        require_once __DIR__ . '/VoiceProfile.php';
+        $key = 'mia_voice_profile';
+        $cached = null;
+        try { $st = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?"); $st->execute([$key]); $cached = json_decode((string)$st->fetchColumn(), true) ?: null; } catch (Throwable $e) {}
+        if ($cached && !$refresh && !empty($cached['built']) && strtotime($cached['built']) > strtotime('-7 days')) return $cached;
+        try {
+            $rows = $this->db->query("SELECT snippet FROM sales_messages WHERE direction = 'outbound' AND channel = 'email' AND mailbox <> 'sam'
+                                      AND snippet IS NOT NULL AND LENGTH(snippet) > 60 ORDER BY sent_at DESC LIMIT 30")->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Throwable $e) { return $cached ?: ['enough' => false, 'note' => 'No sent mail to learn from yet (sales_messages).', 'samples' => 0]; }
+        $owner = (array)($cached['owner_never_uses'] ?? []);
+        $p = VoiceProfile::learn(array_map('strval', $rows), $owner);
+        $p['owner_never_uses'] = $owner; $p['updates'] = (array)($cached['updates'] ?? []);
+        if (!empty($cached['signoff_override'])) { $p['signoff'] = $cached['signoff_override']; $p['signoff_override'] = $cached['signoff_override']; }
+        try {
+            $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
+                     ->execute([$key, json_encode($p), 'Mia: Tim\'s voice learned from sent mail (VoiceProfile); owner edits kept in updates']);
+        } catch (Throwable $e) { /* cache only */ }
+        return $p;
+    }
+
+    /** The social calendar's balance and cadence (ContentMix) from social_posts + this week's drafts. */
+    public function contentMix(DateTimeImmutable $today): ?array
+    {
+        require_once __DIR__ . '/ContentMix.php';
+        try {
+            $rows = $this->db->query("SELECT status, service_type, caption, created_at, scheduled_at, published_at FROM social_posts
+                                      WHERE COALESCE(published_at, scheduled_at, created_at) >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { return null; }
+        $t = $today->format('Y-m-d');
+        $posts = [];
+        foreach ($rows as $x) {
+            $kind = stripos((string)$x['caption'], 'before and after') !== false ? 'proof' : (preg_match('/\b(crew|team|meet|welcome|thank you to)\b/i', (string)$x['caption']) ? 'people' : (preg_match('/\b(book|spots?|offer|special|now taking)\b/i', (string)$x['caption']) ? 'offer' : 'useful'));
+            $status = $x['status'] === 'published' ? 'published' : (($x['scheduled_at'] && substr((string)$x['scheduled_at'], 0, 10) >= $t && in_array($x['status'], ['publishing', 'scheduled', 'queued'], true)) ? 'scheduled' : 'draft');
+            $posts[] = ['date' => $x['published_at'] ?: ($x['scheduled_at'] ?: $x['created_at']), 'kind' => $kind, 'status' => $status, 'service' => (string)$x['service_type']];
+        }
+        return ContentMix::report($posts, $t, 'solo', $today->modify('-7 days')->format('Y-m-d'));
+    }
+
+    /** The week in one page (MarketingWeek): bands with their comparison, three ranked actions, failed sources named. */
+    public function week(DateTimeImmutable $today, ?array $web, ?array $bestPost): array
+    {
+        require_once __DIR__ . '/MarketingWeek.php';
+        $bands = []; $failed = []; $actions = [];
+        try {
+            $l7 = (int)$this->db->query("SELECT COUNT(*) FROM quote_requests WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+            $lp = (int)$this->db->query("SELECT COUNT(*) FROM quote_requests WHERE created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+            $bands['leads'] = MarketingWeek::band('leads', (float)$l7, (float)$lp) + ['now' => $l7, 'prior' => $lp];
+        } catch (Throwable $e) { $failed[] = 'leads'; }
+        try {
+            $r = $this->db->query("SELECT SUM(CASE WHEN metric_date >= DATE_SUB(CURDATE(), INTERVAL 28 DAY) THEN reach ELSE 0 END) r28,
+                                          SUM(CASE WHEN metric_date < DATE_SUB(CURDATE(), INTERVAL 28 DAY) AND metric_date >= DATE_SUB(CURDATE(), INTERVAL 56 DAY) THEN reach ELSE 0 END) rprev FROM social_metrics_daily")->fetch(PDO::FETCH_ASSOC);
+            $now = (float)($r['r28'] ?? 0); $prev = (float)($r['rprev'] ?? 0);
+            if ($now <= 0 && $prev <= 0) $failed[] = 'social reach (no metrics in 56 days)'; else $bands['reach'] = MarketingWeek::band('reach', $now, $prev ?: null) + ['now' => $now, 'prior' => $prev];
+        } catch (Throwable $e) { $failed[] = 'social reach'; }
+        try {
+            $rv = $this->db->query("SELECT AVG(CASE WHEN review_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN rating END) a, AVG(CASE WHEN review_date < DATE_SUB(CURDATE(), INTERVAL 90 DAY) AND review_date >= DATE_SUB(CURDATE(), INTERVAL 180 DAY) THEN rating END) p, COUNT(*) n FROM gbp_reviews")->fetch(PDO::FETCH_ASSOC);
+            if ((int)($rv['n'] ?? 0) === 0) $failed[] = 'Google reviews (none on file)'; else $bands['review_score'] = MarketingWeek::band('review_score', $rv['a'] !== null ? (float)$rv['a'] : null, $rv['p'] !== null ? (float)$rv['p'] : null) + ['now' => $rv['a'] !== null ? round((float)$rv['a'], 1) : null];
+        } catch (Throwable $e) { $failed[] = 'Google reviews'; }
+        // actions from what the card already knows
+        try { $w = (int)$this->db->query("SELECT COUNT(*) FROM gbp_reviews WHERE status = 'waiting'")->fetchColumn(); if ($w > 0) $actions[] = ['text' => "Answer the $w waiting review" . ($w === 1 ? '' : 's'), 'number' => "$w waiting", 'worth' => 100 * $w]; } catch (Throwable $e) {}
+        try { $stuck = (int)$this->db->query("SELECT COUNT(*) FROM social_posts WHERE status IN ('publishing','failed') AND COALESCE(scheduled_at, created_at) < DATE_SUB(NOW(), INTERVAL 2 DAY)")->fetchColumn(); if ($stuck > 0) $actions[] = ['text' => "Look at the $stuck post" . ($stuck === 1 ? '' : 's') . " stuck in publishing or failed", 'number' => "$stuck older than 2 days", 'worth' => 50 * $stuck]; } catch (Throwable $e) {}
+        $mix = $this->contentMix($today);
+        if ($mix && $mix['short']) $actions[] = ['text' => 'Ask the crew for finished-job photos (proof posts are short)', 'number' => 'short on ' . implode(', ', $mix['short']), 'worth' => 150];
+        if ($web && !empty($web['findings'])) $actions[] = ['text' => "Act on the website report's top finding", 'number' => (string)($web['findings'][0]['title'] ?? $web['findings'][0]['text'] ?? 'see website'), 'worth' => 120];
+        return MarketingWeek::page($bands, $actions, $failed, 'Week of ' . $today->format('M j')) + ['bands' => $bands];
+    }
+
+    /** AI-findability basics on our own site (seo-ai-visibility): robots.txt blocks for AI crawlers, llms.txt present. Cached a week. */
+    public function findability(): ?array
+    {
+        $key = 'mia_findability';
+        try { $st = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?"); $st->execute([$key]); $c = json_decode((string)$st->fetchColumn(), true); if ($c && !empty($c['checked']) && strtotime($c['checked']) > strtotime('-7 days')) return $c; } catch (Throwable $e) {}
+        $fetch = dirname(__DIR__, 2) . '/Operations/Services/HttpFetch.php';
+        if (!is_file($fetch)) return null;
+        require_once $fetch;
+        $site = defined('SITE_URL') && SITE_URL ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $robots = HttpFetch::get($site . '/robots.txt', 8); $llms = HttpFetch::get($site . '/llms.txt', 8);
+        $blocked = [];
+        if ($robots !== null) foreach (['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'CCBot'] as $bot) if (preg_match('/User-agent:\s*' . preg_quote($bot, '/') . '\s*\n(?:[^\n]*\n)*?\s*Disallow:\s*\/\s*$/mi', $robots)) $blocked[] = $bot;
+        $out = ['checked' => date('Y-m-d'), 'robots_read' => $robots !== null, 'ai_blocked' => $blocked, 'llms_txt' => $llms !== null && stripos($llms, '<html') === false && trim($llms) !== '',
+                'say' => []];
+        if ($robots === null) $out['say'][] = 'robots.txt could not be read — n/a';
+        elseif ($blocked) $out['say'][] = 'robots.txt blocks ' . implode(', ', $blocked) . ' — your choice, but it keeps the site out of AI answers';
+        if (!$out['llms_txt']) $out['say'][] = 'No llms.txt on the site — a one-page plain-text summary helps assistants quote us right';
+        try { $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([$key, json_encode($out), 'Mia: weekly AI-findability check of our own site']); } catch (Throwable $e) {}
+        return $out;
     }
 
     /** The card's view of the latest website report. */
@@ -433,7 +531,7 @@ class MiaChannelsService
             $w = trim((string)$this->db->query("SELECT company_website FROM business_settings WHERE id = 1")->fetchColumn());
             if ($w !== '') return preg_match('#^https?://#', $w) ? $w : 'https://' . $w;
         } catch (Throwable $e) {}
-        return defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        return defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     }
 
     private function reviewRow(int $id): ?array

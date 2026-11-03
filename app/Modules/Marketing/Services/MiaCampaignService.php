@@ -32,6 +32,7 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once __DIR__ . '/MiaFinder.php';
 require_once __DIR__ . '/MiaWording.php';
 require_once __DIR__ . '/MiaCalendar.php';
@@ -765,6 +766,12 @@ class MiaCampaignService
     /** One tap: create the campaign and its sends for everyone who passes consent now. */
     public function approve(int $id, array $user, ?string $subject = null, ?string $body = null, ?DateTimeImmutable $today = null): array
     {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'mia', 'action' => 'mia.approve_campaign', 'skill' => 'approve_campaign', 'entity_type' => 'mia_campaign', 'entity_id' => (string)$id, 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doApprove($id, $user, $subject, $body, $today));
+    }
+
+    private function doApprove(int $id, array $user, ?string $subject = null, ?string $body = null, ?DateTimeImmutable $today = null): array
+    {
         $today = $today ?? new DateTimeImmutable('today');
         $s = $this->db->prepare("SELECT * FROM mia_campaigns WHERE id = ? AND status = 'proposed'");
         $s->execute([$id]);
@@ -869,6 +876,12 @@ class MiaCampaignService
         if (preg_match('/\{\{(?!first_name\}\})[a-z_]+\}\}/', $all)) $p[] = 'only {{first_name}} is filled in per person';
         if (preg_match_all('/\{price:([a-z_]+)\}/', $all, $m)) $p[] = 'no CRM price found for ' . implode(', ', array_unique($m[1])) . ' — write the price in or take the line out';
         if ($stage >= 2 && self::mentionsLawnWatering($all)) $p[] = "Stage $stage is on: no lawn may be watered, so don't suggest it (a brown lawn is dormant, not dead)";
+        // Harvest 2026-11-03: the slop test (VoiceProfile) and the email shape (ContentMix). Tim's own prices are fine in a campaign,
+        // so the price warning is left out here; everything else that is not his voice is a problem.
+        require_once __DIR__ . '/VoiceProfile.php';
+        require_once __DIR__ . '/ContentMix.php';
+        foreach (VoiceProfile::check($all) as $v) if (strpos($v, 'price or percentage') === false && strpos($v, 'exclamation') === false) $p[] = lcfirst($v);
+        foreach (ContentMix::emailProblems($subject, $body) as $v) $p[] = lcfirst($v);
         return $p;
     }
 

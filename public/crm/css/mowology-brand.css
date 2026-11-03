@@ -41238,3 +41238,11 @@ body.mw-books {
 
 /* Quote create: Penny's payer notice above the terms (2026-11-03) */
 .mw-payer-notice { font-size: .82rem; color: var(--mw-dark); background: var(--mw-light); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
+
+/* Mia channels: week page bands and actions (MarketingWeek, 2026-11-03) */
+.mw-mia-week-actions { margin: 4px 0 6px 18px; padding: 0; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-mia-week-actions small { color: var(--mw-ink-500); }
+.mw-mia-band { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px; margin-right: 4px; background: var(--mw-light); color: var(--mw-dark); }
+.mw-mia-band.is-green { background: var(--mw-green); color: var(--mw-paper); }
+.mw-mia-band.is-yellow, .mw-mia-band.is-red { background: var(--mw-orange); color: var(--mw-paper); }
+.mw-mia-band.is-na { background: var(--mw-ink-200); color: var(--mw-ink-900); }
