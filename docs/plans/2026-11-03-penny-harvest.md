@@ -155,3 +155,9 @@ any day >16 h, seven days straight. Flags read who / when / both numbers / impac
 "rate unknown"), grouped by person, unknown hours first; shown under "Before you book" on the import page; nothing
 blocks booking. Not done: hours against schedule (no per-person scheduled-hours figure exists), rate history (none
 exists; the implied-rate check stands in). Net pay = bank and the balanced journal were already enforced.
+**G dry run (nine live runs) and Codex:** raw "wages moved >10% vs prior run" flagged nearly everyone every month (a Wave month
+holds 2 or 3 biweekly paydays; landscaping hours swing with the season) and historical months carried dozens of forgotten
+clock-outs. Now: wages per payday, and only when the hours do not explain the change; implied rate at 5% against the person's
+median over prior runs (stat/vacation pay moves it a little every month); punch flags capped at 3 per person; checks for
+preview months only. Result: 4 flags each for the two open months (new/missing people, one rate, the season). Codex: overnight
+punches now split across the days they cover, DST-safe streaks, accent-safe name keys, a run dropping to zero still flags.

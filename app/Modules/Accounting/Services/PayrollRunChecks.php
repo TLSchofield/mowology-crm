@@ -11,12 +11,17 @@ declare(strict_types=1);
  *
  *   OT above the person's own pattern   OT this run > 125% of their average over the last 4 paydays on file, or any OT
  *                                       for someone whose last paydays had none (history = imported runs only)
- *   Wages moved                         a person's wages, or the run total, moved more than 10% from the prior run
- *   Rate looks changed                  implied rate (wages ÷ weighted hours) moved more than 2% from the prior run
+ *   Wages moved                         wages PER PAYDAY moved more than 10% from the prior run AND the hours do not explain it
+ *                                       (a Wave month holds 2 or 3 biweekly paydays, and a landscaping month's hours swing with
+ *                                       the season — the first live dry run flagged nearly everyone every month on raw wages);
+ *                                       the run total per payday is one informational line
+ *   Rate looks changed                  implied rate (wages ÷ weighted hours) more than 5% off the person's median over prior
+ *                                       runs (stat-holiday and vacation pay move it a little every month)
  *   Zero hours / missing / new          zero Wave hours for someone on the prior run; on the prior run but not this one; new
  *   Shift over 12 h                     any single clock entry — fires on a first run with nothing to compare against
  *   Day over 16 h                       clocked minutes in one calendar day (almost always a punch error)
  *   Seven days straight                 clocked time on 7 consecutive days inside the run's period
+ *   (punch flags are capped at PUNCH_CAP per person — a month of forgotten clock-outs is one problem, not thirty lines)
  *   Hours against schedule              not checked: the CRM has no per-person scheduled-hours figure yet
  *
  * Pure and static. The import service gathers the inputs.
@@ -26,7 +31,8 @@ final class PayrollRunChecks
     public const OT_FACTOR = 1.25;
     public const OT_HISTORY_PAYDAYS = 4;
     public const WAGES_MOVE = 0.10;
-    public const RATE_MOVE = 0.02;
+    public const RATE_MOVE = 0.05;
+    public const PUNCH_CAP = 3;
     public const SHIFT_HOURS = 12.0;
     public const DAY_HOURS = 16.0;
     public const STREAK_DAYS = 7;
@@ -44,8 +50,13 @@ final class PayrollRunChecks
         $prior = $priorRuns ? end($priorRuns) : null;
         $priorBy = [];
         if ($prior) foreach ($prior['employees'] as $e) $priorBy[self::key($e['name'])] = $e;
-        $historyOt = [];   // person key => OT hours per payday, oldest first, across all prior runs
-        foreach ($priorRuns as $pr) foreach ($pr['employees'] as $e) foreach ($e['paydays'] as $p) $historyOt[self::key($e['name'])][] = (float)$p['overtime'];
+        $historyOt = [];     // person key => OT hours per payday, oldest first, across all prior runs
+        $historyRate = [];   // person key => implied rate per prior run
+        foreach ($priorRuns as $pr) foreach ($pr['employees'] as $e) {
+            foreach ($e['paydays'] as $p) $historyOt[self::key($e['name'])][] = (float)$p['overtime'];
+            $w = array_sum(array_column($e['paydays'], 'regular')) + 1.5 * array_sum(array_column($e['paydays'], 'overtime')) + 2 * array_sum(array_column($e['paydays'], 'double_time'));
+            if ($w > 0 && (float)($e['totals']['wages'] ?? 0) > 0) $historyRate[self::key($e['name'])][] = (float)$e['totals']['wages'] / $w;
+        }
 
         $seen = [];
         foreach ($run['employees'] as $e) {
@@ -85,17 +96,24 @@ final class PayrollRunChecks
             if (isset($priorBy[$k])) {
                 $pe = $priorBy[$k];
                 $pw = (float)($pe['totals']['wages'] ?? 0);
-                if ($pw > 0 && abs($wages - $pw) / $pw > self::WAGES_MOVE) {
-                    $flags[] = ['person' => $name, 'kind' => 'wages_moved', 'impact' => round($wages - $pw, 2),
-                        'text' => "$name: wages $" . number_format($wages, 2) . " in $month against $" . number_format($pw, 2) . " in " . ($prior['month'] ?? 'the prior run') . " (" . self::pct(($wages - $pw) / $pw) . ")"];
-                }
                 $pReg = array_sum(array_column($pe['paydays'], 'regular')); $pOt = array_sum(array_column($pe['paydays'], 'overtime')); $pDt = array_sum(array_column($pe['paydays'], 'double_time'));
                 $pWeighted = $pReg + 1.5 * $pOt + 2 * $pDt;
-                if ($weighted > 0 && $pWeighted > 0) {
-                    $r1 = $wages / $weighted; $r0 = $pw / $pWeighted;
+                $n1 = max(1, count($e['paydays'])); $n0 = max(1, count($pe['paydays']));
+                $perPay = $wages / $n1; $pPerPay = $pw / $n0;
+                $hoursExplain = $weighted > 0 && $pWeighted > 0 && $pPerPay > 0
+                    && abs(($perPay / $pPerPay) - (($weighted / $n1) / ($pWeighted / $n0))) < self::WAGES_MOVE;   // wages moved with the hours
+                if ($pPerPay > 0 && abs($perPay - $pPerPay) / $pPerPay > self::WAGES_MOVE && !$hoursExplain) {
+                    $flags[] = ['person' => $name, 'kind' => 'wages_moved', 'impact' => round($perPay - $pPerPay, 2),
+                        'text' => "$name: $" . number_format($perPay, 2) . " a payday in $month against $" . number_format($pPerPay, 2) . " in " . ($prior['month'] ?? 'the prior run') . " (" . self::pct(($perPay - $pPerPay) / $pPerPay) . "), and the hours don't explain it"];
+                }
+                $rates0 = $historyRate[$k] ?? [];
+                if ($weighted > 0 && $rates0) {
+                    sort($rates0);
+                    $r0 = $rates0[intdiv(count($rates0), 2)];
+                    $r1 = $wages / $weighted;
                     if ($r0 > 0 && abs($r1 - $r0) / $r0 > self::RATE_MOVE) {
                         $flags[] = ['person' => $name, 'kind' => 'rate_changed', 'impact' => round(($r1 - $r0) * $weighted, 2),
-                            'text' => "$name: pay works out to $" . number_format($r1, 2) . "/h in $month against $" . number_format($r0, 2) . "/h before — a rate change, or vacation pay in the wages?"];
+                            'text' => "$name: pay works out to $" . number_format($r1, 2) . "/h in $month against their usual $" . number_format($r0, 2) . "/h — a rate change, or stat/vacation pay in the wages?"];
                     }
                 }
                 if ($hours <= 0 && ($pReg + $pOt + $pDt) > 0) {
@@ -107,7 +125,13 @@ final class PayrollRunChecks
                     'text' => "$name is new on this run ($" . number_format($wages, 2) . ") — not on " . ($prior['month'] ?? 'the prior run')];
             }
             // Clock punches inside the period
-            foreach (self::punchFlags($name, $shifts[$uid] ?? [], $rate) as $f) $flags[] = $f;
+            $punch = self::punchFlags($name, $uid !== null ? ($shifts[$uid] ?? []) : [], $rate);
+            if (count($punch) > self::PUNCH_CAP) {
+                $more = count($punch) - self::PUNCH_CAP;
+                $punch = array_slice($punch, 0, self::PUNCH_CAP);
+                $punch[] = ['person' => $name, 'kind' => 'punch_more', 'impact' => null, 'text' => "$name: $more more clock punch" . ($more === 1 ? '' : 'es') . " worth a look in this period"];
+            }
+            foreach ($punch as $f) $flags[] = $f;
         }
         if ($prior) {
             foreach ($prior['employees'] as $pe) {
@@ -115,14 +139,15 @@ final class PayrollRunChecks
                 $flags[] = ['person' => (string)$pe['name'], 'kind' => 'missing_person', 'impact' => null,
                     'text' => $pe['name'] . " was paid in " . ($prior['month'] ?? 'the prior run') . " and is not on this run — left, or a missed timesheet?"];
             }
-            $tot = (float)($run['totals']['wages'] ?? 0); $ptot = (float)($prior['totals']['wages'] ?? 0);
-            if ($ptot > 0 && $tot > 0 && abs($tot - $ptot) / $ptot > self::WAGES_MOVE) {
+            $paydays = static function (array $r): int { $d = []; foreach ($r['employees'] as $e) foreach ($e['paydays'] as $p) $d[(string)$p['payday']] = true; return max(1, count($d)); };
+            $tot = (float)($run['totals']['wages'] ?? 0) / $paydays($run); $ptot = (float)($prior['totals']['wages'] ?? 0) / $paydays($prior);
+            if ($ptot > 0 && abs($tot - $ptot) / $ptot > self::WAGES_MOVE) {
                 $flags[] = ['person' => '', 'kind' => 'run_moved', 'impact' => round($tot - $ptot, 2),
-                    'text' => "The run's gross is $" . number_format($tot, 2) . " against $" . number_format($ptot, 2) . " in " . ($prior['month'] ?? 'the prior run') . " (" . self::pct(($tot - $ptot) / $ptot) . ")"];
+                    'text' => "The run's gross per payday is $" . number_format($tot, 2) . " against $" . number_format($ptot, 2) . " in " . ($prior['month'] ?? 'the prior run') . " (" . self::pct(($tot - $ptot) / $ptot) . ") — the season, or something else?"];
             }
         }
         // Group by person, unknown-hours flags first, run-level last
-        $order = ['no_hours' => 0, 'zero_hours' => 0, 'missing_person' => 1, 'shift' => 2, 'day' => 2, 'streak' => 2, 'overtime' => 3, 'wages_moved' => 4, 'rate_changed' => 4, 'new_person' => 5, 'run_moved' => 9];
+        $order = ['no_hours' => 0, 'zero_hours' => 0, 'missing_person' => 1, 'shift' => 2, 'day' => 2, 'streak' => 2, 'punch_more' => 2, 'overtime' => 3, 'wages_moved' => 4, 'rate_changed' => 4, 'new_person' => 5, 'run_moved' => 9];
         usort($flags, static function (array $a, array $b) use ($order): int {
             $pa = $a['person'] === '' ? "\xff" : $a['person']; $pb = $b['person'] === '' ? "\xff" : $b['person'];
             return strcmp($pa, $pb) ?: (($order[$a['kind']] ?? 8) <=> ($order[$b['kind']] ?? 8));
@@ -139,8 +164,20 @@ final class PayrollRunChecks
             $in = (string)$c['clock_in'];
             $min = $c['total_minutes'] !== null && $c['total_minutes'] !== '' ? (int)$c['total_minutes']
                  : (!empty($c['clock_out']) ? (int)round((strtotime((string)$c['clock_out']) - strtotime($in)) / 60) : 0);
-            $day = substr($in, 0, 10);
-            $byDay[$day] = ($byDay[$day] ?? 0) + max(0, $min);
+            // An overnight punch belongs to every calendar day it covers (a 9 pm – 7 am shift is 3 h today and 7 h tomorrow),
+            // else the first day looks like 16 h and the second day drops out of the streak (Codex review).
+            $start = strtotime($in);
+            $left = max(0, $min);
+            $cursor = $start;
+            while ($left > 0) {
+                $day = date('Y-m-d', $cursor);
+                $midnight = strtotime($day . ' 00:00:00 +1 day');
+                $chunk = min($left, max(1, (int)floor(($midnight - $cursor) / 60)));
+                $byDay[$day] = ($byDay[$day] ?? 0) + $chunk;
+                $left -= $chunk;
+                $cursor = $midnight;
+            }
+            if ($min <= 0) $byDay[date('Y-m-d', $start)] = $byDay[date('Y-m-d', $start)] ?? 0;
             if ($min / 60 > self::SHIFT_HOURS) {
                 $hrs = round($min / 60, 1);
                 $flags[] = ['person' => $name, 'kind' => 'shift', 'impact' => $rate !== null ? round(($hrs - 8) * $rate, 2) : null,
@@ -158,7 +195,7 @@ final class PayrollRunChecks
         $streak = 0; $prev = null; $start = null;
         foreach (array_keys($byDay) as $day) {
             if ($byDay[$day] <= 0) continue;
-            if ($prev !== null && (strtotime($day) - strtotime($prev)) === 86400) { $streak++; } else { $streak = 1; $start = $day; }
+            if ($prev !== null && date('Y-m-d', strtotime($prev . ' +1 day')) === $day) { $streak++; } else { $streak = 1; $start = $day; }   // calendar days, DST-safe
             $prev = $day;
             if ($streak === self::STREAK_DAYS) {
                 $flags[] = ['person' => $name, 'kind' => 'streak', 'impact' => null,
@@ -168,7 +205,7 @@ final class PayrollRunChecks
         return $flags;
     }
 
-    private static function key(string $name): string { return strtolower(preg_replace('/\s+/', ' ', trim($name))); }
+    private static function key(string $name): string { return mb_strtolower(preg_replace('/\s+/', ' ', trim($name)), 'UTF-8'); }
     private static function h(float $v): string { return rtrim(rtrim(number_format($v, 2), '0'), '.'); }
     private static function pct(float $v): string { return ($v > 0 ? '+' : '') . round($v * 100) . '%'; }
     private static function money(?float $v, string $suffix = ''): string { return $v === null ? ' — rate unknown' : ' — about $' . number_format(abs($v), 2) . $suffix; }

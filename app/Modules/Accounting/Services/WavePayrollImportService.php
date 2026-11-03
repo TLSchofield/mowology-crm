@@ -879,6 +879,7 @@ class WavePayrollImportService
         require_once __DIR__ . '/PayrollRunChecks.php';
         $rates = $this->hourlyRates(array_merge(...array_map(fn($r) => array_column($r['employees'], 'user_id'), $runs ?: [['employees' => []]])));
         foreach ($runs as $i => &$r) {
+            if ($r['status'] !== 'preview') { $r['checks'] = null; continue; }   // booked months are done; checks are for what is about to be booked
             try {
                 $prior = array_values(array_filter(array_slice($runs, 0, $i), fn($x) => $x['month'] < $r['month']));
                 $r['checks'] = PayrollRunChecks::check($r, $prior, $this->runShifts($r), $rates);
