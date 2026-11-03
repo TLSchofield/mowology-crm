@@ -93,3 +93,11 @@ trades first. The AI back office is the edge.
 - Built: skill `.claude/skills/ittai-design-studio`, `/design`, `scripts/codex-design.sh`, `scripts/ittai-design/` (token build + `review-shots.mjs`). Proven on a smoke brief, two rounds.
 - Web tokens AAA: done 2026-10-25 by porting snow-contracts `032151de` (tokens.json, tenant.config.json, tenants.generated.json, contrast test) onto this branch; regenerating `ItTokens.swift` is a no-op and `ittai-swift-tokens.mjs --check` + `IttaiSwiftTokensInSyncTest` guard against drift (iOS 1.3.58 had hand-edited the generated Swift while the source stayed behind).
 - Codex raster image generation: Codex says it has an image tool; unverified. Ask Tim before using it for assets.
+
+## Area tool ideas from AreaMap Pro (App Store, 2026-11-02)
+Tim asked which AreaMap features fit `crm/products/area-measurement.php`. Already have: polygon/polyline, satellite/hybrid, perimeter, groups, undo/redo, save-to-property, PDF/JSON/screenshot, per-sq-ft pricing, plant focus.
+- **Material estimates from the shape** (their main paid feature): area × depth → mulch/soil/gravel yards, sod rolls, seed lbs; polyline length ÷ post spacing → fence posts/rails. Feeds quote line items directly. Logic in a `MaterialEstimateService` with a test.
+- **Street View peek** before driving out: Google Street View is already licensed with our Maps key; one panel on the measurement page.
+- **Metric toggle** (m², ha, m): cheap; matters once Ittai has tenants who think metric.
+- **Feature pin with coordinates** (a tree, a valve box) saved on the property: builds on the 2026-11-02 photo pins; same `media_assets` position columns or a small `property_markers` table.
+- Skip: GPS boundary walking (city lots trace faster from satellite; background tracking is heavy in the WebView), KML/GPX/GeoJSON export (no buyer).
