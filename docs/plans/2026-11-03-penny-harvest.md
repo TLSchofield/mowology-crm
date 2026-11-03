@@ -161,3 +161,34 @@ clock-outs. Now: wages per payday, and only when the hours do not explain the ch
 median over prior runs (stat/vacation pay moves it a little every month); punch flags capped at 3 per person; checks for
 preview months only. Result: 4 flags each for the two open months (new/missing people, one rate, the season). Codex: overnight
 punches now split across the days they cover, DST-safe streaks, accent-safe name keys, a run dropping to zero still flags.
+
+## Part 2 — E, H, F, I, J, K, L built 2026-11-03 (one batch)
+- **E close gates / carried items / n/a:** `MonthCloseListService::items()` now carries `since` (first date each blocker appeared,
+  kept per month in ops_settings, keyed by `itemKey()` — account codes kept, amounts and counts not), `na` (every source that
+  could not be read: Stripe, receipts, bank lines, the P&L) and the email says "open since Oct 20" after 7 days and "Not checked
+  this time: …" rather than looking clean. The plugin's packet/forecast gate has no equivalent here (no packet is produced).
+- **H bank-line classes and ageing:** `BankLineAge` — timing / adjustment / investigate and 0–30 / 31–60 / 61–90 / 90+; every
+  waiting line on Penny's bank card carries `age` (chip at 61+ days); the close blockers say "N bank lines over 90 days unsorted ($X)".
+  Live: Jan–Jul 2026 lines are all stale (11 / 5 / 36 / 15 / 15 / 16 / 15), August has 39 at 61–90 days.
+- **F narrative:** `CloseNarrative::write()` from `AccountingService::getProfitLoss()` for the month and the prior month, in
+  Charlie's 7 am close email ("The month in plain words"). Balance-sheet rows (GST collected, card payable) are excluded; a sign
+  flip or two losses are said in figures, never as "down 308%". October live: a CAD 5,849 loss, five expense lines moved >10%.
+- **I journal checklist:** `JournalEntryCheck` — balanced, accounts present, memo, locked month, >60 days back, future date,
+  round estimates, accrual reversal, duplicate of a posted entry — as warnings under the payroll page's journal entry.
+- **J receipt coding:** `checkFooting` (line items adding up to MORE than the receipt; 7 live receipts, OCR doubled lines)
+  and `checkCapitalAsset` (equipment-like category at ≥ $500, the figure the receipt line rule already uses; override once in
+  ops_settings `capitalization_threshold`). Auto-code stays at 2 agreeing confirmations (Tim's standard).
+- **K tax note:** `TaxInstalmentNote` via `CashFlowForecastService::taxNote()` on the cash-flow page: fiscal YTD net, annualised
+  only beside the seasonal caveat, rate only from `ops_settings tax_rate_combined` (none on file → "not estimated"), instalments
+  from the cashflow settings; payment of instalments is not tracked, so no "missed" verdict is given.
+- **L pulse bands:** `PulseBands` on the Owner Freedom report: A/R red (21 invoices past 30 days, $3,181 past 60, each named),
+  revenue +11% green, runway n/a on purpose (the report never reads the bank), overall red.
+- Codex: 6 findings, 5 fixed (item keys, every unread source named, journal checks get real posted entries and locked months,
+  empty A/R is green, calendar months for the tax note); declined padding a clean month's narrative to 150 words.
+
+## Next for Sam (Tim's question 2026-11-03) — from the map, not yet built
+Piece 2 client rhythm (quiet = gap > 2× the client's own median, gone > 3×; win-back 0/+10/+28, no pitch first, stop on reply),
+piece 8 quote pricing from 2–3 comparables with the arithmetic shown and a >15% rate-card flag, piece 9 outreach cadences and
+the voice profile. Two head-to-head links worth building: Penny's payer habit → Sam's quote terms (slow payers get a deposit
+line), Sam's hot pipeline → Penny's forecast. Not yet surveyed: the sibling sales plugin (win-loss review, renewal radar, deal
+signals, customer health, call prep, objection handling) — a second survey like today's would say which rules are new.

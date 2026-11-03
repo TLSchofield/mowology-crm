@@ -530,6 +530,9 @@ Dropped / not done:
   cron_runs), so its "last run" can look old.
 
 ### 2026-11-03 — Two plugin formulas that failed on our data (Penny harvest, part 1)
+- **Monthly payroll and P&L comparisons mislead until normalised (2026-11-03):** Wave months hold 2–3 paydays (compare per
+  payday); `getProfitLoss()` rows can carry liability accounts (GST collected, card payable) — filter codes 4–8 before narrating
+  "expenses"; a sign flip or two losses must be said in figures, never as a percentage ("down 308%").
 - **"Missing" Stripe payouts that were booked all along (2026-11-03, settlement states):** a single-charge payout is matched
   at import straight to its invoice (bank line type `transfer`, `payment_reference` = `pi_…` or the invoice number, no
   `po_` reference). A matcher that only recognises `po_` references calls those payouts missing. And the fee rows
