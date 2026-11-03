@@ -642,8 +642,9 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 $payerNotice = null;
                                 try {
                                     $pk = null;
-                                    if (!empty($prefilledPropertyId)) {
-                                        $pq = $db->prepare("SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? AND cp.is_primary = 1 LIMIT 1"); $pq->execute([(int)$prefilledPropertyId]);
+                                    $payerProp = !empty($prefilledPropertyId) ? (int)$prefilledPropertyId : (int)($quote['property_id'] ?? 0);   // edit mode: the quote's own property
+                                    if ($payerProp > 0) {
+                                        $pq = $db->prepare("SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? AND cp.is_primary = 1 LIMIT 1"); $pq->execute([$payerProp]);
                                         $pc = (int)$pq->fetchColumn(); if ($pc > 0) $pk = 'company:' . $pc;
                                     }
                                     if ($pk === null && !empty($prefilledContactId)) $pk = 'contact:' . (int)$prefilledContactId;

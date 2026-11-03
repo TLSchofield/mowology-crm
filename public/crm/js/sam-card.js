@@ -294,8 +294,8 @@
                     '<div class="mw-sam-reply-main">' + (r.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') +
                     '<b>' + esc(r.name) + '</b> ' + (r.channel === 'sms' ? 'texted' : 'replied') +
                     (r.quote ? ' <q>' + esc(r.quote) + '</q>' : '') +
-                    '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' + +
-                    (r.objection && r.objection !== 'unclear' ? '<details class="mw-sam-obj"><summary>Reads like a ' + esc(r.objection.replace('_', ' ')) + ' objection — a reply in shape</summary><pre class="mw-sam-obj-draft">' + esc(r.objection_reply || '') + '</pre></details>' : '')
+                    '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' +
+                    (r.objection && r.objection !== 'unclear' ? '<details class="mw-sam-obj"><summary>Reads like a ' + esc(r.objection.replace('_', ' ')) + ' objection — a reply in shape</summary><pre class="mw-sam-obj-draft">' + esc(r.objection_reply || '') + '</pre></details>' : '') +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="' + esc(r.url) + '">Open</a>' +
                     '<button type="button" class="mw-rc-sk" data-handled>Handled</button></div></div>';
             }).join('');

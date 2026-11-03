@@ -56,6 +56,7 @@ final class SamPluginRulesTest extends TestCase
         $this->assertSame('timing', ObjectionReply::classify('Lets hold off until next spring')['type']);
         $this->assertSame('competitor', ObjectionReply::classify('We got another quote that was lower')['type']);
         $this->assertSame('unclear', ObjectionReply::classify('ok')['type']);
+        $this->assertSame('unclear', ObjectionReply::classify('Could you send a cost breakdown? After reviewing it we will decide')['type']);   // ordinary words are not objections
         $r = ObjectionReply::draft('price', ['first_name' => 'Ann', 'goal' => 'a tidy front yard before you list the house', 'proof' => 'The last three listings we prepared sold within two weeks.', 'signoff' => 'Tim']);
         $this->assertStringStartsWith("Hi Ann,\n\nThanks for being straight about the price.", $r);
         $this->assertStringContainsString('a tidy front yard before you list the house', $r);

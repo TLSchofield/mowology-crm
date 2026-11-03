@@ -45,6 +45,7 @@ class SalesDeskService
 
     /** Dollars on a quote: some writers fill total_amount, older ones only amount. */
     public const AMOUNT_SQL = "COALESCE(NULLIF(q.total_amount, 0), q.amount, 0)";
+    public const AMOUNT_SQL_INV = "COALESCE(NULLIF(i.total, 0), i.subtotal, 0)";   // the invoice twin, for quietClients()
     public const NOT_TEST_SQL = "CONCAT_WS(' ', c.first_name, c.last_name, q.title) NOT LIKE '%ZZTEST%'";
 
     private PDO $db;
@@ -648,8 +649,21 @@ class SalesDeskService
     {
         $t = strtotime($today ?: date('Y-m-d'));
         $out = [];
-        foreach ($this->openQuotes() as $q) {
+        $open = $this->openQuotes();
+        // "with no reply": a contact with an inbound message after the quote went out has replied — not for this list
+        $replied = [];
+        try {
+            $ids = array_values(array_unique(array_filter(array_map(fn($q) => (int)($q['contact_id'] ?? 0), $open))));
+            if ($ids && $this->hasTable('sales_messages')) {
+                $st = $this->db->prepare("SELECT contact_id, MAX(sent_at) AS last_in FROM sales_messages WHERE direction = 'inbound' AND contact_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ") GROUP BY contact_id");
+                $st->execute($ids);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $replied[(int)$r['contact_id']] = (string)$r['last_in'];
+            }
+        } catch (Throwable $e) { /* no inbox: nobody is known to have replied */ }
+        foreach ($open as $q) {
             if (empty($q['valid_until'])) continue;
+            $cid = (int)($q['contact_id'] ?? 0);
+            if ($cid && isset($replied[$cid]) && $replied[$cid] > (string)($q['sent_at'] ?? '')) continue;
             $left = (int)floor((strtotime((string)$q['valid_until']) - $t) / 86400);
             if ($left <= SamSignals::EXPIRY_DAYS) $out[] = ['quote_number' => (string)$q['quote_number'], 'name' => trim((string)($q['first_name'] ?? '') . ' ' . (string)($q['last_name'] ?? '')) ?: (string)($q['company_name'] ?? 'Client'), 'amount' => (float)$q['amount'], 'days_left' => $left];
         }
@@ -782,8 +796,9 @@ class SalesDeskService
             ? $replied . ' customer' . ($replied === 1 ? '' : 's') . ' wrote back and ' . ($replied === 1 ? 'is' : 'are') . ' waiting on you'
             : (count($cards) > 0 ? count($cards) . ' follow-up' . (count($cards) === 1 ? '' : 's') . ' due · ' . self::money($amount) . ' waiting'
                                  : 'No quotes need a nudge today'));
-        $digest = SamSignals::digest($cards, [], $leads, $quiet, $expiring);
-        if (!$digest['today'] && !$digest['week']) $headline .= ' ' . $digest['line'];
+        $uRows = array_map(fn($u) => ['name' => (string)($u['name'] ?? ''), 'days' => !empty($u['at']) ? (int)floor((time() - strtotime((string)$u['at'])) / 86400) : 0], $unclaimed);
+        $digest = SamSignals::digest($cards, $uRows, $leads, $quiet, $expiring);
+        if (!$digest['today'] && !$digest['week'] && !$unclaimed) $headline .= ' ' . $digest['line'];
         return ['head' => 'sam', 'headline' => $headline, 'items' => $items, 'count' => count($cards) + count($leads) + count($unclaimed)];
     }
 

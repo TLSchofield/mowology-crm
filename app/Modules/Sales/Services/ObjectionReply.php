@@ -13,8 +13,8 @@ final class ObjectionReply
 {
     private const PATTERNS = [
         'negotiation' => '/\b(best price|match|discount|cheaper if|knock|any room|lower price|price break)\b/i',
-        'price'       => '/\b(too (?:much|expensive|high|steep)|can\'?t afford|over (?:our|my) budget|pric(?:e|ey)|expensive|cost)\b/i',
-        'timing'      => '/\b(not (?:right )?now|next (?:year|season|spring|month)|later|hold off|wait until|busy|after)\b/i',
+        'price'       => '/\b(too (?:much|expensive|high|steep|pricey)|can\'?t afford|out of (?:our|my) (?:budget|range)|over (?:our|my) budget|costs? too much|concerned about the (?:cost|price)|more than (?:we|I) (?:expected|wanted to spend)|a lot of money)\b/i',
+        'timing'      => '/\b(not (?:right )?now|next (?:year|season|spring|summer|fall|month)|hold off|wait until|put (?:it|this) off|revisit (?:in|next)|circle back|after (?:the )?(?:winter|season|holidays|new year))\b/i',
         'competitor'  => '/\b(another (?:company|quote|guy|landscaper)|other quotes?|someone else|went with|already have (?:a|someone))\b/i',
         'authority'   => '/\b(check with|ask my|run it by|my (?:wife|husband|partner|boss|strata|council|board)|the board|committee)\b/i',
         'risk'        => '/\b(not sure|worried|guarantee|what if|trust|reviews?|references?|insur(?:ed|ance)|damage)\b/i',
