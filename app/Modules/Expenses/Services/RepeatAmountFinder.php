@@ -8,6 +8,11 @@ declare(strict_types=1);
  * It only SURFACES: some vendors legitimately bill the same amount monthly, so Tim decides, and his
  * "Not the same purchase" dismisses the pair for good (expense_duplicate_dismissals).
  *
+ * Two cuts found on the first live dry run (2026-11-03: 48 questions, mostly $200 fuel prepays and $84 Lawnboy
+ * loads): an amount a vendor charges HABITUALLY (HABIT_COUNT or more identical totals in the window) is a pattern,
+ * not a duplicate, and is never asked about; and nothing under MIN_AMOUNT is worth a question (an owner answers
+ * four questions and ignores forty — plugin coding rule). TwinFinder still catches true doubles within 3 days.
+ *
  * Pure and static. Receipts: {id, expense_date, total, vendor, status}; dismissals: [[a, b], …].
  */
 final class RepeatAmountFinder
@@ -15,12 +20,19 @@ final class RepeatAmountFinder
     public const MIN_DAYS = 4;
     public const MAX_DAYS = 90;
     public const KIND = 'repeat_amount';
+    public const HABIT_COUNT = 3;     // this many identical vendor+total in the window = a habitual amount, not a duplicate
+    public const MIN_AMOUNT = 25.0;
 
     /** @return array<int,array{kind:string,newer_id:int,older_id:int,amount:float,days:int,vendor:string,newer_date:string,older_date:string}> */
     public static function find(array $receipts, array $dismissals): array
     {
         $active = array_values(array_filter($receipts, static function (array $r): bool {
-            return in_array((string)($r['status'] ?? 'approved'), ['approved', 'forwarded'], true) && (float)($r['total'] ?? 0) > 0;
+            return in_array((string)($r['status'] ?? 'approved'), ['approved', 'forwarded'], true) && (float)($r['total'] ?? 0) >= self::MIN_AMOUNT;
+        }));
+        $habit = [];
+        foreach ($active as $r) { $g = self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total']); $habit[$g] = ($habit[$g] ?? 0) + 1; }
+        $active = array_values(array_filter($active, static function (array $r) use ($habit): bool {
+            return $habit[self::vendorKey((string)$r['vendor']) . '|' . self::cents($r['total'])] < self::HABIT_COUNT;
         }));
         usort($active, static function (array $a, array $b): int {
             return strcmp((string)$a['expense_date'], (string)$b['expense_date']) ?: ((int)$a['id'] <=> (int)$b['id']);

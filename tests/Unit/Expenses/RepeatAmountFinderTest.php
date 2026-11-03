@@ -15,13 +15,19 @@ final class RepeatAmountFinderTest extends TestCase
     {
         $f = RepeatAmountFinder::find([
             $this->r(1, '2026-08-01', 84.00), $this->r(2, '2026-08-03', 84.00),   // 2 days: TwinFinder's job
-            $this->r(3, '2026-09-01', 84.00),                                     // 31 days after #1 / 29 after #2 → question
-            $this->r(4, '2026-12-15', 84.00),                                     // > 90 days after everything → nothing
+            $this->r(3, '2026-09-01', 84.00),                                     // 31 days after #1 / 29 after #2 → question… but see habit rule below
+            $this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-09-01', 61.00),   // 31 days → question
+            $this->r(4, '2026-12-15', 61.00),                                     // > 90 days after #6 → nothing (and makes $61 a trio, so…)
         ], []);
+        // $84 appears 3 times in the window → habitual, never asked; $61 appears 3 times too → also habitual
+        self::assertSame([], $f);
+        $f = RepeatAmountFinder::find([$this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-08-03', 61.00), $this->r(7, '2026-09-01', 61.00, 'Rona')], []);
+        self::assertSame([], $f);                                                 // #5/#6 are a twin (2 days); Rona is another vendor
+        $f = RepeatAmountFinder::find([$this->r(5, '2026-08-01', 61.00), $this->r(6, '2026-09-01', 61.00)], []);
         self::assertCount(1, $f);
-        self::assertSame([3, 2], [$f[0]['newer_id'], $f[0]['older_id']]);   // nearest earlier match
-        self::assertSame(29, $f[0]['days']);
-        self::assertStringContainsString('Home Depot $84.00 on 2026-09-01 matches $84.00 on 2026-08-03, 29 days earlier', RepeatAmountFinder::wording($f[0]));
+        self::assertSame([6, 5], [$f[0]['newer_id'], $f[0]['older_id']]);
+        self::assertSame(31, $f[0]['days']);
+        self::assertStringContainsString('Home Depot $61.00 on 2026-09-01 matches $61.00 on 2026-08-01, 31 days earlier', RepeatAmountFinder::wording($f[0]));
     }
 
     public function test_vendor_and_cents_must_match_and_dismissed_pairs_stay_quiet(): void
@@ -37,9 +43,20 @@ final class RepeatAmountFinderTest extends TestCase
         $f = RepeatAmountFinder::find([
             $this->r(1, '2026-08-01', 50.00), $this->r(2, '2026-08-20', 50.00),
             $this->r(3, '2026-08-01', 900.00), $this->r(4, '2026-08-20', 900.00),
-            $this->r(5, '2026-08-01', 70.00, 'Home Depot', 'rejected'), $this->r(6, '2026-08-20', 70.00),
+            $this->r(5, '2026-08-01', 70.00, 'Home Depot', 'rejected'), $this->r(6, '2026-08-20', 70.00),   // a rejected one does not count
         ], []);
         self::assertSame([900.0, 50.0], array_column($f, 'amount'));
+    }
+
+    public function test_habitual_amounts_and_small_amounts_are_not_asked_about(): void
+    {
+        // Three $200 fuel prepays in the window: a pattern, not a duplicate
+        $f = RepeatAmountFinder::find([$this->r(1, '2026-08-01', 200.00, 'Shell'), $this->r(2, '2026-08-20', 200.00, 'Shell'), $this->r(3, '2026-09-15', 200.00, 'Shell')], []);
+        self::assertSame([], $f);
+        // Two is still a question
+        self::assertCount(1, RepeatAmountFinder::find([$this->r(1, '2026-08-01', 200.00, 'Shell'), $this->r(2, '2026-08-20', 200.00, 'Shell')], []));
+        // Under $25 never asks
+        self::assertSame([], RepeatAmountFinder::find([$this->r(1, '2026-08-01', 20.00, 'Chevron'), $this->r(2, '2026-08-20', 20.00, 'Chevron')], []));
     }
 
     public function test_rows_for_penny_questions(): void

@@ -98,28 +98,33 @@ class CashFlowForecastService
     }
 
     /**
-     * Confidence band for the money-in line (plugin formula, cash-flow-snapshot, harvested 2026-11-03).
-     * Per client: band = stddev / mean of their payment lag (days from due to paid, last 12 months);
-     * fewer than 3 payments → 30%; mean lag ≤ 1 day → 5% (no division); capped at 50% and marked
-     * "thin" when the cap bites. The overall band is the inflow-weighted average, one decimal.
-     * @param array<string,int[]>   $lagsByClient   client key → lags in days
+     * Confidence band for the money-in line (harvested from the plugin's cash-flow-snapshot, 2026-11-03, then
+     * changed on the first live dry run). The plugin divides the stddev of payment lag by its mean; on our data a
+     * client who pays 10 days early 26 times and 12 days late 3 times scored the 50% cap, the same as one who is
+     * all over the place. For a WEEKLY forecast the question is "how often does this client's money land a week or
+     * more away from where we put it?", so per client the band is the share of their last 12 months' payments that
+     * fell more than BAND_WEEK_DAYS from their own median lag (lags clamped at 0: early is on time). Kept from the
+     * plugin: fewer than 3 payments → 30%; capped at 50% and marked "thin"; the overall band is the inflow-weighted
+     * average, one decimal.
+     * @param array<string,int[]>   $lagsByClient   client key → lags in days (negative = early)
      * @param array<string,float>   $inflowByClient client key → expected money in over the horizon
      * @return array{pct:float, thin:bool, clients:int, by_client:array<string,float>}
      */
+    public const BAND_WEEK_DAYS = 7;
+
     public static function band(array $lagsByClient, array $inflowByClient): array
     {
         $by = [];
         $thin = false;
         foreach ($inflowByClient as $key => $inflow) {
             if ($inflow <= 0) continue;
-            $lags = array_map('intval', $lagsByClient[$key] ?? []);
+            $lags = array_map(static function ($l): int { return max(0, (int)$l); }, $lagsByClient[$key] ?? []);
             if (count($lags) < 3) { $by[$key] = 0.30; continue; }
-            $mean = array_sum($lags) / count($lags);
-            if ($mean <= 1) { $by[$key] = 0.05; continue; }
-            $var = 0.0;
-            foreach ($lags as $l) $var += ($l - $mean) ** 2;
-            $sd = sqrt($var / count($lags));
-            $pct = $sd / $mean;
+            sort($lags);
+            $median = $lags[intdiv(count($lags), 2)];
+            $off = 0;
+            foreach ($lags as $l) if (abs($l - $median) > self::BAND_WEEK_DAYS) $off++;
+            $pct = $off / count($lags);
             if ($pct > 0.5) { $pct = 0.5; $thin = true; }
             $by[$key] = round($pct, 3);
         }

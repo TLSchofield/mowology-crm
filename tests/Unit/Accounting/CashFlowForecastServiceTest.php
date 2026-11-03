@@ -113,19 +113,20 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertFalse(CashFlowForecastService::inSeason('2027-03-01', '12-01', '03-01'));
     }
 
-    public function test_band_follows_the_plugin_rules_per_client_and_weights_by_inflow(): void
+    public function test_band_is_the_share_of_payments_a_week_or_more_off_the_clients_median(): void
     {
         $b = CashFlowForecastService::band([
-            'steady' => [10, 10, 10, 10],        // sd 0 → 0%
-            'uneven' => [0, 40, 5, 60],          // sd/mean > 0.5 → capped 50%, thin
-            'prompt' => [0, 1, 0, 1],            // mean ≤ 1 → 5%
-            'new'    => [30, 2],                 // < 3 payments → 30%
-        ], ['steady' => 1000, 'uneven' => 1000, 'prompt' => 1000, 'new' => 1000, 'nothing_due' => 0]);
-        $this->assertSame(['steady' => 0.0, 'uneven' => 0.5, 'prompt' => 0.05, 'new' => 0.3], $b['by_client']);
+            'steady' => [10, 10, 10, 10],                        // nobody off the median → 0%
+            'prompt' => [-14, -10, -7, -3, -3, 2, 12, 12, 12],   // clamped: median 0, three at 12 → 3/9 = 33.3%
+            'erratic' => [-18, -16, 10, 15, 20],                 // median 10: 0,0 and 20 are >7 off → 3/5 = 60% → capped 50%, thin
+            'new'    => [30, 2],                                 // < 3 payments → 30%
+        ], ['steady' => 1000, 'prompt' => 1000, 'erratic' => 1000, 'new' => 1000, 'nothing_due' => 0]);
+        $this->assertSame(['steady' => 0.0, 'prompt' => 0.333, 'erratic' => 0.5, 'new' => 0.3], $b['by_client']);
         $this->assertTrue($b['thin']);
         $this->assertSame(4, $b['clients']);
-        $this->assertSame(21.3, $b['pct']);     // (0 + 50 + 5 + 30) / 4, one decimal
+        $this->assertSame(28.3, $b['pct']);     // (0 + 33.3 + 50 + 30) / 4, one decimal
         $this->assertSame(0.0, CashFlowForecastService::band([], [])['pct']);
+        $this->assertSame(0.0, CashFlowForecastService::band(['early' => [-20, 0, 1, -3]], ['early' => 100])['by_client']['early']);   // early = on time
     }
 
     public function test_band_widens_only_the_money_in_cumulatively(): void

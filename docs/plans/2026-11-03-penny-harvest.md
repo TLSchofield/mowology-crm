@@ -125,3 +125,14 @@ Everything US-tax (SE tax, 1099, safe harbour, W-9), SOX scoping and multi-entit
 D (payout statuses) → G (payroll checks) → E (close gates + n/a) → H (bank-line classes) → F (narrative) → I → J → K → L.
 Each: plan section above is the spec; pure class + tests; prod-run dry run; Codex; deploy; vault + Penny skill one-place rows.
 Decisions for Tim before D starts: keep learning at 2 or move to 3 for coding (J); the $50K / 15% variance floor for our size (F).
+
+## Dry run 2026-11-03 (read-only, 13 overdue payers / 271 approved expenses / 427 payment lags) — what it changed
+- **Tones:** 5 firm, 5 neutral, 3 gentle; nine payers have more than one overdue invoice and now get ONE email. The 14-day
+  hold caught the case the plugin warns about: a gentle payer who paid the day before would otherwise have been chased.
+- **Repeat amounts:** the plugin rule alone asked 48 questions, mostly $200 fuel prepays and $84 Lawnboy loads. Two cuts,
+  both Claude's judgement (tell Tim): an amount a vendor charges 3+ times in the window is habitual and never asked about
+  (`RepeatAmountFinder::HABIT_COUNT`), and nothing under $25 is asked (`MIN_AMOUNT`). Result: 3 questions.
+- **Band:** the plugin's stddev ÷ mean scored a client who pays early 26 times and 12 days late 3 times at the 50% cap.
+  Replaced by the share of a client's payments more than 7 days off their own median lag (lags clamped at 0). Kept: <3
+  payments → 30%, cap 50% + "thin", inflow-weighted overall. Live: ±22.1% overall; biggest payer 10.3%.
+- The $25 floor on the missing-receipt flag silences 3 live expenses.
