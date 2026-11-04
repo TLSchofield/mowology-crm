@@ -15,7 +15,9 @@ enum DeviceTextScanner {
     /// A read already in flight, started by the caller while the GPS fix is still settling.
     struct Prefetched {
         let task: Task<Result?, Never>
-        init(_ imageData: Data) { task = Task.detached(priority: .userInitiated) { await DeviceTextScanner.read(imageData) } }
+        init(_ imageData: Data) { task = Task(priority: .userInitiated) { await DeviceTextScanner.read(imageData) } }
+        /// For a capture that leaves without uploading.
+        func cancel() { task.cancel() }
     }
 
     /// Longest we let the on-device read hold the upload.
@@ -23,15 +25,28 @@ enum DeviceTextScanner {
 
     static func read(_ imageData: Data) async -> Result? {
         guard let cgImage = UIImage(data: imageData)?.cgImage else { return nil }
-        return await withTaskGroup(of: Result?.self) { group in
-            group.addTask { await recognise(cgImage) }
-            group.addTask {
+        // Race Vision against the clock with a resume-once guard: the caller stops waiting after
+        // `timeoutSeconds` even if Vision never returns (a task group would have to join it).
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Result?, Never>) in
+            let gate = ResumeOnce(continuation)
+            Task.detached(priority: .userInitiated) { gate.resume(await recognise(cgImage)) }
+            Task.detached {
                 try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                return nil
+                gate.resume(nil)
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        }
+    }
+
+    private final class ResumeOnce {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Result?, Never>?
+        init(_ c: CheckedContinuation<Result?, Never>) { continuation = c }
+        func resume(_ value: Result?) {
+            lock.lock()
+            let c = continuation
+            continuation = nil
+            lock.unlock()
+            c?.resume(returning: value)
         }
     }
 
