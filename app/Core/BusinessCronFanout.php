@@ -18,7 +18,8 @@ final class BusinessCronFanout
         $out = [];
         foreach ($keys as $key) {
             $key = (string)$key;
-            if ($key === Tenant::DEFAULT || !preg_match('/^[a-z0-9]{1,30}$/', $key)) continue;
+            // Any key the registry accepts (argv array: no shell, so no quoting to worry about).
+            if ($key === Tenant::DEFAULT || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
             $out[] = ['key' => $key, 'argv' => [$php, $script, '--tenant=' . $key]];
         }
         return $out;
@@ -43,8 +44,11 @@ final class BusinessCronFanout
                 $status = proc_get_status($process);
                 if (!$status['running']) break;
                 if (microtime(true) - $started >= $timeout) {
+                    // SIGTERM, then SIGKILL after 5 s: proc_close() must never wait on a stuck child (Codex review 2026-11-03).
                     $timedOut = true;
                     proc_terminate($process);
+                    for ($i = 0; $i < 50 && proc_get_status($process)['running']; $i++) usleep(100000);
+                    if (proc_get_status($process)['running']) proc_terminate($process, 9);
                     break;
                 }
                 usleep(100000);

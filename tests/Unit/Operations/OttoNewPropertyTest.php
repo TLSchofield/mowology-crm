@@ -42,8 +42,7 @@ class OttoNewPropertyTest extends TestCase
         $this->assertSame(1, $r['new']);
         $this->assertSame(1, $r['pinned']);
         $this->assertSame(1, $r['bordered']);
-        $state = json_decode((string)$db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'otto_auto_place_state'")->fetchColumn(), true);
-        $this->assertSame(0, $state['new_after_id']);
+        $this->assertSame('0', $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'otto_new_after_id'")->fetchColumn());
     }
 
     public function test_old_rows_are_frozen_out_but_later_ids_are_new_even_when_backdated(): void
@@ -204,5 +203,40 @@ class OttoNewPropertyTest extends TestCase
         $db->exec("INSERT INTO quotes VALUES (4, 4, 'accepted', '2026-10-01')");
         $r = $this->service($db)->run(2);
         $this->assertSame(1, $r['pinned'], 'the one with an address is reached despite a limit of 2');
+    }
+
+    /** An Ittai business starts at 0: imports that kept old created_at dates still count as new. */
+    public function test_a_business_counts_every_property_whatever_its_created_at(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties VALUES (1, 'A St', 'Vancouver', 'BC', '', NULL, NULL, NULL, '2019-05-01')");
+        $ring = [[-123.15505, 49.22950], [-123.15475, 49.22950], [-123.15475, 49.22970], [-123.15505, 49.22970], [-123.15505, 49.22950]];
+        $fetch = fn() => json_encode(['type' => 'FeatureCollection', 'features' => [['type' => 'Feature', 'geometry' => ['type' => 'Polygon', 'coordinates' => [$ring]],
+                    'properties' => ['PARCEL_CLASS' => 'Subdivision', 'PLAN_NUMBER' => 'VAP1', 'PID_FORMATTED' => '1']]]]);
+        $svc = new OttoAutoPlaceService($db, fn() => ['lat' => 49.2296, 'lng' => -123.1549, 'exact' => true], new ParcelLotService($fetch), '2026-11-03', null, false);
+        $this->assertSame(1, $svc->run()['new']);
+        $this->assertSame(0, $svc->watermark());
+    }
+
+    /** A web "Remove it" or "Let Otto draw it" during a long run is kept; this run's own results win for what it looked at. */
+    public function test_the_end_of_run_save_keeps_what_the_web_wrote_meanwhile(): void
+    {
+        $fresh = ['pins' => [], 'pin_tried' => [], 'pin_reason' => [], 'border_tried' => [], 'border_reason' => [9 => 'no_lot'],
+                  'border_refused' => [5 => '2026-11-03'], 'city_tried' => []];
+        $ours = ['pins' => [], 'pin_tried' => [], 'pin_reason' => [], 'border_tried' => [1 => '2026-11-03'], 'border_reason' => [1 => 'no_lot', 7 => 'too_big'],
+                 'border_refused' => [], 'city_tried' => []];
+        $m = OttoAutoPlaceService::mergeState($fresh, $ours, [1]);
+        $this->assertSame([5 => '2026-11-03'], $m['border_refused'], 'a refusal made during the run survives');
+        $this->assertSame([9 => 'no_lot', 1 => 'no_lot'], $m['border_reason'], "untouched 7 keeps the database's (absent) value; 9 written by the web stays");
+    }
+
+    /** "Let Otto draw it" that fails is remembered, so the card can say why after a reload. */
+    public function test_a_failed_manual_draw_is_remembered(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties VALUES (1, 'A St', 'Calgary', 'Alberta', '', 51.05, -114.07, NULL, '2026-11-03')");
+        $svc = $this->service($db);
+        $this->assertFalse($svc->borderOne(1)['ok']);
+        $this->assertSame('no_source:AB', $svc->status(1)['border_reason']);
     }
 }

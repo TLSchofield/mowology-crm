@@ -34,6 +34,8 @@ class OttoAutoPlaceService
 {
     public const SWITCH_KEY = 'otto_auto_place';
     public const STATE_KEY = 'otto_auto_place_state';
+    /** The starting line for "new" properties, in its own row so no state save can ever erase it (Codex review 2026-11-03). */
+    public const WATERMARK_KEY = 'otto_new_after_id';
     public const RETRY_DAYS = 30;
     public const BUFFER_M = 10;
     public const NEW_SINCE = '2026-11-03';
@@ -52,10 +54,13 @@ class OttoAutoPlaceService
     private ParcelLotService $lots;
     private CityParcelService $city;
     private string $today;
+    private bool $original;
 
+    /** @param bool|null $originalBusiness the original business (Mowology) vs an Ittai business; default from Tenant */
     public function __construct(PDO $db, ?callable $geocode = null, ?ParcelLotService $lots = null, ?string $today = null,
-                                ?CityParcelService $city = null)
+                                ?CityParcelService $city = null, ?bool $originalBusiness = null)
     {
+        $this->original = $originalBusiness ?? (!class_exists('Tenant') || Tenant::isDefault());
         // A caller that supplies its own province map (tests) gets no live city map unless it supplies one too.
         $this->city = $city ?? new CityParcelService($lots !== null ? static fn(string $url): ?string => null : null);
         $this->db = $db;
@@ -102,18 +107,8 @@ class OttoAutoPlaceService
         $r['ran'] = true;
         $removed = $this->removeNearestLotGuesses();   // one-off clean-up; finds nothing once done
         $state = $this->prune($this->state());
-        if ($state['new_after_id'] === null) {
-            try {
-                $s = $this->db->prepare('SELECT COALESCE(MAX(id), 0) FROM properties WHERE created_at < ?');
-                $s->execute([self::NEW_SINCE]);
-                $state['new_after_id'] = (int)$s->fetchColumn();
-            } catch (Throwable $e) {
-                $state['new_after_id'] = 0;   // Old test/dev schemas had no created_at column.
-            }
-            $this->saveState($state);   // Freeze the starting line before any later import can race this run.
-        }
         $borders = (new PropertyBorderService($this->db, $this->today))->borders();
-        $new = $this->workCandidates($this->newCandidates($state['new_after_id']), $state, $borders, $newLimit, true);
+        $new = $this->workCandidates($this->newCandidates($this->watermark()), $state, $borders, $newLimit, true);
         $old = $this->candidates();
         foreach ($new as $pid => $_) unset($old[$pid]);
         $old = $this->workCandidates($old, $state, $borders, $limit, false);
@@ -175,7 +170,9 @@ class OttoAutoPlaceService
             }
         }
 
-        $this->saveState($state);
+        // The run took minutes: keep what the web wrote meanwhile ("Let Otto draw it", "Remove it") for every
+        // property this run did not look at (Codex review 2026-11-03).
+        $this->saveState(self::mergeState($this->state(), $state, array_keys($props)));
         if ($removed) $r['removed_guesses'] = $removed;
         $newMessage = $r['new'] ? $r['new'] . ' new ' . ($r['new'] === 1 ? 'property' : 'properties') . ' looked at; ' : '';
         $r['message'] = $newMessage . ($removed ? count($removed) . ' guessed border(s) removed; ' : '') . "{$r['pinned']} pinned ({$r['approximate']} only approximate, {$r['not_found']} not found), "
@@ -203,6 +200,52 @@ class OttoAutoPlaceService
             $out[$pid] = $p;
             if (count($out) >= $limit) break;
         }
+        return $out;
+    }
+
+    /**
+     * Ids above this are "new" properties, whichever path created them. Frozen on first use, in its own row. The
+     * original business starts at its last property from before 2026-11-03; an Ittai business starts at 0, so
+     * everything it ever imported counts, whatever created_at an import wrote (Codex review 2026-11-03).
+     */
+    public function watermark(): int
+    {
+        try {
+            $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
+            $s->execute([self::WATERMARK_KEY]);
+            $v = $s->fetchColumn();
+            if ($v !== false && $v !== null && $v !== '') return (int)$v;
+        } catch (Throwable $e) {
+            return PHP_INT_MAX;   // settings unreadable: treat nothing as new rather than everything
+        }
+        $id = 0;
+        if ($this->original) {
+            try {
+                $s = $this->db->prepare('SELECT COALESCE(MAX(id), 0) FROM properties WHERE created_at < ?');
+                $s->execute([self::NEW_SINCE]);
+                $id = (int)$s->fetchColumn();
+            } catch (Throwable $e) {
+                $id = 0;   // Old test/dev schemas had no created_at column.
+            }
+        }
+        $this->putSetting(self::WATERMARK_KEY, (string)$id, 'Otto: properties above this id are new and get a pin + lot border (OttoAutoPlaceService)');
+        return $id;
+    }
+
+    /**
+     * Pure: the state to save after a run — the fresh copy from the database, with this run's values for the
+     * properties it looked at (set or cleared) laid over it. Refusals are never dropped.
+     */
+    public static function mergeState(array $fresh, array $ours, array $touched): array
+    {
+        $out = $fresh;
+        foreach (['pins', 'pin_tried', 'pin_reason', 'border_tried', 'border_reason', 'city_tried'] as $k) {
+            foreach ($touched as $pid) {
+                if (array_key_exists($pid, $ours[$k] ?? [])) $out[$k][$pid] = $ours[$k][$pid];
+                else unset($out[$k][$pid]);
+            }
+        }
+        $out['border_refused'] = ($fresh['border_refused'] ?? []) + ($ours['border_refused'] ?? []);
         return $out;
     }
 
@@ -264,7 +307,14 @@ class OttoAutoPlaceService
         $mode = self::borderMode($borders[$propertyId]['sources'] ?? null);
         if ($mode === null) return ['ok' => false, 'message' => 'It already has a border — open the zone editor to change it.'];
         $lot = $this->findLot($p, $pin);
-        if (!$lot['ok']) return ['ok' => false, 'message' => self::reasonText((string)$lot['reason'])];
+        if (!$lot['ok']) {
+            // Remembered, so the card keeps saying why after a reload (Codex review 2026-11-03).
+            $state = $this->state();
+            if ($lot['reason'] !== 'unavailable') $state['border_tried'][$propertyId] = $this->today;
+            $state['border_reason'][$propertyId] = (string)$lot['reason'];
+            $this->saveState($state);
+            return ['ok' => false, 'message' => self::reasonText((string)$lot['reason'])];
+        }
         if (!$this->writeBorder($propertyId, $mode, $lot)) return ['ok' => false, 'message' => 'A border was added meanwhile — reload the page.'];
         $state = $this->state();
         unset($state['border_tried'][$propertyId], $state['border_reason'][$propertyId]);
@@ -507,7 +557,7 @@ class OttoAutoPlaceService
     /** Properties created after this database's frozen starting id, whichever path inserted them. */
     public function newCandidates(?int $afterId = null): array
     {
-        if ($afterId === null) $afterId = (int)($this->state()['new_after_id'] ?? 0);
+        if ($afterId === null) $afterId = $this->watermark();
         $out = [];
         $s = $this->db->prepare('SELECT id, address, city, province, postal_code, latitude, longitude FROM properties WHERE id > ? ORDER BY id DESC');
         $s->execute([$afterId]);
@@ -555,12 +605,12 @@ class OttoAutoPlaceService
         return $s->rowCount() > 0;
     }
 
-    /** @return array{pins: array, pin_tried: array, pin_reason: array, border_tried: array, border_reason: array, border_refused: array, new_after_id: ?int} */
+    /** @return array{pins: array, pin_tried: array, pin_reason: array, border_tried: array, border_reason: array, border_refused: array, city_tried: array} */
     private function state(): array
     {
         // city_tried: properties already looked up in a city's own lot map (once each, so a property the
         // province map gave up on is retried as soon as a city map covers it — 2026-10-19).
-        $empty = ['pins' => [], 'pin_tried' => [], 'pin_reason' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => [], 'city_tried' => [], 'new_after_id' => null];
+        $empty = ['pins' => [], 'pin_tried' => [], 'pin_reason' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => [], 'city_tried' => []];
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::STATE_KEY]);
@@ -571,10 +621,6 @@ class OttoAutoPlaceService
         if (!is_array($j)) return $empty;
         $out = $empty;
         foreach (array_keys($empty) as $k) {
-            if ($k === 'new_after_id') {
-                $out[$k] = array_key_exists($k, $j) ? (int)$j[$k] : null;
-                continue;
-            }
             foreach ((array)($j[$k] ?? []) as $id => $v) $out[$k][(int)$id] = $v;
         }
         return $out;
@@ -599,20 +645,24 @@ class OttoAutoPlaceService
 
     private function saveState(array $state): void
     {
-        $json = json_encode($state);
+        $this->putSetting(self::STATE_KEY, (string)json_encode($state), 'Otto auto pins + lot borders: what he placed and what he tried (OttoAutoPlaceService)');
+    }
+
+    private function putSetting(string $key, string $value, string $description): void
+    {
         try {
             $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
-            $u->execute([$json, self::STATE_KEY]);
+            $u->execute([$value, $key]);
             if ($u->rowCount() === 0) {
                 $chk = $this->db->prepare('SELECT 1 FROM ops_settings WHERE setting_key = ?');
-                $chk->execute([self::STATE_KEY]);
+                $chk->execute([$key]);
                 if ($chk->fetchColumn() === false) {
                     $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')
-                        ->execute([self::STATE_KEY, $json, 'Otto auto pins + lot borders: what he placed and what he tried (OttoAutoPlaceService)']);
+                        ->execute([$key, $value, $description]);
                 }
             }
         } catch (Throwable $e) {
-            error_log('Otto auto-place state: ' . get_class($e));
+            error_log('Otto auto-place setting ' . $key . ': ' . get_class($e) . ': ' . $e->getMessage());
         }
     }
 }

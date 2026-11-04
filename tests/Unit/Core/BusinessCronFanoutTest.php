@@ -16,7 +16,8 @@ class BusinessCronFanoutTest extends TestCase
         $this->assertSame('/usr/local/bin/php', BusinessCronFanout::phpCli('/usr/local/bin/php', '/opt'));
         $this->assertSame([
             ['key' => 'rehearsal', 'argv' => ['/php', '/cron.php', '--tenant=rehearsal']],
-        ], BusinessCronFanout::commands(['default', 'rehearsal', 'Bad-key'], '/php', '/cron.php'));
+            ['key' => 'green-leaf', 'argv' => ['/php', '/cron.php', '--tenant=green-leaf']],
+        ], BusinessCronFanout::commands(['default', 'rehearsal', 'green-leaf', 'bad key;rm'], '/php', '/cron.php'));
 
         $registry = [
             'z' => ['hosts' => ['z.ittai.ca'], 'db_name' => 'tenant_z'],
