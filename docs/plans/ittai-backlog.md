@@ -142,3 +142,8 @@ Left over (small, from the emulator run):
 ## 2026-10-27 — Android phone sign-up v2 (Task 28, codex/native fde10c6 + 6154d9d, NOT released)
 - Built from `docs/plans/2026-10-27-android-phone-signup-v2-codex-spec.md`; walked end to end on the emulator against sage.ittai.ca (now claimed). Behind `android.native_signup` (forced on for the test-tenant flavor only).
 - Owed: the Intuit round trip from the phone on production (testcompany); the SMS leg; the owner-facing wording of the server's 409 `not_set_up` (today it names secrets.php); a phone trial by Tim.
+
+## 2026-11-04 — from Tim's tablet walk and two design references (not built)
+- **Sign in with Google (Android)** — Tim: "Sign in with google is useful on android"; Google project must be **Ittai** ("Then it has to be ittai"), owned by ittai@mowology.ca for now ("we will change later"). Spec: side-session notes `2026-11-04-sign-in-with-google-spec.md`. Server half: parent Android session; app half: Codex task 33. Blocked on Tim signing ittai@mowology.ca into Chrome (or creating the project himself).
+- **Wide-screen sign-in** — two panels (navy brand panel + form) sliding between sign in and sign up, for web at desktop width and tablet landscape only; phones keep today's flow. From a "interactive login page" reel Tim shared.
+- **"Meniscus" bottom bar** — the active tab lifts out of the bar as a bead in a notch and slides between tabs. Fits the adopted bar (Schedule · Time · + New · Search · Receipts) if done in v1.2 terms: ONE accent (tenant colour, not a colour per tab), no glow, no drag-the-bead, still under reduce-motion, ≥48 dp targets for gloved hands. Needs a design-studio round before any build.
