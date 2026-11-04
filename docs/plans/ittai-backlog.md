@@ -197,3 +197,5 @@ what stays private.
   version matches TERMS_VERSION in public/terms.php.
 - **Later:** clean /terms URL (needs the live .htaccess merged), add-on schedules for Payments and
   Accounting (Wave-style), acceptance in the native apps, and a send-to-owner email when the terms change.
+
+- (2026-11-04) Receipts roadmap: faster capture, learning from every read, self-filling vendor directory, Otto lot borders for stores — docs/plans/receipt-roadmap-2026-11-04.md. Firecrawl-style page fetch for supplier availability: PageFetchService (curl + cleaner, Firecrawl API per supplier behind a flag), with supplier availability. Bank statements Claude fallback: StatementLlmExtractor gated by opening + lines = closing, learned per-bank preset.
