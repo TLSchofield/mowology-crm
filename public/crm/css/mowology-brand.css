@@ -4368,6 +4368,54 @@ a.mw-clock-timer-nav:hover {
   background:#fdecea
 }
 
+/* ── Salt & snow run banner (includes/snow-run-banner.php, 2026-11-03) ──
+   Route stops are hidden until a run is on; the strip says so and holds the Start / End buttons. */
+.mw-snow-run {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px 16px;
+  margin:0 0 14px;
+  padding:10px 14px;
+  border:1px solid var(--mw-light);
+  border-left:4px solid var(--mw-green);
+  border-radius:10px;
+  background:var(--mw-light);
+  color:var(--mw-forest);
+  font-size:0.9rem;
+  line-height:1.4
+}
+.mw-snow-run.is-active {
+  border-left-color:var(--mw-orange);
+  background:#fff
+}
+.mw-snow-run-text { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0 }
+.mw-snow-run-icon { color:var(--mw-green); font-size:1rem }
+.mw-snow-run.is-active .mw-snow-run-icon { color:var(--mw-orange) }
+.mw-snow-run-note { color:var(--mw-dark); opacity:0.85 }
+.mw-snow-run-actions { display:flex; flex-wrap:wrap; gap:8px }
+.mw-snow-run-btn {
+  border:1px solid var(--mw-green);
+  background:var(--mw-green);
+  color:#fff;
+  border-radius:8px;
+  padding:7px 14px;
+  font-size:0.85rem;
+  font-weight:600;
+  cursor:pointer;
+  min-height:40px;
+  transition:background 0.15s
+}
+.mw-snow-run-btn:hover { background:var(--mw-dark); border-color:var(--mw-dark) }
+.mw-snow-run-btn:disabled { opacity:0.6; cursor:default }
+.mw-snow-run-btn.mw-snow-run-end { background:#fff; color:var(--mw-orange); border-color:var(--mw-orange) }
+.mw-snow-run-btn.mw-snow-run-end:hover { background:var(--mw-orange); color:#fff }
+@media (max-width: 575.98px) {
+  .mw-snow-run-actions { width:100% }
+  .mw-snow-run-btn { flex:1 1 auto }
+}
+
 /* ══ 38. MAP / DISPATCH / CREW LIVE MAP ════════════════════════════════════ */
 /* Ported from mowology-brand.min.css — covers territory map, dispatch map,  */
 /* crew live positions, route controls, stop cards, zone badges, geofences.  */
@@ -5324,6 +5372,22 @@ a.mw-clock-timer-nav:hover {
   transition:background 0.1s,color 0.1s;
 }
 .mw-dv-btn-reopen:hover { background:#f8f9fa; color:#495057; border-color:#ced4da; }
+
+/* Skip on a pending stop card (2026-11-03) — ghost button after the Complete pair */
+.mw-dv-btn-skip {
+  flex:0 0 auto;
+  background:none;
+  border:1px solid #dee2e6;
+  border-radius:5px;
+  padding:6px 9px;
+  font-size:0.72rem;
+  font-weight:600;
+  color:#868e96;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background 0.1s,color 0.1s,border-color 0.1s;
+}
+.mw-dv-btn-skip:hover:not(:disabled) { background:#eef4fe; color:#1D4ED8; border-color:#bfd3f6; }
 
 /* Skipped stop footer — blue ✕ badge + Unskip (matches the blue map pin) */
 .mw-dv-footer-skipped {
@@ -38244,6 +38308,12 @@ body.mw-rc-zoom-open { overflow: hidden; }
 
 /* New leads */
 .mw-sam-leads { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; }
+.mw-sam-leads { scroll-margin-top: 84px; }
+.mw-sam-jump { color: var(--mw-green); text-decoration: underline; text-underline-offset: 2px; }
+.mw-sam-jump:hover { color: var(--mw-dark); }
+.mw-sam-visit { display: block; color: var(--mw-green); font-size: .78rem; margin-top: 2px; }
+.mw-qv-otto { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--mw-green); background: var(--mw-light); border-radius: 4px; font-size: .85rem; }
+.mw-qv-otto small { display: block; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-sam-leads-head { font-size: .8rem; color: var(--mw-forest); margin-bottom: 4px; }
 .mw-sam-leads-head small { color: var(--mw-ink-500); }
 .mw-sam-lead { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
@@ -38946,6 +39016,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-yui-sec-head small { color: var(--mw-ink-500); }
 .mw-yui-n { display: inline-block; min-width: 20px; text-align: center; font-size: .68rem; font-weight: 800; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 6px; }
 .mw-yui-row { border-top: 1px dashed var(--mw-ink-200); padding: 8px 0; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-yui-hold, .mw-yui-upset { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 3px; margin-right: 4px; color: var(--mw-orange); border: 1px solid currentColor; }
+.mw-yui-late { color: var(--mw-orange); font-weight: 600; }
+.mw-yui-row.is-hold { background: var(--mw-light); border-left: 3px solid var(--mw-orange); padding-left: 10px; }
 .mw-yui-row.is-open { background: var(--mw-ink-50); margin: 0 -12px; padding: 8px 12px; }
 .mw-yui-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .mw-yui-main { min-width: 0; }
@@ -39962,6 +40035,13 @@ tr.mw-q-declined td { background: color-mix(in srgb, var(--mw-red) 7%, transpare
 .mw-ada-when { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-ada-basis { font-size: .78rem; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-ada-fix { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.mw-ada-accept .form-control { max-width: 340px; }
+.mw-ada-level { font-size: .68rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; margin-left: 6px; border: 1px solid var(--mw-light); color: var(--mw-ink-500); }
+.mw-ada-level.is-critical { color: var(--mw-danger, var(--mw-orange)); border-color: currentColor; }
+.mw-ada-level.is-high { color: var(--mw-orange); border-color: currentColor; }
+.mw-ada-decisions { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin: 0 0 14px; font-size: .9rem; color: var(--mw-ink-500); }
+.mw-ada-decisions strong { color: var(--mw-forest); }
+.mw-ada-next a { color: var(--mw-green); }
 .mw-ada-handoff { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
 .mw-ada-to { font-weight: 600; color: var(--mw-dark); }
 .mw-ada-task { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
@@ -41238,6 +41318,22 @@ body.mw-books {
 
 /* Quote create: Penny's payer notice above the terms (2026-11-03) */
 .mw-payer-notice { font-size: .82rem; color: var(--mw-dark); background: var(--mw-light); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
+
+/* Mia channels: week page bands and actions (MarketingWeek, 2026-11-03) */
+.mw-mia-week-actions { margin: 4px 0 6px 18px; padding: 0; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-mia-week-actions small { color: var(--mw-ink-500); }
+.mw-mia-band { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px; margin-right: 4px; background: var(--mw-light); color: var(--mw-dark); }
+.mw-mia-band.is-green { background: var(--mw-green); color: var(--mw-paper); }
+.mw-mia-band.is-yellow, .mw-mia-band.is-red { background: var(--mw-orange); color: var(--mw-paper); }
+.mw-mia-band.is-na { background: var(--mw-ink-200); color: var(--mw-ink-900); }
+
+/* ── Kaname: one status, the comparison with yesterday (BriefStatus / BriefTrend, 2026-11-03) ── */
+.mw-charlie-status { display: flex; flex-direction: column; gap: 3px; margin: 0 0 10px; }
+.mw-charlie-chip { display: inline-block; align-self: flex-start; font-size: .82rem; font-weight: 700; padding: 3px 10px; border-radius: 6px; border: 1px solid currentColor; }
+.mw-charlie-chip.is-red { color: var(--mw-orange); background: var(--mw-light); }
+.mw-charlie-chip.is-amber { color: var(--mw-dark); background: var(--mw-light); }
+.mw-charlie-chip.is-green { color: var(--mw-green); background: var(--mw-light); }
+.mw-charlie-trend { color: var(--mw-ink-500); font-size: .76rem; }
 
 /* ============================================================
    Pruning plan (Plants card: PruningPlanService, plant-id.js, photo-markers.js) — 2026-11-03
