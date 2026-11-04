@@ -20,7 +20,7 @@ require_once dirname(__DIR__, 3) . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 session_write_close();
-requirePermission('billing.view');
+requirePermission('billing.edit'); // creates a payable intent: view-only is not enough
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 require_once dirname(__DIR__, 3) . '/app_config/secrets.php';

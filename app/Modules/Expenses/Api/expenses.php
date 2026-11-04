@@ -1188,6 +1188,9 @@ function handleLinkProduct(PDO $db, ?array $input): void
     // Shared with the iOS line-item endpoint (expense-line-items.php): links, trains the
     // vendor catalog, and records the SKU → product memory for the next receipt.
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $own = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $own->execute([(int)($input['line_item_id'] ?? 0)]);
+    assertCanEditExpense($db, (int)$own->fetchColumn());
     $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
         ? (int)$input['product_id']
         : null;

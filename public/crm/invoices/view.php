@@ -154,6 +154,14 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
+    // The page needs billing.view to open; these three change the invoice's status or record money,
+    // so they need billing.edit on the server, not only a hidden button (Codex nightly 2026-10-24).
+    if (in_array($action, ['send', 'mark_sent', 'mark_paid'], true) && !userHasPermission('billing.edit')) {
+        $message     = 'You do not have permission to send invoices or record payments.';
+        $messageType = 'danger';
+        $action      = '';
+    }
+
     if ($action === 'delete_invoice') {
         if (!userHasPermission('billing.edit')) {
             $message = 'You do not have permission to delete invoices.';
