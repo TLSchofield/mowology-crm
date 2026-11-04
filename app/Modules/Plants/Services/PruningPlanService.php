@@ -441,7 +441,7 @@ final class PruningPlanService
     {
         if (!$ids) return [];
         $in = implode(',', array_fill(0, count($ids), '?'));
-        $s = $this->db->prepare("SELECT id, file_path, mime_type, width, height FROM media_assets WHERE id IN ({$in})");
+        $s = $this->db->prepare("SELECT id, file_path, mime_type FROM media_assets WHERE id IN ({$in})");
         $s->execute($ids);
         $by = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $m) $by[(int)$m['id']] = $m;
