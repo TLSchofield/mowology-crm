@@ -33,10 +33,35 @@ final class SignUpService
         return strlen($digits) === 10 ? '(' . substr($digits, 0, 3) . ') ' . substr($digits, 3, 3) . '-' . substr($digits, 6) : null;
     }
 
+    /**
+     * The owner's first and last name. Separate first_name / last_name fields win (Tim, walk 2 2026-11-04: "First
+     * name last name should be split" — splitting "Mary Ann Smith" at the first space lost "Ann"); full_name is the
+     * fallback for older apps.
+     */
+    public static function names(array $in): ?array
+    {
+        $clean = fn($v) => trim(preg_replace('/\s+/u', ' ', (string)$v) ?? '');
+        $first = $clean($in['first_name'] ?? '');
+        $last = $clean($in['last_name'] ?? '');
+        if ($first !== '' || $last !== '') {
+            $len = fn($v) => function_exists('mb_strlen') ? mb_strlen($v, 'UTF-8') : strlen($v);
+            return $first !== '' && $last !== '' && $len($first) <= 50 && $len($last) <= 50 ? [$first, $last] : null;
+        }
+        return self::splitName((string)($in['full_name'] ?? ''));
+    }
+
     public static function validate(array $in, bool $withCode = false): array
     {
         $errors = [];
-        if (self::splitName((string)($in['full_name'] ?? '')) === null) $errors['full_name'] = 'Enter your full name.';
+        if (self::names($in) === null) {
+            $split = trim((string)($in['first_name'] ?? '')) !== '' || trim((string)($in['last_name'] ?? '')) !== '';
+            if (!$split) $errors['full_name'] = 'Enter your full name.';
+            else {
+                if (trim((string)($in['first_name'] ?? '')) === '') $errors['first_name'] = 'Enter your first name.';
+                if (trim((string)($in['last_name'] ?? '')) === '') $errors['last_name'] = 'Enter your last name.';
+                if (!$errors) $errors['first_name'] = 'Use at most 50 characters for each name.';
+            }
+        }
         if (self::mobile((string)($in['mobile'] ?? '')) === null) $errors['mobile'] = 'Enter your mobile number (10 digits).';
         if (filter_var(trim((string)($in['email'] ?? '')), FILTER_VALIDATE_EMAIL) === false) $errors['email'] = 'Enter a valid email address.';
         if (strlen((string)($in['password'] ?? '')) < 10) $errors['password'] = 'Use at least 10 characters.';
@@ -110,7 +135,7 @@ final class SignUpService
             $state = $this->claimCheck($owner, (string)($in['email'] ?? ''), $lock);
             if ($state !== null) { $this->db->rollBack(); return $state; }
 
-            [$first, $last] = self::splitName((string)$in['full_name']);
+            [$first, $last] = self::names($in);
             $mobile = (string)self::mobile((string)$in['mobile']);
             $ownerId = (int)$owner['id'];
             $hash = password_hash((string)$in['password'], PASSWORD_DEFAULT);
@@ -137,7 +162,7 @@ final class SignUpService
             return ['ok' => true, 'status' => 201, 'user' => $owner, 'token' => $token, 'next' => $next];
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            error_log('[signup] Claim failed: ' . get_class($e));
+            error_log('[signup] Claim failed: ' . get_class($e) . ': ' . $e->getMessage() . ' at ' . basename($e->getFile()) . ':' . $e->getLine());
             return ['ok' => false, 'status' => 500, 'error' => 'server'];
         }
     }

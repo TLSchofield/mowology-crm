@@ -32,6 +32,10 @@ final class SignUpServiceTest extends TestCase
         $pw = 'Use at least 10 characters.';
         $this->assertSame(['Ada', 'Lovelace Byron'], SignUpService::splitName(' Ada   Lovelace Byron '));
         $this->assertNull(SignUpService::splitName('Ada'));
+        $this->assertSame(['Mary Ann', 'Smith'], SignUpService::names(['first_name' => ' Mary  Ann ', 'last_name' => 'Smith', 'full_name' => 'Mary Ann Smith']), 'separate fields win');
+        $this->assertSame(['Mary', 'Ann Smith'], SignUpService::names(['full_name' => 'Mary Ann Smith']), 'older apps: full_name fallback');
+        $this->assertNull(SignUpService::names(['first_name' => 'Mary', 'last_name' => '']));
+        $this->assertSame(['last_name' => 'Enter your last name.'], array_intersect_key(SignUpService::validate(['first_name' => 'Mary']), ['first_name' => 1, 'last_name' => 1, 'full_name' => 1]));
         $this->assertSame('(604) 555-0101', SignUpService::mobile('+1 (604) 555-0101'));
         $this->assertSame(['full_name' => 'Enter your full name.', 'mobile' => 'Enter your mobile number (10 digits).', 'email' => 'Enter a valid email address.', 'password' => $pw], SignUpService::validate([]));
         $this->assertSame(['code' => 'Enter the 6-digit code.'], SignUpService::validate($this->valid(), true));
