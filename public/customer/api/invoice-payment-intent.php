@@ -25,6 +25,7 @@ require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 require_once dirname(__DIR__, 2) . '/crm/includes/functions.php';
 require_once APP_ROOT . '/Services/Payments/StripeErrorRules.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/PaymentIntentGuard.php';
 
 $input    = json_decode(file_get_contents('php://input'), true);
 $token    = trim($input['token'] ?? '');
@@ -79,6 +80,22 @@ if (!$invoice) {
     echo json_encode(['error' => 'Invoice not found or link has expired']);
     exit;
 }
+
+// The token lock protects this endpoint; the invoice lock is shared with every other creator.
+$invoicePiLock = PaymentIntentGuard::lockName((int)$invoice['id']);
+$invoiceLock = $db->prepare('SELECT GET_LOCK(?, 10)');
+$invoiceLock->execute([$invoicePiLock]);
+if ((int)$invoiceLock->fetchColumn() !== 1) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Another payment for this invoice is being set up. Please try again in a moment.']);
+    exit;
+}
+register_shutdown_function(function () use ($db, $invoicePiLock) {
+    try { $s = $db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$invoicePiLock]); } catch (Throwable $e) { }
+});
+$freshIntent = $db->prepare('SELECT stripe_payment_intent_id FROM invoices WHERE id = ?');
+$freshIntent->execute([(int)$invoice['id']]);
+$invoice['stripe_payment_intent_id'] = $freshIntent->fetchColumn() ?: null;
 
 $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
 if (!in_array($invoice['status'], $payableStatuses, true)) {
@@ -157,7 +174,7 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
         // when the webhook lagged in marking the invoice paid — which let a customer
         // be charged 2x/3x by retrying. Stop here and tell the client it's paid.
         // The webhook (and bank reconciliation) marks the invoice paid.
-        if (in_array($existing->status, ['succeeded', 'processing'], true)) {
+        if (PaymentIntentGuard::blocksCreate((string)$existing->status)) {
             echo json_encode([
                 'already_paid' => true,
                 'status'       => $existing->status,
@@ -280,7 +297,10 @@ try {
         $intentParams['payment_method'] = $defaultPaymentMethodId;
     }
 
-    $intent = \Stripe\PaymentIntent::create($intentParams);
+    $paymentCount = $db->prepare('SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ?');
+    $paymentCount->execute([(int)$invoice['id']]);
+    $idempotencyKey = PaymentIntentGuard::idempotencyKey((int)$invoice['id'], $amountCents, (int)$paymentCount->fetchColumn());
+    $intent = \Stripe\PaymentIntent::create($intentParams, ['idempotency_key' => $idempotencyKey]);
 
     // Persist PaymentIntent ID
     $db->prepare("UPDATE invoices SET stripe_payment_intent_id = ? WHERE id = ?")

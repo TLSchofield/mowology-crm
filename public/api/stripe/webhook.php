@@ -83,6 +83,7 @@ switch ($event->type) {
             'charge_id'             => $event->data->object->id,
             'payment_intent_id'     => stripeId($event->data->object->payment_intent ?? null),
             'amount_refunded_cents' => (int) $event->data->object->amount_refunded,
+            'event_time'            => (int) $event->created,
         ]));
         break;
 
@@ -98,6 +99,7 @@ switch ($event->type) {
                 'amount_cents'      => (int) ($dispute->amount ?? 0),
                 'reason'            => $dispute->reason ?? null,
                 'status'            => $dispute->status ?? null,
+                'event_time'        => (int) $event->created,
             ];
             return $event->type === 'charge.dispute.created' ? $svc->disputeCreated($d) : $svc->disputeClosed($d);
         });

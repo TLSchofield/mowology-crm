@@ -26,6 +26,7 @@ requirePermission('billing.edit'); // creates a payable intent: view-only is not
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 require_once dirname(__DIR__, 3) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 3) . '/vendor/autoload.php';
+require_once dirname(__DIR__, 3) . '/app/Modules/Invoices/Services/PaymentIntentGuard.php';
 
 header('Content-Type: application/json');
 
@@ -70,6 +71,19 @@ if ($invoice && !empty($invoice['access_token'])) {
         try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($piLock) . ")"); } catch (\Throwable $e) { /* lock went with the connection */ }
     });
 }
+// Second lock, always taken AFTER the token lock (same order as the customer page): shared with InvoiceService::ensurePaymentIntent,
+// so no creator can race another (Codex nightly 2026-10-21).
+$invoicePiLock = PaymentIntentGuard::lockName($invoiceId);
+$invoiceLock = $db->prepare('SELECT GET_LOCK(?, 10)');
+$invoiceLock->execute([$invoicePiLock]);
+if ((int)$invoiceLock->fetchColumn() !== 1) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Another card payment is being set up for this invoice.']);
+    exit;
+}
+register_shutdown_function(function () use ($db, $invoicePiLock) {
+    try { $s = $db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$invoicePiLock]); } catch (Throwable $e) { }
+});
 // Read the invoice AGAIN under the lock: the customer page may have just replaced its intent (Codex re-review).
 $stmt->execute([$invoiceId]);
 $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -109,7 +123,7 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
         // processing means the money is (or is about to be) taken. Falling through used to
         // null the id and create a second intent — a double charge while the webhook lagged.
         // Same guard as public/customer/api/invoice-payment-intent.php.
-        if (in_array($existingIntent->status, ['succeeded', 'processing'], true)) {
+        if (PaymentIntentGuard::blocksCreate((string)$existingIntent->status)) {
             http_response_code(409);
             echo json_encode([
                 'already_paid' => true,
@@ -173,6 +187,9 @@ try {
     \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
     \Stripe\Stripe::setAppInfo(_idFromName() . ' CRM', '1.0', _idSiteUrl());
 
+    $paymentCount = $db->prepare('SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ?');
+    $paymentCount->execute([$invoiceId]);
+    $idempotencyKey = PaymentIntentGuard::idempotencyKey($invoiceId, $amountCents, (int)$paymentCount->fetchColumn());
     $intent = \Stripe\PaymentIntent::create([
         'amount'                      => $amountCents,
         'currency'                    => 'cad',

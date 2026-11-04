@@ -22,6 +22,7 @@
  */
 declare(strict_types=1);
 require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+require_once __DIR__ . '/PaymentIntentGuard.php';
 
 class InvoiceService
 {
@@ -133,6 +134,12 @@ class InvoiceService
             );
         }
 
+        $lockName = PaymentIntentGuard::lockName($invoiceId);
+        $lock = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $lock->execute([$lockName]);
+        if ((int)$lock->fetchColumn() !== 1) throw new RuntimeException('Another card payment is being set up for this invoice.');
+        try {
+
         $row = $this->db->prepare("
             SELECT i.id, i.invoice_number, i.balance_due, i.contact_id,
                    i.stripe_payment_intent_id, i.stripe_client_secret,
@@ -198,6 +205,9 @@ class InvoiceService
                 $cardOnly   = (count($pi->payment_method_types ?? []) === 1)
                            && (($pi->payment_method_types[0] ?? '') === 'card');
 
+                if (PaymentIntentGuard::blocksCreate((string)$pi->status)) {
+                    throw new RuntimeException('A card payment for this invoice already ' . ($pi->status === 'processing' ? 'is processing.' : 'succeeded.'));
+                }
                 if ($isReusable && $cardOnly) {
                     // Keep the persisted client_secret in sync (e.g. if the row
                     // had only stripe_payment_intent_id from the v1 flow).
@@ -236,7 +246,10 @@ class InvoiceService
         }
 
         try {
-            $pi = $stripe->paymentIntents->create($params);
+            $count = $this->db->prepare('SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ?');
+            $count->execute([$invoiceId]);
+            $key = PaymentIntentGuard::idempotencyKey($invoiceId, $amountCents, (int)$count->fetchColumn());
+            $pi = $stripe->paymentIntents->create($params, ['idempotency_key' => $key]);
         } catch (\Stripe\Exception\ApiErrorException $e) {
             $this->logStripeWarn('PaymentIntent create failed at v2 send', [
                 'invoice_id' => $invoiceId,
@@ -257,6 +270,10 @@ class InvoiceService
         ")->execute([$pi->id, $pi->client_secret, $invoiceId]);
 
         return $pi->client_secret;
+        } finally {
+            $release = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$lockName]);
+        }
     }
 
     /**
