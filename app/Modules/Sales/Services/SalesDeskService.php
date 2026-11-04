@@ -486,7 +486,28 @@ class SalesDeskService
                 unset($r);
             } catch (Throwable $e) { /* before migration 1369: no visits */ }
         }
-        return array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s'), $this->leadSignals($rows)), 0, max(1, $limit));
+        $ranked = array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s'), $this->leadSignals($rows)), 0, max(1, $limit));
+        return $this->withVisitDays($ranked, $rows);
+    }
+
+    /** Otto's best day for the crew to look at each lead (LeadRouteDay) — suggested only; booking stays Tim's tap. Own try: Sam's list never depends on it. */
+    private function withVisitDays(array $leads, array $rows): array
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Operations/Services/OttoLeadService.php';
+            $pins = [];
+            foreach ($rows as $r) $pins[] = ['id' => (int)$r['id'], 'lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has_address' => trim((string)($r['address'] ?? '')) !== ''];
+            $days = (new OttoLeadService($this->db))->bestDays($pins);
+            foreach ($leads as &$l) {
+                if (!isset($days[$l['id']])) continue;
+                $d = $days[$l['id']];
+                $l['visit_day'] = ['line' => LeadRouteDay::line($d), 'best' => $d['best'], 'alternatives' => $d['alternatives'], 'none' => $d['none']];
+            }
+            unset($l);
+        } catch (Throwable $e) {
+            error_log('Sam leads: best day: ' . $e->getMessage());
+        }
+        return $leads;
     }
 
     /**
@@ -1069,21 +1090,6 @@ class SalesDeskService
                 'next'      => $next,
                 'url'       => '/crm/quote-workflow.php?request_id=' . (int)$r['id'],   // measure and quote screen, as the dashboard's request cards do (Tim 2026-11-03)
             ];
-        }
-        // Otto's best day for the crew to look at each lead (LeadRouteDay) — suggested only; booking stays Tim's tap.
-        try {
-            require_once dirname(__DIR__, 2) . '/Operations/Services/OttoLeadService.php';
-            $pins = [];
-            foreach ($rows as $r) $pins[] = ['id' => (int)$r['id'], 'lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has_address' => trim((string)($r['address'] ?? '')) !== ''];
-            $days = (new OttoLeadService($this->db))->bestDays($pins);
-            foreach ($out as &$l) {
-                if (!isset($days[$l['id']])) continue;
-                $d = $days[$l['id']];
-                $l['visit_day'] = ['line' => LeadRouteDay::line($d), 'best' => $d['best'], 'alternatives' => $d['alternatives'], 'none' => $d['none']];
-            }
-            unset($l);
-        } catch (Throwable $e) {
-            error_log('Sam leads: best day: ' . $e->getMessage());
         }
         $ordered = LeadScore::order($out);
         return array_map(function ($l) use ($ordered) { $l['ranked_by'] = $ordered['ranked_by']; return $l; }, $ordered['items']);

@@ -172,4 +172,15 @@ class OttoLeadIntakeTest extends TestCase
         $this->assertNull($db->query("SELECT latitude FROM properties WHERE id = 3")->fetchColumn() ?: null);   // an area match never becomes a pin
         $this->assertSame('That property no longer exists.', $mk($street)->placeNewLead(404)['message']);
     }
+
+    /** 2026-11-03: the first deploy put the best-day block inside the STATIC rankLeads(), where $this does not exist; the guard swallowed it and no lead got a day. */
+    public function test_the_static_lead_ranker_never_touches_this_and_the_instance_method_adds_the_days(): void
+    {
+        require_once __DIR__ . '/../../../app/Modules/Sales/Services/SalesDeskService.php';
+        $m = new ReflectionMethod(SalesDeskService::class, 'rankLeads');
+        $this->assertTrue($m->isStatic());
+        $lines = array_slice(file($m->getFileName()), $m->getStartLine() - 1, $m->getEndLine() - $m->getStartLine() + 1);
+        $this->assertStringNotContainsString('$this->', implode('', $lines));
+        $this->assertTrue(method_exists(SalesDeskService::class, 'withVisitDays'));
+    }
 }
