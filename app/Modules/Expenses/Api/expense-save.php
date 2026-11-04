@@ -106,9 +106,10 @@ try {
             'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
             'learn_lines' => $ocrd ? $input : null,
             'price_intel' => true,
-            // An owner's or manager's phone save is the confirmation: their corrections teach the
-            // reader now. A crew member's capture carries no corrections and waits for the desk.
-            'learn_now'   => $ocrd && ExpenseService::isOffice((string)($jwtUser['role'] ?? ''), jwtUserHasPermission($jwtUser, 'expenses.approve')),
+            // Anyone's phone save teaches the reader now — crew included (Tim, 2026-11-04: "crew corrections yes
+            // teach"). The lessons stay provisional: the desk's approval confirms them or overturns the fields it
+            // changes (amendPhoneLessons), so a crew mistake is undone by the desk, not learned for good.
+            'learn_now'   => $ocrd,
         ]);
         $expenseId = (int)$created['expense_id'];
     } finally {

@@ -758,9 +758,8 @@ function handleCreate(PDO $db, ?array $input, array $user): void
             'ocr_parsed'  => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input['ocr_parsed'] : null,
             'learn_lines' => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input : null,
             'price_intel' => true,
-            // An owner's or manager's own save is the confirmation (same rule as expense-save.php).
-            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])
-                && ExpenseService::isOffice((string)($user['role'] ?? ''), userHasPermission('expenses.approve')),
+            // Anyone's save teaches now, provisionally; the desk confirms or overturns (same rule as expense-save.php).
+            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']),
         ]);
         $expenseId = (int)$created['expense_id'];
     } finally {

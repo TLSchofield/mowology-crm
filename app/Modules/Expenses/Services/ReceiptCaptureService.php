@@ -223,6 +223,8 @@ class ReceiptCaptureService
             ]) + ($input['line_items'] ? ['line_items' => $input['line_items']] : []),
                 ['id' => $userId, 'kind' => 'user'], self::SOURCE, [
                 'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
+                // A crew member's typed total is a correction: it teaches now, provisionally, like every phone save.
+                'learn_now'   => $ocrd,
                 'learn_lines' => $ocrd && !$input['typed_total'] ? $input : null,
                 'price_intel' => !$input['typed_total'],
             ]);
