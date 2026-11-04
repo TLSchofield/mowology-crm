@@ -48,7 +48,20 @@
         if (h.estimated && h.estimated.length) {
             html += '<div class="mw-mulch-hint-est">Assumed, not measured: ' + esc(h.estimated.join(', ')) + '</div>';
         }
-        return html;
+        return html + bandHtml(h.band);
+    }
+
+    /** The three prices with their reasons (floor, what you were paid, what the market charges) and one plain reading. Information only. */
+    function bandHtml(b) {
+        if (!b) return '';
+        var rows = [b.floor, b.paid, b.market, b.own].filter(function (x) { return x; });
+        var html = '<div class="mw-mulch-hint-sub mw-mulch-band"><b>Where this price sits</b>';
+        rows.forEach(function (r) {
+            html += '<div><b>' + esc(r.label) + (r.price != null ? ': ' + money(r.price) + '/yd' : '') + '</b> — ' + esc(r.text) + '</div>';
+        });
+        if (b.reading) html += '<div><i>' + esc(b.reading) + '</i></div>';
+        (b.notes || []).forEach(function (n) { html += '<div>' + esc(n) + '</div>'; });
+        return html + '</div>';
     }
 
     // ── 1. Quote builder ─────────────────────────────────────────────────────

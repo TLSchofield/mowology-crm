@@ -16,6 +16,7 @@ class MulchPriceBandTest extends TestCase
             'yards_per_load' => 2.0,
             'product_name' => 'Black Composted Bark Mulch',
             'yard_names' => ['black composted bark mulch', 'cedar mulch'],
+            'catalogue' => ['black composted bark mulch' => 175.0, 'cedar mulch' => 65.0],
             'quotes' => [
                 ['quote' => 'QUO-1', 'status' => 'accepted', 'date' => '2026-10-06', 'service_type' => 'Black Composted Bark Mulch', 'unit_type' => '', 'unit_price' => 175.0],
                 ['quote' => 'QUO-2', 'status' => 'accepted', 'date' => '2026-03-24', 'service_type' => 'Black Composted Bark Mulch', 'unit_type' => '', 'unit_price' => 175.0],
@@ -144,7 +145,7 @@ class MulchPriceBandTest extends TestCase
 
     public function test_a_flat_job_under_the_products_name_is_not_a_per_yard_price(): void
     {
-        $in = $this->in(['catalogue_price' => 175.0]);
+        $in = $this->in();
         $in['quotes'][] = ['quote' => 'FLAT', 'status' => 'accepted', 'date' => '2026-11-01', 'service_type' => 'Black Composted Bark Mulch', 'unit_type' => '', 'unit_price' => 900.0];
         $p = MulchPriceBand::build($in)['paid'];
         $this->assertSame(175.0, $p['price'], 'the newest line is a $900 flat job and must not be "latest"');
@@ -209,5 +210,21 @@ class MulchPriceBandTest extends TestCase
         $this->assertStringNotContainsString('$0', $f['text']);
         $this->assertStringContainsString('cost behind it is not known', $f['text']);
         $this->assertNull($f['cost']);
+    }
+
+    public function test_with_no_product_named_the_one_actually_sold_most_is_used_not_the_cheapest_or_first(): void
+    {
+        $in = $this->in(['product_name' => null]);
+        $b = MulchPriceBand::build($in);
+        $this->assertSame('Black Composted Bark Mulch', $b['paid']['product']);
+        $this->assertSame(175.0, $b['paid']['price']);
+        $this->assertSame(208.0, $b['market']['price'], 'compared with the composted bark product, not cedar');
+        $this->assertStringStartsWith('For Black Composted Bark Mulch: ', $b['paid']['text']);
+    }
+
+    public function test_a_negative_margin_reads_as_a_minus_not_a_dollar_minus(): void
+    {
+        $this->assertSame('-$21.31', MulchPriceBand::money(-21.31));
+        $this->assertSame('$175', MulchPriceBand::money(175.0));
     }
 }

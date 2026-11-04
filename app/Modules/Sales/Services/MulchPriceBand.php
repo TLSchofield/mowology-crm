@@ -30,7 +30,7 @@ final class MulchPriceBand
         $today = (string)($in['today'] ?? date('Y-m-d'));
         $floor = self::floor($in['floor'] ?? null);
         $paid = self::paid($in, $floor);
-        $market = self::market($in, $today);
+        $market = self::market(['product_name' => $in['product_name'] ?? ($paid['product'] ?? null)] + $in, $today);
         $own = self::own((float)($in['own_rate'] ?? 0));
         $notes = [];
         if ($own === null) $notes[] = 'Tell Sam what other landscapers charge installed and it shows here as a fourth line.';
@@ -40,7 +40,8 @@ final class MulchPriceBand
 
     public static function money(float $v): string
     {
-        return '$' . (abs($v - round($v)) < 0.005 ? number_format($v, 0) : number_format($v, 2));
+        $a = abs($v);
+        return ($v < 0 ? '-' : '') . '$' . (abs($a - round($a)) < 0.005 ? number_format($a, 0) : number_format($a, 2));
     }
 
     private static function day(string $d): string
@@ -76,7 +77,7 @@ final class MulchPriceBand
             if ((float)($q['unit_price'] ?? 0) <= 0 || !in_array((string)($q['status'] ?? ''), ['accepted', 'declined', 'expired'], true)) continue;
             if (!in_array($name, $names, true) || !in_array($unit, self::PER_YARD_UNITS, true)) continue; // a flat job or another unit is not a per-yard price
             // A blank unit does not prove "per yard": a flat job quoted under the product's name looks the same. Far above the catalogue price = not a yard price.
-            $ref = (float)($in['catalogue_price'] ?? 0) ?: (float)($floor['price'] ?? 0);
+            $ref = (float)(($in['catalogue'] ?? [])[$name] ?? 0) ?: (float)($floor['price'] ?? 0);
             if ($ref > 0 && (float)$q['unit_price'] > $ref * self::FLAT_JOB_FACTOR) { $skipped++; continue; }
             $lines[] = $q + ['_name' => $name];
         }
@@ -86,14 +87,26 @@ final class MulchPriceBand
             if (!isset($byQuote[$k]) || (float)$q['unit_price'] > (float)$byQuote[$k]['unit_price']) $byQuote[$k] = $q; // one price per quote
         }
         $lines = array_values($byQuote);
+        if ($product === '' && $lines) {
+            // No product named: the one actually sold the most (most accepted quotes, then the newest), not the first the catalogue lists.
+            $tally = [];
+            foreach ($lines as $q) {
+                if ($q['status'] !== 'accepted') continue;
+                $t = $tally[$q['_name']] ?? ['n' => 0, 'last' => ''];
+                $tally[$q['_name']] = ['n' => $t['n'] + 1, 'last' => max($t['last'], (string)$q['date'])];
+            }
+            uasort($tally, fn($a, $b) => [$b['n'], $b['last']] <=> [$a['n'], $a['last']]);
+            $product = (string)(array_key_first($tally) ?? '');
+        }
         $same = $product !== '' ? array_values(array_filter($lines, fn($q) => $q['_name'] === $product)) : [];
         $use = $same ?: $lines;
         $other = $product !== '' && !$same && $lines;
+        $chosen = $same ? (string)($same[0]['service_type'] ?? '') : null;
         $won = array_values(array_filter($use, fn($q) => $q['status'] === 'accepted'));
         $lost = count(array_filter($use, fn($q) => $q['status'] === 'declined'));
         $expired = count(array_filter($use, fn($q) => $q['status'] === 'expired'));
         if (!$won) {
-            return ['label' => 'What you have been paid', 'price' => null, 'highest' => null, 'won' => 0, 'lost' => $lost, 'expired' => $expired,
+            return ['label' => 'What you have been paid', 'price' => null, 'highest' => null, 'won' => 0, 'lost' => $lost, 'expired' => $expired, 'product' => $chosen,
                     'text' => 'No accepted per-yard quote for this yet' . ($lost ? " ({$lost} declined)" : '') . ($expired ? " ({$expired} expired unanswered)" : '') . '.'];
         }
         usort($won, fn($a, $b) => [(string)$b['date'], (float)$b['unit_price']] <=> [(string)$a['date'], (float)$a['unit_price']]);
@@ -105,6 +118,7 @@ final class MulchPriceBand
               . ($high > $price ? ', up to ' . self::money($high) : '') . ($lost ? ", {$lost} declined" : ', none declined') . ($expired ? ", {$expired} expired unanswered" : '') . '.';
         if ($skipped) $text .= ' ' . $skipped . ' line' . ($skipped === 1 ? '' : 's') . ' priced far above the catalogue price ' . ($skipped === 1 ? 'was' : 'were') . ' left out as a flat job.';
         if ($other) $text .= ' (These are other products of this kind; none is this exact one.)';
+        elseif ($chosen) $text = 'For ' . $chosen . ': ' . $text;
         $cost = $floor['cost'];
         if ($cost !== null && $cost > 0) {
             $profit = $price - $cost;
@@ -114,7 +128,7 @@ final class MulchPriceBand
         }
         $text .= $n < self::FEW_WON ? ' That is too few quotes to call it your ceiling.'
                : ($lost === 0 ? ' None declined at this price, so there may be room above it.' : ' Some were declined, so it may be near the limit.');
-        return ['label' => 'What you have been paid', 'price' => $price, 'highest' => $high, 'won' => $n, 'lost' => $lost, 'expired' => $expired, 'text' => $text];
+        return ['label' => 'What you have been paid', 'price' => $price, 'highest' => $high, 'won' => $n, 'lost' => $lost, 'expired' => $expired, 'product' => $chosen, 'text' => $text];
     }
 
     // ── 3. the market ───────────────────────────────────────────────────────

@@ -524,11 +524,15 @@ class MulchPricingService
         return $out;
     }
 
-    /** Lower-case names of the products sold by the cubic yard: a quote line named after one of these is a per-yard price. */
-    public function yardProductNames(): array
+    /** Products sold by the cubic yard: lower-case name => catalogue price per yard (null when unset). A quote line named after one is a per-yard price. */
+    public function yardProducts(): array
     {
         try {
-            return array_map('strtolower', $this->db->query("SELECT p.name FROM products p JOIN unit_types u ON u.id = p.unit_type_id WHERE u.name LIKE '%Yard%'")->fetchAll(PDO::FETCH_COLUMN));
+            $out = [];
+            foreach ($this->db->query("SELECT p.name, p.base_price FROM products p JOIN unit_types u ON u.id = p.unit_type_id WHERE u.name LIKE '%Yard%'")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[strtolower(trim((string)$r['name']))] = (float)$r['base_price'] > 0 ? (float)$r['base_price'] : null;
+            }
+            return $out;
         } catch (Throwable $e) {
             $this->readErrors[] = 'yard products: ' . $e->getMessage();
             return [];
@@ -583,28 +587,15 @@ class MulchPricingService
         }
     }
 
-    /** The product's catalogue price per unit (products.base_price), or null. */
-    private function catalogueFor($productId): ?float
-    {
-        if (!$productId) return null;
-        try {
-            $s = $this->db->prepare("SELECT base_price FROM products WHERE id = ?");
-            $s->execute([(int)$productId]);
-            $v = $s->fetchColumn();
-            return $v !== false && (float)$v > 0 ? (float)$v : null;
-        } catch (Throwable $e) {
-            return null;
-        }
-    }
-
     /** The three prices (floor, paid, market) with their reasons for a priced breakdown. */
-    public function band(array $out, string $family, float $yardsPerLoad, float $ownRate, ?string $today = null): array
+    public function band(array $out, string $family, float $yardsPerLoad, float $ownRate, ?string $namedProduct = null, ?string $today = null): array
     {
         $m = $this->marketRows($family);
+        $yard = $this->yardProducts();
         return MulchPriceBand::build([
             'floor' => ['sell' => $out['sell_per_yard'], 'cost' => $out['cost_per_yard'], 'margin_pct' => $out['target_margin_pct'] ?? null],
-            'yards_per_load' => $yardsPerLoad, 'product_name' => $out['product']['name'] ?? null,
-            'yard_names' => $this->yardProductNames(), 'quotes' => $this->bandQuotes($family), 'catalogue_price' => $this->catalogueFor($out['product']['id'] ?? null),
+            'yards_per_load' => $yardsPerLoad, 'product_name' => $namedProduct,
+            'yard_names' => array_keys($yard), 'catalogue' => $yard, 'quotes' => $this->bandQuotes($family),
             'market' => $m['rows'], 'market_read' => $m['read'], 'own_rate' => $ownRate, 'today' => $today ?? date('Y-m-d'),
         ]);
     }
@@ -857,7 +848,7 @@ class MulchPricingService
             $out['target_margin_pct'] = round($margin * 100, 1);
             try {
                 $ypl = $family === 'mulch' ? $sv('mulch_yards_per_load') : $sv('soil_yards_per_load');
-                $out['band'] = $this->band($out, $family, $ypl, $sv('mulch_market_per_yard'));
+                $out['band'] = $this->band($out, $family, $ypl, $sv('mulch_market_per_yard'), !empty($opt['product_id']) ? ($product['name'] ?? null) : null);
             } catch (Throwable $e) {
                 $this->readErrors[] = 'band: ' . $e->getMessage(); // the price still stands without its comparison
             }
