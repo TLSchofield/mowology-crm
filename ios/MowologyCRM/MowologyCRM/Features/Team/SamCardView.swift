@@ -556,8 +556,11 @@ struct SamCardView: View {
         let probs = isSms ? vm.smsProblems(for: c) : []
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Button { vm.move(-1) } label: { Image(systemName: "chevron.left") }
-                    .disabled(vm.queue.count < 2)
+                Button { vm.move(-1) } label: {
+                    Image(systemName: "chevron.left").frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Previous customer")
+                .disabled(vm.queue.count < 2)
                 Spacer()
                 VStack(spacing: 1) {
                     Text("\(vm.index + 1) of \(vm.queue.count) waiting")
@@ -566,8 +569,11 @@ struct SamCardView: View {
                         .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
                 Spacer()
-                Button { vm.move(1) } label: { Image(systemName: "chevron.right") }
-                    .disabled(vm.queue.count < 2)
+                Button { vm.move(1) } label: {
+                    Image(systemName: "chevron.right").frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Next customer")
+                .disabled(vm.queue.count < 2)
             }
             .tint(appStyle.tenant)
 
@@ -614,6 +620,8 @@ struct SamCardView: View {
                     Label("\(c.thread.count == 1 ? "1 message" : "\(c.thread.count) recent messages") with \(c.firstName.isEmpty ? "them" : c.firstName)",
                           systemImage: "bubble.left.and.bubble.right")
                         .font(appStyle.font(.caption))
+                        .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .tint(appStyle.tenant)
             }
