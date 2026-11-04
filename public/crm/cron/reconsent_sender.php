@@ -42,6 +42,7 @@ if (!$isCli) {
 }
 
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once CRM_INCLUDES . '/messaging.php';
 
 $db = getDB();
@@ -105,11 +106,11 @@ foreach ($contacts as $row) {
         }
 
         // Build email
-        $baseUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $baseUrl    = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $confirmUrl = $baseUrl . '/crm/api/optin-confirm.php?token=' . urlencode($rawToken);
         $firstName  = $row['first_name'] ?: 'Valued Customer';
 
-        $subject = 'Please confirm your email preferences — Mowology Landscaping';
+        $subject = 'Please confirm your email preferences — ' . _idCompanyInfo()['company_name'];
         $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
 <p>We\'ve recently upgraded our marketing system and want to make sure you still want to hear from us.</p>
 <p>We send occasional updates about seasonal services, special offers, and landscaping tips tailored to your property.</p>

@@ -189,6 +189,7 @@ case "${1:-}" in
   reset)  reset_db; echo "Reset done." ;;
   status) status ;;
   smoke)  shift; python3 "$ROOT/scripts/local/smoke.py" "$@" ;;
+  php)    shift; php_run "$@" ;;   # run a PHP script with the local site's php.ini, socket and mail log (MW_TENANT=<key> for a second business)
   mail)   touch "$STATE/mail.log"; tail -n 80 -f "$STATE/mail.log" ;;
   *) sed -n '2,13p' "$0"; exit 1 ;;
 esac

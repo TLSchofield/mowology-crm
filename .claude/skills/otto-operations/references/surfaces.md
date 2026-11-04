@@ -29,7 +29,7 @@
 |---|---|---|---|---|
 | Otto's suggestions + buttons | Team tab `OttoSuggestionViews.swift` (per-kind for older kinds; `serverButtons` for new) | `otto-card.js` (per-kind controls) + `propose.buttons` | `OpsDeskService`, `OttoActionService` | older kinds' buttons written twice; iPhone sends weather slot / bylaw start time to the web |
 | Kinds iPhone handles that this branch does not emit (`unscheduled`, `extra_work`, `visit_date`, `duration`, `pin_off`, borders, `no_pin`) | yes | live (production) | in `OpsDeskService::KINDS` since the live copy was synced into this branch (2026-10-13, a05385a1) | the services came from feature/otto-schedule-and-borders; that branch is still unmerged |
-| Charlie's brief lines from Otto | Team tab brief | dept-heads deck | `OpsDeskService::brief()` | — |
+| Kaname's brief lines from Otto | Team tab brief | dept-heads deck | `OpsDeskService::brief()` | — |
 | Clock in/out | native, offline `ClockQueue.swift` | `time-clock-widget.js` → `time-clock.php` | `TimeclockFunctions.php` | — |
 | GPS tracking | `GPSTrackingService.swift` (native) | native engine via `capacitor-bridge.js` | `TrackingIngestService` | consent screen not on both apps → consent switch OFF |
 | Break button (Start break / End break, "Still on break?") | `BreakController` in `TimeClockViewModel.swift` + break card in `TimeClockView.swift`; queued in `ClockQueue`; local notification with End break / Still on break actions (`NotificationRouter`) | `time-clock-widget.js` (topbar Break button + `#mwBreakPanel` on My Timesheet); queued by `offline-queue.js` with `client_time`; Capacitor LocalNotifications actions (in-page prompt in a browser) | `BreakService::start()` / `BreakService::end()` via `time-clock.php` and `clock.php`; GPS paused by `TrackingIngestService::policy()` (`on_break`) | Home Base (`homebase.php`, standalone, prod ahead of repo) has no break button; the Android notification action only lands on a page that loads the widget |
@@ -44,3 +44,12 @@
 | Supplier stop + Otto's job pick on a receipt (office only) | not built — `ReceiptDetailView` shows nothing | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService::forEditor()` via `supplier-stops.php` (session) | iPhone (needs a JWT read of `forEditor()`) |
 
 When you change a row, change the date in this file's heading.
+
+## Equipment from receipts (2026-10-19)
+Otto adds machines himself (Tim: "capital equipment should just be put in there, he can move it out if need be"):
+approved Tools/Equipment receipt lines ≥ $300 (`ops_settings.otto_equipment_min_line`; warranties, blades, line,
+oil etc. excluded) → `equipment` rows with the receipt as purchase, class/power guessed from the line name, in the
+6-hourly `generate_visits` cron (`EquipmentReceiptIntakeService`, `equipment_receipt_intake`, migration 1377).
+"Not equipment, move it out" on `/crm/ops/equipment-item.php` deletes it and remembers the line (refused once the
+machine has services, runs, tasks or a manual read — retire it). A receipt linked to a machine by hand is left alone.
+

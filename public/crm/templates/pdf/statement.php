@@ -1,4 +1,5 @@
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 /**
  * Statement of Account PDF template — rendered by PdfGenerator::generateStatementPdf().
  * Variables: $statement (StatementService::getStatementData output), $business (array)
@@ -8,11 +9,11 @@ $fmt = static fn($n) => '$' . number_format((float)$n, 2);
 $esc = static fn($s) => htmlspecialchars((string)($s ?? ''), ENT_QUOTES, 'UTF-8');
 
 $business    = is_array($business ?? null) ? $business : [];
-$bizName     = trim((string)($business['company_name']    ?? 'Mowology'));
-$bizPhone    = trim((string)($business['company_phone']   ?? '(778) 846-9273'));
-$bizEmail    = trim((string)($business['company_email']   ?? 'office@mowology.ca'));
-$bizWebsite  = trim((string)($business['company_website'] ?? 'mowology.ca'));
-$bizAddress  = trim((string)($business['company_address'] ?? 'Vancouver, BC'));
+$bizName     = trim((string)($business['company_name']    ?? _idFromName()));
+$bizPhone    = trim((string)($business['company_phone']   ?? _idPhone()));
+$bizEmail    = trim((string)($business['company_email']   ?? _idCompanyInfo()['company_email']));
+$bizWebsite  = trim((string)($business['company_website'] ?? preg_replace('#^https?://#', '', _idSiteUrl())));
+$bizAddress  = trim((string)($business['company_address'] ?? BusinessIdentity::get()['address']));
 $bizGst      = trim((string)($business['gst_registration'] ?? ''));
 $bizTagline  = trim((string)($business['company_tagline']  ?? ''));
 $bizPayInstr = trim((string)($business['invoice_payment_instructions'] ?? ''));

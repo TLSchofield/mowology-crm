@@ -111,19 +111,55 @@ class BrainTiersTest extends TestCase
             $rev('point of sale chevron', 0, 4, 'edited', 'POINT OF SALE (CHEVRON 0123 VANCOUVER BCCA)'),
             $rev('insurance corporation', 3, 3, 'kept'),      // left as it was: teaches nothing
         ];
-        $items = array_column(PennyBrainService::payeeItemsFrom($reviews, ['first insurance' => 12, 'telus mobility' => 40]), null, 'key');
+        $rules = [
+            'first insurance' => ['active_owner' => 12, 'owner' => 12],   // active, owner-confirmed 12 times
+            'telus mobility'  => ['active_owner' => 40, 'owner' => 40],
+        ];
+        $items = array_column(PennyBrainService::payeeItemsFrom($reviews, $rules, ['point of sale chevron' => 'Chevron Lonsdale']), null, 'key');
 
         $this->assertSame(['payee:telus mobility', 'payee:point of sale chevron', 'payee:first insurance'], array_keys($items));
         $this->assertSame('Telus Mobility', $items['payee:telus mobility']['label']);
         $this->assertSame('obsidian', self::slug($items['payee:telus mobility']['strength']), 'Black, then corrected: one tier down, and rule confirmations no longer lift it');
-        $this->assertSame('Chevron', $items['payee:point of sale chevron']['label']);
+        $this->assertSame('Chevron Lonsdale', $items['payee:point of sale chevron']['label'], 'a taught name (bank_payee_names) is the display name');
+        $this->assertSame('Chevron', $items['payee:point of sale chevron']['raw'], "the bank's own wording is kept");
         $this->assertSame(1, $items['payee:point of sale chevron']['strength']);
-        $this->assertSame(12, $items['payee:first insurance']['strength'], 'never corrected: BankRuleLearning confirmations count');
+        $this->assertSame(12, $items['payee:first insurance']['strength'], "never corrected: the owner's confirmations on the active rule count");
         $this->assertSame('Bank payees', $items['payee:first insurance']['group']);
 
         // Chevron the receipt vendor and Chevron the bank payee: two triangles, one per skill.
         $vendor = PennyBrainService::vendorItemsFrom([['vendor_id' => 12, 'vendor' => 'Chevron', 'status' => 'accepted', 'decided_at' => 'x']]);
         $this->assertNotSame($vendor[0]['key'], $items['payee:point of sale chevron']['key']);
+    }
+
+    /**
+     * 2026-10-07: payee strength comes from the OWNER only. learned_count (imports nobody looked at)
+     * made "TD ON Line Loans System" and "Wave Pyrl" White 28 while their rules sent loan and payroll
+     * lines to Credit Card Payable; migration 1220 switched those rules off.
+     */
+    public function test_payee_strength_is_owner_confirmations_on_active_rules_only(): void
+    {
+        $rules = [
+            'td on line loans system' => ['active_owner' => 0, 'owner' => 0, 'learned_count' => 28],  // switched off, never confirmed
+            'wave pyrl'               => ['active_owner' => 0, 'owner' => 1],                          // off, 1 owner confirmation
+            'telus mobility'          => ['active_owner' => 1, 'owner' => 1],                          // on but only 1: not trusted yet
+            'bc hydro'                => ['active_owner' => 7, 'owner' => 7],                          // on, confirmed 7 times
+            'old style'               => 50,                                                           // a bare learned_count: ignored
+        ];
+        $items = array_column(PennyBrainService::payeeItemsFrom([], $rules), null, 'key');
+
+        $this->assertArrayNotHasKey('payee:td on line loans system', $items, 'no owner decision at all: not shown');
+        $this->assertArrayNotHasKey('payee:old style', $items, 'learned_count alone never counts');
+        $this->assertTrue($items['payee:wave pyrl']['learning'], 'rule switched off: still learning');
+        $this->assertSame(1, $items['payee:wave pyrl']['strength']);
+        $this->assertTrue($items['payee:telus mobility']['learning'], 'one owner confirmation is not yet trusted');
+        $this->assertArrayNotHasKey('learning', $items['payee:bc hydro']);
+        $this->assertSame('silver', self::slug($items['payee:bc hydro']['strength']));
+
+        // A switched-off rule never lifts strength above what the owner's own card decisions say.
+        $rev = ['key' => 'wave pyrl', 'suggested_account_id' => 5, 'final_account_id' => 5, 'outcome' => 'accepted', 'decided_at' => 'x', 'description' => 'WAVE PYRL'];
+        $one = PennyBrainService::payeeItemsFrom([$rev], ['wave pyrl' => ['active_owner' => 0, 'owner' => 30]]);
+        $this->assertSame(1, $one[0]['strength']);
+        $this->assertArrayNotHasKey('learning', $one[0], 'an owner decision on her card is learned');
     }
 
     public function test_payee_labels_read_plainly(): void

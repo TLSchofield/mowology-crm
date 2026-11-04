@@ -31,6 +31,8 @@ final class RuntimeDdlTest extends TestCase
         'public/crm/api/migrate-ppv-to-net.php',
         // Uses Database::ddl() until migration 1345 has run:
         'public/crm/api/measurement-groups.php',
+        // Owner-run business provisioning (Ittai): copies table structure into a NEW business's database on Database::ddl():
+        'app/Core/TenantProvisioner.php',
     ];
 
     public function test_no_new_runtime_ddl(): void

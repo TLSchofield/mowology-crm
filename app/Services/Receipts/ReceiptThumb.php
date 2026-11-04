@@ -11,6 +11,8 @@
  * The cache file is named by media id and the source's mtime + size, so a re-saved receipt gets
  * a new thumbnail. PDFs and emailed (HTML) receipts get no thumbnail; the list shows an icon.
  */
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
+
 class ReceiptThumb
 {
     public const WIDTH = 320;
@@ -26,7 +28,7 @@ class ReceiptThumb
     /** Pure: the cached thumbnail's path (relative to the web root) for this media row's source file. */
     public static function cachePath(int $mediaId, int $mtime, int $size): string
     {
-        return self::DIR . '/receipt-' . $mediaId . '-' . dechex($mtime) . '-' . dechex($size) . '.jpg';
+        return uploadsUrl('receipts/thumbs') . '/receipt-' . $mediaId . '-' . dechex($mtime) . '-' . dechex($size) . '.jpg';
     }
 
     /** Pure: the thumbnail's size, never larger than the original. */

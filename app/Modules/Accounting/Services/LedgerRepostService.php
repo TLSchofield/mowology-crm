@@ -24,6 +24,8 @@ require_once __DIR__ . '/GstReportService.php';
 
 class LedgerRepostService
 {
+    /** 1015 Stripe clearing, 1016 Undeposited funds — the holding accounts (migration 1364). */
+    public const HOLDING_CODES = ['1015', '1016'];
     /** Lines that aren't the income / cost side of an entry. */
     private const NOT_CATEGORY = ['1100', '2200', '2210', '2300', '2400', '1010', '1300', '2100'];
 
@@ -62,7 +64,7 @@ class LedgerRepostService
         }
         $expenses = [];
         $s = $this->db->query("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                      vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                      vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                       (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                FROM expenses WHERE total > 0 AND status IN ('approved', 'forwarded')");
         $expRows = $s->fetchAll(PDO::FETCH_ASSOC);
@@ -74,7 +76,10 @@ class LedgerRepostService
             // A receipt split by line (migration 1233) posts one line per share: compare with that recipe.
             // A split receipt, and a meals receipt (only part of its GST is claimable since 2026-10-14, the rest
             // is cost — Codex review), post by the full recipe: compare with that. Others: the account only.
-            $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats()))
+            // A Personal receipt too: its account is the shareholder's on it (1302 Katrenna), not the category's.
+            $args = (isset($split[(int)$e['id']]) || GstReportService::isMeals($e['accounting_category'], $this->mealsCats())
+                     || strcasecmp((string)$e['accounting_category'], 'Personal') === 0
+                     || in_array(strtolower(trim((string)$e['accounting_category'])), LedgerSyncService::CAPITAL_RULE_CATEGORIES, true))
                 ? $this->sync->expenseArgs($e) : null;
             $want = $args !== null
                 ? self::categoryMap($this->ledger->buildExpenseEntry($this->ledger->withAllocations($args)))
@@ -89,7 +94,9 @@ class LedgerRepostService
         $bank = [];
         $rows = $this->db->query("
             SELECT je.id AS entry_id, je.source_id, c.code AS posted_code, jl.debit, jl.credit, cn.code AS now_code, cn.type AS now_type,
-                   t.type AS tx_type, t.matched_invoice_id, t.matched_expense_id
+                   t.type AS tx_type, t.matched_invoice_id, t.matched_expense_id, t.transaction_date,
+                   (SELECT COUNT(*) FROM journal_entries xe WHERE xe.source_type = 'expense' AND xe.source_id = t.matched_expense_id
+                      AND xe.status = 'posted' AND xe.reversed_by_entry_id IS NULL) AS receipt_booked
             FROM journal_entries je
             JOIN journal_lines jl ON jl.entry_id = je.id AND jl.description IS NOT NULL
             JOIN chart_of_accounts c ON c.id = jl.account_id
@@ -97,12 +104,22 @@ class LedgerRepostService
             JOIN chart_of_accounts cn ON cn.id = t.account_id
             WHERE je.source_type = 'bank_import' AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
         ")->fetchAll(PDO::FETCH_ASSOC);
+        $holdingFrom = $this->ledger->holdingFrom();
         foreach ($rows as $r) {
             $amt = round((float)$r['debit'] + (float)$r['credit'], 2);
-            $gone = $r['matched_invoice_id'] || $r['matched_expense_id'] || ($r['tx_type'] === 'income' && $r['now_type'] === 'revenue');
+            // Holding accounts (migration 1364): from ledger_holding_from a deposit / payout posts to 1016 Undeposited
+            // funds / 1015 Stripe clearing — that IS its right posting, whatever the line's old category says, and a
+            // deposit matched to an invoice keeps it (it clears the invoice's payment). Flagging them would have moved
+            // 152 lines out of the holding accounts and booked $36,390 of deposits as income (review 2026-10-20).
+            if (in_array($r['posted_code'], self::HOLDING_CODES, true)) continue;
+            $holding = $holdingFrom !== null && (string)$r['transaction_date'] >= $holdingFrom;
+            // A line linked to a receipt is booked by that receipt only once the receipt is posted — a draft's line is its only booking.
+            $gone = ($r['matched_invoice_id'] && !$holding) || ($r['matched_expense_id'] && (int)$r['receipt_booked'] > 0)
+                    || (!$holding && $r['tx_type'] === 'income' && $r['now_type'] === 'revenue');
             if ($r['posted_code'] !== $r['now_code'] || $gone) {
                 $bank[] = ['id' => (int)$r['source_id'], 'entry_id' => (int)$r['entry_id'],
-                           'from' => [$r['posted_code'] => $amt], 'to' => $gone ? [] : [$r['now_code'] => $amt]];
+                           'from' => [$r['posted_code'] => $amt], 'to' => $gone ? [] : [$r['now_code'] => $amt],
+                           'expense_id' => $r['matched_expense_id'] ? (int)$r['matched_expense_id'] : null];
             }
         }
         return ['invoices' => $invoices, 'expenses' => $expenses, 'bank' => $bank,
@@ -111,7 +128,12 @@ class LedgerRepostService
     }
 
     /** Re-post what plan() found. @return array{reposted: int, failed: int, errors: array} */
-    public function apply(?int $userId = null): array
+    /**
+     * @param ?callable $only fn(string $kind 'invoice'|'expense'|'bank', array $item): bool — repost only these
+     *                        (a reviewed subset; null = every planned item)
+     * @param ?string   $why  the reason written on each reversal, for the accountant (null = the default per kind)
+     */
+    public function apply(?int $userId = null, ?callable $only = null, ?string $why = null): array
     {
         if (!$this->ledger->canRepostSource()) {
             return ['reposted' => 0, 'failed' => 0, 'errors' => ['Run migration 1131 first — the books are corrected with reversing entries now, never deletes.']];
@@ -121,16 +143,20 @@ class LedgerRepostService
         $invRows = $this->rowsById("SELECT id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id,
                                            issue_date, paid_at, created_at FROM invoices", array_column($p['invoices'], 'id'));
         $expRows = $this->rowsById("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                           vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                           vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                            (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                     FROM expenses", array_column($p['expenses'], 'id'));
+        $keep = static fn(string $k, array $list) => $only === null ? $list : array_values(array_filter($list, fn($i) => $only($k, $i)));
+        $p['invoices'] = $keep('invoice', $p['invoices']);
+        $p['expenses'] = $keep('expense', $p['expenses']);
+        $p['bank'] = $keep('bank', $p['bank']);
         foreach ($p['invoices'] as $item) {
             try {
                 $row = $invRows[$item['id']];
                 $args = $this->sync->mapInvoiceToInvoiceArgs($row);
                 $args['revenue_splits'] = $this->map->invoiceSplits($row, $args['net']);
-                $this->atomically(function () use ($item, $userId, $args) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'invoice re-posted to the right income account');
+                $this->atomically(function () use ($item, $userId, $args, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'invoice re-posted to the right income account');
                     $args['created_by'] = $userId; $args['proposed_by'] = 'owner';
                     $this->ledger->postInvoice($args);
                 });
@@ -142,8 +168,8 @@ class LedgerRepostService
         foreach ($p['expenses'] as $item) {
             try {
                 $args = $this->sync->expenseArgs($expRows[$item['id']]);
-                $this->atomically(function () use ($item, $userId, $args) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'receipt re-posted to the right expense account');
+                $this->atomically(function () use ($item, $userId, $args, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'receipt re-posted to the right expense account');
                     $this->ledger->postExpense($args);
                 });
                 $done++;
@@ -152,9 +178,20 @@ class LedgerRepostService
             }
         }
         foreach ($p['bank'] as $item) {
+            if (!empty($item['expense_id'])) {
+                // Its receipt books the purchase: retire the bank line's own entry only when the receipt's entry pays from
+                // the same account for the same amount (LedgerService::retireLinkedBankEntries) — else leave it for a person.
+                try {
+                    $n = $this->ledger->retireLinkedBankEntries((int)$item['expense_id'], $userId);
+                    if ($n > 0) $done++; else { $failed++; $errors[] = 'Bank line ' . $item['id'] . ': its receipt #' . $item['expense_id'] . " doesn't pay the same — left for a person"; }
+                } catch (Throwable $e) {
+                    $failed++; $errors[] = 'Bank line ' . $item['id'] . ': ' . $e->getMessage();
+                }
+                continue;
+            }
             try {
-                $this->atomically(function () use ($item, $userId) {
-                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'bank line re-categorized');
+                $this->atomically(function () use ($item, $userId, $why) {
+                    $this->ledger->reverseEntry((int)$item['entry_id'], $userId, $why ?? 'bank line re-categorized');
                     $args = $this->sync->bankEntryArgsFor((int)$item['id']);
                     if ($args) { $args['created_by'] = $userId; $args['proposed_by'] = 'owner'; $this->ledger->postManual($args); }
                 });

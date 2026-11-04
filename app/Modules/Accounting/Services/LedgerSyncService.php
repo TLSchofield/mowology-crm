@@ -84,7 +84,7 @@ class LedgerSyncService
             'net'             => round($total - $gst - $pst, 2),
             'gst'             => $gst,
             'pst'             => $pst,
-            'expense_account' => LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
+            'expense_account' => self::personalAccount($row, $cat) ?? LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
                                      $row['asset_tag'] ?? null, (string)($row['vendor_name'] ?? $row['vendor_name_raw'] ?? '')),
             'funding'         => $this->fundingAccountFor((string)($row['payment_method'] ?? '')),
             'cost_type_id'    => $categoryToCostType[$cat] ?? null,
@@ -93,7 +93,39 @@ class LedgerSyncService
             'vendor_id'       => !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
             'meals'           => GstReportService::isMeals($row['accounting_category'] ?? null, $this->gstSettings()['meals_categories']),
             'meals_itc_rate'  => $this->gstSettings()['meals_rate'],
-        ];
+        ] + (in_array($cat, self::CAPITAL_RULE_CATEGORIES, true) ? ['capital_rule' => ['threshold' => $this->capitalThreshold()]] : []);
+    }
+
+    /** Receipt categories whose items of the capital threshold or more each are equipment (CapitalItemRule). */
+    public const CAPITAL_RULE_CATEGORIES = ['tools/equipment'];
+
+    private ?float $capitalThresholdCache = null;
+
+    /** ops_settings capital_threshold (dollars, before tax), default $500 — the standard capitalisation threshold. */
+    public function capitalThreshold(): float
+    {
+        if ($this->capitalThresholdCache === null) {
+            $this->capitalThresholdCache = 500.0;
+            try {
+                $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'capital_threshold'");
+                $s->execute();
+                $v = $s->fetchColumn();
+                if ($v !== false && is_numeric($v) && (float)$v > 0) $this->capitalThresholdCache = (float)$v;
+            } catch (\Throwable $e) { /* default */ }
+        }
+        return $this->capitalThresholdCache;
+    }
+
+    /**
+     * A Personal receipt always posts to a shareholder: the one marked on it (expenses.shareholder_account,
+     * migration 1376 — Katrenna's 1302), else 1300 Due from Shareholder — never the category map, so a
+     * missing or changed map can't turn a personal purchase into a cost that claims GST (review 2026-10-19). PURE.
+     */
+    public static function personalAccount(array $row, string $cat): ?string
+    {
+        if ($cat !== 'personal') return null;
+        $code = trim((string)($row['shareholder_account'] ?? ''));
+        return LedgerService::isShareholderAccount($code) ? $code : LedgerService::ACC_DUE_FROM_SH;
     }
 
     private ?array $gstSettingsCache = null;
@@ -587,7 +619,7 @@ class LedgerSyncService
 
         $rows = $this->db->query("
             SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category,
-                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                    (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
             FROM expenses
             WHERE total > 0 AND status IN ('approved', 'forwarded')
@@ -637,6 +669,7 @@ class LedgerSyncService
             SELECT code, expense_category_alias
             FROM chart_of_accounts
             WHERE expense_category_alias IS NOT NULL AND is_active = 1
+              AND type NOT IN ('revenue', 'income')   -- revenue accounts alias SERVICE types (4900 'other'), never a receipt
         ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as $r) {
             $map[strtolower($r['expense_category_alias'])] = $r['code'];

@@ -89,7 +89,7 @@ try {
 
     $listStmt = $db->prepare("
         SELECT e.id, e.expense_date, e.vendor_name_raw, e.description,
-               e.amount, e.gst_amount, e.total, e.accounting_category,
+               e.amount, e.gst_amount, e.pst_amount, e.total, e.accounting_category,
                e.payment_method, e.status, e.forwarded_to_accounting,
                e.receipt_media_id, e.job_id, e.anomaly_score, e.match_confidence, e.created_at,
                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
@@ -126,6 +126,7 @@ try {
         // decode, silently landing the app on its empty state with no error shown.
         $row['amount'] = $row['amount'] !== null ? (float)$row['amount'] : null;
         $row['gst_amount'] = $row['gst_amount'] !== null ? (float)$row['gst_amount'] : null;
+        $row['pst_amount'] = isset($row['pst_amount']) && $row['pst_amount'] !== null ? (float)$row['pst_amount'] : null;  // the phone's editor needs PST (owner, 2026-10-18)
         $row['total'] = (float)$row['total'];
     }
     unset($row);

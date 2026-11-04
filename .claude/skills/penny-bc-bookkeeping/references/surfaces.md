@@ -28,9 +28,21 @@
 | Approve / reject | Penny ring + buttons | buttons (needs `expenses.approve`) | `ExpenseApprovalService` | — |
 | Approving teaches SKU names | yes (server) | yes (server) | `recordConfirmedSkuNames()` | — |
 | Mobile receipt capture | native camera, queue | `expenses_appstack.php?mode=quick`; Android 1.7.0 native camera + queue (switch `native_receipts`) | intake services; Android: `ReceiptCaptureService` (one idempotent call) | iPhone still two calls (receipt-upload + expense-save) — could move to receipt-capture |
-| Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Charlie's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
+| Payment source corrected from the bank line (notice / question) | not shown (gap) | Penny's card `#mw-pq` ("Got it" / "Use the bank line"), Kaname's brief | `ReceiptFundingCheck`, `PennyQuestionService` kind `payment_source` | iPhone |
 | Penny's read on a receipt (her fields that differ + reasons, her items, notes; Use hers / Keep mine) | "Penny's read" section in `ReceiptDetailView` (1.3.31), pull to refresh | `#expPennyRead` in the expense modal (`penny-read.js`) | `PennyReadService` via `bookkeeper-mobile.php` `mode=suggestion` / `penny_apply` / `penny_keep` and `expenses.php` `penny_read` / `penny_apply` / `penny_keep` | "Ask Penny" (no read of hers yet) is web/Android only — iPhone gap (server: `PennyReadService::ask()`); crew see / apply (as a draft) only their own open receipts |
 | Supplier forms, Otto buttons | server-sent buttons (1.3.20) | server-sent buttons (`otto-card.js`) | `SupplierFormService` | — |
 | Supplier stop + Otto's job pick on a receipt (office only) | not built | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService` via `supplier-stops.php` | iPhone |
 
 When you change a row, change the date in this file's heading.
+
+## Receipt lines ↔ shared catalogue (2026-10-19)
+Receipt window, under each saved line: "Catalogue: X (Penny knew it / matched by name / confirmed / added by you)",
+"Is this X? Yes / No / another one", or "Add to catalogue". `ReceiptCatalogService` (migration 1378); actions
+`catalog_lines|search|confirm|dismiss|add` on `/crm/api/expenses.php`. Matching is automatic; a person's answer
+teaches the shared aliases and a Penny lesson. Never creates a catalogue product without the office's tap.
+
+## Review receipts (2026-10-20)
+`/crm/receipts-review_appstack.php` — the review layer: evidence per waiting receipt (paper vs saved vs bank, Penny's
+category + doubts, GST, photo), vendor-grouped; tick what you checked → Approve checked. Duplicates keeper-first (green =
+in the books); merge copies into it. API `/crm/api/receipt-review.php` (`mode` approve | merge | not_dupe).
+

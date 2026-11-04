@@ -2,10 +2,12 @@
 require_once __DIR__ . '/auth.php';
 require_once APP_ROOT . '/Core/Auth/AttemptThrottle.php';
 require_once APP_ROOT . '/Core/Auth/ResetCaptcha.php';
+require_once __DIR__ . '/signin-chrome.php';   // Ittai v1.2 sign-in look (2026-10-23)
+$__bizName = itSigninBizName();
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    header('Location: /crm/app-launch.php');   // loginAuth/dashboard.php does not exist
     exit();
 }
 
@@ -23,7 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Please enter a valid email address.';
             $messageType = 'error';
         } elseif (!ResetCaptcha::passes((string)($_POST['recaptcha_v3_token'] ?? ''), $_SERVER['REMOTE_ADDR'] ?? null)) {
-            $message = 'Security check failed. Please try again, or call (778) 846-9273.';
+            $__ph = (string)(BusinessIdentity::get()['phone'] ?? '');
+            $message = 'Security check failed. Please try again' . ($__ph !== '' ? ', or call ' . BusinessIdentity::phone($__ph) : '') . '.';
             $messageType = 'error';
         } elseif (!AttemptThrottle::takeResetSlot(getDB(), $email, (string)($_SERVER['REMOTE_ADDR'] ?? ''))) {
             // Own throttle (#9, Fable audit 2026-10-12): 3 per email / 10 per IP per hour, keyed 'reset:'
@@ -39,6 +42,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$email]);
                 $user = $stmt->fetch();
 
+                // Build reset URL from the site's own address — never the request's Host header,
+                // which a caller controls (a forged Host would mail the token to their server).
+                // Another business: only its REGISTERED address (Tenant::appUrl, bound to its hosts) — never a
+                // settings value such as the website, which would mail the token elsewhere (Codex 2026-10-23).
+                // The original business keeps SITE_URL. No address → no token and no email (same answer shown).
+                $siteUrl = Tenant::isDefault()
+                    ? (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca')
+                    : Tenant::appUrl();
+                if ($user && $siteUrl === '') {
+                    error_log('Forgot password: no registered address for business ' . Tenant::key() . ' - no link sent');
+                    $user = false;
+                }
+
                 if ($user) {
                     // Generate secure reset token
                     $token = bin2hex(random_bytes(32));
@@ -48,36 +64,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))");
                     $stmt->execute([$user['id'], hash('sha256', $token)]);
 
-                    // Build reset URL from the site's own address — never the request's Host header,
-                    // which a caller controls (a forged Host would mail the token to their server).
-                    $siteUrl  = defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca';
                     $resetUrl = $siteUrl . '/loginAuth/reset_password.php?token=' . $token;
+                    $resetHref = htmlspecialchars($resetUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
                     // Send email
                     $to = $user['email'];
-                    $subject = "Password Reset Request - Mowology CRM";
-                    $headers = "From: Mowology CRM <noreply@mowology.ca>\r\n";
-                    $headers .= "Reply-To: noreply@mowology.ca\r\n";
-                    $headers .= "MIME-Version: 1.0\r\n";
-                    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+                    $subject = "Reset your password - " . $__bizName;
 
                     $emailBody = "
                     <html>
-                    <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #131D17;'>
                         <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
-                            <h2 style='color: #1A5F4A;'>Password Reset Request</h2>
+                            <h2 style='color: #131D17;'>Password Reset Request</h2>
                             <p>Hi " . htmlspecialchars((string)$user['full_name'], ENT_QUOTES, 'UTF-8') . ",</p>
-                            <p>We received a request to reset your password for the Mowology CRM system.</p>
+                            <p>We received a request to reset your password for " . htmlspecialchars($__bizName, ENT_QUOTES, 'UTF-8') . ".</p>
                             <p>Click the button below to reset your password:</p>
                             <p style='margin: 30px 0;'>
-                                <a href='{$resetUrl}' style='background: #2D8659; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block;'>Reset Password</a>
+                                <a href='{$resetHref}' style='background: #233A5E; color: #FFFFFF; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block;'>Reset Password</a>
                             </p>
                             <p>Or copy and paste this link into your browser:</p>
-                            <p style='word-break: break-all; color: #666;'>{$resetUrl}</p>
+                            <p style='word-break: break-all; color: #48534C;'>{$resetHref}</p>
                             <p><strong>This link will expire in 1 hour.</strong></p>
                             <p>If you didn't request this password reset, you can safely ignore this email.</p>
                             <hr style='border: none; border-top: 1px solid #eee; margin: 30px 0;'>
-                            <p style='color: #999; font-size: 12px;'>Mowology CRM System</p>
+                            <p style='color: #48534C; font-size: 12px;'>" . htmlspecialchars($__bizName, ENT_QUOTES, 'UTF-8') . " · Ittai</p>
                         </div>
                     </body>
                     </html>
@@ -116,289 +126,45 @@ $csrf_token = generateCSRFToken();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - Mowology CRM</title>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --forest-dark: #0D3B2E;
-            --forest-main: #1A5F4A;
-            --grass-green: #2D8659;
-            --lime-accent: #7FD858;
-            --earth-brown: #8B5A3C;
-            --snow-white: #F8FFFE;
-            --mist-gray: #E8F3F0;
-            --shadow: rgba(13, 59, 46, 0.12);
-        }
-
-        body {
-            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, var(--forest-dark) 0%, var(--forest-main) 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        body::before {
-            content: '';
-            position: absolute;
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, var(--grass-green) 0%, transparent 70%);
-            top: -200px;
-            right: -200px;
-            opacity: 0.3;
-            animation: float 8s ease-in-out infinite;
-        }
-
-        body::after {
-            content: '';
-            position: absolute;
-            width: 400px;
-            height: 400px;
-            background: radial-gradient(circle, var(--lime-accent) 0%, transparent 70%);
-            bottom: -150px;
-            left: -150px;
-            opacity: 0.2;
-            animation: float 10s ease-in-out infinite reverse;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(30px, -30px) scale(1.1); }
-        }
-
-        .container {
-            background: var(--snow-white);
-            border-radius: 24px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
-            width: 100%;
-            max-width: 440px;
-            position: relative;
-            z-index: 1;
-            animation: slideUp 0.6s ease-out;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .header {
-            background: linear-gradient(135deg, var(--grass-green) 0%, var(--forest-main) 100%);
-            padding: 48px 40px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header::before {
-            content: '🔑';
-            font-size: 80px;
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            opacity: 0.15;
-            transform: rotate(-15deg);
-        }
-
-        .logo {
-            font-family: 'Space Mono', monospace;
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--snow-white);
-            letter-spacing: -1px;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-        }
-
-        .tagline {
-            color: var(--lime-accent);
-            font-size: 14px;
-            font-weight: 500;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-
-        .form-wrapper {
-            padding: 48px 40px;
-        }
-
-        .form-title {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--forest-dark);
-            margin-bottom: 12px;
-            text-align: center;
-        }
-
-        .form-subtitle {
-            font-size: 14px;
-            color: #666;
-            text-align: center;
-            margin-bottom: 32px;
-            line-height: 1.5;
-        }
-
-        .form-group {
-            margin-bottom: 24px;
-        }
-
-        .form-label {
-            display: block;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--forest-main);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .form-input {
-            width: 100%;
-            padding: 14px 16px;
-            border: 2px solid var(--mist-gray);
-            border-radius: 12px;
-            font-size: 15px;
-            font-family: 'DM Sans', sans-serif;
-            transition: all 0.3s ease;
-            background: var(--snow-white);
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: var(--grass-green);
-            box-shadow: 0 0 0 4px rgba(45, 134, 89, 0.1);
-        }
-
-        .message {
-            padding: 14px 16px;
-            border-radius: 12px;
-            margin-bottom: 24px;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .message-error {
-            background: #FEE;
-            color: #C33;
-            border-left: 4px solid #C33;
-        }
-
-        .message-success {
-            background: #E8F5E9;
-            color: #2E7D32;
-            border-left: 4px solid #2E7D32;
-        }
-
-        .submit-button {
-            width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, var(--grass-green) 0%, var(--forest-main) 100%);
-            color: var(--snow-white);
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            box-shadow: 0 4px 12px var(--shadow);
-        }
-
-        .submit-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px var(--shadow);
-        }
-
-        .submit-button:active {
-            transform: translateY(0);
-        }
-
-        .back-link {
-            display: block;
-            text-align: center;
-            margin-top: 24px;
-            color: var(--forest-main);
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.3s;
-        }
-
-        .back-link:hover {
-            color: var(--grass-green);
-        }
-
-        .footer {
-            padding: 24px 40px;
-            background: var(--mist-gray);
-            text-align: center;
-            font-size: 13px;
-            color: var(--forest-main);
-        }
-    </style>
+<?php itSigninHead('Forgot password - ' . $__bizName); ?>
 <?= ResetCaptcha::headTags() ?>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">Mowology</div>
-            <div class="tagline">Client Management System</div>
-        </div>
+<body class="<?= itSigninBodyClass() ?>">
+<main class="it-signin-wrap">
+    <?php itSigninLockup(); ?>
 
-        <div class="form-wrapper">
-            <h2 class="form-title">Forgot Password?</h2>
-            <p class="form-subtitle">No worries! Enter your email address and we'll send you instructions to reset your password.</p>
+    <div class="it-signin-card">
+        <h1 class="it-signin-title">Forgot your password?</h1>
+        <p class="it-signin-sub">Enter your email and we'll send a link to set a new one for <strong><?= htmlspecialchars($__bizName) ?></strong>.</p>
 
-            <?php if ($message): ?>
-                <div class="message message-<?php echo $messageType; ?>"><?php echo htmlspecialchars($message); ?></div>
-            <?php endif; ?>
+        <?php if ($message): ?>
+            <div class="it-signin-msg it-signin-msg--<?php echo $messageType === 'success' ? 'success' : 'error'; ?>" role="<?php echo $messageType === 'success' ? 'status' : 'alert'; ?>"><?php echo htmlspecialchars($message); ?></div>
+        <?php endif; ?>
 
-            <form method="POST" action="" id="resetForm">
-                <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
+        <form method="POST" action="" id="resetForm">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
 
-                <div class="form-group">
-                    <label class="form-label" for="email">Email Address</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        class="form-input"
-                        required
-                        autocomplete="email"
-                        placeholder="your@email.com"
-                        value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
-                    >
-                </div>
+            <div class="it-signin-field">
+                <label class="it-signin-label" for="email">Email</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    class="it-signin-input"
+                    required
+                    autocomplete="email"
+                    value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
+                >
+            </div>
 
-                <button type="submit" class="submit-button">Send Reset Link</button>
-                <?= ResetCaptcha::formTags('resetForm') ?>
-            </form>
+            <button type="submit" class="it-signin-button">Send reset link</button>
+            <?= ResetCaptcha::formTags('resetForm') ?>
+        </form>
 
-            <a href="login.php" class="back-link">&larr; Back to Login</a>
-        </div>
-
-        <div class="footer">
-            <p>Remember your password? <a href="login.php" style="color: var(--grass-green);">Sign in</a></p>
+        <div class="it-signin-links">
+            <a href="login.php" class="it-signin-link">Back to sign in</a>
         </div>
     </div>
+</main>
 </body>
 </html>

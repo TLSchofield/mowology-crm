@@ -8,11 +8,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/XlsxReader.php';
+require_once __DIR__ . '/XlsReader.php';   // old Excel (.xls), e.g. Specimen Trees (2026-10-19)
 
 class SheetReader
 {
     /** File types we read. */
-    public const TYPES = ['xlsx', 'csv'];
+    public const TYPES = ['xlsx', 'xls', 'csv'];
 
     /** The file type from a name (".xlsx" → xlsx), or from the bytes when the name says nothing. PURE. */
     public static function typeOf(string $fileName, string $bytes = ''): ?string
@@ -20,6 +21,7 @@ class SheetReader
         $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
         if (in_array($ext, self::TYPES, true)) return $ext;
         if ($bytes !== '' && strncmp($bytes, 'PK', 2) === 0) return 'xlsx';
+        if ($bytes !== '' && strncmp($bytes, "\xD0\xCF\x11\xE0", 4) === 0) return 'xls';
         return null;
     }
 
@@ -28,6 +30,7 @@ class SheetReader
     {
         $type = self::typeOf($fileName, $bytes);
         if ($type === 'xlsx') return XlsxReader::firstSheet($bytes);
+        if ($type === 'xls') return XlsReader::firstSheet($bytes);
         if ($type === 'csv') return self::csv($bytes);
         throw new RuntimeException('unsupported file type: ' . $fileName);
     }

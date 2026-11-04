@@ -579,6 +579,19 @@ class ContractService
     }
 
     /**
+     * Is a contract in force at some point in this billing month: started by the month's last day and not ended before its
+     * first day (null start/end = open). The monthly billing used to ignore both dates (Codex contract review 2026-10-16). Pure.
+     */
+    public static function inForceForMonth(?string $start, ?string $end, string $monthFirst, string $monthLast): bool
+    {
+        $s = $start ? substr($start, 0, 10) : null;
+        $e = $end ? substr($end, 0, 10) : null;
+        if ($s !== null && $s > $monthLast) return false;
+        if ($e !== null && $e < $monthFirst) return false;
+        return true;
+    }
+
+    /**
      * A contract already running (active, started over a week ago) with no signature: its PDF is a copy for the
      * client's records, with no lines to sign — asking a running client to sign reads as "you don't have to keep
      * paying" (Tim 2026-10-16). A new contract (not started, or started this week) still prints the sign lines. Pure.

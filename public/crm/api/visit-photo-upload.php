@@ -32,6 +32,7 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+require_once APP_ROOT . '/Core/Uploads.php';
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
@@ -77,8 +78,8 @@ try {
                         'success'      => true,
                         'media_id'     => (int)$r['id'],
                         'uuid'         => $r['filename'],
-                        'thumb_url'    => $r['thumb_path'] ?: ('/uploads/photos/' . $r['filename']),
-                        'view_url'     => $r['view_path']  ?: ('/uploads/photos/' . $r['filename']),
+                        'thumb_url'    => $r['thumb_path'] ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                        'view_url'     => $r['view_path']  ?: (uploadsUrl('photos') . '/' . $r['filename']),
                         'photo_type'   => $r['photo_type'],
                         'is_duplicate' => true,
                     ]],
@@ -197,7 +198,7 @@ try {
     }
 
     $allowed   = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
+    $uploadDir = uploadsDir('photos') . '/';
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0755, true);
 
     $ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
@@ -271,8 +272,8 @@ try {
                             'success'      => true,
                             'media_id'     => (int)$r['id'],
                             'uuid'         => $r['filename'],
-                            'thumb_url'    => $r['thumb_path'] ?: ('/uploads/photos/' . $r['filename']),
-                            'view_url'     => $r['view_path']  ?: ('/uploads/photos/' . $r['filename']),
+                            'thumb_url'    => $r['thumb_path'] ?: (uploadsUrl('photos') . '/' . $r['filename']),
+                            'view_url'     => $r['view_path']  ?: (uploadsUrl('photos') . '/' . $r['filename']),
                             'photo_type'   => $r['photo_type'],
                             'is_duplicate' => true,
                             'deduplicated' => true,
@@ -316,8 +317,8 @@ try {
             MediaTagService::onVisitPhoto($db, $photoId);
         } catch (Throwable $e) { /* non-fatal */ }
 
-        $thumbUrl = $variants['thumb_path'] ?? ('/uploads/photos/' . $filename);
-        $viewUrl  = $variants['view_path']  ?? ('/uploads/photos/' . $filename);
+        $thumbUrl = $variants['thumb_path'] ?? (uploadsUrl('photos') . '/' . $filename);
+        $viewUrl  = $variants['view_path']  ?? (uploadsUrl('photos') . '/' . $filename);
 
         $results[] = [
             'success'      => true,
@@ -377,9 +378,9 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $canWebP = function_exists('imagewebp');
     $outExt  = $canWebP ? 'webp' : 'jpg';
 
-    $tDir = PUBLIC_ROOT . '/uploads/photos/t/' . $visitId . '/';
-    $gDir = PUBLIC_ROOT . '/uploads/photos/g/' . $visitId . '/';
-    $vDir = PUBLIC_ROOT . '/uploads/photos/v/' . $visitId . '/';
+    $tDir = uploadsDir('photos/t') . '/' . $visitId . '/';
+    $gDir = uploadsDir('photos/g') . '/' . $visitId . '/';
+    $vDir = uploadsDir('photos/v') . '/' . $visitId . '/';
     foreach ([$tDir, $gDir, $vDir] as $d) {
         if (!is_dir($d)) @mkdir($d, 0755, true);
     }
@@ -394,7 +395,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $tFile = $baseName . '_t.' . $outExt;
     vphGdSave($thumb, $tDir . $tFile, $outExt, 65);
     imagedestroy($thumb);
-    $result['thumb_path'] = '/uploads/photos/t/' . $visitId . '/' . $tFile;
+    $result['thumb_path'] = uploadsUrl('photos/t') . '/' . $visitId . '/' . $tFile;
 
     // Grid: 512px max (contain, no upscale)
     [$gW, $gH] = vphGdScale($origW, $origH, 512);
@@ -404,7 +405,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $gFile = $baseName . '_g.' . $outExt;
     vphGdSave($grid, $gDir . $gFile, $outExt, 70);
     imagedestroy($grid);
-    $result['grid_path'] = '/uploads/photos/g/' . $visitId . '/' . $gFile;
+    $result['grid_path'] = uploadsUrl('photos/g') . '/' . $visitId . '/' . $gFile;
 
     // View: 1280px max (contain, no upscale)
     [$vW, $vH] = vphGdScale($origW, $origH, 1280);
@@ -414,7 +415,7 @@ function vphGenerateVariants(string $srcPath, int $visitId, string $baseName, st
     $vFile = $baseName . '_v.' . $outExt;
     vphGdSave($view, $vDir . $vFile, $outExt, 78);
     imagedestroy($view);
-    $result['view_path'] = '/uploads/photos/v/' . $visitId . '/' . $vFile;
+    $result['view_path'] = uploadsUrl('photos/v') . '/' . $visitId . '/' . $vFile;
 
     imagedestroy($gd);
     return $result;

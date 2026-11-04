@@ -112,6 +112,15 @@ class StatementBooksCheckService
         $lines = $t->fetchAll(PDO::FETCH_ASSOC);
 
         $facts = $this->directionFacts();
+        // A line paid by several receipts (migration 1372): every one of them books part of it.
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $extras = [];
+        if ($lines && BankLineReceipts::tableExists($this->db)) {
+            $in = implode(',', array_fill(0, count($lines), '?'));
+            $x = $this->db->prepare("SELECT transaction_id, expense_id FROM bank_line_receipts WHERE transaction_id IN ($in) ORDER BY id");
+            $x->execute(array_map(fn($l) => (int)$l['id'], $lines));
+            foreach ($x->fetchAll(PDO::FETCH_ASSOC) as $r) $extras[(int)$r['transaction_id']][] = (int)$r['expense_id'];
+        }
         $used = [];
         $listed = [];
         $expectedSum = 0.0;
@@ -130,9 +139,11 @@ class StatementBooksCheckService
                 }
             }
             if (!empty($l['matched_expense_id'])) {
-                foreach ($bySource['expense:' . (int)$l['matched_expense_id']] ?? [] as $eid) {
-                    if (isset($used[$eid])) continue;
-                    $actual += $take($eid); $how[] = 'receipt #' . (int)$l['matched_expense_id'];
+                foreach (array_merge([(int)$l['matched_expense_id']], $extras[(int)$l['id']] ?? []) as $rid) {
+                    foreach ($bySource['expense:' . $rid] ?? [] as $eid) {
+                        if (isset($used[$eid])) continue;
+                        $actual += $take($eid); $how[] = 'receipt #' . $rid;
+                    }
                 }
             }
             $diff = round($actual - $expected, 2);

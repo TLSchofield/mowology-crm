@@ -143,6 +143,10 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                 <a class="dropdown-item" href="/crm/settings.php">
                     <i class="align-middle mr-1" data-feather="settings"></i> Settings
                 </a>
+                <?php $__itOn = ($_COOKIE['it_design'] ?? '') === '1'; // the Ittai design choice (dashboard_appstack.php sets it) ?>
+                <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_design=<?php echo $__itOn ? '0' : '1'; ?>">
+                    <i class="align-middle mr-1" data-feather="layout"></i> <?php echo $__itOn ? 'Back to the classic design' : 'Try the new design'; ?>
+                </a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" href="/crm/logout_secure.php">
                     <i class="align-middle mr-1" data-feather="log-out"></i> Log out

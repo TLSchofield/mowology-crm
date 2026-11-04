@@ -14,6 +14,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 /**
  * Generate a Proof-of-Work stamped derivative.
@@ -103,7 +104,7 @@ function generatePowStamp(int $mediaId, string $contextType, int $contextId): ar
         $acc = !empty($media['gps_accuracy_m']) ? ' +/-' . round((float)$media['gps_accuracy_m']) . 'm' : '';
         $line3Parts[] = "GPS: {$lat}, {$lng}{$acc}";
     }
-    $line3Parts[] = 'Mowology Proof of Work';
+    $line3Parts[] = _idFromName() . ' Proof of Work';
     $line3 = implode('  |  ', $line3Parts);
 
     // Right-align line 3

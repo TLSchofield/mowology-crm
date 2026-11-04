@@ -50,16 +50,136 @@
         });
     }
 
+    // The map under the card: satellite, the pin, and the arrival border outlined.
+    function drawMap(card, ring) {
+        var el = card.querySelector('[data-otto-map]');
+        if (!el) return;
+        if (ring !== undefined) el.setAttribute('data-ring', JSON.stringify(ring));
+        var pts = [];
+        try { pts = JSON.parse(el.getAttribute('data-ring') || '[]'); } catch (e) { pts = []; }
+        var lat = parseFloat(el.getAttribute('data-lat')), lng = parseFloat(el.getAttribute('data-lng'));
+        if (!lat || !lng) return;
+        var css = getComputedStyle(document.documentElement);
+        var lime = (css.getPropertyValue('--mw-lime') || '').trim() || 'lime';
+        loadMaps(card.getAttribute('data-maps-key')).then(function () {
+            var g = window.google.maps;
+            var map = new g.Map(el, { center: { lat: lat, lng: lng }, zoom: 19, maxZoom: 19, mapTypeId: 'satellite', tilt: 0,
+                disableDefaultUI: true, zoomControl: true, gestureHandling: 'cooperative', clickableIcons: false });
+            new g.Marker({ position: { lat: lat, lng: lng }, map: map, title: 'Property pin' });
+            if (pts.length >= 3) {
+                var path = pts.map(function (p) { return { lat: +p[0], lng: +p[1] }; });
+                new g.Polygon({ paths: path, map: map, strokeColor: lime, strokeOpacity: 1, strokeWeight: 3,
+                    fillColor: lime, fillOpacity: 0.12, clickable: false });
+                var b = new g.LatLngBounds();
+                path.forEach(function (p) { b.extend(p); });
+                b.extend({ lat: lat, lng: lng });
+                map.fitBounds(b, 24);
+            }
+        }).catch(function () { el.classList.add('is-empty'); el.textContent = 'The map did not load.'; });
+    }
+
     function init() {
         var card = document.getElementById('mw-otto-gaps');
         if (!card || card.dataset.ready) return;
         card.dataset.ready = '1';
         var say = card.querySelector('[data-otto-say]');
+        drawMap(card);
 
         function refresh() {
             if (card.querySelector('.mw-otto-gap:not(.is-done)')) return;
             if (say) say.textContent = 'All set — I can route here now.';
         }
+
+        // Otto pins it himself (data-auto-pin, owner 2026-10-18): when the page opens with no pin, ask
+        // Google once a day per property on this browser and save only a ROOFTOP match — the building
+        // itself, so the lot border lands on the right lot. Anything less leaves the button as it was.
+        var auto = card.getAttribute('data-auto-pin') === '1' && card.querySelector('[data-otto-geocode]');
+        if (auto) {
+            var aId = parseInt(auto.getAttribute('data-property-id'), 10);
+            var aKey = 'mw-otto-autopin-' + aId + '-' + new Date().toISOString().slice(0, 10);
+            var tried = false;
+            try { tried = !!window.localStorage.getItem(aKey); window.localStorage.setItem(aKey, '1'); } catch (e) { /* private mode: try anyway */ }
+            if (!tried) {
+                var aRow = auto.closest('.mw-otto-gap');
+                var aNote = aRow && aRow.querySelector('[data-otto-note]');
+                var aFound;
+                loadMaps(card.getAttribute('data-maps-key'))
+                    .then(function () { return geocode(auto.getAttribute('data-address') || ''); })
+                    .then(function (result) {
+                        if (!result.geometry || result.geometry.location_type !== 'ROOFTOP') throw new Error('not rooftop');
+                        aFound = result;
+                        var loc = result.geometry.location;
+                        return save(aId, loc.lat(), loc.lng());
+                    })
+                    .then(function () {
+                        aRow.classList.add('is-done');
+                        if (aNote) aNote.textContent = 'Otto pinned it at ' + (aFound.formatted_address || 'the address') + ' — check it on the map.';
+                        auto.remove();
+                        var after = card.getAttribute('data-after-pin');
+                        if (say && after) say.textContent = after;
+                        refresh();
+                    })
+                    .catch(function () { /* not a rooftop match, or no answer: the Geocode button stays */ });
+            }
+        }
+
+        // "Let Otto draw it": the arrival border from the city lot map (one property, on request).
+        card.querySelectorAll('[data-otto-lot]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var row = btn.closest('.mw-otto-gap');
+                var note = row && row.querySelector('[data-otto-note]');
+                btn.disabled = true;
+                btn.textContent = 'Finding the lot…';
+                if (note) note.classList.remove('is-bad');
+                fetch('/crm/api/otto-lot-border.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ property_id: parseInt(btn.getAttribute('data-property-id'), 10), csrf_token: window.MW_CSRF_TOKEN || '' })
+                }).then(function (r) {
+                    return r.json().catch(function () { return { ok: false, message: 'The server answered ' + r.status + '.' }; });
+                }).then(function (data) {
+                    if (!data || !data.ok) throw new Error((data && data.message) || 'That did not work.');
+                    row.classList.add('is-done');
+                    if (note) note.textContent = data.message;
+                    row.querySelectorAll('.mw-otto-gap-btn').forEach(function (b) { if (b !== btn) b.textContent = 'Edit border'; });
+                    if (data.ring) {
+                        drawMap(card, data.ring);
+                        var cap = card.querySelector('[data-otto-map-cap]');
+                        if (cap) cap.textContent = 'Arrival border from the city lot map';
+                    }
+                    btn.remove();
+                    refresh();
+                }).catch(function (err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Let Otto draw it';
+                    if (note) {
+                        note.textContent = err && err.message ? err.message : 'That did not work.';
+                        note.classList.add('is-bad');
+                    }
+                });
+            });
+        });
+
+        // "Not right? Remove it": Otto's lot border goes, and he never draws this property again.
+        card.querySelectorAll('[data-otto-lot-remove]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                btn.disabled = true;
+                var cap = card.querySelector('[data-otto-map-cap]');
+                fetch('/crm/api/otto-lot-border.php', {
+                    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'remove', property_id: parseInt(btn.getAttribute('data-property-id'), 10), csrf_token: window.MW_CSRF_TOKEN || '' })
+                }).then(function (r) { return r.json(); }).then(function (data) {
+                    if (!data || !data.ok) throw new Error((data && data.message) || 'That did not work.');
+                    drawMap(card, []);
+                    if (cap) cap.textContent = data.message;
+                    btn.remove();
+                }).catch(function (err) {
+                    btn.disabled = false;
+                    if (cap) cap.textContent = err && err.message ? err.message : 'That did not work.';
+                });
+            });
+        });
 
         card.querySelectorAll('[data-otto-geocode]').forEach(function (btn) {
             btn.addEventListener('click', function () {

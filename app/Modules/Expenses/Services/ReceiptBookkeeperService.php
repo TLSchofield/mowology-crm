@@ -32,6 +32,17 @@ class ReceiptBookkeeperService
     public const HISTORY_LIMIT = 8;
     public const MAX_IMAGE_BYTES = 3_500_000;   // base64 grows ~33%; API cap is 5 MB
 
+    /** The system prompt with this business's own identity filled in (BusinessIdentity), never Mowology's by default. */
+    public static function systemPrompt(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $b = BusinessIdentity::get();
+        return strtr(self::SYSTEM_PROMPT, [
+            '{BUSINESS}' => BusinessIdentity::describe($b),
+            '{OWNER}'    => $b['owner_name'] !== '' ? $b['owner_name'] : 'the owner',
+        ]);
+    }
+
     private PDO $db;
     /** @var callable|null fn(array $requestBody): array{code: int, body: string} — injected in tests */
     private $transport;
@@ -180,7 +191,7 @@ class ReceiptBookkeeperService
     // ─────────────────────────────────────────────────────────────────────────
 
     public const SYSTEM_PROMPT = <<<'TXT'
-You are the bookkeeper for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC. Crew photograph receipts on their phones; you prepare each one for the owner to approve.
+You are the bookkeeper for {BUSINESS}. Crew photograph receipts on their phones; you prepare each one for the owner to approve.
 
 For the receipt you're given, decide:
 - vendor: the business that issued it (correct the reader when it named the wrong business). A branded station or chain store is filed under its brand — "Marine Dr Town Pntry" is a Chevron station, so the vendor is Chevron; a branch or store name belongs to the store, not the vendor. When the reader's vendor is a known vendor whose name or aliases match the receipt, keep it.
@@ -252,7 +263,8 @@ TXT;
     {
         $content = [];
         if ($image) {
-            $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $image['media_type'], 'data' => $image['data']]];
+            $content[] = ['type' => ($image['kind'] ?? 'image') === 'document' ? 'document' : 'image',
+                          'source' => ['type' => 'base64', 'media_type' => $image['media_type'], 'data' => $image['data']]];
         }
         $content[] = ['type' => 'text', 'text' => "Receipt to prepare:\n" . json_encode($prompt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)];
 
@@ -260,7 +272,7 @@ TXT;
             'model'         => $model,
             'max_tokens'    => 16000,
             'fallbacks'     => 'default',
-            'system'        => [['type' => 'text', 'text' => self::SYSTEM_PROMPT, 'cache_control' => ['type' => 'ephemeral']]],
+            'system'        => [['type' => 'text', 'text' => self::systemPrompt(), 'cache_control' => ['type' => 'ephemeral']]],
             'output_config' => ['effort' => $effort, 'format' => ['type' => 'json_schema', 'schema' => self::schema()]],
             'messages'      => [['role' => 'user', 'content' => $content]],
         ];
@@ -272,10 +284,14 @@ TXT;
             return null;
         }
         $type = mime_content_type($path) ?: '';
+        // An emailed PDF bill — a scan with no text layer can only be read this way (2026-10-19: 9 PDFs never read).
+        if ($type === 'application/pdf') {
+            return ['kind' => 'document', 'media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
+        }
         if (!in_array($type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
             return null;   // HEIC etc. — text only
         }
-        return ['media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
+        return ['kind' => 'image', 'media_type' => $type, 'data' => base64_encode((string)file_get_contents($path))];
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -654,7 +670,7 @@ TXT;
     /** Which instructions produced a suggestion — recorded with every one (audit trail). */
     public static function promptVersion(): string
     {
-        return substr(sha1(self::SYSTEM_PROMPT . json_encode(self::schema())), 0, 10);
+        return substr(sha1(self::systemPrompt() . json_encode(self::schema())), 0, 10);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

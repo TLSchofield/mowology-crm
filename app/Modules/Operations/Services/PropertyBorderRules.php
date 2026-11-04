@@ -369,6 +369,7 @@ class PropertyBorderRules
             case 'pin_off':
                 return 'Pin for ' . $st . ' is ' . (int)$x['distance_m'] . ' m from where crews work → move it.';
             case 'default_border':
+                if (($x['source'] ?? '') === 'parcel') return $st . ' has a border from the city lot map — check it.';
                 return $st . ' has a default border' . (($x['source'] ?? '') === 'default_square' ? ' (a square round the pin)' : ' (from where crews worked)') . ' — draw it.';
             case 'border_overlap':
                 return 'The borders of ' . $st . ' and ' . self::street((string)($x['other'] ?? '')) . ' overlap — a crew there counts at both.';

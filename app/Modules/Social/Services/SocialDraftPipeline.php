@@ -18,6 +18,8 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class SocialDraftPipeline
 {
@@ -128,7 +130,7 @@ class SocialDraftPipeline
         $pkg = $pkgStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($pkg && !empty($pkg['slug'])) {
-            $ctaUrl      = 'https://mowology.ca/services/' . $pkg['slug'];
+            $ctaUrl      = _idSiteUrl() . '/services/' . $pkg['slug'];
             $serviceLabel = $pkg['package_name'] ?: $serviceLabel;
             // First sentence of description (strip HTML tags)
             $rawDesc = strip_tags($pkg['description'] ?? '');
@@ -355,7 +357,7 @@ class SocialDraftPipeline
     private static function importVisitPhoto(PDO $db, array $vp): int
     {
         $filename = $vp['filename'];
-        $filePath = '/uploads/photos/' . $filename;
+        $filePath = uploadsUrl('photos') . '/' . $filename;
 
         // Check if already imported
         $chkStmt = $db->prepare(
@@ -411,7 +413,7 @@ class SocialDraftPipeline
                 return;
             }
 
-            $editorUrl = (defined('SITE_URL') ? SITE_URL : 'https://mowology.ca')
+            $editorUrl = (defined('SITE_URL') ? SITE_URL : _idSiteUrl())
                 . '/crm/marketing/social-post-editor.php?id=' . $postId;
 
             $subject = 'New social draft ready — ' . $serviceLabel . ' in ' . $neighbourhood;
@@ -421,7 +423,7 @@ class SocialDraftPipeline
                      . "A posting card has been generated automatically. "
                      . "Review and schedule it here:\n"
                      . $editorUrl . "\n\n"
-                     . "— Mowology CRM";
+                     . "— " . _idFromName() . " CRM";
 
             if (function_exists('sendCrmEmail')) {
                 sendCrmEmail($admin['email'], $subject, nl2br(htmlspecialchars($body)), $body);

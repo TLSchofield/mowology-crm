@@ -161,6 +161,7 @@ try {
 
     $db = getDB();
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/TeamCardService.php';
     $f = new CharlieForemanService($db);
@@ -169,6 +170,35 @@ try {
     $isOwner = $desk->ready() && $desk->isOwner($user);
 
     switch ($mode) {
+        case 'knowledge':
+        case 'knowledge_items': {
+            if ($method !== 'GET') throw new RuntimeException('GET required');
+            $head = strtolower((string)($_GET['head'] ?? ''));
+            if ($head !== 'penny') {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Unknown head']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyKnowledgeService.php';
+            $knowledge = new PennyKnowledgeService($db);
+            if ($mode === 'knowledge') {
+                $items = $knowledge->vendors();
+                $counts = ['recognized' => 0, 'identified' => 0, 'understood' => 0, 'mastered' => 0];
+                foreach ($items as $item) $counts[$item['stage']]++;
+                echo json_encode(['ok' => true, 'head' => 'penny', 'kind' => 'vendor', 'generated_at' => date('c'),
+                                  'thresholds' => PennyKnowledgeService::thresholds(), 'counts' => $counts, 'items' => $items]);
+                break;
+            }
+            $key = (string)($_GET['key'] ?? '');
+            if (!preg_match('/^vendor:([1-9][0-9]*)$/', $key, $m)) {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Invalid vendor key']);
+                break;
+            }
+            echo json_encode(['ok' => true, 'key' => $key, 'items' => $knowledge->items((int)$m[1])]);
+            break;
+        }
+
         case 'brains': {
             // Every head's brain in one small read — the face row flips to show it (owner, 2026-10-10).
             $svc = new TeamCardService($db);
@@ -232,16 +262,20 @@ try {
                 $c = (new CharlieBriefService($db))->collect($name);
                 $ranked = CharlieRankService::rank($c['items'], $desk->prefs(), [], date('Y-m-d'));
                 $heads = [];
-                foreach ($c['heads'] as $slug => $h) $heads[$slug] = ['head' => $slug, 'headline' => $h['headline'], 'waiting' => count($h['items']), 'items' => []];
-                $view = ['one' => null, 'rest' => $ranked, 'heads' => $heads];
+                $stateItems = [];
+                foreach ($c['heads'] as $slug => $h) {
+                    $heads[$slug] = ['head' => $slug, 'headline' => $h['headline'], 'waiting' => count($h['items']), 'items' => []];
+                    $stateItems[$slug] = array_values(array_filter($ranked, static fn($it) => ($it['head'] ?? '') === $slug));
+                }
+                $view = ['one' => null, 'rest' => $ranked, 'heads' => $heads, 'state_items' => $stateItems, 'failed' => $c['failed']];
             }
             $col = TeamCardService::column($view, $head);
             $svc = new TeamCardService($db);
             $out = [
                 'ok'       => true,
                 'head'     => $head,
-                'name'     => TeamCardService::HEADS[$head]['name'],
-                'role'     => TeamCardService::HEADS[$head]['role'],
+                'name'     => TeamCardService::meta($head)['name'],
+                'role'     => TeamCardService::meta($head)['role'],
                 'face_url' => TeamCardService::faceUrl($head),
                 'headline' => $col['headline'],
                 'waiting'  => $col['waiting'],
@@ -250,6 +284,8 @@ try {
                 'items'    => $col['items'],
             ];
             if ($head === 'charlie') {
+                require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadStateService.php';
+                $out['heads'] = HeadStateService::fromBrief((array)($view['state_items'] ?? []), (array)($view['failed'] ?? []));
                 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
                 $out['ask'] = (new CharlieAskService($db))->status();
             } elseif ($head === 'otto') {
@@ -277,7 +313,7 @@ try {
 
         case 'act': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
-            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => 'Charlie learns from the owner only.']); break; }
+            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => HeadIdentity::chiefName() . ' learns from the owner only.']); break; }
             $what = (string)($input['what'] ?? '');
             if (!in_array($what, ['open', 'snooze'], true)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Unknown action']); break; }
             echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
@@ -367,7 +403,7 @@ try {
 
         case 'ask': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
-            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => 'Charlie answers the owner only.', 'left' => 0]); break; }
+            if (!$isOwner) { echo json_encode(['ok' => false, 'message' => HeadIdentity::chiefName() . ' answers the owner only.', 'left' => 0]); break; }
             require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
             @set_time_limit(90);
             echo json_encode((new CharlieAskService($db))->ask((string)($input['question'] ?? ''), (int)$user['id']));

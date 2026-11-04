@@ -26,7 +26,14 @@
 class EtransferNudgeService
 {
     public const SETTING = 'penny_etransfer_nudge_enabled';
-    public const AUTODEPOSIT_ADDRESS = 'info@mowology.ca';
+
+    /** The e-Transfer auto-deposit address: the business's own (BusinessIdentity), never another's. */
+    public static function autodepositAddress(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return BusinessIdentity::get()['etransfer_email'];
+    }
+
     /** Don't thank someone for a transfer that's older than this (backlog clean-ups). */
     public const MAX_AGE_DAYS = 30;
 
@@ -200,8 +207,10 @@ class EtransferNudgeService
     {
         $first = trim($firstName) !== '' ? trim($firstName) : 'there';
         $money = '$' . number_format($amount, 2);
-        $sign  = "Thank you,\nPenny\nMowology Lawns & Landscapes\n(778) 846-9273";
-        $addr  = self::AUTODEPOSIT_ADDRESS;
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $biz   = BusinessIdentity::get();
+        $sign  = "Thank you,\nPenny\n" . $biz['display_name'] . ($biz['phone'] !== '' ? "\n" . $biz['phone'] : '');
+        $addr  = self::autodepositAddress();
         $askInvoice = "If you can add the invoice number in the message, we'll match it to the right invoice faster.";
 
         if ($invoiceNumber !== null && $invoiceNumber !== '') {

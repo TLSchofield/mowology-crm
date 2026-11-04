@@ -9,6 +9,7 @@
     'use strict';
     var root = document.getElementById('mw-foreman');
     if (!root) return;
+    var CHIEF = root.getAttribute('data-chief-name') || 'Kaname';   // shown name, printed by the page (HeadIdentity)
     var API = '/crm/api/charlie.php';
     var CI = window.CharlieInbox;
     var esc = CI.esc;
@@ -126,7 +127,7 @@
 
     function load() {
         return fetch(API + '?mode=calendar', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
-            if (!d || !d.ok) { say((d && d.error) || "Charlie can't load the calendar right now."); return; }
+            if (!d || !d.ok) { say((d && d.error) || CHIEF + " can't load the calendar right now."); return; }
             data = d;
             renderDeadlines(d.deadlines);
             renderPack(d.pack, d.pack_year);
@@ -139,7 +140,7 @@
                 var el = document.getElementById(location.hash.slice(1));
                 if (el) { el.classList.add('is-target'); el.scrollIntoView({ block: 'center' }); }
             }
-        }).catch(function () { say("Charlie can't load the calendar right now."); });
+        }).catch(function () { say(CHIEF + " can't load the calendar right now."); });
     }
 
     // ── Deadlines: buttons and the form ──────────────────────────────────────
@@ -154,7 +155,7 @@
         if (d) {
             F.title.value = d.title;
             F.category.value = d.category;
-            F.lead_days.value = d.lead_set != null ? d.lead_set : d.lead_days;   // your setting, not Charlie's learned one
+            F.lead_days.value = d.lead_set != null ? d.lead_set : d.lead_days;   // your setting, not the learned one
             F.prepare.value = d.prepare || '';
             F.amount_hint.value = d.amount_hint || '';
             F.active.checked = !!+d.active;

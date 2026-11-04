@@ -47,7 +47,9 @@ $stmt = $db->prepare("
     SELECT i.id AS invoice_id, i.stripe_payment_intent_id, i.balance_due, i.status,
            ct.stripe_customer_id, ct.stripe_payment_method_id
     FROM invoices i
-    JOIN contacts ct ON i.contact_id = ct.id
+    LEFT JOIN companies c ON i.company_id = c.id
+    -- The same contact the pay page offered the card from: the invoice's, else the company's primary (Codex review 2026-10-16).
+    JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
     WHERE i.access_token = ?
       AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
     LIMIT 1

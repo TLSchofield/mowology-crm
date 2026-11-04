@@ -9,6 +9,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -206,8 +207,8 @@ function servePreview(PDO $db, string $key): void
         '{{service_type}}'        => 'Spring Lawn Care',
         '{{job_date}}'            => 'March 15, 2026',
         '{{property_address}}'    => '2526 West 5th Avenue, Vancouver',
-        '{{company_name}}'        => 'Mowology Landscaping',
-        '{{company_phone}}'       => '(778) 846-9273',
+        '{{company_name}}'        => _idCompanyInfo()['company_name'] ?: 'Your Company',
+        '{{company_phone}}'       => _idPhone() ?: '(555) 555-0100',
     ];
 
     $renderedSubject = str_replace(array_keys($sampleVars), array_values($sampleVars), $subject);
@@ -216,11 +217,11 @@ function servePreview(PDO $db, string $key): void
 
     $ctaLabels = array_map(fn($d) => $d['cta'], $defaults);
     $ctaUrls = [
-        'quote_sent'     => 'https://mowology.ca/customer/quote.php?token=PREVIEW',
-        'quote_followup' => 'https://mowology.ca/customer/quote.php?token=PREVIEW',
-        'invoice_sent'   => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
-        'receipt_sent'   => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
-        'job_complete'   => 'https://mowology.ca/customer/pow.php?token=PREVIEW',
+        'quote_sent'     => _idSiteUrl() . '/customer/quote.php?token=PREVIEW',
+        'quote_followup' => _idSiteUrl() . '/customer/quote.php?token=PREVIEW',
+        'invoice_sent'   => _idSiteUrl() . '/customer/invoice.php?token=PREVIEW',
+        'receipt_sent'   => _idSiteUrl() . '/customer/invoice.php?token=PREVIEW',
+        'job_complete'   => _idSiteUrl() . '/customer/pow.php?token=PREVIEW',
     ];
 
     // Prepend preview banner inside body
@@ -232,7 +233,7 @@ function servePreview(PDO $db, string $key): void
     echo EmailWrapper::wrap(
         $previewBanner . $bodyHtml,
         $ctaLabels[$key] ?? 'View Online',
-        $ctaUrls[$key]   ?? 'https://mowology.ca',
+        $ctaUrls[$key]   ?? _idSiteUrl(),
         EmailWrapper::getCompanyInfo()
     );
 }

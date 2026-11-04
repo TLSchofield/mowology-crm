@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __FILE__;
@@ -286,7 +287,7 @@ class ReferralRewardService
 
             $link = self::getOrCreateLink($contactId, $db);
             $code = $link['referral_code'];
-            $url  = 'https://mowology.ca/quote?referral_code=' . $code;
+            $url  = _idSiteUrl() . '/quote?referral_code=' . $code;
 
             // Resolve the reward product name for the email
             $product = self::resolveRewardProduct($contactId, $db);
@@ -364,10 +365,10 @@ class ReferralRewardService
 
             $result = sendEmail(
                 $contact['email'],
-                'Your Mowology referral link, and what it earns you',
+                'Your ' . _idFromName() . ' referral link, and what it earns you',
                 $html,
                 null,
-                'Mowology'
+                ''
             );
 
             if ($result['success'] ?? false) {
@@ -586,7 +587,7 @@ class ReferralRewardService
             "Your referral came through: a free {$productName} is yours",
             $html,
             null,
-            'Mowology'
+            ''
         );
     }
 }

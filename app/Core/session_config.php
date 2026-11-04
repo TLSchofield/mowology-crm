@@ -8,10 +8,6 @@ declare(strict_types=1);
  * Migrated from /public/app_config/session_config.php
  */
 
-// Error display is controlled by config.php (APP_ENV) — do NOT set it here.
-// session_config.php loads before config.php, so any ini_set() here would
-// unconditionally override the environment-aware setting that comes later.
-
 // If output started already, sessions can break.
 if (headers_sent($file, $line)) {
     error_log("Session start blocked: headers already sent at $file:$line");
@@ -23,6 +19,12 @@ if (headers_sent($file, $line)) {
  * Force to a known-writable folder in your account.
  */
 $savePath = '/home/mowology/tmp';
+
+// Which business (Ittai, 2026-10-23): decided here because sessions load before config.php. Each business
+// gets its own session folder and cookie name, and every session is stamped with its business (below).
+require_once __DIR__ . '/Tenant.php';
+Tenant::boot();
+if (!Tenant::isDefault()) $savePath .= '/tenant-' . Tenant::key();
 
 // Ensure it exists
 if (!is_dir($savePath)) {
@@ -56,24 +58,15 @@ $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
        || (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
 
-session_name('MOWOSESS');
-
-// Capacitor Android WebView sends cookies on same-origin POSTs but can
-// lose the session cookie if the app context shifts (e.g. deep links, intent
-// transitions). SameSite=None ensures the cookie is sent in all contexts for
-// WebView traffic. SameSite=None requires Secure=true (already set via HTTPS).
-$ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-$isCapacitorWebView = stripos($ua, 'Capacitor') !== false
-    || (stripos($ua, 'wv)') !== false && stripos($ua, 'Android') !== false);
-$sameSite = ($isCapacitorWebView && $secure) ? 'None' : 'Lax';
+session_name(Tenant::isDefault() ? 'MOWOSESS' : 'ITSESS_' . Tenant::key());
 
 session_set_cookie_params([
     'lifetime' => $sessionLifetime,
-    'path'     => '/',
-    'domain'   => '',
-    'secure'   => $secure,
+    'path' => '/',
+    'domain' => '',
+    'secure' => $secure,
     'httponly' => true,
-    'samesite' => $sameSite,
+    'samesite' => 'Lax',
 ]);
 
 // Two session cookies on one request (2026-10-16): an Android phone's native layer sent a stray MOWOSESS
@@ -106,6 +99,16 @@ try {
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
+}
+
+// A session belongs to one business. One carried to another business's address (a copied cookie) is
+// emptied and replaced, never used: user #1 there is a different person (Ittai, 2026-10-23).
+if (session_status() === PHP_SESSION_ACTIVE) {
+    if (isset($_SESSION['_tenant']) && $_SESSION['_tenant'] !== Tenant::key()) {
+        $_SESSION = [];
+        session_regenerate_id(true);
+    }
+    $_SESSION['_tenant'] = Tenant::key();
 }
 
 // An outside accountant's login reaches the Ledger and nothing else — deny by default, before any

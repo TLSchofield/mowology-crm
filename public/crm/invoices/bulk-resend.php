@@ -7,6 +7,7 @@
  * Max 50 invoices per call. CSRF verified before session_write_close().
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 
@@ -150,7 +151,7 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         }
         $pdfVanished = false;
 
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
         $companyInfo    = EmailWrapper::getCompanyInfo();
 
         $sentTo = [];

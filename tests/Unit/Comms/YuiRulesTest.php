@@ -3,12 +3,26 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /**
  * Yui, the comms / client relations head — the pure rules: promises, account flags, renewal
  * windows, arrears picking the right person, the inbox lane, texts, drafts and her brief.
  */
 class YuiRulesTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private const NOW = '2026-10-06 12:00:00';
 
     // ── Promises ─────────────────────────────────────────────────────────

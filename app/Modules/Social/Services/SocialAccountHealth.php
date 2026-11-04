@@ -26,6 +26,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class SocialAccountHealth
 {
@@ -195,7 +196,7 @@ class SocialAccountHealth
             }
 
             $to     = trim((string)($biz['company_email'] ?? ''));
-            $sender = trim((string)($biz['company_name'] ?? '')) ?: 'Mowology';
+            $sender = trim((string)($biz['company_name'] ?? '')) ?: _idFromName();
             $phone  = trim((string)($biz['company_phone'] ?? $biz['phone'] ?? ''));
 
             if ($to === '') {

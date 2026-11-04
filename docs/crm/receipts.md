@@ -505,6 +505,16 @@ cash. The receipt's entry is funded by 1300 (shareholder loan) — it reduces wh
 keeps its GST credit. Example: Amazon business orders on Tim's personal Visa …1023 / TD cards.
 Also on the iPhone pickers (2026-10-14). Month-close names open receipts on no bank or card line and points here.
 
+## Personal (shareholder) — 2026-10-19
+The opposite of "Paid personally": a PERSONAL purchase on a business card or account (lunch for the family,
+groceries). The receipt window's **Personal (Tim Schofield)** button, with other shareholders in its menu
+(`payroll_shareholders`: Tim = 1300, Katrenna = 1302), sets category Personal + `expenses.shareholder_account`
+(migration 1376) through `ExpensePersonalService` → ExpenseGate, closes the window, then opens Penny's approve window.
+Books: the WHOLE receipt goes to the shareholder's account, no GST claimed back (`LedgerService::isShareholderAccount`,
+1300–1309, also per split share); a Personal receipt never takes the category map's account
+(`LedgerSyncService::personalAccount`). Left off the GST return and Penny's desk GST count
+(`GstReportService::withoutPersonal`). An approved receipt marked Personal is reversed and posted again.
+
 ## Receipt images in lists — thumbnails (2026-10-14)
 The list used to load each full phone photo (median 1.6 MB) for a 32 px box. `serve-receipt.php?id=N&thumb=1`
 serves a 320 px JPEG made once by `ReceiptThumb::ensure()` (GD) and cached in `/uploads/receipts/thumbs/` (denied to
@@ -558,3 +568,43 @@ unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated 
 - **Who teaches:** an owner's or manager's phone/web save of a scanned receipt (`pending_approval`) teaches the reader at once (`learn_now` → `learnFromConfirmedExpense(..., allowPending)`); the desk's approval then confirms it or overturns the fields it changed (`amendPhoneLessons`, migration 1406 `expenses.learning_snapshot`). Crew captures never teach.
 - **Header ladder** (`runHeaderLadder`) runs in intake, the queue, rescan and the email inbox: rules → learned vendor layout → AI for missing/inconsistent total, date, tax.
 - **Phone text scan:** the apps send `client_ocr_text` / `client_ocr_engine` (`apple_vision`, `mlkit`) with the photo. `ops_settings.receipt_device_ocr` = `off` | `shadow` (default; Vision reads, agreement logged to `receipt_ocr_compare`, migration 1407) | `on` (a device text that parses to a complete header replaces Vision; 25% spot-checked against Vision). Report: `scripts/prod-run.sh scripts/ocr-compare-report.snippet.php`. Code: `app/Services/Receipts/DeviceOcrCompare.php`.
+## Receipt lines ↔ the shared catalogue — 2026-10-19
+Each saved line of a Materials / Tools/Equipment / Repairs receipt is matched to the SHARED product catalogue by
+itself (`ReceiptCatalogService`, migration 1378, runs after every save via `ExpenseGateHooks::catalog`):
+a learned link (this vendor's SKU, then its wording: `catalog_aliases` `rcpt:<vendor key>:sku:` / `:n:`) → an exact
+barcode (12–14 digits only — store SKUs are not barcodes) or name key → the same words as one product → a clear
+most-alike product is ASKED ("Is this …? Yes / No / another one") → else "Add to catalogue". Sizes are words
+("20in", "4x8"): another size halves the score, a size on one side only is asked, never linked.
+Fees, totals, labour and generic nursery lines ("Annuals 6 Pack") are `skip`. The catalogue only grows on the
+office's "Add to catalogue" tap — never from OCR by itself. Every answer is taught (shared across tenants, prices
+stay private): Yes/another one/Add teach the SKU + wording; "No" is remembered for that wording (`_not` aliases);
+a correction to another family moves the key. Corrections are Penny lessons (`catalog_product`). Renaming a line
+resets its link. Office only (crew see links read-only). Backfill 2026: 54 receipts, 1 linked, 12 asked, 57 to add.
+
+## GST that can't be right; PDFs; foreign currency — 2026-10-19
+- `ExpenseGate::taxCheck`: GST above the total, or above 15% (highest HST) of the pre-tax amount, is impossible —
+  a person's edit is refused; a NEW receipt (phone / email / desktop capture) is kept as a `GST_WRONG` draft so a
+  capture is never lost; approving / sending it is refused for everyone. Above the company's own rate
+  (`TaxEngine::gstRate`) but possible (out-of-province HST) → `GST_CHECK`, saved. RiskExplainer explains both.
+- Scans from the cron: `ReceiptOCR` calls Google over curl (`receiptOcrHttpPost`) — the CLI had no https stream
+  wrapper, so every scheduled scan read nothing (Oct 7–19).
+- Penny reads a PDF bill as a document (scanned PDFs have no text layer and were never read).
+- `ReceiptFactsService::fillFromOcr` never copies a total from a foreign-currency bill (USD / GBP / EUR, or a US/UK
+  seller not saying CAD): those are booked in CAD from the bank / card line.
+
+## Approving links the bank line (reconciliation) — 2026-10-20
+On approval the gate links the receipt to its ONE unlinked statement line with the exact amount (`ExpenseGateHooks::linkBank`);
+the nightly posting books the receipt and retires the line's own entry, so the purchase counts once. Owner-paid receipts
+expect no line. Anything less certain stays a suggestion in the receipt window. Without this, approved receipts and their
+unlinked lines were both booked: chequing was $973 under the bank at Sept month-end; linked, $10.
+
+## Review receipts — the review layer (2026-10-20)
+`/crm/receipts-review_appstack.php` (button "Review receipts" on Expenses; expenses.approve). Every waiting receipt with
+its evidence — Penny's read of the PRINTED total vs the saved total, the bank line (linked / one exact match / none),
+Penny's category, GST (taxCheck), photo — grouped by vendor, biggest first; only flags that need a look. The person ticks
+each receipt they checked; **Approve checked** approves only those (ExpenseApprovalService + Penny's decision, as on
+her card), never a receipt no longer waiting and never a suspected copy. Suspected duplicates: the keeper — approved and
+bank-linked > approved > linked > has a photo > oldest (ReceiptReviewService::keeperOf) — on a green background above its
+copies; **Merge into #keeper** = DuplicateReceiptService::removeCopies (refused unless one duplicate group now); **Not a
+duplicate** dismisses every pair the copy is in. Ittai v1.2: ittai-review.css (tokens only) via $extraHead, receipt-review.js.
+

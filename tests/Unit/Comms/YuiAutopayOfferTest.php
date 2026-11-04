@@ -11,6 +11,17 @@ use PHPUnit\Framework\TestCase;
  */
 class YuiAutopayOfferTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+    }
+
     private const NOW = '2026-10-28 09:00:00';
 
     private function in(array $over = []): array

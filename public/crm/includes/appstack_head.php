@@ -6,7 +6,7 @@
  * It outputs: DOCTYPE, <html>, <head>…</head>, <body>, wrapper div, and sidebar.
  *
  * Expected variables (set by each page before including):
- *   $pageTitle   — string shown in <title>  (defaults to 'Mowology CRM')
+ *   $pageTitle   — string shown in <title>  (defaults to '<business name> CRM')
  *   $activePage  — string matching sidebar key to highlight active nav item
  *   $user        — array from getCurrentUser() (optional, defaults gracefully)
  *   $extraHead   — extra markup injected before </head> (optional)
@@ -41,7 +41,7 @@ set_exception_handler(function (Throwable $e) use ($__mwShowErrors) {
           . '<p class="mw-err-meta">The error has been logged. Please go back and try again, or tell the office if it keeps happening.</p>';
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-       . '<title>Error — Mowology CRM</title>'
+       . '<title>Error — CRM</title>'
        . '<style>body{font-family:system-ui,sans-serif;margin:0;background:#fff1f2;}'
        . '.mw-err{background:#fee2e2;border-bottom:3px solid #dc2626;padding:20px 28px;}'
        . '.mw-err h2{margin:0 0 8px;color:#991b1b;font-size:1.1rem;}'
@@ -54,7 +54,9 @@ set_exception_handler(function (Throwable $e) use ($__mwShowErrors) {
 });
 // ── END ERROR MODE ────────────────────────────────────────────────────────────
 
-if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
+if (defined('APP_ROOT')) require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+$__mwBizName = function_exists('_idFromName') ? _idFromName() : 'CRM';
+if (!isset($pageTitle)) $pageTitle = $__mwBizName . ' CRM';
 $extraHead  = $extraHead  ?? '';
 $bodyClass  = $bodyClass  ?? '';
 // Accounts pages share the ledger look (body.mw-books in mowology-brand.css; not .mw-acct — the crew Account tab owns that).
@@ -103,16 +105,17 @@ function _av(string $webPath): string {
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover">
-  <meta name="description" content="Mowology CRM - Client Management System">
+  <meta name="description" content="<?php echo htmlspecialchars($__mwBizName); ?> CRM - Client Management System">
 
   <!-- PWA / Mobile App -->
   <meta name="theme-color" content="#0D3B2E">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Mowology">
+  <meta name="apple-mobile-web-app-title" content="<?php echo htmlspecialchars($__mwBizName); ?>">
   <meta name="mobile-web-app-capable" content="yes">
 
-  <title><?php echo htmlspecialchars($pageTitle); ?> - Mowology CRM</title>
+  <title><?php echo htmlspecialchars($pageTitle); ?> - <?php echo htmlspecialchars($__mwBizName); ?> CRM</title>
+  <script>window.MW_BUSINESS = <?php echo json_encode(function_exists('_idBrand') ? ['name' => html_entity_decode(_idBrand()['name'], ENT_QUOTES, 'UTF-8'), 'full' => html_entity_decode(_idBrand()['full'], ENT_QUOTES, 'UTF-8'), 'site' => html_entity_decode(_idBrand()['siteLabel'], ENT_QUOTES, 'UTF-8')] : ['name' => '', 'full' => '', 'site' => ''], JSON_HEX_TAG | JSON_HEX_AMP); ?>;</script>
 
   <!-- Favicon + PWA Icons -->
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png">
@@ -205,6 +208,19 @@ function _av(string $webPath): string {
   <script>window.MW_USER_ID = <?= (int)($user['id'] ?? 0) ?>;</script>
   <script>window.MW_CSRF_TOKEN = '<?= htmlspecialchars(function_exists('generateCSRFToken') ? generateCSRFToken() : '', ENT_QUOTES, 'UTF-8') ?>';</script>
 
+  <?php
+  // Ittai design frame (owner, 2026-10-19): the "Try the new design" choice (it_design cookie, set on the
+  // dashboard or the account menu) restyles the sidebar and top bar on every office page and groups the
+  // menu by department head. Never in the crew app or the accountant's Ledger-only view. Off = today's CRM.
+  $itShell = !$crewLite && empty($mwLedgerOnly) && (($_COOKIE['it_design'] ?? '') === '1');
+  if ($itShell): ?>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500&amp;display=swap" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-tokens.css') ?>" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-shell.css') ?>" rel="stylesheet">
+  <link href="<?= _av('/crm/css/ittai-lists.css') ?>" rel="stylesheet">
+  <script src="<?= _av('/crm/js/ittai-shell.js') ?>" defer></script>
+  <?php endif; ?>
+
   <?php echo $extraHead; ?>
 
   <!-- Service Worker registration — see /crm/js/sw-register.js.
@@ -213,7 +229,7 @@ function _av(string $webPath): string {
        cleaned up by the new register script. -->
 
 </head>
-<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
+<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '') . ($itShell ? ' it-shell' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
   <?php if (!$mwLedgerOnly) include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
     <?php if (!$crewLite) include __DIR__ . '/appstack_sidebar.php'; ?>

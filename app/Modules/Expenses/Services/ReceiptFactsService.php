@@ -404,13 +404,25 @@ class ReceiptFactsService
      * @param array $job     expense_ocr_jobs row (parsed_raw_text, parsed_total, parsed_date, parsed_vendor)
      * @return array<string, mixed> column => value
      */
+    /** Does the receipt's text say its amounts are in another currency (USD, GBP, EUR…)? PURE. */
+    public static function foreignCurrency(string $text): bool
+    {
+        // A seller abroad (a US / UK address) whose bill doesn't say CAD is billing in its own currency too.
+        return (bool)preg_match('/\b(USD|US\$|GBP|EUR|AUD|NZD|JPY)\b|[£€]|\$\s?[\d.,]+\s?(USD|US)\b|\bUnited States\b|\bU\.S\.A\b|\bUnited Kingdom\b|\.co\.uk\b/i', $text)
+            && !preg_match('/\bCAD\b|\bC\$|CA\$/', $text);
+    }
+
     public static function fillFromOcr(array $expense, array $job): array
     {
         $text = trim((string)($job['parsed_raw_text'] ?? ''));
         if ($text === '' || trim((string)($expense['raw_ocr_json'] ?? '')) !== '') return [];
         $out = ['raw_ocr_json' => (string)$job['parsed_raw_text']];
         if (!in_array($expense['status'] ?? '', self::WAITING, true)) return $out;
-        if ((float)($expense['total'] ?? 0) == 0.0 && (float)($job['parsed_total'] ?? 0) > 0) {
+        // A bill in another currency (Anthropic in USD, a UK airport transfer in GBP) is booked in CAD at what the
+        // bank charged — its printed total is not the receipt's total (2026-10-19).
+        $j = json_decode($text, true);
+        $plain = is_array($j) && isset($j['text']) ? (string)$j['text'] : $text;   // raw_ocr_json is {text, parsed, source}
+        if ((float)($expense['total'] ?? 0) == 0.0 && (float)($job['parsed_total'] ?? 0) > 0 && !self::foreignCurrency($plain)) {
             $out['total'] = round((float)$job['parsed_total'], 2);
         }
         if (empty($expense['expense_date']) && !empty($job['parsed_date'])) {

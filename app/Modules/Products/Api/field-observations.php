@@ -24,6 +24,7 @@
  * POST /app/Modules/Products/Api/field-observations.php?action=ACTION
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 // Bootstrap
@@ -112,11 +113,7 @@ try {
         try {
             $db->query("SELECT 1 FROM observation_product_rules LIMIT 0");
             $hasRules = true;
-        } catch (\Throwable $e) {
-            $hasRules = false;
-            error_log(sprintf('[%s] table existence check for observation_product_rules failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) {}
 
         if ($hasRules) {
             $ruleStmt = $db->prepare("
@@ -172,10 +169,8 @@ try {
                 $visitId,
                 "Logged {$obsType} observation" . ($obsValue ? ": {$obsValue}" : ''),
             ]);
-        } catch (\Throwable $e) {
-            // activity_log may have different columns — non-fatal, but log so schema drift is visible
-            error_log(sprintf('[%s] activity_log insert (field_observation, obs_id=%d) failed — %s in %s:%d',
-                basename(__FILE__), $obsId, $e->getMessage(), $e->getFile(), $e->getLine()));
+        } catch (Exception $e) {
+            // activity_log may have different columns — don't fail
         }
 
         // If auto_send and contact has marketing consent, send immediately
@@ -336,11 +331,7 @@ try {
                 ");
                 $tStmt->execute([$obs['observation_type']]);
                 $template = $tStmt->fetch(PDO::FETCH_ASSOC);
-            } catch (\Throwable $e) {
-                $template = null;
-                error_log(sprintf('[%s] template lookup in observation_product_rules (obs_type=%s) failed — %s in %s:%d',
-                    basename(__FILE__), $obs['observation_type'], $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) {}
         }
 
         echo json_encode([
@@ -415,15 +406,12 @@ try {
                     if (!$subject) $subject = $tpl['email_subject'];
                     if (!$bodyTemplate) $bodyTemplate = $tpl['email_body_template'];
                 }
-            } catch (\Throwable $e) {
-                error_log(sprintf('[%s] approve: template lookup in observation_product_rules (obs_id=%d, obs_type=%s) failed — %s in %s:%d',
-                    basename(__FILE__), $obsId, $obs['observation_type'], $e->getMessage(), $e->getFile(), $e->getLine()));
-            }
+            } catch (Exception $e) {}
         }
 
         // Fallback default template
         if (!$subject) {
-            $subject = 'A Recommendation From Your Recent Visit — Mowology';
+            $subject = 'A Recommendation From Your Recent Visit — ' . _idFromName();
         }
         if (!$bodyTemplate) {
             $bodyTemplate = '<p>Hi {{first_name}},</p>'
@@ -431,8 +419,8 @@ try {
                 . '<p><strong>Observation:</strong> {{observation_notes}}</p>'
                 . '{{#product}}<p>We recommend: <strong>{{product_name}}</strong> — {{product_description}}</p>{{/product}}'
                 . '<p>If you\'d like us to take care of this, just reply to this email or give us a call.</p>'
-                . '<p>Thank you for trusting Mowology with your property.</p>'
-                . '<p><strong>The Mowology Team</strong></p>';
+                . '<p>Thank you for trusting ' . htmlspecialchars(_idFromName()) . ' with your property.</p>'
+                . '<p><strong>The ' . htmlspecialchars(_idFromName()) . ' Team</strong></p>';
         }
 
         // Merge fields
@@ -446,7 +434,7 @@ try {
             '{{product_name}}'      => htmlspecialchars($obs['product_name'] ?? ''),
             '{{product_price}}'     => $obs['product_price'] ? '$' . number_format((float)$obs['product_price'], 2) : '',
             '{{product_description}}' => htmlspecialchars($obs['product_description'] ?? ''),
-            '{{company_name}}'      => 'Mowology Landscaping',
+            '{{company_name}}'      => _idCompanyInfo()['company_name'],
         ];
 
         $subject = str_replace(array_keys($mergeData), array_values($mergeData), $subject);
@@ -460,8 +448,9 @@ try {
         }
 
         // Wrap in branded email template
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $year = date('Y');
+        $brandFull = htmlspecialchars(_idCompanyInfo()['company_name']);
         $photoHtml = '';
         if (!empty($obs['photo_path'])) {
             $photoUrl = $siteUrl . $obs['photo_path'];
@@ -479,7 +468,7 @@ try {
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;max-width:600px;">
         <tr><td style="background:#1A5F4A;padding:24px 32px;">
-          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">Mowology Landscaping</h1>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">{$brandFull}</h1>
           <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Service Recommendation</p>
         </td></tr>
         <tr><td style="padding:28px 32px;font-size:14px;color:#333;line-height:1.6;">
@@ -488,7 +477,7 @@ try {
         {$photoHtml}
         <tr><td style="background:#0D3B2E;padding:16px 32px;text-align:center;">
           <p style="color:rgba(255,255,255,0.6);font-size:11px;margin:0;">
-            &copy; {$year} Mowology Landscaping &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
+            &copy; {$year} {$brandFull} &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
           </p>
         </td></tr>
       </table>
@@ -500,7 +489,7 @@ HTML;
 
         // Send email
         require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
-        $result = sendEmail($obs['contact_email'], $subject, $htmlEmail, null, 'Mowology Landscaping');
+        $result = sendEmail($obs['contact_email'], $subject, $htmlEmail, null, '');
 
         // Update observation status
         $newStatus = $result['success'] ? 'email_sent' : 'approved';
@@ -521,10 +510,7 @@ HTML;
                 "Sent recommendation email for " . ucwords(str_replace('_', ' ', $obs['observation_type']))
                     . ($obs['product_name'] ? ": {$obs['product_name']}" : ''),
             ]);
-        } catch (\Throwable $e) {
-            error_log(sprintf('[%s] activity_log insert (recommendation_email, obs_id=%d) failed — %s in %s:%d',
-                basename(__FILE__), $obsId, $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) {}
 
         echo json_encode([
             'success' => $result['success'],
@@ -616,11 +602,7 @@ HTML;
         try {
             $db->query("SELECT 1 FROM observation_product_rules LIMIT 0");
             $hasRules = true;
-        } catch (\Throwable $e) {
-            $hasRules = false;
-            error_log(sprintf('[%s] get-rules: table existence check for observation_product_rules failed — %s in %s:%d',
-                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
-        }
+        } catch (Exception $e) {}
 
         if (!$hasRules) {
             echo json_encode(['success' => true, 'rules' => []]);

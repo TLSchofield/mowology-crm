@@ -1,0 +1,184 @@
+/* Ittai sign-in (Design System v1.2, Kanso) — sign-in, forgot password and reset password, on every business's
+   address (2026-10-23). Colours, spacing and type come from ittai-tokens.css (body carries .it-design). Text pairs
+   are AAA (7:1); controls are 48 px; one filled action per screen. The 「 」 corners are the v1.2 sign-in motif. */
+
+body.it-signin {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--it-space-8) var(--it-space-4);
+  background: var(--it-page);
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+body.it-signin *, body.it-signin *::before, body.it-signin *::after { box-sizing: border-box; }
+
+.it-signin-wrap { width: 100%; max-width: 400px; }
+
+/* Lockup B: symbol + "Ittai 一体", one ink (brand). The symbol is the 64 row — drawn at 64 px, never scaled. */
+.it-signin-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: var(--it-space-8);
+  color: var(--it-brand);
+}
+.it-signin-symbol { width: 64px; height: 64px; flex: none; }
+.it-signin-word {
+  font-family: "Zen Kaku Gothic New", var(--it-font-sans);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--it-brand);
+}
+.it-signin-word [lang="ja"] { margin-left: 0.3em; }
+
+.it-signin-card {
+  position: relative;
+  padding: var(--it-space-8) var(--it-space-6);
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-lg);
+}
+/* 「 」 — top-left and bottom-right corners only. */
+.it-signin-card::before,
+.it-signin-card::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid var(--it-brand);
+  pointer-events: none;
+}
+.it-signin-card::before { top: 10px; left: 10px; border-top-width: var(--it-stroke-centre); border-left-width: var(--it-stroke-centre); }
+.it-signin-card::after { right: 10px; bottom: 10px; border-right-width: var(--it-stroke-centre); border-bottom-width: var(--it-stroke-centre); }
+
+.it-signin-title { margin: 0 0 var(--it-space-1); font-size: 22px; font-weight: 600; line-height: 1.3; }
+.it-signin-sub { margin: 0 0 var(--it-space-6); color: var(--it-meta); font-size: 15px; }
+.it-signin-sub strong { color: var(--it-text); font-weight: 600; }
+
+.it-signin-field { margin-bottom: var(--it-space-5); }
+.it-signin-label { display: block; margin-bottom: var(--it-space-2); font-size: 14px; font-weight: 600; }
+.it-signin-input {
+  width: 100%;
+  min-height: var(--it-target-phone);
+  padding: 12px 14px;
+  background: var(--it-surface);
+  color: var(--it-text);
+  border: var(--it-stroke-hairline) solid var(--it-meta);   /* meta, not line: an input edge needs 3:1 */
+  border-radius: var(--it-radius-md);
+  font: inherit;
+  font-size: 16px;                                          /* 16 px: no zoom-on-focus on iPhone */
+}
+.it-signin-input::placeholder { color: var(--it-meta); opacity: 1; }
+.it-signin-input:focus { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-color: var(--it-focus); }
+
+.it-signin-pw { position: relative; }
+.it-signin-pw .it-signin-input { padding-right: 84px; }
+.it-signin-show {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  bottom: 2px;
+  min-width: 72px;
+  border: 0;
+  border-radius: var(--it-radius-sm);
+  background: transparent;
+  color: var(--it-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.it-signin-show:hover { background: var(--it-sunk); }
+
+/* The one filled action: the business's generated colour; Ittai navy where a business has none yet. */
+.it-signin-button {
+  display: block;
+  width: 100%;
+  min-height: var(--it-target-phone);
+  margin-top: var(--it-space-2);
+  border: 0;
+  border-radius: var(--it-radius-md);
+  background: var(--it-tenant);
+  color: var(--it-on-tenant);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+body.it-signin--neutral .it-signin-button { background: var(--it-brand); color: var(--it-surface); }
+.it-signin-button:hover { filter: brightness(1.1); }
+
+body.it-signin a:focus-visible,
+body.it-signin button:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+
+.it-signin-links { margin-top: var(--it-space-3); text-align: center; }
+.it-signin-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--it-target-desktop);
+  padding: 0 var(--it-space-2);
+  color: var(--it-text);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Messages: text stays text colour (AAA); the state shows in the edge, never as coloured text on a tint. */
+.it-signin-msg {
+  margin-bottom: var(--it-space-5);
+  padding: 12px 14px;
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 4px solid var(--it-meta);
+  border-radius: var(--it-radius-md);
+  font-size: 15px;
+}
+.it-signin-msg--error { border-left-color: var(--it-status-blocked); }
+.it-signin-msg--success { border-left-color: var(--it-status-complete); }
+
+.it-signin-note {
+  margin-bottom: var(--it-space-5);
+  padding: 12px 14px;
+  background: var(--it-sunk);
+  border-radius: var(--it-radius-md);
+  font-size: 14px;
+}
+
+/* The crew app banner (Android): calm, one edge colour per state, no pulsing. */
+.it-signin-banner {
+  display: none;
+  align-items: center;
+  gap: var(--it-space-3);
+  min-height: var(--it-target-phone);
+  margin-bottom: var(--it-space-5);
+  padding: 12px 14px;
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  border-left: 4px solid var(--it-meta);
+  border-radius: var(--it-radius-md);
+}
+.it-signin-banner.is-shown { display: flex; }
+.it-signin-banner.is-ok { border-left-color: var(--it-status-complete); }
+.it-signin-banner.is-update { border-left-color: var(--it-status-attention); cursor: pointer; }
+.it-signin-banner.is-download { border-left-color: var(--it-brand); cursor: pointer; }
+.it-signin-banner-icon { flex: none; width: 28px; text-align: center; font-size: 20px; }
+.it-signin-banner-text { flex: 1; min-width: 0; }
+.it-signin-banner-label { display: block; color: var(--it-meta); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.it-signin-banner-title { font-weight: 600; }
+.it-signin-banner-desc { color: var(--it-meta); font-size: 14px; }
+.it-signin-banner-arrow { flex: none; color: var(--it-meta); font-size: 22px; }
+
+@media (max-width: 380px) {
+  .it-signin-card { padding: var(--it-space-6) var(--it-space-5); }
+  .it-signin-word { font-size: 22px; }
+}

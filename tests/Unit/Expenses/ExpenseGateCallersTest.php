@@ -132,6 +132,8 @@ class ExpenseGateCallersTest extends TestCase
         'app/Modules/Expenses/Services/ReceiptCatalogService.php'     => 'a line\'s shared-catalogue link (catalog_* columns), never money',
         'app/Modules/Operations/Services/CatalogService.php'          => 'merge: re-points lines to the surviving catalogue product, never money',
         'public/crm/api/tasks.php'                                    => 'purchase_task_id: the task a purchase came from',
+        'app/Modules/Expenses/Services/ReceiptCatalogService.php'     => 'a line\'s shared-catalogue link (catalog_* columns, migration 1378), never money',
+        'app/Modules/Operations/Services/CatalogService.php'          => 'mergeProducts(): lines follow a catalogue merge (catalog_* columns only)',
     ];
 
     public function test_no_expense_write_outside_the_gate(): void

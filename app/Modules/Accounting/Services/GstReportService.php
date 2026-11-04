@@ -164,7 +164,18 @@ class GstReportService
             ORDER BY e.expense_date ASC, e.id ASC
         ");
         $stmt->execute(array_merge([$from, $to], self::ITC_STATUSES));
-        return $this->bySplitShare($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return self::withoutPersonal($this->bySplitShare($stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * A personal purchase claims no GST (the Personal button, 2026-10-19): an unsplit Personal receipt is
+     * left out — the ledger posts it whole to the shareholder. A split receipt counts by its shares
+     * (expandSplits drops a Personal share), so its business shares still claim, as the ledger does. PURE.
+     */
+    public static function withoutPersonal(array $rows): array
+    {
+        return array_values(array_filter($rows, static fn($r) => !empty($r['split_share'])
+            || strcasecmp((string)($r['category'] ?? ''), 'Personal') !== 0));
     }
 
     /**
@@ -197,6 +208,7 @@ class GstReportService
             if (!$shares) { $out[] = $r; continue; }
             foreach ($shares as $a) {
                 if ((float)$a['gst_amount'] == 0.0) continue;
+                if (strcasecmp((string)($a['accounting_category'] ?? ''), 'Personal') === 0) continue;   // a personal share claims nothing
                 $out[] = array_merge($r, [
                     'description' => $a['label'],
                     'amount'      => (float)$a['net_amount'],
