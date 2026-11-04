@@ -576,7 +576,8 @@ class SalesDeskService
         $today = $today ?: date('Y-m-d');
         try {
             $rows = $this->db->query("
-                SELECT i.issue_date, " . self::AMOUNT_SQL_INV . " AS amt, i.company_id, i.client_id, i.contact_id,
+                SELECT i.issue_date, " . self::AMOUNT_SQL_INV . " AS amt, i.company_id,
+                       COALESCE(i.client_id, (SELECT cl.id FROM clients cl WHERE cl.legacy_contact_id = i.contact_id ORDER BY cl.id LIMIT 1)) AS client_id, i.contact_id,
                        c.company_name, ct.first_name, ct.last_name, ct.email AS email, p.city
                 FROM invoices i LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN contacts ct ON ct.id = i.contact_id
                 LEFT JOIN properties p ON p.id = i.property_id
@@ -586,6 +587,8 @@ class SalesDeskService
             error_log('Sam quiet clients: ' . $e->getMessage());
             return [];
         }
+        // Older invoices carry a client_id, newer ones only a contact_id: both resolve to the same client (via
+        // clients.legacy_contact_id) or one person reads as two and the half with the old invoices looks lost.
         $clients = []; $cities = [];
         $cut = date('Y-m-d', strtotime($today . ' -12 months'));
         foreach ($rows as $r) {
