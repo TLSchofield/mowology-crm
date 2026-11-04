@@ -6,6 +6,19 @@ himself** — every follow-up is Tim's click.
 
 ![Sam's card (stub render, made-up customers)](sam-render.jpg)
 
+## How the card reads (2026-11-04)
+
+Briefing first, then the work. In order: one sentence in Sam's voice (the money waiting,
+who wrote back, what comes after) · a **Next** row (the first queue card, one button) ·
+every waiting customer as a row grouped **Wrote back** / **To chase** · the lists as
+collapsed sections with counts (Just approved, Looks like a yes, Replies waiting, Asked
+first and New leads open themselves when they have something; Renewals, Gone quiet, Not
+fit to chase and Sam's numbers stay shut). Picking a row opens the workspace for that one
+customer — quotes and thread on the left, the editable draft on the right, "Back to the
+list" above — and hides the lists until he comes back. `?sam=<card key>` opens the
+workspace directly. Same `desk` payload, same sends; the iPhone card is unchanged.
+CSS lives under `.mw-sam-v2` in `mowology-brand.css`.
+
 ## What he shows
 
 | Part | Source |
