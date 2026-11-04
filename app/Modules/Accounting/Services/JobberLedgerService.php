@@ -719,6 +719,7 @@ class JobberLedgerService
         $acct = $this->accounts();
         $p = $this->proposal($d, $pays, 'Linked by hand: Jobber #' . implode(', #', $numbers), 'manual', $invoices, $acct, $this->liveRevenue(), $this->crmInvoices());
         if ($p['blocked']) return ['ok' => false, 'message' => implode('; ', $p['blocked'])];
+        if ($p['locked']) return ['ok' => false, 'message' => substr((string)$d['date'], 0, 7) . ' is locked.'];
         $byId = [];
         foreach ($invoices as $inv) $byId[(int)$inv['id']] = $inv;
         $batch = self::batchId();
@@ -879,6 +880,9 @@ class JobberLedgerService
         $taken->execute([(int)$crm['id']]);
         if ($other = $taken->fetchColumn()) return ['ok' => false, 'message' => 'That CRM invoice is already linked to Jobber #' . $other . '.'];
         $batch = self::batchId();
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
         $this->db->prepare("UPDATE jobber_invoices SET crm_invoice_id = ?, updated_at = ? WHERE id = ?")->execute([(int)$crm['id'], date('Y-m-d H:i:s'), $jobberId]);
         $this->log($batch, 'link', $jobberId, null, null, null, null, 0.0, date('Y-m-d'), $userId);
         $msg = 'Jobber #' . $j['jobber_number'] . ' linked to ' . $crm['invoice_number'] . '.';
@@ -907,7 +911,12 @@ class JobberLedgerService
                 $msg .= ' Its Jobber revenue entry was reversed — the CRM invoice carries it.';
             }
         }
+        if ($own) $this->db->commit();
         return ['ok' => true, 'batch_id' => $batch, 'message' => $msg];
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** CRM invoice ids that carry a 2025 Jobber invoice (their payments are not 2026 income). */

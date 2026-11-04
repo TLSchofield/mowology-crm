@@ -1490,7 +1490,9 @@ class EtransferInboxService
 
         $this->db->prepare(
             "UPDATE etransfer_notifications
-                SET status = 'pending', recorded_invoice_id = NULL, allocated_amount = 0,
+                SET status = 'pending',
+                    matched_invoice_id = CASE WHEN matched_invoice_id = recorded_invoice_id THEN NULL ELSE matched_invoice_id END,
+                    recorded_invoice_id = NULL, allocated_amount = 0,
                     recorded_by = NULL, processed_at = NULL
               WHERE id = ?"
         )->execute([$notificationId]);

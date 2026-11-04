@@ -388,6 +388,14 @@ class DepositBackfillService
      */
     public function undo(int $transactionId): array
     {
+        $date = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id = ?");
+        $date->execute([$transactionId]);
+        $transactionDate = $date->fetchColumn();
+        if ($transactionDate === false) return ['ok' => false, 'message' => 'Bank line not found.'];
+        require_once __DIR__ . '/LedgerService.php';
+        if ((new LedgerService($this->db))->isLocked((string)$transactionDate)) {
+            return ['ok' => false, 'message' => substr((string)$transactionDate, 0, 7) . ' is locked.'];
+        }
         $this->db->beginTransaction();
         try {
             $del = $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE transaction_id = ? AND notes LIKE 'Deposit backfill %'");

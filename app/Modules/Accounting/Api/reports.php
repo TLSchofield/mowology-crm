@@ -176,6 +176,9 @@ try {
                 LEFT JOIN job_plans jp ON jp.id = t.job_id
                 LEFT JOIN contacts  c  ON c.id  = t.contact_id
                 WHERE t.transaction_date BETWEEN ? AND ?
+                  AND t.status NOT IN ('void', 'deleted')
+                  AND NOT EXISTS (SELECT 1 FROM bank_import_rows bir WHERE bir.transaction_id = t.id AND bir.is_duplicate = 1)
+                  AND NOT (t.reference_type = 'bank_import' AND t.matched_invoice_id IS NOT NULL)
                 ORDER BY t.transaction_date ASC, t.type ASC
             ");
             $stmt->execute([$dateFrom, $dateTo]);

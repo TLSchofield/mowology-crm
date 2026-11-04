@@ -410,6 +410,9 @@ class BankImportService
         ?array $balanceCheck = null
     ): array {
 
+        foreach ($rows as $index => $row) {
+            self::validateCommitAmounts($row, $index + 1);
+        }
         // A bank line cannot post after the day it is imported. A future date means
         // the year was mis-inferred — refuse the batch rather than book it.
         $latestAllowed = date('Y-m-d', strtotime($this->today() . ' +1 day'));
@@ -419,6 +422,13 @@ class BankImportService
                 '%d row(s) are dated after today (first: %s "%s") — check the statement year before importing.',
                 count($future), $future[0]['date'], substr((string)($future[0]['description'] ?? ''), 0, 60)
             ), 422);
+        }
+
+        $this->dupUsed = [];
+        foreach ($rows as $index => $row) {
+            $duplicateId = $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], (string)$row['type']);
+            $rows[$index]['is_duplicate'] = $duplicateId !== null;
+            $rows[$index]['duplicate_tx_id'] = $duplicateId;
         }
 
         $sessionId = $this->createSession([
@@ -613,6 +623,17 @@ class BankImportService
                 // ── Reconcile processor payment (Stripe/PayPal/etc) to invoice ─
                 if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
                     $invTxId       = (int)$row['matched_invoice_tx_id'];
+                    $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $owns = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE id = ? AND reference_type = 'invoice' AND reference_id = ?");
+                    $owns->execute([$invTxId, $invoiceIdForDeposit]);
+                    if (!$invoiceIdForDeposit || !$owns->fetchColumn()) {
+                        $row['match_candidate'] = false;
+                        $row['matched_invoice_tx_id'] = null;
+                    }
+                }
+
+                if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
+                    $invTxId       = (int)$row['matched_invoice_tx_id'];
                     $processingFee = (float)($row['processing_fee'] ?? 0);
                     $confidence    = (int)($row['match_confidence'] ?? 88);
                     $payRef        = $row['matched_invoice']['payment_reference'] ?? '';
@@ -650,6 +671,7 @@ class BankImportService
                     $depositAmount = round((float)$row['amount'], 2);
                     $priorInvoice  = null;
                     $priorInvoiceTx = null;
+                    $invoiceTxDelta = null;
                     $newAllocationIds = [];
 
                     $invState = null;
@@ -700,6 +722,16 @@ class BankImportService
                             $invoiceIdForDeposit, $depositAmount, 'e_transfer', $payRef !== '' ? $payRef : null,
                             (string)$row['date'], $txId, $userId
                         );
+                        if ($priorInvoiceTx) {
+                            $afterTx = $this->db->prepare("SELECT amount, gst_amount FROM accounting_transactions WHERE id = ?");
+                            $afterTx->execute([$invTxId]);
+                            if ($currentTx = $afterTx->fetch(PDO::FETCH_ASSOC)) {
+                                $invoiceTxDelta = [
+                                    'amount' => (float)$currentTx['amount'] - (float)$priorInvoiceTx['amount'],
+                                    'gst_amount' => (float)$currentTx['gst_amount'] - (float)$priorInvoiceTx['gst_amount'],
+                                ];
+                            }
+                        }
                         $ids = $this->db->prepare("SELECT id FROM invoice_payment_allocations WHERE transaction_id = ?");
                         $ids->execute([$txId]);
                         $newAllocationIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
@@ -754,12 +786,14 @@ class BankImportService
                     $row['_revert'] = ['unflag_tx' => [$invTxId]];
                     if ($priorInvoice) {
                         $row['_revert']['restore_invoice'] = $priorInvoice;
+                        $row['_revert']['invoice_delta'] = $depositAmount;
                     }
                     if ($newAllocationIds) {
                         $row['_revert']['delete_allocations'] = $newAllocationIds;
                     }
                     if ($priorInvoiceTx) {
                         $row['_revert']['restore_tx'] = $priorInvoiceTx;
+                        $row['_revert']['tx_delta'] = $invoiceTxDelta;
                     }
                     $row['invoice_match_action'] = $plan['action'];
                     $rowStmt->execute([
@@ -869,6 +903,39 @@ class BankImportService
      */
     public function rollback(int $sessionId, ?int $userId = null): int
     {
+        $dateValues = [];
+        $rowsForLock = $this->db->prepare("SELECT transaction_date, raw_row FROM bank_import_rows WHERE session_id = ?");
+        $rowsForLock->execute([$sessionId]);
+        $txIds = [];
+        $invoiceIds = [];
+        foreach ($rowsForLock->fetchAll(PDO::FETCH_ASSOC) as $lockRow) {
+            $dateValues[] = (string)$lockRow['transaction_date'];
+            $decoded = json_decode((string)($lockRow['raw_row'] ?? ''), true);
+            $revert = is_array($decoded) ? ($decoded['_revert'] ?? []) : [];
+            foreach (array_merge($revert['unflag_tx'] ?? [], $revert['delete_tx'] ?? []) as $id) $txIds[] = (int)$id;
+            if (!empty($revert['restore_tx']['transaction_date'])) $dateValues[] = (string)$revert['restore_tx']['transaction_date'];
+            if (!empty($revert['restore_invoice']['id'])) $invoiceIds[] = (int)$revert['restore_invoice']['id'];
+            if (!empty($revert['reopen_invoice']['id'])) $invoiceIds[] = (int)$revert['reopen_invoice']['id'];
+        }
+        if ($txIds) {
+            $in = implode(',', array_fill(0, count($txIds), '?'));
+            $s = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id IN ({$in})");
+            $s->execute($txIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        if ($invoiceIds) {
+            $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $s = $this->db->prepare("SELECT issue_date FROM invoices WHERE id IN ({$in})");
+            $s->execute($invoiceIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        foreach (array_unique(array_filter($dateValues)) as $date) {
+            if ($ledger->isLocked((string)$date)) {
+                throw new RuntimeException(substr((string)$date, 0, 7) . ' is locked — the import was not rolled back.');
+            }
+        }
         $ownTransaction = !$this->db->inTransaction();
         // Audit trail (Fable audit #25, 2026-10-12): every invoice this undo touches, before → after.
         $audit = [];
@@ -933,18 +1000,33 @@ class BankImportService
                 if (!empty($revert['restore_invoice']['id'])) {
                     $pi = $revert['restore_invoice'];
                     if ($before = $snap((int)$pi['id'])) $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
-                    $this->db->prepare("
+                    if (isset($revert['invoice_delta'])) {
+                        $this->db->prepare("
+                            UPDATE invoices SET
+                                amount_paid = GREATEST(0, amount_paid - ?),
+                                balance_due = LEAST(total, balance_due + ?),
+                                status = CASE WHEN amount_paid <= 0.005 THEN ? WHEN balance_due <= 0.005 THEN 'paid' ELSE 'partial' END,
+                                payment_method = CASE WHEN amount_paid <= 0.005 THEN ? ELSE payment_method END,
+                                paid_at = CASE WHEN amount_paid <= 0.005 THEN ? ELSE paid_at END
+                            WHERE id = ?
+                        ")->execute([(float)$revert['invoice_delta'], (float)$revert['invoice_delta'],
+                            $pi['status'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    } else {
+                        $this->db->prepare("
                         UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
                         WHERE id = ?
-                    ")->execute([
-                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
-                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
-                    ]);
+                        ")->execute([$pi['status'], $pi['amount_paid'], $pi['balance_due'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    }
                 }
                 if (!empty($revert['restore_tx']['id'])) {
                     $pt = $revert['restore_tx'];
-                    $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
-                             ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
+                    if (is_array($revert['tx_delta'] ?? null)) {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = GREATEST(0, amount - ?), gst_amount = GREATEST(0, gst_amount - ?) WHERE id = ?")
+                            ->execute([(float)$revert['tx_delta']['amount'], (float)$revert['tx_delta']['gst_amount'], (int)$pt['id']]);
+                    } else {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
+                            ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
+                    }
                 }
             }
 
@@ -1010,6 +1092,19 @@ class BankImportService
             . count(array_filter($audit, fn($a) => $a[0] === 'invoice')) . ' invoice(s) restored, '
             . count(array_filter($audit, fn($a) => $a[0] === 'allocation')) . ' payment allocation(s) removed.'];
         return $out;
+    }
+
+    public static function validateCommitAmounts(array $row, int $rowNumber = 0): void
+    {
+        $prefix = $rowNumber > 0 ? 'Row ' . $rowNumber . ': ' : '';
+        // A zero-dollar line (a waived fee) is harmless and has always imported; only a non-number is refused.
+        if (!isset($row['amount']) || !is_numeric($row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'amount must be a number.');
+        }
+        $gst = $row['gst_amount'] ?? 0;
+        if (!is_numeric($gst) || (float)$gst < 0 || (float)$gst > abs((float)$row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'GST must be numeric and between zero and the transaction amount.');
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -4452,6 +4547,9 @@ class BankImportService
      */
     public function attachExpenseMatch(int $transactionId, int $expenseId, int $userId): array
     {
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
         $stmt = $this->db->prepare("
             SELECT id, matched_expense_id, transaction_date, description, amount
             FROM accounting_transactions
@@ -4462,7 +4560,8 @@ class BankImportService
         if (!$transaction) throw new RuntimeException('Bank transaction not found.');
         if ($transaction['matched_expense_id']) throw new RuntimeException('Transaction is already matched to an expense.');
 
-        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?"
+            . ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
         $stmt->execute([$expenseId]);
         $expense = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$expense) throw new RuntimeException('Expense not found.');
@@ -4502,7 +4601,12 @@ class BankImportService
         // The bank line is the truth about where the money came from (Vital Auto #384, 2026-10-12).
         $source = $this->checkReceiptFunding($expenseId, $transactionId, $userId);
 
+        if ($own) $this->db->commit();
         return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence, 'payment_source' => $source];
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** Every receipt ↔ statement-line link: the receipt's payment method follows the line's account. */

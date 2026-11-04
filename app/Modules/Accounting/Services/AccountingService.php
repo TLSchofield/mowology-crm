@@ -237,8 +237,12 @@ class AccountingService
             }
         } catch (\Throwable $e) { $carryover = []; }
         if ($carryover) {
-            $this->db->exec("DELETE FROM accounting_transactions WHERE reference_type = 'invoice' AND type = 'income'
-                             AND reference_id IN (" . implode(',', array_map('intval', array_keys($carryover))) . ")");
+            $ids = array_values(array_map('intval', array_keys($carryover)));
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $locked = "NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.year = YEAR(accounting_transactions.transaction_date)"
+                    . " AND p.month = MONTH(accounting_transactions.transaction_date) AND p.status = 'locked')";
+            $this->db->prepare("DELETE FROM accounting_transactions WHERE reference_type = 'invoice' AND type = 'income'"
+                . " AND reference_id IN ({$in}) AND {$locked}")->execute($ids);
         }
 
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -812,6 +816,7 @@ class AccountingService
 
     public function createManualTransaction(array $data, int $userId): int
     {
+        self::validateManualTransaction($data);
         $stmt = $this->db->prepare("
             INSERT INTO accounting_transactions
                 (transaction_date, type, account_id, amount, gst_amount, pst_amount,
@@ -836,6 +841,19 @@ class AccountingService
             $userId,
         ]);
         return (int)$this->db->lastInsertId();
+    }
+
+    public static function validateManualTransaction(array $data): void
+    {
+        if (!isset($data['amount']) || !is_numeric($data['amount']) || (float)$data['amount'] <= 0) {
+            throw new InvalidArgumentException('Amount must be greater than zero.');
+        }
+        if (!in_array($data['type'] ?? '', ['income', 'expense', 'transfer'], true)) {
+            throw new InvalidArgumentException('Invalid transaction type.');
+        }
+        if (!in_array($data['status'] ?? 'cleared', ['pending', 'cleared', 'reconciled'], true)) {
+            throw new InvalidArgumentException('Invalid transaction status.');
+        }
     }
 
     public function updateTransaction(int $id, array $data): bool
