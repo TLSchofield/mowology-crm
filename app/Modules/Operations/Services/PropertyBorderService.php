@@ -403,10 +403,15 @@ class PropertyBorderService
             }
             $b = $borders[$pid] ?? null;
             if ($b && $b['drawn'] === 0 && $b['default'] > 0 && !isset($decided['default_border'][$pid])) {
-                $src = in_array('default_square', $b['sources'], true) ? 'default_square' : 'default_hull';
+                $src = in_array('default_square', $b['sources'], true) ? 'default_square'
+                     : (in_array('parcel', $b['sources'], true) ? 'parcel' : 'default_hull');
+                $why = [
+                    'default_square' => 'Auto-arrival still works on the 150 m radius; the square only adds to it.',
+                    'parcel'         => 'The legal lot from the city lot map (ParcelMap BC), plus 10 m for the kerb. Check it once; edit it in the zone editor and it becomes yours.',
+                    'default_hull'   => 'Drawn from where crews actually stood. Edit it in the zone editor and it becomes yours.',
+                ][$src];
                 $defaults[] = $this->item('default_border', $pid, $addr, $src === 'default_square' ? 3 : 4, ['source' => $src],
-                    '/crm/jobs/zone-editor.php?property_id=' . $pid,
-                    $src === 'default_square' ? 'Auto-arrival still works on the 150 m radius; the square only adds to it.' : 'Drawn from where crews actually stood. Edit it in the zone editor and it becomes yours.',
+                    '/crm/jobs/zone-editor.php?property_id=' . $pid, $why,
                     ['source' => $src]) + ['_next' => $next[$pid] ?? '9999-12-31'];
             }
             foreach (json_decode((string)($st['overlaps_json'] ?? ''), true) ?: [] as $other) {
@@ -519,7 +524,7 @@ class PropertyBorderService
     public function keepDefault(int $propertyId): bool
     {
         if (!$this->hasSourceColumn()) return false;
-        $s = $this->db->prepare("UPDATE job_geofences SET border_source = 'kept' WHERE property_id = ? AND zone_type = 'arrival_border' AND border_source IN ('default_hull', 'default_square')");
+        $s = $this->db->prepare("UPDATE job_geofences SET border_source = 'kept' WHERE property_id = ? AND zone_type = 'arrival_border' AND border_source IN ('default_hull', 'default_square', 'parcel')");
         $s->execute([$propertyId]);
         $this->clearStripCache();
         return $s->rowCount() > 0;
