@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+// Database timestamps are timezone-less. Keep date arithmetic deterministic across
+// developer/CI host timezones and daylight-saving transitions.
+date_default_timezone_set('UTC');
+
 // Composer autoloader (PHPUnit + smalot/pdfparser)
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -270,6 +274,7 @@ require_once __DIR__ . '/../app/Modules/Products/Services/ProductFactAnswerer.ph
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoManualService.php';
 
 // Expenses
+require_once __DIR__ . '/../app/Services/Receipts/ReceiptIntakeRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptArchiveService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptIntakeService.php';

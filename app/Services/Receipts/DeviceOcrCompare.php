@@ -113,14 +113,15 @@ function deviceOcrHasTextColumn(PDO $db): bool
 }
 
 /**
- * Parse the device text and record how it compares with what the server read (shadow mode).
+ * Record how the device parse compares with what the server read (shadow mode). A caller that
+ * already parsed the text passes that result so the same device text is never parsed twice.
  * Swallows every failure: the upload must never wait on, or fail because of, the measurement.
  */
-function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $device, array $serverParsed, string $serverSource): void
+function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $device, array $serverParsed, string $serverSource, ?array $deviceParsed = null): void
 {
     try {
         if (!function_exists('parseReceiptText')) return;
-        $deviceParsed = parseReceiptText($device['text'], null);
+        if ($deviceParsed === null) $deviceParsed = parseReceiptText($device['text'], null);
         $cmp = compareParsedHeaders($serverParsed, $deviceParsed);
         $fields = count($cmp);
         $agree = count(array_filter($cmp, static fn($c) => $c['match']));

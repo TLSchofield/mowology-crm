@@ -102,6 +102,7 @@ class ReceiptIntakeService
         require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
         require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
         require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptIntakeRules.php';
 
         // ── Rate limiting: max 20 receipt uploads per user per hour ──────
         // Read-before-write so a rejected upload never permanently consumes a slot.
@@ -326,20 +327,21 @@ class ReceiptIntakeService
         // Vision reads as always and the two are compared afterwards. See DeviceOcrCompare.php.
         $deviceMode = $deviceOcr ? deviceOcrSetting($this->db) : 'off';
         $useDevice = false;
+        $deviceParsed = null;
         if ($deviceOcr && $deviceMode === 'on' && $readMode !== 'strong') {
             try {
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
-                $devParsed = parseReceiptText($deviceOcr['text'], null);
+                $deviceParsed = parseReceiptText($deviceOcr['text'], null);
                 $devVendor = suggestReceiptMeta($deviceOcr['text'], null, null, null);
                 $devVendorId = !empty($devVendor['vendor_id']) ? (int)$devVendor['vendor_id'] : null;
                 $devStrong = receiptReadMode($devVendorId ? getVendorParseProfile($this->db, $devVendorId) : null) === 'strong';
-                $useDevice = !$devStrong && deviceTextAcceptable($deviceOcr['text'], headersNeedBetterExtraction($devParsed + ['ocr_text' => $deviceOcr['text']]));
+                $useDevice = !$devStrong && deviceTextAcceptable($deviceOcr['text'], headersNeedBetterExtraction($deviceParsed + ['ocr_text' => $deviceOcr['text']]));
                 // Nothing ties the text to the photo, so a share of receipts is also read by Vision: text that
                 // disagrees on total or date is not trusted and this receipt takes the normal Vision route.
                 if ($useDevice && mt_rand(1, 100) <= DEVICE_OCR_SPOT_CHECK_PCT) {
                     $spot = extractTextFromImage($filePath);
                     if (!empty($spot['success']) && !empty($spot['text'])) {
-                        $useDevice = deviceMatchesServer($devParsed, parseReceiptText($spot['text'], $spot['raw_response'] ?? null));
+                        $useDevice = deviceMatchesServer($deviceParsed, parseReceiptText($spot['text'], $spot['raw_response'] ?? null));
                         if (!$useDevice) error_log('Device OCR rejected by spot-check (media ' . $mediaId . ', ' . $deviceOcr['engine'] . ')');
                     }
                 }
@@ -388,6 +390,8 @@ class ReceiptIntakeService
                 } catch (Throwable $e) { /* non-fatal */ }
             }
             $liProfile = getVendorLineItemProfile($profileVendorId);
+            // Always parse with the vendor's learned line-item profile, including in 'on' mode where $ocrText is the
+            // phone's text: the profile shapes how items are split (reusing the profile-less device parse lost it).
             $parsed = parseReceiptText($ocrText, $rawResponse, $liProfile);
 
             // Items don't add up? Escalate Tesseract→Vision, then the LLM tier.
@@ -481,8 +485,6 @@ class ReceiptIntakeService
                 }
             }
 
-            $gstValidation = validateGstMath($parsed);
-
             // Gated vendor auto-creation — fuzzy match first to avoid OCR-typo pollution
             if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
                 $vendorName = strtoupper(trim($parsed['vendor_hint']));
@@ -543,6 +545,32 @@ class ReceiptIntakeService
             }
         }
 
+        // Preserve the finalized server result before device total fill mutates the user-facing parse.
+        $serverParsed = $parsed;
+        $totalSource = 'server';
+        if ($deviceOcr) {
+            try {
+                if ($deviceParsed === null) {
+                    $deviceParsed = parseReceiptText($deviceOcr['text'], null);
+                }
+                $deviceFill = ReceiptIntakeRules::deviceTotalFill($parsed, $deviceParsed, $ocrText, $deviceOcr['text']);
+                if ($deviceFill !== null) {
+                    $parsed['total'] = $deviceFill['total'];
+                    $parsed['total_source'] = 'device';
+                    $totalSource = 'device';
+                    if (($parsed['subtotal'] ?? null) === null) {
+                        $tax = (float)($parsed['gst'] ?? 0) + (float)($parsed['pst'] ?? 0);
+                        $parsed['subtotal'] = number_format((float)$deviceFill['total'] - $tax, 2, '.', '');
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('Device total fill (non-fatal): ' . $e->getMessage());
+            }
+        }
+        $gstValidation = !empty($parsed) ? validateGstMath($parsed) : null;
+
+        $card = $this->lookupCard($parsed['card_last4'] ?? null, $parsed['payment_method'] ?? null);
+
         // Suggest the job: the receipt's own date + printed time against that day's
         // schedule (falls back to today/tomorrow vs upload time when the date is unread).
         $jobSuggestions = [];
@@ -551,10 +579,19 @@ class ReceiptIntakeService
         } catch (Throwable $e) {
             error_log('Job suggestion error: ' . $e->getMessage());
         }
+        $decisiveJob = ReceiptIntakeRules::decisiveJob(
+            $jobSuggestions,
+            ReceiptIntakeRules::DECISIVE_JOB_MIN_SCORE,
+            ReceiptIntakeRules::DECISIVE_JOB_MIN_MARGIN
+        );
+        foreach ($jobSuggestions as $index => &$jobSuggestion) {
+            $jobSuggestion['auto_select'] = $decisiveJob !== null && $index === $decisiveJob;
+        }
+        unset($jobSuggestion);
 
         if ($deviceOcr && $deviceMode === 'shadow' && $ocrAvailable) {
             logDeviceOcrCompare($this->db, $mediaId, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null,
-                                $deviceOcr, $parsed, $ocrSource);
+                                $deviceOcr, $serverParsed, $ocrSource, $deviceParsed);
         }
 
         return [
@@ -571,11 +608,36 @@ class ReceiptIntakeService
                 'low_quality' => $preScreen['low_quality'],
             ],
             'parsed'            => withSuggestedCategory($parsed, $suggestions),
+            'total_source'       => $totalSource,
+            'card'               => $card,
             'suggestions'       => $suggestions,
             'job_suggestions'   => $jobSuggestions,
             'field_confidences' => $fieldConfidences,
             'gst_validation'    => $gstValidation,
             'duplicate_image'   => $duplicateImage,
         ];
+    }
+
+    private function lookupCard(?string $last4, ?string $paymentMethod): ?array
+    {
+        if ($last4 === null || $last4 === '') return null;
+
+        $row = null;
+        try {
+            $stmt = $this->db->prepare("
+                SELECT p.user_id, p.label, u.full_name
+                FROM penny_card_holders p
+                LEFT JOIN users u ON u.id = p.user_id
+                WHERE p.card_last4 = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$last4]);
+            $found = $stmt->fetch(PDO::FETCH_ASSOC);
+            $row = $found ?: null;
+        } catch (Throwable $e) {
+            error_log('Receipt card holder lookup (non-fatal): ' . $e->getMessage());
+        }
+
+        return ReceiptIntakeRules::formatCard($last4, $row, $paymentMethod);
     }
 }
