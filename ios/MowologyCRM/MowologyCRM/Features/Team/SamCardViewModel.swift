@@ -181,6 +181,38 @@ final class SamCardViewModel: ObservableObject {
     /// Skip: the next customer, nothing recorded (as the web's arrows).
     func skip() { move(1) }
 
+    /// Open one customer from the list (their row or the Next row).
+    func open(_ i: Int) {
+        guard queue.indices.contains(i) else { return }
+        index = i
+        followupMessage = nil
+    }
+
+    /// Sam's one sentence, worded as the web card: the money waiting, who wrote back, what comes after.
+    var briefing: (money: String?, rest: String) {
+        func plural(_ n: Int, _ w: String) -> String { "\(n) \(w)\(n == 1 ? "" : "s")" }
+        let replied = queue.filter(\.replied)
+        let chase = queue.count - replied.count
+        let nl = leads.count
+        guard !queue.isEmpty else {
+            var t = "Nobody is waiting on a follow-up" + (name.isEmpty ? "." : ", \(name).")
+            if nl > 0 { t += " \(plural(nl, "new lead")) to look at." }
+            return (nil, t)
+        }
+        var parts = ["is waiting on \(plural(queue.count, "customer"))."]
+        if !replied.isEmpty {
+            let names = replied.prefix(2).map { $0.firstName.isEmpty ? $0.name : $0.firstName }
+            let who = replied.count > 2 ? names.joined(separator: ", ") + " and \(replied.count - 2) more" : names.joined(separator: " and ")
+            var t = "\(who) wrote back. Start there"
+            if chase > 0 { t += ", then the \(chase) to chase" }
+            if nl > 0 { t += (chase > 0 ? " and the " : ", then the ") + plural(nl, "new lead") }
+            parts.append(t + ".")
+        } else if nl > 0 {
+            parts.append("\(plural(nl, "new lead")) after that.")
+        }
+        return (Self.money(queueTotal), parts.joined(separator: " "))
+    }
+
     func sendFollowup() async {
         guard let c = current, !isBusy else { return }
         let e = edit(for: c)

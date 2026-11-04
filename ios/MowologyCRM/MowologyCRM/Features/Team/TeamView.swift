@@ -632,6 +632,11 @@ private struct ItWorkspaceView<Content: View>: View {
                 header
                 if let loadState {
                     ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s5)
+                } else if member.id == "sam" {
+                    // Sam leads with his own sentence and one Next row (SamCardView), so the numbered
+                    // guide would only repeat the first customer (Tim, 2026-11-04: too wordy).
+                    content
+                    learning
                 } else {
                     guide
                     if member.id == "penny" { PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession)))
