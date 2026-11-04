@@ -129,4 +129,29 @@ final class ReceiptParserSplitTotalTest extends TestCase
 
         $this->assertSame('1.00', $parsed['gst']);
     }
+
+    /** Codex review: a split tender proves one tender amount, not the total. */
+    public function testSplitTenderPaymentLineIsNotTheTotal(): void
+    {
+        $parsed = parseReceiptText("SHOP\n2026-11-04\nITEM 21.00\nDebit Purchase $ 16.00\nGift Card $ 5.00");
+
+        $this->assertNotSame('16.00', $parsed['total']);
+    }
+
+    /** Codex review: a "G - GST" legend with a G-flagged item means GST was charged. */
+    public function testLegendWithGstFlaggedItemKeepsGst(): void
+    {
+        $parsed = parseReceiptText("SHOP\n2026-11-04\nWIDGET 10.00 G\nG - GST\nTOTAL 10.50");
+
+        $this->assertNotSame('0.00', $parsed['gst']);
+    }
+
+    /** Codex review: 15% HST is 13.04% of the total and must not be rejected as implausible. */
+    public function testFifteenPercentHstIsAccepted(): void
+    {
+        $parsed = parseReceiptText("SHOP\n2026-11-04\nSUBTOTAL\nTOTAL\nGST/HST\nCAD $\n100.00\n115.00\n15.00\nDebit Purchase $ 115.00");
+
+        $this->assertSame('115.00', $parsed['total']);
+        $this->assertNotSame('5.48', $parsed['gst']);
+    }
 }

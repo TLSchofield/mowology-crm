@@ -1498,6 +1498,7 @@ function preferConfirmedPaymentTotal(array $lines, string $total): string
 function receiptItemisesTaxWithoutGstLine(array $lines): bool
 {
     $legend = false;
+    $codes = [];
     foreach ($lines as $line) {
         $l = trim($line);
         if (preg_match('/^(?:GST|HST)(?:\/HST)?\s*(?:@\s*)?\d+(?:[.,]\d+)?\s*%/i', $l)
@@ -1505,9 +1506,17 @@ function receiptItemisesTaxWithoutGstLine(array $lines): bool
             return false;                       // a GST line is printed: leave GST to the normal rules
         }
         if (strpos($l, '%') !== false) return false;   // a rate line OCR garbled ("9:8888 % 8:18") is still a tax line
-        if (preg_match('/See\s+GST\s*#|^GSTV\b|^[A-Z]{1,2}\s*-\s*GST\b/i', $l)) $legend = true;
+        if (preg_match('/See\s+GST\s*#|^GSTV\b/i', $l)) $legend = true;
+        if (preg_match('/^([A-Z]{1,2})\s*-\s*GST\b/', $l, $m)) { $legend = true; $codes[] = $m[1]; }
     }
-    return $legend;
+    if (!$legend) return false;
+    // An item carrying a code the legend maps to GST ("2.49P" with "P - GST") means GST was charged.
+    foreach ($codes as $code) {
+        foreach ($lines as $line) {
+            if (preg_match('/\d[.,]\d{2}\s*' . preg_quote($code, '/') . '\s*$/', trim($line))) return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -1522,11 +1531,26 @@ function extractPaymentLineAmount(array $lines): ?string
             trim($line),
             $m
         )) {
+            if (receiptHasOtherTender($lines, trim($line))) return null;   // split tender: one card is not the total
             return str_replace(',', '.', $m[1]);
         }
     }
 
     return null;
+}
+
+/** Another tender (gift card, cash, second card, points, cheque) is printed with an amount besides $paymentLine. Pure. */
+function receiptHasOtherTender(array $lines, string $paymentLine): bool
+{
+    foreach ($lines as $line) {
+        $l = trim($line);
+        if ($l === $paymentLine) continue;
+        if (preg_match('/\b(?:GIFT\s*CARD|GIFT\s*CERT|STORE\s*CREDIT|POINTS\s+REDEEMED|REWARDS?\s+REDEEMED|CASH|CHEQUE|CHECK|COUPON\s+TENDER|(?:DEBIT|CREDIT|VISA|MASTERCARD|AMEX|INTERAC)\s+PURCHASE)\b[^\n]*\d{1,6}[.,]\d{2}/i', $l)
+            && !preg_match('/\bCHANGE\b|\bCASH\s*BACK\b/i', $l)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -2108,7 +2132,7 @@ function extractColumnSeparatedAmounts(array $lines): array
     if ($knownTotal === null) {
         $knownTotal = extractPaymentLineAmount($lines);
     }
-    if ($result['gst'] !== null && $knownTotal !== null && (float)$result['gst'] > (float)$knownTotal * 0.12) {
+    if ($result['gst'] !== null && $knownTotal !== null && (float)$result['gst'] > (float)$knownTotal * 0.135) {   // 15% HST is 13.04% of the total
         $result['gst'] = null;
     }
 
