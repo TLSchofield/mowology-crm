@@ -351,14 +351,14 @@ struct ReceiptReviewView: View {
 
     private var totalConfirmed: Bool {
         let p = intake.parsed
-        // Every part must be present: a missing tax is not zero, and a validation the server
-        // sent must say valid (none sent is fine). PST absent = not confirmed (the intake does
-        // not say "no PST" explicitly).
+        // Total, subtotal and a printed (not estimated) GST must be present, and a GST validation the
+        // server sent must say valid (none sent is fine). PST may be absent: when subtotal + GST alone
+        // equals the total to the cent, no PST was charged (fuel, GST-only items) — the arithmetic proves it.
         guard intake.totalSource != nil, let t = p?.totalDouble, t > 0,
               let sub = p?.subtotal.flatMap(Double.init),
-              let g = p?.gstDouble, !gstEstimated,
-              let ps = p?.pst.flatMap(Double.init) else { return false }
+              let g = p?.gstDouble, !gstEstimated else { return false }
         if let gv = intake.gstValidation, gv.valid != true { return false }
+        let ps = p?.pst.flatMap(Double.init) ?? 0
         return abs(sub + g + ps - t) <= 0.02
     }
 
@@ -381,7 +381,10 @@ struct ReceiptReviewView: View {
         else if !totalConfirmed { f.append("Total, subtotal and tax don't add up or weren't confirmed") }
         if gstEstimated { f.append("GST is estimated") }
         else if intake.parsed?.gstDouble == nil { f.append("GST is missing") }
-        if intake.parsed?.pst.flatMap(Double.init) == nil { f.append("PST is missing — add it or leave it at zero") }
+        // PST missing matters only when the numbers don't close without it.
+        if intake.parsed?.pst.flatMap(Double.init) == nil && !totalConfirmed && (intake.parsed?.totalDouble ?? 0) > 0 {
+            f.append("PST is missing — add it or leave it at zero")
+        }
         if (intake.suggestions?.vendorName ?? intake.parsed?.vendorHint ?? "").isEmpty { f.append("Vendor is missing") }
         else if intake.suggestions?.vendorId == nil || intake.suggestions?.vendorNeedsReview == true { f.append("Vendor needs a look") }
         if (intake.parsed?.date ?? "").isEmpty { f.append("Date is missing") }
