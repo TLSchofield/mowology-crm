@@ -259,7 +259,7 @@ final class PruningPlanService
         $month = (int)date('n');
         return [
             'species' => ['scientific' => $s($sp['scientific'] ?? '', 160), 'common' => $s($sp['common'] ?? '', 160), 'confidence' => $f01($sp['confidence'] ?? 0), 'if_wrong' => $ifWrong],
-            'form_goal' => $s($p['form_goal'] ?? '', 200),
+            'form_goal' => $s($p['form_goal'] ?? '', 400),
             'now' => $win($p['now'] ?? null, $month, $month),
             'main' => $win($p['main'] ?? null, 2, 3),
             'actions' => $actions,
