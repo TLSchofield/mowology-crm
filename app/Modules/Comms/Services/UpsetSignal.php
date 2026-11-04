@@ -47,13 +47,15 @@ final class UpsetSignal
     /**
      * @param string $text            their latest message (subject + snippet)
      * @param int    $sinceOurLast    how many messages they sent after our last one (1 = just this)
+     * @param int    $gapWeekdays     weekdays between the first and the last of those messages: texts sent one after another
+     *                                are one conversation, not a chase (live 2026-11-03: two plant names in a row)
      * @return array{upset: bool, why: string}
      */
-    public static function assess(string $text, int $sinceOurLast): array
+    public static function assess(string $text, int $sinceOurLast, int $gapWeekdays = 0): array
     {
         $cue = self::cue($text);
         if ($cue !== null) return ['upset' => true, 'why' => '“' . $cue . '”'];
-        if ($sinceOurLast >= self::REPEAT_MESSAGES) return ['upset' => true, 'why' => $sinceOurLast . ' messages since we last wrote'];
+        if ($sinceOurLast >= self::REPEAT_MESSAGES && $gapWeekdays >= 1) return ['upset' => true, 'why' => $sinceOurLast . ' messages since we last wrote, the first ' . $gapWeekdays . ' weekday' . ($gapWeekdays === 1 ? '' : 's') . ' ago'];
         return ['upset' => false, 'why' => ''];
     }
 

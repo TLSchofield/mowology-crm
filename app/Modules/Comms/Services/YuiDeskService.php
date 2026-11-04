@@ -243,9 +243,12 @@ class YuiDeskService
             $snippet = (string)($m['snippet'] ?? '');
             $ourLast = $lastOut[$cid] ?? null;
             if (empty($it['yes']) && ReplyClock::ackOnly($snippet !== '' ? $snippet : (string)($it['quote'] ?? ''), $ourLast['snippet'] ?? null)) { $this->inboxNotes['acks']++; continue; }
-            $since = 0;
-            foreach ($inbound[$cid] ?? [] as $im) { if ($ourLast === null || (string)$im['sent_at'] > (string)$ourLast['sent_at']) $since++; }
-            $up = UpsetSignal::assess(trim((string)($m['subject'] ?? $it['subject'] ?? '') . ' ' . $snippet), $since);
+            $since = 0; $first = null;
+            foreach ($inbound[$cid] ?? [] as $im) {
+                if ($ourLast === null || (string)$im['sent_at'] > (string)$ourLast['sent_at']) { $since++; if ($first === null || (string)$im['sent_at'] < $first) $first = (string)$im['sent_at']; }
+            }
+            $gap = $first !== null ? ReplyClock::weekdays($first, (string)$it['at']) : 0;
+            $up = UpsetSignal::assess(trim((string)($m['subject'] ?? $it['subject'] ?? '') . ' ' . $snippet), $since, $gap);
             $clock = ReplyClock::stage((string)$it['at'], $this->now());
             if ($up['upset']) { $it['upset'] = true; $it['upset_why'] = $up['why']; $it['priority'] = 1; $it['text'] = 'Unhappy (' . $up['why'] . '): ' . $it['text']; }
             if ($clock['priority'] < (int)$it['priority']) $it['priority'] = $clock['priority'];

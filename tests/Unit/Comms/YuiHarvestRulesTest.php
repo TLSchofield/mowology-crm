@@ -89,6 +89,10 @@ class YuiHarvestRulesTest extends TestCase
         }
         $this->assertFalse(ReplyClock::ackOnly('All right', 'Shall we start the 12th?'));          // an answer to our question
         $this->assertTrue(ReplyClock::ackOnly('All right', null));
+        $this->assertTrue(ReplyClock::ackOnly('👍', 'See you Tuesday.'));                               // live: John's thumbs-up waited 7 days
+        $this->assertTrue(ReplyClock::ackOnly('❤️ 👍', null));
+        $this->assertFalse(ReplyClock::ackOnly('👍', 'Is Thursday ok?'));
+        $this->assertFalse(ReplyClock::ackOnly('?', null));
         foreach (['Can you come Tuesday?', 'ok what about the hedge', 'Hi Tim,', 'I\'ll be 5 mins', 'ok 2pm', 'Not ok', 'No', '', 'thanks, one more thing: the gate code is 4411'] as $t) {
             $this->assertFalse(ReplyClock::ackOnly($t, null), $t);
         }
@@ -117,9 +121,10 @@ class YuiHarvestRulesTest extends TestCase
         foreach (['Can you please cancel our recurring grass cutting? We are done for the season. Thanks for all your work - see you next year!', 'All good, thanks', 'Do you want me to cancel and re send there?', 'Can we move Tuesday to Wednesday?'] as $t) {
             $this->assertNull(UpsetSignal::cue($t), $t);
         }
-        $this->assertTrue(UpsetSignal::assess('Hello?', 2)['upset']);                              // two messages since we wrote
-        $this->assertSame('2 messages since we last wrote', UpsetSignal::assess('Hello?', 2)['why']);
-        $this->assertFalse(UpsetSignal::assess('Hello?', 1)['upset']);
+        $this->assertTrue(UpsetSignal::assess('Hello?', 2, 2)['upset']);                           // two messages since we wrote, the first two weekdays ago
+        $this->assertSame('2 messages since we last wrote, the first 2 weekdays ago', UpsetSignal::assess('Hello?', 2, 2)['why']);
+        $this->assertFalse(UpsetSignal::assess('Japanese Skimmia', 2, 0)['upset']);                // two texts in a row are one conversation
+        $this->assertFalse(UpsetSignal::assess('Hello?', 1, 3)['upset']);
         $this->assertStringContainsString('“unacceptable”', UpsetSignal::assess('That is unacceptable', 1)['why']);
         $rule = UpsetSignal::draftRule('Tim');
         $this->assertStringContainsString('only an acknowledgement', $rule);

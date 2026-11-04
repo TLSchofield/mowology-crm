@@ -51,8 +51,11 @@ final class ReplyClock
     public static function ackOnly(string $text, ?string $ourLast): bool
     {
         $t = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $text)));
-        $t = trim(preg_replace('/[\p{So}\p{Sk}\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}!.,;:~\-]+/u', ' ', $t));
+        $had = $t !== '';
+        $t = trim(preg_replace('/[\p{So}\p{Sk}\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}\x{200D}\x{1F3FB}-\x{1F3FF}!.,;:~\-]+/u', ' ', $t));
         $t = trim(preg_replace('/\s+/u', ' ', $t));
+        // A thumbs-up or a heart on its own is an acknowledgement too (live 2026-11-03: a "👍" waited 7 days in the inbox).
+        if ($t === '' && $had && !preg_match('/\p{L}|\p{N}/u', $text)) return !($ourLast !== null && strpos($ourLast, '?') !== false);
         if ($t === '' || mb_strlen($t) > 30 || substr_count($t, ' ') > 3) return false;
         if (preg_match('/[?\d]/', $t)) return false;
         $ok = in_array($t, self::ACK, true);
