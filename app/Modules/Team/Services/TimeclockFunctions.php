@@ -214,9 +214,12 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) 
             notes = ?,
             total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, COALESCE(?, NOW())),
             status = 'completed'
-        WHERE id = ?
+        WHERE id = ? AND status = 'active' AND clock_out IS NULL
     ");
     $stmt->execute([$at, $lat, $lng, $notes, $at, $entry['id']]);
+    if ($stmt->rowCount() !== 1) {
+        throw new Exception('Clock entry is no longer active');
+    }
 
     // Insert a final GPS ping on clock-out so the map shows the last known position.
     if ($lat && $lng) {
@@ -226,8 +229,8 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) 
         if ($trackRow && $trackRow['location_tracking_enabled']) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-                VALUES (?, ?, ?, NULL, NULL, NOW())
-            ")->execute([$userId, $lat, $lng]);
+                VALUES (?, ?, ?, NULL, NULL, COALESCE(?, NOW()))
+            ")->execute([$userId, $lat, $lng, $at]);
         }
     }
 
@@ -505,6 +508,9 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         $isOwn = ($entryId === $plan['own']);
         $entryNotes = $isOwn ? $notes : trim(($notes ? $notes . ' — ' : '') . $takeoverNote);
         $stopStmt->execute([$at, $at, $lat, $lng, $entryNotes, $entryId]);
+        if ($stopStmt->rowCount() !== 1) {
+            continue;
+        }
         TimeEntryGuard::fixDst($db, 'job_time_entries', (int)$entryId);
 
         $durStmt->execute([$entryId]);

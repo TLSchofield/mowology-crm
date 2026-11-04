@@ -190,7 +190,7 @@ $activePage = 'jobs';
                 </div>
                 <div class="card-footer bg-transparent">
                     <button class="btn btn-sm btn-success w-100"
-                        onclick="approveCandidate(${ids}, '${escAttr(c.suggested_name)}')">
+                        onclick="approveCandidate(${ids}, ${escAttr(c.suggested_name)})">
                         <i data-feather="check" class="feather-sm mr-1"></i> Create Cluster
                     </button>
                 </div>
@@ -256,11 +256,11 @@ $activePage = 'jobs';
             <td>${travel}</td>
             <td class="text-right">
                 <button class="btn btn-sm btn-outline-secondary mr-1"
-                    onclick="editCluster(${c.id}, '${escAttr(c.name)}', ${c.default_travel_minutes}, '${escAttr(c.notes || '')}')">
+                    onclick="editCluster(${c.id}, ${escAttr(c.name)}, ${c.default_travel_minutes}, ${escAttr(c.notes || '')})">
                     <i data-feather="edit-2" class="feather-xs"></i>
                 </button>
                 <button class="btn btn-sm btn-outline-danger"
-                    onclick="deleteCluster(${c.id}, '${escAttr(c.name)}')">
+                    onclick="deleteCluster(${c.id}, ${escAttr(c.name)})">
                     <i data-feather="trash-2" class="feather-xs"></i>
                 </button>
             </td>
@@ -362,7 +362,8 @@ $activePage = 'jobs';
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
     function escAttr(s) {
-        return String(s).replace(/'/g,"\\'");
+        return JSON.stringify(String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
     }
 })();
 </script>

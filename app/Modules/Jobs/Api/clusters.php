@@ -72,6 +72,7 @@ try {
         switch ($action) {
 
             case 'list':
+                if (!$isAdmin) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Not allowed']); exit; }
                 $stmt = $db->query(
                     'SELECT pc.*,
                             GROUP_CONCAT(pcm.property_id ORDER BY pcm.sort_order) AS property_ids,

@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once APP_ROOT . '/Core/Uploads.php';
+require_once APP_ROOT . '/Modules/Team/Services/TimeclockFunctions.php';   // userMayActOnVisit()
 
 requireLogin();
 $user = getCurrentUser();
@@ -25,6 +26,10 @@ $db = getDB();
 
 $message = '';
 $messageType = '';
+if (!empty($_GET['timer_stop_warning'])) {
+    $message = 'The visit was completed, but one or more crew timers could not be stopped. Please review the time log.';
+    $messageType = 'warning';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
@@ -122,12 +127,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     // Start visit
     if ($action === 'start_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
-        if ($visitId && updateVisitStatus($visitId, 'in_progress', $user['id'])) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'in_progress', $user['id'])) {
             header("Location: view.php?id={$planId}&visit_started=1");
             exit;
         }
-        $message = 'Could not start visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not start visit.'; $messageType = 'error'; }
     }
 
     // Complete visit
@@ -138,7 +144,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             ? floatval($_POST['actual_amount'])
             : null;
 
-        if ($visitId && updateVisitStatus($visitId, 'completed', $user['id'], $notes ?: null)) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'completed', $user['id'], $notes ?: null)) {
             // Update actual_amount if provided
             if ($actualAmount !== null) {
                 $stmt = $db->prepare("UPDATE job_visits SET actual_amount = ? WHERE id = ?");
@@ -152,32 +160,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 WHERE visit_id = ? AND status = 'active' AND end_time IS NULL
             ");
             $activeTimers->execute([$visitId]);
+            $timerStopWarning = false;
             foreach ($activeTimers->fetchAll(PDO::FETCH_ASSOC) as $timer) {
                 try {
                     stopVisitTimer($visitId, $timer['user_id'], null, null, $notes ?: 'Visit completed');
                 } catch (Exception $e) {
                     // Log but don't block the completion
                     error_log("Timer stop failed for visit $visitId user {$timer['user_id']}: " . $e->getMessage());
+                    $timerStopWarning = true;
                 }
             }
 
-            header("Location: view.php?id={$planId}&visit_completed=1");
+            header("Location: view.php?id={$planId}&visit_completed=1" . ($timerStopWarning ? '&timer_stop_warning=1' : ''));
             exit;
         }
-        $message = 'Could not complete visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not complete visit.'; $messageType = 'error'; }
     }
 
     // Skip visit
     if ($action === 'skip_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
         $reason = trim($_POST['skip_reason'] ?? '');
-        if ($visitId && updateVisitStatus($visitId, 'skipped', $user['id'], $reason ?: null)) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'skipped', $user['id'], $reason ?: null)) {
             header("Location: view.php?id={$planId}&visit_skipped=1");
             exit;
         }
-        $message = 'Could not skip visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not skip visit.'; $messageType = 'error'; }
     }
 
     // Restore a skipped/cancelled visit and mark it completed (so it can be invoiced).
@@ -367,7 +377,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $endTime   = trim($_POST['te_end_time'] ?? '');
         $teNotes   = trim($_POST['te_notes'] ?? '');
 
-        if ($visitId && $userId && $startTime && $endTime) {
+        if ($visitId && $userId && $startTime && $endTime && strtotime($endTime) >= strtotime($startTime)) {
             // Validate visit belongs to this plan
             $vChk = $db->prepare("SELECT id FROM job_visits WHERE id = ? AND plan_id = ?");
             $vChk->execute([$visitId, $planId]);
@@ -493,7 +503,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $endTime   = trim($_POST['ed_end_time'] ?? '');
         $edNotes   = trim($_POST['ed_notes'] ?? '');
 
-        if ($entryId && $startTime && $endTime) {
+        if ($entryId && $startTime && $endTime && strtotime($endTime) >= strtotime($startTime)) {
             $eChk = $db->prepare("
                 SELECT jte.id FROM job_time_entries jte
                 JOIN job_visits jv ON jte.visit_id = jv.id
@@ -3826,7 +3836,7 @@ if ($hasPropCoords) {
                         return;
                     }
                     if (!data.success) {
-                        body.innerHTML = '<div class="card-body text-danger small">' + (data.error || 'Error') + '</div>';
+                        body.innerHTML = '<div class="card-body text-danger small">' + esc(data.error || 'Error') + '</div>';
                         return;
                     }
 
@@ -3906,8 +3916,8 @@ if ($hasPropCoords) {
                         html += '<tr class="table-light">' +
                             '<td colspan="6" class="small font-weight-bold py-1 px-3">' +
                             '<i data-feather="calendar" style="width:12px;height:12px;margin-right:4px;vertical-align:-1px;"></i>' +
-                            v.visit_number + ' &mdash; ' + fmtDate(v.date) +
-                            ' <span class="badge badge-light border ml-1">' + v.visit_status.replace('_', ' ') + '</span>' +
+                            esc(v.visit_number) + ' &mdash; ' + fmtDate(v.date) +
+                            ' <span class="badge badge-light border ml-1">' + esc(v.visit_status.replace('_', ' ')) + '</span>' +
                             '<span class="text-muted ml-2 font-weight-normal">' + (visitMinutes > 0 ? formatMins(visitMinutes) + ' total' : '') + '</span>' +
                             '</td></tr>';
                         v.entries.forEach(function(e) {
@@ -3995,7 +4005,7 @@ if ($hasPropCoords) {
                     desc += ' &mdash; ' + d.toLocaleDateString('en-CA', {month:'short', day:'numeric'}) +
                             ' ' + d.toLocaleTimeString('en-CA', {hour:'2-digit', minute:'2-digit', hour12:true});
                 }
-                document.getElementById('mvEntryDesc').innerHTML = desc;
+                document.getElementById('mvEntryDesc').innerHTML = esc(desc);
                 showModal('moveTimeEntryModal');
             };
 
@@ -4024,7 +4034,7 @@ if ($hasPropCoords) {
                             var label = ts.substring(11, 16);
                             var dtVal = toLocal(ts);
                             return '<span class="mr-3 text-nowrap"><i data-feather="map-pin" style="width:10px;height:10px;vertical-align:-1px;"></i> ' +
-                                name + ' left <strong>' + label + '</strong> ' +
+                                esc(name) + ' left <strong>' + esc(label) + '</strong> ' +
                                 '<button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:11px;" ' +
                                 'onclick="document.getElementById(\'edEndTime\').value=\'' + dtVal + '\'">Use</button></span>';
                         });

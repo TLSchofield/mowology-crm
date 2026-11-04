@@ -61,11 +61,15 @@ class VisitLifecycleService
             $built = self::buildStatusSetClauses($newStatus, $notes);
             $params = $built['params'];
             $params[] = $visitId;
+            $params[] = $current;
 
             $stmt = $db->prepare("
-                UPDATE job_visits SET " . implode(', ', $built['set']) . " WHERE id = ?
+                UPDATE job_visits SET " . implode(', ', $built['set']) . " WHERE id = ? AND status = ?
             ");
             $stmt->execute($params);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
 
             // Log activity
             if (function_exists('logActivityExtended')) {

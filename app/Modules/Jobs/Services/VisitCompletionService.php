@@ -53,6 +53,20 @@ class VisitCompletionService
             $visit = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$visit) return;
 
+            // Set the timer-derived actual before computing the labor snapshot.
+            $db->prepare("
+                UPDATE job_visits
+                SET actual_duration_minutes = (
+                    SELECT COALESCE(SUM(duration_minutes), 0)
+                    FROM job_time_entries
+                    WHERE visit_id = ? AND status IN ('completed', 'edited')
+                )
+                WHERE id = ?
+            ")->execute([$visitId, $visitId]);
+            $actualStmt = $db->prepare("SELECT actual_duration_minutes FROM job_visits WHERE id = ?");
+            $actualStmt->execute([$visitId]);
+            $visit['actual_duration_minutes'] = $actualStmt->fetchColumn();
+
             // ── 2. Determine which user's rate to use ─────────────────────────
             // Prefer assigned crew; fall back to the completing user.
             $rateUserId = (int)($visit['assigned_crew_id'] ?? $completedByUserId);

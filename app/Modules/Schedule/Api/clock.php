@@ -171,6 +171,9 @@ try {
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
+            if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+            if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+            if ($lat === null || $lng === null) { $lat = null; $lng = null; }
 
             // Delegates to the shared Team clock-in path (TimeclockFunctions::clockIn)
             // instead of reimplementing the INSERT — keeps the GPS-ping-to-crew-map
@@ -213,6 +216,9 @@ try {
 
             $lat   = isset($input['lat'])   ? (float)$input['lat']  : null;
             $lng   = isset($input['lng'])   ? (float)$input['lng']  : null;
+            if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+            if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+            if ($lat === null || $lng === null) { $lat = null; $lng = null; }
             $notes = $input['notes'] ?? null;
 
             // Delegates to the shared Team clock-out path (TimeclockFunctions::clockOut)

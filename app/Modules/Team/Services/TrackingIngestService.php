@@ -276,7 +276,15 @@ class TrackingIngestService
         $lastId      = 0;
         $newest      = null;
 
-        foreach (self::thin($ok) as $p) {
+        $thinned = self::thin($ok);
+        $keptIds = array_fill_keys(array_map(static function (array $p): string { return (string)$p['id']; }, $thinned), true);
+        foreach ($ok as $p) {
+            if (!isset($keptIds[(string)$p['id']])) {
+                $accepted[] = ['id' => $p['id'], 'thinned' => true];
+            }
+        }
+
+        foreach ($thinned as $p) {
             // Duplicate guard on FIX time (index range scan), not receipt time — a replayed
             // queue must not be throttled away, and a future-dated row must not poison it.
             $gap = $p['has_device_time'] ? self::MIN_GAP_SECONDS : self::LEGACY_MIN_GAP_SECONDS;
@@ -307,19 +315,25 @@ class TrackingIngestService
 
             try {
                 if ($hasUuid) {
-                    $this->db->prepare("
+                    $insertStmt = $this->db->prepare("
                         INSERT IGNORE INTO crew_location_history
                             (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp,
                              point_uuid, received_at, speed_mps, heading_deg, is_mock, tier)
                         VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), ?, NOW(), ?, ?, ?, ?)
-                    ")->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts'],
-                                 $p['id'], $p['speed'], $p['heading'], $p['mock'] ? 1 : 0, $p['tier']]);
+                    ");
+                    $insertStmt->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts'],
+                                          $p['id'], $p['speed'], $p['heading'], $p['mock'] ? 1 : 0, $p['tier']]);
                 } else {
-                    $this->db->prepare("
+                    $insertStmt = $this->db->prepare("
                         INSERT INTO crew_location_history
                             (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
                         VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?))
-                    ")->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts']]);
+                    ");
+                    $insertStmt->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts']]);
+                }
+                if ($insertStmt->rowCount() !== 1) {
+                    $accepted[] = ['id' => $p['id'], 'duplicate' => true];
+                    continue;
                 }
                 $lastId = (int)$this->db->lastInsertId() ?: $lastId;
                 $stored++;

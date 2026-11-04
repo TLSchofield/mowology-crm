@@ -79,7 +79,11 @@ try {
     $params = [];
 
     if (!$isAdmin) {
-        $where[]  = 'jv.assigned_crew_id = ?';
+        $where[]  = '(jv.assigned_crew_id = ? OR EXISTS (
+            SELECT 1 FROM calendar_stop_crew csc
+            WHERE csc.stop_id = jv.stop_id AND csc.user_id = ?
+        ))';
+        $params[] = $userId;
         $params[] = $userId;
     }
 
