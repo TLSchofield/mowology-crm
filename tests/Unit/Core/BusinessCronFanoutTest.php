@@ -45,4 +45,23 @@ class BusinessCronFanoutTest extends TestCase
         Tenant::forTests(['key' => 'x', 'cfg' => []]);
         $this->assertSame([], BusinessCronFanout::run('/cron.php', 2, $spawn, ['good']));
     }
+
+    /** The cron's PHP 8.1 has no proc_open: fork + exec must report exit codes, time out, and survive a failed exec. */
+    public function test_fork_spawn_exit_timeout_and_failed_exec(): void
+    {
+        if (!function_exists('pcntl_fork') || !function_exists('posix_kill')) $this->markTestSkipped('pcntl not available');
+        $php = PHP_BINARY;
+        $this->assertSame(3, BusinessCronFanout::spawnFork([$php, '-r', 'exit(3);'], 10)['exit']);
+        $this->assertSame(0, BusinessCronFanout::spawnFork([$php, '-r', 'exit(0);'], 10)['exit']);
+        $t = microtime(true);
+        $this->assertSame(124, BusinessCronFanout::spawnFork([$php, '-r', 'sleep(30);'], 1)['exit']);
+        $this->assertLessThan(10, microtime(true) - $t, 'a stuck child is stopped');
+        $this->assertSame(137, BusinessCronFanout::spawnFork(['/nonexistent/php', 'x'], 5)['exit'], 'exec failure kills the child (SIGKILL)');
+    }
+
+    public function test_cli_binary_prefers_the_override_then_83(): void
+    {
+        $this->assertSame(['/opt/cpanel/ea-php83/root/usr/bin/php'], BusinessCronFanout::CLI_CANDIDATES);
+        $this->assertNotSame('', BusinessCronFanout::cliBinary());
+    }
 }
