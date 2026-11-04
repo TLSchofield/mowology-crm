@@ -1067,7 +1067,7 @@ class SalesDeskService
                 'untouched' => $heat['untouched'],
                 'created_at' => (string)$r['created_at'],
                 'next'      => $next,
-                'url'       => '/crm/quotes/create.php?quote_request_id=' . (int)$r['id'],
+                'url'       => '/crm/quote-workflow.php?request_id=' . (int)$r['id'],   // measure and quote screen, as the dashboard's request cards do (Tim 2026-11-03)
             ];
         }
         $ordered = LeadScore::order($out);
