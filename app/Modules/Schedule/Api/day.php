@@ -70,7 +70,7 @@ if (!$dt || $dt->format('Y-m-d') !== $date) {
 // ?service=<slug> narrows to one job type (the tenant's service_types).
 require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
 $askedScope = in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null;
-$viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()), $askedScope);
+$viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()), $askedScope, null, CrewViewScope::people(getDB()));
 $crewFilter = $viewScope['crew'];
 $serviceFilter = null;
 $serviceTypes  = [];

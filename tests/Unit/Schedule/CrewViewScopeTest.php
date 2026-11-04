@@ -26,4 +26,14 @@ class CrewViewScopeTest extends TestCase
         $this->assertSame(9, CrewViewScope::decide('admin', 2, 'own', 'all', 9)['crew']);
         $this->assertTrue(CrewViewScope::seesOtherCrews('manager', 'own'));
     }
+
+    public function test_a_one_person_business_has_nothing_to_switch(): void
+    {
+        $this->assertSame(['crew' => null, 'scope' => 'all', 'can_switch' => false], CrewViewScope::decide('admin', 1, 'own', 'mine', null, 1));
+        $this->assertTrue(CrewViewScope::decide('admin', 1, 'own', null, null, 2)['can_switch'], 'two people: the switch stays');
+        $db = new PDO('sqlite::memory:');
+        $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT, is_active INT)");
+        $db->exec("INSERT INTO users (role, is_active) VALUES ('admin', 1), ('accountant', 1), ('user', 0)");
+        $this->assertSame(1, CrewViewScope::people($db), 'the accountant and inactive logins do not count');
+    }
 }

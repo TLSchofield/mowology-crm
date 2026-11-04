@@ -88,7 +88,7 @@ $endStr    = $end->format('Y-m-d');
 // The same rule and filters as the day (CrewViewScope, 2026-10-14), so the strip's dots match the list.
 require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
 $viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()),
-                                    in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null);
+                                    in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null, null, CrewViewScope::people(getDB()));
 $crewFilter = $viewScope['crew'];
 $weekService = null;
 try {
