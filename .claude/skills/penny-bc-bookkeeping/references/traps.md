@@ -830,3 +830,8 @@ Esso vendor carries. Linking receipts to vendors by GST number alone would file 
 **Rule:** a GST number may confirm a vendor the name already points to, or pick between candidates; it never
 assigns a vendor on its own. A vendor record keeps the first number seen (empty fields only); franchises legitimately
 show several.
+
+## A column check with a placeholder turns a feature off (2026-11-04)
+`SHOW COLUMNS ... LIKE ?` fails under native prepares (production), the try/catch answers "column missing", and the
+feature quietly never runs (vendor commons link, header-layout lessons). Quote the value instead. Verify any
+"skip when the migration hasn't run" guard on production with a prod-run preview, not only in SQLite tests.
