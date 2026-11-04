@@ -110,6 +110,22 @@ final class SignUpService
     /** Verify the code and claim atomically. */
     public function confirm(array $in, string $ip, ?callable $issueToken = null, ?int $now = null): array
     {
+        // MySQL 1615 "Prepared statement needs to be re-prepared": on this host a server-side PREPARED UPDATE of
+        // `users` (many foreign-key children, short table cache) fails every time — walk 2 2026-11-04 failed twice
+        // at the password UPDATE. Emulated prepares send plain statements (values still quoted by PDO), the same
+        // remedy ExpenseGate uses; switched on for the claim only, then put back.
+        $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        $emulated = $mysql ? (bool)$this->db->getAttribute(PDO::ATTR_EMULATE_PREPARES) : null;
+        if ($mysql) $this->db->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+        try {
+            return $this->claim($in, $ip, $issueToken, $now);
+        } finally {
+            if ($mysql) $this->db->setAttribute(PDO::ATTR_EMULATE_PREPARES, $emulated);
+        }
+    }
+
+    private function claim(array $in, string $ip, ?callable $issueToken, ?int $now): array
+    {
         $this->db->beginTransaction();
         try {
             $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
