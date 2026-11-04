@@ -97,7 +97,7 @@ final class VendorIdentity
 
     /**
      * Canadian GST/HST registration as printed on receipts: "123456789 RT0001",
-     * "GST# 123456789RT0001", "BN 123456789". Returns "123456789RT0001" or the bare 9-digit BN.
+     * "GST# 123456789RT0001", "BN 123456789", "GST: R123456789" (old R prefix, any line break). Returns "123456789RT0001" or the bare 9-digit BN.
      */
     public static function gstNumber(?string $text): ?string
     {
@@ -105,7 +105,8 @@ final class VendorIdentity
         if (preg_match('/\b(\d{9})\s?[-]?\s?(RT)\s?(\d{4})\b/i', $text, $m)) {
             return $m[1] . 'RT' . $m[3];
         }
-        if (preg_match('/\b(?:gst|hst|gst\/hst|tps|tvh|bn|business\s*(?:no|number|#))\s*(?:reg(?:istration)?|no|number|#|:)*\s*[:#]?\s*(\d{9})\b/i', $text, $m)) {
+        // An optional "R" is the old GST registration prefix ("GST:" / "R743318321", label and number on separate lines).
+        if (preg_match('/\b(?:gst|hst|gst\/hst|tps|tvh|bn|business\s*(?:no|number|#))\s*(?:reg(?:istration)?|no|number|#|:)*\s*[:#]?\s*R?\s?(\d{9})\b/i', $text, $m)) {
             return $m[1];
         }
         return null;
