@@ -195,9 +195,15 @@ class InvoiceRefundService
                 ['idempotency_key' => 'mw-refund-' . $refundRowId]
             );
         } catch (Throwable $e) {
-            $this->markFailed($refundRowId, $e->getMessage());
             error_log('invoice refund Stripe error, invoice ' . $invoiceId . ': ' . $e->getMessage());
-            throw new RuntimeException('Stripe could not process the refund: ' . $e->getMessage());
+            // Only an answer from Stripe that refuses the refund proves nothing was refunded. A timeout, a dropped connection
+            // or a 5xx may hide a refund that went through: the row stays pending, and a retry for the same amount re-uses its
+            // idempotency key so Stripe returns that refund instead of making another (Codex review 2026-11-04).
+            if (self::isDefiniteRefusal($e)) {
+                $this->markFailed($refundRowId, $e->getMessage());
+                throw new RuntimeException('Stripe could not process the refund: ' . $e->getMessage());
+            }
+            throw new RuntimeException('Stripe did not confirm the refund. Check the payment in Stripe, then try again for the same amount.');
         }
         $stripeRefundId = (string) ($stripeRefund->id ?? '');
 
@@ -261,6 +267,15 @@ class InvoiceRefundService
         $stmt->execute([$paymentIntent]);
         $cents = $stmt->fetchColumn();
         return $cents === false || $cents === null ? null : round(((int) $cents) / 100, 2);
+    }
+
+    /** True when Stripe itself answered and refused (a 4xx): then no refund exists. */
+    public static function isDefiniteRefusal(Throwable $e): bool
+    {
+        if (!($e instanceof \Stripe\Exception\ApiErrorException)) return false;
+        if ($e instanceof \Stripe\Exception\ApiConnectionException) return false;
+        $status = $e->getHttpStatus();
+        return $status !== null && $status >= 400 && $status < 500;
     }
 
     private function markFailed(int $refundRowId, string $message): void

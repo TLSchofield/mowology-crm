@@ -220,8 +220,12 @@ class InvoiceService
                     return $pi->client_secret;
                 }
             } catch (\Stripe\Exception\ApiErrorException $e) {
-                // PI not retrievable (deleted / wrong-mode / network) — fall through to create a fresh one.
-                $this->logStripeWarn('Could not retrieve existing PaymentIntent; creating fresh', [
+                // Only a PaymentIntent Stripe says does not exist may be replaced. A timeout or rate limit leaves us unable to
+                // tell whether the old one was paid, so stop rather than risk a second charge (Codex review 2026-11-04).
+                if ($e->getStripeCode() !== 'resource_missing') {
+                    throw new RuntimeException('Could not check the earlier card payment right now — try again in a moment.');
+                }
+                $this->logStripeWarn('Existing PaymentIntent no longer exists; creating fresh', [
                     'pi_id' => $existingPi,
                     'error' => $e->getMessage(),
                 ]);
