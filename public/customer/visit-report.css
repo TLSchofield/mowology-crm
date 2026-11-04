@@ -1194,3 +1194,14 @@ img.pvr-gps-img { height: auto; }
 .pvr-ping-summary::before { content: '\25B8'; display: inline-block; width: 14px; }
 .pvr-ping-details[open] > .pvr-ping-summary::before { content: '\25BE'; }
 @media print { .pvr-ping-details:not([open]) .pvr-ping-log { display: none; } }
+
+/* Plant care this visit (PlantWorkService, 2026-11-04) */
+.pvr-plant-line { display: block; }
+.pvr-plant-tick {
+    display: inline-block;
+    width: 1.2em;
+    font-weight: 700;
+    color: var(--p-green);
+}
+.pvr-plant-open { color: var(--p-text-muted); }
+.pvr-plant-open .pvr-plant-tick { color: var(--p-text-muted); }

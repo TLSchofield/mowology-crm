@@ -214,7 +214,7 @@ $visibleNotes = [];
 if (!$error && $visit) {
     try {
         $stmt = $db->prepare("
-            SELECT note, created_at
+            SELECT content AS note, created_at
             FROM visit_notes
             WHERE visit_id = ?
               AND is_visible_to_customer = 1
@@ -224,6 +224,30 @@ if (!$error && $visit) {
         $visibleNotes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         $visibleNotes = [];
+    }
+}
+
+// ── Plant care this visit (PlantWorkService, migration 1436) and why a pruning plan cut what it cut ──
+$plantLines = [];
+$pruneWhy   = [];
+if (!$error && $visit) {
+    try {
+        require_once APP_ROOT . '/Modules/Plants/Services/PlantWorkService.php';
+        $plantLines = (new PlantWorkService($db))->forVisit((int)$visitId);
+        $planIds = [];
+        foreach ($plantLines as $pl) {
+            if (preg_match('/^plan:(\d+):/', $pl['key'], $m)) $planIds[(int)$m[1]] = true;
+        }
+        $prunePlans = new PruningPlanService($db);
+        foreach (array_keys($planIds) as $planId) {
+            $pp = $prunePlans->get($planId);
+            if ($pp && in_array($pp['status'], ['approved', 'scheduled', 'done'], true) && !empty($pp['plan']['client_summary'])) {
+                $pruneWhy[] = ['plant' => $pp['common_name'] ?: $pp['scientific_name'], 'summary' => (string)$pp['plan']['client_summary']];
+            }
+        }
+    } catch (Throwable $e) {
+        $plantLines = [];
+        $pruneWhy   = [];
     }
 }
 
@@ -372,7 +396,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
-  <link rel="stylesheet" href="/customer/visit-report.css?v=20261102b">
+  <link rel="stylesheet" href="/customer/visit-report.css?v=20261104p">
   <?php $hasMap = ($pingCount > 0) || !empty($photoPins) || ($canEditPins && !empty($unplacedPhotos) && !empty($visit['property_lat']) && !empty($visit['property_lng'])); ?>
   <?php if ($hasMap): ?>
   <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
@@ -681,6 +705,31 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
           <?php endif; ?>
         <?php endforeach; ?>
       </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- 4b. Plant Care Card (checklist lines tied to the property's plants) ─ -->
+    <?php if (!empty($plantLines)): ?>
+    <div class="pvr-section">
+      <div class="pvr-section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+        Plant Care This Visit
+      </div>
+      <?php foreach ($plantLines as $pl): ?>
+        <div class="pvr-note-item pvr-plant-line<?php echo $pl['done'] ? '' : ' pvr-plant-open'; ?>">
+          <span class="pvr-plant-tick" aria-hidden="true"><?php echo $pl['done'] ? '&#10003;' : '&#9675;'; ?></span>
+          <?php echo htmlspecialchars($pl['task']); ?><?php echo $pl['done'] ? '' : ' <span class="pvr-note-date">(not done this visit)</span>'; ?>
+          <?php if ($pl['note'] !== ''): ?>
+            <div class="pvr-note-date"><?php echo htmlspecialchars($pl['note']); ?></div>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+      <?php foreach ($pruneWhy as $pw): ?>
+        <div class="pvr-aftercare">
+          <div class="pvr-aftercare-heading">Why we pruned the <?php echo htmlspecialchars(mb_strtolower($pw['plant'])); ?> this way</div>
+          <div class="pvr-aftercare-text"><?php echo nl2br(htmlspecialchars($pw['summary'])); ?></div>
+        </div>
+      <?php endforeach; ?>
     </div>
     <?php endif; ?>
 

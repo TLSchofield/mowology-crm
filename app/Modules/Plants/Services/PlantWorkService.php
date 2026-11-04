@@ -360,6 +360,51 @@ class PlantWorkService
         return array_values(array_map(fn($l) => ['plants' => array_keys($l['plants'])] + $l, $out));
     }
 
+    /** The task due now, else the next one to start: {task, when, now}. */
+    public static function nextTask(array $tasks, int $month): ?array
+    {
+        $best = null; $bestGap = 13;
+        foreach ($tasks as $t) {
+            $from = (int)($t['from'] ?? 0); $to = (int)($t['to'] ?? 0);
+            if ($from < 1 || $from > 12 || trim((string)($t['task'] ?? '')) === '') continue;
+            $gap = self::inWindow($month, $from, $to) ? 0 : (($from - $month + 12) % 12 ?: 12);
+            if ($gap < $bestGap) { $bestGap = $gap; $best = ['task' => trim((string)$t['task']), 'when' => PlantCareService::window($from, $to), 'now' => $gap === 0]; }
+        }
+        return $best;
+    }
+
+    /**
+     * For the client portal: the property's confirmed plants, one row per species, with the last work done and
+     * what comes next from the approved care card. {plant, count, last: {task, done_at}|null, next: {task, when, now}|null}
+     */
+    public function portalSummary(int $propertyId, string $date): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT id, scientific_name, common_name FROM plant_records
+                                     WHERE property_id = ? AND status = 'confirmed' AND scientific_name IS NOT NULL AND scientific_name <> '' ORDER BY id ASC");
+            $s->execute([$propertyId]);
+            $plants = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        if (!$plants) return [];
+        $last = $this->lastDoneByPlant($propertyId);
+        $month = (int)date('n', strtotime($date) ?: time());
+        $rows = [];
+        foreach ($plants as $p) {
+            $sci = strtolower((string)$p['scientific_name']);
+            if (!isset($rows[$sci])) {
+                $card = $this->care->forPlant((string)$p['scientific_name']);
+                $rows[$sci] = ['plant' => self::plantName($p), 'count' => 0, 'last' => null,
+                               'next' => $card && $card['status'] === 'approved' ? self::nextTask($card['card']['tasks'] ?? [], $month) : null];
+            }
+            $rows[$sci]['count']++;
+            $l = $last[(int)$p['id']] ?? null;
+            if ($l && (!$rows[$sci]['last'] || $l['done_at'] > $rows[$sci]['last']['done_at'])) $rows[$sci]['last'] = $l;
+        }
+        return array_values($rows);
+    }
+
     /** "Thin crossing shoots — Japanese maple (×6)" → "Thin crossing shoots". */
     public static function taskOnly(string $line): string
     {

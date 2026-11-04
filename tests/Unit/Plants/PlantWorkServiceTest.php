@@ -106,6 +106,15 @@ class PlantWorkServiceTest extends TestCase
         $this->assertArrayNotHasKey('key', $out[3]);
     }
 
+    public function test_next_task_is_the_one_due_now_else_the_soonest_to_start(): void
+    {
+        $tasks = [['task' => 'Mulch', 'from' => 4, 'to' => 5], ['task' => 'Thin', 'from' => 11, 'to' => 2], ['task' => '', 'from' => 6, 'to' => 6]];
+        $this->assertSame(['task' => 'Thin', 'when' => 'Nov–Feb', 'now' => true], PlantWorkService::nextTask($tasks, 1));
+        $this->assertSame(['task' => 'Mulch', 'when' => 'Apr–May', 'now' => false], PlantWorkService::nextTask($tasks, 3));
+        $this->assertSame('Thin', PlantWorkService::nextTask($tasks, 7)['task'], 'wraps forward to November');
+        $this->assertNull(PlantWorkService::nextTask([], 5));
+    }
+
     public function test_task_only_strips_the_plant_part(): void
     {
         $this->assertSame('Thin crossing shoots', PlantWorkService::taskOnly('Thin crossing shoots — Japanese maple (×6)'));

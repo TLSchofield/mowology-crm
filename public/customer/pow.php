@@ -78,6 +78,7 @@ if (!$error) {
 $photos    = [];
 $notes     = [];
 $checklist = [];
+$plantCare = [];
 $confBox   = [];
 
 if (!$error && $visit) {
@@ -100,6 +101,10 @@ if (!$error && $visit) {
     $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $checklist = !empty($visit['checklist_json'])      ? json_decode($visit['checklist_json'], true)      : [];
+    $checklist = is_array($checklist) ? $checklist : [];
+    // Lines tied to the property's plants (PlantWorkService keys) get their own "Plant care" card.
+    $plantCare = array_values(array_filter($checklist, fn($i) => is_array($i) && !empty($i['key'])));
+    $checklist = array_values(array_filter($checklist, fn($i) => is_array($i) && empty($i['key'])));
     $confBox   = !empty($visit['confidence_box_json']) ? json_decode($visit['confidence_box_json'], true) : [];
     $materials = !empty($visit['materials_json'])      ? json_decode($visit['materials_json'], true)      : [];
 
@@ -259,6 +264,28 @@ $serviceLabel = [
     <div class="portal-info-card-header">What We Completed</div>
     <div class="portal-info-card-body">
       <?php foreach ($checklist as $item): ?>
+      <div class="portal-check-item">
+        <span class="portal-check-icon<?php echo !empty($item['checked']) ? '' : ' pending'; ?>">
+          <?php echo !empty($item['checked']) ? '✓' : '○'; ?>
+        </span>
+        <div>
+          <div style="font-size:0.875rem;"><?php echo htmlspecialchars($item['item'] ?? ''); ?></div>
+          <?php if (!empty($item['note'])): ?>
+            <div style="font-size:0.75rem;color:var(--p-text-muted);margin-top:2px;"><?php echo htmlspecialchars($item['note']); ?></div>
+          <?php endif; ?>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <!-- Plant care (checklist lines keyed to the property's plants) -->
+  <?php if (!empty($plantCare)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Plant Care</div>
+    <div class="portal-info-card-body">
+      <?php foreach ($plantCare as $item): ?>
       <div class="portal-check-item">
         <span class="portal-check-icon<?php echo !empty($item['checked']) ? '' : ' pending'; ?>">
           <?php echo !empty($item['checked']) ? '✓' : '○'; ?>

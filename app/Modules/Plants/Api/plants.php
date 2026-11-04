@@ -69,6 +69,8 @@ try {
     $care = new PlantCareService($db);
     require_once APP_ROOT . '/Modules/Plants/Services/PruningPlanService.php';
     $prune = new PruningPlanService($db);
+    require_once APP_ROOT . '/Modules/Plants/Services/PlantWorkService.php';
+    $work = new PlantWorkService($db, $care, $prune);
     // A plant's care as the Plants card shows it: approved cards in full, a draft only as "waiting".
     $careOf = function (array $p) use ($care): ?array {
         $sci = (string)($p['scientific_name'] ?? '');
@@ -101,9 +103,19 @@ try {
             $beds = array_map(fn($b) => ['id' => $b['id'], 'name' => $b['name'], 'type' => $b['type']], $svc->beds($pid));
             $plants = $svc->forProperty($pid);
             $planStatus = $prune->statusByPlant($pid);
-            foreach ($plants as &$p) { $p['care'] = $care->ready() ? $careOf($p) : null; $p['plan'] = $planStatus[(int)$p['id']] ?? null; }
+            // The plant work this month (what a visit checklist gets) and the last work logged per plant (PlantWorkService).
+            $due = $work->dueFor($pid, date('Y-m-d'));
+            $dueByPlant = [];
+            foreach ($due['lines'] as $l) foreach ($l['plant_ids'] as $id) $dueByPlant[$id][] = PlantWorkService::taskOnly($l['item']);
+            $last = $work->lastDoneByPlant($pid);
+            foreach ($plants as &$p) {
+                $p['care'] = $care->ready() ? $careOf($p) : null; $p['plan'] = $planStatus[(int)$p['id']] ?? null;
+                $p['due_now'] = $dueByPlant[(int)$p['id']] ?? []; $p['last_done'] = $last[(int)$p['id']] ?? null;
+            }
             unset($p);
             echo json_encode(['ok' => true, 'plants' => $plants, 'beds' => $beds, 'can_edit' => $canEdit, 'can_library' => $canLibrary,
+                              'work' => ['ready' => $work->ready(), 'seeding' => $work->seedsFor($pid, ''), 'lines' => count($due['lines']), 'more' => $due['more'],
+                                         'month' => PlantCareService::MONTHS[(int)date('n')]],
                               'attribution' => PlantIdService::ATTRIBUTION, 'left_today' => max(0, PlantIdService::DAILY_CAP - $svc->usedToday())]);
             break;
         }
@@ -188,6 +200,21 @@ try {
             elseif ($mode === 'pruning_reject')  echo json_encode($prune->reject($id, $uid));
             elseif ($mode === 'pruning_badges')  echo json_encode($prune->setAnchorsUsable($id, !empty($input['usable'])));
             else                                 echo json_encode($prune->setAnchors($id, (array)($input['anchors'] ?? []), $uid));
+            break;
+        // ── Plant work log (PlantWorkService, migration 1436) ──────────────────────
+        case 'work_history': {
+            $plantId = (int)($_GET['plant_id'] ?? 0);
+            $pl = $plantId > 0 ? $svc->one($plantId) : null;
+            if (!$pl) { echo json_encode(['ok' => false, 'error' => 'That plant is gone.']); break; }
+            echo json_encode(['ok' => true, 'history' => $work->forPlant($plantId)]);
+            break;
+        }
+        case 'plant_checklist':
+            if (!$canEdit) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'You can look but not change this.']); break; }
+            $on = !empty($input['on']);
+            echo json_encode($work->setSeeding((int)($input['property_id'] ?? 0), $on)
+                ? ['ok' => true, 'message' => $on ? 'Plant care goes on this property\'s visit checklists.' : 'Plant care is off for this property\'s checklists.']
+                : ['ok' => false, 'message' => 'Run migration 1436 first.']);
             break;
         case 'care_now':
             if (!$canLibrary) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Ask an admin or manager (product catalogue permission).']); break; }

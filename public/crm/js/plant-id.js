@@ -32,6 +32,7 @@
                 if (!d.ok) { q('.mw-plants-list').innerHTML = '<p class="text-muted small mb-0">' + esc(d.error || 'Plant ID is not set up yet.') + '</p>'; return; }
                 state.beds = d.beds || []; state.canEdit = !!d.can_edit; state.canLibrary = !!d.can_library;
                 q('.mw-plants-attr').textContent = d.attribution || '';
+                state.work = d.work || null;
                 renderList(d.plants || []);
             })
             .catch(function () { q('.mw-plants-list').innerHTML = '<p class="text-muted small mb-0">Could not load plants.</p>'; });
@@ -73,23 +74,59 @@
         return '<div class="small mt-1"><a href="/crm/plants/library.php">' + what + '</a></div>';
     }
 
+    // This month's work (it goes on the visit checklists) and the last work logged (PlantWorkService).
+    function workOf(p) {
+        var due = (p.due_now || []).length ? '<span class="badge badge-success mr-1">Due ' + esc(state.work ? state.work.month : '') + '</span>' + p.due_now.map(esc).join(' · ') : '';
+        var last = p.last_done ? '<span class="text-muted">Last done: ' + esc(p.last_done.task) + ' · ' + esc(String(p.last_done.done_at || '').slice(0, 10)) + '</span>'
+            + ' <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-history="' + p.id + '">History</button>' : '';
+        if (!due && !last) return '';
+        return '<div class="small mt-1">' + due + (due && last ? '<br>' : '') + last + '</div><div class="small mw-plants-history" data-history-for="' + p.id + '" hidden></div>';
+    }
+    function workHead() {
+        var w = state.work;
+        if (!w || !w.ready) return '';
+        var says = w.seeding
+            ? (w.lines ? w.lines + ' plant care line' + (w.lines === 1 ? '' : 's') + (w.more ? ' (+' + w.more + ' more)' : '') + ' go on this month\'s visit checklists.' : 'Nothing due this month; plant care is on for visit checklists.')
+            : 'Plant care is off for this property\'s visit checklists.';
+        return '<p class="small text-muted mb-2">' + says + (state.canEdit ? ' <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-seeding="' + (w.seeding ? 0 : 1) + '">' + (w.seeding ? 'Turn off' : 'Turn on') + '</button>' : '') + '</p>';
+    }
+
     function renderList(plants) {
         var box = q('.mw-plants-list');
         if (!plants.length) { box.innerHTML = '<p class="text-muted small mb-0">No plants recorded here yet. Tap <b>What is this?</b> and take three photos of one plant.</p>'; return; }
-        box.innerHTML = '<table class="table table-sm mb-0"><tbody>' + plants.map(function (p) {
+        box.innerHTML = workHead() + '<table class="table table-sm mb-0"><tbody>' + plants.map(function (p) {
             var thumb = p.thumbs && p.thumbs[0] ? '<img src="' + esc(p.thumbs[0]) + '" alt="" width="44" height="44" class="rounded">' : '';
             var badge = p.status === 'confirmed' ? '' : ' <span class="badge badge-warning">' + (p.status === 'unsure' ? 'not sure' : 'check') + '</span>';
             var acts = state.canEdit ? (p.status !== 'confirmed' ? '<button type="button" class="btn btn-sm btn-outline-primary mr-1" data-check="' + p.id + '">Check</button>' : '')
                 + (!p.bed ? '<a class="btn btn-sm btn-outline-secondary mr-1" href="/crm/products/area-measurement.php?property_id=' + PID + '&plant=' + p.id + '">Draw its bed</a>' : '')
                 + '<button type="button" class="btn btn-sm btn-link text-muted" data-remove="' + p.id + '">Remove</button>' : '';
             acts = planButton(p) + acts;
-            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + '</td>'
+            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + workOf(p) + '</td>'
                 + '<td class="text-right text-nowrap">' + acts + '</td></tr>';
         }).join('') + '</tbody></table>';
         state.plants = plants;
     }
 
     root.addEventListener('click', function (e) {
+        var h = e.target.closest('[data-history]'), sw = e.target.closest('[data-seeding]');
+        if (h) {
+            var hid = +h.getAttribute('data-history'), out = q('[data-history-for="' + hid + '"]');
+            if (!out) return;
+            if (!out.hidden) { out.hidden = true; return; }
+            out.hidden = false; out.textContent = 'Loading…';
+            fetch(API + '?mode=work_history&plant_id=' + hid, { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var rows = d.history || [];
+                    out.innerHTML = rows.length ? '<ul class="pl-3 mb-0">' + rows.map(function (r) { return '<li>' + esc(String(r.done_at || '').slice(0, 10)) + ' · ' + esc(r.task) + (r.note ? ' <span class="text-muted">— ' + esc(r.note) + '</span>' : '') + '</li>'; }).join('') + '</ul>' : '<span class="text-muted">' + esc(d.error || 'Nothing logged yet.') + '</span>';
+                })
+                .catch(function () { out.textContent = 'Could not load the history.'; });
+            return;
+        }
+        if (sw) {
+            post({ mode: 'plant_checklist', property_id: PID, on: sw.getAttribute('data-seeding') === '1' }).then(function (r) { toast(r.message || 'Done', r.ok ? 'success' : 'error'); load(); });
+            return;
+        }
         var t = e.target.closest('[data-check],[data-remove],[data-care],[data-plan]');
         if (!t) return;
         if (t.hasAttribute('data-plan')) { openPlan(+t.getAttribute('data-plan'), t.getAttribute('data-plan-id') ? +t.getAttribute('data-plan-id') : 0); return; }
