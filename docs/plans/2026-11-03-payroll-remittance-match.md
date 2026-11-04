@@ -33,3 +33,11 @@ For the occurrence due on D (it covers the previous month M = month before D):
 
 ## Not built
 Booking the September run (Tim's tap), importing October (needs the PDF from Wave), any payment, any change to WorkSafeBC.
+
+## Build record (2026-11-03)
+- Built: `PayrollRemitMatch` (pure) and `PayrollRemitCheck` (read-only loader) in `app/Modules/Accounting/Services/`; `DeadlineService::askItem()` / `autoClose()` / `payrollAssessment()`; `brief()` swaps the reminder for the ask, drops a matched one, keeps a real miss red; the 15-minute cron calls `autoClose()` after `sync()`; `CharlieInboxService::fromDeadlines()` gives no Done button to a request. `tests/Unit/ChiefOfStaff/PayrollRemitMatchTest.php` (15 tests). Suite 3613 green.
+- **Dry run on live (rolled back):** the July, August and September remittances each match their Wave debits to the cent (Jul $5,192.65, Aug $6,522.37, Sep $4,653.27); November's asks for October's report. Simulated Nov 10: the ask line appears (priority 2), no red; Nov 3: no payroll line at all.
+- **Live card:** the status is still RED but now for WorkSafeBC ("overdue since Oct 31"), not payroll. WorkSafeBC is the same kind of date-only reminder; Tim has not said how it is paid, so it is left as it was.
+- **Codex** (2 reviews, 9 findings): fixed: debits of other months can no longer make a match (claimed lines of other runs and the previous month are skipped; debits inside the month are tried before the wider window), bank coverage is read from the bank account that carries the Wave debits and ignores void rows, a $0 or missing remittance never closes the reminder, the ask item carries `overdue`. Not changed, with reasons: closing a snoozed occurrence when its debits match (it is paid); an equal-amount coincidence with an unclaimed debit of the neighbouring month (needs the real debit missing AND an equal sum; the importer accepts the same window).
+- Penny already asks "The {Month} payroll report isn't imported" from the 5th (booked months only), so from Nov 8 two heads ask for October's report. Left as two lines on purpose: Penny's is her desk, Kaname's replaces the calendar line.
+- Needs Tim: upload October's Wave report in Penny; book September's run (still preview); say how WorkSafeBC is paid.
