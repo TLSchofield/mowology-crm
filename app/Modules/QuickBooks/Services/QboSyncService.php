@@ -24,6 +24,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/QboConnectionService.php';
+require_once __DIR__ . '/QboLinkService.php';
 if (!class_exists('LedgerAccountMap')) require_once dirname(__DIR__, 2) . '/Accounting/Services/LedgerAccountMap.php';
 
 class QboSyncService
@@ -118,6 +119,29 @@ class QboSyncService
         return ['Name' => mb_substr($name, 0, 100 - strlen(self::ITEM_SUFFIX)) . self::ITEM_SUFFIX, 'Type' => 'Service', 'IncomeAccountRef' => ['value' => $qboAccountId]];
     }
 
+    /** Pure product-line builder; null means keep the established account-split lines. */
+    public static function productLines(array $rows, array $itemMappings, float $subtotal): ?array
+    {
+        if (!$rows) return null;
+        $out = []; $sum = 0.0;
+        foreach ($rows as $row) {
+            $productId = (string)($row['product_id'] ?? '');
+            if ($productId === '' || empty($itemMappings[$productId])) return null;
+            $qty = round((float)($row['quantity'] ?? 1), 4);
+            if ($qty == 0.0) $qty = 1.0;
+            $amount = round((float)($row['line_total'] ?? $row['amount'] ?? 0), 2);
+            $unit = isset($row['unit_price']) ? round((float)$row['unit_price'], 2) : round($amount / $qty, 2);
+            $description = trim((string)($row['title'] ?? ''));
+            if (trim((string)($row['description'] ?? '')) !== '') {
+                $description .= ($description !== '' ? ' — ' : '') . trim((string)$row['description']);
+            }
+            $out[] = ['item' => (string)$itemMappings[$productId], 'qty' => $qty, 'unit_price' => $unit,
+                      'amount' => $amount, 'description' => $description];
+            $sum += $amount;
+        }
+        return self::sameMoney($sum, $subtotal) ? $out : null;
+    }
+
     /**
      * @param list<array{item:string, amount:float, description:string}> $lines
      */
@@ -130,7 +154,9 @@ class QboSyncService
                 'DetailType' => 'SalesItemLineDetail',
                 'Amount' => $amt,
                 'Description' => mb_substr($l['description'], 0, 4000),
-                'SalesItemLineDetail' => ['ItemRef' => ['value' => $l['item']], 'Qty' => 1, 'UnitPrice' => $amt, 'TaxCodeRef' => ['value' => $taxCodeId]],
+                'SalesItemLineDetail' => ['ItemRef' => ['value' => $l['item']], 'Qty' => $l['qty'] ?? 1,
+                                          'UnitPrice' => isset($l['unit_price']) ? round((float)$l['unit_price'], 2) : $amt,
+                                          'TaxCodeRef' => ['value' => $taxCodeId]],
             ];
         }
         $b = [
@@ -307,12 +333,15 @@ class QboSyncService
         if (($why = self::cannotSend($net, $gst, $ittaiTotal, $splits, $rate)) !== null) {
             return ['ok' => false, 'message' => $label . ' was not sent: ' . $why];
         }
-        $lines = [];
-        foreach ($splits as [$code, $amt]) {
-            if (round((float)$amt, 2) == 0.0) continue;
-            $item = $this->ensureItem((string)$code, $maps);
-            if (!$item['ok']) return ['ok' => false, 'message' => $label . ': ' . $item['message']];
-            $lines[] = ['item' => $item['qbo_id'], 'amount' => (float)$amt, 'description' => $this->lineText($invoiceId, (string)$code)];
+        $lines = $this->mappedProductLines($invoiceId, $net, $maps);
+        if ($lines === null) {
+            $lines = [];
+            foreach ($splits as [$code, $amt]) {
+                if (round((float)$amt, 2) == 0.0) continue;
+                $item = $this->ensureItem((string)$code, $maps);
+                if (!$item['ok']) return ['ok' => false, 'message' => $label . ': ' . $item['message']];
+                $lines[] = ['item' => $item['qbo_id'], 'amount' => (float)$amt, 'description' => $this->lineText($invoiceId, (string)$code)];
+            }
         }
         if (!$lines) return ['ok' => false, 'message' => $label . ' has no amount to send.'];
 
@@ -525,6 +554,22 @@ class QboSyncService
         return $t ? implode('; ', $t) : 'Account ' . $code;
     }
 
+    private function mappedProductLines(int $invoiceId, float $subtotal, array $maps): ?array
+    {
+        try {
+            $s = $this->db->prepare('SELECT product_id, quantity, unit_price, line_total, title, description
+                                      FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order, id');
+            $s->execute([$invoiceId]);
+            $itemMappings = [];
+            foreach ((array)($maps['item'] ?? []) as $key => $mapping) {
+                if (!empty($mapping['qbo_id'])) $itemMappings[(string)$key] = (string)$mapping['qbo_id'];
+            }
+            return self::productLines($s->fetchAll(PDO::FETCH_ASSOC) ?: [], $itemMappings, $subtotal);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -624,6 +669,38 @@ class QboSyncService
             if (count($out['notes']) < 5) $out['notes'][] = $r['message'];
         }
         return $out;
+    }
+
+    /** One complete business run, shared by Penny and the per-business cron. */
+    public static function runAll(QboConnectionService $conn, ?callable $syncFactory = null, ?callable $expenseFactory = null): array
+    {
+        if (!$conn->tablesReady() || $conn->company() === null) {
+            return ['status' => 'success', 'summary' => 'QuickBooks: not connected — nothing to send.', 'notes' => [], 'notes_text' => null,
+                    'sent' => 0, 'held' => 0, 'failed' => 0, 'stopped' => null];
+        }
+        $sync = $syncFactory ? $syncFactory($conn) : new self($conn);
+        if (!$sync->auto()['on']) {
+            return ['status' => 'success', 'summary' => 'QuickBooks: automatic sending is off.', 'notes' => [], 'notes_text' => null,
+                    'sent' => 0, 'held' => 0, 'failed' => 0, 'stopped' => null];
+        }
+        $out = $sync->runQueue();
+        require_once __DIR__ . '/QboExpenseSyncService.php';
+        $expenseSync = $expenseFactory ? $expenseFactory($conn) : new QboExpenseSyncService($conn);
+        $expenses = $out['stopped'] ? ['sent' => 0, 'held' => 0, 'failed' => 0, 'notes' => [], 'stopped' => null]
+                                    : $expenseSync->runExpenses();
+        foreach (['sent', 'held', 'failed'] as $key) $out[$key] += $expenses[$key];
+        $out['notes'] = array_slice(array_merge($out['notes'], $expenses['notes']), 0, 5);
+        $out['stopped'] = $out['stopped'] ?: $expenses['stopped'];
+        return self::runSummary($out);
+    }
+
+    /** Pure final status/wording for one combined invoice + receipt run. */
+    public static function runSummary(array $out): array
+    {
+        $summary = "QuickBooks: {$out['sent']} sent, {$out['held']} held, {$out['failed']} failed"
+                 . ($out['stopped'] ? ' — stopped: ' . $out['stopped'] : '');
+        return ['status' => ($out['failed'] || $out['stopped']) ? 'warning' : 'success', 'summary' => $summary,
+                'notes_text' => $out['notes'] ? implode(' | ', $out['notes']) : null] + $out;
     }
 
     /**
@@ -727,15 +804,8 @@ class QboSyncService
         $c = $this->conn->company();
         if (!$c) return;
         $now = date('Y-m-d H:i:s', ($this->clock)());
-        $vals = [$qboId ?: null, $token ?: null, $rid, $status, $total, $msg !== null ? mb_substr($msg, 0, 500) : null, $now];
-        $u = $this->db->prepare('UPDATE qbo_links SET qbo_id = ?, sync_token = ?, request_id = ?, status = ?, qbo_total = ?, message = ?, sent_at = ?
-                                 WHERE site_id = ? AND realm_id = ? AND entity_type = ? AND entity_id = ?');
-        $u->execute(array_merge($vals, [$this->siteId, $c['realm_id'], $type, $id]));
-        if ($u->rowCount() === 0 && !$this->link($type, $id)) {
-            $this->db->prepare('INSERT INTO qbo_links (qbo_id, sync_token, request_id, status, qbo_total, message, sent_at, site_id, realm_id, entity_type, entity_id)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-                     ->execute(array_merge($vals, [$this->siteId, $c['realm_id'], $type, $id]));
-        }
+        QboLinkService::save($this->db, $this->siteId, (string)$c['realm_id'], $type, $id, $qboId, $token,
+                             $rid, $status, $total, $msg, $now);
     }
 
     protected function setting(string $key): ?string

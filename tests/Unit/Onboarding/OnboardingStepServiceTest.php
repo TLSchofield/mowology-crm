@@ -58,6 +58,28 @@ final class OnboardingStepServiceTest extends TestCase
         $this->assertSame('Connect QuickBooks first.',$disconnected->apply(7,['key'=>'quickbooks','do'=>'read'])['message']);
     }
 
+    public function test_quickbooks_send_action_sets_invoices_date_and_receipts_together(): void
+    {
+        $db=$this->db();
+        $onboarding=new class { public function pull():array{return ['ok'=>true];} public function apply(string $part,int $uid):array{return ['ok'=>true];} };
+        $sync=new class { public array $calls=[]; public function setAuto(bool $on,?string $from):bool{$this->calls[]=[$on,$from];return true;} };
+        $expenses=new class { public array $calls=[]; public function setReceipts(bool $on):void{$this->calls[]=$on;} };
+        $s=new OnboardingStepService($db,'tenant',null,static fn()=>['connected'=>true,'onboarding'=>$onboarding,'sync'=>$sync,'expenses'=>$expenses]);
+        $this->assertTrue($s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>true])['ok']);
+        $this->assertSame([[true,OnboardingStepService::businessToday($db)]],$sync->calls); $this->assertSame([true],$expenses->calls);
+        $this->assertTrue($s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>false])['ok']);
+        $this->assertSame([false,null],$sync->calls[1]); $this->assertSame([true,false],$expenses->calls);
+    }
+
+    public function test_business_today_uses_the_business_timezone_setting(): void
+    {
+        $db=$this->db();
+        $db->prepare('INSERT INTO ops_settings (setting_key,setting_value,description) VALUES (?,?,?)')
+           ->execute(['business_timezone','America/Vancouver','Business timezone']);
+        $instant=new DateTimeImmutable('2026-11-05 01:30:00',new DateTimeZone('UTC'));
+        $this->assertSame('2026-11-04',OnboardingStepService::businessToday($db,$instant));
+    }
+
     public function test_skip_and_done_gate(): void
     {
         $s=new OnboardingStepService($this->db(),'tenant');

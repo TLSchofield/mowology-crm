@@ -67,6 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['ob_flash'] = $r;
             $nextPart = OnboardingQuickBooksModule::PARTS[array_search($part, OnboardingQuickBooksModule::PARTS, true) + 1] ?? null;
             header('Location: step.php?m=quickbooks' . ($r['ok'] && $nextPart ? '&part=' . $nextPart : ($r['ok'] ? '' : '&part=' . $part))); exit;
+        } elseif ($key === 'quickbooks' && $do === 'send' && $qconn && $qconn->company()) {
+            require_once APP_ROOT . '/Modules/Onboarding/Services/OnboardingStepService.php';
+            $send = (new OnboardingStepService($db, Tenant::db()[0]))->apply($uid,
+                ['key' => 'quickbooks', 'do' => 'send', 'on' => (string)($_POST['on'] ?? '') === '1']);
+            $_SESSION['ob_flash'] = $send;
         } elseif ($key === 'books' && $do === 'ack') {
             $mod->acknowledge($ctx);
             $goNext();
@@ -262,6 +267,24 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
                             <?php if ($first): ?><a class="it-ob-button it-ob-button-primary" href="step.php?m=quickbooks&amp;part=<?= h($first) ?>">Start</a>
                             <?php else: ?><a class="it-ob-button it-ob-button-primary" href="<?= ($n = $svc->next()) ? 'step.php?m=' . h($n) : 'index.php' ?>">Continue</a><?php endif; ?>
                         </div>
+                        <?php if ($connected):
+                            require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
+                            $sending = (new QboSyncService($qconn))->auto(); ?>
+                            <div class="it-ob-card">
+                                <p class="it-ob-card-title">Send new invoices to QuickBooks?</p>
+                                <?php if ($sending['on']): ?>
+                                    <p class="it-obs-fact">Sending to QuickBooks from <?= h(date('j M Y', strtotime((string)$sending['from']))) ?></p>
+                                <?php else: ?>
+                                    <p class="it-obs-fact">From today, make invoices in Ittai, not in QuickBooks. Ittai sends each invoice, its payments and your receipts to QuickBooks for you.</p>
+                                <?php endif; ?>
+                                <form method="post" class="it-ob-actions">
+                                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="quickbooks">
+                                    <input type="hidden" name="do" value="send">
+                                    <button class="it-ob-button it-ob-button-primary" name="on" value="1">Yes, from today</button>
+                                    <button class="it-ob-button it-ob-button-link" name="on" value="0">Not now</button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 <?php else: ?>
                     <?php if (!$qob->canWrite()): ?>

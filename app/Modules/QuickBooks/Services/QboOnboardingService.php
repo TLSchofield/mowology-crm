@@ -25,6 +25,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/QboConnectionService.php';
+require_once __DIR__ . '/QboLinkService.php';
 
 class QboOnboardingService
 {
@@ -278,7 +279,7 @@ class QboOnboardingService
             $name = trim((string)array_pop($parts));
             $status = isset($have[self::norm($name)]) ? 'match' : 'new';
             $out[$status]++;
-            $out['rows'][] = ['name' => $name, 'group' => implode(' › ', array_map('trim', $parts)), 'price' => isset($i['UnitPrice']) ? (float)$i['UnitPrice'] : null,
+            $out['rows'][] = ['qbo_id' => (string)$i['Id'], 'name' => $name, 'group' => implode(' › ', array_map('trim', $parts)), 'price' => isset($i['UnitPrice']) ? (float)$i['UnitPrice'] : null,
                               'status' => $status, 'description' => (string)($i['Description'] ?? '')];
         }
         return $out;
@@ -363,7 +364,7 @@ class QboOnboardingService
         if (!class_exists('ContactService')) require_once dirname(__DIR__, 2) . '/Contacts/Services/ContactService.php';
         $cs = new ContactService($this->db);
         $all = $this->rows('customer');
-        $made = 0; $props = 0; $skipped = 0; $contactOf = [];
+        $made = 0; $props = 0; $skipped = 0; $conflicts = 0; $contactOf = [];
         $terms = [];
         foreach ($this->rows('term') as $t) $terms[(string)$t['Id']] = (string)$t['Name'];
         foreach ($all as $c) {
@@ -375,6 +376,7 @@ class QboOnboardingService
             if ($m = $this->matchContact($email, $g, $f, $ship['address'] ?? '', (string)$c['Id'])) {
                 // Already in Ittai: its jobs (sub-customers) still go onto it (Codex review 2026-10-20).
                 $contactOf[(string)$c['Id']] = $m[0];
+                $conflicts += $this->linkImportedCustomer((string)$c['Id'], $m[0]);
                 $skipped++;
                 continue;
             }
@@ -393,6 +395,7 @@ class QboOnboardingService
                 'payment_terms' => $terms[(string)($c['SalesTermRef']['value'] ?? '')] ?? 'Net 30', 'pref_attach_pdf' => 1,
             ]);
             $contactOf[(string)$c['Id']] = $id;
+            $conflicts += $this->linkImportedCustomer((string)$c['Id'], $id);
             $made++;
         }
         foreach ($all as $c) {
@@ -404,7 +407,40 @@ class QboOnboardingService
                                                      'property_name' => (string)($c['DisplayName'] ?? $a['address'])]);
             if (!empty($r['created'])) $props++;
         }
-        return ['ok' => true, 'message' => sprintf('%d clients added for Sam%s%s.', $made, $props ? ", $props extra properties" : '', $skipped ? ", $skipped already in Ittai left as they were" : '')];
+        return ['ok' => true, 'message' => sprintf('%d clients added for Sam%s%s%s.', $made, $props ? ", $props extra properties" : '',
+                $skipped ? ", $skipped already in Ittai left as they were" : '', $conflicts ? ", $conflicts QuickBooks link conflicts kept unchanged" : '')];
+    }
+
+    /** Link every identity customerOf() can choose. Returns links that already point elsewhere. */
+    private function linkImportedCustomer(string $qboId, int $contactId): int
+    {
+        if (!$this->conn || !($company = $this->conn->company())) return 0;
+        $companyId = null; $clientId = null;
+        foreach ([['SELECT company_id FROM contacts WHERE id = ?', 'company'],
+                  ['SELECT id FROM companies WHERE primary_contact_id = ? LIMIT 1', 'company'],
+                  ['SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1', 'client'],
+                  ['SELECT id FROM clients WHERE contact_id = ? LIMIT 1', 'client']] as $lookup) {
+            try {
+                $s = $this->db->prepare($lookup[0]); $s->execute([$contactId]); $id = (int)$s->fetchColumn();
+                if ($id > 0 && $lookup[1] === 'company') $companyId = $id;
+                if ($id > 0 && $lookup[1] === 'client') $clientId = $id;
+            } catch (Throwable $e) { /* schema variant: the next identity source may exist */ }
+        }
+        $conflicts = 0; $now = date('Y-m-d H:i:s', ($this->clock)());
+        foreach (self::customerKeys($contactId, $companyId, $clientId) as $key) {
+            if (QboLinkService::save($this->db, $this->siteId, (string)$company['realm_id'], 'client', $key,
+                                     $qboId, null, 'imported', 'sent', null, 'linked at import', $now, true) === 'conflict') $conflicts++;
+        }
+        return $conflicts;
+    }
+
+    /** Every local identity QboSyncService::customerOf() may select for this imported customer. */
+    public static function customerKeys(int $contactId, ?int $companyId, ?int $clientId): array
+    {
+        $keys = ['contact:' . $contactId];
+        if ($companyId !== null && $companyId > 0) $keys[] = 'company:' . $companyId;
+        if ($clientId !== null && $clientId > 0) $keys[] = 'client:' . $clientId;
+        return $keys;
     }
 
     private function applyServices(int $userId): array
@@ -419,13 +455,27 @@ class QboOnboardingService
         }
         $unit = (int)($this->db->query("SELECT id FROM unit_types ORDER BY (LOWER(name) IN ('each', 'service', 'visit')) DESC, id LIMIT 1")->fetchColumn() ?: 1);
         $ins = $this->db->prepare('INSERT INTO products (category_id, name, description, unit_type_id, base_price, taxable, active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, ?)');
-        $made = 0;
-        foreach ($this->services()['rows'] as $r) {
-            if ($r['status'] !== 'new') continue;
-            $ins->execute([$catId, mb_substr($r['name'], 0, 200), $r['description'] ?: ($r['group'] ? 'From QuickBooks: ' . $r['group'] : null), $unit, $r['price'] ?? 0, $userId ?: null]);
-            $made++;
+        $productsByName = [];
+        foreach ($this->db->query('SELECT id, name FROM products')->fetchAll(PDO::FETCH_ASSOC) ?: [] as $product) {
+            $productsByName[self::norm((string)$product['name'])] = (int)$product['id'];
         }
-        return ['ok' => true, 'message' => $made . ' services added to Otto\'s catalogue under "' . self::CATEGORY . '".'];
+        $made = 0; $mapped = 0;
+        foreach ($this->services()['rows'] as $r) {
+            if ($r['status'] === 'new') {
+                $ins->execute([$catId, mb_substr($r['name'], 0, 200), $r['description'] ?: ($r['group'] ? 'From QuickBooks: ' . $r['group'] : null), $unit, $r['price'] ?? 0, $userId ?: null]);
+                $productId = (int)$this->db->lastInsertId(); $made++;
+                $productsByName[self::norm($r['name'])] = $productId;
+            } else {
+                $productId = (int)($productsByName[self::norm($r['name'])] ?? 0);
+            }
+            if ($productId > 0) {
+                $this->db->prepare('DELETE FROM qbo_mappings WHERE site_id = ? AND kind = ? AND ittai_key = ?')->execute([$this->siteId, 'item', (string)$productId]);
+                $this->db->prepare('INSERT INTO qbo_mappings (site_id, kind, ittai_key, qbo_id, qbo_name, set_by) VALUES (?, ?, ?, ?, ?, ?)')
+                         ->execute([$this->siteId, 'item', (string)$productId, $r['qbo_id'], $r['name'], $userId ?: null]);
+                $mapped++;
+            }
+        }
+        return ['ok' => true, 'message' => $made . ' services added to Otto\'s catalogue under "' . self::CATEGORY . '"; ' . $mapped . ' QuickBooks items linked.'];
     }
 
     private function applySuppliers(): array

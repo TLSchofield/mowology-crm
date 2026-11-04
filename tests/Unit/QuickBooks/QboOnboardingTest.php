@@ -3,6 +3,12 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+class QboOnboardingContactServiceStub
+{
+    public function __construct(PDO $db) {}
+    public function addPropertyToContact(int $contactId, array $data): array { return ['created' => false]; }
+}
+
 /**
  * Penny's QuickBooks onboarding (2026-10-20): the snapshot moves between sites, the previews read it the
  * way the sandbox stores things (sub-customers are jobs, Category items are folders, the GST number is on
@@ -18,11 +24,18 @@ class QboOnboardingTest extends TestCase
             "CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)",
             "CREATE TABLE qbo_onboarding_parts (id INTEGER PRIMARY KEY, site_id INT, part TEXT, summary TEXT, applied_by INT, applied_at TEXT)",
             "CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)",
-            "CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, notes TEXT)",
-            "CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, site_contact_id INT)",
-            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)",
+            "CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, notes TEXT, company_id INT)",
+            "CREATE TABLE companies (id INTEGER PRIMARY KEY, primary_contact_id INT)",
+            "CREATE TABLE clients (id INTEGER PRIMARY KEY, legacy_contact_id INT, contact_id INT)",
+            "CREATE TABLE qbo_links (id INTEGER PRIMARY KEY, site_id INT, realm_id TEXT, entity_type TEXT, entity_id TEXT, qbo_id TEXT, sync_token TEXT, request_id TEXT, status TEXT, qbo_total REAL, message TEXT, sent_at TEXT)",
+            "CREATE TABLE properties (id INTEGER PRIMARY KEY, property_name TEXT, address TEXT, city TEXT, province TEXT, postal_code TEXT, latitude REAL, longitude REAL, site_contact_id INT, status TEXT)",
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, category_id INT, name TEXT, description TEXT, unit_type_id INT, base_price REAL, taxable INT, active INT, created_by INT)",
+            "CREATE TABLE product_categories (id INTEGER PRIMARY KEY, name TEXT, description TEXT, active INT)",
+            "CREATE TABLE unit_types (id INTEGER PRIMARY KEY, name TEXT)",
+            "CREATE TABLE qbo_mappings (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, ittai_key TEXT, qbo_id TEXT, qbo_name TEXT, set_by INT)",
             "CREATE TABLE vendors (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, notes TEXT, is_active INT)",
         ] as $sql) $db->exec($sql);
+        $db->exec("INSERT INTO unit_types (id,name) VALUES (1,'Each')");
         return $db;
     }
 
@@ -93,6 +106,32 @@ class QboOnboardingTest extends TestCase
         $this->assertSame('Imported from QuickBooks already.', $this->loaded($db)->clients()['rows'][0]['why']);
     }
 
+    public function test_imported_customer_links_cover_contact_company_and_client_identities(): void
+    {
+        $this->assertSame(['contact:4','company:7','client:9'], QboOnboardingService::customerKeys(4,7,9));
+        $this->assertSame(['contact:4'], QboOnboardingService::customerKeys(4,null,null));
+    }
+
+    public function test_accepting_clients_links_every_schema_identity_lookup(): void
+    {
+        if (!class_exists('ContactService')) class_alias(QboOnboardingContactServiceStub::class, 'ContactService');
+        $db=$this->db();
+        $note=QboOnboardingService::importNote('1');
+        $db->prepare("INSERT INTO contacts (id,first_name,last_name,notes) VALUES (8,'Adwin','Ko',?)")->execute([$note]);
+        $db->exec("INSERT INTO contacts (id,first_name,last_name,email,company_id) VALUES (9,'O','X','oxon@example.ca',7)");
+        $db->exec("INSERT INTO companies (id,primary_contact_id) VALUES (7,9)");
+        $db->exec("INSERT INTO clients (id,legacy_contact_id,contact_id) VALUES (11,9,NULL)");
+        $conn=new class($db) extends QboConnectionService {
+            public function company(): ?array { return ['realm_id'=>'realm']; }
+        };
+        $ob=new QboOnboardingService($db,$conn,1,fn()=>1792540800,true);
+        $ob->import($this->snapshot());
+        $r=$ob->apply('clients',7);
+        $this->assertTrue($r['ok']);
+        $links=$db->query("SELECT entity_id,qbo_id FROM qbo_links WHERE entity_type='client' AND qbo_id='2' ORDER BY entity_id")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertSame(['client:11'=>'2','company:7'=>'2','contact:9'=>'2'],$links);
+    }
+
     public function test_services_skip_folders_and_keep_their_group(): void
     {
         $db = $this->db();
@@ -102,6 +141,19 @@ class QboOnboardingTest extends TestCase
         $this->assertSame(1, $s['match'], 'Lawn Cut already in Ittai (by name)');
         $this->assertSame('Catering', $s['rows'][0]['name']);
         $this->assertSame('General services', $s['rows'][0]['group']);
+    }
+
+    public function test_accepting_services_maps_new_and_existing_products_idempotently(): void
+    {
+        $db=$this->db();
+        $db->exec("INSERT INTO products (id,name) VALUES (9,'Lawn Cut')");
+        $ob=$this->loaded($db);
+        $this->assertStringContainsString('2 QuickBooks items linked',$ob->apply('services',7)['message']);
+        $maps=$db->query("SELECT ittai_key,qbo_id FROM qbo_mappings WHERE kind='item' ORDER BY qbo_id")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertSame('3',$maps['9']);
+        $this->assertCount(2,$maps);
+        $ob->apply('services',7);
+        $this->assertSame(2,(int)$db->query("SELECT COUNT(*) FROM qbo_mappings WHERE kind='item'")->fetchColumn());
     }
 
     public function test_suppliers_and_inactive_ones(): void
@@ -174,5 +226,17 @@ class QboOnboardingTest extends TestCase
         $this->assertSame('Ko International Ltd', QboOnboardingService::companyOf(['GivenName' => 'Adwin', 'FamilyName' => 'Ko', 'CompanyName' => 'Ko International Ltd']));
         $this->assertNull(QboOnboardingService::companyOf(['GivenName' => 'Adwin', 'FamilyName' => 'Ko', 'CompanyName' => 'adwin ko']), 'a person\'s own name is not a company');
         $this->assertNull(QboOnboardingService::address(['City' => 'Vancouver']));
+    }
+
+    public function test_import_links_are_idempotent_and_never_replace_another_qbo_customer(): void
+    {
+        $db=$this->db();
+        $args=[$db,1,'realm','client','contact:5','101',null,'imported','sent',null,'linked at import','2026-11-04 10:00:00',true];
+        $this->assertSame('saved',QboLinkService::save(...$args));
+        $this->assertSame('unchanged',QboLinkService::save(...$args));
+        $args[5]='202';
+        $this->assertSame('conflict',QboLinkService::save(...$args));
+        $this->assertSame('101',$db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='contact:5'")->fetchColumn());
+        $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM qbo_links')->fetchColumn());
     }
 }

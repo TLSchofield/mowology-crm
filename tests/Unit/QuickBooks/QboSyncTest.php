@@ -39,7 +39,7 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE stripe_payments (id INTEGER PRIMARY KEY, invoice_id INT, amount_cents INT, status TEXT, created_at TEXT, stripe_charge_id TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, contact_id INT, company_id INT, property_id INT, amount_paid REAL, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
                    total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT, updated_at TEXT)");
-        $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, title TEXT, description TEXT, sort_order INT)");
+        $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, product_id INT, quantity REAL, unit_price REAL, line_total REAL, title TEXT, description TEXT, sort_order INT)");
         $db->exec("CREATE TABLE invoice_payment_allocations (id INTEGER PRIMARY KEY, invoice_id INT, amount REAL, payment_date TEXT, created_at TEXT, reference TEXT)");
 
         $v = new QboTokenVault(str_repeat("\x07", 32));
@@ -52,7 +52,7 @@ class QboSyncTest extends TestCase
         $db->exec("INSERT INTO chart_of_accounts VALUES ('4100', 'Lawn Care Services', 'revenue', 1), ('4200', 'Hedge & Shrub Trimming', 'revenue', 1), ('4600', 'Fertilization', 'revenue', 1)");
         $db->exec("INSERT INTO clients VALUES (5, 'Susan O''Lim', 'susan@example.ca')");
         $db->exec("INSERT INTO invoices VALUES (10, 5, NULL, NULL, NULL, 416.06, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL, '2026-10-16 10:00:00')");
-        $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 'Hedge trim', NULL, 1)");
+        $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 7, 2, 198.125, 396.25, 'Hedge trim', NULL, 1)");
         $db->exec("INSERT INTO invoice_payment_allocations VALUES (100, 10, 416.06, '2026-10-20', '2026-10-20 09:00:00', 'ET-55')");
         return $db;
     }
@@ -117,6 +117,79 @@ class QboSyncTest extends TestCase
         $this->assertSame('Invoice', $pay['Line'][0]['LinkedTxn'][0]['TxnType']);
         $this->assertSame('ET-55', $pay['PaymentRefNum']);
         $this->assertStringContainsString('totals match', $r['message']);
+    }
+
+    public function test_product_lines_require_every_mapping_and_the_rounded_subtotal(): void
+    {
+        $rows = [
+            ['product_id'=>7,'quantity'=>2,'unit_price'=>12.345,'line_total'=>24.69,'title'=>'Cut','description'=>'Front'],
+            ['product_id'=>8,'quantity'=>1,'unit_price'=>10,'line_total'=>10,'title'=>'Trim','description'=>''],
+        ];
+        $lines = QboSyncService::productLines($rows, ['7'=>'700','8'=>'800'], 34.69);
+        $this->assertSame('700', $lines[0]['item']);
+        $this->assertSame(12.35, $lines[0]['unit_price']);
+        $this->assertSame(24.69, $lines[0]['amount']);
+        $this->assertSame('Cut — Front', $lines[0]['description']);
+        $this->assertNull(QboSyncService::productLines($rows, ['7'=>'700'], 34.69), 'one unmapped line falls back');
+        $this->assertNull(QboSyncService::productLines($rows, ['7'=>'700','8'=>'800'], 34.68), 'a subtotal mismatch falls back');
+    }
+
+    public function test_mapped_invoice_lines_are_loaded_from_the_database_and_sent_as_item_refs(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO qbo_mappings (site_id, kind, ittai_key, qbo_id, qbo_name) VALUES (1, 'item', '7', '700', 'Hedge trim')");
+        $r = $this->sync($db)->sendInvoice(10);
+        $this->assertTrue($r['ok'], $r['message']);
+        $invoice = array_values(array_filter($this->sent, fn($row) => $row['entity'] === 'invoice'))[0]['body'];
+        $this->assertSame('700', $invoice['Line'][0]['SalesItemLineDetail']['ItemRef']['value']);
+        $this->assertEquals(2.0, $invoice['Line'][0]['SalesItemLineDetail']['Qty']);
+        $this->assertSame(198.13, $invoice['Line'][0]['SalesItemLineDetail']['UnitPrice']);
+    }
+
+    public function test_complete_run_summary_covers_counts_failures_and_stops(): void
+    {
+        $sent=QboSyncService::runSummary(['sent'=>3,'held'=>2,'failed'=>0,'notes'=>[],'stopped'=>null]);
+        $this->assertSame('success',$sent['status']); $this->assertSame('QuickBooks: 3 sent, 2 held, 0 failed',$sent['summary']);
+        $failed=QboSyncService::runSummary(['sent'=>1,'held'=>0,'failed'=>1,'notes'=>['bad'],'stopped'=>null]);
+        $this->assertSame('warning',$failed['status']); $this->assertSame('bad',$failed['notes_text']);
+        $stopped=QboSyncService::runSummary(['sent'=>0,'held'=>0,'failed'=>0,'notes'=>[],'stopped'=>'Connect again.']);
+        $this->assertSame('warning',$stopped['status']); $this->assertStringContainsString('stopped: Connect again.',$stopped['summary']);
+    }
+
+    public function test_run_all_covers_connection_switch_combining_and_invoice_stop(): void
+    {
+        $db = $this->db();
+        $conn = new class($db) extends QboConnectionService {
+            public bool $ready = false; public ?array $business = null;
+            public function tablesReady(): bool { return $this->ready; }
+            public function company(): ?array { return $this->business; }
+        };
+        $this->assertStringContainsString('not connected', QboSyncService::runAll($conn)['summary']);
+        $conn->ready = true; $conn->business = ['realm_id' => '777'];
+
+        $sync = new class {
+            public bool $on = false; public array $result = [];
+            public function auto(): array { return ['on' => $this->on, 'from' => $this->on ? '2026-10-20' : null]; }
+            public function runQueue(): array { return $this->result; }
+        };
+        $receipts = new class { public int $calls = 0; public array $result = [];
+            public function runExpenses(): array { $this->calls++; return $this->result; }
+        };
+        $makeSync = static fn() => $sync; $makeReceipts = static fn() => $receipts;
+        $this->assertStringContainsString('sending is off', QboSyncService::runAll($conn, $makeSync, $makeReceipts)['summary']);
+
+        $sync->on = true;
+        $sync->result = ['sent'=>2,'held'=>1,'failed'=>0,'notes'=>['invoice note'],'stopped'=>null];
+        $receipts->result = ['sent'=>3,'held'=>0,'failed'=>1,'notes'=>['receipt note'],'stopped'=>null];
+        $combined = QboSyncService::runAll($conn, $makeSync, $makeReceipts);
+        $this->assertSame([5,1,1], [$combined['sent'],$combined['held'],$combined['failed']]);
+        $this->assertSame('invoice note | receipt note', $combined['notes_text']);
+
+        $sync->result = ['sent'=>0,'held'=>0,'failed'=>0,'notes'=>[],'stopped'=>'Connect again.'];
+        $before = $receipts->calls;
+        $stopped = QboSyncService::runAll($conn, $makeSync, $makeReceipts);
+        $this->assertSame($before, $receipts->calls, 'receipts do not run after an invoice connection stop');
+        $this->assertSame('Connect again.', $stopped['stopped']);
     }
 
     public function test_sending_again_sends_nothing_twice(): void

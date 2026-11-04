@@ -11,6 +11,7 @@ final class OnboardingApiPresenter
         require_once dirname(__DIR__, 2) . '/Settings/Services/Registry/OrgBookBcProvider.php';
         require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboConnectionService.php';
         require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboOnboardingService.php';
+        require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboSyncService.php';
         $ctx = new OnboardingContext($db, $userId);
         $name = new OnboardingNameModule();
         $identity = new BusinessIdentityService($db, new OrgBookBcProvider($dbName), $userId);
@@ -24,7 +25,8 @@ final class OnboardingApiPresenter
         return [
             'name' => self::nameData($name->me($ctx), $name->known($ctx), $name->nextPart($ctx)),
             'company' => self::companyData($identity->current()),
-            'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite(), $qbo->partPreviews()),
+            'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite(),
+                                                  $qbo->partPreviews(), $connected ? (new QboSyncService($conn))->auto() : ['on' => false, 'from' => null]),
             'books' => ['acknowledged' => $ctx->setting('onboarding_books_ack') === '1'],
             'accountant' => ['invited_name' => $invited !== null && $invited !== '' ? $invited : null, 'logins' => $logins],
             'done' => ['ready' => (new OnboardingService($ctx))->readyToFinish(), 'complete' => $ctx->setting('onboarding_complete') === '1'],
@@ -60,7 +62,7 @@ final class OnboardingApiPresenter
     }
 
     /** A row's summary: what accepting did once done, else what it would bring in (from the read). */
-    public static function quickBooksData(?string $answer, bool $connected, bool $hasSnapshot, array $summaries, bool $canWrite, array $previews = []): array
+    public static function quickBooksData(?string $answer, bool $connected, bool $hasSnapshot, array $summaries, bool $canWrite, array $previews = [], array $auto = []): array
     {
         $labels = ['business' => 'Business', 'clients' => 'Clients', 'services' => 'Services', 'suppliers' => 'Suppliers', 'accounts' => 'Accounts'];
         $parts = [];
@@ -68,6 +70,14 @@ final class OnboardingApiPresenter
             $done = array_key_exists($key, $summaries);
             $parts[] = ['key' => $key, 'label' => $label, 'done' => $done, 'summary' => (string)($done ? $summaries[$key] : ($previews[$key] ?? ''))];
         }
-        return ['answer' => in_array($answer, ['yes', 'no'], true) ? $answer : null, 'connected' => $connected, 'has_snapshot' => $hasSnapshot, 'parts' => $parts, 'can_write' => $canWrite];
+        $on = !empty($auto['on']); $from = $on && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($auto['from'] ?? '')) ? (string)$auto['from'] : null;
+        return ['answer' => in_array($answer, ['yes', 'no'], true) ? $answer : null, 'connected' => $connected, 'has_snapshot' => $hasSnapshot,
+            'parts' => $parts, 'can_write' => $canWrite, 'sending' => [
+                'on' => $on, 'from' => $from, 'offer' => $connected && $hasSnapshot && !$on,
+                'title' => 'Send new invoices to QuickBooks?',
+                'body' => 'From today, make invoices in Ittai, not in QuickBooks. Ittai sends each invoice, its payments and your receipts to QuickBooks for you.',
+                'on_label' => 'Yes, from today', 'off_label' => 'Not now',
+                'done_line' => $on && $from !== null ? 'Sending to QuickBooks from ' . date('d M Y', strtotime($from)) : null,
+            ]];
     }
 }
