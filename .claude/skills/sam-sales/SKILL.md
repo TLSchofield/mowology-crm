@@ -66,6 +66,8 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 1. **Nothing goes to a client without Tim's yes.** Sam drafts; Tim sends, edits, skips or
    snoozes. `SamFollowupService::send()` runs only from Tim's click. No automatic nudges: the
    nine automatic quote follow-up rules were disabled (2026-10-05) and must stay off.
+   Reaffirmed 2026-11-04 when an "earned autonomy" ladder was proposed: Tim — "Sam stays on a
+   click." Do not build trust levels, auto-sends or "do you trust me now?" prompts for Sam.
 2. **GST is always added, never included.** 5% on top of the subtotal, shown as its own line.
    No price, term or template may say "includes GST" (migration
    `database/migrations/1187_gst_added_terms.sql` fixed the old wording).
