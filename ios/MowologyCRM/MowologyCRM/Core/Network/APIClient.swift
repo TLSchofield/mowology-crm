@@ -152,7 +152,7 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-       func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+       func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?, deviceRead: DeviceTextScanner.Prefetched? = nil) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -169,7 +169,9 @@ final class APIClient: ObservableObject {
         }
 
         // The phone reads the text too; the server compares it with its own read (and may use it once proven).
-        let device = await DeviceTextScanner.read(imageData)
+        // (A caller that already started the read alongside the GPS fix hands it in, so the two overlap.)
+        let device: DeviceTextScanner.Result?
+        if let deviceRead = deviceRead { device = await deviceRead.task.value } else { device = await DeviceTextScanner.read(imageData) }
 
         var body = Data()
         body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)

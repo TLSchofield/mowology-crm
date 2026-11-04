@@ -28,6 +28,7 @@ struct ReceiptReviewView: View {
     let lat: Double?
     let lng: Double?
     @Binding var isPresented: Bool
+    var onRetake: (() -> Void)? = nil
     var onSaved: (SaveFollowUp) -> Void
 
     // Form state — pre-filled from OCR
@@ -85,6 +86,7 @@ struct ReceiptReviewView: View {
          lat: Double?,
          lng: Double?,
          isPresented: Binding<Bool>,
+         onRetake: (() -> Void)? = nil,
          onSaved: @escaping (SaveFollowUp) -> Void) {
         self.viewModel    = viewModel
         self.intake       = intake
@@ -92,6 +94,7 @@ struct ReceiptReviewView: View {
         self.lat          = lat
         self.lng          = lng
         self._isPresented = isPresented
+        self.onRetake     = onRetake
         self.onSaved      = onSaved
 
         let p = intake.parsed
@@ -110,7 +113,10 @@ struct ReceiptReviewView: View {
         _pst           = State(initialValue: pstD > 0 ? Self.money(pstD) : "")
         _total         = State(initialValue: totalD > 0 ? Self.money(totalD) : "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
-        _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
+        // The card on the receipt (when the server matched one) decides the payment method.
+        _paymentMethod = State(initialValue: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card")
+        // One decisive schedule match starts selected; "No Job" or another pill undoes it.
+        _selectedJob   = State(initialValue: intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) })
         _items         = State(initialValue: p?.lineItems ?? [])
     }
 
@@ -130,7 +136,9 @@ struct ReceiptReviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                unreadSection
                 receiptImageSection
+                summarySection
                 duplicateSection
                 totalSection
                 vendorSection
@@ -270,10 +278,19 @@ struct ReceiptReviewView: View {
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
+    private var readBadgeText: String {
+        if intake.totalSource == "device" { return "Read on the phone" }
+        switch intake.ocrSource {
+        case "vision":    return "Read by Google"
+        case "tesseract": return "Read locally"
+        default:          return "Read from the photo"
+        }
+    }
+
     @ViewBuilder
     private var ocrBadge: some View {
         if intake.ocrAvailable && !(intake.ocrText ?? "").isEmpty {
-            Label("AI detected\(intake.ocrSource == "vision" ? " (AI)" : intake.ocrSource == "tesseract" ? " (local)" : "")", systemImage: "text.viewfinder")
+            Label(readBadgeText, systemImage: "text.viewfinder")
                 .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
         } else if intake.ocrAvailable {
             Label("No text found", systemImage: "questionmark.circle")
@@ -307,6 +324,94 @@ struct ReceiptReviewView: View {
                                 .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                     }
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    // MARK: - Review by exception
+
+    /// True while the job is still the one the server picked from the schedule.
+    private var jobAutoSelected: Bool { selectedJob != nil }
+
+    private var readFailed: Bool {
+        let p = intake.parsed
+        let noTotal  = (p?.totalDouble ?? 0) <= 0
+        let noVendor = (intake.suggestions?.vendorName ?? p?.vendorHint ?? "").isEmpty
+        return !intake.ocrAvailable || (noTotal && noVendor)
+    }
+
+    private var totalConfirmed: Bool {
+        let p = intake.parsed
+        guard intake.totalSource != nil, let t = p?.totalDouble, t > 0,
+              let sub = p?.subtotal.flatMap(Double.init) else { return false }
+        let sum = sub + (p?.gstDouble ?? 0) + (p?.pst.flatMap(Double.init) ?? 0)
+        return abs(sum - t) <= 0.02 && intake.gstValidation?.valid != false
+    }
+
+    private var gstEstimated: Bool { intake.parsed?.gstEstimated == true }
+
+    private var confirmedFields: [String] {
+        var f: [String] = []
+        if totalConfirmed && !gstEstimated { f.append("Total") }
+        if intake.suggestions?.vendorId != nil && intake.suggestions?.vendorNeedsReview != true { f.append("Vendor") }
+        if let d = intake.parsed?.date, !d.isEmpty { f.append("Date") }
+        if intake.card != nil { f.append("Card") }
+        if intake.jobSuggestions?.contains(where: { $0.autoSelect == true }) == true { f.append("Job") }
+        return f
+    }
+
+    /// Fields that need a look — never hidden, never collapsed.
+    private var attentionFields: [String] {
+        var f: [String] = []
+        if (intake.parsed?.totalDouble ?? 0) <= 0 { f.append("Total is missing") }
+        else if !totalConfirmed { f.append("Total, subtotal and tax don't add up or weren't confirmed") }
+        if gstEstimated { f.append("GST is estimated") }
+        if (intake.suggestions?.vendorName ?? intake.parsed?.vendorHint ?? "").isEmpty { f.append("Vendor is missing") }
+        else if intake.suggestions?.vendorId == nil || intake.suggestions?.vendorNeedsReview == true { f.append("Vendor needs a look") }
+        if (intake.parsed?.date ?? "").isEmpty { f.append("Date is missing") }
+        return f
+    }
+
+    @ViewBuilder
+    private var unreadSection: some View {
+        if readFailed {
+            Section {
+                Label("Couldn't read this receipt — retake, or save it and fill in what you know", systemImage: "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.attention)
+                if let retake = onRetake {
+                    Button {
+                        retake()
+                    } label: {
+                        Label("Retake", systemImage: "camera")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
+                    }
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var summarySection: some View {
+        let confirmed = readFailed ? [] : confirmedFields
+        let attention = readFailed ? [] : attentionFields
+        if !confirmed.isEmpty || !attention.isEmpty {
+            Section {
+                if !confirmed.isEmpty {
+                    DisclosureGroup {
+                        Text(confirmed.joined(separator: " · "))
+                            .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    } label: {
+                        Label("\(confirmed.count) field\(confirmed.count == 1 ? "" : "s") confirmed", systemImage: "checkmark.circle.fill")
+                            .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.tenant)
+                    }
+                }
+                ForEach(attention, id: \.self) { line in
+                    Label(line, systemImage: "exclamationmark.circle.fill")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
                 }
             }
             .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
@@ -386,6 +491,10 @@ struct ReceiptReviewView: View {
                 }
                 .padding(.vertical, 2)
             }
+            if let pick = selectedJob, jobAutoSelected, intake.jobSuggestions?.first(where: { $0.autoSelect == true })?.planId == pick.id {
+                Label("Picked from the schedule", systemImage: "calendar")
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+            }
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
                 TextField("Search jobs by client, address or job #", text: $jobSearch)
@@ -436,6 +545,10 @@ struct ReceiptReviewView: View {
             }
             Picker("Payment", selection: $paymentMethod) {
                 ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
+            }
+            if let card = intake.card {
+                Label("\(card.display) — from the receipt", systemImage: "creditcard.fill")
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
             }
         }
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
