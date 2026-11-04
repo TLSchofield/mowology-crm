@@ -106,13 +106,22 @@ class OttoHarvestService
     public function weekLoadItems(): array
     {
         $end = date('Y-m-d', strtotime($this->today . ' +' . (WeekLoadRules::DAYS - 1) . ' days'));
+        $days = $this->dayLoads($this->today, $end);
+        $crew = $this->crewCount();
+        $item = WeekLoadRules::briefItem(WeekLoadRules::days($days, $crew), $crew, $this->today);
+        return $item ? [$item] : [];
+    }
+
+    /** Planned crew-minutes per day between two dates: date => {minutes, visits, untimed, biggest}. Also read by LeadRouteDay. */
+    public function dayLoads(string $from, string $end): array
+    {
         $st = $this->db->prepare(
             "SELECT jv.scheduled_date, jp.id AS plan_id, COALESCE(jp.title, '') AS title,
                     jp.estimated_duration_minutes AS est, GREATEST(COALESCE(jp.default_crew_size, 1), 1) AS crew
                FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id
               WHERE jv.scheduled_date BETWEEN ? AND ? AND jv.status = 'scheduled'"
         );
-        $st->execute([$this->today, $end]);
+        $st->execute([$from, $end]);
         $days = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $d = (string)$r['scheduled_date'];
@@ -126,9 +135,7 @@ class OttoHarvestService
             }
         }
         ksort($days);
-        $crew = $this->crewCount();
-        $item = WeekLoadRules::briefItem(WeekLoadRules::days($days, $crew), $crew, $this->today);
-        return $item ? [$item] : [];
+        return $days;
     }
 
     // ── C. the seasonal stock watch ───────────────────────────────────────────

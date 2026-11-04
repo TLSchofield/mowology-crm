@@ -390,6 +390,7 @@
                     (chip ? ' <span class="mw-sam-bucket">' + esc(chip) + '</span>' : '') +
                     (!bySignal && typeof l.heat === 'number' ? ' <span class="mw-sam-heat" title="' + esc(why) + '">heat ' + l.heat + '</span>' : '') +
                     '<div class="mw-sam-next">' + esc(l.next) + '</div>' +
+                    (l.visit_day ? '<small class="mw-sam-visit" title="' + esc((l.visit_day.alternatives || []).map(function (a) { return a.text; }).join(' · ') || (l.visit_day.best ? l.visit_day.best.text : '')) + '">' + esc(l.visit_day.line) + '</small>' : '') +
                     (why ? '<small class="mw-sam-why">' + esc(why) + '</small>' : '') +
                     '<small class="mw-sam-meta">' + (l.age_days === 0 ? 'today' : l.age_days + ' day' + (l.age_days === 1 ? '' : 's') + ' old') +
                     (l.value > 0 ? ' · jobs like this average ' + money(l.value) : '') + (tags.length ? ' · ' + esc(tags.join(' · ')) : '') + '</small></div>' +

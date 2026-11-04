@@ -461,7 +461,7 @@ class SalesDeskService
         $rows = $this->db->query("
             SELECT qr.id, qr.service_types, qr.urgency, qr.status, qr.source, qr.project_description, qr.created_at,
                    c.id AS contact_id, c.first_name, c.last_name, c.email, COALESCE(NULLIF(c.mobile, ''), c.phone) AS phone,
-                   p.address, p.city
+                   p.address, p.city, p.latitude AS lat, p.longitude AS lng
             FROM quote_requests qr
             LEFT JOIN contacts c ON c.id = qr.contact_id
             LEFT JOIN properties p ON p.id = qr.property_id
@@ -1069,6 +1069,21 @@ class SalesDeskService
                 'next'      => $next,
                 'url'       => '/crm/quote-workflow.php?request_id=' . (int)$r['id'],   // measure and quote screen, as the dashboard's request cards do (Tim 2026-11-03)
             ];
+        }
+        // Otto's best day for the crew to look at each lead (LeadRouteDay) — suggested only; booking stays Tim's tap.
+        try {
+            require_once dirname(__DIR__, 2) . '/Operations/Services/OttoLeadService.php';
+            $pins = [];
+            foreach ($rows as $r) $pins[] = ['id' => (int)$r['id'], 'lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has_address' => trim((string)($r['address'] ?? '')) !== ''];
+            $days = (new OttoLeadService($this->db))->bestDays($pins);
+            foreach ($out as &$l) {
+                if (!isset($days[$l['id']])) continue;
+                $d = $days[$l['id']];
+                $l['visit_day'] = ['line' => LeadRouteDay::line($d), 'best' => $d['best'], 'alternatives' => $d['alternatives'], 'none' => $d['none']];
+            }
+            unset($l);
+        } catch (Throwable $e) {
+            error_log('Sam leads: best day: ' . $e->getMessage());
         }
         $ordered = LeadScore::order($out);
         return array_map(function ($l) use ($ordered) { $l['ranked_by'] = $ordered['ranked_by']; return $l; }, $ordered['items']);

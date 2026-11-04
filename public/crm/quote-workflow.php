@@ -537,7 +537,25 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                                         </button>
                                     </form>
 
+                                    <?php
+                                    // Otto's best day to look (LeadRouteDay, 2026-11-03): suggested, pre-fills the Day below; booking stays a tap.
+                                    $__ottoDay = null;
+                                    if ($requestId > 0) {
+                                        try {
+                                            require_once APP_ROOT . '/Modules/Operations/Services/OttoLeadService.php';
+                                            $__od = (new OttoLeadService($db))->bestDays([['id' => (int)$requestId, 'lat' => (float)($request['latitude'] ?? 0), 'lng' => (float)($request['longitude'] ?? 0),
+                                                                                         'has_address' => trim((string)($request['address'] ?? '')) !== '']]);
+                                            $__ottoDay = $__od[(int)$requestId] ?? null;
+                                        } catch (Throwable $e) { error_log('quote-workflow: Otto best day: ' . $e->getMessage()); }
+                                    }
+                                    ?>
                                     <?php if ($requestId > 0): /* Quote visit (AppointmentService, 2026-10-15) — filled by quote-visit.js */ ?>
+                                    <?php if ($__ottoDay): ?>
+                                    <div class="mw-qv-otto">
+                                        <b>Otto:</b> <?php echo h(LeadRouteDay::line($__ottoDay)); ?>
+                                        <?php if (!empty($__ottoDay['best'])): ?><small><?php echo h($__ottoDay['best']['text']); ?><?php foreach ($__ottoDay['alternatives'] as $__a): ?> &middot; <?php echo h($__a['text']); ?><?php endforeach; ?></small><?php endif; ?>
+                                    </div>
+                                    <?php endif; ?>
                                     <div class="mw-qv" id="mwQuoteVisit" data-request-id="<?php echo (int)$requestId; ?>" data-csrf="<?php echo h($csrfToken); ?>">
                                         <div class="mw-qv-booked" data-qv-booked hidden></div>
                                         <button type="button" class="btn btn-sm btn-outline-success mw-qv-open" data-qv-open hidden>
@@ -552,7 +570,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                                                         <span class="mw-datepicker-date" data-mw-dp-label></span>
                                                         <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                                                     </button>
-                                                    <input type="date" id="mwQvDate" class="form-control" hidden value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                                                    <input type="date" id="mwQvDate" class="form-control" hidden value="<?php echo h($__ottoDay['best']['date'] ?? date('Y-m-d', strtotime('+1 day'))); ?>">
                                                 </div>
                                                 <div class="mw-qv-field">
                                                     <label class="form-label" for="mwQvTime">Time</label>

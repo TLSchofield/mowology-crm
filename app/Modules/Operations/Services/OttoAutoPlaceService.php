@@ -334,9 +334,55 @@ class OttoAutoPlaceService
     // Data
     // ─────────────────────────────────────────────────────────────────────────
 
+    public const LEAD_DAYS = 30;
+
+    /** Properties of open leads (a quote request not yet quoted): Otto places them too, not only properties already on a quote. */
+    public function leadCandidates(): array
+    {
+        $out = [];
+        try {
+            $s = $this->db->prepare("
+                SELECT p.id, p.address, p.city, p.province, p.postal_code, p.latitude, p.longitude
+                FROM properties p
+                WHERE p.id IN (SELECT qr.property_id FROM quote_requests qr
+                               WHERE qr.status IN ('new', 'reviewing') AND qr.quote_id IS NULL AND qr.property_id IS NOT NULL AND qr.created_at >= ?)
+                ORDER BY p.id");
+            $s->execute([date('Y-m-d', strtotime($this->today . ' -' . self::LEAD_DAYS . ' days'))]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) $out[(int)$row['id']] = $row;
+        } catch (Throwable $e) { /* quote_requests unreadable: no lead candidates */ }
+        return $out;
+    }
+
+    /**
+     * A new lead's property, now (Tim, 2026-11-03): pin it when it has none (an exact building match only, as in run()),
+     * then draw its arrival border from the City of Vancouver's own lot map, else the province's (borderOne). Off with the
+     * same switch as the 6-hourly run; never moves a pin, never touches a drawn / kept / GPS border.
+     * @return array{ok: bool, message: string, pinned?: bool, area_sqm?: int}
+     */
+    public function placeNewLead(int $propertyId): array
+    {
+        if (!$this->enabled()) return ['ok' => false, 'message' => 'Otto\'s auto-placement is switched off.'];
+        $s = $this->db->prepare('SELECT id, address, city, province, postal_code, latitude, longitude FROM properties WHERE id = ?');
+        $s->execute([$propertyId]);
+        $p = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$p) return ['ok' => false, 'message' => 'That property no longer exists.'];
+        $pinned = false;
+        if (!PropertyBorderRules::pinOf($p)) {
+            $address = PropertyReadinessService::geocodeAddress($p);
+            if (trim($address) === '' || trim((string)$p['address']) === '') return ['ok' => false, 'message' => 'No address yet — ask for it.'];
+            $hit = ($this->geocode)($address);
+            if (self::pinDecision($hit) !== 'save' || !$this->savePinIfMissing($propertyId, (float)$hit['lat'], (float)$hit['lng'])) {
+                return ['ok' => false, 'message' => 'The address did not match a building on the map — pin it by hand.'];
+            }
+            $pinned = true;
+        }
+        return $this->borderOne($propertyId) + ['pinned' => $pinned];
+    }
+
     private function candidates(): array
     {
         $props = (new PropertyBorderService($this->db, $this->today))->activeProperties();
+        foreach ($this->leadCandidates() as $id => $row) $props[$id] ??= $row;
         try {
             $since = date('Y-m-d', strtotime($this->today . ' -12 months'));
             $s = $this->db->prepare("

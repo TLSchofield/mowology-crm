@@ -38295,6 +38295,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sam-leads { scroll-margin-top: 84px; }
 .mw-sam-jump { color: var(--mw-green); text-decoration: underline; text-underline-offset: 2px; }
 .mw-sam-jump:hover { color: var(--mw-dark); }
+.mw-sam-visit { display: block; color: var(--mw-green); font-size: .78rem; margin-top: 2px; }
+.mw-qv-otto { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--mw-green); background: var(--mw-light); border-radius: 4px; font-size: .85rem; }
+.mw-qv-otto small { display: block; color: var(--mw-ink-500); margin-top: 2px; }
 .mw-sam-leads-head { font-size: .8rem; color: var(--mw-forest); margin-bottom: 4px; }
 .mw-sam-leads-head small { color: var(--mw-ink-500); }
 .mw-sam-lead { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }

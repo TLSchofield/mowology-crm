@@ -158,6 +158,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/WeekLoadRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SeasonalStockRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierReviewRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoHarvestService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/LeadRouteDay.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoLeadService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
