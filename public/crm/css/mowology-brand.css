@@ -4368,6 +4368,54 @@ a.mw-clock-timer-nav:hover {
   background:#fdecea
 }
 
+/* ── Salt & snow run banner (includes/snow-run-banner.php, 2026-11-03) ──
+   Route stops are hidden until a run is on; the strip says so and holds the Start / End buttons. */
+.mw-snow-run {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px 16px;
+  margin:0 0 14px;
+  padding:10px 14px;
+  border:1px solid var(--mw-light);
+  border-left:4px solid var(--mw-green);
+  border-radius:10px;
+  background:var(--mw-light);
+  color:var(--mw-forest);
+  font-size:0.9rem;
+  line-height:1.4
+}
+.mw-snow-run.is-active {
+  border-left-color:var(--mw-orange);
+  background:#fff
+}
+.mw-snow-run-text { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0 }
+.mw-snow-run-icon { color:var(--mw-green); font-size:1rem }
+.mw-snow-run.is-active .mw-snow-run-icon { color:var(--mw-orange) }
+.mw-snow-run-note { color:var(--mw-dark); opacity:0.85 }
+.mw-snow-run-actions { display:flex; flex-wrap:wrap; gap:8px }
+.mw-snow-run-btn {
+  border:1px solid var(--mw-green);
+  background:var(--mw-green);
+  color:#fff;
+  border-radius:8px;
+  padding:7px 14px;
+  font-size:0.85rem;
+  font-weight:600;
+  cursor:pointer;
+  min-height:40px;
+  transition:background 0.15s
+}
+.mw-snow-run-btn:hover { background:var(--mw-dark); border-color:var(--mw-dark) }
+.mw-snow-run-btn:disabled { opacity:0.6; cursor:default }
+.mw-snow-run-btn.mw-snow-run-end { background:#fff; color:var(--mw-orange); border-color:var(--mw-orange) }
+.mw-snow-run-btn.mw-snow-run-end:hover { background:var(--mw-orange); color:#fff }
+@media (max-width: 575.98px) {
+  .mw-snow-run-actions { width:100% }
+  .mw-snow-run-btn { flex:1 1 auto }
+}
+
 /* ══ 38. MAP / DISPATCH / CREW LIVE MAP ════════════════════════════════════ */
 /* Ported from mowology-brand.min.css — covers territory map, dispatch map,  */
 /* crew live positions, route controls, stop cards, zone badges, geofences.  */
@@ -38244,6 +38292,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 
 /* New leads */
 .mw-sam-leads { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; }
+.mw-sam-leads { scroll-margin-top: 84px; }
+.mw-sam-jump { color: var(--mw-green); text-decoration: underline; text-underline-offset: 2px; }
+.mw-sam-jump:hover { color: var(--mw-dark); }
 .mw-sam-leads-head { font-size: .8rem; color: var(--mw-forest); margin-bottom: 4px; }
 .mw-sam-leads-head small { color: var(--mw-ink-500); }
 .mw-sam-lead { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }

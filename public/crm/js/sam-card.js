@@ -374,7 +374,7 @@
         lbox.innerHTML = (leads.length ? '<div class="mw-sam-leads-head"><b>New leads</b> <small>' +
                 (bySignal ? 'ordered by what the CRM knows — no replies or opens logged yet, so no score is shown' : 'warmest first — replies, fit, urgency; then likely value') + '</small></div>' : '') +
             (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
-            leads.slice(0, 5).map(function (l) {
+            leads.slice(0, 8).map(function (l) {
                 var tags = [];
                 if (l.tier) tags.push(l.tier + ' value');
                 if (l.urgency === 'asap') tags.push('wants it soon');
