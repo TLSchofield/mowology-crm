@@ -166,24 +166,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 }
 
                 // ── 2. Find or create PROPERTY ─────────────────────────────
-                $checkProperty = $db->prepare("SELECT id FROM properties WHERE address = ? LIMIT 1");
-                $checkProperty->execute([$data['address']]);
+                $checkProperty = $db->prepare("SELECT id FROM properties WHERE address = ? AND site_contact_id = ? LIMIT 1");
+                $checkProperty->execute([$data['address'], $contactId]);
                 $existingProperty = $checkProperty->fetch(PDO::FETCH_ASSOC);
 
-                $propType = match($data['property_type']) {
-                    'strata'     => 'strata',
-                    'commercial' => 'commercial',
-                    default      => 'single_family',
-                };
+                $propType = 'single_family';
+                if ($data['property_type'] === 'strata') {
+                    $propType = 'strata';
+                } elseif ($data['property_type'] === 'commercial') {
+                    $propType = 'commercial';
+                }
 
                 $propertyId = null;
                 if ($existingProperty) {
                     $propertyId = (int)$existingProperty['id'];
                     $stmt = $db->prepare("
                         UPDATE properties SET
-                            latitude        = COALESCE(?, latitude),
-                            longitude       = COALESCE(?, longitude),
-                            geocoded_at     = CASE WHEN ? IS NOT NULL THEN NOW() ELSE geocoded_at END,
+                            latitude        = COALESCE(latitude, ?),
+                            longitude       = COALESCE(longitude, ?),
+                            geocoded_at     = CASE WHEN latitude IS NULL AND ? IS NOT NULL THEN NOW() ELSE geocoded_at END,
                             site_contact_id = COALESCE(site_contact_id, ?),
                             updated_at      = NOW()
                         WHERE id = ?
@@ -342,25 +343,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 }
 
                 // ── 7. Update contact consent columns ─────────────────────
-                $stmt = $db->prepare("
-                    UPDATE contacts SET
-                        receive_sms             = ?,
-                        consent_sms             = ?,
-                        consent_quote_followup  = ?,
-                        consent_marketing_email = ?,
-                        consent_timestamp       = NOW(),
-                        consent_ip_address      = ?,
-                        consent_source          = 'website_form'
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $data['consent_sms'] ? 1 : 0,
-                    $data['consent_sms'] ? 1 : 0,
-                    $data['consent_quote'] ? 1 : 0,
-                    $data['consent_marketing'] ? 1 : 0,
-                    $data['ip_address'],
-                    $contactId,
-                ]);
+                $consentUpdates = [];
+                if ($data['consent_sms']) {
+                    $consentUpdates[] = 'receive_sms = 1';
+                    $consentUpdates[] = 'consent_sms = 1';
+                }
+                if ($data['consent_quote']) {
+                    $consentUpdates[] = 'consent_quote_followup = 1';
+                }
+                if ($data['consent_marketing']) {
+                    $consentUpdates[] = 'consent_marketing_email = 1';
+                }
+                if ($consentUpdates) {
+                    $stmt = $db->prepare("
+                        UPDATE contacts SET " . implode(', ', $consentUpdates) . ",
+                            consent_timestamp = NOW(), consent_ip_address = ?, consent_source = 'website_form'
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$data['ip_address'], $contactId]);
+                }
 
                 // ── 8. Activity log ────────────────────────────────────────
                 $priorityFlag = $classification['is_priority'] ? ' [PRIORITY]' : '';

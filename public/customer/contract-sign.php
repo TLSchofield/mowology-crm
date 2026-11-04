@@ -5,6 +5,8 @@
  */
 
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
@@ -23,6 +25,7 @@ unset($__dir, $__i);
 
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+require_once APP_ROOT . '/Modules/PublicForms/Services/PublicFormSecurity.php';
 
 $db       = getDB();
 $svc      = new ContractService($db);
@@ -65,6 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
             $error = 'Please enter your full name.';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please draw your signature in the box above.';
+        } elseif (!PublicFormSecurity::isValidSignatureData($signatureData)) {
+            $error = 'The signature is invalid or too large. Please draw it again.';
         } elseif ($terms && !$acknowledged) {
             // Server-side too: the checkbox is the record that they were shown
             // the liability wording, and a client-side-only gate proves nothing.
@@ -82,9 +87,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
     } elseif ($action === 'decline') {
         $reason   = trim($_POST['decline_reason'] ?? 'No reason given');
         $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
-        $svc->declineSignature($token, $reason, $signerIp);
-        $success = 'We have recorded your response. If you have questions, call us at (778) 846-9273.';
-        $row     = null;
+        if ($svc->declineSignature($token, $reason, $signerIp)) {
+            $success = 'We have recorded your response. If you have questions, call us at (778) 846-9273.';
+            $row     = null;
+        } else {
+            $error = 'Could not record your response. The link may have already been used.';
+        }
     }
 }
 

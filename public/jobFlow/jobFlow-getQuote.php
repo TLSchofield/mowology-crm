@@ -64,27 +64,12 @@ $responseTimeBadge = getResponseTimeBadge();
 $showV2Challenge      = false;
 $error                = '';
 $errors               = [];
-$existingAddresses    = [];
-$showAddressOptions   = false;
 
 // ── POST handling ──────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     error_log('[jobFlow-getQuote] POST received | IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 
-    // ── Address confirmation sub-step ──────────────────────────────────────
-    if (isset($_POST['address_confirmed'])) {
-        if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($_POST['csrf_token'] ?? ''))) {
-            $error = 'Security check failed. Please refresh and try again.';
-        } else {
-            $_SESSION['quote_data'] = $_SESSION['temp_quote_data'] ?? [];
-            unset($_SESSION['temp_quote_data']);
-            header('Location: jobFlow-confirm.php');
-            exit();
-        }
-
-    } else {
-        // ── Main form submission ───────────────────────────────────────────
-
+    // -- Main form submission --
         // 1. CSRF
         if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($_POST['csrf_token'] ?? ''))) {
             $error = 'Security check failed. Please refresh and try again.';
@@ -173,13 +158,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 4. Check for existing contact
                 $db = getDB();
                 $stmt = $db->prepare("
-                    SELECT c.id AS contact_id, c.first_name, c.last_name, c.email, c.phone,
-                           p.id AS property_id, p.address, p.city, p.postal_code
+                    SELECT c.id AS contact_id
                     FROM contacts c
-                    LEFT JOIN properties p ON c.id = p.site_contact_id
                     WHERE (c.phone = ? AND c.phone != '')
                        OR (c.email = ? AND c.email != '')
-                    ORDER BY p.created_at DESC
+                    LIMIT 1
                 ");
                 $stmt->execute([$clean['phone'], $clean['email']]);
                 $existingRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -192,21 +175,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 if (!empty($existingRecords)) {
-                    // Show address choice to returning contact
-                    $showAddressOptions = true;
-                    $existingAddresses  = $existingRecords;
                     $sessionPayload['existing_contact_id']  = $existingRecords[0]['contact_id'] ?? null;
-                    $sessionPayload['existing_property_id'] = $existingRecords[0]['property_id'] ?? null;
-                    $sessionPayload['address_relationship'] = 'same_address';
-                    $_SESSION['temp_quote_data'] = $sessionPayload;
-                } else {
-                    // New contact — straight to confirm
-                    $_SESSION['quote_data'] = $sessionPayload;
-                    // Regenerate CSRF after successful Step 1
-                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-                    header('Location: jobFlow-confirm.php');
-                    exit();
                 }
+                $_SESSION['quote_data'] = $sessionPayload;
+                // Regenerate CSRF after successful Step 1
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                header('Location: jobFlow-confirm.php');
+                exit();
 
             } else {
                 $error = $showV2Challenge && count($errors) === 1 && isset($errors['recaptcha'])
@@ -215,7 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } // end: rate limit passed
         } // end: CSRF passed
-    }
 }
 
 // ── Form pre-fill ──────────────────────────────────────────────────────────
@@ -311,36 +285,6 @@ $serviceOptions = [
             <div class="alert alert-danger" role="alert"><?php echo h($error); ?></div>
         <?php endif; ?>
 
-        <?php if ($showAddressOptions): ?>
-        <!-- ── Address confirmation ─────────────────────────────────────── -->
-        <div class="address-options">
-            <h3>We Found Your Information!</h3>
-            <p>It looks like you've requested a quote before. Is this for the same address?</p>
-
-            <form method="POST" action="">
-                <input type="hidden" name="csrf_token" value="<?php echo h($_SESSION['csrf_token']); ?>">
-                <input type="hidden" name="address_confirmed" value="1">
-
-                <?php foreach ($existingAddresses as $existing): ?>
-                    <?php if (empty($existing['address'])) continue; ?>
-                    <label class="address-card">
-                        <input type="radio" name="address_relationship" value="same_address" checked>
-                        <strong><?php echo h($existing['address'] ?? ''); ?></strong><br>
-                        <small><?php echo h(trim(($existing['city'] ?? '') . ' ' . ($existing['postal_code'] ?? ''))); ?></small>
-                    </label>
-                <?php endforeach; ?>
-
-                <label class="address-card">
-                    <input type="radio" name="address_relationship" value="new_address">
-                    <strong>A different property address</strong><br>
-                    <small>I'm requesting service at a new location</small>
-                </label>
-
-                <button type="submit" class="submit-button">Continue to Quote Review</button>
-            </form>
-        </div>
-
-        <?php else: ?>
         <!-- ── Main quote form ─────────────────────────────────────────── -->
         <form method="POST" action="" id="quote-form" novalidate>
             <input type="hidden" name="csrf_token" value="<?php echo h($_SESSION['csrf_token']); ?>">
@@ -577,7 +521,6 @@ $serviceOptions = [
             <button type="submit" class="submit-button">Continue to Quote Review &rarr;</button>
             <p class="form-privacy-note">Your information is never shared or sold.</p>
         </form>
-        <?php endif; ?>
 
     </main>
 </div>

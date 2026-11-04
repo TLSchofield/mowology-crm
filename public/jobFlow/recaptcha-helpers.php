@@ -20,6 +20,8 @@ if (!defined('RECAPTCHA_V3_SCORE_THRESHOLD')) {
     define('RECAPTCHA_V3_SCORE_THRESHOLD', 0.5);
 }
 
+require_once dirname(__DIR__, 2) . '/app/Modules/PublicForms/Services/PublicFormSecurity.php';
+
 /**
  * Verify a reCAPTCHA token (v2 or v3) with Google's siteverify endpoint.
  *
@@ -84,6 +86,15 @@ function verify_recaptcha(string $token, string $secretKey, ?string $remoteIp = 
     if (!is_array($json)) {
         error_log("reCAPTCHA verify: invalid JSON response");
         return ['success' => false, 'error' => 'invalid_json'];
+    }
+
+    if (!empty($json['success']) && !PublicFormSecurity::isAllowedRecaptchaHostname(
+        (string)($json['hostname'] ?? ''),
+        defined('SITE_URL') ? (string)SITE_URL : '',
+        (string)($_SERVER['HTTP_HOST'] ?? '')
+    )) {
+        error_log('reCAPTCHA verify: hostname mismatch');
+        return ['success' => false, 'error' => 'hostname_mismatch'];
     }
 
     return $json;
@@ -189,6 +200,18 @@ function recaptcha_audit_log(string $action, array $details, ?string $ip): void
 {
     try {
         $db = getDB();
+        if ($ip !== null && $ip !== '') {
+            $recent = $db->prepare(
+                "SELECT id FROM activity_log
+                 WHERE ip_address = ? AND action LIKE 'recaptcha_%'
+                   AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+                 LIMIT 1"
+            );
+            $recent->execute([$ip]);
+            if ($recent->fetchColumn() !== false) {
+                return;
+            }
+        }
         $db->prepare(
             "INSERT INTO activity_log (user_id, action, details, ip_address)
              VALUES (NULL, ?, ?, ?)"

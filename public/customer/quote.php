@@ -7,9 +7,12 @@
 
 // Allow CORS for signature pad
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Modules/PublicForms/Services/PublicFormSecurity.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once dirname(__DIR__) . '/includes/notifications.php';
 
@@ -235,6 +238,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             $error = 'Please enter your name.';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please sign the quote using your mouse or finger.';
+        } elseif (!PublicFormSecurity::isValidSignatureData($signatureData)) {
+            $error = 'The signature is invalid or too large. Please draw it again.';
         } elseif (!$agreedToTerms) {
             $error = 'Please agree to the terms and conditions.';
         } else {
@@ -257,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                         accepted_ip_address = ?,
                         signature_data = ?,
                         signature_timestamp = NOW()
-                    WHERE id = ? AND status <> 'accepted'
+                    WHERE id = ? AND status IN ('sent','viewed')
                 ");
                 $stmt->execute([
                     $signatureName,
@@ -379,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
 
             } catch (QuoteAlreadyAccepted $e) {
                 if ($db->inTransaction()) $db->rollBack();
-                $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
+                $error = 'This quote has already been answered.';
             } catch (Exception $e) {
                 if ($db->inTransaction()) $db->rollBack();
                 error_log("Quote acceptance error: " . $e->getMessage());
@@ -395,23 +400,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             UPDATE quotes SET
                 status = 'declined',
                 notes_internal = CONCAT(COALESCE(notes_internal, ''), '\n\nDeclined reason: ', ?)
-            WHERE id = ?
+            WHERE id = ? AND status IN ('sent','viewed')
         ");
         $stmt->execute([$declineReason, $quote['id']]);
 
-        // Propagate decline back to quote_request
-        try {
-            $db->prepare("
-                UPDATE quote_requests
-                SET status = 'declined', updated_at = NOW()
-                WHERE quote_id = ?
-            ")->execute([$quote['id']]);
-        } catch (Throwable $e) {
-            error_log("Quote decline → quote_requests propagation error: " . $e->getMessage());
-        }
+        if ($stmt->rowCount() === 0) {
+            $error = 'This quote has already been answered.';
+        } else {
+            // Propagate decline back to quote_request
+            try {
+                $db->prepare("
+                    UPDATE quote_requests
+                    SET status = 'declined', updated_at = NOW()
+                    WHERE quote_id = ?
+                ")->execute([$quote['id']]);
+            } catch (Throwable $e) {
+                error_log("Quote decline → quote_requests propagation error: " . $e->getMessage());
+            }
 
-        $quote['status'] = 'declined';
-        $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+            $quote['status'] = 'declined';
+            $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+        }
     }
 }
 
