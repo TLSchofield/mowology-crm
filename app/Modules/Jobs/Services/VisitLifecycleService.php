@@ -94,7 +94,7 @@ class VisitLifecycleService
                     }
                 }
 
-                // Completion notifications: fertilizer (prepaid bundles) or general job complete
+                // Completion notification: fertilizer / prepaid bundles only (Tim: helpful when prepaid)
                 $completedVisit = self::getVisitWithPlan($visitId);
                 if ($completedVisit && !empty($completedVisit['is_prepaid_bundle'])) {
                     // Fertilizer / prepaid-bundle — rich custom email with photos, materials, progress
@@ -109,16 +109,10 @@ class VisitLifecycleService
                     } catch (Throwable $e) {
                         error_log("Fertilizer notification failed for visit {$visitId}: " . $e->getMessage());
                     }
-                } else {
-                    // General service completion — branded template email
-                    try {
-                        if (function_exists('sendJobCompleteNotification')) {
-                            sendJobCompleteNotification($visitId);
-                        }
-                    } catch (Throwable $e) {
-                        error_log("Job complete notification failed for visit {$visitId}: " . $e->getMessage());
-                    }
                 }
+                // No general "job complete" email: the invoice is the completion email (Tim 2026-10-16).
+                // The old sendJobCompleteNotification() call never sent once (it read a column that
+                // doesn't exist); it was removed so a schema change can't start emailing clients.
 
                 // Push-notify admins/other crew that the job is done — see
                 // notifyCompletion() doc comment for why this is one shared
@@ -300,6 +294,10 @@ class VisitLifecycleService
 
             require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
             (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+            if ($userId) {                                                     // single-operator mode: the owner's heart also approves the pair (after the reply)
+                require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+                MiaHeartFlow::schedule($visitId, (int)$userId);
+            }
         } catch (Throwable $e) {
             // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
             error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());
@@ -660,6 +658,13 @@ class VisitLifecycleService
             // Ensure stop exists for new date
             $crewId = $visit['assigned_crew_id'] ?? $plan['default_crew_id'];
             $newStopId = ensureCalendarStop((int)$plan['property_id'], $newDate, $crewId ? (int)$crewId : null);
+
+            // Finished work stays on its day (VisitCarryGuard, 2026-10-27): a visit that already has an
+            // After photo is completed here and a fresh visit is created on the new date instead.
+            require_once __DIR__ . '/VisitCarryGuard.php';
+            if ((new VisitCarryGuard($db))->splitIfFinished($visitId, $newDate, $newStopId ? (int)$newStopId : null) !== null) {
+                return true;
+            }
 
             // Update visit — always update scheduled_date; only update stop_id if a valid stop was found
             $built = self::buildMoveVisitSet($newDate, (int)$newStopId, $newTimeStart);
