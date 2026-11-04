@@ -15,6 +15,7 @@ if (!function_exists('userHasPermission') || !userHasPermission('expenses.approv
     return;
 }
 try {
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';   // categories for the card, loaded here, not via another file
     require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
     $__desk = new BookkeeperDeskService(getDB());
@@ -81,7 +82,7 @@ $__team = [
     ['mia',     'Mia',     'Marketing & relationships', ['Who to reconnect with', 'Quiet property managers', 'Reviews & referrals']],
     ['yui',     'Yui',     'Comms · client relations',  ['Client replies waiting on you', 'Approvals with no accepted quote', 'Renewals, check-ins & arrears notes']],
     ['ada',     'Ada',     'Technology',                ['Scheduled jobs failing or missed', 'Connections down (Google, Meta, Apple, Stripe)', 'Unused logins']],
-    ['charlie', 'Charlie', 'Chief of Staff',            ['The one thing that needs you today', '7 am brief from every head']],
+    ['charlie', HeadIdentity::chiefName(), 'Chief of Staff',            ['The one thing that needs you today', '7 am brief from every head']],
 ];
 ?>
 <div class="mw-heads-deck" id="mw-heads-deck">

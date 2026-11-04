@@ -1,5 +1,7 @@
 <?php
 
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -287,7 +289,7 @@ try {
         </div>
 
         <div class='footer'>
-            <p>Mowology Professional Landscaping | " . ADMIN_PHONE . " | office@mowology.ca</p>
+            <p>" . htmlspecialchars(_idCompanyInfo()['company_name']) . " | " . ADMIN_PHONE . " | " . htmlspecialchars(_idCompanyInfo()['company_email']) . "</p>
             <p>Received: " . date('F j, Y g:i A') . "</p>
         </div>
     </body>
@@ -301,7 +303,7 @@ try {
     $smsSent = sendSMS($smsMessage);
 
     // Send confirmation email to customer
-    $customerSubject = "Quote Request Received - Mowology";
+    $customerSubject = "Quote Request Received - " . _idFromName();
     $customerMessage = "
     <html>
     <head>
@@ -341,7 +343,7 @@ try {
             <p>If you have any immediate questions, feel free to call us at <strong>" . ADMIN_PHONE . "</strong>.</p>
 
             <p>Best regards,<br>
-            <strong>The Mowology Team</strong><br>
+            <strong>The " . htmlspecialchars(_idFromName()) . " Team</strong><br>
             A Higher Degree of Service</p>
         </div>
     </body>

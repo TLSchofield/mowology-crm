@@ -50,6 +50,35 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
     return $header . '.' . $payload . '.' . $sig;
 }
 
+/**
+ * Generate the same long-lived mobile token issued by public/api/auth/token.php.
+ *
+ * @param array{id:mixed,email?:mixed,full_name?:mixed,role?:mixed,password_hash?:mixed} $user
+ */
+function generateMobileJwt(array $user, int $ttl = 2592000): string
+{
+    if (!function_exists('jwtSecret')) {
+        require_once __DIR__ . '/JwtAuth.php';
+    }
+
+    $now = time();
+    $header = _jwtB64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
+    $payload = _jwtB64(json_encode([
+        'iss'   => 'mowology',
+        'aud'   => 'ios',
+        'sub'   => (string)$user['id'],
+        'email' => (string)($user['email'] ?? ''),
+        'name'  => (string)($user['full_name'] ?? ''),
+        'role'  => (string)($user['role'] ?? 'user'),
+        'iat'   => $now,
+        'exp'   => $now + $ttl,
+        'pwd_v' => substr(hash('sha256', (string)($user['password_hash'] ?? '')), 0, 8),
+    ]));
+    $sig = _jwtB64(hash_hmac('sha256', $header . '.' . $payload, jwtSecret(), true));
+
+    return $header . '.' . $payload . '.' . $sig;
+}
+
 function _jwtB64(string $data): string
 {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');

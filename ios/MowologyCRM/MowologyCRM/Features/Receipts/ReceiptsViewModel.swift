@@ -109,6 +109,7 @@ final class ReceiptsViewModel: ObservableObject {
         let total = p?.totalDouble ?? 0
         let gst   = p?.gstDouble ?? 0
         let pst   = p?.pst.flatMap { ReceiptNumber.parse($0) } ?? 0
+        let pick  = intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) }
         return ReceiptQueue.OwedDraft(
             mediaId:       intake.mediaId,
             vendorId:      s?.vendorId,
@@ -120,9 +121,14 @@ final class ReceiptsViewModel: ObservableObject {
             pst:           pst,
             total:         total,
             category:      s?.accountingCategory ?? "",
-            paymentMethod: p?.paymentMethod ?? "credit_card",
+            paymentMethod: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card",
             rawOcrText:    intake.ocrText,
-            ocrParsed:     p
+            ocrParsed:     p,
+            jobId:         pick?.id,
+            jobPropertyId: pick?.propertyId,
+            jobContactId:  pick?.contactId,
+            jobTitle:      pick?.title,
+            jobSubtitle:   pick?.subtitle
         )
     }
 
@@ -145,7 +151,7 @@ final class ReceiptsViewModel: ObservableObject {
             mediaId:       o.mediaId,
             rawOcrText:    o.rawOcrText,
             ocrParsed:     o.ocrParsed,
-            job:           nil,
+            job:           o.jobId.map { JobPick(id: $0, propertyId: o.jobPropertyId, contactId: o.jobContactId, title: o.jobTitle ?? "Job", subtitle: o.jobSubtitle) },
             lat:           lat,
             lng:           lng
         )
@@ -335,12 +341,12 @@ final class ReceiptsViewModel: ObservableObject {
 
     // MARK: - Upload
 
-    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
+    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?, deviceRead: DeviceTextScanner.Prefetched? = nil) async {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil, deviceRead: deviceRead)
         } catch let err as APIError {
             // Queue the receipt only when the server didn't decide (review round 2):
             // - .networkError: offline, our 45s cap, 5xx / PHP kill, a truncated answer (UploadFault)

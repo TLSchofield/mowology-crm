@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // Must be logged in
 requireLogin();
@@ -91,7 +92,7 @@ if (!empty($_GET['id'])) {
 
 // --- Safety: ensure the resolved path stays within uploads/ or _media/ ---
 $allowedPrefixes = [
-    realpath(PUBLIC_ROOT . '/uploads/receipts'),
+    realpath(uploadsDir('receipts')),
     realpath(PUBLIC_ROOT . '/_media'),
 ];
 
@@ -99,7 +100,7 @@ $realPath = realpath($absolutePath);
 $allowed = false;
 if ($realPath) {
     foreach ($allowedPrefixes as $prefix) {
-        if ($prefix && strpos($realPath, $prefix) === 0) {
+        if ($prefix && strpos($realPath, rtrim($prefix, '/') . '/') === 0) {   // folder boundary: receipts/ never matches receipts-x/ (Codex 2026-10-23)
             $allowed = true;
             break;
         }
@@ -135,6 +136,16 @@ if (stripos($mimeType, 'html') !== false) {
     // sandboxed — no scripts, no forms, no same-origin access, nothing fetched but images and styles.
     header("Content-Security-Policy: sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src https: data:");
     header('Referrer-Policy: no-referrer');
+} elseif (stripos($mimeType, 'pdf') !== false) {
+    // A PDF receipt shown beside the editor form (2026-10-20). public/.htaccess no longer adds the page policy to
+    // this URL: its object-src 'none' made Chrome refuse to draw a PDF in a frame. This policy lets the viewer
+    // draw it and nothing else: no scripts, nothing fetched, framed only by our own pages. (No `sandbox`: it blocks
+    // the PDF viewer.)
+    header("Content-Security-Policy: default-src 'none'; object-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'");
+} else {
+    // Images and anything else: the page policy used to cover these; a served file needs far less. Sandboxed,
+    // so even a file that is not the image it claims to be cannot run anything.
+    header("Content-Security-Policy: sandbox; default-src 'none'; img-src 'self' data:; frame-ancestors 'self'");
 }
 // No Content-Disposition: inline so it displays in browser <img> tags
 

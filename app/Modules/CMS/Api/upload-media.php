@@ -24,6 +24,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -88,7 +89,7 @@ if ($file['size'] > $maxSizes[$mediaType]) {
 }
 
 // Generate unique stored filename
-$uploadDir = PUBLIC_ROOT . '/uploads/cms/';
+$uploadDir = uploadsDir('cms') . '/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
@@ -104,7 +105,7 @@ $extByMime = [
 $ext = $extByMime[$mimeType] ?? 'bin';
 $storedName = uniqid('media-') . '.' . $ext;
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/cms/' . $storedName;
+$webPath = uploadsUrl('cms') . '/' . $storedName;
 
 // Move uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {

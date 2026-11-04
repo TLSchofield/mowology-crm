@@ -99,6 +99,42 @@ class ExpenseApprovalService
     }
 
     /**
+     * "Already booked — file it" (Tim, 2026-10-26): a receipt dated in a filed year is the same purchase as an entry already
+     * in the closed books, so approving it would book it again. This keeps the receipt and photo (set aside, linked to its bank
+     * line like any rejected receipt), teaches the parser and Penny from the saved values exactly as an approval would, and
+     * posts NOTHING. Only for an open receipt dated before ExpenseGate::CLOSED_BEFORE.
+     * @return array ['success' => bool, 'message' => string]
+     */
+    public function fileAsBooked(int $expenseId, array $currentUser, array $opts = []): array
+    {
+        if (!$expenseId) throw new Exception('Expense ID required');
+        $st = $this->db->prepare("SELECT id, status, expense_date, created_by FROM expenses WHERE id = ?");
+        $st->execute([$expenseId]);
+        $e = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$e) throw new Exception('Expense not found');
+        if (!in_array((string)$e['status'], ['draft', 'pending_approval'], true)) throw new Exception('Only a receipt that is still open can be filed this way');
+        $date = substr((string)$e['expense_date'], 0, 10);
+        if ($date === '' || $date >= ExpenseGate::CLOSED_BEFORE) throw new Exception('This is only for a receipt dated in a year that is already filed');
+        if ($this->selfApprovalBlocked((int)$e['created_by'], (int)$currentUser['id'])) throw new Exception('Cannot approve your own expense');
+
+        $actor = ['id' => (int)$currentUser['id'], 'kind' => 'user'];
+        // Re-checked inside the gate on the row it reads (Codex 2026-10-26): a receipt approved, posted or set aside in the
+        // meantime is left alone, and only the request that really made the change teaches (a double-click teaches once).
+        $res = $this->gate()->apply($expenseId, [
+            'status' => 'rejected', 'approved_by' => (int)$currentUser['id'], 'approved_at' => 'now',
+            'rejection_reason' => 'Filed: already in the ' . substr($date, 0, 4) . ' books (not booked again)',
+        ], $actor, 'file_booked', ['transition' => 'reject', 'only_if' => function (array $b): bool {
+            return in_array((string)($b['status'] ?? ''), ['draft', 'pending_approval'], true)
+                && substr((string)($b['expense_date'] ?? ''), 0, 10) < ExpenseGate::CLOSED_BEFORE;
+        }]);
+        if (!empty($res['noop'])) return ['success' => true, 'message' => 'Nothing to change: it was already dealt with'];
+
+        require_once __DIR__ . '/ExpenseGateHooks.php';
+        (new ExpenseGateHooks($this->db))->learnConfirmed($expenseId, $opts['learn_baseline'] ?? null, true);
+        return ['success' => true, 'message' => 'Filed: kept with its photo, nothing booked again'];
+    }
+
+    /**
      * @param int    $expenseId
      * @param array  $currentUser  Must include 'id'.
      * @param string $reason       Required — rejection reason.

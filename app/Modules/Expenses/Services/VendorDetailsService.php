@@ -108,7 +108,7 @@ class VendorDetailsService
      * Fill the receipt's vendor (and store) from what the receipt prints. Approved / sent receipts only.
      * @return array{vendor: list<string>, store: ?string}  what was filled ('phone', 'website', 'gst_number'; 'added' | 'updated' | null)
      */
-    public function fillFromReceipt(int $expenseId, bool $apply = true): array
+    public function fillFromReceipt(int $expenseId, bool $apply = true, bool $countSighting = true): array
     {
         $done = ['vendor' => [], 'store' => null];
         $s = $this->db->prepare("SELECT id, vendor_id, status, raw_ocr_json FROM expenses WHERE id = ?");
@@ -133,12 +133,12 @@ class VendorDetailsService
             $this->db->prepare("UPDATE vendors SET $sql WHERE id = ?")->execute(array_merge(array_values($set), [$vendorId]));
         }
         $done['vendor'] = array_keys($set);
-        if ($info['address'] !== null || $info['store_number'] !== null) $done['store'] = $this->store($vendorId, $info, $apply);
+        if ($info['address'] !== null || $info['store_number'] !== null) $done['store'] = $this->store($vendorId, $info, $apply, $countSighting);
         return $done;
     }
 
     /** Match or add the store. @return 'added' | 'updated' | null */
-    private function store(int $vendorId, array $info, bool $apply): ?string
+    private function store(int $vendorId, array $info, bool $apply, bool $countSighting = true): ?string
     {
         $q = $this->db->prepare("SELECT * FROM vendor_locations WHERE vendor_id = ?");
         $q->execute([$vendorId]);
@@ -163,7 +163,8 @@ class VendorDetailsService
             }
             if (in_array(strtolower((string)$match['label']), ['', 'main', 'store'], true)) $fill['label'] = $label;
             $sql = implode(', ', array_map(fn($k) => "`$k` = ?", array_keys($fill)));
-            if ($learned) $sql = ltrim($sql . ', receipts_seen = receipts_seen + 1, last_seen_at = NOW()', ', ');
+            // A re-read of an old receipt (backfill) fills empty fields only; it is not a new visit to the store.
+            if ($learned && $countSighting) $sql = ltrim($sql . ', receipts_seen = receipts_seen + 1, last_seen_at = NOW()', ', ');
             if ($sql !== '') $this->db->prepare("UPDATE vendor_locations SET $sql WHERE id = ?")->execute(array_merge(array_values($fill), [(int)$match['id']]));
             return 'updated';
         }
@@ -183,7 +184,7 @@ class VendorDetailsService
                                  AND raw_ocr_json IS NOT NULL AND raw_ocr_json <> '' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
         $out = ['receipts' => count($ids), 'vendors' => 0, 'stores_added' => 0, 'stores_updated' => 0, 'fields' => []];
         foreach ($ids as $id) {
-            $r = $this->fillFromReceipt((int)$id, $apply);
+            $r = $this->fillFromReceipt((int)$id, $apply, false);   // re-reads count no sightings (2026-11-04)
             if ($r['vendor']) $out['vendors']++;
             foreach ($r['vendor'] as $f) $out['fields'][$f] = ($out['fields'][$f] ?? 0) + 1;
             if ($r['store'] === 'added') $out['stores_added']++;

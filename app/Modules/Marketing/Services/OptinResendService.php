@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 /**
  * OptinResendService
@@ -348,7 +349,7 @@ class OptinResendService
 
     public function confirmUrl(string $rawToken): string
     {
-        $base = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $base = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         return rtrim($base, '/') . '/optin-confirm.php?token=' . urlencode($rawToken);
     }
 

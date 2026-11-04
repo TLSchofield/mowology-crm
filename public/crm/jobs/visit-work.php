@@ -12,6 +12,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('jobs.view');
@@ -1104,7 +1105,7 @@ $activePage = 'jobs';
 
       // Derive view URL from thumb URL (pattern: /uploads/photos/t/{id}/{base}_t.ext)
       var viewUrl = ev.thumbUrl
-        ? ev.thumbUrl.replace('/uploads/photos/t/', '/uploads/photos/v/').replace(/_t\./, '_v.')
+        ? ev.thumbUrl.replace('/photos/t/', '/photos/v/').replace(/_t\./, '_v.')
         : (ev.thumbUrl || '');
       tile.dataset.viewUrl   = viewUrl;
       tile.dataset.photoType = photoType;

@@ -36,14 +36,14 @@ metadata:
 # Ada — head of Technology (phase 1 BUILT 2026-10-11)
 
 > **Built (2026-10-11, commit 418aeb74):** `AdaRules` (pure, `tests/Unit/Technology/AdaRulesTest.php`)
-> and `AdaDeskService` in `app/Modules/Technology/Services/`; her line in Charlie's brief
+> and `AdaDeskService` in `app/Modules/Technology/Services/`; her line in Kaname's brief
 > (`CharlieBriefService` desks list); her card `public/crm/includes/ada-card.php`; the System Health
 > page `public/crm/ada_appstack.php` (admin only, sidebar "System Health"). Checks built: scheduled
 > jobs, connections (Meta, Google Business, Search Console, Apple push, Stripe, Trackimo), unused
 > logins. Everything else in `references/checks.md` marked PLANNED is still planned — plain words,
 > never backticks, until it exists.
 
-Agreed with Tim 2026-10-11: Ada keeps the system working and tells Charlie when it is not.
+Agreed with Tim 2026-10-11: Ada keeps the system working and tells Kaname when it is not.
 She runs on **rules, not AI** (reads tables that already exist — costs nothing), reports
 **evidence, not alarms**, and **never fixes anything herself**: she diagnoses and hands a clear
 task to a developer session, or to Tim when it needs his login. She will have a health page
@@ -53,12 +53,12 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 |---|---|
 | What Ada checks and the exact data source for each check | `references/checks.md` |
 | How Ada may act: evidence lines, hand-offs, thresholds | `references/operating-rules.md` |
-| Where Ada will appear (Charlie's brief, health page, iPhone) | `references/surfaces.md` |
+| Where Ada will appear (Kaname's brief, health page, iPhone) | `references/surfaces.md` |
 | The silent failures that justify her (read before building any check) | `references/traps.md` |
 
 > **Built (2026-10-13):** nightly security posture — cron `security_posture`,
 > `SecurityPostureRules` / `SecurityPostureService`, 15 checks in the Security group, a new red emailed
-> once via Charlie; Mac heartbeats (`scripts/lib/heartbeat.sh`) and the deploy manifest
+> once via Kaname; Mac heartbeats (`scripts/lib/heartbeat.sh`) and the deploy manifest
 > (`scripts/lib/deploy_manifest.py`). See `references/checks.md` section (7).
 
 > **Built (2026-11-03, the register — harvested from Anthropic's operations/finance plugins, plan
@@ -115,7 +115,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
    model calls in her checks.
 5. **Never print a secret.** Report *where* a secret is and *that* it is misplaced; never its
    value — not in a brief, a log, a skill file or the Obsidian vault (it syncs through iCloud).
-6. **One line per problem in Charlie's brief**, with the evidence in it:
+6. **One line per problem in Kaname's brief**, with the evidence in it:
    "Yardi reader: 0 emails since it started on Aug 5, while 5 remittances (May–Jul) sit in office@ before its start date and Dorset's go to info@/iCloud, which it never opens — coverage gap, not necessarily broken."
 
 ## One place for each job (the existing tools Ada will read — all verified 2026-10-11)
@@ -127,6 +127,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | Cron run history API | `app/Modules/Database/Api/cron-log.php` (`latest`, `history`) | admin only |
 | Cron overlap lock | `CronLock::acquire()` in `app/Core/CronLock.php` | records nothing |
 | Server error log | `writeSystemLog()` → table `system_log`; page `public/crm/system-log_appstack.php` | |
+| PHP crashes (fatal / parse errors in pages, APIs, webhooks) | `AdaServerErrors` in `app/Modules/Technology/Services/AdaServerErrors.php` reads the tail of the PHP error log (`ini_get('error_log')`), last 24 h, grouped by file:line; ≥3 = red | added 2026-10-16: the Stripe webhook fataled on 189 payments since May and Ada never saw it (system_log ≠ PHP error log) |
 | Migrations run | table `migrations_log`; runner `app/Modules/Database/Api/migrations-manager.php` | files in `database/migrations/` |
 | Schema snapshot + drift | `app/Modules/Database/Cron/schema_snapshot.php`, `getSchemaSnapshot()` and `compareSnapshots()` in `app/Modules/Database/Services/SchemaFunctions.php` | daily 4 AM (`schema_snapshot`) |
 | Mailbox list + configured or not | `MailboxConfig::status()` in `app/Services/Mail/MailboxConfig.php` | says "configured", not "login works" |
@@ -141,7 +142,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | Queries on production | `scripts/prod-run.sh` (rolled back unless `--commit`) | Mac-side |
 | Audit trail (who changed what) | `activity_log` via `logActivityExtended()` / `logActivity()`; never deleted from (`AuditTrail` cuts links instead; `AuditTrailTest` scans for DELETE/TRUNCATE); before → after lines via `AuditDiff` | append-only copy: `AuditExportService`, cron `audit_export` |
 | Schema changes vs everyday DB user | `Database::ddl()` / `Database::useDdlForRequest()` in `app/Core/config.php` (optional `DB_DDL_*` in secrets.php); `migrationRunnerGuard()` switches runners to it | `RuntimeDdlTest` fails on new runtime DDL |
-| Charlie's brief (where Ada's line goes) | `CharlieBriefService::collect()` in `app/Modules/ChiefOfStaff/Services/CharlieBriefService.php`; ready copy `HeadBriefReadyService::rebuildCharlie()` | heads contract: `brief(string)` |
+| Kaname's brief (where Ada's line goes) | `CharlieBriefService::collect()` in `app/Modules/ChiefOfStaff/Services/CharlieBriefService.php`; ready copy `HeadBriefReadyService::rebuildCharlie()` | heads contract: `brief(string)` |
 
 **Not yet central (known):** there is no single "connection status" table — each integration
 keeps its own (social in `meta_json`, push in `push_queue`, Search Console in `gsc_sync_history`,

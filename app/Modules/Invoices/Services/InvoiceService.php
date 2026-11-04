@@ -21,6 +21,7 @@
  *    reuses an existing card-only PI when the amount still matches.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class InvoiceService
 {
@@ -221,7 +222,7 @@ class InvoiceService
         $params = [
             'amount'               => $amountCents,
             'currency'             => 'cad',
-            'description'          => 'Invoice ' . $invoice['invoice_number'] . ' — Mowology Landscaping',
+            'description'          => 'Invoice ' . $invoice['invoice_number'] . ' — ' . _idCompanyInfo()['company_name'],
             'payment_method_types' => ['card'],
             'metadata'             => [
                 'invoice_id'     => (string) $invoiceId,

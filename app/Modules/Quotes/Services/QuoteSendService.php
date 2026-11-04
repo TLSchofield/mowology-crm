@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * QuoteSendService — send a quote to its client: the one place (2026-10-15, Tim: send quotes from Sam on the iPhone).
  * Moved unchanged from the quote page's "Send to Customer" (public/crm/quotes/view.php), which now calls it, and
@@ -69,7 +71,7 @@ class QuoteSendService
             $host = parse_url(preg_match('#^https?://#i', $w) ? $w : 'https://' . $w, PHP_URL_HOST);
             if (is_string($host) && preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/i', $host)) return 'https://' . strtolower($host);
         }
-        return defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca';
+        return defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : _idSiteUrl();
     }
 
     private function sendLocked(int $quoteId, array $user, bool $draftOnly): array
@@ -98,7 +100,7 @@ class QuoteSendService
         $smsSent    = false;
         $sentVia    = [];
         $attachPath = null;
-        $ccPerson   = null;
+        $ccEmails   = [];
 
         $svc->ensureAccessToken($quoteId, $quote);
         $quoteUrl = $origin . '/customer/quote.php?token=' . $quote['access_token'];
@@ -125,7 +127,7 @@ class QuoteSendService
             $isContract   = !empty($quote['is_contract']);
             $emailBody    = EmailWrapper::wrap(
                 $tpl['body_html'] . ($isContract
-                    ? QuoteService::contractSigningHtml((string)($quote['terms'] ?? ''), $quoteUrl, $companyInfo['company_email'] ?? 'office@mowology.ca')
+                    ? QuoteService::contractSigningHtml((string)($quote['terms'] ?? ''), $quoteUrl, $companyInfo['company_email'] ?? _idReplyTo())
                     : ''),
                 $isContract ? 'Sign the contract online' : 'Read the quote',
                 $quoteUrl,
@@ -159,8 +161,8 @@ class QuoteSendService
             $emailBody = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $emailBody);
 
             // Copy the building's property manager, if known (QuoteRecipientService).
-            $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
-            $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath, 'Mowology', [], $ccPerson ? [$ccPerson['email']] : []);
+            $ccEmails    = $recipientSvc->ccEmailsForQuote($quote, $customer['contact_id'], $customerEmail);
+            $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath, '', [], $ccEmails);
 
             if ($emailResult['success']) {
                 $emailSent = true;
@@ -194,7 +196,7 @@ class QuoteSendService
         logQuoteSentEvent($quoteId);
 
         $activityDetails = ($newStatus !== 'sent' ? "Quote link re-sent ({$oldStatus} quote, status unchanged) via " : 'Quote sent via ') . implode(' + ', $sentVia);
-        if ($customerEmail) $activityDetails .= " (email: {$customerEmail}" . (!empty($ccPerson) ? ", cc: {$ccPerson['email']}" : '') . ')';
+        if ($customerEmail) $activityDetails .= " (email: {$customerEmail}" . (!empty($ccEmails) ? ', cc: ' . implode(', ', $ccEmails) : '') . ')';
         if ($customerPhone && $customerConsentsToSms) $activityDetails .= " (SMS: {$customerPhone})";
         if ($attachPath) $activityDetails .= ' with PDF attached';
         logActivityExtended($user['id'] ?? null, 'Quote sent', $activityDetails, null, null, $quoteId);

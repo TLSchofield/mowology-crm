@@ -91,4 +91,37 @@ class CharlieBriefSourcesTest extends TestCase
         $rows[0]['title'] = '1 Overdue Invoice';
         $this->assertSame('house:overdue_invoice', HouseBriefAdapter::fromWorkQueue($rows)['items'][0]['key']);
     }
+
+    public function testHouseBriefIsServedFromACopyWhenFresh(): void
+    {
+        if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+            $this->markTestSkipped('pdo_sqlite not available');
+        }
+        // The slow work-queue sweep must not run on every card load: a copy under CACHE_SECONDS old is served as is.
+        $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+        $db->exec("CREATE TABLE head_brief_ready (head TEXT PRIMARY KEY, payload TEXT, built_at TEXT, build_ms INT)");
+        $db->exec("CREATE TABLE charlie_items (item_key TEXT, resolved_at TEXT, dismissed_at TEXT, snoozed_until TEXT)");
+        $kept = ['head' => 'house', 'headline' => '1 thing nobody else is watching', 'count' => 1, 'items' => [['key' => 'house:overdue_invoice', 'kind' => 'house:overdue_invoice', 'text' => 'x', 'priority' => 1]]];
+        $db->prepare("INSERT INTO head_brief_ready VALUES ('house', ?, ?, 6000)")->execute([json_encode($kept), date('Y-m-d H:i:s', time() - 60)]);
+        $sweeps = 0;
+        $sweep = function () use (&$sweeps) { $sweeps++; return []; };
+
+        $b = (new HouseBriefAdapter($db, $sweep))->brief();
+        $this->assertSame('house:overdue_invoice', $b['items'][0]['key']);
+        $this->assertSame(0, $sweeps, 'a fresh copy means the slow sweep does not run');
+
+        // An old copy is rebuilt.
+        $db->exec("UPDATE head_brief_ready SET built_at = '" . date('Y-m-d H:i:s', time() - 3600) . "'");
+        $b2 = (new HouseBriefAdapter($db, $sweep))->brief();
+        $this->assertSame(1, $sweeps);
+        $this->assertSame([], $b2['items']);
+        // (Storing the rebuilt copy uses MySQL's ON DUPLICATE KEY, so that half is covered by the live check, not this SQLite test.)
+    }
+
+    public function testHouseBriefStillWorksWithoutTheCacheTable(): void
+    {
+        $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $b = (new HouseBriefAdapter($db, fn() => []))->brief();
+        $this->assertSame('house', $b['head']);
+    }
 }

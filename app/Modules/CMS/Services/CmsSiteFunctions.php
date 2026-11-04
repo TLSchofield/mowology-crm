@@ -79,17 +79,22 @@ function cms_resolveSite(?string $domain = null): array
  */
 function cms_getDefaultSite(): array
 {
+    require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+    $b = BusinessIdentity::get();
+    $digits = preg_replace('/\D+/', '', $b['phone']);
+    if (strlen($digits) === 11 && $digits[0] === '1') $digits = substr($digits, 1);
+    $host = (string)preg_replace('#[/:?].*$#', '', strtolower((string)preg_replace('#^(https?://)?(www\.)?#i', '', $b['website'])));
     return [
         'id'                  => 1,
         'slug'                => 'mowology',
-        'domain'              => 'mowology.ca',
-        'name'                => 'Mowology',
-        'tagline'             => 'A HIGHER DEGREE OF SERVICE',
+        'domain'              => $host,
+        'name'                => $b['name'],
+        'tagline'             => '',
         'logo_path'           => '/assets/img/logo/mowology-logo.jpg',
         'favicon_dir'         => '/assets/favicon',
-        'phone_display'       => '778-846-9273',
-        'phone_tel'           => '7788469273',
-        'email'               => 'office@mowology.ca',
+        'phone_display'       => strlen($digits) === 10 ? substr($digits, 0, 3) . '-' . substr($digits, 3, 3) . '-' . substr($digits, 6) : $b['phone'],
+        'phone_tel'           => $digits,
+        'email'               => $b['email'],
         'locale'              => 'en_CA',
         'timezone'            => 'America/Vancouver',
         'theme_id'            => null,

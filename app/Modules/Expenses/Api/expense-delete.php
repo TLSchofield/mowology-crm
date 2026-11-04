@@ -53,6 +53,8 @@ try {
         exit;
     }
 
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin(getDB(), (int)$jwtUser['id'], 'expense-delete', 'delete');
     $result = (new ExpenseService(getDB()))->delete(
         (int)($input['id'] ?? 0),
         ['id' => (int)$jwtUser['id'], 'is_admin' => jwtIsAdmin($jwtUser['role'] ?? ''), 'source' => 'ios_delete']

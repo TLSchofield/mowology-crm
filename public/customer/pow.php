@@ -13,6 +13,7 @@ header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 header('Referrer-Policy: no-referrer'); // the link's token never travels in a Referer (Codex 2026-10-15)
 
@@ -283,8 +284,8 @@ $serviceLabel = [
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
         <?php foreach ($photos as $ph): ?>
         <div>
-          <a href="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>" target="_blank">
-            <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
+          <a href="<?php echo htmlspecialchars(uploadsUrl('photos')); ?>/<?php echo htmlspecialchars($ph['filename']); ?>" target="_blank">
+            <img src="<?php echo htmlspecialchars(uploadsUrl('photos')); ?>/<?php echo htmlspecialchars($ph['filename']); ?>"
                  alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
                  style="width:100%;height:100px;object-fit:cover;border-radius:var(--p-radius-sm);border:1px solid var(--p-border);display:block;"
                  data-mw-hide-on-error="2">

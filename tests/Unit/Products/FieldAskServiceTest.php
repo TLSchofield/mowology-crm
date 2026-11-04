@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /**
  * FieldAskService — "Ask first" on field recommendations (migration 1180).
  *
@@ -12,6 +14,18 @@ use PHPUnit\Framework\TestCase;
  */
 class FieldAskServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private const NOW = '2026-10-06 15:00:00';
 
     private function person(int $id, string $first, ?string $email, string $role): array

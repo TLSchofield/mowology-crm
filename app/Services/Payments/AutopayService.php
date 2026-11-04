@@ -14,6 +14,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 require_once APP_ROOT . '/Core/paths.php';
 require_once PUBLIC_ROOT . '/vendor/autoload.php';
@@ -30,7 +31,7 @@ class AutopayService
     {
         $this->db = $db;
         \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
-        \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
+        \Stripe\Stripe::setAppInfo(_idFromName() . ' CRM', '1.0', _idSiteUrl());
     }
 
     /**
@@ -187,8 +188,8 @@ class AutopayService
                 'payment_method' => $data['stripe_payment_method_id'],
                 'confirm'        => true,
                 'off_session'    => true,
-                'description'    => 'Invoice ' . $data['invoice_number'] . ' — Mowology Landscaping (autopay)',
-                'statement_descriptor_suffix' => 'MOWOLOGY',
+                'description'    => 'Invoice ' . $data['invoice_number'] . ' — ' . _idCompanyInfo()['company_name'] . ' (autopay)',
+                'statement_descriptor_suffix' => (strtoupper(substr(preg_replace('/[^A-Za-z0-9 ]/', '', _idFromName()), 0, 22)) ?: 'INVOICE'),
                 'metadata'       => [
                     'invoice_id'       => (string) $invoiceId,
                     'invoice_number'   => $data['invoice_number'],
@@ -437,7 +438,7 @@ class AutopayService
             return;
         }
 
-        $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($data['access_token'] ?? '');
+        $portalUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($data['access_token'] ?? '');
 
         $subject = 'Action required: please complete payment for Invoice ' . htmlspecialchars($data['invoice_number'], ENT_QUOTES);
 
@@ -447,8 +448,8 @@ class AutopayService
         <p><strong>This only takes a moment.</strong> Please click the link below to complete the payment:</p>
         <p><a href="' . $portalUrl . '" style="background:#2D8659;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;display:inline-block;">Complete Payment</a></p>
         <p>Invoice: ' . htmlspecialchars($data['invoice_number'], ENT_QUOTES) . '</p>
-        <p>If you have questions, call us at (778) 846-9273.</p>
-        <p>— Mowology Landscaping</p>';
+        <p>If you have questions, ' . (_idPhone() !== '' ? 'call us at ' . htmlspecialchars(_idPhone()) . '.' : 'reply to this email.') . '</p>
+        <p>— ' . htmlspecialchars(_idCompanyInfo()['company_name']) . '</p>';
 
         // Every customer email about an invoice carries the invoice PDF (owner rule
         // 2026-10-06). No PDF → this notice is held and recorded; Charlie emails the
@@ -476,9 +477,9 @@ class AutopayService
             $adminEmailRow = $this->db->query(
                 "SELECT admin_email FROM business_settings LIMIT 1"
             )->fetch(\PDO::FETCH_ASSOC);
-            $adminEmail = !empty($adminEmailRow['admin_email']) ? $adminEmailRow['admin_email'] : 'office@mowology.ca';
+            $adminEmail = !empty($adminEmailRow['admin_email']) ? $adminEmailRow['admin_email'] : _idReplyTo();
         } catch (\Throwable $e) {
-            $adminEmail = 'office@mowology.ca';
+            $adminEmail = _idReplyTo();
         }
 
         $clientName = trim(($data['contact_first'] ?? '') . ' ' . ($data['contact_last'] ?? '')) ?: 'Unknown';

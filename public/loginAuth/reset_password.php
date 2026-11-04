@@ -2,10 +2,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/signin-chrome.php';   // Ittai v1.2 sign-in look (2026-10-23)
+$__bizName = itSigninBizName();
 
-// If already logged in, redirect to dashboard
+// If already logged in, redirect to app
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    header('Location: /crm/app-launch.php');
     exit();
 }
 
@@ -116,81 +118,18 @@ $csrf_token = generateCSRFToken();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reset Password - Mowology CRM</title>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        /* (KEEP YOUR EXISTING CSS AS-IS) */
-        * { margin:0; padding:0; box-sizing:border-box; }
-        :root {
-            --forest-dark:#0D3B2E; --forest-main:#1A5F4A; --grass-green:#2D8659;
-            --lime-accent:#7FD858; --earth-brown:#8B5A3C; --snow-white:#F8FFFE;
-            --mist-gray:#E8F3F0; --shadow:rgba(13, 59, 46, 0.12);
-        }
-        body {
-            font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;
-            background:linear-gradient(135deg,var(--forest-dark) 0%,var(--forest-main) 100%);
-            min-height:100vh; display:flex; align-items:center; justify-content:center;
-            position:relative; overflow:hidden;
-        }
-        body::before {
-            content:''; position:absolute; width:500px; height:500px;
-            background:radial-gradient(circle,var(--grass-green) 0%,transparent 70%);
-            top:-200px; right:-200px; opacity:.3; animation:float 8s ease-in-out infinite;
-        }
-        body::after {
-            content:''; position:absolute; width:400px; height:400px;
-            background:radial-gradient(circle,var(--lime-accent) 0%,transparent 70%);
-            bottom:-150px; left:-150px; opacity:.2; animation:float 10s ease-in-out infinite reverse;
-        }
-        @keyframes float { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(30px,-30px) scale(1.1)} }
-        .container{background:var(--snow-white); border-radius:24px; box-shadow:0 20px 60px rgba(0,0,0,.3);
-            overflow:hidden; width:100%; max-width:440px; position:relative; z-index:1; animation:slideUp .6s ease-out;}
-        @keyframes slideUp{from{opacity:0; transform:translateY(30px)} to{opacity:1; transform:translateY(0)}}
-        .header{background:linear-gradient(135deg,var(--grass-green) 0%,var(--forest-main) 100%);
-            padding:48px 40px; text-align:center; position:relative; overflow:hidden;}
-        .header::before{content:'🔐'; font-size:80px; position:absolute; top:10px; right:20px; opacity:.15; transform:rotate(-15deg);}
-        .logo{font-family:'Space Mono',monospace; font-size:32px; font-weight:700; color:var(--snow-white);
-            letter-spacing:-1px; margin-bottom:8px; text-transform:uppercase;}
-        .tagline{color:var(--lime-accent); font-size:14px; font-weight:500; letter-spacing:2px; text-transform:uppercase;}
-        .form-wrapper{padding:48px 40px;}
-        .form-title{font-size:24px; font-weight:700; color:var(--forest-dark); margin-bottom:12px; text-align:center;}
-        .form-subtitle{font-size:14px; color:#666; text-align:center; margin-bottom:32px; line-height:1.5;}
-        .form-group{margin-bottom:24px;}
-        .form-label{display:block; font-size:13px; font-weight:600; color:var(--forest-main);
-            margin-bottom:8px; text-transform:uppercase; letter-spacing:.5px;}
-        .form-input{width:100%; padding:14px 16px; border:2px solid var(--mist-gray); border-radius:12px;
-            font-size:15px; font-family:'DM Sans',sans-serif; transition:all .3s ease; background:var(--snow-white);}
-        .form-input:focus{outline:none; border-color:var(--grass-green); box-shadow:0 0 0 4px rgba(45,134,89,.1);}
-        .message{padding:14px 16px; border-radius:12px; margin-bottom:24px; font-size:14px; font-weight:500;}
-        .message-error{background:#FEE; color:#C33; border-left:4px solid #C33;}
-        .message-success{background:#E8F5E9; color:#2E7D32; border-left:4px solid #2E7D32;}
-        .submit-button{width:100%; padding:16px; background:linear-gradient(135deg,var(--grass-green) 0%,var(--forest-main) 100%);
-            color:var(--snow-white); border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer;
-            transition:all .3s ease; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 12px var(--shadow);}
-        .submit-button:hover{transform:translateY(-2px); box-shadow:0 6px 20px var(--shadow);}
-        .submit-button:active{transform:translateY(0);}
-        .password-requirements{background:var(--mist-gray); padding:12px 16px; border-radius:8px; margin-bottom:24px; font-size:13px; color:#666;}
-        .password-requirements strong{color:var(--forest-dark); display:block; margin-bottom:8px;}
-        .back-link{display:block; text-align:center; margin-top:24px; color:var(--forest-main); text-decoration:none; font-weight:500; transition:color .3s;}
-        .back-link:hover{color:var(--grass-green);}
-        .footer{padding:24px 40px; background:var(--mist-gray); text-align:center; font-size:13px; color:var(--forest-main);}
-    </style>
+<?php itSigninHead('Reset password - ' . $__bizName); ?>
 </head>
-<body>
-<div class="container">
-    <div class="header">
-        <div class="logo">Mowology</div>
-        <div class="tagline">Client Management System</div>
-    </div>
+<body class="<?= itSigninBodyClass() ?>">
+<main class="it-signin-wrap">
+    <?php itSigninLockup(); ?>
 
-    <div class="form-wrapper">
-        <h2 class="form-title">Reset Password</h2>
-        <p class="form-subtitle">Create a new secure password for your account.</p>
+    <div class="it-signin-card">
+        <h1 class="it-signin-title">Set a new password</h1>
+        <p class="it-signin-sub">for <strong><?= htmlspecialchars($__bizName) ?></strong></p>
 
         <?php if ($message): ?>
-            <div class="message message-<?php echo htmlspecialchars($messageType); ?>">
+            <div class="it-signin-msg it-signin-msg--<?php echo $messageType === 'success' ? 'success' : 'error'; ?>" role="<?php echo $messageType === 'success' ? 'status' : 'alert'; ?>">
                 <?php echo htmlspecialchars($message); ?>
             </div>
         <?php endif; ?>
@@ -200,38 +139,32 @@ $csrf_token = generateCSRFToken();
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                 <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
 
-                <div class="password-requirements">
-                    <strong>Password Requirements:</strong>
-                    - At least 12 characters long<br>
-                    - Use a mix of words, numbers, and symbols
+                <div class="it-signin-note" id="pw-rules">At least 12 characters. A mix of words, numbers and symbols is strongest.</div>
+
+                <div class="it-signin-field">
+                    <label class="it-signin-label" for="password">New password</label>
+                    <input type="password" id="password" name="password" class="it-signin-input"
+                           required minlength="12" autocomplete="new-password" aria-describedby="pw-rules">
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="password">New Password</label>
-                    <input type="password" id="password" name="password" class="form-input"
-                           required minlength="12" autocomplete="new-password" placeholder="Enter new password">
+                <div class="it-signin-field">
+                    <label class="it-signin-label" for="confirm_password">Confirm new password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" class="it-signin-input"
+                           required minlength="12" autocomplete="new-password">
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="confirm_password">Confirm Password</label>
-                    <input type="password" id="confirm_password" name="confirm_password" class="form-input"
-                           required minlength="12" autocomplete="new-password" placeholder="Confirm new password">
-                </div>
-
-                <button type="submit" class="submit-button">Reset Password</button>
+                <button type="submit" class="it-signin-button">Save new password</button>
             </form>
+
+            <div class="it-signin-links">
+                <a href="forgot_password.php" class="it-signin-link">Request a new reset link</a>
+            </div>
         <?php else: ?>
-            <a href="login.php" class="back-link">Go to Login &rarr;</a>
-        <?php endif; ?>
-
-        <?php if ($validToken): ?>
-            <a href="forgot_password.php" class="back-link">Request a new reset link</a>
+            <div class="it-signin-links">
+                <a href="login.php" class="it-signin-link">Go to sign in</a>
+            </div>
         <?php endif; ?>
     </div>
-
-    <div class="footer">
-        <p>Remember your password? <a href="login.php" style="color: var(--grass-green);">Sign in</a></p>
-    </div>
-</div>
+</main>
 </body>
 </html>

@@ -33,6 +33,11 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
     {
         if ($this->ready !== null) return $this->ready;
         try {
+            if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+                $s = $this->db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kb_vendors'");
+                $s->execute();
+                return $this->ready = (bool)$s->fetchColumn();
+            }
             $this->ready = $this->db->query("SHOW TABLES LIKE 'kb_vendors'")->rowCount() > 0;
         } catch (Throwable $e) {
             $this->ready = false;

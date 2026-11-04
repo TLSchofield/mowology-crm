@@ -80,6 +80,12 @@ class SocialEncryption
 
         $plain = openssl_decrypt($cipher, self::CIPHER, $key, OPENSSL_RAW_DATA, $iv);
 
+        // CBC without a MAC: a WRONG key passes the padding check about 1 time in 256 and yields random bytes
+        // (the flaky key-mismatch test, 2026-10-20). Every stored credential is printable text (tokens, JSON), so
+        // control bytes or invalid UTF-8 mean the same thing as a failed decrypt: a key mismatch.
+        if ($plain !== false && ($plain === '' || !mb_check_encoding($plain, 'UTF-8') || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $plain))) {
+            $plain = false;
+        }
         if ($plain === false) {
             error_log('SocialEncryption::decrypt — ciphertext present but would not decrypt under the current '
                 . 'SOCIAL_ENCRYPTION_KEY. This is a KEY MISMATCH, not a missing credential.');

@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 /**
  * PrivacyService
@@ -252,7 +253,7 @@ class PrivacyService
         // 5 — Unlink photo files from disk (best-effort, after commit)
         if (defined('PUBLIC_ROOT') && $photoFilenames) {
             foreach ($photoFilenames as $row) {
-                $path = PUBLIC_ROOT . '/uploads/photos/' . $row['filename'];
+                $path = uploadsDir('photos') . '/' . $row['filename'];
                 if (is_file($path)) {
                     @unlink($path);
                 }
@@ -260,7 +261,7 @@ class PrivacyService
                 foreach (['t', 'g', 'v'] as $variant) {
                     $ext      = pathinfo($row['filename'], PATHINFO_EXTENSION);
                     $base     = pathinfo($row['filename'], PATHINFO_FILENAME);
-                    $varPath  = PUBLIC_ROOT . '/uploads/photos/' . $variant . '/' . $base . '.webp';
+                    $varPath  = uploadsDir('photos') . '/' . $variant . '/' . $base . '.webp';
                     if (is_file($varPath)) {
                         @unlink($varPath);
                     }

@@ -23,7 +23,9 @@
  * Tables (migration 1202): media_tag_state, media_usage, media_tag_scores; contacts.photo_optout.
  * No namespace / no autoloader in production.
  */
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 require_once __DIR__ . '/MediaTagRules.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class MediaTagService
 {
@@ -95,7 +97,7 @@ class MediaTagService
         $vp = $s->fetch(PDO::FETCH_ASSOC);
         if (!$vp || !empty($vp['deleted_at'])) return 0;
 
-        $path = '/uploads/photos/' . $vp['filename'];
+        $path = uploadsUrl('photos') . '/' . $vp['filename'];
         $s = $this->db->prepare("SELECT id FROM media_assets WHERE file_path = ? ORDER BY id LIMIT 1");
         $s->execute([$path]);
         $mid = (int)$s->fetchColumn();
@@ -393,17 +395,10 @@ TXT;
 
     private function send(array $body): array
     {
-        if ($this->transport) return ($this->transport)($body);
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01'],
-            CURLOPT_POSTFIELDS => json_encode($body),
-        ]);
-        $raw = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        return ['code' => $code, 'body' => (string)$raw];
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $r = LlmGateway::send($body, ['head' => 'mia', 'skill' => 'media_tag', 'db' => $this->db,
+                                      'timeout' => 60, 'transport' => $this->transport]);
+        return ['code' => $r['code'], 'body' => $r['body']];
     }
 
     // ─────────────────────────────────────────────────────────────────────

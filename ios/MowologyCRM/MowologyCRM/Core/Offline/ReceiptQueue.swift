@@ -69,6 +69,12 @@ final class ReceiptQueue: ObservableObject {
         var paymentMethod: String
         var rawOcrText: String?
         var ocrParsed: ParsedReceipt?
+        // The decisive schedule job, when the server picked one (older stored items have none).
+        var jobId: Int?
+        var jobPropertyId: Int?
+        var jobContactId: Int?
+        var jobTitle: String?
+        var jobSubtitle: String?
     }
 
     struct PendingItem: Codable {

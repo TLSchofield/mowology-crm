@@ -83,6 +83,20 @@ class SupplierStopServiceTest extends TestCase
         $this->assertCount(2, SupplierStopService::findStops($pts, $this->locations()));
     }
 
+    public function testLotOutlineReplacesCircleWithTwentyFiveMetreEdgeAllowance(): void
+    {
+        $ring = PropertyBorderRules::square(self::LAWNBOY[0], self::LAWNBOY[1], 50);
+        $loc = $this->locations()[0];
+        $loc['lot'] = $ring;
+        $d = '2026-10-07';
+        $this->assertCount(1, SupplierStopService::findStops($this->dwell($d, '10:00:00', '10:04:00', 0), [$loc]));
+        $this->assertCount(1, SupplierStopService::findStops($this->dwell($d, '10:00:00', '10:04:00', 70), [$loc]), '20 m outside edge');
+        $this->assertSame([], SupplierStopService::findStops($this->dwell($d, '10:00:00', '10:04:00', 90), [$loc]), '40 m outside edge');
+        unset($loc['lot']);
+        $this->assertCount(1, SupplierStopService::findStops($this->dwell($d, '10:00:00', '10:04:00', 79), [$loc]), 'legacy 80 m circle');
+        $this->assertSame([], SupplierStopService::findStops($this->dwell($d, '10:00:00', '10:04:00', 81), [$loc]));
+    }
+
     public function testCoarseFixesAreIgnored(): void
     {
         $d = '2026-10-07';

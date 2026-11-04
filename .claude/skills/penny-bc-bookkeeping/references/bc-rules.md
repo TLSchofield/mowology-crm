@@ -12,6 +12,6 @@ fails when one goes stale.
 | GST below 5% of a mixed receipt is normal; above is impossible | flag only GST above 5% | `checkGstMismatch()`, `ReceiptBookkeeperService::check()` |
 | PST at most 7% of the subtotal | same check | `ReceiptBookkeeperService::check()` |
 | ITC receipt tiers ($30 / $150) | **not built**: vendors have no GST-number field (`vendors.gst_exempt` only), receipts store no vendor GST number, the parser does not read it — though 37 of 58 approved 2026 receipts of $30+ carry a 9-digit GST/BN number in their OCR text | — |
-| Payroll remittance on the 15th | Charlie's calendar shows it; should show as Penny's (agreed, not built) | `DeadlineService` |
+| Payroll remittance on the 15th | Kaname's calendar shows it; should show as Penny's (agreed, not built) | `DeadlineService` |
 | Tax instalments "when cash allows" (owner) | weekly "could spare for tax" | `CashFlowForecastService::safeToPay()` |
 | Accountant | Steve Lim, Sit Lim CPA — decides anything marked *Confirm with accountant* | — |

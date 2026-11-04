@@ -271,6 +271,31 @@ class PropertyBorderRules
         return $in;
     }
 
+    /** Metres from a point to the nearest edge of an open or closed ring. */
+    public static function distanceToEdge(array $p, array $ring): float
+    {
+        if (count($ring) < 2) return INF;
+        $ref = [(float)$p[0], (float)$p[1]];
+        $best = INF;
+        $n = count($ring);
+        for ($i = 0; $i < $n; $i++) {
+            $a = self::toXY($ring[$i], $ref);
+            $b = self::toXY($ring[($i + 1) % $n], $ref);
+            $dx = $b[0] - $a[0];
+            $dy = $b[1] - $a[1];
+            $len2 = $dx * $dx + $dy * $dy;
+            $t = $len2 > 0.0 ? max(0.0, min(1.0, -($a[0] * $dx + $a[1] * $dy) / $len2)) : 0.0;
+            $best = min($best, hypot($a[0] + $t * $dx, $a[1] + $t * $dy));
+        }
+        return $best;
+    }
+
+    /** Inside a ring, or within the supplied number of metres of its edge. */
+    public static function insideOrNear(array $p, array $ring, float $edgeM): bool
+    {
+        return count($ring) >= 3 && (self::inside($p, $ring) || self::distanceToEdge($p, $ring) <= $edgeM);
+    }
+
     private static function segmentsCross(array $p1, array $p2, array $p3, array $p4): bool
     {
         $d = fn($a, $b, $c) => ($b[0] - $a[0]) * ($c[1] - $a[1]) - ($b[1] - $a[1]) * ($c[0] - $a[0]);
@@ -369,6 +394,7 @@ class PropertyBorderRules
             case 'pin_off':
                 return 'Pin for ' . $st . ' is ' . (int)$x['distance_m'] . ' m from where crews work → move it.';
             case 'default_border':
+                if (($x['source'] ?? '') === 'parcel') return $st . ' has a border from the city lot map — check it.';
                 return $st . ' has a default border' . (($x['source'] ?? '') === 'default_square' ? ' (a square round the pin)' : ' (from where crews worked)') . ' — draw it.';
             case 'border_overlap':
                 return 'The borders of ' . $st . ' and ' . self::street((string)($x['other'] ?? '')) . ' overlap — a crew there counts at both.';

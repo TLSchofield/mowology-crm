@@ -26,6 +26,7 @@
  */
 require_once __DIR__ . '/LedgerService.php';
 require_once __DIR__ . '/LedgerSyncService.php';
+require_once __DIR__ . '/BankLineReceipts.php';
 
 class ReceiptBankCheck
 {
@@ -97,7 +98,7 @@ class ReceiptBankCheck
             SELECT e.id FROM expenses e
             WHERE e.status = 'approved' AND COALESCE(e.forwarded_to_accounting, 0) = 0 AND e.total > 0
               AND e.expense_date >= '" . LedgerService::FY_START . "'
-              AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.matched_expense_id = e.id)
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "   -- one of several on a line counts (migration 1372)
             ORDER BY e.expense_date, e.id")->fetchAll(PDO::FETCH_COLUMN);
         $counts = [];
         $items = [];
@@ -121,9 +122,7 @@ class ReceiptBankCheck
         if (!$e || $e['status'] !== 'approved' || (int)$e['fwd'] === 1 || (string)$e['expense_date'] < LedgerService::FY_START) return null;
         $code = self::statementCodeFor($e['payment_method'] ?? null);
         if ($code === null) return null;
-        $linked = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE matched_expense_id = ? LIMIT 1");
-        $linked->execute([$expenseId]);
-        if ($linked->fetchColumn()) return null;
+        if ((new BankLineReceipts($this->db))->lineFor($expenseId) !== null) return null;   // linked, alone or with others
 
         $accountId = $this->ledger->accountId($code);
         $date = (string)$e['expense_date'];

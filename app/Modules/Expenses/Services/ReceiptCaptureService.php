@@ -35,9 +35,9 @@ class ReceiptCaptureService
                                 ?callable $mayUseVisit = null)
     {
         $this->db = $db;
-        $this->intake = $intake ?? function (int $userId, array $file, ?float $lat, ?float $lng): array {
+        $this->intake = $intake ?? function (int $userId, array $file, ?float $lat, ?float $lng, ?array $deviceOcr = null): array {
             require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptIntakeService.php';
-            return (new ReceiptIntakeService($this->db))->intake($userId, $file, $lat, $lng, null);
+            return (new ReceiptIntakeService($this->db))->intake($userId, $file, $lat, $lng, null, $deviceOcr);
         };
         $this->gate = $gate;
         $this->anomaly = $anomaly ?? function (array $data): array {
@@ -71,13 +71,20 @@ class ReceiptCaptureService
         $num = static fn($v, float $lim) => (is_numeric($v) && abs((float)$v) <= $lim) ? (float)$v : null;
         $lat = $num($post['lat'] ?? null, 90); $lng = $num($post['lng'] ?? null, 180);
         if ($lat === null || $lng === null || ($lat == 0.0 && $lng == 0.0)) { $lat = null; $lng = null; }
-        return [
+        $fields = [
             'total'    => $total,
             'note'     => mb_substr($note, 0, 500),
             'visit_id' => ctype_digit((string)($post['visit_id'] ?? '')) && (int)$post['visit_id'] > 0 ? (int)$post['visit_id'] : null,
             'lat'      => $lat,
             'lng'      => $lng,
         ];
+        // The phone's own text read, when it sent one (DeviceOcrCompare.php); absent for older app versions.
+        if (!empty($post['client_ocr_text'])) {
+            require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
+            $device = cleanDeviceOcr($post);
+            if ($device) $fields['device_ocr'] = $device;
+        }
+        return $fields;
     }
 
     /**
@@ -127,18 +134,28 @@ class ReceiptCaptureService
         }
 
         $ocrText = (string)($intake['ocr_text'] ?? '');
+        // No review sheet on Android: the card the receipt names sets the payment method, and a decisive schedule
+        // match (the crew's own visit, GPS on the property, bought during it) tags the job — the office can change both.
+        $card = is_array($intake['card'] ?? null) ? $intake['card'] : null;
+        $payment = (string)($card['payment_method'] ?? '') !== '' ? (string)$card['payment_method'] : (string)($p['payment_method'] ?? '');
+        $auto = null;
+        if (!$visit) {
+            foreach ((array)($intake['job_suggestions'] ?? []) as $js) {
+                if (is_array($js) && !empty($js['auto_select']) && !empty($js['plan_id'])) { $auto = $js; break; }
+            }
+        }
         return [
             'expense_date'        => $date,
             'vendor_id'           => !empty($s['vendor_id']) ? (int)$s['vendor_id'] : null,
             'vendor_name_raw'     => (string)($s['vendor_name'] ?? $p['vendor_hint'] ?? ''),
-            'payment_method'      => (string)($p['payment_method'] ?? ''),
+            'payment_method'      => $payment,
             'amount'              => number_format($sub, 2, '.', ''),
             'gst_amount'          => number_format($gst, 2, '.', ''),
             'pst_amount'          => number_format($pst, 2, '.', ''),
             'total'               => $total,
             'accounting_category' => (string)($s['accounting_category'] ?? ''),
-            'job_id'              => $visit && !empty($visit['plan_id']) ? (int)$visit['plan_id'] : null,
-            'property_id'         => $visit && !empty($visit['property_id']) ? (int)$visit['property_id'] : null,
+            'job_id'              => $visit && !empty($visit['plan_id']) ? (int)$visit['plan_id'] : ($auto ? (int)$auto['plan_id'] : null),
+            'property_id'         => $visit && !empty($visit['property_id']) ? (int)$visit['property_id'] : ($auto && !empty($auto['property_id']) ? (int)$auto['property_id'] : null),
             'description'         => $crew['note'] !== '' ? $crew['note'] : self::DEFAULT_DESCRIPTION,
             'receipt_media_id'    => (int)($intake['media_id'] ?? 0),
             'receipt_lat'         => $crew['lat'],
@@ -177,7 +194,7 @@ class ReceiptCaptureService
                 }
             }
 
-            $res = ($this->intake)($userId, $file, $crew['lat'], $crew['lng']);
+            $res = ($this->intake)($userId, $file, $crew['lat'], $crew['lng'], $crew['device_ocr'] ?? null);
             if (empty($res['success'])) {
                 $code = (int)($res['http_code'] ?? 500);
                 return ['http' => $code >= 400 ? $code : 500, 'body' => ['success' => false, 'error' => (string)($res['error'] ?? 'Upload failed')]];
@@ -216,6 +233,8 @@ class ReceiptCaptureService
             ]) + ($input['line_items'] ? ['line_items' => $input['line_items']] : []),
                 ['id' => $userId, 'kind' => 'user'], self::SOURCE, [
                 'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
+                // A crew member's typed total is a correction: it teaches now, provisionally, like every phone save.
+                'learn_now'   => $ocrd,
                 'learn_lines' => $ocrd && !$input['typed_total'] ? $input : null,
                 'price_intel' => !$input['typed_total'],
             ]);

@@ -299,7 +299,7 @@ $activePage = 'invoices';
                         if (!$likelyDuplicate) {
                             $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $activeAmount);
                             if (empty($fifoSpread)) {
-                                $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount);
+                                $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount, $et['sender_name'] ?? null, $et['memo'] ?? null);
                             }
                         }
                     }
@@ -346,9 +346,9 @@ $activePage = 'invoices';
                                     echo $type === 'autodeposit' ? ' · auto-deposited' : ($type === 'claim' ? ' · had to be claimed' : ''); ?></div>
                                 <?php if ($type === 'claim'): ?>
                                     <?php if (!empty($et['nudged_at'])): ?>
-                                        <div class="mw-et-penny"><i data-feather="message-circle"></i> Penny asked them to send to <?php echo htmlspecialchars(EtransferNudgeService::AUTODEPOSIT_ADDRESS); ?> next time (<?php echo htmlspecialchars($etD($et['nudged_at'])); ?>)</div>
+                                        <div class="mw-et-penny"><i data-feather="message-circle"></i> Penny asked them to send to <?php echo htmlspecialchars(EtransferNudgeService::autodepositAddress()); ?> next time (<?php echo htmlspecialchars($etD($et['nudged_at'])); ?>)</div>
                                     <?php elseif ($etNudgeOn): ?>
-                                        <div class="mw-et-penny is-later"><i data-feather="clock"></i> Penny will ask them to use <?php echo htmlspecialchars(EtransferNudgeService::AUTODEPOSIT_ADDRESS); ?> once it's recorded</div>
+                                        <div class="mw-et-penny is-later"><i data-feather="clock"></i> Penny will ask them to use <?php echo htmlspecialchars(EtransferNudgeService::autodepositAddress()); ?> once it's recorded</div>
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </div>

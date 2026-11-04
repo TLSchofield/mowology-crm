@@ -499,6 +499,35 @@ class ContactService
         )->execute([$contactId, $noteType, $content, $userId]);
     }
 
+    public const NOTE_MAX_CHARS = 2000;
+
+    /**
+     * A client note left from the field against a PROPERTY (the crew app knows properties, not
+     * contacts): resolves the property's site contact and records the note on them.
+     * Returns ['success'=>true,'contact_id'=>N] or ['success'=>false,'status'=>400|404,'error'=>…].
+     */
+    public function addNoteForProperty(int $propertyId, string $content, string $noteType, int $userId): array
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return ['success' => false, 'status' => 400, 'error' => 'Write the note first.'];
+        }
+        if (mb_strlen($content) > self::NOTE_MAX_CHARS) {
+            return ['success' => false, 'status' => 400, 'error' => 'Keep the note under ' . self::NOTE_MAX_CHARS . ' characters.'];
+        }
+        if ($propertyId <= 0) {
+            return ['success' => false, 'status' => 400, 'error' => 'Pick a property first.'];
+        }
+        $stmt = $this->db->prepare("SELECT site_contact_id FROM properties WHERE id = ? LIMIT 1");
+        $stmt->execute([$propertyId]);
+        $contactId = (int)$stmt->fetchColumn();
+        if ($contactId <= 0) {
+            return ['success' => false, 'status' => 404, 'error' => 'That property has no client on file. Ask the office.'];
+        }
+        $this->addNote($contactId, $content, $noteType, $userId);
+        return ['success' => true, 'contact_id' => $contactId];
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────

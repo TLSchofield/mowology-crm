@@ -22,6 +22,7 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (2026-10-12)
 $user = getCurrentUser();
 session_write_close();
@@ -169,7 +170,7 @@ foreach ($categories as $cat) {
 }
 
 // ── 8. Create uploads/quiz directory marker ────────────────────────────────
-$uploadDir = PUBLIC_ROOT . '/uploads/quiz';
+$uploadDir = uploadsDir('quiz');
 if (!is_dir($uploadDir)) {
     if (mkdir($uploadDir, 0755, true)) {
         $results[] = ['step' => 'uploads/quiz dir', 'status' => 'created'];

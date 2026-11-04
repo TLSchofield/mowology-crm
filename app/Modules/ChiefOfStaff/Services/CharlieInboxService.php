@@ -140,7 +140,7 @@ class CharlieInboxService
                 'contact_name' => (string)($c['name'] ?? ''),
                 'text' => $replied ? ($c['name'] ?? 'A customer') . ' replied about ' . ($c['label'] ?? 'their quote') . ' — they\'re waiting on you'
                                    : ($c['name'] ?? 'A customer') . ': ' . ($c['label'] ?? 'quote') . ' — ' . (int)($c['days'] ?? 0) . ' days, no reply. Sam has a follow-up ready.',
-                'url' => '/crm/dashboard_appstack.php#mw-sam', 'priority' => $replied ? 1 : 2,
+                'url' => '/crm/dashboard_appstack.php?sam=' . rawurlencode((string)($c['key'] ?? '')) . '#mw-sam', 'priority' => $replied ? 1 : 2,
                 'value' => isset($c['amount']) ? (float)$c['amount'] : null, 'due' => null,
                 'actions' => [['label' => 'Not now', 'endpoint' => '/crm/api/sales-head.php',
                                'body' => ['mode' => 'park', 'card_key' => (string)$c['key'], 'how' => 'skip'], 'style' => 'quiet']],

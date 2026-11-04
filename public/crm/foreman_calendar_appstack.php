@@ -12,27 +12,29 @@ require_once __DIR__ . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
 
+require_once APP_ROOT . '/Services/HeadIdentity.php';
 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+$__chief = HeadIdentity::chiefName();
 $__desk = new CharlieDeskService(getDB());
 $__allowed = $__desk->ready() && $__desk->isOwner((array)$user);
 
-$pageTitle = 'Charlie · Foreman';
+$pageTitle = $__chief . ' · Foreman';
 $activePage = 'dashboard';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <div class="mw-page-header">
   <div>
-    <h1 class="mw-page-title">Charlie · Foreman</h1>
+    <h1 class="mw-page-title"><?= h($__chief) ?> · Foreman</h1>
     <p class="text-muted mb-0">Deadlines he watches, decisions waiting on you, and the rules between the heads.</p>
   </div>
   <a class="btn btn-sm btn-outline-secondary" href="/crm/dashboard_appstack.php">← Dashboard</a>
 </div>
 
 <?php if (!$__allowed): ?>
-  <div class="card"><div class="card-body">Charlie works for the owner only<?= $__desk->ready() ? '' : ' (migration 1170 has not run yet)' ?>.</div></div>
+  <div class="card"><div class="card-body"><?= h($__chief) ?> works for the owner only<?= $__desk->ready() ? '' : ' (migration 1170 has not run yet)' ?>.</div></div>
 <?php else: ?>
-<div class="mw-charlie-page" id="mw-foreman">
+<div class="mw-charlie-page" id="mw-foreman" data-chief-name="<?= h($__chief) ?>">
   <ul class="nav nav-tabs mw-charlie-tabs" role="tablist">
     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#deadlines" role="tab">Deadlines</a></li>
     <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#decisions" role="tab">Decisions</a></li>
@@ -48,7 +50,7 @@ $activePage = 'dashboard';
         <div class="card-body">
           <h5 class="card-title">Year-end package <span id="mw-foreman-pack-year"></span></h5>
           <ul class="mw-charlie-pack-list"></ul>
-          <p class="text-muted small mb-0">Charlie gets these ready; you and your accountant file. Confirm every tax and payroll date with your accountant.</p>
+          <p class="text-muted small mb-0"><?= h($__chief) ?> gets these ready; you and your accountant file. Confirm every tax and payroll date with your accountant.</p>
         </div>
       </div>
       <div class="card mw-charlie-edit">

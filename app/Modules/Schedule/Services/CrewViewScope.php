@@ -27,10 +27,13 @@ class CrewViewScope
      * @param string  $setting    crew_job_visibility ('own' | 'all'; anything else = own)
      * @param ?string $asked      'mine' | 'all' | null (the person's switch, remembered)
      * @param ?int    $crewPicked the desktop crew dropdown (office, or crew when allowed to see all)
+     * @param int     $people     active people in the business; with one, Mine and All crews are the same list,
+     *                            so there is nothing to switch (Claudia walk 1, 2026-11-03)
      * @return array{crew: ?int, scope: string, can_switch: bool} crew = the crew filter for getCalendarStops (null = everyone)
      */
-    public static function decide(string $role, int $userId, string $setting, ?string $asked, ?int $crewPicked = null): array
+    public static function decide(string $role, int $userId, string $setting, ?string $asked, ?int $crewPicked = null, int $people = 2): array
     {
+        if ($people <= 1) return ['crew' => null, 'scope' => 'all', 'can_switch' => false];
         $isCrew = $role === self::CREW_ROLE;
         if ($isCrew && $setting !== self::ALL) {
             return ['crew' => $userId, 'scope' => 'mine', 'can_switch' => false];
@@ -44,6 +47,16 @@ class CrewViewScope
     public static function seesOtherCrews(string $role, string $setting): bool
     {
         return $role !== self::CREW_ROLE || $setting === self::ALL;
+    }
+
+    /** Active people who can be on a job (the outside accountant's login is not one). Unknown = 2 (keep the switch). */
+    public static function people(PDO $db): int
+    {
+        try {
+            return (int)$db->query("SELECT COUNT(*) FROM users WHERE is_active = 1 AND role <> 'accountant'")->fetchColumn();
+        } catch (Throwable $e) {
+            return 2;
+        }
     }
 
     /** The company setting, 'own' unless set to 'all'. */

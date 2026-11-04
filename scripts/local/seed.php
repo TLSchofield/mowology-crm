@@ -32,6 +32,16 @@ if (!defined('LOCAL_TEST_SITE') || DB_NAME !== 'mowology_local') {
 $db = getDB();
 $db->exec('SET FOREIGN_KEY_CHECKS=0');
 
+// A second business on the local site (MW_TENANT=<key>, made by scripts/local/provision-tenant.php): same fake
+// data, but its own name (kept from the provisioner), its own fake mail domain, and its logins appended to the
+// credentials file instead of replacing the default business's.
+$tenantKey  = Tenant::key();
+$isTenant   = $tenantKey !== Tenant::DEFAULT;
+$bizName    = $isTenant ? ((string)$db->query("SELECT company_name FROM business_settings WHERE id = 1")->fetchColumn() ?: ucfirst($tenantKey) . ' (LOCAL TEST)') : 'Mowology (LOCAL TEST)';
+$mailDomain = $isTenant ? $tenantKey . '.test' : 'local.test';
+$userPrefix = $isTenant ? $tenantKey : 'local';
+$siteUrl    = $isTenant ? Tenant::appUrl() : 'http://localhost:8000';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,25 +185,31 @@ $db->exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) SELECT r
 say("reference: $refOk statements replayed from migrations into " . count($refTables) . " tables ($refFail skipped)");
 
 // Site / CMS identity — domain 'localhost' so SITE_URL never points at production.
-$db->exec("INSERT IGNORE INTO sites (id, site_key, name, domain, status) VALUES (1, 'mowology', 'Mowology (LOCAL TEST)', 'localhost', 'active')");
+$db->prepare("INSERT IGNORE INTO sites (id, site_key, name, domain, status) VALUES (1, ?, ?, 'localhost', 'active')")->execute([$userPrefix === 'local' ? 'mowology' : $tenantKey, $bizName]);
 if (hasTable($db, 'cms_sites')) {
-    $db->exec("INSERT IGNORE INTO cms_sites (id, slug, domain, name, tagline, phone_display, phone_tel, email, locale, timezone, is_active, onboarding_complete)
-               VALUES (1, 'mowology', 'localhost', 'Mowology (LOCAL TEST)', 'LOCAL TEST SITE', '555-0100', '5550100', 'office@example.test', 'en_CA', 'America/Vancouver', 1, 1)");
+    $db->prepare("INSERT IGNORE INTO cms_sites (id, slug, domain, name, tagline, phone_display, phone_tel, email, locale, timezone, is_active, onboarding_complete)
+               VALUES (1, ?, 'localhost', ?, 'LOCAL TEST SITE', '555-0100', '5550100', ?, 'en_CA', 'America/Vancouver', 1, 1)")->execute([$userPrefix === 'local' ? 'mowology' : $tenantKey, $bizName, "office@$mailDomain"]);
 }
-$db->exec("INSERT IGNORE INTO business_settings (id, company_name, company_phone, company_email, company_website, company_address, gst_registration)
-           VALUES (1, 'Mowology (LOCAL TEST)', '555-0100', 'office@example.test', 'http://localhost:8000', '1 Test Street, Vancouver BC', '000000000RT0001')");
-$db->exec("UPDATE business_settings SET company_name = 'Mowology (LOCAL TEST)', company_email = 'office@example.test', company_phone = '555-0100', autopay_live_mode = 0 WHERE id = 1");
+$db->prepare("INSERT IGNORE INTO business_settings (id, company_name, company_phone, company_email, company_website, company_address, gst_registration)
+           VALUES (1, ?, '555-0100', ?, ?, '1 Test Street, Vancouver BC', '000000000RT0001')")->execute([$bizName, "office@$mailDomain", $siteUrl]);
+$db->prepare("UPDATE business_settings SET company_name = ?, company_email = ?, company_phone = '555-0100', autopay_live_mode = 0 WHERE id = 1")->execute([$bizName, "office@$mailDomain"]);
+// Trade and city for BusinessIdentity (prompts, copy): LOCAL_SEED_TRADE / LOCAL_SEED_CITY, e.g. "gardening" for a gardener's business.
+foreach (['business_trade' => getenv('LOCAL_SEED_TRADE'), 'business_city' => getenv('LOCAL_SEED_CITY')] as $k => $v) {
+    if ($v === false || $v === '' || !hasTable($db, 'ops_settings')) continue;
+    $db->prepare("DELETE FROM ops_settings WHERE setting_key = ?")->execute([$k]);
+    $db->prepare("INSERT INTO ops_settings (setting_key, setting_value) VALUES (?, ?)")->execute([$k, $v]);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Logins
 // ─────────────────────────────────────────────────────────────────────────────
 $pw = fn() => rtrim(strtr(base64_encode(random_bytes(12)), '+/', 'Kx'), '=') . '-9a';
 $people = [
-    'admin'   => ['email' => 'admin@local.test',   'username' => 'localadmin',   'first' => 'Ada',  'last' => 'Admin',   'role' => 'admin',   'rbac' => 'admin',   'driver' => 0],
-    'manager' => ['email' => 'manager@local.test', 'username' => 'localmanager', 'first' => 'Max',  'last' => 'Manager', 'role' => 'manager', 'rbac' => 'manager', 'driver' => 0],
-    'crew'    => ['email' => 'crew@local.test',    'username' => 'localcrew',    'first' => 'Casey','last' => 'Crew',    'role' => 'user',    'rbac' => 'staff',   'driver' => 1],
+    'admin'   => ['email' => "admin@$mailDomain",   'username' => "{$userPrefix}admin",   'first' => 'Ada',  'last' => 'Admin',   'role' => 'admin',   'rbac' => 'admin',   'driver' => 0],
+    'manager' => ['email' => "manager@$mailDomain", 'username' => "{$userPrefix}manager", 'first' => 'Max',  'last' => 'Manager', 'role' => 'manager', 'rbac' => 'manager', 'driver' => 0],
+    'crew'    => ['email' => "crew@$mailDomain",    'username' => "{$userPrefix}crew",    'first' => 'Casey','last' => 'Crew',    'role' => 'user',    'rbac' => 'staff',   'driver' => 1],
     // The outside accountant (migration 1355, AccountantFence): the Ledger only.
-    'accountant' => ['email' => 'accountant@local.test', 'username' => 'localaccountant', 'first' => 'Andy', 'last' => 'Accountant', 'role' => 'accountant', 'rbac' => 'accountant', 'driver' => 0],
+    'accountant' => ['email' => "accountant@$mailDomain", 'username' => "{$userPrefix}accountant", 'first' => 'Andy', 'last' => 'Accountant', 'role' => 'accountant', 'rbac' => 'accountant', 'driver' => 0],
 ];
 $userIds = []; $creds = [];
 foreach ($people as $key => $p) {
@@ -211,11 +227,13 @@ foreach ($people as $key => $p) {
 $adminId = $userIds['admin']; $crewId = $userIds['crew'];
 
 $credFile = __DIR__ . '/.credentials.local';
-$txt = "# LOCAL TEST ONLY — logins for http://localhost:8000 (regenerated by every `scripts/local-site.sh reset`).\n"
+$txt = $isTenant
+     ? "\n# $bizName — seeded logins for $siteUrl (MW_TENANT=$tenantKey; the owner login from provision-tenant.php still works)\n"
+     : "# LOCAL TEST ONLY — logins for http://localhost:8000 (regenerated by every `scripts/local-site.sh reset`).\n"
      . "# Gitignored. Fake accounts on a fake database; never reuse these anywhere.\n"
      . "# format: ROLE EMAIL PASSWORD\n";
 foreach ($creds as $role => [$email, $plain]) $txt .= sprintf("%-8s %-22s %s\n", $role, $email, $plain);
-file_put_contents($credFile, $txt);
+file_put_contents($credFile, $txt, $isTenant ? FILE_APPEND : 0);
 chmod($credFile, 0600);
 say("users: admin, manager, crew, accountant (passwords in scripts/local/.credentials.local)");
 

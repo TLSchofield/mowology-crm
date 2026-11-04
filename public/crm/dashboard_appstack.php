@@ -9,6 +9,16 @@ require_once 'includes/error-handler.php';
 requireLogin();
 $user = getCurrentUser();
 
+// Ittai design, opt-in per browser (owner, 2026-10-18): ?it_design=1|0 flips it, then back to the clean URL.
+// A look-only preference, so a cookie is enough; off is the classic page, unchanged.
+if (isset($_GET['it_design'])) {
+    $itOn = $_GET['it_design'] === '1';
+    setcookie('it_design', $itOn ? '1' : '0', ['expires' => time() + 365 * 86400, 'path' => '/crm/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    header('Location: /crm/dashboard_appstack.php');
+    exit;
+}
+$itDesign = ($_COOKIE['it_design'] ?? '') === '1';
+
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Dashboard', $_SERVER['REQUEST_METHOD']);
 $GLOBALS['crm_error_handler'] = $errorHandler;
@@ -165,9 +175,18 @@ try {
 
 $pageTitle = 'Dashboard';
 $activePage = 'dashboard';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '" defer></script>';
+// Google Maps (~0.8 MB) is NOT loaded with the page any more: the live operations map loads it when its
+// card comes within a screen of view (speed pass, 2026-10-19). The key rides on the map element.
+$extraHead = '';
+$dashMapsKey = htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8');
+if ($itDesign) {
+    foreach (['ittai-tokens.css', 'ittai-dashboard.css'] as $__itCss) {
+        $extraHead .= '<link href="/crm/css/' . $__itCss . '?v=' . (int)@filemtime(__DIR__ . '/css/' . $__itCss) . '" rel="stylesheet">';
+    }
+}
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+<?php if ($itDesign): ?><div class="it-design"><?php endif; ?>
 
           <!-- Session Alert Display -->
           <?php if (isset($_SESSION['alert'])):
@@ -191,6 +210,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
               <h1 class="mw-page-title">Dashboard</h1>
               <p class="mw-page-subtitle">Operations overview &amp; work queue</p>
             </div>
+            <a class="it-switch-link" href="/crm/dashboard_appstack.php?it_design=<?php echo $itDesign ? '0' : '1'; ?>"><?php echo $itDesign ? 'Back to the classic design' : 'Try the new design'; ?></a>
           </div>
 
           <?php
@@ -253,7 +273,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
           ?>
           <div class="mw-daily-ops">
               <div class="mw-daily-ops-header">
-                  <div class="mw-daily-ops-title">7-Day Operations</div>
+                  <div class="mw-daily-ops-title">7-day operations</div>
                   <div class="mw-daily-ops-summary">
                       <span class="mw-daily-ops-stat">
                           <span class="mw-daily-ops-stat-val">$<?php echo number_format($weekRevenue, 0); ?></span>
@@ -606,7 +626,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                   </div>
                 </div>
                 <div class="card-body p-0">
-                  <div id="dashboard-map" style="height: 340px; background: #e8e8e8;"></div>
+                  <div id="dashboard-map" data-maps-key="<?php echo $dashMapsKey; ?>" style="height: 340px; background: #e8e8e8;"></div>
                   <div class="mw-ops-map-legend" id="mapLegend">
                     <div class="text-center text-muted small py-2">Loading crew data...</div>
                   </div>
@@ -1074,11 +1094,31 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         return d.innerHTML;
     }
 
-    // Init when Google Maps API is ready
-    if (document.readyState === 'complete') {
+    // Load Google Maps only when the map card is about to be seen, then start the map
+    // (initDashboardMap already waits for google.maps). Without IntersectionObserver: load after the page.
+    var mapsRequested = false;
+    function loadMapsThenInit() {
+        if (mapsRequested) return;
+        mapsRequested = true;
+        if (!(window.google && google.maps)) {
+            var el = document.getElementById('dashboard-map');
+            var s = document.createElement('script');
+            s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(el ? (el.getAttribute('data-maps-key') || '') : '');
+            s.async = true;
+            document.head.appendChild(s);
+        }
         initDashboardMap();
+    }
+    var mapTarget = document.getElementById('dashboard-map');
+    if (mapTarget && 'IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+            if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); loadMapsThenInit(); }
+        }, { rootMargin: '600px 0px' });
+        io.observe(mapTarget);
+    } else if (document.readyState === 'complete') {
+        loadMapsThenInit();
     } else {
-        window.addEventListener('load', initDashboardMap);
+        window.addEventListener('load', loadMapsThenInit);
     }
 })();
 </script>
@@ -1269,4 +1309,5 @@ function mwReconsentSendBatch() {
 }
 </script>
 
+<?php if ($itDesign): ?></div><!-- /.it-design --><?php endif; ?>
 <?php include 'includes/appstack_footer.php'; ?>

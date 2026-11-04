@@ -659,7 +659,7 @@ class ExpenseSplitService
         if ($this->maps !== null) return $this->maps;
         $codes = [];
         try {
-            foreach ($this->db->query("SELECT code, expense_category_alias FROM chart_of_accounts WHERE expense_category_alias IS NOT NULL AND is_active = 1")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            foreach ($this->db->query("SELECT code, expense_category_alias FROM chart_of_accounts WHERE expense_category_alias IS NOT NULL AND is_active = 1 AND type NOT IN ('revenue', 'income')")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $codes[strtolower($r['expense_category_alias'])] = $r['code'];
             }
         } catch (Throwable $e) { /* no chart */ }

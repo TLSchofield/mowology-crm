@@ -23,6 +23,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -260,7 +261,7 @@ if (!empty($newItems)) {
 
     $count   = count($newItems);
     $subject = "{$count} new e-Transfer" . ($count === 1 ? '' : 's') . ' received';
-    $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca') . '/crm/invoices/index.php#etransfers';
+    $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl()) . '/crm/invoices/index.php#etransfers';
     $html    = '<div style="font-family:Arial,sans-serif;max-width:560px;">'
              . '<h2 style="color:#1A5F4A;">e-Transfer' . ($count === 1 ? '' : 's') . ' received</h2>'
              . '<p>Review and record ' . ($count === 1 ? 'it' : 'them') . ' in the CRM:</p>'

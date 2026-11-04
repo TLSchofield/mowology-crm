@@ -758,9 +758,8 @@ function handleCreate(PDO $db, ?array $input, array $user): void
             'ocr_parsed'  => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input['ocr_parsed'] : null,
             'learn_lines' => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input : null,
             'price_intel' => true,
-            // An owner's or manager's own save is the confirmation (same rule as expense-save.php).
-            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])
-                && ExpenseService::isOffice((string)($user['role'] ?? ''), userHasPermission('expenses.approve')),
+            // Anyone's save teaches now, provisionally; the desk confirms or overturns (same rule as expense-save.php).
+            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']),
         ]);
         $expenseId = (int)$created['expense_id'];
     } finally {
@@ -1188,6 +1187,9 @@ function handleLinkProduct(PDO $db, ?array $input): void
     // Shared with the iOS line-item endpoint (expense-line-items.php): links, trains the
     // vendor catalog, and records the SKU → product memory for the next receipt.
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $own = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $own->execute([(int)($input['line_item_id'] ?? 0)]);
+    assertCanEditExpense($db, (int)$own->fetchColumn());
     $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
         ? (int)$input['product_id']
         : null;

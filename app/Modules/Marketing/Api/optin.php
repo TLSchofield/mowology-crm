@@ -16,6 +16,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -223,7 +224,7 @@ try {
             // already capture when/where.
             $consentText = 'Express consent via double opt-in email confirmation on '
                 . date('Y-m-d H:i:s') . ' (IP ' . ($ip ?: 'unknown') . '). '
-                . 'Agreed to receive marketing emails from ' . (defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping')
+                . 'Agreed to receive marketing emails from ' . (defined('SITE_NAME') ? SITE_NAME : _idFromName())
                 . ': seasonal service reminders, special offers, and landscaping tips. '
                 . 'Unsubscribe available in every email.';
             $db->prepare("
@@ -363,11 +364,11 @@ function sendOptInEmail(PDO $db, int $contactId): array
            ->execute([$contactId, $contact['email'], $storedHash, $expiresAt]);
     }
 
-    $baseUrl   = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+    $baseUrl   = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
     $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?? 'Valued Customer';
 
-    $subject = 'Please confirm your email preferences — Mowology Landscaping';
+    $subject = 'Please confirm your email preferences — ' . _idCompanyInfo()['company_name'];
     $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
 <p>We\'ve recently upgraded our marketing system and want to make sure you still want to hear from us.</p>
 <p>We send occasional updates about seasonal services, special offers, and landscaping tips tailored to your property.</p>
@@ -393,7 +394,7 @@ function sendOptInEmail(PDO $db, int $contactId): array
         : [];
 
     require_once CRM_INCLUDES . '/messaging.php';
-    $sent = sendCrmEmail($contact['email'], $subject, $wrapped, null, 'Mowology', $hdrs);
+    $sent = sendCrmEmail($contact['email'], $subject, $wrapped, null, '', $hdrs);
 
     if (!$sent) {
         return ['success' => false, 'error' => 'Failed to send email'];

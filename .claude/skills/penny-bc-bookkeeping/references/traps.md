@@ -549,3 +549,289 @@ Dropped / not done:
   without the `prod-run.sh` dry run — both of these were caught there, not in tests.
 - **The enquiry/first email is not a reply** (same day, Sam's LeadScore): any "engagement" signal must be compared with the
   record's own creation time, or every email-sourced row looks like it "replied today".
+## 2026-10-12 — bank balancing lessons (chequing vs Vancity)
+
+- **The bank line says where money came from.** Receipt #384 (Vital Auto $1,711.70) was saved as
+  credit_card and posted Cr 2400. The chequing debit was linked to it, which reversed the bank entry, so
+  chequing was never credited and a phantom card debt sat on the books. Tim: "no cheques, only debit card".
+  Linking a receipt to a bank/card line must make the receipt's payment source match that line, and tell the
+  user. `fundingAccountFor()` used to send anything containing "card" to 2400 (a debit card is chequing).
+- **Measure the gap the same way every time:** books = SUM(debit−credit) on 1010 to the statement's last
+  date; bank = the CSV running balance on that date; leave the +$5,325.33 opening out (waiting on the
+  accountant). Vancity changes same-day running balances between exports, so dedupe statement lines on
+  (date, amount), keeping the most copies any single file has. Never dedupe on balance.
+- **Same-day "deposit and take back" pairs are not payments.** Jan 20 $225.69 and Feb 4 $282.50: a
+  "Cheque deposit-branch" credit and a debit with the same wording the same day. Move both to 1100 as
+  transfers so they net to zero.
+- **Jobber "marked paid later":** a deposit can be days or months before the Jobber payment date, and
+  of a different kind (BGC's EFT was marked as an e-Transfer 7 days later). Match by invoice and amount,
+  then use the catch-up path. Never require the Jobber date to fall within 3 days.
+- **A chargeback after a batch of cheques** (Colyvan, Jul 3 $456.84 + $7.50) usually means one of them
+  was a duplicate payment. Pair it with the duplicate as transfers on 1100 and book the fee to bank
+  charges. NEVER undo a whole Jobber batch to move one deposit; batches hold many.
+- **Debit-marked receipts with no chequing line** are usually card purchases or duplicate captures
+  (Home Depot $64.26 ×4). Ask; don't book them to chequing.
+- **QuickBooks (the accountant's books)** held $51,948 of A/R at YE2025, about $48K of it pre-2025 and stale.
+  2025 itself was clean. Ricole (ricole@sitlim.com) was asked on 2026-10-12 about writing it off and about
+  the 2026 opening A/R. Don't open 2026 from the $51,948 until she answers.
+- **Colyvan (VR1450) pays through LeapAP.** Invoices go to their LeapAP address with the PDF. Reminders
+  without a PDF are rejected there, so send them to the property manager instead.
+
+## 2026-10-12 — Receipt said credit card, the bank line said chequing (Vital Auto #384)
+#384 ($1,711.70) was saved as `credit_card` (posted Cr 2400) and then linked to chequing line tx 43028
+(Sep 16), which reversed the line's own entry: chequing was never credited and 2400 held a phantom
+liability. Also: `fundingAccountFor()` treated anything containing "card" as credit ("debit_card" →
+2400), and the receipt parser read "Visa Debit" as a credit card. Fixed: every link goes through
+`ReceiptFundingCheck::onLink()` — a clear mismatch sets the method from the line (gate source
+`bank_line`, re-posted, activity logged, Penny notice); company card on chequing or cash/cheque on the
+card statement is a Penny question, nothing changed. Sweep of all 98 links on 2026-10-12: no others.
+**Also found:** a manual link left the receipt's own `accounting_transactions` row (reference_type
+'expense') AND the bank line both counted as expenses in single-entry reports — 29 pairs, $3,565.96 in
+2026 (journal was fine: matched lines are not posted). Reports now use `AccountingService::countedSql()`.
+**Rule:** the statement line decides where money came from; a receipt's method is a claim to check.
+
+
+## 2026-10-12 — Security audit group C (money)
+Now enforced in code — don't undo:
+- **A payment email records nothing unless its sender is proven** (exact address + verified DKIM,
+  `MailAuth`): unproven Yardi lines are 'medium' and `recordWhenBanked()` skips them; Interac notices
+  that are unproven or forwarded are capped at 'medium'; `autoRecordFullyCertain()` and
+  `recordWhenBanked()` need `etransfer_notifications.sender_verified = 1` (migration 1340 — until it
+  runs nothing auto-records).
+- **Stripe disputes and refunds reach the journal** (`StripeEventLedgerService`, migration 1342,
+  idempotent per event id): dispute → invoice `dispute_status`, DR 1100 / CR 1010, Kaname emails Tim;
+  won → reversed; refund → DR 2160 Customer Deposits / CR 1010 (the invoice is left for a person).
+  A late `payment_failed` never overwrites a succeeded payment.
+- **Autopay is switched on only by the cardholder entering the card** (SetupIntent, or a payment with
+  a NEW card) — never from an invoice link's "use saved card".
+- Scanned bank statements OCR through Google Vision or local Tesseract only, never OCR.space.
+- AI receipt calls have a daily ceiling (`LlmDailyCap`; ops_settings `llm_daily_cap_<bucket>`).
+
+## 2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)
+The reader (Vision text, `line_items_source = 'vision'`) kept two "CRF 0.07" lines and guessed Fuel; Penny's
+suggestion #248 read the coffee, two Diet Cokes, the deposit and the CRF ($8.83) and said Meals. The phone receipt
+screens showed only the reader's version, so it looked as if Penny had missed the drinks. The same receipt also
+read "GST 5.0000 % 0.42" as GST 5.00 (the rate's "5.00", subtotal −2.33): fixed in `extractLabeledTax()`.
+**Fixed:** her pending read shows on the iPhone detail and the web/Android modal (`PennyReadService`), "Use Penny's
+version" goes through `decide()` (her items replace the reader's), and approval teaches the reader the vendor's
+layout (`teachReaderFromPenny()`): this Vision text prints each price ABOVE its name, which the generic pass can't
+pair. **Rule:** whatever Penny knows about a receipt is shown wherever that receipt is opened; an accepted
+correction of the reader must teach the reader, not only Penny.
+
+
+## 2026-10-13 — Balance sheet out by twice the GST ITC balance
+`ReportingService::buildBalanceSheet()` signed each line by its own normal balance, so 2210 GST/HST Input Tax Credits
+(a debit-normal *liability*) was ADDED to liabilities: the sheet showed "does not balance" by $1,021.78 (2 × $510.89)
+on production while the trial balance and income statement agreed with journal_lines to the cent. Fixed: lines are
+signed by their section (assets debit-positive, liabilities/equity credit-positive). **Rule:** contra accounts are
+signed by the statement section they sit in, never by their own normal balance.
+
+## 2026-10-13 — 6850 is two things (FIXED 2026-10-13: code + the 82 old lines moved to 6800)
+On production 6850 is named "Meals & Entertainment" (BankDeskService, BankGuidanceService and the bank desk file meals
+there), but `StripePayoutService` books Stripe processing fees to 6850 as "Payment Processing Fees". Meals are 50% for
+ITCs and income tax (GIFI 8523); card fees are 100% (8716). Until they are split, the GIFI mapping of 6850 is wrong for
+one of them. **Rule:** one account number, one meaning — check the chart's name before posting to a code.
+- Fixed: `StripePayoutService::feeAccountId()` and `BankImportService::getProcessingFeesAccountId()` use **6800 Bank
+  Charges & Fees** and never an account named Meals (`ProcessingFeeAccountTest`). 82 fee lines ($1,028.30, all 2026)
+  were on 6850; moved to 6800 with Tim's yes (all 82 re-posted; Meals keeps $370.41 of real meals).
+
+## 2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)
+Stored at capture with GST 5.00 (the old "GST 5.0000 % 0.12" misread), subtotal −2.39. Rescan re-ran the (fixed)
+parser, but Vision printed the amount on the line BELOW "GST 5.0000 %": the split-line pattern didn't allow the space
+before "%", so GST was missed, the column fallback read GST 2.61 / subtotal 0.00, and the bare "0.12" pulled the tax
+label in as the only line item. The coffee line ("… 1 2.49 2.49P") matched no item pattern. And the rescan only filled
+EMPTY form fields, so the bad stored amounts survived every rescan. Penny had never read it (she prepares only some
+receipts a day) and the Add Item picker offered Crusher Dust / Road Base (Chevron has no vendor_products, so typing
+fell through to all CRM products). **Fixed:** split-line rate with a space; `NAME QTY UNIT TOTAL<flag>` items (flag
+required — a tilted photo's rebuilt rows add up by chance); `isTaxOrSummaryLabel()` / `dropTaxLineItems()` on every
+pass; `sanitizeReceiptAmounts()` (negative subtotal, tax ≥ total or > 14% → fall back); rescan repairs impossible
+stored amounts on open receipts when the read agrees on the total (`amountRepair()`), and re-reads Penny's open read;
+"Ask Penny" in the modal; picker = `vendorItemSuggestions()`. **Rule:** an amount that cannot be true is a failed
+read, never a value; a re-read must be able to replace a value that cannot be true.
+
+
+## Same-amount monthly payers swap deposits (2026-10-13)
+- Strata BCS4079 pays $262.50 every month. The Oct 8 deposit (for INV-0425, email "invoice 2026 0425") was attached to INV-0366 from the invoice page's amount-and-name list. On 2026-10-12 the Sep 9 deposit (really INV-0366's) was marked "already recorded" against INV-0308, which already had its own Aug 21 deposit. Result: INV-0425 looked unpaid and its card said "claim it" for money already in the bank.
+- Fixed by re-linking: Sep 9 → INV-0366, Oct 8 → INV-0425 (+$262.50 income that had been missing).
+- Guard: `InvoiceReconciliationService::emailNamesOtherInvoice()` — `attach()` and the bank desk refuse a deposit whose Interac email names a different open invoice by number (override: Record anyway / `$force`).
+- Before marking a deposit "already recorded", check the invoice it names doesn't already have its own deposit.
+- e-Transfer cards: a same-amount bank credit after the email date shows "probably deposited <date>", not the claim link.
+
+## Transfers to Katrenna = her draws (2026-10-13)
+- "Funds transfer … Pay As You Go Chequing (…6912)" (Jul onward) and "FUNDS TRANSFER TO REL #4659904" (Feb–Jun,
+  her Vancity membership; once mis-booked INTO GST Reserves 1025) are both Katrenna's.
+- "Funds transfer … Pay As You Go Chequing (…6912)" is Katrenna's personal account. The business sends her
+  money (no money of hers comes in): these are her **draws**, never an expense. Book to **1302 Shareholder
+  loan — Katrenna Marenych** (child of 1300; 15 transfers Feb–Oct, $2,170, moved there 2026-10-13).
+- Shareholder loans are kept **per person**: s.15(2) (repay or include within one year after year-end) and
+  s.80.4 interest apply per shareholder. The accountant clears a debit balance by salary/dividend at year-end.
+
+## Quiet accounts looked "Not imported" every month (2026-10-13)
+- The statements check only knew an account's month was in from its lines. Reserve funds ••6819 has had no
+  line since Nov 2025, so every month showed red although each Vancity PDF prints its section ("0.69, no
+  activity"); GST Reserves ••6827 went red in any month without an interest line.
+- Fixed: the PDF importer records every account section it reads, quiet ones too
+  (`BankImportService::statementSections()` → `recordSections()`, table `bank_statement_sections`, migration
+  1360; Vancity's page-1 ACCOUNT SUMMARY via `vancitySummary()` gives each account's opening/closing). The
+  check (`StatementCoverageService::monthStatus()`) calls such a month **quiet — in, no activity** with its
+  balance; a quiet month opening away from the last known balance is a break (`quietSectionBreaks()`).
+  Backfill = re-import the monthly PDFs (a statement with nothing new can be recorded on its own).
+- Same day: identical lines inside one statement are real (30 Mar 2026 7-Eleven −6.47 / +6.47 / −6.47);
+  `orderLines()` drops a line as a copy only when an EARLIER import had at least as many. Breaks and possible
+  gaps in closed years (before `StatementCoverageService::OPEN_FROM`, or a later fully locked year) are summed
+  into one quiet line ("FY2025 (closed): …"), never listed as alarms.
+- **Rule:** "no lines" is not "not imported" — ask the statement what it printed.
+
+## Shareholders' e-Transfers: pay up to Wave net, the rest is loan (Tim, 2026-10-13)
+- e-Transfers to Tim or Katrenna are PAY up to that person's Wave net pay for the month; anything beyond goes
+  to their own shareholder loan (Tim 1300, Katrenna 1302). WavePayrollImportService does the match once the
+  month's Wave "Wage & Tax Report" is imported and approved.
+- Built 2026-10-13: the shareholder list is ops_settings `payroll_shareholders` ("Name=code" per line, migration
+  1361; `WavePayrollImportService::shareholders()`); each one's sweep is `WavePayrollImportService::sweeps()` and
+  `buildEntry()` posts one DR/CR pair per shareholder on their own account. A shortfall (transfers below net) is
+  CR their loan — wages still owed to them. Booked months show the entry as posted (journal lines), not rebuilt.
+- **Trap found doing it:** half the year's e-Transfers print the name run together —
+  "ETRANSFERDEBIT(TIMSCHOFIELD)", "ETRANSFERDEBIT(KATRENNAMARENYCH)" (Jan–Feb, Jun). Word-based name matching
+  (`nameMatches()`, `ShareholderAccountService::isFromShareholder()`) never saw them; both now also match
+  FIRSTLAST with the letters joined. Her "Funds transfer … Pay As You Go Chequing" and "FUNDS TRANSFER TO REL
+  #4659904" lines carry no name and are never matched as pay.
+
+## Two Visa cards (Tim, 2026-10-13)
+- Vancity Visa …9843 = the BUSINESS card (Credit Card Payable 2400; statements imported there).
+- Vancity Visa …1023 = Tim's PERSONAL card. A payment to it from business chequing is a draw → 1300 (the Jul 31
+  $1,800 moved there). Never import its statements into 2400; only its business charges (e.g. Wave payroll fees)
+  are booked, as paid by Tim (owed back to him).
+- The business account usually makes TWO Visa auto-payments a month (~$82 and a larger one) — find out which card
+  each belongs to before booking both to 2400.
+
+## Business Visa ••4701 is mostly personal (Tim, 2026-10-13)
+- Business on 4701: Wave payroll fees (6800), Apple iCloud/email (Office/Admin), Anthropic/Claude (software).
+- Personal → 1300: Netflix, Gold's Gym, HelloFresh, ClassPass, Ergatta, WTPLUS, ElevenLabs, Scribd, restaurants/
+  groceries, AND the card's interest and overlimit fees (Tim: personal). 2026 moved: 46 lines $1,760.06 + interest/fees.
+- A card statement's own "PAYMENT RECEIVED"/"AUTOMATIC PAYMENT" line is the payoff — never a charge.
+- Other cards: Visa …3176 (seen on a Shell receipt), TD 0937/5276/2735 — Tim's personal; only business charges book,
+  as owner_paid.
+
+## Silent catch around a journal post (2026-10-13)
+- `StripePayoutService::apply` built `LedgerSyncService` with one argument; the TypeError was caught and logged, so
+  every fee booked at payout time reached `accounting_transactions` but not the journal. Fixed same day.
+- Fable's review found the family; all fixed and deployed 2026-10-13 (Part A of
+  `docs/plans/2026-10-13-ledger-silent-failures.md`):
+  - nightly sync counted real failures as "skipped" → now `LedgerSyncService::noteFailure()` names each
+    (source, id, reason) and `AccountingService::journalProblem()` makes the cron a warning; a closed year
+    (`LedgerSyncService::isExpectedSkip()`) is the only quiet skip. A replay on production found 0 failures today.
+  - `BankLineMoveService::move()` is all-or-nothing; inside a caller's transaction a failure throws.
+  - Deleting a posted receipt is refused if its entry can't be reversed (`ExpenseGateHooks::unpost(..., strict)`).
+  - Receipt edits inside a caller's transaction (Penny's card) re-post at once — the "nightly repost" never existed.
+  - Undoing an import / removing a duplicate line reverses its entries (`BankImportService::reverseJournalForLines()`).
+  - On a card statement a line the parser called a charge ("GOOGLE *PAYMENT") is never a payoff.
+- **Rule:** see operating-rules "A books write lands in both places or neither".
+
+## Owner pay is fixed: $2,310.56 per Wave payday (2026-10-13)
+- Wave Jan–Sep 2026: Tim $56,392 gross / 19 paydays → net exactly $2,310.56 (fed $344.80, BC $144.05, CPP $168.59
+  per payday). Through Oct 8 he took $53,708.01 by e-Transfer against $46,211.20 for 20 paydays: **$7,496.81 is a
+  draw → 1300**. Every one of those transfers is still on 5100 until the Wave months are imported.
+- Two $2,310.56 transfers on consecutive days (Oct 7, Oct 8) were catch-up, not a mistake — count paydays vs
+  transfers for the period before calling one a duplicate.
+
+## A same-amount payer's deposit marked against the wrong month (Alex Shi Ke Wang, 2026-10-13)
+- Pays $378.16 monthly. The Sep 2 deposit was marked "already recorded = INV-0303" (paid by the Aug 1 deposit);
+  then the Oct 7 Interac notice was recorded against INV-0361 AND the Oct 7 bank line against INV-0420. Cash total
+  right, dates a month off. Fixed: Sep 2 → INV-0361 (re-dated), notice → INV-0420.
+- **Rule:** for a same-amount monthly payer, "already recorded" only against the invoice dated for that deposit's
+  month, after checking no other deposit pays it (same family as Strata BCS4079 above).
+
+## Payments can't charge twice any more (2026-10-13, from Fable's invoicing review)
+- One rule for "could the card have been charged?": `StripeErrorRules` (`canForgetIntent()`: only `resource_missing`;
+  `chargeOutcomeUnknown()`: lost connection, Stripe 5xx, unknown error, idempotency clash).
+  - Customer pay page: any other error → "try again in a minute", never a second PaymentIntent.
+  - Autopay: an unknown outcome is never auto-retried (`failure_code = 'api_unknown'`, staff email: check Stripe first).
+- Webhook re-reads `stripe_payments` FOR UPDATE inside its transaction (a redelivered part payment counted once).
+- A card payment on an invoice already paid another way → activity `stripe_overpayment` → Kaname urgent alert
+  ("probably paid twice — refund?"). Penny never refunds by herself.
+- Client credit applies inside one locked transaction with its journal entry (`ClientCreditService::applyToInvoice()`).
+  Still Tim's choice: apply credit automatically before autopay (the portal already says it does).
+
+## The cheque writer isn't the client (Kanco for Beedie Development, 2026-10-13)
+- Cheques and EFTs recorded before their deposit now auto-link like e-Transfers
+  (`InvoiceReconciliationService::LINKABLE_METHODS`), same payer + exact sum only.
+- Kanco's $683.56 cheque paid four Beedie Development / Cambridge Apartments invoices: the bank memo names the
+  cheque writer, the invoices name the client, so the payer check (rightly) refused. Linked by hand from Tim's
+  payment note. **Rule:** a property manager or parent company may write the cheque — link by the payment note and
+  exact sum, never by name similarity; a remembered payer alias (Kanco → Beedie) is future work.
+
+## Month-ends ignored another account's line (2026-10-13)
+- `BankBalanceCheckService::statementBalances()` now reads only the main account's track
+  (`StatementCoverageService::walkChain()` returns `track_of` / `main`). Chequing Mar–May had read a GST Reserves
+  interest balance ($8.59) as its month-end — drift showed +$18.6K; now −$585 / −$1,733 / +$779 (real, still open).
+
+## Interac money the CRM never sees (2026-10-14)
+- Autodeposit for the business stopped on 2026-06-12 (Interac text: "Your Autodeposit registration is no longer
+  active"), so transfers since then arrive as "claim your money" and wait (Kamaljeet: Sep 9 → claimed Sep 23).
+  Re-registering is Tim's (online banking).
+- Interac emails go to whatever address the client typed: Joseph Gallentine's $65 (Sep 17) reached no mailbox the
+  CRM reads. The bank line names OUR business ("e-Transfer credit … MOWOLOGY LAWNS AND LANDSCAPES LTD"), so the
+  payer is often in no record at all — except Tim's banking app and Interac's alert texts (short code 100001,
+  "NAME sent you money", no amount). Bridge 1.1 sends those names to the CRM (needs Text Message Forwarding on the
+  iMac); Penny shows them on the deposit card. Some alerts are personal money (Gary Hughes 2026-06-06) — a hint only.
+- Bank names ≠ CRM names: "Joe Gal" was JOSEPH GALLENTINE (renamed 2026-10-14). $65 for a $63 invoice was a $2 tip
+  (no GST: a voluntary tip is not consideration).
+- `invoices.payment_method` has no 'account_credit' on production (migration 1102's enum step never ran; prod is
+  non-strict, so 5 credit-paid invoices hold ''). Run its runner page.
+- **An overpayment is credit, not income** (2026-10-14, Alberta 3025 Strata paid INV-0251 twice in a $165.38
+  e-Transfer). Keep it with "Keep $X as credit" (`EtransferInboxService::creditRest()` →
+  `ClientCreditService::addOverpayment()`): DR 1010 / CR 2160 on the day it came, linked to the e-Transfer, so its
+  bank line settles as a transfer (`InvoiceReconciliationService::allocatedTotal()` counts it). Never leave the rest
+  unassigned and link the deposit — the leftover reads as income. Refunds are Tim's to send.
+- **Interac changed its email layout in Oct 2026**: "Message:" sits inside the Transfer Details box, before "Date:".
+  The old reader stored no memo, so nothing knew which invoice was paid and reminders could chase it.
+- **Chasing pauses while a payment is on the way**: `PaymentOnTheWay::sql()` is the one check for reminders, the
+  overdue flip, automations and autopay. Compare invoice numbers in one collation (prod mixes 0900_ai_ci and
+  general_ci; a raw compare is an SQL error that stops the cron).
+
+## Chequing $504 below the bank: receipts and their bank line both took the money (2026-10-15)
+- **Signature:** the statements check shows a gap that the "others" list explains — approved receipts paid by
+  debit, posted DR expense / CR 1010, while the very same purchase's bank line (same vendor, amount, day) sat
+  unlinked and posted its own CR 1010. Nine of them (Feb–Sep) made $370 of the gap; two more were duplicates:
+  the same Chevron receipt scanned again in August (#309, #319) and linked to the bank line, while the
+  originals (#165, #166) were approved later and posted on their own.
+- **Also:** a receipt saved at the misread amount ($9.52) and linked to a $10.00 line keeps the line's own
+  entry too (retirement needs the amounts to agree) — fix the receipt total and the sync retires the line.
+- **Rule:** before approving a receipt, link its bank line (Find Match); for a duplicate pair keep the
+  original, move the link to it, reject the copy (the reject reverses its entry). Measure the effect with
+  `StatementBooksCheckService::check()` per month: gap = others − missing, where "missing" lines (never
+  imported) are covered by receipts on purpose.
+- **Card statement sections** imported before the closing-balance parser fix had `closing_balance` NULL; filled
+  from the PDFs / the next statement's opening on 2026-10-15. `BankBalanceCheckService::report()` still shows
+  one bogus card month (statement 5) — its card statements need fixing; check 2400 directly against closings.
+
+## Personal purchases claimed GST (fixed 2026-10-19)
+`buildExpenseEntry` claimed the full GST on every receipt whatever its account, so a Personal receipt (posted to
+1300 Due from Shareholder) still debited 2210 — GST back on a non-business purchase — and the GST return listed
+it. Now no ITC on any 1300–1309 account (whole receipt + split shares), the return and the desk drop unsplit
+Personal receipts, and Personal always posts to a shareholder account, never the category map. Production had
+no posted Personal receipt, so nothing was reposted. Don't confuse with `owner_paid` (a BUSINESS purchase paid
+personally: funded by 1300, keeps its GST credit).
+
+## Chequing $973 under the bank: approved receipts booked twice with their unlinked bank lines (2026-10-20)
+A receipt books its purchase (CR 1010) when approved; its bank line ALSO books it unless linked (then the line's entry
+is retired). Receipts approved without a link, a duplicate receipt (#281 = #164), a total read as the taxes (#337 $1.03 vs
+$11.53) and a line linked to a REJECTED copy (#44 → #124) each double- or zero-booked a purchase. Fixed + approval now links
+the one exact line. Also: the repost tool must never "fix" 1015/1016 holding-account lines (its old plan would have moved
+152 of them and booked $36,390 of deposits as income), and a receipt category must never take a revenue account
+(4900 "Other Services" aliases the service type 'other' — 3 receipts were income). Feb's −$80: Home Depot #7 $64.26 is
+marked debit but no statement line has it (paid another way — ask Tim).
+
+
+## A GST number names the operator, not the brand (2026-11-04)
+A McDonald's inside an Esso station printed the station franchisee's GST/HST number (841236417RT0001), the same one the
+Esso vendor carries. Linking receipts to vendors by GST number alone would file that McDonald's under Esso, and old
+"R" numbers on gas-station receipts belong to the dealer, so different Esso stations print different numbers.
+**Rule:** a GST number may confirm a vendor the name already points to, or pick between candidates; it never
+assigns a vendor on its own. A vendor record keeps the first number seen (empty fields only); franchises legitimately
+show several.
+
+## A column check with a placeholder turns a feature off (2026-11-04)
+`SHOW COLUMNS ... LIKE ?` fails under native prepares (production), the try/catch answers "column missing", and the
+feature quietly never runs (vendor commons link, header-layout lessons). Quote the value instead. Verify any
+"skip when the migration hasn't run" guard on production with a prod-run preview, not only in SQLite tests.

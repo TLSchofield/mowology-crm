@@ -31,10 +31,12 @@
  */
 require_once __DIR__ . '/TripSegmentService.php';
 require_once __DIR__ . '/StopEvidenceService.php';
+require_once __DIR__ . '/PropertyBorderRules.php';
 
 class SupplierStopService
 {
     public const RADIUS_M = 80;
+    public const LOT_EDGE_M = 25;
     public const MIN_SECONDS = 180;
     /** Two fixes inside the circle further apart than this are two visits (phone silence, or left). */
     public const MAX_GAP_S = 300;
@@ -84,7 +86,9 @@ class SupplierStopService
         $best = null;
         foreach ($locations as $l) {
             $m = TripSegmentService::meters($lat, $lng, (float)$l['lat'], (float)$l['lng']);
-            if ($m <= $radius && ($best === null || $m < $best[1])) $best = [$l, $m];
+            $ring = isset($l['lot']) && is_array($l['lot']) ? $l['lot'] : [];
+            $hit = $ring ? PropertyBorderRules::insideOrNear([$lat, $lng], $ring, self::LOT_EDGE_M) : $m <= $radius;
+            if ($hit && ($best === null || $m < $best[1])) $best = [$l, $m];
         }
         return $best;
     }
@@ -304,20 +308,23 @@ class SupplierStopService
         try {
             $learned = $this->db->query("SHOW COLUMNS FROM vendor_locations LIKE 'receipts_seen'")->rowCount() > 0;
             $exact = $this->db->query("SHOW COLUMNS FROM vendor_locations LIKE 'geo_exact'")->rowCount() > 0;
+            $lots = $this->db->query("SHOW COLUMNS FROM vendor_locations LIKE 'lot_json'")->rowCount() > 0;
             $rows = $this->db->query("
-                SELECT vl.id, vl.vendor_id, vl.lat, vl.lng, v.name, v.default_accounting_category AS category, v.default_gbp_category AS gbp"
+                SELECT vl.id, vl.vendor_id, vl.lat, vl.lng, vl.geo_source, v.name, v.default_accounting_category AS category, v.default_gbp_category AS gbp"
                 . ($learned ? ", vl.source, vl.receipts_seen" : ", NULL AS source, 0 AS receipts_seen")
-                . ($exact ? ", vl.geo_exact" : ", NULL AS geo_exact") . "
+                . ($exact ? ", vl.geo_exact" : ", NULL AS geo_exact")
+                . ($lots ? ", vl.lot_json" : ", NULL AS lot_json") . "
                 FROM vendor_locations vl JOIN vendors v ON v.id = vl.vendor_id
                 WHERE vl.lat IS NOT NULL AND vl.lng IS NOT NULL AND COALESCE(v.is_active, 1) = 1
             ")->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rows as $r) {
                 if (($r['source'] ?? null) === 'learned' && (int)$r['receipts_seen'] < 2) continue;   // one photo isn't a store
-                if ($r['geo_exact'] !== null && (int)$r['geo_exact'] === 0) continue;
+                if ($r['geo_exact'] !== null && (int)$r['geo_exact'] === 0 && ($r['geo_source'] ?? '') !== 'receipt_gps') continue;
                 $kind = self::locationKind($r['category'], $r['gbp'], (string)$r['name']);
                 if ($kind === null) continue;
                 $out['vl:' . $r['id']] = ['key' => 'vl:' . $r['id'], 'vendor_id' => (int)$r['vendor_id'], 'name' => (string)$r['name'],
-                                          'kind' => $kind, 'lat' => (float)$r['lat'], 'lng' => (float)$r['lng']];
+                                          'kind' => $kind, 'lat' => (float)$r['lat'], 'lng' => (float)$r['lng'],
+                                          'lot' => self::decodeLot($r['lot_json'] ?? null)];
             }
         } catch (Throwable $e) {
             error_log('SupplierStop locations (vendor): ' . $e->getMessage());
@@ -341,6 +348,15 @@ class SupplierStopService
             error_log('SupplierStop locations (places): ' . $e->getMessage());
         }
         return $this->locations = $out;
+    }
+
+    private static function decodeLot($json): array
+    {
+        if (!is_string($json) || $json === '') return [];
+        $ring = json_decode($json, true);
+        if (!is_array($ring) || count($ring) < 3) return [];
+        foreach ($ring as $p) if (!is_array($p) || !isset($p[0], $p[1]) || !is_numeric($p[0]) || !is_numeric($p[1])) return [];
+        return $ring;
     }
 
     /**

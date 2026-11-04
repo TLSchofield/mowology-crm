@@ -55,6 +55,62 @@ class ReceiptBookkeeperRules
     }
 
     /**
+     * The same three rules as evaluate(), written as DATA — what the original business is seeded with (ReceiptProfile::mowologyOps()) and what any
+     * business can have its own version of. A test proves evaluateWith(mowologyRules()) gives the same hits as evaluate() on every case.
+     * Rule shape: id, hits[] (field, value, reason, strength) and conditions: fuel (diesel|gasoline), no_fuel (bool), text_regex (on the UPPER-cased
+     * receipt text and item names), total_range [over, upto] (over < total <= upto) and outside (true = the total is NOT in that range).
+     * A reason may carry {total} (the receipt total, two decimals).
+     * @return list<array>
+     */
+    public static function mowologyRules(): array
+    {
+        return [
+            ['id' => 'fuel_diesel_truck', 'fuel' => 'diesel', 'hits' => [
+                ['field' => 'accounting_category', 'value' => 'Fuel', 'reason' => 'Diesel on the receipt', 'strength' => 'firm'],
+                ['field' => 'asset_tag', 'value' => 'truck', 'reason' => 'Diesel is for the Dodge Ram truck', 'strength' => 'firm'],
+            ]],
+            ['id' => 'fuel_gas_equipment', 'fuel' => 'gasoline', 'hits' => [
+                ['field' => 'accounting_category', 'value' => 'Fuel', 'reason' => 'Gasoline on the receipt', 'strength' => 'firm'],
+            ]],
+            ['id' => 'fuel_gas_equipment', 'fuel' => 'gasoline', 'total_range' => [0, self::EQUIPMENT_GAS_MAX], 'hits' => [
+                ['field' => 'asset_tag', 'value' => 'equipment', 'reason' => sprintf('Regular gas under $%d is for the equipment', (int)self::EQUIPMENT_GAS_MAX), 'strength' => 'firm'],
+            ]],
+            ['id' => 'fuel_gas_equipment', 'fuel' => 'gasoline', 'total_range' => [0, self::EQUIPMENT_GAS_MAX], 'outside' => true, 'hits' => [
+                ['field' => 'asset_tag', 'value' => 'equipment', 'reason' => 'Gas is usually for the equipment, but ${total} is more than the usual fill-up — check', 'strength' => 'soft'],
+            ]],
+            ['id' => 'ego_equipment', 'no_fuel' => true, 'text_regex' => '/\bEGO\b/', 'hits' => [
+                ['field' => 'accounting_category', 'value' => 'Tools/Equipment', 'reason' => 'EGO item — usually an equipment purchase', 'strength' => 'soft'],
+            ]],
+        ];
+    }
+
+    /**
+     * The business's own rules, evaluated. No rules, no hits: the AI proposes and nothing is forced. Pure.
+     * @param list<array> $rules ReceiptProfile::decodeRules()
+     * @return list<array{field: string, value: string, reason: string, rule: string, strength: string}>
+     */
+    public static function evaluateWith(array $rules, array $receipt, string $ocrText, array $itemNames = []): array
+    {
+        $text  = strtoupper($ocrText . "\n" . implode("\n", $itemNames));
+        $total = (float)($receipt['total'] ?? 0);
+        $fuel  = self::fuelType($text);
+        $hits  = [];
+        foreach ($rules as $r) {
+            if (isset($r['fuel']) && $r['fuel'] !== $fuel) continue;
+            if (!empty($r['no_fuel']) && $fuel !== null) continue;
+            if (!empty($r['text_regex']) && @preg_match((string)$r['text_regex'], $text) !== 1) continue;
+            if (isset($r['total_range']) && is_array($r['total_range']) && count($r['total_range']) === 2) {
+                $in = $total > (float)$r['total_range'][0] && $total <= (float)$r['total_range'][1];
+                if ($in === !empty($r['outside'])) continue;
+            }
+            foreach ($r['hits'] as $h) {
+                $hits[] = self::hit((string)$h['field'], (string)$h['value'], str_replace('{total}', number_format($total, 2, '.', ''), (string)$h['reason']), (string)$r['id'], (string)$h['strength']);
+            }
+        }
+        return $hits;
+    }
+
+    /**
      * 'diesel' | 'gasoline' | null. Diesel wins when both appear (a truck fill-up with
      * a jerry can of gas is still a diesel receipt for the truck).
      */

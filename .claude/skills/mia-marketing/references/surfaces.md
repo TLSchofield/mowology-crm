@@ -32,7 +32,7 @@
 | Weekly Google post: publish (live only) / I posted it / skip | yes (`gbp_post`) | yes (`post_decide`) | `MiaChannelsService::decidePost()`, `GbpService::mode()` | none in behaviour |
 | Google review replies (paste, draft, copy, post) | not built | card | `MiaChannelsService`, `ReviewReplyDrafter` | iPhone |
 | Social drafts review + publish | not built | Social Post editor | `SocialDraftPipeline`, `SocialPublisher` | iPhone |
-| Reconnect Facebook banner | not shown | `social.php` banner + card | `SocialConnectionState` | iPhone (Charlie's brief item still reaches it) |
+| Reconnect Facebook banner | not shown | `social.php` banner + card | `SocialConnectionState` | iPhone (Kaname's brief item still reaches it) |
 | Website watch, listings, media tags | not shown | card, listings page, media library | `WebsiteWatchService`, `ListingsService`, `MediaTagService` | iPhone (desktop jobs; acceptable) |
 | "Move to…" on a routed message (to Mia) | yes | yes | InboundRouteService (required by team-mobile, but its file is not on this branch — unverified) | — |
 

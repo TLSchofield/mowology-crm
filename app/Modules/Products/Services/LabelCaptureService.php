@@ -19,6 +19,7 @@
 require_once __DIR__ . '/LabelReaderService.php';
 require_once __DIR__ . '/ProductProposalService.php';
 require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptIntakeService.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 class LabelCaptureService
 {
@@ -75,7 +76,7 @@ class LabelCaptureService
         if ((int)$file['size'] > ReceiptIntakeService::MAX_FILE_SIZE_BYTES) {
             return ['success' => false, 'error' => 'File too large (max 10MB).', 'http_code' => 413];
         }
-        $dir = PUBLIC_ROOT . '/uploads/receipts/';
+        $dir = uploadsDir('receipts') . '/';
         if (!is_dir($dir)) mkdir($dir, 0755, true);
         $ext = ReceiptIntakeService::resolveStoredExtension((string)$file['name']);
         $stored = $prefix . '-' . date('Ymd-His') . '-' . uniqid() . '.' . $ext;
@@ -90,7 +91,7 @@ class LabelCaptureService
         if ($info = @getimagesize($path)) { [$w, $h] = $info; }
         $this->db->prepare("INSERT INTO media_assets (original_filename, stored_filename, file_path, file_type, mime_type, file_size, image_width, image_height, gps_lat, gps_lng, sha256, alt_text, context_type, created_by)
                             VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-             ->execute([(string)$file['name'], $stored, '/uploads/receipts/' . $stored, $mime, (int)$file['size'], $w, $h, $lat, $lng, hash_file('sha256', $path) ?: null,
+             ->execute([(string)$file['name'], $stored, uploadsUrl('receipts') . '/' . $stored, $mime, (int)$file['size'], $w, $h, $lat, $lng, hash_file('sha256', $path) ?: null,
                         $alt, $context, $userId]);
         return ['success' => true, 'media_id' => (int)$this->db->lastInsertId(), 'path' => $path];
     }

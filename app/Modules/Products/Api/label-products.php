@@ -22,6 +22,7 @@
  * ?mode=, never ?action= (see the /api/ router note in the vault). Every write is Tim's click.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -122,13 +123,13 @@ try {
             $mediaId = null;
             // Keep the manual (deny-all folder, served by serve-receipt.php like receipts).
             if (in_array($mime, array_merge(['application/pdf'], OttoManualService::IMAGE_TYPES), true) && strlen($bytes) <= OttoManualService::MAX_PDF) {
-                $dir = PUBLIC_ROOT . '/uploads/receipts/';
+                $dir = uploadsDir('receipts') . '/';
                 if (!is_dir($dir)) @mkdir($dir, 0755, true);
                 $stored = 'manual-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . ($mime === 'application/pdf' ? '.pdf' : '.jpg');
                 if (@file_put_contents($dir . $stored, $bytes) !== false) {
                     $db->prepare("INSERT INTO media_assets (original_filename, stored_filename, file_path, file_type, mime_type, file_size, sha256, alt_text, context_type, created_by)
                                   VALUES (?, ?, ?, ?, ?, ?, ?, 'Equipment manual', 'manual', ?)")
-                       ->execute([(string)$f['name'], $stored, '/uploads/receipts/' . $stored, $mime === 'application/pdf' ? 'document' : 'image', $mime, strlen($bytes), hash('sha256', $bytes), $uid]);
+                       ->execute([(string)$f['name'], $stored, uploadsUrl('receipts') . '/' . $stored, $mime === 'application/pdf' ? 'document' : 'image', $mime, strlen($bytes), hash('sha256', $bytes), $uid]);
                     $mediaId = (int)$db->lastInsertId();
                 }
             }

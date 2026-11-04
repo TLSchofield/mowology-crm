@@ -35,6 +35,43 @@ class ExpenseGateHooks
      * Penny's missing-receipt chaser (migration 1245): a receipt that fits an open "missing
      * receipt" item closes it, whatever path it came in by.
      */
+    /**
+     * An approved receipt not yet linked to its statement line: link it when exactly ONE unlinked line has its exact
+     * amount (to the cent) among the bank's own candidates (2026-10-20: approved receipts and their unlinked bank lines
+     * were both booked — chequing was $973 under the bank; linked, it is $11). The nightly posting then books the receipt
+     * and retires the line's own entry (LedgerService::retireLinkedBankEntries). Paid personally: no line expected.
+     * Anything less certain stays a suggestion in the receipt window. Never fails the approval.
+     */
+    public function linkBank(int $expenseId, array $row): void
+    {
+        if (($row['payment_method'] ?? '') === 'owner_paid' || (float)($row['total'] ?? 0) <= 0) return;
+        try {
+            $s = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE matched_expense_id = ? LIMIT 1");
+            $s->execute([$expenseId]);
+            if ($s->fetchColumn()) return;
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+            $svc = new BankImportService($this->db);
+            $total = round((float)$row['total'], 2);
+            $exact = array_values(array_filter($svc->candidateTransactionsForExpense($expenseId, 8),
+                static fn($c) => abs(abs((float)($c['amount'] ?? 0)) - $total) < 0.005));
+            if (count($exact) !== 1) return;
+            $svc->attachExpenseMatch((int)$exact[0]['transaction_id'], $expenseId, 0);
+        } catch (Throwable $e) {
+            error_log('Gate bank link #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
+    /** Match the receipt's product lines to the shared catalogue (ReceiptCatalogService). Never fails the save. */
+    public function catalog(int $expenseId): void
+    {
+        try {
+            require_once __DIR__ . '/ReceiptCatalogService.php';
+            (new ReceiptCatalogService($this->db))->match($expenseId);
+        } catch (Throwable $e) {
+            error_log('Receipt catalogue #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** ReceiptDateCheck on a new or re-dated receipt. Never fails the save. */
     public function dateCheck(int $expenseId): void
     {
@@ -150,11 +187,11 @@ class ExpenseGateHooks
     }
 
     /** Approved or sent: the header (and line) lessons, once per receipt. */
-    public function learnConfirmed(int $expenseId, ?array $fallbackBaseline): void
+    public function learnConfirmed(int $expenseId, ?array $fallbackBaseline, bool $filedCopy = false, bool $allowPending = false): void
     {
         try {
             $this->receiptLearning();
-            learnFromConfirmedExpense($this->db, $expenseId, $fallbackBaseline);
+            learnFromConfirmedExpense($this->db, $expenseId, $fallbackBaseline, $filedCopy, $allowPending);
             // Items taken from Penny's read over the reader's: the reader learns the layout (2026-10-13).
             if (function_exists('teachReaderFromPenny')) teachReaderFromPenny($this->db, $expenseId);
         } catch (Throwable $e) {
@@ -258,7 +295,7 @@ class ExpenseGateHooks
                 return false;
             }
             $s = $this->db->prepare("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                            vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                            vendor_id, job_id, contact_id, asset_tag, vendor_name_raw, shareholder_account,
                                             (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
                                      FROM expenses WHERE id = ?");
             $s->execute([$expenseId]);
@@ -270,6 +307,7 @@ class ExpenseGateHooks
             $own = !$this->db->inTransaction();
             if ($own) $this->db->beginTransaction();
             try {
+                $ledger->lockGroupLineFor($expenseId);   // line before entries (see LedgerService::lockGroupLineFor)
                 $ledger->reverseEntry($entryId, $userId, $why);
                 if ($row && (float)$row['total'] > 0) {
                     $args = (new LedgerSyncService($this->db, $ledger))->expenseArgs($row);
@@ -278,6 +316,8 @@ class ExpenseGateHooks
                     $args['proposed_by'] = 'owner';
                     $ledger->postExpense($args);
                 }
+                // One of several receipts on a bank line: the line follows the new amount (or the receipt's absence).
+                $ledger->settleGroupFor($expenseId, $userId);
                 if ($own) $this->db->commit();
             } catch (Throwable $e) {
                 if ($own && $this->db->inTransaction()) $this->db->rollBack();
@@ -304,7 +344,19 @@ class ExpenseGateHooks
             $ledger = new LedgerService($this->db);
             $entryId = $ledger->findEntryIdBySource('expense', $expenseId);
             if (!$entryId) return false;
-            $ledger->reverseEntry($entryId, $userId, $why);
+            // One of several receipts on a bank line: the line is locked first (same order as the settlement),
+            // then takes back the part this one paid — all one change.
+            $own = !$this->db->inTransaction();
+            if ($own) $this->db->beginTransaction();
+            try {
+                $ledger->lockGroupLineFor($expenseId);
+                $ledger->reverseEntry($entryId, $userId, $why);
+                $ledger->settleGroupFor($expenseId, $userId);
+                if ($own) $this->db->commit();
+            } catch (Throwable $e) {
+                if ($own && $this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
+            }
             return true;
         } catch (Throwable $e) {
             if ($strict) throw $e instanceof RuntimeException ? $e : new RuntimeException($e->getMessage(), 0, $e);

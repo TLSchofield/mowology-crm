@@ -160,6 +160,11 @@ class ReceiptFundingCheck
     {
         $rows = $this->db->query("SELECT id, matched_expense_id FROM accounting_transactions WHERE matched_expense_id IS NOT NULL ORDER BY id")
                          ->fetchAll(PDO::FETCH_ASSOC);
+        // …and every other receipt on a line paid by several (migration 1372; Codex review 2026-10-16).
+        require_once __DIR__ . '/BankLineReceipts.php';
+        if (BankLineReceipts::tableExists($this->db)) {
+            foreach ($this->db->query("SELECT transaction_id AS id, expense_id AS matched_expense_id FROM bank_line_receipts ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[] = $r;
+        }
         $out = [];
         foreach ($rows as $r) {
             $line = $this->line((int)$r['id']);

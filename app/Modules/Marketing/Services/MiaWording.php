@@ -5,7 +5,7 @@
  * Written to the house copy rules (app/Services/Copy/mowology-copy-rules.md) and the voice
  * card in .agents/product-marketing-context.md: Tim's voice, first person, short plain
  * sentences, something specific and true about their property or the season, one easy
- * ask, no exclamation marks, never "just checking in" / "we miss you", signed "Thanks, Tim".
+ * ask, no exclamation marks, never "just checking in" / "we miss you", signed "Thanks, <owner>".
  * The CRM's branded footer adds the postal address, phone and unsubscribe link.
  *
  * Learning: when Tim edits a draft and sends it, learnTemplate() swaps the customer's own
@@ -17,7 +17,27 @@
  */
 class MiaWording
 {
-    public const PHONE = '(778) 846-9273';
+
+    /** The business's own phone / short name / owner first name (BusinessIdentity). */
+    public static function phone(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return BusinessIdentity::get()['phone'];
+    }
+
+    public static function businessName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $n = BusinessIdentity::get()['name'];
+        return $n !== '' ? $n : 'our team';
+    }
+
+    public static function ownerName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $o = BusinessIdentity::get()['owner_name'];
+        return $o !== '' ? $o : 'the team';
+    }
     public const KINDS = ['reconnect', 'seasonal', 'pm_quiet', 'referral', 'consent_ask'];
     /** Stands in for the customer's own opt-in link until Tim sends (a fresh token per send). */
     public const CONFIRM_MARK = '[confirm link]';
@@ -33,17 +53,17 @@ class MiaWording
                         . "Our crew did the {service_lower} at {place} {last_when}. That time of year is coming round again.\n\n"
                         . "{season_line}\n\n"
                         . "Want the same again? Reply \"yes\" and I'll book it in and confirm the date with you.\n\n"
-                        . "Thanks,\nTim",
+                        . "Thanks,\n" . self::ownerName(),
                 ];
             case 'pm_quiet':
                 return [
-                    'subject' => "{company}'s properties with Mowology",
+                    'subject' => "{company}'s properties with " . self::businessName(),
                     'body' => "Hi {first_name},\n\n"
                         . "Our crew made {prior_visits} visits to {company}'s properties this time last year, and {recent_visits} in the last three months. I'd rather ask you directly than guess why.\n\n"
                         . "If something we did fell short, I'd like to hear it. If the needs have changed, that's useful to know too.\n\n"
                         . "Every visit still comes with a time-stamped photo report, and you still have one contact for all of it: me.\n\n"
                         . "Would a 10-minute call this week work? Reply with a time that suits you.\n\n"
-                        . "Thanks,\nTim",
+                        . "Thanks,\n" . self::ownerName(),
                 ];
             case 'referral':
                 return [
@@ -53,7 +73,7 @@ class MiaWording
                         . "{referral_link}\n\n"
                         . "When someone books through it and their first visit is done, {reward_line}\n\n"
                         . "No pressure either way. Thank you for trusting us with the property.\n\n"
-                        . "Thanks,\nTim",
+                        . "Thanks,\n" . self::ownerName(),
                 ];
             case 'consent_ask':
                 return [
@@ -63,7 +83,7 @@ class MiaWording
                         . "If you'd like to keep hearing from us about the right time for cleanups, aeration and the like, confirm here:\n\n"
                         . self::CONFIRM_MARK . "\n\n"
                         . "If not, there's nothing to do. Your quotes, invoices and visit photos keep coming as usual.\n\n"
-                        . "Thanks,\nTim",
+                        . "Thanks,\n" . self::ownerName(),
                 ];
             case 'reconnect':
             default:
@@ -73,7 +93,7 @@ class MiaWording
                         . "It's been a while since our crew was at {place}. The last visit was {last_when}, for {service_lower}.\n\n"
                         . "{season_line}\n\n"
                         . "If you'd like us back, reply to this email and I'll find a time that suits you.\n\n"
-                        . "Thanks,\nTim",
+                        . "Thanks,\n" . self::ownerName(),
                 ];
         }
     }
@@ -161,10 +181,10 @@ class MiaWording
     public static function sms(string $firstName, string $topic): string
     {
         $name = self::asciiOnly($firstName);
-        $long = 'Hi ' . $name . ', Tim from Mowology here. I sent you an email about ' . self::asciiOnly($topic)
-              . '. Check your email, or call ' . self::PHONE . '.';
+        $long = 'Hi ' . $name . ', ' . self::ownerName() . ' from ' . self::businessName() . ' here. I sent you an email about ' . self::asciiOnly($topic)
+              . '. Check your email, or call ' . self::phone() . '.';
         if (self::smsProblems($long) === []) return $long;
-        return 'Hi ' . $name . ', Tim from Mowology here. Check your email for a note from me, or call ' . self::PHONE . '.';
+        return 'Hi ' . $name . ', ' . self::ownerName() . ' from ' . self::businessName() . ' here. Check your email for a note from me, or call ' . self::phone() . '.';
     }
 
     /** Why a text would be dropped by a carrier gateway — empty when it's fine. */
@@ -174,7 +194,7 @@ class MiaWording
         if (mb_strlen($text) > 160) $p[] = 'longer than 160 characters';
         if (preg_match('~https?:|www\.|\b[a-z0-9-]+\.(ca|com|net|org|io|co|info|biz|ly)\b~i', $text)) $p[] = 'has a link or web address';
         if (preg_match('/[^\x20-\x7E]/', $text)) $p[] = 'has special characters';
-        if (strpos($text, self::PHONE) === false) $p[] = 'missing ' . self::PHONE;
+        if (strpos($text, self::phone()) === false) $p[] = 'missing ' . self::phone();
         if (stripos($text, 'email') === false) $p[] = 'should tell them to check their email';
         return $p;
     }

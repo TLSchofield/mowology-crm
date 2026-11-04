@@ -15,6 +15,8 @@
  * GET  ?action=transaction_expense_candidates&transaction_id=X — scored expense candidates for one transaction
  * POST {action:'attach_expense', transaction_id, expense_id}
  * POST {action:'detach_expense', transaction_id}
+ * GET  ?action=transaction_receipt_group_candidates&transaction_id=  (several receipts, one line — migration 1372)
+ * POST {action:'attach_expense_group', transaction_id, expense_ids: [..]}  (they must add up to the line exactly)
  * Reads require expenses.view; writes require expenses.edit + CSRF.
  */
 declare(strict_types=1);
@@ -51,7 +53,8 @@ try {
 
     // Expense-side actions gate on expenses.*, invoice-side actions gate on billing.*
     // (billing.view/edit stays the default for the original 'candidates'/'attach'/'detach' actions).
-    $isExpenseAction = in_array($action, ['expense_candidates', 'transaction_expense_candidates', 'attach_expense', 'detach_expense'], true);
+    $isExpenseAction = in_array($action, ['expense_candidates', 'transaction_expense_candidates', 'attach_expense', 'detach_expense',
+                                           'transaction_receipt_group_candidates', 'attach_expense_group'], true);
     $viewPermission  = $isExpenseAction ? 'expenses.view' : 'billing.view';
     $editPermission  = $isExpenseAction ? 'expenses.edit' : 'billing.edit';
 
@@ -237,6 +240,32 @@ try {
                     . ' (confidence ' . $result['confidence'] . '%)', null, null, null, $expenseId);
             }
 
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+        }
+
+        case 'transaction_receipt_group_candidates': {
+            $txId = (int)($_GET['transaction_id'] ?? 0);
+            if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+            $amt = $db->prepare("SELECT ABS(amount) FROM accounting_transactions WHERE id = ?");
+            $amt->execute([$txId]);
+            echo json_encode(['ok' => true, 'line_amount' => round((float)$amt->fetchColumn(), 2),
+                              'candidates' => (new BankLineReceipts($db))->candidates($txId)]);
+            break;
+        }
+
+        case 'attach_expense_group': {
+            $txId = (int)($input['transaction_id'] ?? 0);
+            $ids  = is_array($input['expense_ids'] ?? null) ? array_map('intval', $input['expense_ids']) : [];
+            if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+            // A refusal (amounts apart, already matched) is a 422 with its own message, via the catch below.
+            $result = (new BankLineReceipts($db))->attach($txId, $ids, (int)$user['id']);
+            if (function_exists('logActivityExtended')) {
+                logActivityExtended((int)$user['id'], 'Receipts matched to one transaction',
+                    'Bank transaction #' . $txId . ' matched to receipts #' . implode(', #', $result['receipts']), null, null, null, $result['main']);
+            }
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
         }

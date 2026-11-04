@@ -7,7 +7,9 @@
  * materials, notes, PDF download/generate, lock/unlock controls.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('jobs.view');
@@ -94,7 +96,7 @@ $photoGroups = ['before' => [], 'after' => [], 'additional' => [], 'other' => []
 foreach ($photos as $p) {
     $bucket = in_array($p['photo_type'], ['before','after','additional']) ? $p['photo_type'] : 'other';
     // Compute display URLs with fallback to original
-    $origUrl = '/uploads/photos/' . $p['filename'];
+    $origUrl = uploadsUrl('photos') . '/' . $p['filename'];
     $p['_orig_url']  = $origUrl;
     $p['_thumb_url'] = $p['thumb_path'] ?? $origUrl;
     $p['_grid_url']  = $p['grid_path']  ?? $origUrl;
@@ -113,7 +115,7 @@ $shareToken = $stmtToken->fetch(PDO::FETCH_ASSOC);
 $hasActiveToken = $shareToken
     && $shareToken['revoked_at'] === null
     && ($shareToken['expires_at'] === null || strtotime($shareToken['expires_at']) > time());
-$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
 
 // Load notes
 $stmtNotes = $db->prepare("

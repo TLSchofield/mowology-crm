@@ -42,4 +42,17 @@ final class RouteProofServiceTest extends TestCase
     {
         $this->assertSame([], RouteProofService::onSite([self::fix(49.25, -123.10)], ['lat' => null, 'lng' => null], 150));
     }
+
+    public function testProofOfWorkPointsKeepTheirOwnShape(): void
+    {
+        $pts = [
+            ['lat' => 49.2600, 'lng' => -123.1000, 'accuracy_m' => 5, 'ts' => '09:00'],   // the drive in
+            ['lat' => 49.2501, 'lng' => -123.1001, 'accuracy_m' => 5, 'ts' => '09:05'],   // on site
+            ['lat' => 49.2500, 'lng' => -123.1000, 'accuracy_m' => 8, 'ts' => '09:10'],   // on site
+            ['lat' => 49.2400, 'lng' => -123.1000, 'accuracy_m' => 5, 'ts' => '09:20'],   // on to the next client
+        ];
+        $kept = RouteProofService::onSiteLatLng($pts, self::SITE, 150);
+        $this->assertSame([$pts[1], $pts[2]], $kept);
+        $this->assertSame([], RouteProofService::onSiteLatLng($pts, [], 150), 'no property pin → no map');
+    }
 }

@@ -567,7 +567,7 @@ class FieldRecommendationService
         }
 
         $token    = $quotes->ensureAccessToken($quoteId, $quote);
-        $quoteUrl = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'mowology.ca')
+        $quoteUrl = 'https://' . ($_SERVER['HTTP_HOST'] ?? (parse_url(_idSiteUrl(), PHP_URL_HOST) ?: ''))
                   . '/customer/quote.php?token=' . urlencode($token);
 
         $company   = EmailWrapper::getCompanyInfo();
@@ -590,10 +590,10 @@ class FieldRecommendationService
 
         $result = sendEmail(
             $email,
-            'A recommendation from your Mowology crew — ' . $title,
+            'A recommendation from your ' . _idFromName() . ' crew — ' . $title,
             $html,
             null,
-            'Mowology Landscaping'
+            ''
         );
 
         if (!empty($result['success'])) {
@@ -660,7 +660,7 @@ class FieldRecommendationService
             return '';
         }
 
-        $base = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'mowology.ca');
+        $base = 'https://' . ($_SERVER['HTTP_HOST'] ?? (parse_url(_idSiteUrl(), PHP_URL_HOST) ?: ''));
         $html = '<p>';
         foreach (array_slice($photos, 0, 4) as $photo) {
             $path = $photo['thumb_url'] ?: $photo['file_path'];

@@ -65,6 +65,9 @@ require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
 require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
 require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+require_once APP_ROOT . '/Services/Receipts/ReceiptLlmExtractor.php';
+require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 // ── Mutex: prevent overlapping runs ───────────────────────────────────
 // TODO(cron-lock): replace with App\Core\CronLock::acquire('process_ocr_queue')
@@ -204,6 +207,14 @@ foreach ($candidateIds as $jobId) {
             isset($row['gps_lat']) ? (float)$row['gps_lat'] : null,
             isset($row['gps_lng']) ? (float)$row['gps_lng'] : null
         );
+        // No text read is a FAILED scan, never "complete": 223 jobs from 2026-10-07 on came back empty here
+        // (the reader failed only when run as the scheduled task) and were marked complete, so they were
+        // never retried and those receipts never got their printed time / card / ticket. Retried 3 times.
+        if (trim((string)($result['ocr_text'] ?? '')) === '') {
+            $p = (array)($result['payload'] ?? []);
+            throw new RuntimeException('No text read (' . ($p['ocr_source'] ?? 'none') . ', pre-screen '
+                . ($p['pre_screen']['decision'] ?? '?') . '): ' . ($p['ocr_error'] ?? 'the reader gave no reason'));
+        }
 
         $write = $db->prepare("
             UPDATE expense_ocr_jobs
@@ -317,7 +328,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
             $im->stripImage();
             $newName    = preg_replace('/\.(heic|heif)$/i', '.jpg', basename($filePath));
             $newPath    = dirname($filePath) . '/' . $newName;
-            $newWebPath = '/uploads/receipts/' . $newName;
+            $newWebPath = uploadsUrl('receipts') . '/' . $newName;
             $im->writeImage($newPath);
             $im->destroy();
             @unlink($filePath);
@@ -389,9 +400,19 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
         }
 
+        // Same header ladder as ReceiptIntakeService::intake(): the vendor's learned layout, then the AI for what is still missing.
+        if (function_exists('enhanceHeaders') && function_exists('applyHeaderLayouts')) {
+            $qVendor = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null;
+            $qProfile = $qVendor ? getVendorParseProfile($db, $qVendor) : null;
+            $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($qProfile));
+            $qEnh = enhanceHeaders(['parsed' => $parsed, 'ocr_text' => $ocrText, 'read_mode' => receiptReadMode($qProfile)]);
+            $parsed = $qEnh['parsed'];
+        }
+
         if (!empty($suggestions['vendor_gst_exempt'])) {
             $parsed['gst'] = '0.00';
             $parsed['gst_estimated'] = false;
+            $parsed['gst_source']    = 'exempt';
             $parsed['gst_exempt']    = true;
             if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
                 $parsed['total'] = $parsed['subtotal'];
@@ -464,6 +485,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
         'ocr_text'          => $ocrText,
         'ocr_available'     => $ocrAvailable,
         'ocr_source'        => $ocrSource,
+        'ocr_error'         => $ocrResult['error'] ?? null,   // why the reader failed, saved on the job (2026-10-19)
         'pre_screen'        => [
             'score'    => $preScreen['score'] ?? 0,
             'decision' => $preScreenDecision,

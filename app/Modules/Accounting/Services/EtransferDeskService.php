@@ -12,6 +12,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/EtransferInboxService.php';
+require_once __DIR__ . '/EtransferNudgeService.php';
 
 class EtransferDeskService
 {
@@ -24,7 +25,7 @@ class EtransferDeskService
         $this->inbox = new EtransferInboxService($db);
     }
 
-    /** @return array{waiting: int, items: array} */
+    /** @return array{waiting: int, items: array, nudged: int} */
     public function queue(int $limit = 10): array
     {
         $rows = $this->inbox->listPending();
@@ -32,7 +33,8 @@ class EtransferDeskService
         foreach (array_slice($rows, 0, max(1, min(25, $limit))) as $et) {
             $items[] = $this->read($et);
         }
-        return ['waiting' => count($rows), 'items' => $items];
+        // Card fact: clients Penny has asked to use the Auto-deposit address (migration 1301).
+        return ['waiting' => count($rows), 'items' => $items, 'nudged' => (new EtransferNudgeService($this->db))->countSent()];
     }
 
     /** One transfer, read the way the Invoices panel reads it — plus Penny's sentence. */
@@ -63,7 +65,7 @@ class EtransferDeskService
             $duplicate = $this->inbox->findLikelyDuplicatePayment($et['sender_name'] ?? null, $active, $et['email_date'] ?? null);
             if (!$duplicate) {
                 $spread = $this->inbox->suggestFifoAllocation($et['sender_name'] ?? null, $active);
-                if (!$spread) $value = $this->inbox->suggestFifoAllocationByValue($active);
+                if (!$spread) $value = $this->inbox->suggestFifoAllocationByValue($active, $et['sender_name'] ?? null, $et['memo'] ?? null);
             }
         }
         $lines = $value['lines'] ?? $spread;
@@ -118,8 +120,11 @@ class EtransferDeskService
             // Keep the rest as the client's credit (ClientCreditService::addOverpayment): $over after these lines,
             // or everything left on a part-recorded transfer.
             'credit'    => $canCredit ? ['amount' => $over > 0 ? $over : $active, 'with_record' => $over > 0, 'already_paid' => $alreadyPaid] : null,
-            'say'       => $over > 0 ? self::sayOver($et['sender_name'] ?: 'Someone', $active, $lines[0], $over, $alreadyPaid) : self::say($learnedPayer && in_array($kind, ['spread', 'hint'], true) ? 'learned' : $kind, $et['sender_name'] ?: 'Someone', $active, $allocated, $lines,
-                                     $value['payer_name'] ?? $learnedPayer, $duplicate, $matchedNo),
+            // The clues (memo / name + the oldest invoices to the cent) say WHY — as a person would explain it.
+            'say'       => !empty($value['clue']) && $over <= 0
+                ? ($et['sender_name'] ?: 'Someone') . ' sent $' . number_format($active, 2) . ': ' . $value['clue'] . ' (' . implode(', ', array_map(fn($l) => $l['invoice_number'], $lines)) . '). Check, then record.'
+                : ($over > 0 ? self::sayOver($et['sender_name'] ?: 'Someone', $active, $lines[0], $over, $alreadyPaid) : self::say($learnedPayer && in_array($kind, ['spread', 'hint'], true) ? 'learned' : $kind, $et['sender_name'] ?: 'Someone', $active, $allocated, $lines,
+                                     $value['payer_name'] ?? $learnedPayer, $duplicate, $matchedNo)),
         ];
     }
 

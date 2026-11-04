@@ -11,6 +11,7 @@
  * Client Confidence Box is included as the last content section.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -18,6 +19,7 @@ if (!defined('APP_ROOT')) {
 
 // Load Composer autoloader (mPDF)
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once __DIR__ . '/MapSnapshotService.php';
@@ -44,7 +46,7 @@ class PowPdfGenerator
             ? STORAGE_ROOT . '/pdfs/pow'
             : dirname($this->publicRoot) . '/storage/pdfs/pow';
         $this->siteUrl     = rtrim($siteUrl, '/');
-        $this->companyName = 'Mowology Landscaping';
+        $this->companyName = _idCompanyInfo()['company_name'];
         $this->logoPath    = $this->publicRoot . '/assets/img/mowology-logo.png';
 
         if (!is_dir($this->storageDir)) {
@@ -168,6 +170,11 @@ class PowPdfGenerator
         ");
         $stmt->execute([$visitId]);
         $gpsPoints = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        // Only the points ON the property reach the client's map and distance — never the drive
+        // there, the fuel stop or the next client (same rule as the portal; Codex 2026-10-15).
+        require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+        $proof     = new \RouteProofService($this->db);
+        $gpsPoints = \RouteProofService::onSiteLatLng($gpsPoints, $proof->siteForVisit($visitId), $proof->radiusM());
 
         // Photos
         $stmt = $this->db->prepare("
@@ -252,7 +259,7 @@ class PowPdfGenerator
         $logoTag      = '';
         if (file_exists($this->logoPath)) {
             $logoData = base64_encode(file_get_contents($this->logoPath));
-            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="Mowology">';
+            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
         }
 
         $mapTag = '';
@@ -507,7 +514,7 @@ class PowPdfGenerator
   <div class="section-title">Site Photos</div>
   <div class="photos-grid">
     <?php foreach ($photos as $ph):
-        $imgPath = $this->publicRoot . '/uploads/photos/' . $ph['filename'];
+        $imgPath = $this->publicRoot . uploadsUrl('photos') . '/' . $ph['filename'];
         if (!file_exists($imgPath)) continue;
         $imgData = base64_encode(file_get_contents($imgPath));
         $ext     = strtolower(pathinfo($ph['filename'], PATHINFO_EXTENSION));

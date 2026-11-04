@@ -11,6 +11,7 @@
  * ?mode=, not ?action= (the /api/ router appends its own action).
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -119,8 +120,8 @@ try {
         require_once CRM_INCLUDES . '/messaging.php';
         require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
         $co = emailCompanyDetails();
-        $company = (string)($co['name'] ?? '') ?: 'Mowology';
-        $phone = (string)($co['phone'] ?? '') ?: '(778) 846-9273';
+        $company = (string)($co['name'] ?? '') ?: _idFromName();
+        $phone = (string)($co['phone'] ?? '') ?: _idPhone();
         $sent = []; $problems = [];
         if (!empty($input['email'])) {
             if (!$a['contact_email']) $problems[] = 'no email address on file';

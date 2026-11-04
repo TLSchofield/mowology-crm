@@ -14,6 +14,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/HttpFetch.php';
+
 class SupplierDirectoryService
 {
     public const STATUSES = ['asked', 'applied', 'open', 'declined', 'none'];
@@ -272,7 +274,7 @@ class SupplierDirectoryService
         $key = defined('GOOGLE_GEOCODING_KEY') ? (string)GOOGLE_GEOCODING_KEY : (defined('GOOGLE_MAPS_API_KEY') ? (string)GOOGLE_MAPS_API_KEY : '');
         if ($key !== '') {
             $url = 'https://maps.googleapis.com/maps/api/geocode/json?address=' . rawurlencode($address) . '&region=ca&key=' . rawurlencode($key);
-            $j = json_decode((string)@file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 8, 'ignore_errors' => true]])), true);
+            $j = json_decode((string)HttpFetch::get($url, 8), true);
             $loc = $j['results'][0]['geometry']['location'] ?? null;
             if ($loc) return ['lat' => (float)$loc['lat'], 'lng' => (float)$loc['lng'], 'by' => 'google',
                               'exact' => in_array($j['results'][0]['geometry']['location_type'] ?? '', ['ROOFTOP', 'RANGE_INTERPOLATED'], true)];
@@ -287,9 +289,7 @@ class SupplierDirectoryService
         if ($wait > 0) usleep((int)($wait * 1e6));
         $last = microtime(true);
         $url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ca&q=' . rawurlencode($address);
-        $ctx = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true,
-                                                 'header' => "User-Agent: Mowology-CRM/1.0 (supplier directory; office@mowology.ca)\r\n"]]);
-        $j = json_decode((string)@file_get_contents($url, false, $ctx), true);
+        $j = json_decode((string)HttpFetch::get($url, 10, ['User-Agent: Mowology-CRM/1.0 (supplier directory; office@mowology.ca)']), true);
         // place_rank 28–30 = a building or house number; lower = a street or area (km off).
         if (!empty($j[0]['lat'])) return ['lat' => (float)$j[0]['lat'], 'lng' => (float)$j[0]['lon'], 'by' => 'osm',
                                           'exact' => (int)($j[0]['place_rank'] ?? 0) >= 28];

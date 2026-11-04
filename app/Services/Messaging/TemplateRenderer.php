@@ -62,6 +62,8 @@ function renderTemplate(string $templateHtml, array $data): string
  * @param string $unsubscribeUrl Full unsubscribe URL (or empty to omit)
  * @return string                Complete branded HTML email
  */
+require_once __DIR__ . '/IdentityMail.php';
+
 /**
  * Company identity for email footers — sourced from the business
  * settings the tenant manages on the CRM settings page
@@ -71,24 +73,22 @@ function renderTemplate(string $templateHtml, array $data): string
  *
  * Resilient by design: this runs in cron and web contexts; if the
  * settings row or DB is unavailable the email must still send, so we
- * fall back to known-good Mowology values (incl. a valid CASL mailing
+ * fall back to the business's own identity values (incl. a valid CASL mailing
  * address) rather than fatal or omit the legally-required address.
  *
  * @return array{name:string,address:string,phone:string,email:string}
  */
 function emailCompanyDetails(): array
 {
-    static $cached = null;
-    if ($cached !== null) {
-        return $cached;
-    }
-
+    // No cache of its own: BusinessIdentity caches per business; a static here kept the FIRST business's
+    // footer for every later one in a worker (Codex 2026-10-23).
     // Known-good fallbacks (used if business_settings is empty/unreadable).
+    $idn = BusinessIdentity::get();
     $d = [
-        'name'    => 'Mowology Landscaping',
-        'address' => '2845 West 15th Ave, Vancouver, BC V6K 3A1',
-        'phone'   => '(778) 846-9273',
-        'email'   => 'info@mowology.ca',
+        'name'    => $idn['display_name'],
+        'address' => $idn['address'],
+        'phone'   => $idn['phone'],
+        'email'   => $idn['email'],
     ];
 
     try {
@@ -108,8 +108,7 @@ function emailCompanyDetails(): array
         error_log('emailCompanyDetails: settings read failed, using fallbacks — ' . $e->getMessage());
     }
 
-    $cached = $d;
-    return $cached;
+    return $d;
 }
 
 /**
@@ -147,8 +146,8 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = '', bool 
 <!-- Header -->
 <tr>
   <td style="background:#1A5F4A;padding:24px 32px;text-align:center;">
-    <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Mowology</h1>
-    <p style="margin:4px 0 0;color:#7FD858;font-size:13px;letter-spacing:0.5px;">LANDSCAPING</p>
+    <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">' . htmlspecialchars(_idFromName()) . '</h1>
+    ' . (BusinessIdentity::get()['trade'] !== '' ? '<p style="margin:4px 0 0;color:#7FD858;font-size:13px;letter-spacing:0.5px;">' . htmlspecialchars(strtoupper(BusinessIdentity::get()['trade'])) . '</p>' : '') . '
   </td>
 </tr>
 
@@ -208,7 +207,7 @@ function buildMergeData(
         'company_name'     => htmlspecialchars(emailCompanyDetails()['name'], ENT_QUOTES, 'UTF-8'),
         'company_phone'    => htmlspecialchars(emailCompanyDetails()['phone'], ENT_QUOTES, 'UTF-8'),
         'unsubscribe_url'  => htmlspecialchars($unsubscribeUrl, ENT_QUOTES, 'UTF-8'),
-        'cta_url'          => 'https://mowology.ca/quote',
+        'cta_url'          => (_idSiteUrl() !== '' ? _idSiteUrl() . '/quote' : ''),
         'review_url'       => 'https://g.page/r/mowology/review',
     ];
 
@@ -299,7 +298,7 @@ function suppressIfHardBounce(PDO $db, string $email, string $error): bool
 
 function listUnsubscribeHeaders(string $unsubUrl): array
 {
-    $co = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['email' => 'office@mowology.ca'];
+    $co = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['email' => _idReplyTo()];
     $mailto = 'mailto:' . $co['email'] . '?subject=unsubscribe';
     return [
         'List-Unsubscribe'      => '<' . $mailto . '>, <' . $unsubUrl . '>',

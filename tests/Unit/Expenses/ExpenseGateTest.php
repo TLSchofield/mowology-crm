@@ -61,6 +61,25 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(0, $this->hooks->count('learnConfirmed'), 'not confirmed yet');
     }
 
+    public function test_an_office_phone_save_teaches_once_on_create(): void
+    {
+        $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_id' => 7, 'vendor_name_raw' => 'LAWNBOY', 'amount' => 40, 'gst_amount' => 2, 'raw_ocr_json' => 'LAWNBOY 40.00',
+        ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'pending_approval', 'created_by' => 6]),
+            self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_now' => true]);
+        $this->assertSame(1, $this->hooks->count('learnConfirmed'), 'the manager\'s own save is the confirmation');
+        $this->assertTrue($this->hooks->calls['learnConfirmed'][0][3], 'a pending_approval row is allowed to teach (args: id, baseline, filedCopy, allowPending)');
+    }
+
+    public function test_a_draft_phone_save_never_teaches_even_with_learn_now(): void
+    {
+        $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_id' => 7, 'vendor_name_raw' => 'LAWNBOY', 'amount' => 40, 'gst_amount' => 2, 'raw_ocr_json' => 'LAWNBOY 40.00',
+        ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'draft', 'created_by' => 6]),
+            self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_now' => true]);
+        $this->assertSame(0, $this->hooks->count('learnConfirmed'), 'an unfinished draft is not a confirmation');
+    }
+
     public function test_a_create_cannot_be_born_approved(): void
     {
         $res = $this->gate->apply(null, ['expense_date' => '2026-10-08', 'total' => 5, 'status' => 'approved'], self::TIM, 'desktop_create');
@@ -109,6 +128,41 @@ class ExpenseGateTest extends TestCase
         $this->assertSame('approved', $this->row(412)['status']);
         $this->assertSame(1, $this->hooks->count('learnConfirmed'), 'approval teaches the header lessons, once');
         $this->assertSame(['total' => 218.40], $this->hooks->calls['learnConfirmed'][0][1], 'the inbox baseline is passed through');
+    }
+
+    public function test_impossible_gst_is_refused_on_an_edit_kept_flagged_on_a_capture_and_never_approved(): void
+    {
+        $status = (string)$this->row(412)['status'];
+        try {
+            $this->gate->apply(412, ['gst_amount' => 999.00], self::TIM, 'desktop_modal');
+            $this->fail('a person can\'t save GST bigger than the receipt');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString("can't be right", $e->getMessage());
+        }
+        $this->assertNotSame(999.0, (float)$this->row(412)['gst_amount']);
+
+        $new = $this->gate->apply(null, ['expense_date' => '2026-05-01', 'vendor_name_raw' => 'CHEVRON', 'amount' => 0, 'gst_amount' => 5.00, 'total' => 2.61,
+                                         'status' => 'pending_approval', 'created_by' => 6], self::TIM, 'ios_save');
+        $id = (int)$new['expense_id'];
+        $this->assertGreaterThan(0, $id, 'a phone capture is never lost');
+        $this->assertStringContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags']);
+        try {
+            $this->gate->apply($id, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+            $this->fail('it can\'t be approved like that');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('Check the GST', $e->getMessage());
+        }
+        $this->gate->apply($id, ['gst_amount' => 0.12, 'amount' => 2.49], self::TIM, 'desktop_modal');
+        $this->assertStringNotContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags'], 'fixed: the flag goes');
+        $this->assertSame($status, (string)$this->row(412)['status']);
+    }
+
+    public function test_approving_links_the_bank_line_once(): void
+    {
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'reconciliation is tried when it is approved');
+        $this->gate->apply(412, ['notes' => 'checked'], self::TIM, 'desktop_modal');
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'not again on a later edit');
     }
 
     public function test_a_receipt_sent_to_accounting_keeps_its_money(): void
