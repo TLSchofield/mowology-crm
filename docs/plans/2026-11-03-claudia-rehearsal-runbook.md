@@ -32,6 +32,42 @@ is touched. Each part below says who does it and how it is proven before the day
 - ✓ 2026-11-03 QuickBooks start URL built under the rehearsal tenant (prod-run preview, `Tenant::forTests`): keys present (`missing` empty), authorize host appcenter.intuit.com/connect/oauth2, redirect_uri `https://rehearsal.ittai.ca/crm/accounting/quickbooks-callback.php`, scope accounting. Intuit will accept it once Tim adds that URI to the app.
 - The phone walk itself is the final proof; Tim does it once before Claudia's day. If anything is off, the fix is server-side or app-side and the business is re-provisionable under a new key (keys are 3–20 lowercase letters/digits; each new host needs its own Intuit redirect line).
 
+## The walk — 2026-11-03 19:00–19:23, Tim's phone, production
+
+Reached the day screen end to end. Server-confirmed: claim 19:03:03 (owner Tim Schofield, code cleared);
+QuickBooks sandbox connection 19:15:34 (access + refresh stored, no error).
+
+**Fixed and deployed during the walk (Tim's go each time):**
+- Sign-up code request 500 on the second request: `SignUpService::setting()` inserted when MySQL's changed-row
+  count was 0 (re-writing `signup_code_tries = '0'`) → duplicate key. Insert only when the row is missing; same
+  pattern in `QboConnectionService` (`qbo_oauth_phone`). Test mimics MySQL on SQLite. Log: `/home/mowology/logs/*_ittai_ca.php.error.log`
+  (business hosts log there, NOT in mowology_ca.php.error.log).
+- Company lookup always said "registry can't be reached": provider returns `matches`/`none`, app wants `ok`.
+  `OnboardingStepService::registryState()` maps it server-side.
+
+**Blockers before Claudia (Tim decides):**
+1. **QuickBooks import is off on production** (`QboOnboardingService::apply()` refuses unless LOCAL_TEST_SITE:
+   "Ittai has one business"). Accept refuses; the step stays TODO until all five parts are accepted, so **Continue
+   loops on the same screen** (only "Skip for now" moves on). Needs: allow on non-default businesses, a way
+   forward with some parts accepted, and the read's counts shown per row (the app drops the pull message; rows
+   fill only after Accept). Money-adjacent → plan + Codex review + rehearsal test.
+2. **TEST TENANT banner** on every native screen — flavour-gated (`IS_TEST_TENANT`); needs a non-test Ittai flavour.
+3. **Intuit redirect URI** for Claudia's host must be added before her day (rehearsal's added 2026-11-03).
+
+**First-impression findings (app, Android session):** no visible splash or welcome (MainActivity finishes before
+the system splash shows); "Back" on the first screen; no step progress ("Step 2 of 5") on onboarding; "All steps"
+reads as a menu; registry name kept in ALL CAPS; heading stays a question after confirming (company, QuickBooks);
+match rows don't look tappable; Accept buttons shown before anything is read, no "Accept all"; QuickBooks
+callback page unstyled and no "Back to Ittai" button; accountant invite shows the raw reset-password URL with a
+live token (hide it behind Share); "That's everything." finish screen is bare (no summary); day screen says
+**"Charlie"** (Kaname rename not on Android) and "this morning" at 19:23. "Start the day" opens the crew
+schedule (native, empty, "Everything sent") — but it is the **crew view for an owner**: "You're not clocked in",
+"Snap a receipt — the office reviews it" (she is the office), "Mine / All crews" for a one-person business, and
+no first-run nudge (add a client, add a job) on an empty day.
+
+**Server loose ends:** the 'Sign-up (mobile)' activity_log row did not appear (non-fatal catch); check the
+business log for "[signup] Activity log failed".
+
 ## Known rough edges to decide before Claudia
 
 - **Intuit redirect URI per business** — every business host must be added to the Intuit app by hand. Fine for the first few; a single fixed callback host that forwards by state is the product fix.

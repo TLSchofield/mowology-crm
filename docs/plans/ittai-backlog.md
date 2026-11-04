@@ -158,4 +158,8 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    no welcome composable exists; (b) the brown "TEST TENANT: <host>" banner is gated by the flavour (`BuildConfig.IS_TEST_TENANT`,
    `app/build.gradle:70-76`), so a build for Claudia would show "TEST TENANT: claudia.ittai.ca" — dropping it needs a non-test
    Ittai flavour (and the default-on native switches keyed off a separate `IS_ITTAI` field, not `isTestTenant`). Also: "Back"
-   on the first screen.
+   on the first screen. **Walk completed to the day screen 19:23** (two server fixes deployed mid-walk: sign-up
+   duplicate-key 500, registry false warning). Blockers + full findings list in
+   `docs/plans/2026-11-03-claudia-rehearsal-runbook.md` → "The walk": QuickBooks import off on production (Accept
+   refuses, Continue loops), TEST TENANT banner, Claudia's Intuit URI; plus ~12 first-impression app fixes
+   (incl. "Charlie" → Kaname on Android).
