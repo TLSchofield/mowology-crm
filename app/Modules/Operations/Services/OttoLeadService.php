@@ -62,6 +62,13 @@ class OttoLeadService
         return $lastTried === null || (strtotime($now) - strtotime($lastTried)) >= self::RETRY_HOURS * 3600;
     }
 
+    private function readState(): array
+    {
+        $raw = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '" . self::STATE_KEY . "'")->fetchColumn();
+        $a = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        return is_array($a) ? $a : [];
+    }
+
     /**
      * The catch-up that makes "immediately" true however a lead arrived (website form, the Kitsilano site, email):
      * every 15 minutes (sales_inbox_poll) the open leads that have a property but no arrival border get one.
@@ -73,20 +80,31 @@ class OttoLeadService
         $r = ['tried' => 0, 'bordered' => 0, 'pinned' => 0, 'note' => ''];
         $placer = new OttoAutoPlaceService($this->db, null, null, substr($now, 0, 10));
         if (!$placer->enabled()) return $r + ['note' => 'switched off'];
-        $raw = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '" . self::STATE_KEY . "'")->fetchColumn();
-        $state = is_string($raw) && $raw !== '' ? (json_decode($raw, true) ?: []) : [];
+        $state = $this->readState();
+        $done = []; $cleared = [];
         $has = [];
         foreach ($this->db->query("SELECT DISTINCT property_id FROM job_geofences WHERE zone_type = 'arrival_border'") as $b) $has[(int)$b['property_id']] = true;
         foreach ($placer->leadCandidates() as $pid => $p) {
             if ($r['tried'] >= self::PER_RUN) break;
             if (!self::due(isset($has[$pid]), $state[$pid] ?? null, $now)) continue;
             $r['tried']++;
-            $res = $placer->placeNewLead((int)$pid);
-            $state[$pid] = $now;
+            $state[$pid] = $now;          // the attempt is recorded BEFORE the work: a lookup that throws still waits its three hours,
+            $done[$pid] = true;           // so one bad property can never starve the leads behind it (Codex 2026-11-03)
+            try {
+                $res = $placer->placeNewLead((int)$pid);
+            } catch (Throwable $e) {
+                error_log('Otto lead placement #' . $pid . ': ' . $e->getMessage());
+                continue;
+            }
             if (!empty($res['pinned'])) $r['pinned']++;
-            if (!empty($res['ok'])) { $r['bordered']++; unset($state[$pid]); }
+            if (!empty($res['ok'])) { $r['bordered']++; $cleared[$pid] = true; }
         }
-        $keep = array_filter($state, static fn($t) => (strtotime($now) - strtotime((string)$t)) < 14 * 86400);
+        // Merge, don't overwrite: re-read the state just before writing and apply only this run's own changes, so two
+        // overlapping polls cannot erase each other's timestamps (Codex 2026-11-03).
+        $fresh = $this->readState();
+        foreach ($done as $pid => $_) $fresh[$pid] = $now;
+        foreach ($cleared as $pid => $_) unset($fresh[$pid]);
+        $keep = array_filter($fresh, static fn($t) => (strtotime($now) - strtotime((string)$t)) < 14 * 86400);
         $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)
                             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
             ->execute([self::STATE_KEY, (string)json_encode($keep), 'Otto: open leads he tried to place (pin + arrival border) and when; retried after ' . self::RETRY_HOURS . ' h']);

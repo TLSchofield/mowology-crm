@@ -617,6 +617,9 @@ class YuiRules
     public static function rank(array $item): int
     {
         $s = (string)($item['section'] ?? '');
+        if ($s === 'inbox' && !empty($item['hold'])) return -1;      // asked for something only a phone call can confirm: before everything
+        if ($s === 'inbox' && !empty($item['upset'])) return 0;      // an unhappy client: with the yeses and the promises
+        if ($s === 'inbox' && (int)($item['priority'] ?? 2) === 1 && empty($item['yes'])) return 1;   // waited three weekdays or more
         if ($s === 'inbox' && !empty($item['yes'])) return self::BRIEF_RANK['yes'];
         if ($s === 'promises') return self::BRIEF_RANK['promise'];
         return self::BRIEF_RANK[$s] ?? 9;
@@ -643,6 +646,12 @@ class YuiRules
     public static function headline(array $sections): string
     {
         $inbox = (array)($sections['inbox'] ?? []);
+        $holds = count(array_filter($inbox, fn($i) => !empty($i['hold'])));
+        if ($holds > 0) {
+            return $holds . ' message' . ($holds === 1 ? ' asks' : 's ask') . ' for something only a phone call can confirm — held, no draft';
+        }
+        $upset = count(array_filter($inbox, fn($i) => !empty($i['upset'])));
+        if ($upset > 0) return $upset . ' unhappy client' . ($upset === 1 ? '' : 's') . ' — a call, not a note';
         $yes = count(array_filter($inbox, fn($i) => !empty($i['yes'])));
         $promises = count((array)($sections['promises'] ?? []));
         $arrears = (array)($sections['arrears'] ?? []);

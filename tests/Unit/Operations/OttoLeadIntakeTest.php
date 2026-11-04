@@ -104,6 +104,14 @@ class OttoLeadIntakeTest extends TestCase
         $this->assertStringContainsString('adds under 1 min', $r['best']['text']);
     }
 
+    public function test_no_crew_count_means_no_suggestion_not_an_unlimited_day(): void
+    {
+        $days = [$this->day('2026-11-04', [[49.2596, -123.1735]])];
+        $r = LeadRouteDay::rank(self::LAT, self::LNG, $days, [], [], self::DEPOT, 0, self::TODAY);
+        $this->assertNull($r['best']);
+        $this->assertStringContainsString('no crew count set', $r['none']);
+    }
+
     public function test_a_service_visit_needs_its_own_length(): void
     {
         $loads = ['2026-11-04' => ['minutes' => 2000, 'visits' => 10, 'untimed' => 0, 'biggest' => ['plan_id' => 1, 'title' => '', 'minutes' => 100, 'crew' => 1]]];

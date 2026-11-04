@@ -34,6 +34,7 @@ final class LeadRouteDay
         $out = ['best' => null, 'alternatives' => [], 'blocked' => [], 'none' => null];
         if ($lat == 0.0 || $lng == 0.0) { $out['none'] = 'no map pin yet'; return $out; }
         $cap = WeekLoadRules::capacityMinutes($crew);
+        if ($cap <= 0) { $out['none'] = 'no crew count set (ops_settings otto_crew_count) — no day can be judged'; return $out; }
         // A plan whose length is a full day or more for one person is a wrong length (plan #99 was 8,009 min): set it aside
         // and say so, rather than letting it make every day look unknowable or booked solid.
         $ignored = [];
@@ -60,11 +61,11 @@ final class LeadRouteDay
             $load = (int)($loads[$date]['minutes'] ?? 0);
             $st = $stateOf[$date] ?? null;
             $suspect = $st && $st['state'] === 'suspect';
-            if ($cap > 0 && !$suspect && ($load + $needMin) > $cap) { $out['blocked'][$date] = 'booked solid'; continue; }
+            if (!$suspect && ($load + $needMin) > $cap) { $out['blocked'][$date] = 'booked solid'; continue; }
             $added = DriveMinutesAdded::added($lat, $lng, $byDate[$date] ?? [], $depot);
             if ($added === null) { $out['blocked'][$date] = 'no route that day and no yard set'; continue; }
             $notes = [];
-            if ($cap > 0 && !$suspect && ($load + $needMin) / $cap >= WeekLoadRules::FULL) $notes[] = 'a full day, no room for rain';
+            if (!$suspect && ($load + $needMin) / $cap >= WeekLoadRules::FULL) $notes[] = 'a full day, no room for rain';
             if ($suspect) $notes[] = 'its load is unknown (a plan length looks wrong)';
             if (isset($ignored[$date])) $notes[] = "plan #{$ignored[$date]}'s length looks wrong and is left out";
             if (!empty($loads[$date]['untimed'])) $notes[] = (int)$loads[$date]['untimed'] . ' visit(s) with no length';

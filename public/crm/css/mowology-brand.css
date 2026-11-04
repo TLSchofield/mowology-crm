@@ -39000,6 +39000,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-yui-sec-head small { color: var(--mw-ink-500); }
 .mw-yui-n { display: inline-block; min-width: 20px; text-align: center; font-size: .68rem; font-weight: 800; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 6px; }
 .mw-yui-row { border-top: 1px dashed var(--mw-ink-200); padding: 8px 0; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-yui-hold, .mw-yui-upset { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 3px; margin-right: 4px; color: var(--mw-orange); border: 1px solid currentColor; }
+.mw-yui-late { color: var(--mw-orange); font-weight: 600; }
+.mw-yui-row.is-hold { background: var(--mw-light); border-left: 3px solid var(--mw-orange); padding-left: 10px; }
 .mw-yui-row.is-open { background: var(--mw-ink-50); margin: 0 -12px; padding: 8px 12px; }
 .mw-yui-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .mw-yui-main { min-width: 0; }

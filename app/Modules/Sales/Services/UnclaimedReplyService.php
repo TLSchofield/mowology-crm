@@ -652,8 +652,15 @@ class UnclaimedReplyService
     {
         $line = '';
         foreach (preg_split('/\R/u', $snippet) as $l) {
-            if (trim($l) !== '') { $line = self::scrub($l); break; }
+            $t = trim($l);
+            if ($t === '') continue;
+            // The quote is what they SAID: skip a bare greeting ("Hi Tim,"), and stop at quoted history (Yui harvest, 2026-11-03).
+            if (preg_match('/^(?:hi|hello|hey|dear|good (?:morning|afternoon|evening))\b[^.!?\n]{0,30}[,:!]?\s*$/iu', $t)) { $line = $line === '' ? '' : $line; $greeting = $t; continue; }
+            if (preg_match('/^(?:>|On .{5,80} wrote:|-{2,}\s*(?:Original|Forwarded)|From:\s)/iu', $t)) break;
+            $line = self::scrub($l);
+            break;
         }
+        if ($line === '' && isset($greeting)) $line = self::scrub($greeting);   // greeting was all there was: better than nothing
         return mb_strlen($line) > self::QUOTE_CHARS ? rtrim(mb_substr($line, 0, self::QUOTE_CHARS - 1)) . '…' : $line;
     }
 
