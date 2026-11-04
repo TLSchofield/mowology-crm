@@ -19,6 +19,8 @@ final class PublicPagesSecurityTest extends TestCase
     {
         self::assertTrue(PublicFormSecurity::isValidSignatureData('data:image/png;base64,abc'));
         self::assertFalse(PublicFormSecurity::isValidSignatureData('data:text/plain;base64,abc'));
+        self::assertFalse(PublicFormSecurity::isValidSignatureData('data:image/svg+xml;base64,abc'));
+        self::assertFalse(PublicFormSecurity::isValidSignatureData('data:image/png;base64,abc<script>'));
         self::assertFalse(PublicFormSecurity::isValidSignatureData(
             'data:image/png;base64,' . str_repeat('a', PublicFormSecurity::MAX_SIGNATURE_LENGTH)
         ));
@@ -31,9 +33,8 @@ final class PublicPagesSecurityTest extends TestCase
         self::assertTrue(PublicFormSecurity::isAllowedRecaptchaHostname('localhost', 'https://mowology.ca', 'localhost:8080'));
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('localhost', 'https://mowology.ca', 'mowology.ca'));
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', 'https://mowology.ca', 'mowology.ca'));
-        // another tenant's own domain: the token reports the host the visitor was on, which is the host of this request
-        self::assertTrue(PublicFormSecurity::isAllowedRecaptchaHostname('claudia.ittai.ca', 'https://mowology.ca', 'claudia.ittai.ca'));
-        self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', 'https://mowology.ca', 'claudia.ittai.ca'));
+        // a hostname that only matches the Host header of the request is NOT enough (an attacker can point a domain here)
+        self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', 'https://mowology.ca', 'attacker.example'));
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('', 'https://mowology.ca', ''));
     }
 

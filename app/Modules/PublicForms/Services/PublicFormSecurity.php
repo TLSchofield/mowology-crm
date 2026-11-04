@@ -9,7 +9,7 @@ final class PublicFormSecurity
     public static function isValidSignatureData(string $signatureData): bool
     {
         return strlen($signatureData) <= self::MAX_SIGNATURE_LENGTH
-            && strpos($signatureData, 'data:image/') === 0;
+            && preg_match('#^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$#', $signatureData) === 1;
     }
 
     public static function isAllowedRecaptchaHostname(string $hostname, string $siteUrl, string $requestHost): bool
@@ -24,13 +24,6 @@ final class PublicFormSecurity
 
         $siteHostWithoutWww = strpos($siteHost, 'www.') === 0 ? substr($siteHost, 4) : $siteHost;
         if ($hostname === $siteHostWithoutWww || $hostname === 'www.' . $siteHostWithoutWww) {
-            return true;
-        }
-
-        // A token minted on another site reports that site's hostname, never ours: matching the host this request
-        // arrived on is safe and keeps other tenants' own domains working.
-        $requestNoWww = strpos($requestHost, 'www.') === 0 ? substr($requestHost, 4) : $requestHost;
-        if ($requestNoWww !== '' && ($hostname === $requestNoWww || $hostname === 'www.' . $requestNoWww)) {
             return true;
         }
 

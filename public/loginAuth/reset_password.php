@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/auth.php';
 
+// The reset token is in the URL: keep the page out of browser and proxy caches.
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
+
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
     header('Location: dashboard.php');
