@@ -57,6 +57,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
 
     // Total
     $result['total'] = extractTotal($ocrText, $lines);
+    if ($result['total'] === null) {
+        $result['total'] = extractPaymentLineAmount($lines);
+    }
 
     // GST (5% — BC standard; also catches generic "TAX" labels)
     $result['gst'] = extractGST($ocrText);
@@ -1419,13 +1422,56 @@ function extractTotal(string $text, array $lines): ?string
             if (preg_match('/^(?:CAD|CDN|C)?\s*\$?\s*(\d{1,6}[.,]\d{2})\s*$/i', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
             }
-            // Handle three-line: "TOTAL\n$\n202.46"
-            if ($nextLine === '$' && $i + 2 < $lineCount) {
+            // Handle three-line: "TOTAL\nCAD $\n202.46" (including common OCR variants).
+            if (preg_match('/^(?:\$|CAD|CAD\s*\$|CAD\s+P|CDN\s*\$)$/i', $nextLine) && $i + 2 < $lineCount) {
                 $amountLine = trim($lines[$i + 2]);
                 if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amountLine, $m)) {
                     return str_replace(',', '.', $m[1]);
                 }
             }
+        }
+    }
+
+    // Some column-oriented receipts print the total amount immediately above its label.
+    // Accept it only when the payment line below independently confirms the same amount.
+    for ($i = 0; $i < $lineCount; $i++) {
+        if (!preg_match('/^TOTAL(?:\s+CAD)?(?:\s*\$)?\s*$/i', trim($lines[$i]))) {
+            continue;
+        }
+        $paymentAmount = extractPaymentLineAmount(array_slice($lines, $i + 1));
+        if ($paymentAmount !== null) {
+            for ($j = $i - 1; $j >= 0; $j--) {
+                $previousLine = trim($lines[$j]);
+                if ($previousLine === '') {
+                    continue;
+                }
+                if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $previousLine, $m)) {
+                    $candidate = str_replace(',', '.', $m[1]);
+                    if ((float)$candidate === (float)$paymentAmount) {
+                        return $candidate;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Extract a confirmed purchase amount from a payment line. Pure.
+ * Deliberately excludes cash, tendered, change, and balance lines.
+ */
+function extractPaymentLineAmount(array $lines): ?string
+{
+    foreach ($lines as $line) {
+        if (preg_match(
+            '/^(?:(?:DEBIT|CREDIT|VISA|MASTERCARD|INTERAC)\s+PURCHASE|AMOUNT\s+PAID)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})\s*$/i',
+            trim($line),
+            $m
+        )) {
+            return str_replace(',', '.', $m[1]);
         }
     }
 
@@ -1496,6 +1542,14 @@ function extractPST(string $text): ?string
  */
 function extractLabeledTax(string $text, string $labelPattern, bool $withIncludedVariant): ?string
 {
+    // Resolve a run of stacked labels as a group before the single-label split-line
+    // fallback can pair the second label with the first label's amount.
+    $stacked = extractStackedTaxAmounts(preg_split('/\r?\n/', $text));
+    $stackedKey = strpos($labelPattern, 'GST') !== false ? 'gst' : 'pst';
+    if ($stacked[$stackedKey] !== null) {
+        return $stacked[$stackedKey];
+    }
+
     $patterns = [
         // Same-line, tolerant of filler between the label and the $ amount.
         '/' . $labelPattern . '[^\n$]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
@@ -1552,6 +1606,50 @@ function extractLabeledTax(string $text, string $labelPattern, bool $withInclude
     }
 
     return $found ? number_format($totalTax, 2, '.', '') : null;
+}
+
+/**
+ * Pair two or more consecutive bare tax labels with the bare amounts that follow.
+ * Returns no pairing unless there are at least as many consecutive amounts as labels. Pure.
+ */
+function extractStackedTaxAmounts(array $lines): array
+{
+    $result = ['gst' => null, 'pst' => null];
+    $lineCount = count($lines);
+    $labelRegex = '/^(GST(?:\s*\/\s*HST)?|PST|RST)(?:\s+[\d.]+\s*%)?\s*:?\s*$/i';
+    $amountRegex = '/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/';
+
+    for ($i = 0; $i < $lineCount; $i++) {
+        $labels = [];
+        $j = $i;
+        while ($j < $lineCount && preg_match($labelRegex, trim($lines[$j]), $labelMatch)) {
+            $labels[] = stripos($labelMatch[1], 'GST') === 0 ? 'gst' : 'pst';
+            $j++;
+        }
+        if (count($labels) < 2) {
+            continue;
+        }
+
+        $amounts = [];
+        $k = $j;
+        while ($k < $lineCount && preg_match($amountRegex, trim($lines[$k]), $amountMatch)) {
+            $amounts[] = str_replace(',', '.', $amountMatch[1]);
+            $k++;
+        }
+        if (count($amounts) < count($labels)) {
+            $i = $j - 1;
+            continue;
+        }
+
+        foreach ($labels as $idx => $type) {
+            if ($result[$type] === null) {
+                $result[$type] = $amounts[$idx];
+            }
+        }
+        return $result;
+    }
+
+    return $result;
 }
 
 /**
@@ -1948,6 +2046,19 @@ function extractColumnSeparatedAmounts(array $lines): array
     if (!validateColumnAmounts($result)) {
         // Positional matching failed — try semantic (value-based) matching
         $result = semanticMatchAmounts($amounts, $labelOrder);
+    }
+
+    // A column guess must never promote an item amount to GST. Collection begins
+    // after all labels, and an implausible GST is rejected when a total is known.
+    $knownTotal = $result['total'];
+    if ($knownTotal === null) {
+        $knownTotal = extractTotal(implode("\n", $lines), $lines);
+    }
+    if ($knownTotal === null) {
+        $knownTotal = extractPaymentLineAmount($lines);
+    }
+    if ($result['gst'] !== null && $knownTotal !== null && (float)$result['gst'] > (float)$knownTotal * 0.12) {
+        $result['gst'] = null;
     }
 
     return $result;

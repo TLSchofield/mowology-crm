@@ -70,6 +70,8 @@ function truthOf(array $row, string $field): ?string
     $v = $row[$map[$field]] ?? null;
     if ($v === null || $v === '') return null;
     if ($field === 'date') return substr((string)$v, 0, 10);
+    // A 0.00 pre-tax amount on a receipt with a total means nobody filled it in, not that it was zero.
+    if ($field === 'subtotal' && (float)$v == 0.0 && (float)($row['total'] ?? 0) > 0) return null;
     return number_format((float)$v, 2, '.', '');
 }
 
