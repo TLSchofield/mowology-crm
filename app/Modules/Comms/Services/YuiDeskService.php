@@ -182,8 +182,14 @@ class YuiDeskService
             $it['to'] = $p ? YuiRules::pickContact([$p + ['billing' => true, 'why' => '']]) : null;
         }
         unset($it);
-        // Messages that ask for something only a phone call can confirm come first, with no draft (UntrustedAsk).
-        $items = array_merge($this->holds(), $items);
+        // Messages that ask for something only a phone call can confirm come first, with no draft (UntrustedAsk). The same
+        // message never stays in the ordinary list as a draftable copy — even after the hold itself is marked Handled.
+        $held = $this->scanHolds();
+        $heldKeys = [];
+        foreach ($held as $h) $heldKeys[$h['message_key']] = true;
+        $items = array_values(array_filter($items, static fn($i) => !isset($heldKeys[(string)($i['message_key'] ?? '')])));
+        $hidden = array_flip($this->hiddenKeys());
+        $items = array_merge(array_values(array_filter($held, static fn($h) => !isset($hidden[$h['key']]))), $items);
         usort($items, static fn($a, $b) => YuiRules::rank($a) <=> YuiRules::rank($b));
         return $items;
     }
@@ -203,14 +209,14 @@ class YuiDeskService
         $in = implode(',', array_fill(0, count($ids), '?'));
         $staffE = []; $staffP = [];
         try {
-            foreach ($this->db->query("SELECT email, phone FROM users WHERE is_active = 1") as $u) {
+            foreach ($this->db->query("SELECT email, phone, first_name FROM users WHERE is_active = 1") as $u) {
                 $e = strtolower(trim((string)$u['email'])); if ($e !== '') $staffE[$e] = true;
-                $k = ReplyClock::phoneKey($u['phone'] ?? ''); if ($k !== '') $staffP[$k] = true;
+                $k = ReplyClock::phoneKey($u['phone'] ?? ''); if ($k !== '') $staffP[$k][] = strtolower(trim((string)$u['first_name']));
             }
         } catch (Throwable $e) { /* no users table: nobody is staff */ }
         $contacts = [];
         try {
-            $st = $this->db->prepare("SELECT id, email, phone, mobile FROM contacts WHERE id IN ({$in})");
+            $st = $this->db->prepare("SELECT id, first_name, email, phone, mobile FROM contacts WHERE id IN ({$in})");
             $st->execute($ids);
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) $contacts[(int)$c['id']] = $c;
         } catch (Throwable $e) { /* contacts unreadable */ }
@@ -249,7 +255,9 @@ class YuiDeskService
             }
             $gap = $first !== null ? ReplyClock::weekdays($first, (string)$it['at']) : 0;
             $up = UpsetSignal::assess(trim((string)($m['subject'] ?? $it['subject'] ?? '') . ' ' . $snippet), $since, $gap);
-            $clock = ReplyClock::stage((string)$it['at'], $this->now());
+            // The clock runs from the OLDEST message of theirs we have not answered, not from their newest (a client who wrote
+            // eight weekdays ago and again today has waited eight weekdays).
+            $clock = ReplyClock::stage($first !== null && $first < (string)$it['at'] ? $first : (string)$it['at'], $this->now());
             if ($up['upset']) { $it['upset'] = true; $it['upset_why'] = $up['why']; $it['priority'] = 1; $it['text'] = 'Unhappy (' . $up['why'] . '): ' . $it['text']; }
             if ($clock['priority'] < (int)$it['priority']) $it['priority'] = $clock['priority'];
             if ($clock['stage'] !== 'fresh') $it['text'] = rtrim($it['text'], '.') . $clock['suffix'] . '.';
@@ -266,10 +274,16 @@ class YuiDeskService
      */
     public function holds(): array
     {
+        $hidden = array_flip($this->hiddenKeys());
+        return array_values(array_filter($this->scanHolds(), static fn($h) => !isset($hidden[$h['key']])));
+    }
+
+    /** Every hold in the window, handled or not (the caller filters): the message must leave the ordinary list either way. */
+    private function scanHolds(): array
+    {
         $out = [];
         if (!$this->hasTable('sales_messages')) return $out;
         try {
-            $hidden = array_flip($this->hiddenKeys());
             $st = $this->db->prepare("SELECT m.message_key, m.contact_id, m.channel, m.from_addr, m.from_name, m.subject, m.snippet, m.sent_at, c.first_name, c.email
                                         FROM sales_messages m LEFT JOIN contacts c ON c.id = m.contact_id
                                        WHERE m.direction = 'inbound' AND m.handled_at IS NULL AND m.sent_at >= ?
@@ -279,12 +293,13 @@ class YuiDeskService
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
                 if (UnclaimedReplyService::isAutomated((string)$m['from_addr'], (string)$m['subject'], (string)$m['snippet'])) continue;
                 $key = 'yui:hold:' . substr(sha1((string)$m['message_key']), 0, 12);
-                if (isset($hidden[$key])) continue;
                 $cid = (int)$m['contact_id'];
+                $ask = UntrustedAsk::detect((string)$m['subject'], (string)$m['snippet'], (string)$m['from_addr'], []);   // cheap pass first
+                if ($ask === null) continue;
+                // Only a hit pays for the "is this an address we hold for them?" lookup (one query per hit, not per message).
                 $addr = [(string)($m['email'] ?? '')];
                 if ($cid > 0) { $known->execute([$cid, $m['message_key']]); $addr = array_merge($addr, $known->fetchAll(PDO::FETCH_COLUMN)); }
-                $ask = UntrustedAsk::detect((string)$m['subject'], (string)$m['snippet'], (string)$m['from_addr'], array_filter($addr));
-                if ($ask === null) continue;
+                $ask['lookalike'] = UntrustedAsk::lookalike((string)$m['from_addr'], array_filter($addr));
                 $name = UnclaimedReplyService::firstName((string)($m['first_name'] ?? '')) ?: trim((string)$m['from_name']);
                 $out[] = [
                     'key' => $key, 'kind' => 'hold', 'value' => null, 'since' => substr((string)$m['sent_at'], 0, 10),

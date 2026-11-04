@@ -55,7 +55,7 @@ final class ReplyClock
         $t = trim(preg_replace('/[\p{So}\p{Sk}\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}\x{200D}\x{1F3FB}-\x{1F3FF}!.,;:~\-]+/u', ' ', $t));
         $t = trim(preg_replace('/\s+/u', ' ', $t));
         // A thumbs-up or a heart on its own is an acknowledgement too (live 2026-11-03: a "👍" waited 7 days in the inbox).
-        if ($t === '' && $had && !preg_match('/\p{L}|\p{N}/u', $text)) return !($ourLast !== null && strpos($ourLast, '?') !== false);
+        if ($t === '' && $had && !preg_match('/\p{L}|\p{N}/u', $text)) return !self::asked($ourLast);
         if ($t === '' || mb_strlen($t) > 30 || substr_count($t, ' ') > 3) return false;
         if (preg_match('/[?\d]/', $t)) return false;
         $ok = in_array($t, self::ACK, true);
@@ -64,7 +64,15 @@ final class ReplyClock
             $ok = $parts && !array_diff($parts, ['ok', 'okay', 'k', 'thanks', 'thank', 'you', 'thx', 'great', 'perfect', 'cool', 'sounds', 'good', 'all', 'right', 'alright', 'got', 'it', 'will', 'do', 'so', 'much', 'very', 'noted', 'awesome', 'nice']);
         }
         if (!$ok) return false;
-        return !($ourLast !== null && strpos($ourLast, '?') !== false);
+        return !self::asked($ourLast);
+    }
+
+    /** Was our last message a question or a request for an answer ("Please confirm approval." has no question mark)? */
+    public static function asked(?string $ourLast): bool
+    {
+        if ($ourLast === null) return false;
+        return strpos($ourLast, '?') !== false
+            || (bool)preg_match('/\b(?:please (?:confirm|let|reply|respond|advise|tell|call)|let (?:me|us) know|can you|could you|would you|do you|shall we|should we|are you|which |what time|get back to|reply with|confirm )/i', $ourLast);
     }
 
     /** The first 10 digits of a phone, or ''. */
@@ -74,14 +82,20 @@ final class ReplyClock
         return strlen($d) >= 10 ? substr($d, -10) : '';
     }
 
-    /** Is this contact one of our own people (an active user's email or phone)? Their texts are Otto's world, not a waiting client. */
+    /**
+     * Is this contact one of our own people? An active user's email, or an active user's phone WITH the same first name
+     * (a client who shares a family phone number with an employee is still a client — Codex 2026-11-03).
+     * @param array $staffEmails email => true
+     * @param array $staffPhones phone key => [lowercase first names]
+     */
     public static function isStaff(array $contact, array $staffEmails, array $staffPhones): bool
     {
         $e = strtolower(trim((string)($contact['email'] ?? '')));
         if ($e !== '' && isset($staffEmails[$e])) return true;
+        $first = strtolower(trim((string)($contact['first_name'] ?? '')));
         foreach (['phone', 'mobile'] as $k) {
             $p = self::phoneKey($contact[$k] ?? '');
-            if ($p !== '' && isset($staffPhones[$p])) return true;
+            if ($p !== '' && isset($staffPhones[$p]) && $first !== '' && in_array($first, (array)$staffPhones[$p], true)) return true;
         }
         return false;
     }

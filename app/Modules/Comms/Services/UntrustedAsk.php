@@ -44,8 +44,8 @@ final class UntrustedAsk
             'urgent_pay' => [
                 '/\b(?:urgent(?:ly)?|immediately|asap|right away|today|before (?:noon|5|end of day))\b[^.\n]{0,50}\b(?:wire|wired|transfer|e-?transfer|pay(?:ment)?|send (?:the )?money)\b/i',
                 '/\b(?:wire|wired)\s+(?:transfer|the|me|us|funds|money|payment)\b/i',
-                '/\bgift\s*cards?\b/i',
-                '/\b(?:buy|purchase|get|pick up)\s+(?:some |a few |several |\d+ )?(?:itunes|google play|apple|amazon|visa|steam)?\s*(?:gift\s*)?cards?\b/i',
+                '/\b(?:buy|purchase|get|pick up|send|need|want|use|pay (?:with|in))\s+(?:me |us )?(?:some |a few |several |the |\d+ )?(?:itunes |google play |apple |amazon |visa |steam )?gift\s*cards?\b/i',
+                '/\bgift\s*card\s+(?:code|codes|number|numbers|pin|pins)\b/i',
             ],
             'credential' => [
                 '/' . $asking . '\b(?:send|share|provide|give|confirm|reply with|tell|text|email|forward)\s+(?:me|us)?\s*(?:with\s+)?(?:your|the|his|her|their|our)\s+(?:password|passcode|pass code|login|log-in|sign-?in|one[- ]time (?:code|password)|verification code|security code|2fa|authenticator|pin|passphrase)\b/i',
@@ -54,7 +54,7 @@ final class UntrustedAsk
                 '/\byour\s+(?:account|mailbox)\s+(?:has been|will be|is)\s+(?:suspended|locked|closed|disabled|deactivated|compromised)\b/i',
             ],
             'signer' => [
-                '/\b(?:new|changed?|updated?|replacement)\s+(?:authori[sz]ed\s+)?(?:signer|signatory|signing authority|administrator|admin(?:istrator)?|account holder|primary contact|billing contact|contact person)\b/i',
+                '/\b(?:new|changed?|updated?|replacement)\s+(?:authori[sz]ed\s+)?(?:signer|signatory|signing authority|administrator|admin(?:istrator)?|account holder|billing contact|accounts? payable contact)\b/i',   // a new billing contact is announced AND held: redirecting invoices is the usual fraud
                 '/\b(?:change|update|replace|remove|add)\s+(?:the |our |my )?(?:authori[sz]ed\s+)?(?:signer|signatory|signing authority|administrator|account holder)\b/i',
                 '/\b(?:going forward|from now on|effective immediately)\b[^.\n]{0,60}\b(?:contact|deal with|send (?:everything|invoices|statements) to)\b/i',
             ],
@@ -74,11 +74,11 @@ final class UntrustedAsk
     {
         $text = trim($subject . "\n" . $body);
         if ($text === '') return null;
-        $clean = self::stripQuoted($text);
-        if (self::mentionsOnly($clean)) return null;
+        $clean = self::dropMentions(self::stripQuoted($text));
         foreach (self::patterns() as $kind => $res) {
             foreach ($res as $re) {
                 if (!preg_match($re, $clean, $m, PREG_OFFSET_CAPTURE)) continue;
+                if (self::negated($clean, (int)$m[0][1])) continue;
                 $quote = self::quoteAround($clean, (int)$m[0][1], strlen($m[0][0]));
                 $look = self::lookalike($from, $knownAddr);
                 return ['kind' => $kind, 'label' => self::LABELS[$kind], 'quote' => $quote, 'lookalike' => $look,
@@ -101,11 +101,27 @@ final class UntrustedAsk
         return trim(implode("\n", $out));
     }
 
-    /** "The password is the invoice number" / "the PDF is password protected": a credential mentioned, not requested. */
-    public static function mentionsOnly(string $text): bool
+    /**
+     * Take out the sentences that only MENTION a credential ("the PDF is password protected", "the password is the invoice
+     * number"), and keep the rest: a real ask in the next sentence still fires (Codex 2026-11-03).
+     */
+    public static function dropMentions(string $text): string
     {
-        return (bool)preg_match('/\b(?:pdf|file|attachment|document|zip|spreadsheet)\b[^.\n]{0,40}\bpassword\b|\bpassword\s+(?:is|was|for (?:the|this) (?:pdf|file|attachment))\b/i', $text)
-            && !preg_match('/\b(?:send|share|provide|give|confirm|reply with|tell)\s+(?:me|us)?\s*(?:your|the)\s+(?:password|login)\b/i', $text);
+        $parts = preg_split('/(?<=[.!?\n])\s+/', $text) ?: [$text];
+        $keep = [];
+        foreach ($parts as $sent) {
+            $mention = preg_match('/\b(?:pdf|file|attachment|document|zip|spreadsheet)\b[^.\n]{0,40}\bpassword\b|\bpassword\s+(?:is|was|for (?:the|this) (?:pdf|file|attachment))\b/i', $sent)
+                && !preg_match('/\b(?:send|share|provide|give|confirm|reply with|tell)\s+(?:me|us)?\s*(?:your|the)\s+(?:password|login)\b/i', $sent);
+            if (!$mention) $keep[] = $sent;
+        }
+        return trim(implode(' ', $keep));
+    }
+
+    /** A match just after "do not", "never", "no longer", "n't": "We do not accept gift cards" asks for nothing. */
+    public static function negated(string $text, int $at): bool
+    {
+        $before = strtolower(substr($text, max(0, $at - 32), min(32, $at)));
+        return (bool)preg_match("/\b(?:do not|does not|did not|don't|doesn't|didn't|never|won't|will not|cannot|can't|no longer|not|nor)\s+(?:\w+\s+){0,2}$/", $before);
     }
 
     private static function quoteAround(string $text, int $at, int $len): string

@@ -27,6 +27,14 @@ final class DraftChecks
         return trim(implode("\n", $lines));
     }
 
+    /** "$1,500.00" → "1500", "$15" → "15": whole-number comparison, never a substring ("15" is not in "150"). */
+    public static function norm(string $n): string
+    {
+        $n = str_replace([',', '$', ' '], '', $n);
+        if (strpos($n, '.') !== false) $n = rtrim(rtrim($n, '0'), '.');
+        return ltrim($n, '0') === '' ? '0' : ltrim($n, '0');
+    }
+
     public static function words(string $text): int
     {
         return count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: []);
@@ -41,12 +49,10 @@ final class DraftChecks
         $low = mb_strtolower($text);
 
         if (preg_match_all('/\$\s?\d(?:[\d,]*\d)?(?:\.\d{1,2})?/', $text, $m)) {
+            $known = [];
+            if (preg_match_all('/\d(?:[\d,]*\d)?(?:\.\d+)?/', $conv, $cm)) foreach ($cm[0] as $n) $known[self::norm($n)] = true;
             $bad = [];
-            foreach (array_unique($m[0]) as $amt) {
-                $num = ltrim(preg_replace('/[\s$]/', '', $amt), '0') ?: '0';
-                $bare = str_replace(',', '', $num);
-                if (strpos(str_replace(',', '', $conv), $bare) === false) $bad[] = trim($amt);
-            }
+            foreach (array_unique($m[0]) as $amt) if (!isset($known[self::norm($amt)])) $bad[] = trim($amt);
             if ($bad) $flags[] = 'mentions ' . implode(', ', array_slice($bad, 0, 3)) . ' — not in the conversation';
         }
 

@@ -55,6 +55,19 @@ class YuiHarvestRulesTest extends TestCase
         $this->assertStringContainsString('bank details', $a['quote']);
     }
 
+    public function test_a_real_ask_next_to_a_mention_still_holds_and_a_denial_does_not(): void
+    {
+        $this->assertSame('credential', UntrustedAsk::detect('Re', 'Please send your verification code. The PDF password is the invoice number.', 'a@b.com')['kind']);   // Codex
+        $this->assertNull(UntrustedAsk::detect('Payments', 'We do not accept gift cards, only e-transfer or cheque.', 'a@b.com'));
+        $this->assertNull(UntrustedAsk::detect('Payments', 'We never change our bank details by email.', 'a@b.com'));
+        $this->assertSame('urgent_pay', UntrustedAsk::detect('Help', 'I need you to buy 4 Apple gift cards, urgent.', 'a@b.com')['kind']);
+        $this->assertSame('urgent_pay', UntrustedAsk::detect('Help', 'Scratch them and send me the gift card numbers.', 'a@b.com')['kind']);
+        // A new billing contact is announced AND held (invoice redirection is the usual fraud); a vague "contact person" is not.
+        $this->assertSame('signer', UntrustedAsk::detect('FYI', 'Jane is our new billing contact.', 'jane@firm.com')['kind']);
+        $this->assertNull(UntrustedAsk::detect('FYI', 'The contact person for the site is Dave, 604-555-1234.', 'a@b.com'));
+        $this->assertSame('PDF password dropped', UntrustedAsk::dropMentions('The PDF password is the invoice number.') === '' ? 'PDF password dropped' : 'kept');
+    }
+
     public function test_lookalike_and_unknown_sender_domains_are_named(): void
     {
         $this->assertNull(UntrustedAsk::lookalike('Dave <dave@vancouvermgmt.com>', ['office@vancouvermgmt.com']));
@@ -89,6 +102,9 @@ class YuiHarvestRulesTest extends TestCase
         }
         $this->assertFalse(ReplyClock::ackOnly('All right', 'Shall we start the 12th?'));          // an answer to our question
         $this->assertTrue(ReplyClock::ackOnly('All right', null));
+        $this->assertFalse(ReplyClock::ackOnly('ok', 'Please confirm approval.'));                 // a request, no question mark (Codex)
+        $this->assertFalse(ReplyClock::ackOnly('ok', 'Let me know if Thursday works.'));
+        $this->assertTrue(ReplyClock::ackOnly('ok', 'Your quote is attached. Thanks, Tim'));
         $this->assertTrue(ReplyClock::ackOnly('👍', 'See you Tuesday.'));                               // live: John's thumbs-up waited 7 days
         $this->assertTrue(ReplyClock::ackOnly('❤️ 👍', null));
         $this->assertFalse(ReplyClock::ackOnly('👍', 'Is Thursday ok?'));
@@ -101,12 +117,14 @@ class YuiHarvestRulesTest extends TestCase
     public function test_staff_are_recognised_by_email_or_phone(): void
     {
         $e = ['nigel@mowology.ca' => true];
-        $p = ['6045551234' => true];
+        $p = ['6045551234' => ['nigel']];
         $this->assertTrue(ReplyClock::isStaff(['email' => 'Nigel@Mowology.ca'], $e, $p));
-        $this->assertTrue(ReplyClock::isStaff(['phone' => '(604) 555-1234'], $e, $p));
-        $this->assertTrue(ReplyClock::isStaff(['mobile' => '+1 604-555-1234'], $e, $p));
-        $this->assertFalse(ReplyClock::isStaff(['email' => 'joe@gmail.com', 'phone' => '604 555 9999'], $e, $p));
-        $this->assertFalse(ReplyClock::isStaff(['phone' => '555-1234'], $e, $p));                 // seven digits is not a number to match on
+        $this->assertTrue(ReplyClock::isStaff(['first_name' => 'Nigel', 'phone' => '(604) 555-1234'], $e, $p));
+        $this->assertTrue(ReplyClock::isStaff(['first_name' => 'NIGEL', 'mobile' => '+1 604-555-1234'], $e, $p));
+        $this->assertFalse(ReplyClock::isStaff(['first_name' => 'Maria', 'phone' => '(604) 555-1234'], $e, $p));   // a family sharing the number is still a client
+        $this->assertFalse(ReplyClock::isStaff(['phone' => '(604) 555-1234'], $e, $p));                           // a phone alone, no name: not enough
+        $this->assertFalse(ReplyClock::isStaff(['email' => 'joe@gmail.com', 'first_name' => 'Joe', 'phone' => '604 555 9999'], $e, $p));
+        $this->assertFalse(ReplyClock::isStaff(['first_name' => 'Nigel', 'phone' => '555-1234'], $e, $p));        // seven digits is not a number to match on
         $this->assertSame('', ReplyClock::phoneKey(null));
     }
 
@@ -156,6 +174,9 @@ class YuiHarvestRulesTest extends TestCase
         $this->assertCount(2, $f);
         $this->assertStringContainsString('$180 — not in the conversation', $f[0]);
         $this->assertStringContainsString('promises thursday, november 12 — check you can keep it', $f[1]);
+        $this->assertNotSame([], DraftChecks::check("Hi Joe,\n\nThat is $15.\n\nThanks,\nTim", 'Last time it was $150.'));   // "15" is not inside "150"
+        $this->assertSame([], DraftChecks::check("Hi Joe,\n\nThat is $1,500.00.\n\nThanks,\nTim", 'the price was 1500 dollars'));
+        $this->assertSame('1500', DraftChecks::norm('$1,500.00'));
         $this->assertSame([], DraftChecks::check("Hi Joe,\n\nSorry, that is not right. I will call you today.\n\nThanks,\nTim", 'the guys never came'));
         $this->assertNotSame([], DraftChecks::check("Hi Joe,\n\nWe will be there tomorrow.\n\nThanks,\nTim", 'when can you come?'));
         $long = "Hi Joe,\n\n" . implode(' ', array_fill(0, 130, 'word')) . "\n\nThanks,\nTim";
