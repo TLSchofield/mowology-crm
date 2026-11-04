@@ -108,6 +108,20 @@ try {
         }
     }
 
+    // Visit-keyed actions: only the office or crew on that visit (same rule as sync_samples) - a crew login
+    // with jobs.view could otherwise read or recompute any visit's tracking by id (Codex nightly crew-02).
+    if (in_array($action, ['resolve', 'compute_session', 'get_session', 'get_zone_sessions', 'compute_zone_sessions'], true)) {
+        $guardVisitId = (int)(($method === 'GET' ? ($_GET['visit_id'] ?? 0) : ($input['visit_id'] ?? 0)));
+        if ($guardVisitId > 0 && !$canEdit) {
+            require_once CRM_INCLUDES . '/timeclock-functions.php';
+            if (!userIsCrewOnVisit($guardVisitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'You are not on this visit.']);
+                exit;
+            }
+        }
+    }
+
     switch ($action) {
 
         // ── GET: resolve activation state for a visit ────────────────────────
