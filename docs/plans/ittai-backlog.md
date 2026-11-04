@@ -163,3 +163,6 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    `docs/plans/2026-11-03-claudia-rehearsal-runbook.md` → "The walk": QuickBooks import off on production (Accept
    refuses, Continue loops), TEST TENANT banner, Claudia's Intuit URI; plus ~12 first-impression app fixes
    (incl. "Charlie" → Kaname on Android).
+   **Migrations per business (found 2026-11-03):** a migration run on Mowology after a business is provisioned never
+   reaches that business (walk-1 rehearsal lacked `snow_runs`). Needs a per-business migration runner before more
+   founding businesses; until then provision Claudia's after the latest migrations.
