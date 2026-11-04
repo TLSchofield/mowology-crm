@@ -102,6 +102,10 @@ try {
             break;
         case 'add_equipment':    $r = $eq->addFromPlate($in, $actor); break;
         case 'receipt_candidates': $r = ['ok' => true, 'receipts' => $eq->receiptCandidates($in)]; break;
+        case 'move_out_equipment':   // "Not equipment" — only a machine Otto added from a receipt
+            require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
+            $r = (new EquipmentReceiptIntakeService($db, $eq))->moveOut((int)($in['id'] ?? 0), $actor);
+            break;
         case 'link_receipt':     $r = $eq->linkPurchase((int)($in['id'] ?? 0), !empty($in['expense_id']) ? (int)$in['expense_id'] : null); break;
         case 'import_preview':
         case 'import_commit':

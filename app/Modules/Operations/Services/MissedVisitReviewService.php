@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 require_once __DIR__ . '/MissedVisitRules.php';
 
@@ -396,7 +397,7 @@ class MissedVisitReviewService
         $body = 'Tap to decide: tomorrow, another day, skip or cancel. I have a pick for each. Anything left rolls on tonight as before.';
         $data = ['head' => 'otto', 'open' => 'otto_review', 'type' => 'otto_missed_review', 'review_id' => $reviewId,
                  'date' => $date, 'url' => '/crm/ops/missed-visits.php',      // Android opens data.url
-                 'image_url' => 'https://mowology.ca/crm/img/heads/otto.jpg'];   // Android shows Otto's face
+                 'image_url' => _idSiteUrl() . '/crm/img/heads/otto.jpg'];   // Android shows Otto's face
         try {
             if ($this->push) {
                 ($this->push)($to, $title, $body, $data);

@@ -18,6 +18,7 @@ declare(strict_types=1);
 require_once dirname(dirname(dirname(__DIR__))) . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(dirname(dirname(__DIR__))) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -62,7 +63,7 @@ try {
 
     // Storage directory — same as regular media uploads
     // __DIR__ = …/crm/api/social  → 3x dirname = public_html root
-    $uploadDir = dirname(dirname(dirname(__DIR__))) . '/uploads/cms/';
+    $uploadDir = uploadsDir('cms') . '/';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
         echo json_encode(['success' => false, 'error' => 'Upload directory not writable']);
         exit;
@@ -71,7 +72,7 @@ try {
     // Unique filename with crop- prefix so they're identifiable
     $storedName = 'crop-' . uniqid('', true) . '.' . $ext;
     $filePath   = $uploadDir . $storedName;
-    $webPath    = '/uploads/cms/' . $storedName;
+    $webPath    = uploadsUrl('cms') . '/' . $storedName;
 
     if (!move_uploaded_file($file['tmp_name'], $filePath)) {
         echo json_encode(['success' => false, 'error' => 'Failed to save cropped file']);

@@ -143,6 +143,8 @@ class BookkeeperDeskService
             $held = DuplicateReceiptService::heldIds((new DuplicateReceiptService($this->db))->pairsFor($waitingIds));
         } catch (Throwable $e) { /* no duplicate check: count them all */ }
         if (!class_exists('GstReportService')) require_once dirname(__DIR__, 2) . '/Accounting/Services/GstReportService.php';
+        // A personal purchase claims nothing (the Personal button, 2026-10-19 — as GstReportService::withoutPersonal).
+        $gstRows = GstReportService::withoutPersonal($gstRows);
         [$gstConfirmed, $gstStuck] = self::gstClaimBack($gstRows, $held, (new GstReportService($this->db))->settings());
 
         $jobs = $this->db->prepare("SELECT COUNT(*), SUM(job_id IS NOT NULL) FROM expenses WHERE expense_date >= ? AND status <> 'rejected'");
@@ -368,6 +370,16 @@ class BookkeeperDeskService
             $out = [];
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $out[(int)$r['matched_expense_id']] = ['date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['amount']];
+            }
+            // One of several receipts on a line (migration 1372) is matched too.
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+            if (BankLineReceipts::tableExists($this->db)) {
+                $s = $this->db->prepare("SELECT b.expense_id, t.transaction_date, t.description, t.amount FROM bank_line_receipts b
+                                         JOIN accounting_transactions t ON t.id = b.transaction_id WHERE b.expense_id IN ({$in})");
+                $s->execute($expenseIds);
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $out[(int)$r['expense_id']] = ['date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['amount']];
+                }
             }
             return $out;
         } catch (Throwable $e) {

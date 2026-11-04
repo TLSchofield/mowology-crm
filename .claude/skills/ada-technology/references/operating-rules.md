@@ -34,7 +34,7 @@ the register 2026-11-03). What is still only planned is marked so.
   new Claude session.
 
 ## Evidence, not alarms
-- One line per problem in Charlie's brief: system, what is happening, the contrast that makes
+- One line per problem in Kaname's brief: system, what is happening, the contrast that makes
   it suspicious, a verdict word ("probably broken", "stale", "cannot tell").
   Example: "Yardi reader: 0 emails since it started on Aug 5, while 5 remittances (May–Jul) sit in office@ before its start date and Dorset's go to info@/iCloud, which it never opens — coverage gap, not necessarily broken."
 - No line for green systems. No repeat of the same line every day unless it got worse; age is

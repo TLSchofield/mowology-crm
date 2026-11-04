@@ -14,6 +14,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 final class PortalEmailChangeService
 {
@@ -68,15 +69,15 @@ final class PortalEmailChangeService
         $name = htmlspecialchars($firstName !== '' ? $firstName : 'there', ENT_QUOTES);
         $link = rtrim($baseUrl, '/') . '/customer/confirm-email.php?t=' . $token;
         $sentNew = ($this->send)(trim($newEmail), 'Confirm your new email address',
-            "<p>Hi {$name},</p><p>Someone asked to send your Mowology invoices and updates to this address. "
+            "<p>Hi {$name},</p><p>Someone asked to send your " . htmlspecialchars(_idFromName(), ENT_QUOTES) . " invoices and updates to this address. "
             . "If that was you, confirm it here (the link works for " . self::TTL_HOURS . " hours):</p>"
             . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">Confirm my new email address</a></p>'
-            . '<p>If it wasn\'t you, ignore this email and nothing changes. Questions? Call (778) 846-9273.</p>');
+            . '<p>If it wasn\'t you, ignore this email and nothing changes. Questions?' . (_idPhone() !== '' ? ' Call ' . htmlspecialchars(_idPhone(), ENT_QUOTES) . '.' : '') . '</p>');
         if ($oldEmail !== null && trim($oldEmail) !== '') {
-            ($this->send)(trim($oldEmail), 'Your Mowology email is being changed',
-                "<p>Hi {$name},</p><p>Someone asked to change the email on your Mowology account from this address to "
+            ($this->send)(trim($oldEmail), 'Your ' . _idFromName() . ' email is being changed',
+                "<p>Hi {$name},</p><p>Someone asked to change the email on your " . htmlspecialchars(_idFromName(), ENT_QUOTES) . " account from this address to "
                 . htmlspecialchars(self::mask($newEmail), ENT_QUOTES) . ". It only changes once the new address confirms it.</p>"
-                . '<p>If that wasn\'t you, please call us at (778) 846-9273 — we\'ll stop it and send you a new portal link.</p>');
+                . '<p>If that wasn\'t you, please ' . (_idPhone() !== '' ? 'call us at ' . htmlspecialchars(_idPhone(), ENT_QUOTES) : 'contact us') . ' — we\'ll stop it and send you a new portal link.</p>');
         }
         $this->log($contactId, 'Portal email change requested', "Waiting for {$newEmail} to confirm (request #{$id}); "
                    . ($sentNew ? 'confirmation sent' : 'confirmation email FAILED') . '; notice to the old address.', $ip);

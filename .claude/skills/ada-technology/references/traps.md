@@ -21,7 +21,7 @@ restrictions cannot be used with this API". `CloserService::depot()` swallows it
 **Check:** outside connections — any stored "failed <date>" marker; plus the general rule that a
 browser key must not be used server-side (Tim's console, not code). Open.
 
-## 2026-10-11 — Charlie's ready brief stopped rebuilding (verified 2026-10-11)
+## 2026-10-11 — Kaname's ready brief stopped rebuilding (verified 2026-10-11)
 `charlie_morning_brief` failed to rebuild the ready copy with "Class TeamCardService not found"
 (a missing `require_once`) until someone looked. **Check:** scheduled jobs — error status; and
 age of the `head_brief_ready` row above `HeadBriefReadyService::MAX_AGE_SECONDS`.

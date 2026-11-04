@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 /**
  * TrackingLinks — signed open/click tracking for campaign emails (pure).
  *
@@ -49,13 +51,13 @@ final class TrackingLinks
 
     public static function clickUrl(int $sid, string $url, ?string $secret = null): string
     {
-        return 'https://mowology.ca/crm/api/track-click.php?sid=' . $sid . '&url=' . self::encodeUrl($url)
+        return _idSiteUrl() . '/crm/api/track-click.php?sid=' . $sid . '&url=' . self::encodeUrl($url)
             . '&s=' . self::sign($sid, $url, $secret);
     }
 
     public static function openUrl(int $sid, ?string $secret = null): string
     {
-        return 'https://mowology.ca/crm/api/track-open.php?sid=' . $sid . '&s=' . self::sign($sid, 'open', $secret);
+        return _idSiteUrl() . '/crm/api/track-open.php?sid=' . $sid . '&s=' . self::sign($sid, 'open', $secret);
     }
 
     /**
@@ -65,7 +67,7 @@ final class TrackingLinks
      */
     public static function invoiceOpenUrl(int $rid, ?string $secret = null): string
     {
-        return 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . $rid . '&s=' . self::sign($rid, 'invoice-open', $secret);
+        return _idSiteUrl() . '/crm/api/track-invoice-open.php?rid=' . $rid . '&s=' . self::sign($rid, 'invoice-open', $secret);
     }
 
     public static function isOwnHost(string $url): bool

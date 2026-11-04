@@ -1,4 +1,5 @@
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 /**
  * Invoice PDF Template
  * Rendered by PdfGenerator::generateInvoicePdf()
@@ -12,11 +13,11 @@ $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8')
 
 // Business (our own company) info — loaded from business_settings by PdfGenerator
 $business = isset($business) && is_array($business) ? $business : [];
-$bizName    = trim((string)($business['company_name']    ?? 'Mowology'));
-$bizPhone   = trim((string)($business['company_phone']   ?? '(778) 846-9273'));
-$bizEmail   = trim((string)($business['company_email']   ?? 'office@mowology.ca'));
-$bizWebsite = trim((string)($business['company_website'] ?? 'mowology.ca'));
-$bizAddress = trim((string)($business['company_address'] ?? 'Vancouver, BC'));
+$bizName    = trim((string)($business['company_name']    ?? _idFromName()));
+$bizPhone   = trim((string)($business['company_phone']   ?? _idPhone()));
+$bizEmail   = trim((string)($business['company_email']   ?? _idCompanyInfo()['company_email']));
+$bizWebsite = trim((string)($business['company_website'] ?? preg_replace('#^https?://#', '', _idSiteUrl())));
+$bizAddress = trim((string)($business['company_address'] ?? BusinessIdentity::get()['address']));
 $bizGst     = trim((string)($business['gst_registration'] ?? ''));
 $bizTagline = trim((string)($business['company_tagline']  ?? ''));
 
@@ -531,8 +532,8 @@ $isOverdue = ($invoice['status'] === 'overdue');
     <?php else: ?>
         <?php
             $footerParts = array_filter([
-                $bizName ?: 'Mowology',
-                $bizAddress ?: 'Vancouver, BC',
+                $bizName ?: _idFromName(),
+                $bizAddress,
                 $bizPhone,
                 $bizWebsite,
             ], fn($p) => $p !== '');

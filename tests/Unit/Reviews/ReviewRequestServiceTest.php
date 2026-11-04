@@ -3,12 +3,26 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 2) . '/Support/TestIdentity.php';
+
 /**
  * Google review requests: every completed visit asks the same way (no selective
  * solicitation), with the per-contact caps, and carrier-safe text.
  */
 class ReviewRequestServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        TestIdentity::mowology();
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private function contact(array $over = []): array
     {
         return $over + ['id' => 1, 'email' => 'a@example.com', 'is_active' => 1, 'has_reviewed' => 0,

@@ -302,6 +302,25 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
 
         $db->beginTransaction();
 
+        // ── 3b'. Re-check the contract NOW, locked: still active, has an active plan, and in force this month (started,
+        //         not ended). It may have been paused, cancelled or ended since the list was read (Codex contract review 2026-10-16).
+        $now = $db->prepare("SELECT status, billing_cycle, start_date, end_date, billing_amount FROM contracts WHERE id = ? FOR UPDATE");
+        $now->execute([$contractId]);
+        $fresh = $now->fetch(PDO::FETCH_ASSOC);
+        $plan = $db->prepare("SELECT 1 FROM job_plans WHERE contract_id = ? AND status = 'active' LIMIT 1");
+        $plan->execute([$contractId]);
+        require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+        $why = !$fresh || $fresh['status'] !== 'active' ? 'no longer active'
+             : ($fresh['billing_cycle'] !== 'monthly' ? 'no longer billed monthly'
+             : (!$plan->fetchColumn() ? 'no active plan'
+             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')' : null)));
+        if ($why !== null) {
+            $db->rollBack();
+            $skipped[] = $ctr['contract_number'] . " ({$why})";
+            continue;
+        }
+        $ctr['billing_amount'] = $fresh['billing_amount'];   // the amount as it stands now
+
         // ── 3c. Create invoice ────────────────────────────────────────────────
         $subtotal    = round((float)$ctr['billing_amount'], 2);
         $taxAmount   = round($subtotal * $taxRate, 2);

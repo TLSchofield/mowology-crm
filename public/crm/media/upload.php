@@ -9,6 +9,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/portfolio-functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -81,7 +82,7 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
 
 try {
     // Ensure upload directory exists
-    $uploadDir = __DIR__ . '/../../uploads/media/original';
+    $uploadDir = uploadsDir('media/original');
     if (!is_dir($uploadDir)) {
         if (!mkdir($uploadDir, 0755, true)) {
             throw new Exception('Cannot create upload directory');
@@ -121,7 +122,7 @@ try {
     $fileSize = filesize($filepath);
 
     // Create media file record
-    $relativePath = '/uploads/media/original/' . $filename;
+    $relativePath = uploadsUrl('media/original') . '/' . $filename;
     $mediaId = createMediaFile(
         $user['id'],
         $visitId,

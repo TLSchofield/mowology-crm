@@ -5,6 +5,7 @@
  * GET ?action=live: Get latest position for all tracked, clocked-in employees (admin/manager)
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -492,7 +493,7 @@ function checkTruckDepartureAlert(PDO $db, int $truckId, float $lat, float $lng)
         // Build message (≤160 chars, no URLs, plain text)
         $addr = $v['property_address'] ?? 'a property';
         if (strlen($addr) > 40) $addr = substr($addr, 0, 37) . '...';
-        $msg = "Mowology: {$addr} not clocked in. Did you complete it? (778) 846-9273";
+        $msg = _idFromName() . ": {$addr} not clocked in. Did you complete it?" . (_idPhone() !== '' ? ' ' . _idPhone() : '');
 
         try {
             $msgService = APP_ROOT . '/Services/Messaging/MessagingService.php';

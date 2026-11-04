@@ -11,7 +11,9 @@ window.CharlieInbox = (function () {
     'use strict';
     var CHARLIE = '/crm/api/charlie.php';
     var ALLOWED = ['/crm/api/otto.php', '/crm/api/sales-head.php', '/crm/api/bookkeeper.php', '/crm/api/charlie.php', '/crm/api/mia.php'];
-    var HEADS = { charlie: 'Charlie', penny: 'Penny', sam: 'Sam', otto: 'Otto', mia: 'Mia', yui: 'Yui', ada: 'Ada', house: 'Work Queue' };
+    var chiefEl = document.querySelector('[data-chief-name]');   // printed by the page (HeadIdentity)
+    var CHIEF = (chiefEl && chiefEl.getAttribute('data-chief-name')) || 'Kaname';
+    var HEADS = { charlie: CHIEF, penny: 'Penny', sam: 'Sam', otto: 'Otto', mia: 'Mia', yui: 'Yui', ada: 'Ada', house: 'Work Queue' };
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

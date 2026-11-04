@@ -5,6 +5,8 @@
  * Returns JSON.
  */
 
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -267,7 +269,7 @@ try {
         $htmlBody = "
             <div style='font-family:Arial,sans-serif;max-width:600px;'>
                 <h2 style='color:#1565c0;'>🧪 Test Weather Alert</h2>
-                <p>This is a <strong>test email</strong> from the Mowology Weather Operations system.</p>
+                <p>This is a <strong>test email</strong> from the " . htmlspecialchars(_idFromName()) . " Weather Operations system.</p>
                 <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
                     <tr style='background:#e3f2fd;'>
                         <td style='padding:10px;font-weight:600;'>Type</td>
@@ -288,7 +290,7 @@ try {
                 </table>
                 <p style='color:#2D8659;'>✅ If you received this, email alerts are working correctly.</p>
                 <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
-                <p style='color:#999;font-size:12px;'>Mowology Weather Guard — test message</p>
+                <p style='color:#999;font-size:12px;'>" . htmlspecialchars(_idFromName()) . " Weather Guard — test message</p>
             </div>
         ";
 
@@ -319,7 +321,7 @@ try {
             throw new Exception('Your user account has no phone number set. Add one on the Team page.');
         }
 
-        $msg = "Mowology test: Weather SMS alerts are working. " . date('M j, g:iA');
+        $msg = _idFromName() . " test: Weather SMS alerts are working. " . date('M j, g:iA');
 
         $result = sendSms($phone, $msg);
 

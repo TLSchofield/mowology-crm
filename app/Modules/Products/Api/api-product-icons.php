@@ -42,6 +42,7 @@ requireLogin();
 requirePermission('products.edit');
 
 require_once APP_ROOT . '/Services/Media/IconGenerator.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -122,8 +123,8 @@ function handleUploadIcon(): void
 
     // ── Prepare directories ──────────────────────────────────────────────────
 
-    $origDir  = PUBLIC_ROOT . '/uploads/products/original';
-    $iconsDir = PUBLIC_ROOT . '/uploads/products/icons/' . $productId;
+    $origDir  = uploadsDir('products/original');
+    $iconsDir = uploadsDir('products/icons') . '/' . $productId;
 
     if (!is_dir($origDir) && !mkdir($origDir, 0755, true)) {
         echo json_encode(['error' => 'Could not create upload directory']);
@@ -154,7 +155,7 @@ function handleUploadIcon(): void
 
     // ── Update database ──────────────────────────────────────────────────────
 
-    $iconBasePath = '/uploads/products/icons/' . $productId . '/';
+    $iconBasePath = uploadsUrl('products/icons') . '/' . $productId . '/';
 
     // Check column exists (migration-safe)
     $cols    = $db->query("SHOW COLUMNS FROM `products` LIKE 'icon_base_path'")->fetchAll();
@@ -193,7 +194,7 @@ function handleDeleteIcons(): void
         exit;
     }
 
-    $iconsDir = PUBLIC_ROOT . '/uploads/products/icons/' . $productId;
+    $iconsDir = uploadsDir('products/icons') . '/' . $productId;
     icongen_deleteSet($iconsDir);
 
     $db = getDB();

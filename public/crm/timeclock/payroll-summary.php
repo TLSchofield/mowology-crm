@@ -17,12 +17,14 @@ requirePermission('timer.override');
 $db = getDB();
 
 // ── Date range ────────────────────────────────────────────────────────────────
-// Default: last complete bi-weekly period (most recent Monday that is ≥14 days ago)
+// Default: the last COMPLETE bi-weekly period, Monday to Sunday like the timesheets (so "approve all" only
+// ever covers whole timesheets), ending on the most recent Sunday before today. BC's overtime week runs
+// Sunday–Saturday, so the Sunday before the period's first Monday is passed in as a prior day that counts
+// toward the 40 h without being paid again (Codex review 2026-10-23).
 $today     = new DateTime('today');
-$lastMon   = new DateTime('last monday');
-$lastMon->modify('-7 days'); // go back one more week for a complete bi-weekly
-$defaultEnd   = (clone $lastMon)->modify('+13 days')->format('Y-m-d');
-$defaultStart = $lastMon->format('Y-m-d');
+$lastSun   = new DateTime('last sunday');
+$defaultEnd   = $lastSun->format('Y-m-d');
+$defaultStart = (clone $lastSun)->modify('-13 days')->format('Y-m-d');
 
 $rawStart = isset($_GET['start']) ? $_GET['start'] : $defaultStart;
 $rawEnd   = isset($_GET['end'])   ? $_GET['end']   : $defaultEnd;
@@ -70,8 +72,8 @@ $grandTotalPay  = 0;
 
 foreach ($employees as $emp) {
     // Per-day shift minutes inside the range (the same rows and statuses recalculateTimesheetTotals()
-    // sums into timesheets.total_shift_minutes), then BC overtime per day and per Monday–Sunday
-    // week via OvertimeCalculator::calculatePeriod(). Until 2026-10-12 this summed the stored
+    // sums into timesheets.total_shift_minutes), then BC overtime per day and per Sunday–Saturday
+    // week (BC ESA) via OvertimeCalculator::calculatePeriod(). Until 2026-10-12 this summed the stored
     // weekly totals of every timesheet overlapping the range and applied the 40 h rule ONCE to the
     // whole (bi-weekly) lump, with no daily 8 h / 12 h rule — the 1.5×/2× split was wrong.
     $dayStmt = $db->prepare("
@@ -100,7 +102,16 @@ foreach ($employees as $emp) {
     $totalShiftMin = array_sum($dailyMinutes);   // paid hours (= clocked when breaks are paid)
 
     $rate = (float)($emp['hourly_rate'] ?? 0);
-    $pay  = OvertimeCalculator::calculatePeriod($dailyMinutes, $rate);
+    // Days of the first Sunday–Saturday week before the range (already paid): counted toward the 40 h only.
+    $priorDays = [];
+    $wkStart = date('Y-m-d', strtotime('-' . (int)date('w', strtotime($rangeStart)) . ' days', strtotime($rangeStart)));
+    if ($wkStart < $rangeStart) {
+        $dayStmt->execute([$emp['id'], $wkStart, date('Y-m-d', strtotime($rangeStart . ' -1 day'))]);
+        foreach ($dayStmt->fetchAll(PDO::FETCH_ASSOC) as $d) $priorDays[$d['day']] = max(0, (int)$d['day_min']);
+        $pbrk = $breakSvc->periodForUser((int)$emp['id'], $wkStart, date('Y-m-d', strtotime($rangeStart . ' -1 day')));
+        foreach ($pbrk['days'] as $bd => $bm) if (isset($priorDays[$bd])) $priorDays[$bd] = BreakService::paidMinutes($priorDays[$bd], (int)$bm['unpaid_minutes']);
+    }
+    $pay  = OvertimeCalculator::calculatePeriod($dailyMinutes, $rate, $priorDays);
 
     // Fetch individual timesheet rows for status + IDs (separate query for correctness)
     $tsStmt = $db->prepare("
@@ -224,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_approve'])) {
 
 // ── Preset date helpers ───────────────────────────────────────────────────────
 // Current bi-weekly: most recent completed 2-week block
-$curBiStart = (new DateTime('last monday'))->modify('-7 days')->format('Y-m-d');
+$curBiStart = (new DateTime('last sunday'))->modify('-13 days')->format('Y-m-d');
 $curBiEnd   = (new DateTime($curBiStart))->modify('+13 days')->format('Y-m-d');
 // Previous bi-weekly
 $prevBiStart = (new DateTime($curBiStart))->modify('-14 days')->format('Y-m-d');
@@ -257,6 +268,11 @@ $activePage = 'payroll';
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="list" style="width:14px;height:14px;"></i> All Timesheets
         </a>
+        <?php if (function_exists('isAdmin') && isAdmin()): ?>
+        <a href="/crm/accounting/payroll-import.php" class="btn btn-sm btn-outline-secondary" title="Upload Wave's monthly Wages &amp; taxes report so Penny can book the month">
+            <i data-feather="upload" style="width:14px;height:14px;"></i> Import Wave report
+        </a>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -318,7 +334,7 @@ $activePage = 'payroll';
         &bull; <?php echo (int)((strtotime($rangeEnd) - strtotime($rangeStart)) / 86400 + 1); ?> days
     </span>
     <?php if (date('N', strtotime($rangeStart)) !== '1' || date('N', strtotime($rangeEnd)) !== '7'): ?>
-    <div class="text-muted small mt-1">Overtime is worked out per day and per Monday&ndash;Sunday week. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
+    <div class="text-muted small mt-1">Overtime is worked out per day and per Sunday&ndash;Saturday week (BC law); days of that week before the range count toward the 40 h but aren&rsquo;t paid again. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
     <?php endif; ?>
 </div>
 

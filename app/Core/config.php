@@ -23,6 +23,11 @@ date_default_timezone_set('America/Vancouver');
 // fall through to the safe 'prod' default below.
 require_once PUBLIC_ROOT . '/app_config/secrets.php';
 
+// Which business this request is for, before any database opens: an unregistered *.ittai.ca address stops
+// here with 404; every other address is the original business, unchanged (Ittai, 2026-10-23).
+require_once __DIR__ . '/Tenant.php';
+Tenant::boot();
+
 // Environment flags. SAFE DEFAULT IS 'prod' — a box that forgot to set this must
 // NOT leak warnings/paths to users or API consumers. Override precedence:
 //   secrets.php define('APP_ENV',...)  >  APP_ENV env var (cPanel SetEnv / .user.ini)  >  'prod'
@@ -127,7 +132,8 @@ if (!class_exists('Database')) {
             if (self::$pdo instanceof PDO) {
                 return self::$pdo;
             }
-            return self::$pdo = self::connect(DB_HOST, DB_USER, DB_PASS);
+            [, $tenantUser, $tenantPass] = Tenant::db();   // the install's user unless the tenant has its own
+            return self::$pdo = self::connect(DB_HOST, $tenantUser, $tenantPass);
         }
 
         /** True when secrets.php names a separate schema-owning user. */
@@ -174,7 +180,7 @@ if (!class_exists('Database')) {
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
                 $host,
-                DB_NAME,
+                Tenant::db()[0],   // the tenant's own database (DB_NAME for the original business)
                 $charset
             );
 

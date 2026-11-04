@@ -70,13 +70,13 @@ session_write_close();
         }
         $testResult = sendEmail(
             $config['accounting_email'],
-            'Test Receipt — Mowology CRM',
+            'Test Receipt — ' . _idFromName() . ' CRM',
             '<h2>Receipt Forwarding Test</h2>'
-            . '<p>This is a test email from the Mowology CRM receipt forwarding system.</p>'
+            . '<p>This is a test email from the ' . htmlspecialchars(_idFromName()) . ' CRM receipt forwarding system.</p>'
             . '<p>If you receive this, your QuickBooks receipt email is configured correctly.</p>'
             . '<p><em>Sent at ' . date('Y-m-d H:i:s') . '</em></p>',
             null,
-            $config['from_name'] ?: 'Mowology Receipts'
+            $config['from_name'] ?: _idFromName() . ' Receipts'
         );
         echo json_encode([
             'success' => $testResult['success'],

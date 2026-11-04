@@ -37,6 +37,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __FILE__;
@@ -304,7 +305,7 @@ class ReviewRequestService
             'How did the visit go, ' . ($contact['first_name'] ?: 'there') . '?',
             $html,
             null,
-            'Mowology'
+            ''
         );
     }
 
@@ -320,7 +321,7 @@ class ReviewRequestService
     {
         $firstName = $contact['first_name'] ?? '';
 
-        return sendSms($phone, self::smsText($firstName), 'Mowology');
+        return sendSms($phone, self::smsText($firstName), '');
     }
 
     /** The review text: plain ASCII, no URL, no exclamation marks, ≤160 characters. */
@@ -328,12 +329,14 @@ class ReviewRequestService
     {
         $firstName = trim(preg_replace('/[^\x20-\x7E]/', '', $firstName));
         $greeting = $firstName ? "Hi {$firstName}," : "Hi,";
-        $body = "{$greeting} thanks for having Mowology out. "
-              . "Check your email for a link to leave a Google review. "
-              . "Questions? Call (778) 846-9273";
+        $name = _idFromName();
+        $call = _idPhone() !== '' ? ' Questions? Call ' . _idPhone() : '';
+        $body = "{$greeting} thanks for having {$name} out. "
+              . "Check your email for a link to leave a Google review."
+              . $call;
 
         if (mb_strlen($body) > 160) { // a very long first name: drop it rather than cut the phone number
-            $body = "Hi, thanks for having Mowology out. Check your email for a link to leave a Google review. Questions? Call (778) 846-9273";
+            $body = "Hi, thanks for having {$name} out. Check your email for a link to leave a Google review." . $call;
         }
         return $body;
     }

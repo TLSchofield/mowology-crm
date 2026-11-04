@@ -101,7 +101,7 @@ class BankInvoiceMatchService
         }
         if ($recorded || $legacy) $spread = [];   // the money is already on an invoice: nothing to pre-tick
         if (!$spread && !$invoices && !$recorded && !$legacy) {
-            $v = $this->inbox->suggestFifoAllocationByValue($amount);
+            $v = $this->inbox->suggestFifoAllocationByValue($amount, $sender ?? null);
             if ($v) $spread = array_map(fn($l) => ['invoice_number' => $l['invoice_number'], 'amount' => $l['apply_amount']], $v['lines']);
         }
         // No single invoice is this amount: one payer's open invoices that add up to it exactly

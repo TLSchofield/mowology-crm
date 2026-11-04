@@ -13,10 +13,13 @@ Status key in `SKILL.md`. Every table row ends with its review-by date (the test
 ## Payroll (CRA / Service Canada)
 | Rule | Status | Source | Live value | Review by |
 |---|---|---|---|---|
-| Source deductions (CPP, EI, income tax) due by the 15th of the following month for a regular remitter. | Research | PowerPay 2026 payroll calendar | Charlie's calendar `payroll_remit` (monthly:15) | 2027-01-31 |
-| Record of Employment on an interruption of earnings (layoff, or 7 days with no work and no pay): electronic ROE due within 5 days after the end of that pay period. | Research | Achkar Law ROE FAQs; Service Canada | — | 2027-01-31 |
-| T4 slips + T4 Summary due the last day of February; late slips are penalised per slip per day. | Research | PowerPay 2026 calendar; CRA | — | 2027-01-31 |
-| Business records kept 6 years. | Research | CRA | — | 2027-01-31 |
+| Source deductions are grouped by **pay date**. Remitter type is set by CRA from average monthly withholding two years back and can change: quarterly (AMWA under $3,000 + clean record; due 15 Apr/Jul/Oct/Jan), regular (due the 15th of the next month), accelerated 1 ($25,000–$99,999.99: 25th for the 1st–15th, 10th of next month for the rest) and 2 ($100,000+: 3rd working day after the period). Late penalty 3% (1–3 days), 5% (4–5), 7% (6–7), 10% (later or none), 20% if knowing. | Verified 2026-10-21 | CRA *Due dates for remitting source deductions* | Kaname's calendar `payroll_remit` (monthly:15) — Mowology's remitter type to confirm from the PD7A | 2027-01-31 |
+| Tax deductions use CRA T4127 by **pay date**: 122nd edition from 1 Jan 2026, 123rd from 1 Jul 2026 (BC only: lowest rate 6.14% and reduction $805 for July–December, a catch-up for BC's 5.60%/$690 2026 increase). | Verified 2026-10-21 (CRA CSV tables + formulas pages) | CRA T4127 | `app/Modules/Payroll/Data/rules-2026.php` | 2026-12-15 |
+| 2026 CPP 5.95% (base 4.95% + first additional 1%), YMPE $74,600, basic exemption $3,500, max $4,230.45 each; CPP2 4% from $74,600 to YAMPE $85,000, max $416; EI 1.63%, max insurable $68,900, max $1,123.07 (employer 1.4× = $1,572.30). | Verified 2026-10-21 (CRA Tables 8.3–8.7) | CRA T4127 | `rules-2026.php` | 2026-12-15 |
+| A shareholder-employee with more than 40% of the voting shares is not in insurable employment: no EI; CPP still applies. Who qualifies at Mowology: confirm with accountant. | Verified 2026-10-21 / Confirm with accountant (per person) | CRA *Determine if employment is pensionable or insurable* | — | 2027-01-31 |
+| Record of Employment: an interruption is 7 consecutive days with no work and no insurable earnings (or a layoff/quit). Electronic ROE due 5 days after the end of the pay period of the interruption (weekly, bi-weekly, semi-monthly); monthly or 13-period pay: the earlier of 5 days after the period ends or 15 days after the first day of the interruption. ROE Web payroll extract XML 2.0. | Verified 2026-10-21 | Service Canada *ROE guide*; ROE Web user requirements | — | 2027-01-31 |
+| T4 slips + T4 Summary due the last day of February; electronic filing required above 5 slips; each XML file needs a T619 transmittal (2026V4). | Verified 2026-10-21 | CRA *How to file*; *T619 2026* | — | 2027-01-31 |
+| Payroll records kept 6 years from the end of the tax year they relate to. | Verified 2026-10-21 | CRA RC4409 *Keeping records* | — | 2027-01-31 |
 
 ## Marketing and messages
 | Rule | Status | Source | Live value | Review by |

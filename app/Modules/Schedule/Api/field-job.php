@@ -15,6 +15,9 @@ declare(strict_types=1);
  *        create_job        { property_id, service_type, title?, notes?, price?, recurring, frequency?, date? }
  *        create_client_job { first_name, last_name?, phone?, property_address, property_city?,
  *                            property_postal_code?, lat?, lng?, service_type, … }
+ *        create_client     { first_name, last_name?, phone?, property_address, property_city?,
+ *                            property_postal_code?, lat?, lng? }   (no job; 2026-10-27, the app's "New client")
+ *                          → { success, contact_id, property_id, contact_name, address, city }
  *
  * (?mode=, not ?action= — the /api router's rewrite owns `action` on GET.)
  * Authorization: Bearer <jwt>. Needs jobs.create_field or jobs.edit, like the web endpoint.

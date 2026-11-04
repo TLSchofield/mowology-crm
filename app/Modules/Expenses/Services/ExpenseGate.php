@@ -52,16 +52,16 @@ class ExpenseGate
     /** Expense columns the gate writes. */
     public const COLUMNS = [
         'expense_date', 'vendor_id', 'vendor_name_raw', 'description', 'amount', 'gst_amount', 'pst_amount', 'total',
-        'accounting_category', 'gbp_category', 'payment_method', 'receipt_media_id', 'receipt_lat', 'receipt_lng',
+        'accounting_category', 'shareholder_account', 'gbp_category', 'payment_method', 'receipt_media_id', 'receipt_lat', 'receipt_lng',
         'match_confidence', 'anomaly_flags', 'anomaly_score', 'raw_ocr_json', 'line_items_source', 'job_id', 'property_id',
         'contact_id', 'notes', 'status', 'odometer_start', 'odometer_end', 'fuel_litres', 'fuel_price_per_litre', 'asset_tag',
         'source', 'created_by', 'approved_by', 'approved_at', 'rejection_reason', 'forwarded_to_accounting', 'forwarded_at',
     ];
     /** The money fields — locked once sent to accounting. */
     public const MONEY = ['expense_date', 'vendor_id', 'vendor_name_raw', 'amount', 'gst_amount', 'pst_amount', 'total',
-                          'accounting_category', 'payment_method', 'job_id', 'asset_tag'];
+                          'accounting_category', 'shareholder_account', 'payment_method', 'job_id', 'asset_tag'];
     /** What the books carry for a posted receipt — a change re-posts it. */
-    public const BOOKS = ['expense_date', 'vendor_id', 'amount', 'gst_amount', 'pst_amount', 'total', 'accounting_category',
+    public const BOOKS = ['expense_date', 'vendor_id', 'amount', 'gst_amount', 'pst_amount', 'total', 'accounting_category', 'shareholder_account',
                           'payment_method', 'job_id', 'asset_tag'];
     /** A person changing one of these overrides what Penny / the receipt reader said (head_lessons). */
     public const LESSON_FIELDS = ['accounting_category', 'payment_method', 'job_id', 'vendor_id', 'vendor_name_raw', 'asset_tag'];
@@ -177,6 +177,25 @@ class ExpenseGate
         if (!$delete && !$set && !$linesChange && !$splitChange) {
             return self::result((int)$expenseId, 'none', [], true);
         }
+        // GST that can't be right (owner, 2026-10-19: "surely if the gst is obviously wrong the receipt shouldnt
+        // save"; #114, a $2.61 coffee read as $5.00 GST, failed the nightly posting for months). TaxCheck:
+        //   impossible — a person's edit is refused; a NEW receipt (phone / email / desktop capture, which save as the
+        //                person too) is kept as a flagged draft so a capture is never lost; approving / sending it
+        //                is refused for everyone, so it can't reach the books;
+        //   high       — above this company's GST rate but possible (out-of-province HST): saved, flagged.
+        if (!$delete && ($create || array_intersect(array_keys($set), ['gst_amount', 'pst_amount', 'total', 'status']))) {
+            $after0 = array_merge($before, $cols);
+            $tc = self::taxCheck($after0, $this->gstRate());
+            if ($tc['level'] === 'impossible' && (in_array((string)($after0['status'] ?? ''), self::POSTED, true)
+                                                   || (!$create && ($actor['kind'] ?? 'user') === 'user'))) {
+                throw new InvalidArgumentException($tc['message']);
+            }
+            $flags = self::withTaxFlag((string)($after0['anomaly_flags'] ?? ''), $tc['level']);
+            if ($flags !== (string)($before['anomaly_flags'] ?? '') || $create) {
+                $cols['anomaly_flags'] = $flags;
+                $set = $create ? $cols : self::diff($before, $cols);
+            }
+        }
 
         // ── 2. Write ─────────────────────────────────────────────────────────
         $own = !$this->db->inTransaction();
@@ -198,6 +217,13 @@ class ExpenseGate
                 }
                 $id = (int)$expenseId;
                 $action = 'delete';
+                // One of several receipts on a bank line: off the line, which then books what's left (Codex re-review 2026-10-16).
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+                $was = (new BankLineReceipts($this->db))->forget($id);
+                if ($was !== null) {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+                    (new LedgerService($this->db))->settleGroupLine($was, $actor['id'] ?? null);
+                }
                 if (function_exists('reverseLineItemInventory')) reverseLineItemInventory($this->db, $id);
                 if ($this->split->ready()) $this->split->clear($id);
                 $this->db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$id]);
@@ -301,6 +327,10 @@ class ExpenseGate
         if ($source !== 'date_check' && ($create || array_intersect($changed, ['total', 'expense_date']))) {
             $this->hooks->dateCheck($id);
         }
+        // Its product lines against the shared catalogue (ReceiptCatalogService, migration 1378).
+        if ($create || $linesChange || array_intersect($changed, ['accounting_category', 'vendor_id', 'vendor_name_raw'])) {
+            $this->hooks->catalog($id);
+        }
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
         $userId = $actor['id'] ?? null;
@@ -338,6 +368,8 @@ class ExpenseGate
         $nowConfirmed = in_array($after['status'] ?? '', self::POSTED, true) && ($create || !in_array($before['status'] ?? '', self::POSTED, true));
         if ($nowConfirmed) {
             $this->hooks->learnConfirmed($id, isset($opts['learn_baseline']) && is_array($opts['learn_baseline']) ? $opts['learn_baseline'] : null);
+            // Reconciliation: link it to its ONE exact bank / card line, so the nightly posting books the purchase once.
+            $this->hooks->linkBank($id, $after);
         }
         // An owner's or manager's phone save is their confirmation: it teaches now, once (claimReceiptLearning).
         if (!$nowConfirmed && $create && !empty($opts['learn_now']) && ($after['status'] ?? '') === 'pending_approval') {
@@ -396,7 +428,7 @@ class ExpenseGate
     }
 
     /** A column that arrived with a later migration: written when it exists, never fatal before. */
-    private const OPTIONAL = ['line_items_source', 'asset_tag', 'source'];
+    private const OPTIONAL = ['line_items_source', 'asset_tag', 'source', 'shareholder_account'];
 
     private function withoutMissingColumns(array $cols): array
     {
@@ -454,6 +486,13 @@ class ExpenseGate
             $total = array_key_exists('line_total', $op) ? (float)$op['line_total'] : (float)$before['line_total'];
             $this->db->prepare("UPDATE expense_line_items SET name = ?, quantity = ?, unit_price = ?, line_total = ? WHERE id = ?")
                ->execute([$name, $qty, $unit, $total, (int)$before['id']]);
+            if ($name !== (string)$before['name']) {
+                // A renamed line is another product: its catalogue link / "not this" goes, the catalogue hook matches it again.
+                try {
+                    $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = NULL, catalog_match = NULL, catalog_suggested_id = NULL, catalog_score = NULL WHERE id = ?")
+                             ->execute([(int)$before['id']]);
+                } catch (PDOException $e) { /* before migration 1378 */ }
+            }
             if (!empty($before['product_id']) && function_exists('updateProductInventory')) {
                 updateProductInventory($this->db, (int)$before['product_id'], $qty - (float)$before['quantity']);
             }
@@ -521,6 +560,58 @@ class ExpenseGate
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    public const TAX_FLAG_WRONG = 'GST_WRONG';
+    public const TAX_FLAG_CHECK = 'GST_CHECK';
+    /** The highest sales tax that can sit on a Canadian receipt as GST/HST (HST 15%) — above it is impossible. */
+    public const MAX_SALES_TAX = 0.15;
+
+    /**
+     * Is this receipt's GST possible? (regions skill CA: GST above the rate × the pre-tax subtotal can't come
+     * from GST alone; less is normal — zero-rated groceries, deposits.) Rounding allowance: 2¢ or 1%. PURE.
+     * @return array{level: ?string, message: ?string}   level: null | 'high' | 'impossible'
+     */
+    public static function taxCheck(array $row, float $gstRate = 0.05): array
+    {
+        $total = round((float)($row['total'] ?? 0), 2);
+        $gst = round((float)($row['gst_amount'] ?? 0), 2);
+        $pst = round((float)($row['pst_amount'] ?? 0), 2);
+        if ($total <= 0 || $gst <= 0) return ['level' => null, 'message' => null];
+        $net = round($total - $gst - $pst, 2);
+        $slack = static fn($x) => max(0.02, 0.01 * $x);
+        if ($net <= 0 || $gst > self::MAX_SALES_TAX * $net + $slack($net)) {
+            return ['level' => 'impossible', 'message' => 'The GST ($' . number_format($gst, 2) . ") can't be right for a $" . number_format($total, 2)
+                . ' receipt — at ' . rtrim(rtrim(number_format($gstRate * 100, 1), '0'), '.') . '% it would be about $' . number_format($gstRate * $total / (1 + $gstRate), 2) . '. Check the GST on the paper.'];
+        }
+        if ($gst > $gstRate * $net + $slack($net)) {
+            return ['level' => 'high', 'message' => 'The GST is more than ' . rtrim(rtrim(number_format($gstRate * 100, 1), '0'), '.') . '% of the subtotal — fine for HST from another province, otherwise check it.'];
+        }
+        return ['level' => null, 'message' => null];
+    }
+
+    /** anomaly_flags with the GST flag for $level (and only that one). PURE. */
+    public static function withTaxFlag(string $flags, ?string $level): string
+    {
+        $list = array_values(array_filter(array_map('trim', explode(',', strtoupper($flags))), fn($f) => $f !== '' && $f !== self::TAX_FLAG_WRONG && $f !== self::TAX_FLAG_CHECK));
+        if ($level === 'impossible') $list[] = self::TAX_FLAG_WRONG;
+        if ($level === 'high') $list[] = self::TAX_FLAG_CHECK;
+        return implode(',', $list);
+    }
+
+    private ?float $gstRateCache = null;
+
+    private function gstRate(): float
+    {
+        if ($this->gstRateCache === null) {
+            try {
+                if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+                $this->gstRateCache = TaxEngine::gstRate($this->db);
+            } catch (Throwable $e) {
+                $this->gstRateCache = 0.05;
+            }
+        }
+        return $this->gstRateCache;
+    }
 
     /** A column's value as it is stored. @throws InvalidArgumentException */
     public static function normalise(string $col, $v)

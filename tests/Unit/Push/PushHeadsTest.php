@@ -33,4 +33,12 @@ final class PushHeadsTest extends TestCase
     {
         $this->assertSame(['Yui [Comms]', 'x'], PushHeads::brand('Yui [Comms]', 'x', ['head' => 'yui']));
     }
+
+    /** A push stored before the rename ("Charlie: …") still belongs to the chief of staff (Codex 2026-10-23). */
+    public function test_an_old_charlie_titled_push_is_still_the_chief_of_staff(): void
+    {
+        $this->assertSame('charlie', PushHeads::headFor([], 'Charlie: Morning brief'));
+        $this->assertSame('charlie', PushHeads::headFor([], HeadIdentity::chiefName() . ': Morning brief'));
+    }
 }
+

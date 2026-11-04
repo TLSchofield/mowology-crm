@@ -118,6 +118,17 @@ final class Tenant
         return $reg;
     }
 
+    /** Registered business keys, for CLI fan-out. */
+    public static function registeredKeys(?array $registry = null): array
+    {
+        $keys = [];
+        foreach ($registry ?? self::registry() as $key => $cfg) {
+            if (self::valid($cfg)) $keys[] = (string)$key;
+        }
+        sort($keys, SORT_STRING);
+        return $keys;
+    }
+
     public static function key(): string
     {
         return self::$current['key'] ?? self::DEFAULT;

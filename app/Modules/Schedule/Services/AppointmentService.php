@@ -15,6 +15,7 @@
  * Global-namespace service: require_once the file, `new AppointmentService($db)`.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class AppointmentService
 {
@@ -197,11 +198,12 @@ class AppointmentService
      * The confirmation text message: plain, no links or domains, at most 160 characters. Pure.
      * A dot in the company name could read as a domain to a carrier filter, so it is dropped.
      */
-    public static function confirmationSms(array $a, string $company = 'Mowology', string $phone = '(778) 846-9273'): string
+    public static function confirmationSms(array $a, string $company = '', string $phone = ''): string
     {
+        if ($phone === '') $phone = _idPhone();
         // Nothing inserted may read as a link: dots, slashes and @ go from the company and client names too.
         $clean = fn(string $t): string => trim(preg_replace('/[^\p{L}\p{N} \'&-]+/u', '', $t) ?? '');
-        $company = $clean($company) ?: 'Mowology';
+        $company = $clean($company) ?: _idFromName();
         $first = $clean((string)(strtok((string)($a['contact_name'] ?? ''), ' ') ?: ''));
         if (mb_strlen($first) > 20) $first = '';
         $when = date('D M j', strtotime($a['date']) ?: 0) . ' at ' . $a['time_label'];
@@ -219,8 +221,10 @@ class AppointmentService
     }
 
     /** @return array{subject: string, html: string} the confirmation email (body only; the caller wraps it). Pure. */
-    public static function confirmationEmail(array $a, string $company = 'Mowology', string $phone = '(778) 846-9273'): array
+    public static function confirmationEmail(array $a, string $company = '', string $phone = ''): array
     {
+        if ($company === '') $company = _idFromName();
+        if ($phone === '') $phone = _idPhone();
         $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
         $first = trim(strtok((string)($a['contact_name'] ?? ''), ' ') ?: '');
         $when = date('l, F j', strtotime($a['date']) ?: 0) . ' at ' . $a['time_label'];
@@ -231,7 +235,7 @@ class AppointmentService
               . ($where !== '' ? ' at ' . $h($where) : '') . '.</p>'
               . '<p>We\'ll look at the property and send you a written quote afterwards. You don\'t need to be home, '
               . 'but if a gate or side yard is locked, please let us know.</p>'
-              . '<p>Need a different time? Reply to this email or call ' . $h($phone) . '.</p>'
+              . '<p>Need a different time? Reply to this email' . ($phone !== '' ? ' or call ' . $h($phone) : '') . '.</p>'
               . '<p>Thanks,<br>' . $h($company) . '</p>';
         return ['subject' => ucfirst($what) . ' confirmed: ' . date('D M j', strtotime($a['date']) ?: 0) . ', ' . $a['time_label'], 'html' => $html];
     }

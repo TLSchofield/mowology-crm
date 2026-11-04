@@ -19,6 +19,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class SocialPublisher
 {
@@ -153,7 +154,7 @@ class SocialPublisher
         $stmt->execute([$postId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $baseUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $baseUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
         $urls = [];
 
         foreach ($rows as $row) {

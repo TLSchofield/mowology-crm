@@ -73,7 +73,7 @@ Anything touching receipts, expenses, GST/PST, invoices/payments, deposits, Stri
 statements, the ledger, payroll or Penny: load the `penny-bc-bookkeeping` skill first
 (`.claude/skills/penny-bc-bookkeeping/`). It holds BC rules, how this ledger works, Penny's
 operating rules, the one place for each job, iPhone/Android/web parity, and traps already hit.
-Every head has one: `penny-bc-bookkeeping`, `charlie-chief-of-staff`, `sam-sales`, `otto-operations`,
+Every head has one: `penny-bc-bookkeeping`, `kaname-chief-of-staff`, `sam-sales`, `otto-operations`,
 `mia-marketing`, `yui-comms`, `ada-technology`; location rules (country/province/city) are in the
 shared `regions` skill. `tests/Unit/Docs/HeadSkillsTest.php` keeps them in step with the code, and
 the end-of-session hook names the skills whose code changed.

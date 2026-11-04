@@ -80,3 +80,26 @@ and supplier price lists. It also opens the customer-portal invoice through its 
 When `import playwright` works (`pip3 install playwright`), a second pass renders each page in the
 installed Google Chrome and reports JavaScript errors. Requests to any host other than localhost
 are blocked. `--http` skips that pass.
+
+## Android emulator — the crew app as a founding business sees it
+
+`scripts/local-android.sh up` runs the crew app (the `tenanttest` flavor of `~/Projects/mowology-android-codex`)
+on an Android emulator against a **second business** on this local site, at `https://claudia.ittai.ca`, with
+every `android.native_*` switch on. Nothing touches production; the build refuses `mowology.ca` by design.
+
+How the pieces fit:
+
+| Piece | What it does |
+|---|---|
+| `scripts/local/provision-tenant.php` | `TenantProvisioner` with MySQL-on-the-socket standing in for cPanel: database `mowology_<key>`, `public/app_config/tenants.php` entry, uploads folder, owner login (password appended to `.credentials.local`). |
+| `scripts/local/seed.php` with `MW_TENANT=<key>` | The same fake data into the tenant's database; its own fake mail domain (`@<key>.test`), `LOCAL_SEED_TRADE` / `LOCAL_SEED_CITY` for BusinessIdentity. Logins are appended, not overwritten. `scripts/local-site.sh php …` runs any script with the site's php.ini and socket. |
+| `scripts/local/tls-proxy.py` | HTTPS on 127.0.0.1:8443 with a local CA (`~/.mowology-local/tls`), forwarding to the PHP server unchanged. The app only speaks https to a bare hostname, and `Tenant.php` picks the business from the Host header. |
+| `scripts/local/app-version.local.json` (gitignored) | Copied from `app-version.tenanttest.json`; `router.php` serves it as the crew-app feed, so the repo's `app-version.json` is never edited for a test. |
+| Emulator (AVD `claudia`, API 34 google_apis x86_64) | `-writable-system` so `/system/etc/hosts` maps `<key>.ittai.ca` → 127.0.0.1; `adb reverse tcp:443 → 8443`; the local CA goes in the user store, which the **tenanttest debug build** trusts through `debug-overrides` (`src/tenanttest/res/xml/network_security_config.xml`, ignored by release builds). Renderer `angle_indirect`: swiftshader never finished booting on the iMac and `-gpu host` hung QEMU. |
+
+Commands: `up` (all of it, re-runnable), `build`, `install`, `logins`, `status`, `down`. Settings by env:
+`TENANT_KEY`, `TENANT_NAME`, `TENANT_TRADE`, `TENANT_CITY`, `ANDROID_DIR`, `AVD`, `GRADLE_OFFLINE=1`.
+
+Driving the emulator by hand is slow (about two frames a second on the iMac): `adb shell input text` drops
+characters unless typed in short chunks, Back with no keyboard up quits the app, and taps must be aimed after a
+fresh screenshot because the layout shifts with the keyboard and with error banners.

@@ -49,9 +49,32 @@ final class OvertimeCalculatorPeriodTest extends TestCase
         $this->assertSame(660, $p['ot_1_5_minutes']);
     }
 
-    public function testSundayBelongsToTheWeekThatStartedMonday(): void
+    /** BC ESA s.1: the overtime week begins on Sunday (Fable review 2026-10-21; it was Monday). */
+    public function testTheOvertimeWeekStartsOnSunday(): void
     {
-        $p = OvertimeCalculator::calculatePeriod(['2026-10-11' => 60, '2026-10-12' => 60], 10.0);
-        $this->assertSame(['2026-10-05', '2026-10-12'], array_keys($p['weeks']));
+        $p = OvertimeCalculator::calculatePeriod(['2026-10-10' => 60, '2026-10-11' => 60, '2026-10-12' => 60], 10.0);
+        $this->assertSame(['2026-10-04', '2026-10-11'], array_keys($p['weeks']), 'Sat ends a week; Sun and Mon start the next');
+    }
+
+    /** Sunday 8 h + Monday–Friday 8 h = 48 h in one ESA week: 8 h weekly overtime (Monday weeks paid none). */
+    public function testASundayShiftCountsTowardThatWeeksForty(): void
+    {
+        $days = ['2026-10-11' => 480];
+        foreach (['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] as $d) $days[$d] = 480;
+        $p = OvertimeCalculator::calculatePeriod($days, 10.0);
+        $this->assertSame(480, $p['ot_1_5_minutes']);
+        $this->assertSame(2400, $p['regular_minutes']);
+    }
+
+    /** A Monday–Sunday pay period: the Sunday before it is in the same ESA week and counts toward the 40 h (Codex 2026-10-23). */
+    public function testTheSundayBeforeAMondayPeriodCountsTowardTheFortyButIsNotPaidAgain(): void
+    {
+        $days = [];
+        foreach (['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] as $d) $days[$d] = 480;   // Mon–Fri 40 h
+        $p = OvertimeCalculator::calculatePeriod($days, 10.0, ['2026-10-11' => 480]);                      // Sun 8 h, paid last period
+        $this->assertSame(2400 - 480, $p['regular_minutes']);
+        $this->assertSame(480, $p['ot_1_5_minutes'], 'Friday is past 40 h counting Sunday');
+        $this->assertEqualsWithDelta(32 * 10 + 8 * 15, $p['gross_pay'], 0.001, 'Sunday itself is not paid again');
     }
 }
+

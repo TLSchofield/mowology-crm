@@ -88,15 +88,15 @@ $endStr    = $end->format('Y-m-d');
 // The same rule and filters as the day (CrewViewScope, 2026-10-14), so the strip's dots match the list.
 require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
 $viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()),
-                                    in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null);
+                                    in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null, null, CrewViewScope::people(getDB()));
 $crewFilter = $viewScope['crew'];
 $weekService = null;
 try {
     $want = (string)($_GET['service'] ?? '');
     if ($want !== '') {
-        $chk = getDB()->prepare("SELECT slug FROM service_types WHERE slug = ? AND is_active = 1");
-        $chk->execute([$want]);
-        $weekService = $chk->fetchColumn() ?: null;
+        require_once APP_ROOT . '/Modules/Schedule/Services/ServiceTypeFilter.php';
+        $active = getDB()->query("SELECT slug FROM service_types WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN);
+        $weekService = ServiceTypeFilter::parse($want, $active);
     }
 } catch (Throwable $e) { /* no job-type filter */ }
 
