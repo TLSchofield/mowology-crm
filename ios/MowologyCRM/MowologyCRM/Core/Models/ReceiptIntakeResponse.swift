@@ -24,9 +24,15 @@ struct ReceiptIntakeResponse: Decodable {
     let jobSuggestions: [JobSuggestion]?
     let duplicateImage: DuplicateImageInfo?
     let gstValidation: GstValidation?
+    /// "server" | "device" — "device" means the phone's own text read supplied the total.
+    let totalSource: String?
+    /// The card the receipt was paid with, mapped to a person when the server knows it.
+    let card: ReceiptCard?
 
     enum CodingKeys: String, CodingKey {
         case success
+        case totalSource    = "total_source"
+        case card
         case mediaId        = "media_id"
         case ocrAvailable   = "ocr_available"
         case ocrSource      = "ocr_source"
@@ -35,6 +41,27 @@ struct ReceiptIntakeResponse: Decodable {
         case jobSuggestions = "job_suggestions"
         case duplicateImage = "duplicate_image"
         case gstValidation  = "gst_validation"
+    }
+}
+
+struct ReceiptCard: Decodable {
+    let last4: String
+    let userId: Int?
+    let holder: String?
+    let label: String?
+    let paymentMethod: String?
+
+    enum CodingKeys: String, CodingKey {
+        case last4, holder, label
+        case userId        = "user_id"
+        case paymentMethod = "payment_method"
+    }
+
+    /// "Visa ••5760 — Tim": label (else "Card"), last four, holder when known.
+    var display: String {
+        let name = (label?.isEmpty == false) ? label! : "Card"
+        let who  = (holder?.isEmpty == false) ? " — \(holder!)" : ""
+        return "\(name) ••\(last4)\(who)"
     }
 }
 
@@ -298,6 +325,8 @@ struct JobSuggestion: Decodable, Identifiable {
     let serviceType: String?
     let propertyAddress: String?
     let score: Int?
+    /// True on at most one suggestion, only when the schedule match is decisive.
+    let autoSelect: Bool?
 
     var id: Int { planId }
 
@@ -309,6 +338,7 @@ struct JobSuggestion: Decodable, Identifiable {
         case serviceType     = "service_type"
         case propertyAddress = "property_address"
         case score
+        case autoSelect      = "auto_select"
     }
 }
 

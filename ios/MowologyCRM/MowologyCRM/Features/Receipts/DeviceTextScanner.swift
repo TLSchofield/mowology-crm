@@ -12,6 +12,12 @@ enum DeviceTextScanner {
         let version: String
     }
 
+    /// A read already in flight, started by the caller while the GPS fix is still settling.
+    struct Prefetched {
+        let task: Task<Result?, Never>
+        init(_ imageData: Data) { task = Task.detached(priority: .userInitiated) { await DeviceTextScanner.read(imageData) } }
+    }
+
     /// Longest we let the on-device read hold the upload.
     private static let timeoutSeconds: Double = 6
 

@@ -141,7 +141,12 @@ struct ReceiptsView: View {
                     imageData: capturedImageData,
                     lat: captureLat,
                     lng: captureLng,
-                    isPresented: $showReview
+                    isPresented: $showReview,
+                    onRetake: {
+                        // Same path as "Snap Another": close the sheet, then reopen the camera.
+                        snapAnotherPending = true
+                        showReview = false
+                    }
                 ) { followUp in
                     snapAnotherPending = (followUp == .snapAnother)
                 }
@@ -235,6 +240,8 @@ struct ReceiptsView: View {
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
+        // The phone's own text read starts now and runs while the fix settles; upload waits for both.
+        let deviceRead: DeviceTextScanner.Prefetched? = labelMode ? nil : DeviceTextScanner.Prefetched(compressed)
         let loc = await Self.captureFix() ?? locationManager.location
         if labelMode {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
@@ -247,7 +254,8 @@ struct ReceiptsView: View {
         await viewModel.uploadImage(
             compressed,
             lat: captureLat,
-            lng: captureLng
+            lng: captureLng,
+            deviceRead: deviceRead
         )
         if viewModel.intakeResponse != nil { showReview = true }
     }

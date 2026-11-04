@@ -120,7 +120,7 @@ final class ReceiptsViewModel: ObservableObject {
             pst:           pst,
             total:         total,
             category:      s?.accountingCategory ?? "",
-            paymentMethod: p?.paymentMethod ?? "credit_card",
+            paymentMethod: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card",
             rawOcrText:    intake.ocrText,
             ocrParsed:     p
         )
@@ -335,12 +335,12 @@ final class ReceiptsViewModel: ObservableObject {
 
     // MARK: - Upload
 
-    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
+    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?, deviceRead: DeviceTextScanner.Prefetched? = nil) async {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil, deviceRead: deviceRead)
         } catch let err as APIError {
             // Queue the receipt only when the server didn't decide (review round 2):
             // - .networkError: offline, our 45s cap, 5xx / PHP kill, a truncated answer (UploadFault)
