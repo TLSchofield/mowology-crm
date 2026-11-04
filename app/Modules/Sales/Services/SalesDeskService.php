@@ -461,7 +461,7 @@ class SalesDeskService
         $rows = $this->db->query("
             SELECT qr.id, qr.service_types, qr.urgency, qr.status, qr.source, qr.project_description, qr.created_at,
                    c.id AS contact_id, c.first_name, c.last_name, c.email, COALESCE(NULLIF(c.mobile, ''), c.phone) AS phone,
-                   p.address, p.city
+                   p.address, p.city, p.latitude AS lat, p.longitude AS lng
             FROM quote_requests qr
             LEFT JOIN contacts c ON c.id = qr.contact_id
             LEFT JOIN properties p ON p.id = qr.property_id
@@ -486,7 +486,28 @@ class SalesDeskService
                 unset($r);
             } catch (Throwable $e) { /* before migration 1369: no visits */ }
         }
-        return array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s'), $this->leadSignals($rows)), 0, max(1, $limit));
+        $ranked = array_slice(self::rankLeads($rows, $this->averageByService(), date('Y-m-d H:i:s'), $this->leadSignals($rows)), 0, max(1, $limit));
+        return $this->withVisitDays($ranked, $rows);
+    }
+
+    /** Otto's best day for the crew to look at each lead (LeadRouteDay) — suggested only; booking stays Tim's tap. Own try: Sam's list never depends on it. */
+    private function withVisitDays(array $leads, array $rows): array
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Operations/Services/OttoLeadService.php';
+            $pins = [];
+            foreach ($rows as $r) $pins[] = ['id' => (int)$r['id'], 'lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has_address' => trim((string)($r['address'] ?? '')) !== ''];
+            $days = (new OttoLeadService($this->db))->bestDays($pins);
+            foreach ($leads as &$l) {
+                if (!isset($days[$l['id']])) continue;
+                $d = $days[$l['id']];
+                $l['visit_day'] = ['line' => LeadRouteDay::line($d), 'best' => $d['best'], 'alternatives' => $d['alternatives'], 'none' => $d['none']];
+            }
+            unset($l);
+        } catch (Throwable $e) {
+            error_log('Sam leads: best day: ' . $e->getMessage());
+        }
+        return $leads;
     }
 
     /**
@@ -748,7 +769,7 @@ class SalesDeskService
         }
         foreach ($quiet as $q) {
             $items[] = ['key' => 'sam:quiet:' . $q['key'], 'kind' => 'quiet_client', 'value' => $q['spend_12m'], 'since' => $q['last'],
-                        'text' => $q['name'] . ' has gone ' . $q['state'] . ' — ' . $q['reason'] . ' (worth $' . number_format($q['spend_12m'], 0) . ' a year; a no-pitch check-in is drafted)', 'url' => $q['url'], 'priority' => $q['state'] === 'gone' && $q['spend_12m'] >= SamSignals::GONE_WORTH ? 1 : 2];
+                        'text' => $q['name'] . ' ' . ($q['state'] === 'gone' ? 'looks lost' : 'has gone quiet') . ' — ' . $q['reason'] . ' (worth $' . number_format($q['spend_12m'], 0) . ' a year; a no-pitch check-in is drafted)', 'url' => $q['url'], 'priority' => $q['state'] === 'gone' && $q['spend_12m'] >= SamSignals::GONE_WORTH ? 1 : 2];
         }
         foreach (array_slice($cards, 0, 3) as $c) {
             $items[] = [
@@ -1067,7 +1088,7 @@ class SalesDeskService
                 'untouched' => $heat['untouched'],
                 'created_at' => (string)$r['created_at'],
                 'next'      => $next,
-                'url'       => '/crm/quotes/create.php?quote_request_id=' . (int)$r['id'],
+                'url'       => '/crm/quote-workflow.php?request_id=' . (int)$r['id'],   // measure and quote screen, as the dashboard's request cards do (Tim 2026-11-03)
             ];
         }
         $ordered = LeadScore::order($out);

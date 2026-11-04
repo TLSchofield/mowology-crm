@@ -79,7 +79,7 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
       <?php else: ?>
         no quotes are waiting on a reply right now.
       <?php endif; ?>
-      <?php if ($__ss['leads_new'] > 0): ?> And <b><?= (int)$__ss['leads_new'] ?> new lead<?= $__ss['leads_new'] === 1 ? '' : 's' ?></b> to look at.<?php endif; ?>
+      <?php if ($__ss['leads_new'] > 0): ?> And <a href="#mw-sam-leads" class="mw-sam-jump" data-jump="mw-sam-leads"><b><?= (int)$__ss['leads_new'] ?> new lead<?= $__ss['leads_new'] === 1 ? '' : 's' ?></b></a> to look at.<?php endif; ?>
     </div>
 
     <div class="mw-head-stats mw-sam-stats">
@@ -130,13 +130,15 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
       <div class="mw-rc-empty">Loading follow-ups…</div>
     </div>
 
+    <?php /* New leads come straight after the follow-up carousel: they are money in, and the headline points here (Tim, 2026-11-03: "the ui for seeing them and acting on them is not there" — it was five boxes down). */ ?>
+    <div class="mw-sam-leads" id="mw-sam-leads" hidden></div>
+
     <div class="mw-sam-leads mw-sam-approved" id="mw-sam-approved" hidden></div>
 
     <div class="mw-sam-leads mw-sam-replies" id="mw-sam-replies" hidden></div>
 
     <div class="mw-sam-leads mw-sam-asks" id="mw-sam-asks" hidden></div>
 
-    <div class="mw-sam-leads" id="mw-sam-leads" hidden></div>
     <div class="mw-sam-leads" id="mw-sam-renewals" hidden></div>
     <div class="mw-sam-leads" id="mw-sam-quiet" hidden></div>
     <div class="mw-sam-leads" id="mw-sam-hygiene" hidden></div>
