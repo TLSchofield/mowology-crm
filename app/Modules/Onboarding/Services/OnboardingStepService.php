@@ -49,8 +49,7 @@ final class OnboardingStepService
                     $name = trim((string)($in['name'] ?? '')); $started = $identity->start($name); if (empty($started['ok'])) return self::failed($started);
                     $r = $identity->search($name); $matches = [];
                     foreach ((array)($r['matches'] ?? []) as $m) $matches[] = ['name' => (string)($m['operating_names'][0] ?? $m['legal_name'] ?? ''), 'registration_number' => (string)($m['registration_number'] ?? ''), 'status' => (string)($m['status'] ?? ''), 'record_id' => (string)($m['record_id'] ?? '')];
-                    // registry: 'ok' | 'unavailable' | … from the provider, so the phone can tell no match from no connection.
-                    return ['ok' => true, 'next' => $onboarding->next(), 'matches' => $matches, 'registry' => (string)($r['status'] ?? '')];
+                    return ['ok' => true, 'next' => $onboarding->next(), 'matches' => $matches, 'registry' => self::registryState((string)($r['status'] ?? ''))];
                 }
                 if ($do === 'confirm') $r = $identity->confirm((string)($in['record_id'] ?? ''));
                 elseif ($do === 'manual') $r = $identity->manual(['legal_name' => trim((string)($in['name'] ?? ''))]);
@@ -89,6 +88,16 @@ final class OnboardingStepService
             error_log('Onboarding phone step ' . $key . ': ' . get_class($e));
             return ['ok' => false, 'error' => $e instanceof InvalidArgumentException ? 'validation' : 'refused', 'message' => $e instanceof InvalidArgumentException ? $e->getMessage() : 'That did not work. Nothing was changed.'];
         }
+    }
+
+    /**
+     * The phone contract: 'ok' when the registry answered (with or without matches), else the provider's reason
+     * ('unavailable', 'rate_limited'). The provider says 'matches' / 'none' on success, which the app read as
+     * "can't be reached" (rehearsal walk 2026-11-03).
+     */
+    public static function registryState(string $providerStatus): string
+    {
+        return in_array($providerStatus, ['matches', 'none', 'ok'], true) ? 'ok' : ($providerStatus === '' ? 'unavailable' : $providerStatus);
     }
 
     private function identity(int $userId)

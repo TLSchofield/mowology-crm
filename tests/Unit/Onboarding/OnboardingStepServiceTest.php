@@ -39,6 +39,9 @@ final class OnboardingStepServiceTest extends TestCase
         };
         $s=new OnboardingStepService($db,'tenant',static fn(int $uid)=>$identity);
         $r=$s->apply(7,['key'=>'company','do'=>'search','name'=>'Acme']);$this->assertSame('r1',$r['matches'][0]['record_id']);
+        $this->assertSame('ok',OnboardingStepService::registryState('matches'));$this->assertSame('ok',OnboardingStepService::registryState('none'));
+        $this->assertSame('unavailable',OnboardingStepService::registryState('unavailable'));$this->assertSame('rate_limited',OnboardingStepService::registryState('rate_limited'));
+        $this->assertSame('unavailable',OnboardingStepService::registryState(''));
         $this->assertTrue($s->apply(7,['key'=>'company','do'=>'confirm','record_id'=>'r1'])['ok']);$this->assertSame('Acme',$db->query('SELECT company_name FROM business_settings')->fetchColumn());
         $this->assertTrue($s->apply(7,['key'=>'company','do'=>'manual','name'=>'Manual Co'])['ok']);$this->assertSame('Manual Co',$db->query('SELECT company_name FROM business_settings')->fetchColumn());
     }
