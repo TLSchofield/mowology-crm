@@ -243,7 +243,8 @@ if (!$error && $visit) {
         $prunePlans = new PruningPlanService($db);
         foreach (array_keys($planIds) as $planId) {
             $pp = $prunePlans->get($planId);
-            if ($pp && in_array($pp['status'], ['approved', 'scheduled', 'done'], true) && !empty($pp['plan']['client_summary'])) {
+            if ($pp && $pp['property_id'] === (int)($visit['property_id'] ?? -1)
+                && in_array($pp['status'], ['approved', 'scheduled', 'done'], true) && !empty($pp['plan']['client_summary'])) {
                 $pruneWhy[] = ['plant' => $pp['common_name'] ?: $pp['scientific_name'], 'summary' => (string)$pp['plan']['client_summary']];
             }
         }

@@ -115,6 +115,15 @@ class PlantWorkServiceTest extends TestCase
         $this->assertNull(PlantWorkService::nextTask([], 5));
     }
 
+    public function test_a_plan_is_complete_only_when_every_real_line_is_ticked(): void
+    {
+        $lines = ['Remove dead wood', '', 'Shorten tips'];
+        $this->assertTrue(PlantWorkService::planComplete($lines, [1 => true, 3 => true]), 'the blank line 2 is not needed');
+        $this->assertFalse(PlantWorkService::planComplete($lines, [1 => true, 1 => true]), 'one line repeated does not stand in for another');
+        $this->assertFalse(PlantWorkService::planComplete($lines, [1 => true, 3 => false]));
+        $this->assertFalse(PlantWorkService::planComplete([], [1 => true]), 'an empty plan is never closed by a checklist');
+    }
+
     public function test_task_only_strips_the_plant_part(): void
     {
         $this->assertSame('Thin crossing shoots', PlantWorkService::taskOnly('Thin crossing shoots — Japanese maple (×6)'));

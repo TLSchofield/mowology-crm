@@ -234,6 +234,7 @@ class PlantWorkService
         if ($visitId < 1 || $propertyId < 1 || !$this->ready()) return 0;
         try {
             $own = $this->plantIdsOn($propertyId);
+            $ownPlans = $this->planIdsOn($propertyId);
             $now = date('Y-m-d H:i:s');
             $up = $this->db->prepare("
                 INSERT INTO plant_work_log (property_id, plant_record_id, visit_id, source, task_key, task, done, done_at, done_by, note, scheduled_for, created_at, updated_at)
@@ -248,8 +249,9 @@ class PlantWorkService
                 $key = (string)($it['key'] ?? '');
                 if (!preg_match(self::KEY_RE, $key)) continue;
                 $done = !empty($it['checked']);
-                [$kind, $refId] = explode(':', $key);
-                if ($kind === 'plan') $planLines[(int)$refId][] = $done;
+                [$kind, $refId, $n] = explode(':', $key);
+                if ($kind === 'plan' && !isset($ownPlans[(int)$refId])) continue;   // a plan on another property is ignored
+                $wrote = false;
                 foreach (array_unique(array_map('intval', (array)($it['plant_ids'] ?? []))) as $pid) {
                     if (!isset($own[$pid])) continue;   // a plant id from another property is ignored, not trusted
                     $up->execute([$propertyId, $pid, $visitId, $kind === 'plan' ? 'pruning_plan' : 'care', $key, mb_substr((string)$it['item'], 0, 255),
@@ -257,7 +259,10 @@ class PlantWorkService
                                   $date ?: null, $now, $now]);
                     $kept[] = $pid . '|' . $key;
                     $written++;
+                    $wrote = true;
                 }
+                // Line n of the plan counts as ticked only if it was written against a real plant here; a repeated line counts once.
+                if ($kind === 'plan' && $wrote) $planLines[(int)$refId][(int)$n] = ($planLines[(int)$refId][(int)$n] ?? true) && $done;
             }
             $this->dropRemoved($visitId, $kept);
             foreach ($planLines as $planId => $ticks) $this->closePlanIfDone($planId, $propertyId, $ticks, $userId);
@@ -274,6 +279,18 @@ class PlantWorkService
         $s = $this->db->prepare('SELECT id FROM plant_records WHERE property_id = ?');
         $s->execute([$propertyId]);
         return array_fill_keys(array_map('intval', array_column($s->fetchAll(PDO::FETCH_ASSOC), 'id')), true);
+    }
+
+    /** @return array<int, true> */
+    private function planIdsOn(int $propertyId): array
+    {
+        try {
+            $s = $this->db->prepare('SELECT id FROM plant_work_plans WHERE property_id = ?');
+            $s->execute([$propertyId]);
+            return array_fill_keys(array_map('intval', array_column($s->fetchAll(PDO::FETCH_ASSOC), 'id')), true);
+        } catch (Throwable $e) {
+            return [];   // before migration 1430
+        }
     }
 
     private function dropRemoved(int $visitId, array $kept): void
@@ -295,8 +312,7 @@ class PlantWorkService
     {
         $plan = $this->plans->get($planId);
         if (!$plan || $plan['property_id'] !== $propertyId || !in_array($plan['status'], ['approved', 'scheduled'], true)) return;
-        $lines = array_filter(array_map('trim', array_map('strval', $plan['plan']['crew_checklist'] ?? [])), fn($l) => $l !== '');
-        if ($lines && count($ticks) >= count($lines) && !in_array(false, $ticks, true)) $this->plans->markDone($planId, $userId);
+        if (self::planComplete($plan['plan']['crew_checklist'] ?? [], $ticks)) $this->plans->markDone($planId, $userId);
     }
 
     // ── History ─────────────────────────────────────────────────────────────
@@ -358,6 +374,18 @@ class PlantWorkService
             $out[$k]['plants'][(string)$r['plant']] = true;
         }
         return array_values(array_map(fn($l) => ['plants' => array_keys($l['plants'])] + $l, $out));
+    }
+
+    /** Every non-empty crew line (numbered as compose() numbers them) is on the checklist and ticked. $ticks: line n => ticked */
+    public static function planComplete(array $crewChecklist, array $ticks): bool
+    {
+        $need = 0;
+        foreach (array_values($crewChecklist) as $i => $l) {
+            if (trim((string)$l) === '') continue;
+            $need++;
+            if (empty($ticks[$i + 1])) return false;
+        }
+        return $need > 0;
     }
 
     /** The task due now, else the next one to start: {task, when, now}. */
