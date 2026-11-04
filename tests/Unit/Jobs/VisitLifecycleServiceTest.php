@@ -201,4 +201,40 @@ class VisitLifecycleServiceTest extends TestCase
             VisitLifecycleService::computeMissingPhotos($required, $uploaded)
         );
     }
+    // ---- canSkipFromStatus / skippableAtStop (desktop Skip, 2026-11-03) ----
+
+    public function test_crew_skip_only_from_scheduled(): void
+    {
+        $this->assertTrue(VisitLifecycleService::canSkipFromStatus('scheduled'));
+        $this->assertFalse(VisitLifecycleService::canSkipFromStatus('in_progress'));
+        $this->assertFalse(VisitLifecycleService::canSkipFromStatus('completed'));
+    }
+
+    public function test_desk_skip_also_from_in_progress_never_completed(): void
+    {
+        $this->assertTrue(VisitLifecycleService::canSkipFromStatus('scheduled', true));
+        $this->assertTrue(VisitLifecycleService::canSkipFromStatus('in_progress', true));
+        $this->assertFalse(VisitLifecycleService::canSkipFromStatus('completed', true));
+        $this->assertFalse(VisitLifecycleService::canSkipFromStatus('cancelled', true));
+    }
+
+    public function test_skippable_at_stop_picks_open_visits_and_names_refusals(): void
+    {
+        $visits = [
+            ['visit_id' => 1, 'visit_status' => 'scheduled'],
+            ['visit_id' => 2, 'visit_status' => 'in_progress'],
+            ['visit_id' => 3, 'visit_status' => 'completed'],
+            ['visit_id' => 4, 'visit_status' => 'skipped'],
+            ['visit_id' => 5, 'visit_status' => 'scheduled', 'locked_at' => '2026-11-03 10:00:00'],
+            ['visit_id' => 6, 'visit_status' => 'scheduled', 'invoice_id' => 9],
+        ];
+        $crew = VisitLifecycleService::skippableAtStop($visits, false);
+        $this->assertSame([1], $crew['skip']);
+        $this->assertSame(['2: in_progress', '3: completed', '5: locked', '6: invoiced'], $crew['refused']);
+
+        $desk = VisitLifecycleService::skippableAtStop($visits, true);
+        $this->assertSame([1, 2], $desk['skip']);
+        $this->assertSame(['3: completed', '5: locked', '6: invoiced'], $desk['refused']);
+    }
+
 }

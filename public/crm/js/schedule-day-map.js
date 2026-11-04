@@ -1144,6 +1144,40 @@ var MwDayViewMap = (function() {
                 + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
                 + ' Complete</button>';
         }
+        footer.innerHTML += '<button class="mw-dv-btn-skip" data-stop-id="' + escapeHtml(stopId) + '" title="Skip this stop — not done today">Skip</button>';
+    }
+
+    // Skipped: blue ✕ badge + Unskip — the same footer schedule.php renders for a skipped stop.
+    function setCardSkippedState(card, visitIds) {
+        card.className = card.className.replace(/mw-stop-status-\w+/g, '') + ' mw-stop-status-skipped';
+        var footer = card.querySelector('.mw-dv-card-footer');
+        if (!footer) return;
+        var stopId = card.dataset.stopId || '';
+        footer.className = 'mw-dv-card-footer mw-dv-footer-skipped';
+        footer.innerHTML =
+            '<span class="mw-dv-skip-badge">'
+            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+            + ' Skipped</span>'
+            + (visitIds && visitIds.length
+                ? '<button class="mw-dv-btn-reopen mw-dv-btn-unskip" data-stop-id="' + escapeHtml(stopId) + '" data-visit-ids="' + escapeHtml(visitIds.join(',')) + '" title="Undo skip — put this stop back on the route">Unskip</button>'
+                : '');
+    }
+
+    function dvSkipStop(card, stopId) {
+        var btns = card.querySelectorAll('.mw-dv-btn-complete, .mw-dv-btn-skip');
+        btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.6'; });
+        dvPost(
+            { action: 'skip_stop', stop_id: stopId },
+            function(data) {
+                setCardSkippedState(card, data.skipped || []);
+                var left = (data.refused || []).length;
+                showDvToast(left ? 'Stop skipped — ' + left + ' visit' + (left === 1 ? '' : 's') + ' left as is.' : 'Stop skipped.', 'info');
+            },
+            function(errMsg) {
+                btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+                showDvToast(errMsg, 'error');
+            }
+        );
     }
 
     function escapeHtml(str) {
@@ -1223,6 +1257,15 @@ var MwDayViewMap = (function() {
             var card = btn.closest('.mw-dv-card');
             if (!card) return;
             dvCompleteStop(card, parseInt(card.dataset.stopId, 10), btn.dataset.invoice === '1');
+            return;
+        }
+
+        var skip = e.target.closest('.mw-dv-btn-skip');
+        if (skip) {
+            var sCard = skip.closest('.mw-dv-card');
+            if (!sCard) return;
+            if (!confirm('Skip this stop? It is marked not done today; a visit already started is stopped and its timer closed.')) return;
+            dvSkipStop(sCard, parseInt(sCard.dataset.stopId, 10));
             return;
         }
 

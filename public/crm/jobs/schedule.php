@@ -2264,6 +2264,9 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2380,7 +2383,26 @@ if ($apiKey) {
                               }
                           }
                           ?>
-                          <?php if ($dvStopDone): ?>
+                          <?php
+                          $dvVisitStatuses2 = array_column($stop['visits'] ?? [], 'visit_status');
+                          $dvStopSkipped2 = !$dvStopDone && !empty($dvVisitStatuses2)
+                              && (($stop['stop_status'] ?? '') === 'skipped'
+                                  || count(array_filter($dvVisitStatuses2, fn($s) => $s === 'skipped')) === count($dvVisitStatuses2));
+                          ?>
+                          <?php if ($dvStopSkipped2): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-skipped">
+                              <span class="mw-dv-skip-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Skipped
+                              </span>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen mw-dv-btn-unskip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Undo skip — put this stop back on the route">Unskip</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php elseif ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
                               <span class="mw-dv-done-badge">
                                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -2424,6 +2446,9 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
                           </div>
                           <?php endif; ?>
                       </div>

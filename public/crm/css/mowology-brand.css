@@ -5373,6 +5373,22 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-dv-btn-reopen:hover { background:#f8f9fa; color:#495057; border-color:#ced4da; }
 
+/* Skip on a pending stop card (2026-11-03) — ghost button after the Complete pair */
+.mw-dv-btn-skip {
+  flex:0 0 auto;
+  background:none;
+  border:1px solid #dee2e6;
+  border-radius:5px;
+  padding:6px 9px;
+  font-size:0.72rem;
+  font-weight:600;
+  color:#868e96;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background 0.1s,color 0.1s,border-color 0.1s;
+}
+.mw-dv-btn-skip:hover:not(:disabled) { background:#eef4fe; color:#1D4ED8; border-color:#bfd3f6; }
+
 /* Skipped stop footer — blue ✕ badge + Unskip (matches the blue map pin) */
 .mw-dv-footer-skipped {
   justify-content:space-between;
