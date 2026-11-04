@@ -199,3 +199,10 @@ load was six times crew capacity. `DwellTimeService::updatePlanDwellAverage()` a
 (see the note in `VisitDurationService`), so one bad dwell can poison a plan. Rule: the load check reports a day over
 300% of capacity, or one plan at ≥ a full crew-day, as "a plan length looks wrong" and never as an over-booking;
 fix the plan before reading the week.
+
+## 2026-11-03 — a lead's property was never a candidate for Otto's arrival border
+`OttoAutoPlaceService` placed only active properties and properties on a quote, every 6 hours, so a lead (a quote request
+with no quote yet) had a pin from the intake form but no border for days (#77 and #78 arrived pinned, unbordered; #74 had
+neither). Rule: open leads are candidates (`OttoAutoPlaceService::leadCandidates()`), and `OttoLeadService::placeOpenLeads()`
+runs every 15 minutes from the inbox poll. Also: `SalesDeskService::rankLeads()` is STATIC — the first deploy of the best-day
+block put `$this` in it, the guard swallowed the error and no lead got a day (found by reading the live log, not the page).

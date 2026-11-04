@@ -130,6 +130,16 @@ trades first. The AI back office is the edge.
   fill them in Settings → Users and Penny's payroll checks gain the same.
 - **Restock velocity** stays n/a until stock is counted somewhere (no table today).
 
+## Yui and Otto-leads follow-ups (2026-11-03)
+- **Urgent email for a held message** (payment-detail change, wire, password ask): `CharlieUrgentService` is ahead on production; add a Yui source
+  there (key `urgent:yui:hold:<hash>`) once it is pulled into the branch. Today a hold is priority 1 in Yui's card and Charlie's brief only.
+- **Cold pitches in Sam's replies:** "A customer replied 'Hello' — Tree Service App" is a vendor pitch with a contact record; inbox-manager files pitches
+  silently. A pitch rule (sender describes their product, not a problem) belongs with `UnclaimedReplyService::isAutomated()`.
+- **A client who leaves rude-to-Tim** (contact #218, Nov 2: "exceptionally rude", switching company) is in no queue; a lost-client note should reach Tim.
+- **Yard for Otto's route days:** `ops_settings` closer_depot_lat / closer_depot_lng are empty.
+- **A suite failure that did not reproduce** (once in four full runs on 2026-11-03); if it returns, capture the name.
+- **`git push` to `feature/language` is refused by the permission layer** in this session; 20+ local commits wait on the worktree branch.
+
 ## Ada follow-ups (2026-11-03, after the register shipped)
 - **Drift: 88 files on production differ from `feature/language`** (`app/Core/Auth/JwtAuth.php`, `session_config.php`, Accounting services, schedule pages, `appstack_*.php`, `public/.htaccess`…) — other sessions' deploys from other branches. Ada's drift row is now truthful and Critical. A session should walk the list: `scripts/prod-pull.sh --into-repo` each, decide branch vs live, commit what is wanted, redeploy through a manifest-recording script. Until then the red stands, correctly.
 - **`ReviewRequestService`: Unknown column `c.review_request_sent_at`** (live error log 13:38, visit #2378) — a migration shipped and never run, or a column renamed; one of the "116 never run". Owner: Mia / visits.
@@ -146,7 +156,7 @@ trades first. The AI back office is the edge.
 4. **Otto** — DONE 2026-11-03 (`docs/plans/2026-11-03-otto-harvest.md`) — `operations` plugin (capacity-plan, vendor-review, change-request) + small-business inventory/restock
    (velocity, stockout, reorder maths, buffer = min(30, max(7, lead/2))), payroll-prep punch rules weekly on time_entries;
    diff against OttoRules / OttoActionService / RecurringBillService / supplier lists.
-5. **Yui** — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
+5. **Yui** — DONE 2026-11-03 (`docs/plans/2026-11-03-yui-harvest.md`) — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
    voice profile + slop test, outreach cadences (0/+4/+11/+21; never two sends in 48 h; trades 6–8 am or after 5 pm),
    customer-support `ticket-triage` / `draft-response`; diff against YuiRules / YuiDraftService / IcloudInboxRouter.
 6. **Kaname (Charlie)** — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask

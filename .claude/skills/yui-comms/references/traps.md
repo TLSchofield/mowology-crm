@@ -108,3 +108,13 @@ for operation 'like'" — 98 a day. Production mixes utf8mb4_0900_ai_ci (propert
 quotes, ops_settings) with utf8mb4_general_ci (contracts); CONCAT_WS over both has no collation,
 so the ZZTEST `NOT LIKE` fails. **Rule:** multi-column ZZTEST filters use
 `YuiDeskService::notTest()`, which collates each column (YuiDeskCollationTest enforces it).
+
+## 2026-11-03 — a reply list that quoted the greeting, kept a crew text for six days and could draft a bank-change reply
+Live desk: "Joe replied \"Hi Tim,\"" (the quote was the greeting), Nigel's text (a crew manager who is also contact #24) sat six days in
+the client inbox, a bare "All right" and a "👍" waited a week, and nothing stopped Yui drafting a reply to a message that asked
+to change payment details. Rules now in code: the quote skips greetings and quoted history (`UnclaimedReplyService::quote()`);
+staff are matched by email, or by phone WITH the same first name (a family sharing a number is still a client); an acknowledgement
+leaves the list unless our last message asked something (a `?` or "please confirm"/"let me know"); a held message is removed from the
+ordinary list for good, even after its hold is marked Handled (otherwise the draftable copy comes back); the repeat-chase rule needs a
+weekday gap (two texts in a row are one conversation); a mention of a credential ("the PDF password is the invoice number") is dropped
+sentence by sentence, so a real ask beside it still holds.

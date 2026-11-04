@@ -1,6 +1,6 @@
 # Otto on arrival of a lead: arrival border now, best day to visit (2026-11-03)
 
-Status: **PLAN — waiting for Tim's yes.** Tim, 2026-11-03: "Otto should immediately sort out their arrival border, work out
+Status: **APPROVED ("approve all") and BUILT 2026-11-03** — see "Build record". Plan as approved: Tim, 2026-11-03: "Otto should immediately sort out their arrival border, work out
 where they would be on a route [best day to visit for a quote/service]." Read as: the moment a lead has an address,
 Otto pins it, draws its arrival border, and says which working day the crew could look at it (and later do the first
 service) at least extra driving.
@@ -67,3 +67,21 @@ Otto **suggests only**: the existing appointment booking stays Tim's tap.
    Charlie's brief in Chrome.
 6. Not built: automatic booking, any message to the lead, travel-time from a live map API (straight-line × 1.4 at 40 km/h
    like the Closer), crew preference.
+
+## Build record (2026-11-03)
+- Pulled live-only `OttoAutoPlaceService`, `ParcelLotService`, `CityParcelService` (and the lot-border wording in `PropertyBorderService` /
+  `PropertyBorderRules`) into the branch with their tests and fixtures (commit f6d6e0ce4). New: `LeadRouteDay` (pure),
+  `OttoLeadService` (`placeOpenLeads()`, `bestDays()`), `OttoAutoPlaceService::leadCandidates()` / `placeNewLead()`, `OttoHarvestService::dayLoads()`;
+  wired into `SalesDeskService::withVisitDays()` → Sam's lead row, `quote-workflow.php` (Otto's line + the quote-visit Day pre-filled), and the
+  15-minute `sales_inbox_poll.php`. The website-form hook in the plan was dropped: leads arrive by several paths, one catch-up covers them all.
+  `tests/Unit/Operations/OttoLeadIntakeTest.php` (10 tests).
+- **Dry run on live:** three open leads placed in 2.3 s, all three with City of Vancouver lot borders (the licence credited in the border note), one
+  of them also pinned (James Gray, #74). Best days for the five leads with addresses: Thu Nov 5 (adds under 1 min) for Denis, Anita, John and
+  James; Tue Nov 10 (4 min) for Mark. Three leads have no address (Erickbentley978, Daniel Soderberg, the Strassers): "ask for it".
+- **Codex** (3 findings, all fixed): the retry state is merged on write; one lead that throws cannot starve the rest (the attempt is recorded
+  first); no crew count means no suggestion rather than an unlimited day.
+- **Found in production, not by tests:** the best-day block first went into the STATIC `SalesDeskService::rankLeads()` (`$this` does not exist
+  there), the guard swallowed it and no lead got a day. Found by reading the server log; moved into `withVisitDays()`, regression test added.
+- **Live:** Denis's measure-and-quote screen shows his lot as the arrival border on the satellite map, no "No arrival border" alert, Otto's three
+  days, and the quote-visit Day pre-filled to Nov 5. Plan #99 (8,009 min) and #59 (1,319 min) are named and left out of the load.
+- **Needs Tim:** no yard is set (`closer_depot_lat/lng` empty), so a day with no crew route has no estimate; set a yard or let the Closer geocode the business address.

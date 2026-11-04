@@ -1,6 +1,6 @@
 # Yui harvest — what the inbox, support and outreach skills add to the comms desk (2026-11-03)
 
-Status: **PLAN — waiting for Tim's yes.** Survey (Sonnet, numbers only) of small-business `inbox-manager`,
+Status: **APPROVED ("approve all") and BUILT 2026-11-03** — see "Build record" at the end. Plan as approved: Survey (Sonnet, numbers only) of small-business `inbox-manager`,
 `outreach-composer`, `speed-to-lead`, `ticket-deflector`, `reactivate`, `review-reputation`, `lead-triage`, `crm-autopilot`,
 `shared/untrusted-content.md`, `shared/gmail-inbox-traps.md`, and customer-support `ticket-triage`, `draft-response`,
 `customer-escalation`, `kb-article`. Diffed against `YuiRules`, `YuiDeskService`, `YuiDraftService`,
@@ -96,3 +96,21 @@ in `yui_actions` — expect few flags.
 `tests/Unit/Comms/YuiHarvestRulesTest.php`, Codex on the new classes, `YuiDraftService`, `YuiDeskService`,
 `YuiRules`, `UnclaimedReplyService`; deploy dependency-first (pure classes, rules, services, card), OPcache, Yui's card
 and Charlie's brief checked in Chrome; `MailboxReadOnlyTest` untouched (Yui opens no mailbox).
+
+## Build record (2026-11-03)
+- Commits 8076f8cbe … 1a67514c0: `UntrustedAsk`, `ReplyClock`, `UpsetSignal`, `DraftChecks` (pure); `YuiDeskService::holds()` / `triage()`,
+  `YuiRules::rank()` / `headline()`, `YuiDraftService` (refuses a held item, acknowledgement-only draft for an unhappy client, draft
+  checks in `flag_label`), `UnclaimedReplyService::quote()`, `yui-card.js`, CSS; `tests/Unit/Comms/YuiHarvestRulesTest.php` (20 tests).
+- **Dry runs on live (rolled back):** 501 inbound messages over 90 days scanned, **no payment-detail asks**, the PDF-password line not held;
+  triage: Nigel dropped as staff, Tony's "All right" dropped as an acknowledgement, Joe's quote now his real sentence. **Two flaws the
+  data showed and the rules now fix:** a bare "👍" (waited 7 days) was not recognised as an acknowledgement; two texts in a row ("Japanese
+  Skimmia") read as a chase — a repeat now needs a weekday gap. A synthetic bank-change message from a lookalike domain, a password ask
+  and a polite PDF-password mention were inserted inside the rolled-back transaction: the first two held (rank −1, lookalike named), the
+  mention not; no draftable copy of a held message remained, including after Handled.
+- **Codex** (1 review, 8 findings): 7 fixed (held message leaving the ordinary list for good; mentions dropped per sentence; "do not accept
+  gift cards" and denials do not hold; "Please confirm approval." counts as a question; shared phone needs the same first name; exact dollar
+  amounts; one known-address lookup per hit). 1 kept on purpose: "Jane is our new billing contact" still holds, because the plugin's rule holds a
+  message that ANNOUNCES a billing-contact change and redirecting invoices is the usual fraud; the vaguer "contact person" no longer does.
+- **Live (2026-11-03 19:00):** Yui's card on the dashboard reads "1 client reply is waiting on you. 9 approvals have no accepted quote …"; Joe's
+  quote shows his real sentence. One full-suite run failed once (not reproduced in three reruns); recorded, not understood.
+- Not built: see "Not built" above; and an urgent email to Tim for a held ask (`CharlieUrgentService` is ahead on production) → backlog.

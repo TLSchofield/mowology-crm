@@ -31,7 +31,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -153,6 +153,8 @@ reference that matches the task:
 | The week's load against crew capacity (80% full, 100% over, a plan length that looks wrong first) | `WeekLoadRules::days()` / `WeekLoadRules::briefItem()`; crew count `OttoHarvestService::crewCount()` (ops_settings `otto_crew_count` overrides) | brief |
 | Seasonal stock watch (owner-named items, dated decide-by; seeded with ice melt / salt when snow routes exist) | `SeasonalStockRules::items()`; list in ops_settings `otto_seasonal_stock` via `OttoHarvestService::watchList()` | brief |
 | Quarterly supplier review (90-day receipt spend, concentration > 60% with an alternative in the directory, price lists > 90 days old) | `SupplierReviewRules::build()` / `SupplierReviewRules::briefItem()` | brief |
+| A new lead's pin and arrival border within minutes (city lot map first, then the province's; pin only on an exact building match) | `OttoAutoPlaceService::placeNewLead()`; open leads are candidates via `OttoAutoPlaceService::leadCandidates()`; the 15-minute catch-up `OttoLeadService::placeOpenLeads()` runs at the end of `app/Modules/Sales/Cron/sales_inbox_poll.php` | the quote-workflow screen, Sam's lead row |
+| The best working day to look at a lead (extra truck minutes from the crews' real route days; Sundays, solid days, wet days, plan lengths that look wrong) | `LeadRouteDay::rank()` / `LeadRouteDay::line()`, assembled by `OttoLeadService::bestDays()` (loads from `OttoHarvestService::dayLoads()`, routes from `CloserService::routeDays()`) | Sam's lead row (`SalesDeskService::leads()`), the quote-visit panel on `public/crm/quote-workflow.php` (pre-fills its Day) |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself
