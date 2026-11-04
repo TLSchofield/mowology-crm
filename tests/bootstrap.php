@@ -188,6 +188,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService
 require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptParserScoreService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
