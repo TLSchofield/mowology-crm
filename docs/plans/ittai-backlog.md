@@ -166,3 +166,8 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    **Migrations per business (found 2026-11-03):** a migration run on Mowology after a business is provisioned never
    reaches that business (walk-1 rehearsal lacked `snow_runs`). Needs a per-business migration runner before more
    founding businesses; until then provision Claudia's after the latest migrations.
+
+**Claudia keeps QuickBooks (2026-11-04):** sending to QuickBooks is built but runs for Mowology only; per-business
+run, imported-customer links, her own items, phone switch, payment bank-match test, Production keys; shadow
+ledger (`books_mode`, monthly compare with her QuickBooks reports) when she considers switching.
+Plan: `2026-11-04-claudia-quickbooks-sending-plan.md`.
