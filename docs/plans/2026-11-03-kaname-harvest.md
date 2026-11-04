@@ -1,6 +1,6 @@
 # Kaname harvest — what the brief, pulse and report skills add to the chief of staff (2026-11-03)
 
-Status: **PLAN — waiting for Tim's yes.** Survey (Sonnet, numbers only) of small-business `monday-brief`, `business-pulse`,
+Status: **APPROVED and BUILT 2026-11-03** — see "Build record" at the end. Plan as approved: Survey (Sonnet, numbers only) of small-business `monday-brief`, `business-pulse`,
 `growth-pulse`, `report-builder`, `report-pack`, `smb-router`, `month-end-prep`, `shared/{absent-is-not-zero, chain-seams}`,
 sales `daily-briefing`, productivity `task-management`, operations `status-report`. Diffed against `CharlieBriefService`,
 `CharlieRankService`, `CharlieDeskService`, `CharlieBriefEmail`, `CharlieUrgentService`, `HeadBriefReadyService`.
@@ -73,3 +73,14 @@ line must stay on top). C: today against yesterday's snapshot. D: render the ema
 `tests/Unit/ChiefOfStaff/KanameHarvestRulesTest.php`; Codex on the new classes and `CharlieDeskService`; `CharlieDeskService`, `CharlieBriefEmail`,
 `CharlieBriefService` and the card are taken from live first (done). Deploy dependency-first, OPcache, check the dashboard card and a rendered email
 (`CharlieBriefEmail::render()` on the real snapshot, nothing sent).
+
+## Build record (2026-11-03)
+- Commits 35eeb5979 (live pull) and ddb2f2ffb: `BriefStatus`, `UrgencyGuard`, `BriefTrend` (pure), wired into `CharlieDeskService::today()` / `payload()`, `HeadBriefReadyService::todayPayload()`,
+  `CharlieBriefEmail::render()`, the card (`charlie-card.php` / `.js` / CSS), and the wording fix in `SalesDeskService` / `SamSignals`; `tests/Unit/ChiefOfStaff/KanameHarvestRulesTest.php` (7 tests).
+- **Dry run on live (rolled back, new desk with renamed inline classes, all 8 heads answered):** status **RED** — "Payroll remittance to CRA (CPP, EI, income tax) — overdue since Oct 15"
+  (deciding line: the older of two overdue deadlines); heads: Charlie red, House red ($11,278 past due), the other six amber; **urgent lines 58 → 29** (Penny 7→5, Sam 25→5, Otto 8→5, Yui 9→5);
+  trend "201 lines ▼ 4 since yesterday, 29 urgent (no prior baseline)" (yesterday's snapshot has no urgent count yet; tomorrow's will); the rendered email starts with the status and ends
+  "Built 20:03 from 8 of 8 heads. The colours use the starting thresholds; review them after Dec 1."
+- **Open for Tim:** the status says RED for the payroll remittance but "the one thing" is still a customer's "Ok" (ranking is learned from what he opens). His rule of 2026-10-11 says penalty dates first;
+  a floor for forced-red lines in the ranking is a one-line change if he wants it. Not done without his say (outside the approved plan).
+- Not built: grouping 19 same-kind lines, rewriting 195 status lines as decisions, the routed-mail mismatch — backlog.

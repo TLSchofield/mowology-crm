@@ -130,6 +130,14 @@ trades first. The AI back office is the edge.
   fill them in Settings → Users and Penny's payroll checks gain the same.
 - **Restock velocity** stays n/a until stock is counted somewhere (no table today).
 
+## Kaname follow-ups (2026-11-03)
+- **Penalty dates first?** Tim's rule (2026-10-11) vs the learned ranking: give forced-red lines (`BriefStatus::forcedRed`) a floor in `CharlieRankService::rank()` if he says so.
+- **Group runs of one kind** (Sam 19 campaign replies, Otto 20 job timers, Penny 5 "same purchase?") into one line with a count: each head's own session, it needs a noun per kind.
+- **195 of 200 lines are status sentences, not decisions** ("Send 28 invoices? Tap"): head by head.
+- **Penny's routed mail:** "Meghan wrote about billing: can we book you for a fall cleanup" is a booking request filed as billing (InboundTopicClassifier).
+- **Sam marks 25 of 31 lines urgent** (19 are replies to Mia's fall email): fix the priority at the source; Yui marks all 9 approvals urgent.
+- **Charlie status thresholds** (`charlie_status_money_red`, `charlie_status_deadline_days`) are defaults until Dec 1; review then.
+
 ## Yui and Otto-leads follow-ups (2026-11-03)
 - **Urgent email for a held message** (payment-detail change, wire, password ask): `CharlieUrgentService` is ahead on production; add a Yui source
   there (key `urgent:yui:hold:<hash>`) once it is pulled into the branch. Today a hold is priority 1 in Yui's card and Charlie's brief only.
@@ -159,7 +167,7 @@ trades first. The AI back office is the edge.
 5. **Yui** — DONE 2026-11-03 (`docs/plans/2026-11-03-yui-harvest.md`) — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
    voice profile + slop test, outreach cadences (0/+4/+11/+21; never two sends in 48 h; trades 6–8 am or after 5 pm),
    customer-support `ticket-triage` / `draft-response`; diff against YuiRules / YuiDraftService / IcloudInboxRouter.
-6. **Kaname (Charlie)** — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
+6. **Kaname (Charlie)** — DONE 2026-11-03 (`docs/plans/2026-11-03-kaname-harvest.md`) — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
    before posting bad news), business-pulse rollup (worst section; forced red on named client + amount + deadline ≤ 7 d),
    report-builder sanity checks (partial period, totals tie, "n/a — source" never an estimate), report-pack cadence;
    diff against CharlieBriefService / CharlieRankService / CharlieUrgentService / HouseBriefAdapter.

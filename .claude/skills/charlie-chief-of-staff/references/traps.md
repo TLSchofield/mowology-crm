@@ -57,3 +57,11 @@ Rules now enforced in code:
 - `DeadlineService::brief()` writes nothing; the charlie_morning_brief cron runs `sync()`.
 - Urgent alert emails that fail retry at most hourly, 3 tries (count + time in `charlie_alerts.error`).
 - charlie-inbox.js "Do all" runs each item's `choice: apply` action or stops for Tim.
+
+## 2026-11-03 — 58 of 200 lines urgent, and a status that said RED while the one thing was a yes
+Live: Kaname receives 200 lines from 8 heads; 58 (29%) are priority 1 (Sam 25 of 31, Yui 9, Otto 8, Penny 7, Ada 5). A head's own priority is a claim, not a fact:
+`UrgencyGuard` ranks past the head's top 5 as priority 2 (the plugin's rule: about 5 needs-you is right, twenty means the threshold is wrong) and the card says which head.
+Do not demote what is STORED (`charlie_items`, learning) — only what is ranked. Also: the status (`BriefStatus`) reads the ORIGINAL priorities, or a head's real red
+would be guarded away. Open question for Tim: his own rule (2026-10-11) says penalty dates first, but the ranking is learned from what he opens, so an overdue statutory
+deadline can sit sixth under a quiet-client line; the status chip is where it shows today.
+A dry run of a desk class with renamed inline copies must also preload every class the real one lazily requires, or the desk swallows the load error and shows an empty list.

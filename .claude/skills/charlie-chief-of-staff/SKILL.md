@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Splash/*
   - ios/MowologyCRM/MowologyCRM/Features/Team/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -98,6 +98,9 @@ the deadlines calendar, and interrupts only for urgent things. Read the referenc
 | Penny's lines | `PennyBriefAdapter::fromStats()` | brief |
 | Work Queue critical lane ("House") | `HouseBriefAdapter::fromWorkQueue()` | brief |
 | Badges under his photo | `CharlieBadgeService::badges()` | web card |
+| One status for the whole brief (the worst head; forced red for an overdue / near deadline or an overdue amount ≥ $500), on the card and first in the email (2026-11-03, business-pulse) | `BriefStatus::assess()` / `BriefStatus::sentence()` inside `CharlieDeskService::today()` | web card, email, snapshot |
+| A head cannot make everything urgent: at most 5 priority-1 lines per head count as urgent in the ranking (the stored priority is untouched) | `UrgencyGuard::apply()` before `CharlieRankService::rank()` | desk, card notes |
+| Every number carries its comparison with yesterday ("▼ 14 since yesterday", "(no prior baseline)") | `BriefTrend::compare()` from `BriefTrend::fromSnapshot()` of yesterday's `charlie_briefs` row | card, email |
 | Charlie's words | `CharlieVoice` | desk, cron, email |
 
 Who uses it (graphify, 2026-10-11): `CharlieForemanService` — `app/Modules/ChiefOfStaff/Api/charlie.php`,
