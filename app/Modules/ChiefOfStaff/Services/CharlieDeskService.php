@@ -122,6 +122,10 @@ class CharlieDeskService
         foreach ($items as $it) $origP[$it['key']] = (int)$it['priority'];
         $guard = UrgencyGuard::apply($items);
         $ranked = CharlieRankService::rank($guard['items'], $this->prefs(), $this->hiddenKeys(), $this->day());
+        // "Urgent" = what still counts as urgent after the guard; then every line goes back to its head's own priority, so nothing
+        // downstream (card, ready brief, snapshot, phone) is told a different priority than the head sent.
+        $urgentCount = count(array_filter($ranked, fn($r) => (int)$r['priority'] === 1));
+        $ranked = UrgencyGuard::restore($ranked, $origP);
         $one = $ranked[0] ?? null;
 
         $rankOf = [];
@@ -153,13 +157,12 @@ class CharlieDeskService
             $names = [];
             foreach ($c['heads'] as $head => $h) $names[$head] = (string)($h['name'] ?? ucfirst((string)$head));
             $byHead = array_fill_keys($c['ok'], []);
-            foreach ($ranked as $r) $byHead[$r['head']][] = ['priority' => $origP[$r['key']] ?? $r['priority']] + $r;
+            foreach ($ranked as $r) $byHead[$r['head']][] = $r;
             $view['status'] = BriefStatus::assess($byHead, $c['failed'], $names, $this->day(), $this->statusSince(),
                                                   (float)($this->setting('charlie_status_money_red') ?: BriefStatus::MONEY_RED),
                                                   (int)($this->setting('charlie_status_deadline_days') ?: BriefStatus::RED_DEADLINE_DAYS));
             $view['status']['sentence'] = BriefStatus::sentence($view['status']);
-            $urgent = count(array_filter($ranked, fn($r) => (int)$r['priority'] === 1));
-            $view['trend'] = BriefTrend::compare(count($ranked), $urgent, BriefTrend::fromSnapshot($this->yesterdayPayload()));
+            $view['trend'] = BriefTrend::compare(count($ranked), $urgentCount, BriefTrend::fromSnapshot($this->yesterdayPayload()));
             $view['urgency_notes'] = UrgencyGuard::notes($guard['inflated'], $names);
         } catch (Throwable $e) {
             error_log('Charlie status/trend: ' . $e->getMessage());

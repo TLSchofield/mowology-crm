@@ -43,6 +43,20 @@ final class UrgencyGuard
         return ['items' => array_values($items), 'inflated' => $inflated];
     }
 
+    /**
+     * After ranking: give every demoted line its head's own priority back. The demotion lives in the SCORE (and so in the order) only;
+     * the card, the ready brief, the frozen snapshot and the phone must keep seeing what the head said (Codex 2026-11-03).
+     * @param array $ranked ranked lines (priority possibly demoted); $orig key => the head's own priority
+     */
+    public static function restore(array $ranked, array $orig): array
+    {
+        foreach ($ranked as &$r) {
+            if (!empty($r['demoted']) && isset($orig[$r['key']])) $r['priority'] = (int)$orig[$r['key']];
+        }
+        unset($r);
+        return $ranked;
+    }
+
     /** One quiet line per head over the cap, for the card (not bad news). */
     public static function notes(array $inflated, array $names, int $cap = self::CAP): array
     {

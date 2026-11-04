@@ -26,8 +26,10 @@ final class BriefStatus
     /** Days until a deadline item's due date (negative = overdue), from its key 'charlie:deadline:<category>:YYYY-MM-DD'; null when it is not one. */
     public static function deadlineDays(array $item, string $today): ?int
     {
-        if (!preg_match('/^charlie:deadline:[a-z_]+:(\d{4}-\d{2}-\d{2})/', (string)($item['key'] ?? ''), $m)) return null;
-        return (int)floor((strtotime($m[1]) - strtotime($today)) / 86400);
+        // Strict: the whole key, a category of letters / digits / _ / -, and a REAL calendar date (no "2026-02-31", no ":done" suffix).
+        if (!preg_match('/^charlie:deadline:[a-z0-9_\-]+:(\d{4})-(\d{2})-(\d{2})$/', (string)($item['key'] ?? ''), $m)) return null;
+        if (!checkdate((int)$m[2], (int)$m[3], (int)$m[1])) return null;
+        return (int)floor((strtotime("{$m[1]}-{$m[2]}-{$m[3]}") - strtotime($today)) / 86400);
     }
 
     /** Why this line forces red, or null. */

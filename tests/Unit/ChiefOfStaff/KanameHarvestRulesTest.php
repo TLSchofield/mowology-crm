@@ -39,6 +39,31 @@ class KanameHarvestRulesTest extends TestCase
         $this->assertNull(BriefStatus::forcedRed($this->line('house', 'h', 2, 'Overdue $900', 900.0), self::TODAY));                                   // not urgent
     }
 
+    public function test_deadline_keys_are_read_strictly(): void
+    {
+        $k = fn(string $key) => ['key' => $key, 'priority' => 2, 'text' => 'x'];
+        $this->assertSame(1, BriefStatus::deadlineDays($k('charlie:deadline:tax-2026:2026-11-04'), self::TODAY));      // a category with a digit and a hyphen
+        $this->assertNull(BriefStatus::deadlineDays($k('charlie:deadline:tax:2026-11-04:done'), self::TODAY));          // an arbitrary suffix
+        $this->assertNull(BriefStatus::deadlineDays($k('charlie:deadline:tax:2026-02-31'), self::TODAY));               // not a real date
+        $this->assertNull(BriefStatus::deadlineDays($k('xcharlie:deadline:tax:2026-11-04'), self::TODAY));
+        $this->assertSame(0, BriefStatus::deadlineDays($k('charlie:deadline:gst:2026-11-03'), self::TODAY));
+        $this->assertSame('deadline in 0 days', BriefStatus::forcedRed($k('charlie:deadline:gst:2026-11-03'), self::TODAY));
+    }
+
+    public function test_demotion_is_in_the_ranking_only_and_the_head_priority_comes_back(): void
+    {
+        $items = [];
+        for ($i = 1; $i <= 7; $i++) $items[] = $this->line('sam', "sam:{$i}", 1, "Line {$i}", null, '2026-10-' . sprintf('%02d', $i));
+        $orig = array_column($items, 'priority', 'key');
+        $g = UrgencyGuard::apply($items);
+        $this->assertSame(2, array_column($g['items'], null, 'key')['sam:7']['priority']);                          // demoted for the ranking
+        $back = UrgencyGuard::restore($g['items'], $orig);
+        $byKey = array_column($back, null, 'key');
+        $this->assertSame(1, $byKey['sam:7']['priority']);                                                           // what the card, snapshot and phone see
+        $this->assertTrue($byKey['sam:7']['demoted']);                                                               // still marked
+        $this->assertSame(1, $byKey['sam:1']['priority']);
+    }
+
     public function test_the_overall_status_is_the_worst_head_with_the_deciding_line(): void
     {
         $byHead = [
