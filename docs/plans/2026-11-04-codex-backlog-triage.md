@@ -45,3 +45,12 @@ view.php: cancel/delete race (status guard), amount_paid not shown after mark_pa
 
 ## Suggested order
 A, then F (cheap, safe), then B, then C, D, E each with a plan and your yes. Crew reports after A–F.
+
+## Build record (2026-11-04)
+Tim: "Work through all in whatever order makes sense", then "deploy". Codex built (scripts/codex-web-build.sh, first real use), Claude reviewed every diff, a second Codex review ran per batch, every real review finding was fixed.
+- **A, F, B: live 2026-11-04** (18 files; production copies of nine files were ahead and were merged first). OPcache reset; invoice page, invoice list and portfolio checked as Tim; public pages checked by request (reset page and customer quote send no-store; quote form 200).
+  **Incident:** the first B deploy made `jobFlow-getQuote.php` return 500 for a few minutes: `recaptcha-helpers.php` loaded `dirname(__DIR__, 2) . '/app/...'`, which is the repo layout, not the server's (`public_html/app`). Fixed through `APP_ROOT`, source-scan test added. Lesson: a file that requires app code from `public/` must use `APP_ROOT`, never a `dirname` depth.
+- **C Stripe, D ledger, E receipts: committed on the branch, NOT deployed** (money; waiting for Tim's yes). Production copies of seven (C), four (D) and two (E) files were ahead and were merged first; `app/Core/Uploads.php` and `Tenant.php` (live-only, required by the live receipt services) were pulled into the repo.
+- Decisions that differ from what Codex wrote: portfolio keeps rendering when the DB is down (log only, no 500 page); the reCAPTCHA hostname must match SITE_URL only (a Host-header match would let an attacker's own domain pass); zero-dollar bank lines still import; a refund Stripe may already have made is never marked failed on a timeout (only a 4xx), and a stale pending refund row is reused only for the same amount within 23 h; an event-dated Stripe entry falls back to today when its month is closed; update keeps stored values for omitted fields and still treats an empty string as clear.
+- Review findings Codex made and Claude fixed: Stripe: an unreadable earlier PaymentIntent now stops a new one; D: reversal takes the same lock as posting for its source, shareholder undo is one transaction, export uses `AccountingService::countedSql`; E: update loads the whole row, a negative total is never approved.
+- Not changed (owner decisions) are listed in `~/.mowology-codex/findings.json` with status `left`.
