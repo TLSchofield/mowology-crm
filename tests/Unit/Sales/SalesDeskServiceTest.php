@@ -120,7 +120,7 @@ class SalesDeskServiceTest extends TestCase
         $this->assertTrue($r[0]['hot']);
         $this->assertStringStartsWith('Call Bo today', $r[0]['next']);
         $this->assertStringStartsWith('Going cold (15 days) — email Cy', $r[1]['next']);
-        $this->assertSame('/crm/quotes/create.php?quote_request_id=1', $r[2]['url']);
+        $this->assertSame('/crm/quote-workflow.php?request_id=1', $r[2]['url']);
 
         // A booked quote visit replaces "call / email to book one" (2026-10-15)
         $rows[1]['visit_date'] = '2026-10-16'; $rows[1]['visit_time'] = '08:15:00';

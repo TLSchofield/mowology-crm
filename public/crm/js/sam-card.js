@@ -25,7 +25,7 @@
     'use strict';
     var root = document.getElementById('mw-sam-rc');
     if (!root) return;
-    var qbox = document.getElementById('mw-sq');
+    var qsbox = document.getElementById('mw-sq');            // questions (expired quotes)
     var lbox = document.getElementById('mw-sam-leads');
     var qbox = document.getElementById('mw-sam-quiet');      // quiet clients (ClientRhythm, 2026-11-03)
     var nbox = document.getElementById('mw-sam-renewals');   // renewal radar
@@ -33,12 +33,28 @@
     var abox = document.getElementById('mw-sam-asks');
     var rbox = document.getElementById('mw-sam-replies');
     var apbox = document.getElementById('mw-sam-approved');
-    // "Looks like an acceptance" (2026-10-15): drawn just above Just approved, in the same style.
-    var acbox = null;
-    if (apbox && apbox.parentNode) {
-        acbox = document.createElement('div');
-        acbox.id = 'mw-sam-acceptances'; acbox.className = apbox.className; acbox.hidden = true;
-        apbox.parentNode.insertBefore(acbox, apbox);
+    var acbox = document.getElementById('mw-sam-acceptances');   // "Looks like an acceptance" (2026-10-15)
+    // Hierarchy (2026-11-04): briefing → next → rows by status → the workspace for one customer.
+    var sayEl = document.getElementById('mw-sam-say');
+    var nextEl = document.getElementById('mw-sam-first');
+    var rowsEl = document.getElementById('mw-sam-rows');
+    var briefEl = document.getElementById('mw-sam-brief');
+    var workEl = document.getElementById('mw-sam-work');
+    var backBtn = document.getElementById('mw-sam-back');
+    var section = document.getElementById('mw-sam');
+    var working = false;     // true while one customer's workspace is open
+
+    /** A collapsed section: its summary carries the title and the count; empty sections disappear.
+     *  `open` opens it the first time it has something (decisions open, radar lists stay shut). */
+    var opened = {};
+    function sec(box, title, count, html, msg, open) {
+        if (!box) return;
+        var body = box.querySelector('.mw-sam-sec-body') || box, sum = box.querySelector('summary');
+        if (!count && !msg) { box.hidden = true; return; }
+        box.hidden = false;
+        if (sum) sum.innerHTML = esc(title) + (count ? ' <span class="mw-sam-n">' + count + '</span>' : '');
+        if (open && !opened[box.id]) { box.open = true; opened[box.id] = true; }
+        body.innerHTML = (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') + html;
     }
     var acceptances = [];
     var approved = [];       // quotes just approved — every line ✓ / ✗ (QuoteApprovalService)
@@ -108,33 +124,117 @@
                 maybes = d.maybe_leads || [];
                 approved = d.approved || [];
                 acceptances = d.acceptances || [];
+                var deep = false;
                 if (wanted) {
-                    for (var w = 0; w < queue.length; w++) if (queue[w].key === wanted) { idx = w; break; }
+                    for (var w = 0; w < queue.length; w++) if (queue[w].key === wanted) { idx = w; deep = true; break; }
                     wanted = null;   // once: later reloads keep the card the owner moved to
-                    var sec = document.getElementById('mw-sam');
-                    if (sec && sec.scrollIntoView) setTimeout(function () { sec.scrollIntoView({ block: 'start' }); }, 0);
+                    if (section && section.scrollIntoView) setTimeout(function () { section.scrollIntoView({ block: 'start' }); }, 0);
                 }
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances(); renderQuiet(); renderRenewals(); renderHygiene();
+                renderBrief(); renderNext(); renderRows();
+                if (deep) openWork(idx);
+                if (working) render();
+                renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances(); renderQuiet(); renderRenewals(); renderHygiene();
             })
-            .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
+            .catch(function () { rowsEl.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list. Refresh to try again.</div>'; });
     }
+
+    // ── Briefing, next action, rows ──────────────────────────────────────
+    /** One sentence in Sam's voice: the money, who wrote back, what comes after. */
+    function renderBrief() {
+        if (!sayEl) return;
+        var replied = queue.filter(function (c) { return c.kind === 'replied'; });
+        var chase = queue.length - replied.length;
+        var total = queue.reduce(function (s, x) { return s + Number(x.amount || 0); }, 0);
+        var parts = [];
+        if (queue.length) parts.push('<b>' + money(total) + '</b> is waiting on ' + queue.length + ' customer' + (queue.length === 1 ? '' : 's') + '.');
+        else parts.push('Nobody is waiting on a follow-up' + (NAME ? ', ' + esc(NAME) : '') + '.');
+        if (replied.length) {
+            var names = replied.slice(0, 2).map(function (c) { return esc(c.first_name || c.name); });
+            parts.push((replied.length === 1 ? names[0] + ' wrote back' : names.join(' and ') + (replied.length > 2 ? ' and ' + (replied.length - 2) + ' more' : '') + ' wrote back') + '. Start there' + (chase ? ', then the ' + chase + ' to chase' : '') + (leads.length ? (chase ? ' and the ' : ', then the ') + leads.length + ' new lead' + (leads.length === 1 ? '' : 's') : '') + '.');
+        } else if (queue.length && leads.length) {
+            parts.push(leads.length + ' new lead' + (leads.length === 1 ? '' : 's') + ' after that.');
+        } else if (leads.length) {
+            parts.push(leads.length + ' new lead' + (leads.length === 1 ? '' : 's') + ' to look at.');
+        }
+        sayEl.innerHTML = parts.join(' ');
+    }
+    function statusWord(c) {
+        return c.kind === 'replied'
+            ? '<span class="mw-sam-st is-replied">&#8617; Replied ' + esc(ago(c.last_in)) + '</span>'
+            : '<span class="mw-sam-st">&#9711; No reply for ' + c.days + ' day' + (c.days === 1 ? '' : 's') + (c.viewed ? ', opened' : '') + '</span>';
+    }
+    /** The first card as one row with one button. */
+    function renderNext() {
+        if (!nextEl) return;
+        if (!queue.length) { nextEl.hidden = true; return; }
+        var c = queue[0], replied = c.kind === 'replied';
+        var q = c.quotes && c.quotes[0];
+        nextEl.hidden = false;
+        nextEl.innerHTML = '<div class="mw-sam-first-k">Next</div>' +
+            '<div class="mw-sam-first-main">' + statusWord(c) +
+            '<div class="mw-sam-first-who"><b>' + esc(c.name) + '</b>' + (c.company ? ', ' + esc(c.company) : '') + ' <span class="mw-sam-amt">' + money(c.amount) + '</span></div>' +
+            (q ? '<div class="mw-sam-meta">' + esc(q.number) + (q.service || q.title ? ', ' + esc(q.service || q.title) : '') + (c.quotes.length > 1 ? ' and ' + (c.quotes.length - 1) + ' more' : '') + '</div>' : '') +
+            '</div>' +
+            '<button type="button" class="mw-sam-go" data-open="0">' + (replied ? 'Review and reply' : 'Prepare the follow-up') + '</button>';
+    }
+    /** Everyone waiting, one row each, grouped by what Sam knows: they wrote back, or they went quiet. */
+    function renderRows(msg) {
+        if (!rowsEl) return;
+        if (!queue.length) {
+            rowsEl.innerHTML = msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '';
+            return;
+        }
+        var groups = [['replied', 'Wrote back'], ['stale', 'To chase']], html = msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '';
+        groups.forEach(function (g) {
+            var rows = [];
+            queue.forEach(function (c, i) {
+                if ((c.kind === 'replied' ? 'replied' : 'stale') !== g[0]) return;
+                var q = c.quotes && c.quotes[0];
+                rows.push('<button type="button" class="mw-sam-row' + (i === idx && working ? ' is-current' : '') + '" data-open="' + i + '">' +
+                    statusWord(c) +
+                    '<span class="mw-sam-row-who"><b>' + esc(c.name) + '</b>' + (q ? ' <small>' + esc(q.service || q.title || q.number) + (c.quotes.length > 1 ? ' +' + (c.quotes.length - 1) : '') + '</small>' : '') + '</span>' +
+                    '<span class="mw-sam-amt">' + money(c.amount) + '</span><span class="mw-sam-chev" aria-hidden="true">&#8250;</span></button>');
+            });
+            if (rows.length) html += '<div class="mw-sam-group"><h4>' + g[1] + ' <span class="mw-sam-n">' + rows.length + '</span></h4>' + rows.join('') + '</div>';
+        });
+        rowsEl.innerHTML = html;
+    }
+    function openWork(i) {
+        idx = Math.max(0, Math.min(i, queue.length - 1));
+        working = true;
+        if (section) section.classList.add('is-working');
+        briefEl.hidden = true; workEl.hidden = false;
+        render();
+        var first = root.querySelector('textarea, input'); if (first && window.innerWidth > 1100) first.focus({ preventScroll: true });
+    }
+    function closeWork(msg) {
+        working = false;
+        if (section) section.classList.remove('is-working');
+        workEl.hidden = true; briefEl.hidden = false;
+        renderBrief(); renderNext(); renderRows(msg);
+    }
+    if (briefEl) briefEl.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-open]'); if (!b || !queue.length) return;
+        openWork(+b.getAttribute('data-open'));
+    });
+    if (backBtn) backBtn.addEventListener('click', function () { closeWork(); });
 
     // ── Questions ────────────────────────────────────────────────────────
     function renderQuestions(msg) {
-        if (!qbox) return;
-        if (!questions.length && !msg) { qbox.hidden = true; return; }
-        qbox.hidden = false;
-        qbox.innerHTML = '<div class="mw-pq-head"><b>Sam has ' + (questions.length || 'no more') + ' question' + (questions.length === 1 ? '' : 's') + ' for you</b></div>' +
+        if (!qsbox) return;
+        if (!questions.length && !msg) { qsbox.hidden = true; return; }
+        qsbox.hidden = false;
+        qsbox.innerHTML = '<div class="mw-pq-head"><b>' + (questions.length ? questions.length + ' question' + (questions.length === 1 ? '' : 's') + ' for you' : 'No more questions') + '</b></div>' +
             (msg ? '<div class="mw-pq-item"><p class="mw-pq-done">' + esc(msg) + '</p></div>' : '') +
             questions.slice(0, 3).map(function (q) {
                 return '<div class="mw-pq-item" data-q="' + q.id + '"><p>' + esc(q.question) + '</p><div class="mw-pq-btns">' +
-                    '<button type="button" data-a="lost">Lost — stop chasing</button>' +
-                    '<button type="button" data-a="keep">Still alive — keep 30 days</button>' +
+                    '<button type="button" data-a="lost">Lost, stop chasing</button>' +
+                    '<button type="button" data-a="keep">Still alive, keep 30 days</button>' +
                     '<button type="button" data-a="won">They said yes</button></div></div>';
             }).join('');
     }
-    if (qbox) qbox.addEventListener('click', function (e) {
+    if (qsbox) qsbox.addEventListener('click', function (e) {
         var b = e.target.closest('button[data-a]'); if (!b || busy) return;
         var item = b.closest('[data-q]'); busy = true;
         item.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
@@ -151,13 +251,10 @@
     function renderAsks(msg) {
         if (!abox) return;
         var rep = asks.replied || [], sil = asks.silent || [], drafts = asks.drafts || 0;
-        if (!rep.length && !sil.length && !drafts && !msg) { abox.hidden = true; return; }
-        abox.hidden = false;
-        var html = '<div class="mw-sam-leads-head"><b>Asked first</b> <small>photo notes from the field, no price — the quote comes after a yes</small></div>';
-        if (msg) html += '<div class="mw-rc-msg">' + esc(msg) + '</div>';
+        var html = '';
         if (drafts) {
-            html += '<div class="mw-sam-ask-drafts">' + drafts + ' note' + (drafts === 1 ? '' : 's') + ' from the crew waiting for you to read and send · ' +
-                '<a href="/crm/products/recommendations.php?tab=ask">Open them →</a></div>';
+            html += '<div class="mw-sam-ask-drafts">' + drafts + ' note' + (drafts === 1 ? '' : 's') + ' from the crew to read and send. ' +
+                '<a href="/crm/products/recommendations.php?tab=ask">Open them</a></div>';
         }
         html += rep.map(function (a) {
             var b = built[a.observation_id], r = a.reply || {};
@@ -185,7 +282,7 @@
                 ' <small>· asked ' + esc(a.asked_first) + ' ' + esc(ago(a.asked_at)) + '</small></div></div>' +
                 '<div class="mw-sam-ask-act"><button type="button" class="mw-rc-sk" data-ask="close">Not now</button></div></div>';
         }).join('');
-        abox.innerHTML = html;
+        sec(abox, 'Asked first', rep.length + sil.length + (drafts ? 1 : 0), html, msg, true);
     }
     if (abox) abox.addEventListener('click', function (e) {
         var b = e.target.closest('[data-ask]'); if (!b || busy) return;
@@ -214,11 +311,7 @@
     // looks like the system dropped it (owner, 2026-10-10). Stays until "Got it".
     function renderApproved(msg) {
         if (!apbox) return;
-        if (!approved.length && !msg) { apbox.hidden = true; return; }
-        apbox.hidden = false;
-        apbox.innerHTML = '<div class="mw-sam-leads-head"><b>Just approved</b> <small>what the client said yes to, line by line</small></div>' +
-            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
-            approved.map(function (a) {
+        sec(apbox, 'Just approved', approved.length, approved.map(function (a) {
                 var lines = (a.lines || []).map(function (l) {
                     return '<li class="mw-sam-appr-line ' + (l.approved ? 'is-in' : 'is-out') + '">' +
                         '<span class="mw-sam-appr-mark">' + (l.approved ? '✓' : '✗') + '</span> ' + esc(l.label) +
@@ -238,7 +331,7 @@
                     '<small class="mw-sam-meta">' + who + esc(ago(a.at)) + '</small>' + otto +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="/crm/quotes/view.php?id=' + a.quote_id + '">Quote</a>' + job +
                     '<button type="button" class="mw-rc-sk" data-seen>Got it</button></div></div>';
-            }).join('');
+            }).join(''), msg, true);
     }
     if (apbox) apbox.addEventListener('click', function (e) {
         var b = e.target.closest('[data-seen]'); if (!b || busy) return;
@@ -255,11 +348,7 @@
     // Nothing is accepted until Tim taps Accept (SamAcceptanceService → QuoteAcceptService).
     function renderAcceptances(msg) {
         if (!acbox) return;
-        if (!acceptances.length && !msg) { acbox.hidden = true; return; }
-        acbox.hidden = false;
-        acbox.innerHTML = '<div class="mw-sam-leads-head"><b>Looks like an acceptance</b> <small>a client wrote back with a yes — check each one</small></div>' +
-            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
-            acceptances.map(function (g) {
+        sec(acbox, 'Looks like a yes', acceptances.length, acceptances.map(function (g) {
                 var rows = (g.quotes || []).map(function (q) {
                     var file = q.file ? ' · <a href="' + esc(q.file.url) + '" target="_blank" rel="noopener">' + esc(q.file.name) + '</a>' : '';
                     return '<div class="mw-sam-appr" data-acc="' + q.id + '">' +
@@ -269,8 +358,8 @@
                         (q.still_open ? '<button type="button" class="mw-rc-ok" data-acc-yes>Accept</button>' : '') +
                         '<button type="button" class="mw-rc-sk" data-acc-no>Not this one</button></div></div>';
                 }).join('');
-                return '<div class="mw-sam-appr-group"><small class="mw-sam-meta">' + esc(g.from) + ' · “' + esc(g.subject || '') + '” · ' + esc(ago(g.sent_at)) + '</small>' + rows + '</div>';
-            }).join('');
+                return '<div class="mw-sam-appr-group"><small class="mw-sam-meta">' + esc(g.from) + ', “' + esc(g.subject || '') + '”, ' + esc(ago(g.sent_at)) + '</small>' + rows + '</div>';
+            }).join(''), msg, true);
     }
     if (acbox) acbox.addEventListener('click', function (e) {
         var b = e.target.closest('[data-acc-yes],[data-acc-no]'); if (!b || busy) return;
@@ -285,20 +374,16 @@
     // ── Replies waiting ──────────────────────────────────────────────────
     function renderReplies(msg) {
         if (!rbox) return;
-        if (!replies.length && !msg) { rbox.hidden = true; return; }
-        rbox.hidden = false;
-        rbox.innerHTML = '<div class="mw-sam-leads-head"><b>Replies waiting</b> <small>replies about a quote that haven\'t heard from us</small></div>' +
-            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
-            replies.slice(0, 6).map(function (r) {
+        sec(rbox, 'Replies waiting', replies.length, replies.slice(0, 6).map(function (r) {
                 return '<div class="mw-sam-reply' + (r.yes ? ' is-yes' : '') + '" data-k="' + esc(r.key) + '">' +
                     '<div class="mw-sam-reply-main">' + (r.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') +
                     '<b>' + esc(r.name) + '</b> ' + (r.channel === 'sms' ? 'texted' : 'replied') +
                     (r.quote ? ' <q>' + esc(r.quote) + '</q>' : '') +
                     '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' +
-                    (r.objection && r.objection !== 'unclear' ? '<details class="mw-sam-obj"><summary>Reads like a ' + esc(r.objection.replace('_', ' ')) + ' objection — a reply in shape</summary><pre class="mw-sam-obj-draft">' + esc(r.objection_reply || '') + '</pre></details>' : '') +
+                    (r.objection && r.objection !== 'unclear' ? '<details class="mw-sam-obj"><summary>Reads like a ' + esc(r.objection.replace('_', ' ')) + ' objection. A reply in shape</summary><pre class="mw-sam-obj-draft">' + esc(r.objection_reply || '') + '</pre></details>' : '') +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="' + esc(r.url) + '">Open</a>' +
                     '<button type="button" class="mw-rc-sk" data-handled>Handled</button></div></div>';
-            }).join('');
+            }).join(''), msg, true);
     }
     function charlieDismiss(key) {
         var body = JSON.stringify({ mode: 'act', key: key, what: 'dismiss', csrf_token: window.MW_CSRF_TOKEN || '' });
@@ -330,50 +415,37 @@
     // ── Leads ────────────────────────────────────────────────────────────
     function renderQuiet() {
         if (!qbox) return;
-        if (!quiet.length) { qbox.hidden = true; return; }
-        qbox.hidden = false;
-        qbox.innerHTML = '<div class="mw-sam-leads-head"><b>Gone quiet</b> <small>against their own rhythm — a no-pitch check-in is drafted, nothing is sent</small></div>' +
-            quiet.map(function (q) {
+        sec(qbox, 'Gone quiet', quiet.length, quiet.map(function (q) {
                 var mailto = q.email && q.draft ? 'mailto:' + encodeURIComponent(q.email) + '?subject=' + encodeURIComponent(q.draft.subject) + '&body=' + encodeURIComponent(q.draft.body) : '';
                 return '<div class="mw-sam-lead is-' + esc(q.state) + '"><div class="mw-sam-lead-main"><b>' + esc(q.name) + '</b> <span class="mw-sam-bucket">' + esc(q.state) + '</span>' +
                     (q.tier ? ' <span class="mw-sam-heat" title="fit ' + q.tier.fit + ' / engagement ' + q.tier.engagement + ', cutoff ' + q.tier.cutoff + '">tier ' + esc(q.tier.tier) + '</span>' : '') +
                     '<div class="mw-sam-next">' + esc(q.reason) + '</div>' +
-                    '<small class="mw-sam-meta">worth ' + money(q.spend_12m) + ' a year' + (q.tier ? ' · ' + esc(q.tier.motion) : '') + '</small></div>' +
+                    '<small class="mw-sam-meta">worth ' + money(q.spend_12m) + ' a year' + (q.tier ? '. ' + esc(q.tier.motion) : '') + '</small></div>' +
                     '<div class="mw-sam-lead-act">' + (mailto ? '<a class="mw-rc-ed" href="' + mailto + '" title="Opens a draft in your mail app — nothing is sent until you send it">Check in</a>' : '') +
                     '<a class="mw-rc-ok" href="' + esc(q.url) + '">Open</a></div></div>';
-            }).join('');
+            }).join(''), '', false);
     }
     function renderRenewals() {
         if (!nbox) return;
-        if (!renewals.length) { nbox.hidden = true; return; }
-        nbox.hidden = false;
-        nbox.innerHTML = '<div class="mw-sam-leads-head"><b>Renewals ahead</b> <small>120 days out is a process; two weeks out is a discount</small></div>' +
-            renewals.map(function (r) {
+        sec(nbox, 'Renewals ahead', renewals.length, renewals.map(function (r) {
                 return '<div class="mw-sam-lead is-' + esc(r.verdict) + '"><div class="mw-sam-lead-main"><b>' + esc(r.name) + '</b> · ' + esc(r.contract_number) + ' <span class="mw-sam-bucket">' + esc(r.verdict.replace('_', ' ')) + '</span>' +
-                    '<div class="mw-sam-next">renews ' + esc(r.renewal_date) + ' (' + r.days_left + ' days)' + (r.risk_up.length ? ' — ' + esc(r.risk_up.join(', ')) : '') + '</div>' +
-                    '<small class="mw-sam-meta">talk by ' + esc(r.timeline.talk) + ' · terms out ' + esc(r.timeline.terms) + ' · signed by ' + esc(r.timeline.signed) + ' · about ' + money(r.annual_amount) + ' a year</small></div>' +
+                    '<div class="mw-sam-next">renews ' + esc(r.renewal_date) + ' (' + r.days_left + ' days)' + (r.risk_up.length ? ': ' + esc(r.risk_up.join(', ')) : '') + '</div>' +
+                    '<small class="mw-sam-meta">talk by ' + esc(r.timeline.talk) + ', terms out ' + esc(r.timeline.terms) + ', signed by ' + esc(r.timeline.signed) + '. About ' + money(r.annual_amount) + ' a year</small></div>' +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ok" href="' + esc(r.url) + '">Open</a></div></div>';
-            }).join('');
+            }).join(''), '', false);
     }
     function renderHygiene() {
         if (!hbox) return;
-        if (!hygiene.length) { hbox.hidden = true; return; }
-        hbox.hidden = false;
-        hbox.innerHTML = '<div class="mw-sam-leads-head"><b>Not fit to chase</b> <small>fix these before a follow-up goes out</small></div>' +
-            hygiene.map(function (q) {
+        sec(hbox, 'Not fit to chase', hygiene.length, hygiene.map(function (q) {
                 return '<div class="mw-sam-lead"><div class="mw-sam-lead-main"><b>' + esc(q.quote_number) + '</b> · ' + esc(q.name) + '<div class="mw-sam-next">' + esc(q.why) + '</div></div>' +
                     '<div class="mw-sam-lead-act"><a class="mw-rc-ok" href="' + esc(q.url) + '">Open</a></div></div>';
-            }).join('');
+            }).join(''), '', false);
     }
 
     function renderLeads(msg) {
         if (!lbox) return;
-        if (!leads.length && !maybes.length && !msg) { lbox.hidden = true; return; }
-        lbox.hidden = false;
         var bySignal = leads.length && leads[0].ranked_by === 'signal';
-        lbox.innerHTML = (leads.length ? '<div class="mw-sam-leads-head"><b>New leads</b> <small>' +
-                (bySignal ? 'ordered by what the CRM knows — no replies or opens logged yet, so no score is shown' : 'warmest first — replies, fit, urgency; then likely value') + '</small></div>' : '') +
-            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
+        var html = (leads.length ? '<div class="mw-sam-order">' + (bySignal ? 'Newest and most urgent first. No replies logged yet, so no heat score.' : 'Warmest first: replies, fit and urgency, then likely value.') + '</div>' : '') +
             leads.slice(0, 8).map(function (l) {
                 var tags = [];
                 if (l.tier) tags.push(l.tier + ' value');
@@ -384,33 +456,34 @@
                 var chip = bucket === 'hot' ? 'hot' : bucket === 'unclear' ? 'unclear' : bucket === 'out_of_scope' ? 'not a fit' : '';
                 var why = (l.reasons || []).slice(0, 3).join(' · ');
                 var mailto = l.ask && l.email ? 'mailto:' + encodeURIComponent(l.email) + '?subject=' + encodeURIComponent('Your enquiry') + '&body=' + encodeURIComponent(l.ask) : '';
-                return '<div class="mw-sam-lead is-' + esc(bucket) + (l.hot ? ' is-hot' : '') + '" data-l="' + l.id + '">' +
-                    '<div class="mw-sam-lead-main"><b>' + esc(l.name) + '</b> · ' + esc(l.services) +
-                    (l.address ? ' <small>· ' + esc(l.address) + '</small>' : '') +
+                var meta = [l.age_days === 0 ? 'today' : l.age_days + ' day' + (l.age_days === 1 ? '' : 's') + ' old'];
+                if (l.value > 0) meta.push('jobs like this average ' + money(l.value));
+                if (l.visit_day) meta.push(l.visit_day.line);
+                return '<div class="mw-sam-lead is-' + esc(bucket) + (l.hot ? ' is-hot' : '') + '" data-l="' + l.id + '" title="' + esc([why].concat(tags).filter(Boolean).join('. ')) + '">' +
+                    '<div class="mw-sam-lead-main"><b>' + esc(l.name) + '</b>, ' + esc(l.services) +
+                    (l.address ? ' <small>' + esc(l.address) + '</small>' : '') +
                     (chip ? ' <span class="mw-sam-bucket">' + esc(chip) + '</span>' : '') +
                     (!bySignal && typeof l.heat === 'number' ? ' <span class="mw-sam-heat" title="' + esc(why) + '">heat ' + l.heat + '</span>' : '') +
                     '<div class="mw-sam-next">' + esc(l.next) + '</div>' +
-                    (l.visit_day ? '<small class="mw-sam-visit" title="' + esc((l.visit_day.alternatives || []).map(function (a) { return a.text; }).join(' · ') || (l.visit_day.best ? l.visit_day.best.text : '')) + '">' + esc(l.visit_day.line) + '</small>' : '') +
-                    (why ? '<small class="mw-sam-why">' + esc(why) + '</small>' : '') +
-                    '<small class="mw-sam-meta">' + (l.age_days === 0 ? 'today' : l.age_days + ' day' + (l.age_days === 1 ? '' : 's') + ' old') +
-                    (l.value > 0 ? ' · jobs like this average ' + money(l.value) : '') + (tags.length ? ' · ' + esc(tags.join(' · ')) : '') + '</small></div>' +
+                    '<small class="mw-sam-meta">' + esc(meta.join('. ')) + '</small></div>' +
                     '<div class="mw-sam-lead-act">' +
                     (mailto ? '<a class="mw-rc-ed" href="' + mailto + '" title="Opens a draft in your mail app — nothing is sent until you send it">' + (bucket === 'unclear' ? 'Ask' : 'Reply') + '</a>' : '') +
                     (l.phone ? '<a class="mw-rc-ed" href="tel:' + esc(l.phone.replace(/[^\d+]/g, '')) + '">Call</a>' : '') +
                     '<a class="mw-rc-ok" href="' + esc(l.url) + '">Start quote</a>' +
                     '<button type="button" class="mw-rc-sk" data-dismiss>Not a lead</button></div></div>';
             }).join('') +
-            (maybes.length ? '<div class="mw-sam-leads-head"><b>Maybe a lead?</b> <small>emails that read like a job enquiry — you decide</small></div>' +
+            (maybes.length ? '<div class="mw-sam-sub">Maybe a lead? Emails that read like a job enquiry.</div>' +
                 maybes.slice(0, 5).map(function (m) {
                     return '<div class="mw-sam-lead" data-m="' + m.id + '">' +
                         '<div class="mw-sam-lead-main"><b>' + esc(m.name) + '</b>' + (m.services ? ' · ' + esc(m.services) : '') +
                         (m.address ? ' <small>· ' + esc(m.address) + '</small>' : '') +
                         (m.snippet ? '<div class="mw-sam-next">' + esc(m.snippet.length > 220 ? m.snippet.slice(0, 219) + '…' : m.snippet) + '</div>' : '') +
-                        '<small class="mw-sam-meta">' + (m.subject ? esc(m.subject) + ' · ' : '') + esc(m.email) + ' · ' + esc(ago(m.at)) + '</small></div>' +
+                        '<small class="mw-sam-meta">' + (m.subject ? esc(m.subject) + ', ' : '') + esc(m.email) + ', ' + esc(ago(m.at)) + '</small></div>' +
                         '<div class="mw-sam-lead-act">' +
                         '<button type="button" class="mw-rc-ok" data-maybe="maybe_accept">Make it a lead</button>' +
                         '<button type="button" class="mw-rc-sk" data-maybe="maybe_dismiss">Not a lead</button></div></div>';
                 }).join('') : '');
+        sec(lbox, 'New leads', leads.length + maybes.length, html, msg, true);
     }
     if (lbox) lbox.addEventListener('click', function (e) {
         var mb = e.target.closest('[data-maybe]');
@@ -440,19 +513,16 @@
     }
 
     function render(msg) {
-        if (!queue.length) {
-            root.innerHTML = '<div class="mw-rc-empty">' + (msg ? esc(msg) + '<br>' : '') +
-                'Nobody is waiting on a follow-up' + (NAME ? ', ' + esc(NAME) : '') + '. I\'ll bring the next one when it\'s due.</div>';
-            return;
-        }
+        if (!queue.length) { closeWork(msg); return; }
+        if (idx >= queue.length) idx = 0;
         var c = queue[idx], st = state(c);
         var total = queue.reduce(function (s, x) { return s + Number(x.amount || 0); }, 0);
         var replied = c.kind === 'replied';
         var why = replied
             ? '<b>' + esc(c.last_in_by || c.first_name || c.name) + ' wrote back ' + esc(ago(c.last_in)) + '</b>' +
-              (c.last_in_by ? ' about ' + esc(c.first_name || c.name) + '\'s quote' : '') + ' and hasn\'t heard from us since.'
-            : 'No reply for <b>' + c.days + ' days</b>' + (c.followups ? ' · ' + c.followups + ' follow-up' + (c.followups === 1 ? '' : 's') + ' so far' : '') +
-              (c.viewed ? ' · they opened it' : '') + '.';
+              (c.last_in_by ? ' about ' + esc(c.first_name || c.name) + '\'s quote' : '') + '. Read it before you send anything.'
+            : 'No reply for <b>' + c.days + ' days</b>' + (c.followups ? ', ' + c.followups + ' follow-up' + (c.followups === 1 ? '' : 's') + ' so far' : '') +
+              (c.viewed ? '. They opened it' : '') + '.';
 
         var quotes = c.quotes.map(function (q) {
             return '<li' + (q.state ? ' class="mw-sam-q-' + esc(q.state) + '"' : '') + '><a href="/crm/quotes/view.php?id=' + q.id + '">' + esc(q.number) + '</a> · ' + esc(q.service || q.title || 'Quote') +
@@ -482,11 +552,11 @@
 
         root.innerHTML =
             '<div class="mw-rc-top"><button type="button" class="mw-rc-arrow" data-nav="-1" aria-label="Previous"' + (queue.length < 2 ? ' disabled' : '') + '>‹</button>' +
-            '<span><b>' + (replied ? 'Waiting on you' : 'Follow-up') + ' ' + (idx + 1) + ' of ' + queue.length + '</b> · ' + money(total) + ' across the list</span>' +
+            '<span><b>' + (idx + 1) + ' of ' + queue.length + '</b> waiting, ' + money(total) + ' in all</span>' +
             '<button type="button" class="mw-rc-arrow" data-nav="1" aria-label="Next"' + (queue.length < 2 ? ' disabled' : '') + '>›</button></div>' +
             '<div class="mw-sam-slide">' +
               '<div class="mw-sam-who">' +
-                '<div class="mw-rc-meta"><b>' + esc(c.name) + '</b>' + (c.company ? ' · ' + esc(c.company) : '') + ' · ' + money(c.amount) + '</div>' +
+                '<div class="mw-rc-meta"><b>' + esc(c.name) + '</b>' + (c.company ? ', ' + esc(c.company) : '') + ' <span class="mw-sam-amt">' + money(c.amount) + '</span></div>' +
                 '<div class="mw-sam-why' + (replied ? ' is-replied' : '') + '">' + why + '</div>' +
                 '<ul class="mw-sam-quotes">' + quotes + '</ul>' + thread +
               '</div>' +
@@ -498,12 +568,12 @@
                 // DraftSafety badge (Fable 2026-10-12): emails / links / bank details not in our records.
                 (!isSms && st.drafted_by === 'claude' && st.flag_label ? '<div class="mw-sam-count is-bad" role="alert">&#9888; ' + esc(st.flag_label) + '</div>' : '') +
                 (isSms ? '<div class="mw-sam-count' + (probs.length ? ' is-bad' : '') + '">' + text.length + '/' + SMS_MAX + (probs.length ? ' · ' + esc(probs.join(' · ')) : ' · OK for carriers') + '</div>'
-                       : '<div class="mw-sam-count">The quote link' + (c.quotes.length > 1 ? 's go' : ' goes') + ' under your message automatically.</div>') +
+                       : '<div class="mw-sam-count">Quote link' + (c.quotes.length > 1 ? 's are' : ' is') + ' added under your message.</div>') +
                 '<div class="mw-rc-actions">' +
                   '<button type="button" class="mw-rc-ok" data-act="send"' + (isSms && probs.length ? ' disabled' : '') + '>Send ' + (isSms ? 'text' : 'email') + '</button>' +
                   (replied && !isSms ? '<button type="button" class="mw-rc-ed" data-act="claude">Draft a reply</button>' : '') +
                   '<button type="button" class="mw-rc-ed" data-act="snooze">Snooze a week</button>' +
-                  '<button type="button" class="mw-rc-sk" data-act="skip">Not now →</button>' +
+                  '<button type="button" class="mw-rc-sk" data-act="skip">Not now</button>' +
                 '</div>' +
                 '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>' +
               '</div>' +
@@ -523,7 +593,7 @@
 
     root.addEventListener('click', function (e) {
         var nav = e.target.closest('[data-nav]');
-        if (nav && queue.length) { idx = (idx + Number(nav.getAttribute('data-nav')) + queue.length) % queue.length; render(); return; }
+        if (nav && queue.length) { idx = (idx + Number(nav.getAttribute('data-nav')) + queue.length) % queue.length; render(); renderRows(); return; }
         var ch = e.target.closest('[data-ch]');
         if (ch && !ch.disabled) { state(queue[idx]).channel = ch.getAttribute('data-ch'); render(); return; }
         var b = e.target.closest('[data-act]'); if (!b || busy || !queue.length) return;
@@ -554,6 +624,7 @@
                 delete edits[c.key];
                 queue.splice(idx, 1);
                 if (idx >= queue.length) idx = 0;
+                renderBrief(); renderNext();
                 render(d.message);
             } else {
                 var msg = d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.';

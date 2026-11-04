@@ -38396,6 +38396,146 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-sam-lead { flex-direction: column; align-items: flex-start; }
 }
 
+/* ── Sam v2 (2026-11-04): briefing → next → rows by status → one customer's workspace ──
+   Scoped to .mw-sam-v2 so the older rules above keep working for anything else that uses them.
+   Rows before cards; one filled button on screen; status is a glyph and a word, never colour alone;
+   meta text on ink-700 (7:1); 44 px targets, 48 on phones. Inter 400/500/600 only. */
+.mw-sam.mw-sam-v2 { display: block; padding: 16px 18px 6px; }
+.mw-sam-v2 .mw-sam-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.mw-sam-v2 .mw-sam-photo img { width: 72px; height: 72px; border-radius: var(--mw-radius-md); }
+.mw-sam-v2 .mw-head-brain { width: 40px; height: 40px; right: -12px; bottom: -12px; border-radius: 10px; }
+.mw-sam-v2 .mw-sam-id { min-width: 0; flex: 1 1 120px; }
+.mw-sam-v2 small { font-size: .75rem; }   /* nothing under 12 px (design system 1.2.1) */
+.mw-sam-v2 .mw-head-name { margin-top: 0; font-size: 1.125rem; font-weight: 600; line-height: 1.2; }
+.mw-sam-v2 .mw-head-role { font-size: .8125rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-state { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: 6px; }
+.mw-sam-v2 .mw-sam-state .mw-head-pill { margin-top: 0; }
+.mw-sam-v2 .mw-head-badge { font-weight: 600; }
+.mw-sam-v2 .mw-sam-all { margin-left: auto; min-height: 44px; display: inline-flex; align-items: center; padding: 0 14px; border: 1px solid var(--mw-ink-200);
+    border-radius: var(--mw-radius-sm); color: var(--mw-forest); font-weight: 500; font-size: .875rem; text-decoration: none; background: var(--mw-ink-0); }
+.mw-sam-v2 .mw-sam-all:hover { border-color: var(--mw-green); color: var(--mw-dark); }
+
+/* The sentence: the one loud thing on the card */
+.mw-sam-v2 .mw-sam-say { font-size: 1.125rem; line-height: 1.45; font-weight: 400; color: var(--mw-forest); padding: 14px 18px; margin: 0 0 14px; max-width: 72ch; border-radius: var(--mw-radius-md); }
+.mw-sam-v2 .mw-sam-say b { font-weight: 600; color: var(--mw-forest); }
+
+/* Next: one row, one button */
+.mw-sam-v2 .mw-sam-first { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center;
+    padding: 12px 16px; margin-bottom: 14px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-green); border-radius: var(--mw-radius-sm); background: var(--mw-ink-0); }
+.mw-sam-v2 .mw-sam-first-k { font-size: .8125rem; font-weight: 500; color: var(--mw-ink-700); align-self: start; padding-top: 3px; }
+.mw-sam-v2 .mw-sam-first-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mw-sam-v2 .mw-sam-first-who { font-size: 1rem; color: var(--mw-ink-900); }
+.mw-sam-v2 .mw-sam-first-who b { font-weight: 600; }
+.mw-sam-v2 .mw-sam-go { min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--mw-radius-sm); background: var(--mw-green); color: var(--mw-ink-0); font-weight: 600; font-size: .875rem; white-space: nowrap; }
+.mw-sam-v2 .mw-sam-go:hover { background: var(--mw-dark); }
+.mw-sam-v2 .mw-sam-go:focus-visible, .mw-sam-v2 .mw-sam-row:focus-visible, .mw-sam-v2 summary:focus-visible, .mw-sam-v2 .mw-sam-back:focus-visible { outline: 3px solid var(--mw-green); outline-offset: 2px; }
+
+/* Status: glyph + word */
+.mw-sam-v2 .mw-sam-st { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem; font-weight: 500; color: var(--mw-ink-700); white-space: nowrap; }
+.mw-sam-v2 .mw-sam-st.is-replied { color: var(--mw-color-warning); }
+.mw-sam-v2 .mw-sam-amt { font-weight: 600; color: var(--mw-forest); font-variant-numeric: tabular-nums; }
+.mw-sam-v2 .mw-sam-n { display: inline-block; min-width: 22px; padding: 0 7px; border-radius: var(--mw-radius-pill); background: var(--mw-light); color: var(--mw-forest); font-size: .75rem; font-weight: 600; line-height: 20px; text-align: center; vertical-align: 1px; }
+
+/* Rows grouped by what Sam knows */
+.mw-sam-v2 .mw-sam-group { margin-bottom: 10px; }
+.mw-sam-v2 .mw-sam-group h4 { font-size: .8125rem; font-weight: 500; color: var(--mw-ink-700); margin: 0; padding: 6px 12px; }
+.mw-sam-v2 .mw-sam-row { display: grid; grid-template-columns: 190px minmax(0, 1fr) auto 16px; gap: 12px; align-items: center; width: 100%; min-height: 44px;
+    padding: 8px 12px; border: 0; border-top: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); color: var(--mw-ink-900); font: inherit; font-size: .875rem; text-align: left; cursor: pointer; }
+.mw-sam-v2 .mw-sam-row:last-child { border-bottom: 1px solid var(--mw-ink-200); }
+.mw-sam-v2 .mw-sam-row:hover { background: var(--mw-ink-50); }
+.mw-sam-v2 .mw-sam-row.is-current { background: var(--mw-light); }
+.mw-sam-v2 .mw-sam-row-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mw-sam-v2 .mw-sam-row-who b { font-weight: 600; }
+.mw-sam-v2 .mw-sam-row-who small { font-size: .8125rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-chev { color: var(--mw-ink-700); font-size: 1.1rem; line-height: 1; }
+
+/* Workspace: one customer, back link, the existing slide (quotes + thread | draft) */
+.mw-sam-v2.is-working .mw-sam-sec, .mw-sam-v2.is-working .mw-pq { display: none; }   /* one customer at a time: the lists come back with "Back to the list" */
+.mw-sam-v2 .mw-sam-work { margin-bottom: 8px; }
+.mw-sam-v2 .mw-sam-back { min-height: 44px; padding: 0 10px 0 4px; margin: -6px 0 6px; border: 0; background: none; color: var(--mw-dark); font-weight: 500; font-size: .875rem; }
+.mw-sam-v2 .mw-sam-back::before { content: '\2039'; font-size: 1.3rem; line-height: 1; margin-right: 6px; }
+.mw-sam-v2 .mw-sam-back:hover { text-decoration: underline; text-underline-offset: 3px; }
+.mw-sam-v2 .mw-rc-top { padding: 0 2px; }
+.mw-sam-v2 .mw-rc-arrow { width: 44px; height: 44px; }
+.mw-sam-v2 .mw-sam-why { font-size: .875rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-why.is-replied { color: var(--mw-color-warning); }
+.mw-sam-v2 .mw-sam-quotes, .mw-sam-v2 .mw-sam-msg { font-size: .8125rem; }
+.mw-sam-v2 .mw-sam-quotes small, .mw-sam-v2 .mw-sam-msg small { font-size: .75rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-quotes li a { font-weight: 600; }
+.mw-sam-v2 .mw-sam-lbl { font-size: .75rem; font-weight: 500; color: var(--mw-ink-700); text-transform: none; letter-spacing: 0; }
+.mw-sam-v2 .mw-sam-in { font-size: .875rem; min-height: 44px; }
+.mw-sam-v2 .mw-sam-chan button { min-height: 36px; padding: 0 14px; font-size: .8125rem; }
+.mw-sam-v2 .mw-sam-count { font-size: .75rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-rc-actions .mw-rc-ok, .mw-sam-v2 .mw-rc-actions .mw-rc-ed { min-height: 44px; font-weight: 600; border-radius: var(--mw-radius-sm); }
+.mw-sam-v2 .mw-rc-actions .mw-rc-sk { min-height: 44px; font-size: .8125rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-rc-msg, .mw-sam-v2 .mw-rc-meta { color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-rc-meta b { font-weight: 600; }
+.mw-sam-v2 .mw-rc-empty { color: var(--mw-ink-700); }
+
+/* Collapsed sections: title + count in the summary; a chevron turns when open */
+.mw-sam-v2 .mw-sam-sec { margin: 0; border-top: 1px solid var(--mw-ink-200); }
+.mw-sam-v2 details.mw-sam-sec > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 4px; cursor: pointer;
+    font-size: .9375rem; font-weight: 600; color: var(--mw-forest); user-select: none; }
+.mw-sam-v2 details.mw-sam-sec > summary::-webkit-details-marker { display: none; }
+.mw-sam-v2 details.mw-sam-sec > summary::after { content: '\203A'; margin-left: auto; color: var(--mw-ink-700); font-size: 1.2rem; transform: rotate(90deg); transition: transform .15s; }
+.mw-sam-v2 details.mw-sam-sec[open] > summary::after { transform: rotate(-90deg); }
+.mw-sam-v2 details.mw-sam-sec.is-decide > summary { color: var(--mw-color-warning); }
+.mw-sam-v2 .mw-sam-sec-body { padding: 0 4px 12px; }
+.mw-sam-v2 .mw-sam-numbers > summary { font-weight: 500; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-order, .mw-sam-v2 .mw-sam-sub { font-size: .8125rem; color: var(--mw-ink-700); padding: 2px 0 6px; }
+.mw-sam-v2 .mw-sam-sub { font-weight: 600; color: var(--mw-forest); padding-top: 12px; }
+.mw-sam-v2 .mw-pq { margin: 0 0 4px; border-radius: var(--mw-radius-sm); }
+.mw-sam-v2 .mw-pq-btns button { min-height: 44px; }
+
+/* Rows inside sections: ink-700 meta, no dashed lines, 44 px actions */
+.mw-sam-v2 .mw-sam-lead, .mw-sam-v2 .mw-sam-reply, .mw-sam-v2 .mw-sam-appr, .mw-sam-v2 .mw-sam-ask { border-top: 1px solid var(--mw-ink-100); font-size: .875rem; padding: 10px 0; }
+.mw-sam-v2 .mw-sam-lead:first-child, .mw-sam-v2 .mw-sam-order + .mw-sam-lead, .mw-sam-v2 .mw-sam-reply:first-child, .mw-sam-v2 .mw-sam-appr:first-child, .mw-sam-v2 .mw-sam-ask:first-child { border-top: 0; }
+.mw-sam-v2 .mw-sam-lead-main small, .mw-sam-v2 .mw-sam-reply-main small, .mw-sam-v2 .mw-sam-meta, .mw-sam-v2 .mw-sam-ask-main > small, .mw-sam-v2 .mw-sam-ask-drafts { color: var(--mw-ink-700); font-size: .8125rem; }
+.mw-sam-v2 .mw-sam-lead .mw-sam-next, .mw-sam-v2 .mw-sam-reply .mw-sam-next { font-weight: 500; color: var(--mw-ink-900); margin: 1px 0; }
+.mw-sam-v2 .mw-sam-lead.is-hot .mw-sam-next { color: var(--mw-color-warning); }
+.mw-sam-v2 .mw-sam-lead-act .mw-rc-ok, .mw-sam-v2 .mw-sam-lead-act .mw-rc-ed, .mw-sam-v2 .mw-sam-ask-act .mw-rc-ok, .mw-sam-v2 .mw-sam-ask-act .mw-rc-ed { min-height: 40px; display: inline-flex; align-items: center; font-weight: 600; border-radius: var(--mw-radius-sm); }
+.mw-sam-v2 .mw-sam-lead-act .mw-rc-sk, .mw-sam-v2 .mw-sam-ask-act .mw-rc-sk { min-height: 40px; color: var(--mw-ink-700); font-size: .8125rem; }
+.mw-sam-v2 .mw-sam-bucket, .mw-sam-v2 .mw-sam-heat { font-size: .75rem; line-height: 20px; color: var(--mw-forest); }
+.mw-sam-v2 .mw-sam-heat { color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-sam-yes { font-weight: 600; font-size: .75rem; text-transform: none; letter-spacing: 0; }
+
+/* Numbers (collapsed): the old tiles, quieter */
+.mw-sam-v2 .mw-sam-stats { margin-top: 4px; }
+.mw-sam-v2 .mw-head-stat .mw-k { text-transform: none; letter-spacing: 0; font-size: .8125rem; font-weight: 500; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-head-stat .mw-v { font-weight: 600; font-size: 1.5rem; }
+.mw-sam-v2 .mw-head-stat .mw-v small { font-weight: 500; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-head-stat .mw-n { color: var(--mw-ink-700); font-size: .75rem; }
+.mw-sam-v2 .mw-sam-works { font-size: .8125rem; color: var(--mw-ink-700); margin: 10px 0 0; }
+.mw-sam-v2 .mw-head-foot { margin-top: 12px; font-size: .8125rem; color: var(--mw-ink-700); }
+.mw-sam-v2 .mw-head-foot .btn { min-height: 40px; }
+
+@media (prefers-reduced-motion: reduce) { .mw-sam-v2 details.mw-sam-sec > summary::after { transition: none; } }
+@media (max-width: 1099.98px) {
+    .mw-sam-v2 .mw-sam-slide { grid-template-columns: 1fr; }
+}
+@media (max-width: 767.98px) {
+    .mw-sam.mw-sam-v2 { padding: 14px 14px 4px; }
+    .mw-sam-v2 .mw-sam-head { gap: 10px; }
+    .mw-sam-v2 .mw-sam-photo img { width: 56px; height: 56px; }
+    .mw-sam-v2 .mw-head-brain { width: 34px; height: 34px; right: -10px; bottom: -10px; }
+    .mw-sam-v2 .mw-sam-state { width: 100%; margin-left: 0; order: 3; }
+    .mw-sam-v2 .mw-sam-all { margin-left: 0; min-height: 44px; padding: 0 10px; }
+    .mw-sam-v2 .mw-sam-state { order: 0; }
+    .mw-sam-v2 .mw-sam-say { font-size: 1rem; padding: 12px 14px; }
+    .mw-sam-v2 .mw-sam-first { grid-template-columns: 1fr; gap: 8px; }
+    .mw-sam-v2 .mw-sam-first-k { padding: 0; }
+    .mw-sam-v2 .mw-sam-go { min-height: 48px; width: 100%; }
+    .mw-sam-v2 .mw-sam-row { grid-template-columns: minmax(0, 1fr) auto 16px; grid-template-areas: 'who amt chev' 'st st st'; min-height: 48px; row-gap: 2px; }
+    .mw-sam-v2 .mw-sam-row .mw-sam-st { grid-area: st; }
+    .mw-sam-v2 .mw-sam-row-who { grid-area: who; white-space: normal; }
+    .mw-sam-v2 .mw-sam-row .mw-sam-amt { grid-area: amt; }
+    .mw-sam-v2 .mw-sam-row .mw-sam-chev { grid-area: chev; }
+    .mw-sam-v2 .mw-sam-stats { grid-template-columns: 1fr 1fr; }
+    .mw-sam-v2 .mw-sam-lead, .mw-sam-v2 .mw-sam-reply { flex-direction: column; align-items: flex-start; }
+    .mw-sam-v2 .mw-rc-actions .mw-rc-ok { min-height: 48px; }
+}
+
+
 /* ===================================================================
    MIA — MARKETING HEAD (dashboard deck) — who to get back in touch with
    Card: includes/mia-card.php · JS: js/mia-card.js · brain: js/head-brain.js
