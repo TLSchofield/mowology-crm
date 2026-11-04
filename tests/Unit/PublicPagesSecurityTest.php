@@ -92,4 +92,12 @@ final class PublicPagesSecurityTest extends TestCase
         self::assertStringContainsString('latitude        = COALESCE(latitude, ?)', $src);
         self::assertStringContainsString('longitude       = COALESCE(longitude, ?)', $src);
     }
+
+    public function testHelperIsRequiredThroughAppRootNotTheRepoLayout(): void
+    {
+        // 2026-11-04: dirname(__DIR__, 2) . '/app/...' works in the repo but not on the server (public_html/app): getQuote returned 500.
+        $src = $this->source('public/jobFlow/recaptcha-helpers.php');
+        self::assertStringNotContainsString("dirname(__DIR__, 2) . '/app/", $src);
+        self::assertStringContainsString("defined('APP_ROOT') ? APP_ROOT", $src);
+    }
 }

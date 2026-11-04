@@ -20,7 +20,8 @@ if (!defined('RECAPTCHA_V3_SCORE_THRESHOLD')) {
     define('RECAPTCHA_V3_SCORE_THRESHOLD', 0.5);
 }
 
-require_once dirname(__DIR__, 2) . '/app/Modules/PublicForms/Services/PublicFormSecurity.php';
+// On the server the app code sits beside this folder (public_html/app); in the repo it is one level higher. APP_ROOT knows.
+require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__) . '/app') . '/Modules/PublicForms/Services/PublicFormSecurity.php';
 
 /**
  * Verify a reCAPTCHA token (v2 or v3) with Google's siteverify endpoint.
