@@ -40,4 +40,10 @@ class BillingEditGuardTest extends TestCase
         $this->assertNotFalse($i);
         $this->assertStringContainsString('assertCanEditExpense', substr($s, $i, 900));
     }
+
+    public function testTeamRosterHidesPayRatesFromLoginsWithoutTeamEdit(): void
+    {
+        $s = self::src('public/crm/team/index.php');
+        $this->assertMatchesRegularExpression("/!userHasPermission\('team\.edit'\)\)\s*\{\s*foreach \(\\\$employees as &\\\$emp\) \{ unset\(\\\$emp\['hourly_rate'\]\)/", $s);
+    }
 }
