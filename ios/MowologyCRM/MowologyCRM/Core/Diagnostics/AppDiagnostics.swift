@@ -69,7 +69,7 @@ final class AppDiagnostics: @unchecked Sendable {
             queue.async { [self] in
                 do {
                     try prepareDirectory()
-                    var parts = ["Mowology diagnostics — \(ISO8601DateFormatter().string(from: Date()))"]
+                    var parts = ["Ittai diagnostics — \(ISO8601DateFormatter().string(from: Date()))"]
                     if let lastFailure {
                         parts.append("Previous log-storage failure: \(lastFailure.localizedDescription)")
                     }

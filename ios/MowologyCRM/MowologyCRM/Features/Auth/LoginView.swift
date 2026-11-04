@@ -70,7 +70,7 @@ struct LoginView: View {
                 .padding(.top, 72)
                 .padding(.bottom, 4)
 
-            Text("Mowology")
+            Text("Ittai")
                 .font(appStyle.font(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 

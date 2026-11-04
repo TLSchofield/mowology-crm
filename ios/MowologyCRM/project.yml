@@ -28,8 +28,8 @@ targets:
     info:
       path: MowologyCRM/Resources/Info.plist
       properties:
-        CFBundleName: Mowology CRM
-        CFBundleDisplayName: Mowology
+        CFBundleName: Ittai
+        CFBundleDisplayName: Ittai
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}

@@ -21,7 +21,7 @@ struct AppUpdateView: View {
                     .padding(.bottom, 8)
 
                 if !result.latestVersion.isEmpty {
-                    Text("Mowology CRM v\(result.latestVersion) is now available.")
+                    Text("Ittai v\(result.latestVersion) is now available.")
                         .font(appStyle.font(size: 16))
                         .foregroundColor(Color(red: 0.784, green: 0.910, blue: 0.867))
                         .multilineTextAlignment(.center)

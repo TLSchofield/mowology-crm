@@ -110,7 +110,7 @@ struct MowologyCRMApp: App {
         // an alert — crew phone is not disturbed, but the app gets a reconnect chance.
         if jobActive && elapsed > 8 * 60 {
             let content = UNMutableNotificationContent()
-            content.title             = "Mowology GPS"
+            content.title             = "Ittai GPS"
             content.body              = "GPS tracking paused. Open the app to resume."
             content.sound             = nil
             content.interruptionLevel = .timeSensitive
