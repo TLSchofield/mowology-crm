@@ -48,6 +48,20 @@ final class SignUpServiceTest extends TestCase
         $this->assertNotSame($first, $second); $this->assertTrue(password_verify('222222', $second));
     }
 
+    /** Production 2026-11-03: a second code request died on "Duplicate entry 'signup_code_tries'" because MySQL's
+     *  rowCount() counts changed rows, and re-writing tries = '0' changes nothing. Mimic MySQL here. */
+    public function test_second_code_request_survives_mysql_changed_row_count(): void
+    {
+        $db = $this->db();
+        $db->exec('CREATE UNIQUE INDEX uq_setting_key ON ops_settings (setting_key)');
+        $db->setAttribute(PDO::ATTR_STATEMENT_CLASS, [SignUpMysqlLikeStatement::class, []]);
+        $svc = new SignUpService($db, 'tenant');
+        $this->assertTrue($svc->requestCode($this->valid(), '111111', 1000)['ok']);
+        $this->assertTrue($svc->requestCode($this->valid(), '222222', 1100)['ok']);
+        $this->assertSame(3, (int)$db->query("SELECT COUNT(*) FROM ops_settings WHERE setting_key LIKE 'signup_code_%'")->fetchColumn());
+        $this->assertTrue(password_verify('222222', (string)$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='signup_code_hash'")->fetchColumn()));
+    }
+
     public function test_expiry_wrong_code_and_five_try_limit(): void
     {
         $db = $this->db(); $svc = new SignUpService($db, 'tenant');
@@ -95,5 +109,16 @@ final class SignUpServiceTest extends TestCase
         }
         $this->assertFalse(SignUpRequestThrottle::reserve('owner@example.com', '127.0.0.1', $limited, $record));
         $this->assertSame(5, $attempts, 'A refused request must not add another throttle row.');
+    }
+}
+
+/** Worst case of MySQL's changed-rows count: every UPDATE reports 0 rows, even when it matched. */
+final class SignUpMysqlLikeStatement extends PDOStatement
+{
+    protected function __construct() {}
+
+    public function rowCount(): int
+    {
+        return stripos(ltrim($this->queryString), 'UPDATE') === 0 ? 0 : parent::rowCount();
     }
 }

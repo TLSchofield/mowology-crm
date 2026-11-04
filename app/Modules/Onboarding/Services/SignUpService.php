@@ -168,7 +168,12 @@ final class SignUpService
     {
         $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ?, description = ? WHERE setting_key = ?');
         $u->execute([$value, $description, $key]);
-        if ($u->rowCount() === 0) $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $description]);
+        // MySQL's rowCount() counts CHANGED rows: re-writing the same value (signup_code_tries = '0' on a second
+        // code request) reports 0 although the row exists. Only insert when the row is really missing.
+        if ($u->rowCount() > 0) return;
+        $chk = $this->db->prepare('SELECT 1 FROM ops_settings WHERE setting_key = ?');
+        $chk->execute([$key]);
+        if ($chk->fetchColumn() === false) $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $description]);
     }
 
     private function codeState(string $lock): array

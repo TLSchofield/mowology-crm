@@ -151,3 +151,11 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    connect round trip still needs Tim's Intuit sign-in. **Owed:** add each further business's callback URL to the Intuit app
    (testcompany first) and prove the Intuit tab round trip on production; SMS leg unproven; Tim's call: after "Yes, I use
    QuickBooks" + Skip, the map marks "Your books" Not needed (existing web rule) — keep, or ask again?
+   **Rehearsal walk 2026-11-03 (Tim's phone, rehearsal.ittai.ca, final APK):** step 1 proven — fresh install opens native
+   "Create your login". Two first-impression findings for the Android session, Tim to decide after the walk: (a) no visible
+   splash or welcome — the Ittai splash exists (`tenanttest/res/values/styles.xml`, hexagon icon) but MainActivity is a UI-less
+   dispatcher that finishes at once and nothing calls `installSplashScreen()`, so the Android 12 splash is a sub-100 ms flash;
+   no welcome composable exists; (b) the brown "TEST TENANT: <host>" banner is gated by the flavour (`BuildConfig.IS_TEST_TENANT`,
+   `app/build.gradle:70-76`), so a build for Claudia would show "TEST TENANT: claudia.ittai.ca" — dropping it needs a non-test
+   Ittai flavour (and the default-on native switches keyed off a separate `IS_ITTAI` field, not `isTestTenant`). Also: "Back"
+   on the first screen.

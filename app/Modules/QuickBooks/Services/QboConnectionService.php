@@ -139,7 +139,11 @@ class QboConnectionService
         if ($json === false) throw new RuntimeException('QuickBooks state could not be saved.');
         $u = $db->prepare('UPDATE ops_settings SET setting_value = ?, description = ? WHERE setting_key = ?');
         $u->execute([$json, 'QuickBooks phone OAuth state', 'qbo_oauth_phone']);
-        if ($u->rowCount() === 0) $db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute(['qbo_oauth_phone', $json, 'QuickBooks phone OAuth state']);
+        if ($u->rowCount() > 0) return;
+        $chk = $db->prepare('SELECT 1 FROM ops_settings WHERE setting_key = ?');
+        $chk->execute(['qbo_oauth_phone']);
+        // MySQL counts changed rows, not matched ones: insert only when the row is really missing.
+        if ($chk->fetchColumn() === false) $db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute(['qbo_oauth_phone', $json, 'QuickBooks phone OAuth state']);
     }
 
     public static function phoneState(PDO $db): ?array
