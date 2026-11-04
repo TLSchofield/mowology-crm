@@ -14,7 +14,7 @@ import datetime, html, json, os, sys
 HOME = os.path.expanduser('~/.mowology-codex')
 AREAS = [('salt-snow', 'Salt & snow'), ('money', 'Money'), ('auth', 'Logins & permissions'), ('public', 'Client portal & public site'),
          ('crew', 'Crew apps'), ('messages', 'Messaging & consent'), ('rest', 'Everything else')]
-STATUS = {'fixed': ('Fixed', 'ok'), 'not_real': ('Not a real problem', 'muted'), 'left': ('Left as design', 'warn')}
+STATUS = {'fixed': ('Fixed', 'ok'), 'not_real': ('Not a real problem', 'muted'), 'left': ('Left as design', 'warn'), 'decided': ('Needs your decision', 'warn')}
 SEV_ORDER = {'High': 0, 'Medium': 1, 'Low': 2}
 
 
