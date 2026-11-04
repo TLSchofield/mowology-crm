@@ -69,6 +69,7 @@ struct ReceiptReviewView: View {
     @State private var showSavedDialog = false
     @State private var savedMessage = ""
     @State private var showImageFull = false
+    @State private var showRetakeConfirm = false
 
     private enum Field: Hashable { case vendor, amount, gst, pst, total, jobSearch, description }
     @FocusState private var focus: Field?
@@ -197,6 +198,12 @@ struct ReceiptReviewView: View {
         }
         // Save-time duplicate confirm — desktop web uses confirm(); Android toasts and
         // allows. This is the explicit version: one tap to proceed, one to go back.
+        .alert("Discard this receipt and retake?", isPresented: $showRetakeConfirm) {
+            Button("Retake", role: .destructive) { onRetake?() }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("Your edits on this form will be lost. If you cancel the camera, this receipt comes back.")
+        }
         .alert("Possible duplicate", isPresented: $showDuplicateConfirm) {
             Button("Save anyway") {
                 duplicatesAcknowledged = true
@@ -344,10 +351,15 @@ struct ReceiptReviewView: View {
 
     private var totalConfirmed: Bool {
         let p = intake.parsed
+        // Every part must be present: a missing tax is not zero, and a validation the server
+        // sent must say valid (none sent is fine). PST absent = not confirmed (the intake does
+        // not say "no PST" explicitly).
         guard intake.totalSource != nil, let t = p?.totalDouble, t > 0,
-              let sub = p?.subtotal.flatMap(Double.init) else { return false }
-        let sum = sub + (p?.gstDouble ?? 0) + (p?.pst.flatMap(Double.init) ?? 0)
-        return abs(sum - t) <= 0.02 && intake.gstValidation?.valid != false
+              let sub = p?.subtotal.flatMap(Double.init),
+              let g = p?.gstDouble, !gstEstimated,
+              let ps = p?.pst.flatMap(Double.init) else { return false }
+        if let gv = intake.gstValidation, gv.valid != true { return false }
+        return abs(sub + g + ps - t) <= 0.02
     }
 
     private var gstEstimated: Bool { intake.parsed?.gstEstimated == true }
@@ -368,6 +380,8 @@ struct ReceiptReviewView: View {
         if (intake.parsed?.totalDouble ?? 0) <= 0 { f.append("Total is missing") }
         else if !totalConfirmed { f.append("Total, subtotal and tax don't add up or weren't confirmed") }
         if gstEstimated { f.append("GST is estimated") }
+        else if intake.parsed?.gstDouble == nil { f.append("GST is missing") }
+        if intake.parsed?.pst.flatMap(Double.init) == nil { f.append("PST is missing — add it or leave it at zero") }
         if (intake.suggestions?.vendorName ?? intake.parsed?.vendorHint ?? "").isEmpty { f.append("Vendor is missing") }
         else if intake.suggestions?.vendorId == nil || intake.suggestions?.vendorNeedsReview == true { f.append("Vendor needs a look") }
         if (intake.parsed?.date ?? "").isEmpty { f.append("Date is missing") }
@@ -380,9 +394,9 @@ struct ReceiptReviewView: View {
             Section {
                 Label("Couldn't read this receipt — retake, or save it and fill in what you know", systemImage: "exclamationmark.triangle.fill")
                     .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.attention)
-                if let retake = onRetake {
+                if onRetake != nil {
                     Button {
-                        retake()
+                        showRetakeConfirm = true
                     } label: {
                         Label("Retake", systemImage: "camera")
                             .font(appStyle.font(.subheadline, weight: .semibold))

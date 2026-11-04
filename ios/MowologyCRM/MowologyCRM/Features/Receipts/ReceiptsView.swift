@@ -35,6 +35,8 @@ struct ReceiptsView: View {
     @State private var captureLng: Double?
     // "Snap Another" from the review sheet — reopen the camera once the sheet is gone.
     @State private var snapAnotherPending = false
+    /// Camera opened from the review's Retake: cancelling it brings the same review back.
+    @State private var retakePending = false
 
     // Label mode: the next photo is a product bag / machine nameplate, not a receipt.
     // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
@@ -105,6 +107,7 @@ struct ReceiptsView: View {
             CameraPicker(
                 onCapture: { image in
                     showCamera = false
+                    retakePending = false
                     Task {
                         // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
                         let compressed: Data = await Task.detached(priority: .userInitiated) {
@@ -114,7 +117,14 @@ struct ReceiptsView: View {
                         await handleCapture(compressed)
                     }
                 },
-                onCancel: { showCamera = false }
+                onCancel: {
+                    showCamera = false
+                    // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
+                    if retakePending {
+                        retakePending = false
+                        if viewModel.intakeResponse != nil { showReview = true }
+                    }
+                }
             )
             .ignoresSafeArea()
         }
@@ -145,6 +155,7 @@ struct ReceiptsView: View {
                     onRetake: {
                         // Same path as "Snap Another": close the sheet, then reopen the camera.
                         snapAnotherPending = true
+                        retakePending = true
                         showReview = false
                     }
                 ) { followUp in
@@ -242,6 +253,7 @@ struct ReceiptsView: View {
         // CLLocationManager value alone was often nil on a cold start.
         // The phone's own text read starts now and runs while the fix settles; upload waits for both.
         let deviceRead: DeviceTextScanner.Prefetched? = labelMode ? nil : DeviceTextScanner.Prefetched(compressed)
+        defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
         let loc = await Self.captureFix() ?? locationManager.location
         if labelMode {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
