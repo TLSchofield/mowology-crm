@@ -84,3 +84,8 @@ line must stay on top). C: today against yesterday's snapshot. D: render the ema
 - **Open for Tim:** the status says RED for the payroll remittance but "the one thing" is still a customer's "Ok" (ranking is learned from what he opens). His rule of 2026-10-11 says penalty dates first;
   a floor for forced-red lines in the ranking is a one-line change if he wants it. Not done without his say (outside the approved plan).
 - Not built: grouping 19 same-kind lines, rewriting 195 status lines as decisions, the routed-mail mismatch — backlog.
+- **Codex** (1 review, 2 findings, both fixed): deadline keys are read strictly with a real calendar date (a ":done" suffix or "2026-02-31" no longer forces red; categories with digits or hyphens do);
+  the demotion stays in the ranking only — `UrgencyGuard::restore()` gives each demoted line its head's own priority back, so the card, the ready brief, the snapshot and the phone see what the head sent.
+- **Live (2026-11-03 20:50):** `charlie.php?mode=today` returns status RED (payroll remittance), eight head statuses, "201 lines ▼ 4 since yesterday, 29 urgent (no prior baseline)", the four urgency notes;
+  the classic Charlie card shows the chip; Sam's line reads "Gary Hughes looks lost". **Gap:** the NEW dashboard layout (Kaname's "Three things need you today") does not render the chip yet — it reads the
+  same JSON, so adding it there is a small change (the file that builds that layout is not in this repo's Charlie code; find it first). Tomorrow's snapshot will carry the urgent count, so the second comparison appears.

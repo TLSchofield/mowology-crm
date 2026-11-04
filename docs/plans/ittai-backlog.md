@@ -136,6 +136,7 @@ trades first. The AI back office is the edge.
 - **195 of 200 lines are status sentences, not decisions** ("Send 28 invoices? Tap"): head by head.
 - **Penny's routed mail:** "Meghan wrote about billing: can we book you for a fall cleanup" is a booking request filed as billing (InboundTopicClassifier).
 - **Sam marks 25 of 31 lines urgent** (19 are replies to Mia's fall email): fix the priority at the source; Yui marks all 9 approvals urgent.
+- **Show the status chip in the NEW dashboard layout** ("Three things need you today"): the JSON already has `status`, `trend`, `urgency_notes`; only the classic card draws them.
 - **Charlie status thresholds** (`charlie_status_money_red`, `charlie_status_deadline_days`) are defaults until Dec 1; review then.
 
 ## Yui and Otto-leads follow-ups (2026-11-03)
