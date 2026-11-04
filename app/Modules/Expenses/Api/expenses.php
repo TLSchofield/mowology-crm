@@ -810,7 +810,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, created_by, raw_ocr_json, vendor_id, status, forwarded_to_accounting, match_confidence, property_id, contact_id FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT * FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');

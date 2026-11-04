@@ -64,4 +64,17 @@ final class ReceiptAmountRulesTest extends TestCase
         self::assertStringNotContainsString("new Date().toISOString().slice(0, 10)", $source);
         self::assertStringContainsString('total - amt - pst - recyclingTax', $source);
     }
+
+    public function testNegativeTotalIsNeverApproved(): void
+    {
+        $this->assertNotNull(ReceiptAmountRules::approvalError(0.0, 0.0, 0.0, -0.01));
+        $this->assertNull(ReceiptAmountRules::approvalError(10.0, 0.5, 0.7, 11.2));
+    }
+
+    public function testUpdateLoadsTheWholeStoredRowSoOmittedFieldsKeepTheirValues(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Expenses/Api/expenses.php');
+        $i = strpos($src, 'function handleUpdate(');
+        $this->assertStringContainsString('SELECT * FROM expenses', substr($src, $i, 1400));
+    }
 }

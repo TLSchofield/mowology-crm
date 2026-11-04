@@ -15,7 +15,7 @@ final class ReceiptAmountRules
 
     public static function approvalError(float $amount, float $gst, float $pst, float $total): ?string
     {
-        if ($amount >= 0 && $gst >= 0 && $pst >= 0 && self::footingError($amount, $gst, $pst, $total) <= 0.02) {
+        if ($total >= 0 && $amount >= 0 && $gst >= 0 && $pst >= 0 && self::footingError($amount, $gst, $pst, $total) <= 0.02) {
             return null;
         }
 
