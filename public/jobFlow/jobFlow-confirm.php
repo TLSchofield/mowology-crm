@@ -391,7 +391,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                         'is_priority'   => $classification['is_priority'],
                         'upsells'       => implode(', ', $upsellLabels),
                     ];
-                    sendQuoteRequestNotifications($notificationData);
+                    $notificationResult = sendQuoteRequestNotifications($notificationData);
+                    if ($notificationResult === false || (is_array($notificationResult) && isset($notificationResult['success']) && !$notificationResult['success'])) {
+                        error_log('[jobFlow-confirm] sendQuoteRequestNotifications returned failure');
+                    }
                 } catch (Throwable $t) {
                     error_log('[jobFlow-confirm] sendQuoteRequestNotifications failed: ' . $t->getMessage());
                 }
@@ -399,7 +402,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 // Customer confirmation email (non-blocking, CASL-compliant)
                 if (!empty($data['email'])) {
                     try {
-                        sendQuoteConfirmationEmail($data, $servicesCsv);
+                        $confirmationResult = sendQuoteConfirmationEmail($data, $servicesCsv);
+                        if ($confirmationResult === false || (is_array($confirmationResult) && isset($confirmationResult['success']) && !$confirmationResult['success'])) {
+                            error_log('[jobFlow-confirm] sendQuoteConfirmationEmail returned failure');
+                        }
                     } catch (Throwable $t) {
                         error_log('[jobFlow-confirm] sendQuoteConfirmationEmail failed: ' . $t->getMessage());
                     }

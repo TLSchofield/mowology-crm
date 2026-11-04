@@ -19,7 +19,7 @@ try {
     ");
     $dbProjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    // Database connection failed or table doesn't exist yet - continue with empty portfolio
+    error_log(get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     $dbProjects = [];
 }
 
@@ -61,7 +61,7 @@ if ($baPairs) {
             }
         }
     }
-    $extraHead .= "\n" . '<script type="application/ld+json">' . json_encode($ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+    $extraHead .= "\n" . '<script type="application/ld+json">' . json_encode($ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . '</script>';
 }
 
 require __DIR__ . '/includes/head.php';

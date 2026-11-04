@@ -95,6 +95,7 @@ $activePage = 'accounting';
     <i data-feather="loader" style="width:32px;height:32px"></i>
     <p class="mt-2">Loading report…</p>
 </div>
+<div id="report-notice" class="alert alert-danger d-none" role="alert"></div>
 
 <!-- ── P&L Report ──────────────────────────────────────────────────────────── -->
 <div id="panel-pl">
@@ -510,7 +511,18 @@ async function loadTax() {
 
     const r = await fetch(`${API_RP}?action=tax&year=${year}&quarter=${quarter}`);
     const d = await r.json();
-    if (!d.ok) return;
+    const notice = document.getElementById('report-notice');
+    if (!d.ok) {
+        notice.textContent = d.error || 'Unable to load the tax report.';
+        notice.classList.remove('d-none');
+        document.getElementById('tax-period-label').textContent = 'Period: —';
+        document.getElementById('tax-cra-rows').innerHTML = '';
+        document.getElementById('tax-itc-rows').innerHTML = '';
+        document.getElementById('tax-annual-rows').innerHTML = '';
+        return;
+    }
+    notice.textContent = '';
+    notice.classList.add('d-none');
 
     const rpt = d.report;
     document.getElementById('tax-period-label').textContent = `Period: ${rpt.date_from} to ${rpt.date_to}`;

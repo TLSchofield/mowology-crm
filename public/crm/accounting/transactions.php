@@ -112,17 +112,17 @@ $csrfToken  = generateCSRFToken();
 <div class="row g-2 mb-3" id="mw-tx-summary-row">
     <div class="col-4">
         <div class="mw-acct-mini-stat mw-acct-color-income">
-            Revenue: <strong id="sum-revenue">—</strong>
+            Revenue (this page): <strong id="sum-revenue">—</strong>
         </div>
     </div>
     <div class="col-4">
         <div class="mw-acct-mini-stat mw-acct-color-expense">
-            Expenses: <strong id="sum-expenses">—</strong>
+            Expenses (this page): <strong id="sum-expenses">—</strong>
         </div>
     </div>
     <div class="col-4">
         <div class="mw-acct-mini-stat" id="sum-net-wrap">
-            Net: <strong id="sum-net">—</strong>
+            Net (this page): <strong id="sum-net">—</strong>
         </div>
     </div>
 </div>

@@ -84,6 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && $tokenData && $db) {
                 $hashedPassword = hashPassword($password);
                 $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1");
                 $stmt->execute([$hashedPassword, (int)$tokenData['user_id']]);
+                if ($stmt->rowCount() !== 1) {
+                    throw new RuntimeException('reset user no longer exists');
+                }
 
                 // Delete the used token (or all tokens for that user)
                 $stmt = $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? LIMIT 10");

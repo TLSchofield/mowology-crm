@@ -172,9 +172,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         } else {
             try {
                 $db->beginTransaction();
+                $checkedStatus = $invoice['status'];
                 $db->prepare("DELETE FROM invoice_line_items WHERE invoice_id = ?")->execute([$invoiceId]);
                 $db->prepare("DELETE FROM invoice_contacts   WHERE invoice_id = ?")->execute([$invoiceId]);
-                $db->prepare("DELETE FROM invoices           WHERE id = ?")->execute([$invoiceId]);
+                $delete = $db->prepare("DELETE FROM invoices WHERE id = ? AND status = ?");
+                $delete->execute([$invoiceId, $checkedStatus]);
+                if ($delete->rowCount() !== 1) {
+                    $db->rollBack();
+                    $message = 'Invoice changed meanwhile. Please reload and try again.';
+                    $messageType = 'warning';
+                    goto end_delete_invoice;
+                }
                 $db->commit();
                 header('Location: index.php?deleted=1');
                 exit;
@@ -184,6 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message = 'Error deleting invoice. Please try again.';
                 $messageType = 'danger';
             }
+            end_delete_invoice:
         }
     }
 
@@ -205,8 +214,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             } else {
                 try {
                     $oldStatus = $invoice['status'];
-                    $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")
-                       ->execute([$invoiceId]);
+                    $cancel = $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ? AND status = ?");
+                    $cancel->execute([$invoiceId, $oldStatus]);
+                    if ($cancel->rowCount() !== 1) {
+                        $message = 'Invoice changed meanwhile. Please reload and try again.';
+                        $messageType = 'warning';
+                        goto end_cancel_invoice;
+                    }
                     trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'cancelled', $user['id']);
                     logActivityExtended($user['id'], 'Invoice cancelled',
                         "Cancelled (was {$oldStatus}). Reason: {$reason}",
@@ -219,6 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     $message     = 'Error cancelling invoice. Please try again.';
                     $messageType = 'danger';
                 }
+                end_cancel_invoice:
             }
         }
     }
@@ -679,18 +694,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 throw new RuntimeException('Invoice is already settled');
             }
             $newStatus  = $alloc['status'];
-            $newBalance = max(0, round((float)$invoice['balance_due'] - (float)$alloc['applied'], 2));
+            $appliedAmount = (float)$alloc['applied'];
+            $newBalance = max(0, round((float)$invoice['balance_due'] - $appliedAmount, 2));
             // Explicit method/reference from the form win over whatever was there
             $db->prepare("UPDATE invoices SET payment_method = ?, payment_reference = ? WHERE id = ?")
                ->execute([$paymentMethod, $paymentReference, $invoiceId]);
 
             // Track field changes for payment
             trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
-            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
+            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $appliedAmount), $user['id']);
             trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
 
             $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
-            $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
+            $detail = "Payment of " . formatCurrency($appliedAmount) . " via {$methodLabel}";
             if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
             logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
 
@@ -727,7 +743,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     '{{customer_first_name}}' => $receiptFirst,
                     '{{customer_name}}'       => $receiptName,
                     '{{invoice_number}}'      => $invoice['invoice_number'],
-                    '{{amount_paid}}'         => formatCurrency($paymentAmount),
+                    '{{amount_paid}}'         => formatCurrency($appliedAmount),
                     '{{payment_date}}'        => $paidOn,
                     '{{company_name}}'        => $receiptCompany['company_name'],
                     '{{company_phone}}'       => $receiptCompany['company_phone'],
@@ -749,7 +765,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
         $invoice['status']      = $newStatus;
         $invoice['balance_due'] = $newBalance;
-        $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
+        $invoice['amount_paid'] = (float)$invoice['amount_paid'] + $appliedAmount;
+        $message     = "Payment of " . formatCurrency($appliedAmount) . " recorded successfully.";
         $messageType = 'success';
         end_mark_paid:
     }
@@ -1208,7 +1225,7 @@ $extraHead = $isPayable
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['subtotal']); ?></span>
                               </div>
                               <div class="mw-total-row">
-                                  <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                                  <span>GST (<?php echo round((isset($invoice['tax_rate']) ? $invoice['tax_rate'] : 0.05) * 100); ?>%)</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['tax_amount'] ?: 0); ?></span>
                               </div>
                               <div class="mw-total-row mw-grand">
