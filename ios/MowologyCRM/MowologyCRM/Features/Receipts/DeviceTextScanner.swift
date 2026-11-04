@@ -27,13 +27,61 @@ enum DeviceTextScanner {
         guard let cgImage = UIImage(data: imageData)?.cgImage else { return nil }
         // Race Vision against the clock with a resume-once guard: the caller stops waiting after
         // `timeoutSeconds` even if Vision never returns (a task group would have to join it).
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Result?, Never>) in
-            let gate = ResumeOnce(continuation)
-            Task.detached(priority: .userInitiated) { gate.resume(await recognise(cgImage)) }
-            Task.detached {
-                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                gate.resume(nil)
+        // The Vision request itself is cancelled on timeout or when the caller's task is cancelled
+        // (Prefetched.cancel), so a stalled read does not keep working in the background.
+        let job = VisionJob()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Result?, Never>) in
+                let gate = ResumeOnce(continuation)
+                job.onFinish = { gate.resume($0) }
+                recognise(cgImage, job: job)
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+                    job.cancel()
+                    gate.resume(nil)
+                }
             }
+        } onCancel: {
+            job.cancel()
+        }
+    }
+
+    /// One Vision read: holds the request so it can be cancelled, and reports its result exactly once.
+    private final class VisionJob {
+        private let lock = NSLock()
+        private var request: VNRequest?
+        private var cancelled = false
+        private var finish: ((Result?) -> Void)?
+        var onFinish: ((Result?) -> Void)? {
+            get { lock.lock(); defer { lock.unlock() }; return finish }
+            set {
+                lock.lock()
+                let alreadyCancelled = cancelled
+                finish = newValue
+                lock.unlock()
+                if alreadyCancelled { done(nil) }
+            }
+        }
+        /// Registers the request; false when the job was already cancelled (do not start it).
+        func start(_ r: VNRequest) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if cancelled { return false }
+            request = r
+            return true
+        }
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let r = request
+            lock.unlock()
+            r?.cancel()
+            done(nil)
+        }
+        func done(_ value: Result?) {
+            lock.lock()
+            let f = finish
+            finish = nil
+            lock.unlock()
+            f?(value)
         }
     }
 
@@ -50,27 +98,25 @@ enum DeviceTextScanner {
         }
     }
 
-    private static func recognise(_ cgImage: CGImage) async -> Result? {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
-                request.usesLanguageCorrection = false   // prices and codes, not prose
-                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-                do {
-                    try handler.perform([request])
-                } catch {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                let observations = (request.results ?? [])
-                // Top of the receipt first; Vision's y runs bottom-up. Lines at (nearly) the same height
-                // stay on one line, left to right, so "TOTAL   23.28" is not split across lines.
-                let rows = Self.rows(from: observations)
-                let text = rows.joined(separator: "\n")
-                guard !text.isEmpty else { continuation.resume(returning: nil); return }
-                continuation.resume(returning: Result(text: text, version: "r\(request.revision)"))
+    private static func recognise(_ cgImage: CGImage, job: VisionJob) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false   // prices and codes, not prose
+            guard job.start(request) else { job.done(nil); return }
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                job.done(nil)
+                return
             }
+            let observations = (request.results ?? [])
+            // Top of the receipt first; Vision's y runs bottom-up. Lines at (nearly) the same height
+            // stay on one line, left to right, so "TOTAL   23.28" is not split across lines.
+            let rows = Self.rows(from: observations)
+            let text = rows.joined(separator: "\n")
+            job.done(text.isEmpty ? nil : Result(text: text, version: "r\(request.revision)"))
         }
     }
 
