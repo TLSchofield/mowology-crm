@@ -202,6 +202,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php
 
 // Charlie — Chief of Staff
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/BriefStatus.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/UrgencyGuard.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/BriefTrend.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieVoice.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';

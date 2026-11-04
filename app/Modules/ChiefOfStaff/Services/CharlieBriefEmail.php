@@ -41,6 +41,13 @@ class CharlieBriefEmail
         $p = 'style="margin:0 0 14px;font-size:15px;line-height:1.5;color:' . self::FOREST . ';' . self::FONT . '"';
 
         $html = '<p ' . $p . '>' . $e(CharlieVoice::hey($name)) . ' here\'s your morning.</p>';
+        // One status for the whole brief, then its comparison with yesterday (BriefStatus / BriefTrend, 2026-11-03).
+        $st = $payload['status'] ?? null;
+        if (is_array($st) && !empty($st['sentence'])) {
+            $col = ['red' => self::ALERT, 'amber' => '#b8860b', 'unknown' => '#b8860b', 'green' => self::GREEN][$st['overall'] ?? 'green'] ?? self::FOREST;
+            $html .= '<p ' . $p . '><strong style="color:' . $col . ';">' . $e($st['sentence']) . '</strong>'
+                . (!empty($payload['trend']) ? '<br><span style="font-size:13px;color:' . self::MUTED . ';">' . $e($payload['trend']) . '</span>' : '') . '</p>';
+        }
         $bad = array_values(array_filter((array)($payload['bad'] ?? []), 'is_string'));
         if ($bad) {
             $html .= '<p ' . $p . '><strong>' . $e(CharlieVoice::badLead($bad)) . '</strong></p>'
@@ -79,6 +86,13 @@ class CharlieBriefEmail
                 }
                 $html .= '</div>';
             }
+        }
+        // An honest footer: when it was built and from how many heads; a head that failed is named once, here and in the bad news only.
+        $built = $payload['built'] ?? null;
+        if (is_array($built) && isset($built['heads_total'])) {
+            $line = 'Built ' . $e($built['at'] ?? '') . ' from ' . (int)$built['heads_ok'] . ' of ' . (int)$built['heads_total'] . ' heads.';
+            if (!empty($st['note'])) $line .= ' ' . $e($st['note']);
+            $html .= '<p style="margin:14px 0 0;font-size:12px;color:' . self::MUTED . ';' . self::FONT . '">' . $line . '</p>';
         }
         $html .= '<p style="margin:18px 0 0;font-size:14px;color:' . self::MUTED . ';' . self::FONT . '">I\'ll keep checking through the day — the dashboard always has the latest.<br>— ' . htmlspecialchars(HeadIdentity::chiefName(), ENT_QUOTES, 'UTF-8') . '</p>';
 

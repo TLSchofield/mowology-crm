@@ -214,6 +214,11 @@ class HeadBriefReadyService
             'failed'    => array_keys($view['failed']),
             'questions' => $desk->questions($name),
             'inbox'     => $card['inbox'],
+            // One status, the comparison with yesterday and the urgency notes (BriefStatus / BriefTrend / UrgencyGuard).
+            'status'    => isset($view['status']) ? ['overall' => $view['status']['overall'], 'sentence' => $view['status']['sentence'], 'note' => $view['status']['note'] ?? null,
+                                                      'heads' => array_map(fn($h) => ['status' => $h['status'], 'why' => $h['why'] ?? null], $view['status']['heads'])] : null,
+            'trend'     => $view['trend']['line'] ?? null,
+            'urgency_notes' => $view['urgency_notes'] ?? [],
         ];
     }
 

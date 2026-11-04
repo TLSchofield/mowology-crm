@@ -769,7 +769,7 @@ class SalesDeskService
         }
         foreach ($quiet as $q) {
             $items[] = ['key' => 'sam:quiet:' . $q['key'], 'kind' => 'quiet_client', 'value' => $q['spend_12m'], 'since' => $q['last'],
-                        'text' => $q['name'] . ' has gone ' . $q['state'] . ' — ' . $q['reason'] . ' (worth $' . number_format($q['spend_12m'], 0) . ' a year; a no-pitch check-in is drafted)', 'url' => $q['url'], 'priority' => $q['state'] === 'gone' && $q['spend_12m'] >= SamSignals::GONE_WORTH ? 1 : 2];
+                        'text' => $q['name'] . ' ' . ($q['state'] === 'gone' ? 'looks lost' : 'has gone quiet') . ' — ' . $q['reason'] . ' (worth $' . number_format($q['spend_12m'], 0) . ' a year; a no-pitch check-in is drafted)', 'url' => $q['url'], 'priority' => $q['state'] === 'gone' && $q['spend_12m'] >= SamSignals::GONE_WORTH ? 1 : 2];
         }
         foreach (array_slice($cards, 0, 3) as $c) {
             $items[] = [

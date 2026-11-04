@@ -5373,6 +5373,22 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-dv-btn-reopen:hover { background:#f8f9fa; color:#495057; border-color:#ced4da; }
 
+/* Skip on a pending stop card (2026-11-03) — ghost button after the Complete pair */
+.mw-dv-btn-skip {
+  flex:0 0 auto;
+  background:none;
+  border:1px solid #dee2e6;
+  border-radius:5px;
+  padding:6px 9px;
+  font-size:0.72rem;
+  font-weight:600;
+  color:#868e96;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:background 0.1s,color 0.1s,border-color 0.1s;
+}
+.mw-dv-btn-skip:hover:not(:disabled) { background:#eef4fe; color:#1D4ED8; border-color:#bfd3f6; }
+
 /* Skipped stop footer — blue ✕ badge + Unskip (matches the blue map pin) */
 .mw-dv-footer-skipped {
   justify-content:space-between;
@@ -41310,3 +41326,11 @@ body.mw-books {
 .mw-mia-band.is-green { background: var(--mw-green); color: var(--mw-paper); }
 .mw-mia-band.is-yellow, .mw-mia-band.is-red { background: var(--mw-orange); color: var(--mw-paper); }
 .mw-mia-band.is-na { background: var(--mw-ink-200); color: var(--mw-ink-900); }
+
+/* ── Kaname: one status, the comparison with yesterday (BriefStatus / BriefTrend, 2026-11-03) ── */
+.mw-charlie-status { display: flex; flex-direction: column; gap: 3px; margin: 0 0 10px; }
+.mw-charlie-chip { display: inline-block; align-self: flex-start; font-size: .82rem; font-weight: 700; padding: 3px 10px; border-radius: 6px; border: 1px solid currentColor; }
+.mw-charlie-chip.is-red { color: var(--mw-orange); background: var(--mw-light); }
+.mw-charlie-chip.is-amber { color: var(--mw-dark); background: var(--mw-light); }
+.mw-charlie-chip.is-green { color: var(--mw-green); background: var(--mw-light); }
+.mw-charlie-trend { color: var(--mw-ink-500); font-size: .76rem; }
