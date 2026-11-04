@@ -28,7 +28,7 @@
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
 | Follow-up queue: draft, edit, send email/text, skip | yes | yes | `SalesDeskService::queue()`, `SamFollowupService::send()` | — |
-| Card hierarchy: briefing sentence, Next row, rows grouped Wrote back / To chase, workspace per customer, collapsed sections (2026-11-04) | no — iPhone still shows the carousel first | yes (`sam-card.php` + `sam-card.js`, `.mw-sam-v2`) | `SalesDeskService::queue()` (`kind` replied/stale drives the grouping) | iPhone: Team tab Sam card has no briefing/next/rows yet |
+| Card hierarchy: briefing sentence, Next row, rows grouped Wrote back / To chase, one customer at a time, folding sections (2026-11-04) | yes from 1.3.65 (`SamCardView` top block; a row pushes the customer screen; Sam's page skips the workspace's numbered guide in `TeamView`) | yes (`sam-card.php` + `sam-card.js`, `.mw-sam-v2`) | `SalesDeskService::queue()` (`kind` replied/stale drives the grouping) | sentence built twice (the brief function in `public/crm/js/sam-card.js` and `SamCardViewModel.briefing` in Swift) — change both |
 | Text check (≤160, no links) | client check `SalesSMS` + server | client check in `sam-card.js` + server | `SamFollowupService::smsProblems()` | rule in three copies; server is the authority |
 | Claude reply draft | yes (card + replies waiting) | yes | `SamFollowupService::draftReply()` | — |
 | Replies waiting (unclaimed) | yes, with Draft reply / Send via `SamReplyCard::load()` | yes (Open) | `SalesDeskService::unclaimed()` | web has no Draft/Send on these items (unverified beyond `sam-card.js`) |

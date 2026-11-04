@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/SamCard*
   - ios/MowologyCRM/MowologyCRM/Core/Models/SalesModels.swift
 metadata:
-  version: 1.2.1
+  version: 1.2.2
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
