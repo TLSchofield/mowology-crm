@@ -62,11 +62,18 @@ try {
     $__pgAuto = false;
     if (in_array('pin', $__pgMissing, true) && function_exists('userHasAnyPermission') && userHasAnyPermission(['clients.edit', 'jobs.edit'])) {
         try {
+            require_once APP_ROOT . '/Modules/Operations/Services/OttoAutoPlaceService.php';
             $__pgSw = getDB()->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'otto_auto_place'");
             $__pgSw->execute();
-            $__pgAuto = (string)$__pgSw->fetchColumn() === '1';
+            $__pgAuto = OttoAutoPlaceService::switchOn($__pgSw->fetchColumn());
         } catch (Throwable $__e) { /* no switch: the button stays */ }
     }
+
+    $__pgOtto = ['pin_text' => null, 'border_text' => null];
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/OttoAutoPlaceService.php';
+        $__pgOtto = (new OttoAutoPlaceService(getDB()))->status($__pgId);
+    } catch (Throwable $__e) { /* Otto's state must never hide the property card */ }
 
     // Otto's brain, as on his dashboard card — a bonus, never a reason to hide the card
     $__pgBrain = null;
@@ -115,6 +122,9 @@ try {
                                   <div class="mw-otto-gap-text">
                                       <strong>Map pin</strong>
                                       <span class="mw-otto-gap-note" data-otto-note><?= $__pgAddress !== '' ? h($__pgAddress) : 'No address on file to look up.' ?></span>
+                                      <?php if (!empty($__pgOtto['pin_text'])): ?>
+                                      <span class="mw-otto-gap-note mw-otto-gap-why is-bad">Otto couldn't place it: <?= h($__pgOtto['pin_text']) ?></span>
+                                      <?php endif; ?>
                                   </div>
                                   <?php if ($__pgAddress !== ''): ?>
                                   <button type="button" class="btn btn-sm btn-primary mw-otto-gap-btn" data-otto-geocode
@@ -128,6 +138,9 @@ try {
                                   <div class="mw-otto-gap-text">
                                       <strong>Arrival border</strong>
                                       <span class="mw-otto-gap-note" data-otto-note>Where the crew's arrival is counted.<?= $__pg['pin'] ? '' : ' Needs the pin first.' ?></span>
+                                      <?php if (!empty($__pgOtto['border_text'])): ?>
+                                      <span class="mw-otto-gap-note mw-otto-gap-why is-bad">Otto couldn't find the lot: <?= h($__pgOtto['border_text']) ?></span>
+                                      <?php endif; ?>
                                   </div>
                                   <?php if ($__pg['pin']): ?>
                                   <button type="button" class="btn btn-sm btn-primary mw-otto-gap-btn" data-otto-lot

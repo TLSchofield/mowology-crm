@@ -56,6 +56,7 @@ require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
 require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';
 require_once __DIR__ . '/../app/Core/Tenant.php';
+require_once __DIR__ . '/../app/Core/BusinessCronFanout.php';
 require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';

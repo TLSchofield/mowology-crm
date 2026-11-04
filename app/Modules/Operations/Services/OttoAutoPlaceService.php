@@ -36,6 +36,15 @@ class OttoAutoPlaceService
     public const STATE_KEY = 'otto_auto_place_state';
     public const RETRY_DAYS = 30;
     public const BUFFER_M = 10;
+    public const NEW_SINCE = '2026-11-03';
+    public const NEW_LIMIT = 100;
+    public const LOT_MAPS = ['BC' => 'ParcelMap BC and the City of Vancouver lot map'];
+    public const PROVINCE_NAMES = [
+        'BC' => 'British Columbia', 'AB' => 'Alberta', 'SK' => 'Saskatchewan', 'MB' => 'Manitoba',
+        'ON' => 'Ontario', 'QC' => 'Quebec', 'NB' => 'New Brunswick', 'NS' => 'Nova Scotia',
+        'PE' => 'Prince Edward Island', 'NL' => 'Newfoundland and Labrador', 'YT' => 'Yukon',
+        'NT' => 'Northwest Territories', 'NU' => 'Nunavut',
+    ];
 
     private PDO $db;
     /** @var callable(string): ?array */
@@ -60,42 +69,72 @@ class OttoAutoPlaceService
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::SWITCH_KEY]);
-            return (string)$s->fetchColumn() === '1';
+            return self::switchOn($s->fetchColumn());
         } catch (Throwable $e) {
             return false;
         }
+    }
+
+    /** Tim 2026-11-03: Otto boundaries every business's new clients; only an explicit '0' turns him off. */
+    public static function switchOn($value): bool
+    {
+        return $value === false || $value === null || $value === '1';
     }
 
     /**
      * One pass: up to $limit pins, then up to $limit borders.
      * @return array{ran: bool, pinned: int, approximate: int, not_found: int, bordered: int, no_lot: int, message: string}
      */
-    public function run(int $limit = 15, bool $force = false): array
+    public function run(int $limit = 15, bool $force = false, int $newLimit = self::NEW_LIMIT): array
     {
-        $r = ['ran' => false, 'pinned' => 0, 'approximate' => 0, 'not_found' => 0, 'bordered' => 0, 'no_lot' => 0, 'message' => 'Switched off'];
+        $r = ['ran' => false, 'new' => 0, 'pinned' => 0, 'approximate' => 0, 'not_found' => 0, 'bordered' => 0, 'no_lot' => 0, 'message' => 'Switched off'];
         if (!$force && !$this->enabled()) return $r;
         if (!$this->lock()) return ['message' => 'Another run is placing pins right now'] + $r;
         try {
-            return $this->runLocked($limit, $r);
+            return $this->runLocked($limit, $newLimit, $r);
         } finally {
             $this->unlock();
         }
     }
 
-    private function runLocked(int $limit, array $r): array
+    private function runLocked(int $limit, int $newLimit, array $r): array
     {
         $r['ran'] = true;
         $removed = $this->removeNearestLotGuesses();   // one-off clean-up; finds nothing once done
         $state = $this->prune($this->state());
-        $props = $this->candidates();
+        if ($state['new_after_id'] === null) {
+            try {
+                $s = $this->db->prepare('SELECT COALESCE(MAX(id), 0) FROM properties WHERE created_at < ?');
+                $s->execute([self::NEW_SINCE]);
+                $state['new_after_id'] = (int)$s->fetchColumn();
+            } catch (Throwable $e) {
+                $state['new_after_id'] = 0;   // Old test/dev schemas had no created_at column.
+            }
+            $this->saveState($state);   // Freeze the starting line before any later import can race this run.
+        }
+        $borders = (new PropertyBorderService($this->db, $this->today))->borders();
+        $new = $this->workCandidates($this->newCandidates($state['new_after_id']), $state, $borders, $newLimit, true);
+        $old = $this->candidates();
+        foreach ($new as $pid => $_) unset($old[$pid]);
+        $old = $this->workCandidates($old, $state, $borders, $limit, false);
+        $props = $new + $old;
+        $r['new'] = count($new);
 
-        $n = 0;
         foreach ($props as $pid => $p) {
-            if ($n >= $limit) break;
-            if (PropertyBorderRules::pinOf($p) || self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)) continue;
+            if (PropertyBorderRules::pinOf($p)) {
+                // A person may have pinned it after Otto recorded an approximate/not-found result.
+                unset($state['pin_tried'][$pid], $state['pin_reason'][$pid]);
+                continue;
+            }
+            if (self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)) continue;
             $address = PropertyReadinessService::geocodeAddress($p);
-            if (trim($address) === '') continue;
-            $n++;
+            if (trim((string)($p['address'] ?? '')) === '' || trim($address) === '') {
+                if (isset($new[$pid])) {
+                    $state['pin_tried'][$pid] = $this->today;
+                    $state['pin_reason'][$pid] = 'no_address';
+                }
+                continue;
+            }
             $hit = ($this->geocode)($address);
             $decision = self::pinDecision($hit);
             if ($decision === 'save' && $this->savePinIfMissing($pid, (float)$hit['lat'], (float)$hit['lng'])) {
@@ -103,24 +142,23 @@ class OttoAutoPlaceService
                 $state['pins'][$pid] = ['by' => (string)($hit['by'] ?? ''), 'at' => $this->today];
                 $props[$pid]['latitude'] = $hit['lat'];
                 $props[$pid]['longitude'] = $hit['lng'];
-                unset($state['pin_tried'][$pid]);
+                unset($state['pin_tried'][$pid], $state['pin_reason'][$pid]);
             } else {
                 $r[$decision === 'approximate' ? 'approximate' : 'not_found']++;
                 $state['pin_tried'][$pid] = $this->today;
+                $state['pin_reason'][$pid] = $decision === 'approximate' ? 'approximate' : 'not_found';
             }
         }
 
-        $borders = (new PropertyBorderService($this->db, $this->today))->borders();
-        $n = 0;
         foreach ($props as $pid => $p) {
-            if ($n >= $limit) break;
+            // The pin pass may have just placed this property.
+            if (isset($new[$pid])) $p = $props[$pid];
             $pin = PropertyBorderRules::pinOf($p);
             if (!$pin) continue;
             $mode = self::borderMode($borders[$pid]['sources'] ?? null);
             $cityNew = CityParcelService::sourceFor($p) !== null && !isset($state['city_tried'][$pid]);
             if ($mode === null || isset($state['border_refused'][$pid])
                 || (!$cityNew && self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today))) continue;
-            $n++;
             $lot = $this->findLot($p, $pin);
             if (CityParcelService::sourceFor($p) !== null) $state['city_tried'][$pid] = $this->today;
             if (!$lot['ok']) {
@@ -139,9 +177,33 @@ class OttoAutoPlaceService
 
         $this->saveState($state);
         if ($removed) $r['removed_guesses'] = $removed;
-        $r['message'] = ($removed ? count($removed) . ' guessed border(s) removed; ' : '') . "{$r['pinned']} pinned ({$r['approximate']} only approximate, {$r['not_found']} not found), "
+        $newMessage = $r['new'] ? $r['new'] . ' new ' . ($r['new'] === 1 ? 'property' : 'properties') . ' looked at; ' : '';
+        $r['message'] = $newMessage . ($removed ? count($removed) . ' guessed border(s) removed; ' : '') . "{$r['pinned']} pinned ({$r['approximate']} only approximate, {$r['not_found']} not found), "
                       . "{$r['bordered']} lot border(s) ({$r['no_lot']} with no usable lot)";
         return $r;
+    }
+
+    /**
+     * Keep scanning candidates until the limit counts properties that can actually be attempted. An old candidate
+     * with no address is never work (it would take a slot every run); a new one is, once, to record "no address".
+     */
+    private function workCandidates(array $candidates, array $state, array $borders, int $limit, bool $isNew): array
+    {
+        if ($limit <= 0) return [];
+        $out = [];
+        foreach ($candidates as $pid => $p) {
+            $pin = PropertyBorderRules::pinOf($p);
+            $needsPin = !$pin && !self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)
+                && ($isNew || trim((string)($p['address'] ?? '')) !== '');
+            $mode = $pin ? self::borderMode($borders[$pid]['sources'] ?? null) : null;
+            $cityNew = $pin && CityParcelService::sourceFor($p) !== null && !isset($state['city_tried'][$pid]);
+            $needsBorder = $pin && $mode !== null && !isset($state['border_refused'][$pid])
+                && ($cityNew || !self::recentlyTried($state['border_tried'][$pid] ?? null, $this->today));
+            if (!$needsPin && !$needsBorder) continue;
+            $out[$pid] = $p;
+            if (count($out) >= $limit) break;
+        }
+        return $out;
     }
 
     /** One run at a time (cron and a manual web run): MySQL GET_LOCK; other drivers (tests) always get it. */
@@ -149,7 +211,10 @@ class OttoAutoPlaceService
     {
         if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return true;
         try {
-            return (int)$this->db->query("SELECT GET_LOCK('otto_auto_place', 0)")->fetchColumn() === 1;
+            $name = self::lockName((string)$this->db->query('SELECT DATABASE()')->fetchColumn());
+            $s = $this->db->prepare('SELECT GET_LOCK(?, 0)');
+            $s->execute([$name]);
+            return (int)$s->fetchColumn() === 1;
         } catch (Throwable $e) {
             return false;
         }
@@ -159,8 +224,15 @@ class OttoAutoPlaceService
     {
         if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
         try {
-            $this->db->query("SELECT RELEASE_LOCK('otto_auto_place')");
+            $name = self::lockName((string)$this->db->query('SELECT DATABASE()')->fetchColumn());
+            $s = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $s->execute([$name]);
         } catch (Throwable $e) { /* released with the connection anyway */ }
+    }
+
+    public static function lockName(string $dbName): string
+    {
+        return substr('otto_auto_place:' . $dbName, 0, 64);
     }
 
     /** Drop retry markers past their retry date — they are only there to space retries out. */
@@ -236,18 +308,36 @@ class OttoAutoPlaceService
 
     public static function reasonText(string $reason): string
     {
+        if (strpos($reason, 'no_source:') === 0) {
+            $code = substr($reason, strlen('no_source:'));
+            return $code === ''
+                ? "Otto couldn't tell which province this is in, so he has no lot map to check — draw the border."
+                : 'Otto has no public lot map for ' . (self::PROVINCE_NAMES[$code] ?? $code) . ' yet — draw the border.';
+        }
         return [
             'unavailable' => "The province's lot map isn't answering right now — try again in a few minutes.",
             'no_lot'      => "The pin isn't on a lot, and the address didn't lead to one — draw it, or move the pin onto the building.",
             'near_edge'   => 'The pin sits on a lot line — draw it, or move the pin onto the building.',
             'too_big'     => 'The lot is over 20,000 m² — too big to use as an arrival border; draw it.',
             'too_small'   => 'The lot is unusually small — draw it.',
+            'no_address_match' => "The address didn't match the city's lot map — draw it, or move the pin onto the building.",
         ][$reason] ?? 'Otto could not find the lot — draw it.';
+    }
+
+    public static function pinReasonText(string $reason): string
+    {
+        return [
+            'approximate' => 'The address only matched the street or area, not a building — check the address, or pin it by hand.',
+            'not_found' => "The address wasn't found on the map — check it, or pin it by hand.",
+            'no_address' => 'No address on file — add one.',
+        ][$reason] ?? '';
     }
 
     /** The lot under the pin; for a street pin, under the address's building (if near), the pin staying put. */
     private function findLot(array $p, array $pin): array
     {
+        $region = self::regionOf($p);
+        if (!isset(self::LOT_MAPS[$region])) return ['ok' => false, 'reason' => 'no_source:' . ($region ?? '')];
         // A city's own lot map first, by address (CityParcelService): the province's map has gaps in
         // Vancouver — 3 of 4 Vancouver Management buildings had no lot in it at all (2026-10-19).
         $byCity = $this->city->lotFor($p, $pin);
@@ -278,6 +368,21 @@ class OttoAutoPlaceService
     {
         if (!$hit || !isset($hit['lat'], $hit['lng']) || !PropertyReadinessService::validPin((float)$hit['lat'], (float)$hit['lng'])) return 'none';
         return !empty($hit['exact']) ? 'save' : 'approximate';
+    }
+
+    /** The province named by free-form data, falling back to BC only when the pin is inside BC. */
+    public static function regionOf(array $p): ?string
+    {
+        $value = strtolower((string)preg_replace('/[^a-z]/i', '', (string)($p['province'] ?? '')));
+        foreach (self::PROVINCE_NAMES as $code => $name) {
+            $full = strtolower((string)preg_replace('/[^a-z]/i', '', $name));
+            if ($value === strtolower($code) || ($full !== '' && strpos($value, $full) !== false)) return $code;
+        }
+        $lat = (float)($p['latitude'] ?? 0);
+        $lng = (float)($p['longitude'] ?? 0);
+        // Keep the coordinate fallback conservative: Calgary sits at about -114.07 and must not
+        // be treated as BC when its province field is blank.
+        return $lat >= 48.2 && $lat <= 60.0 && $lng >= -139.1 && $lng <= -114.1 ? 'BC' : null;
     }
 
     /**
@@ -399,6 +504,17 @@ class OttoAutoPlaceService
         return $props;
     }
 
+    /** Properties created after this database's frozen starting id, whichever path inserted them. */
+    public function newCandidates(?int $afterId = null): array
+    {
+        if ($afterId === null) $afterId = (int)($this->state()['new_after_id'] ?? 0);
+        $out = [];
+        $s = $this->db->prepare('SELECT id, address, city, province, postal_code, latitude, longitude FROM properties WHERE id > ? ORDER BY id DESC');
+        $s->execute([$afterId]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) $out[(int)$row['id']] = $row;
+        return $out;
+    }
+
     private function savePinIfMissing(int $propertyId, float $lat, float $lng): bool
     {
         $s = $this->db->prepare("UPDATE properties SET latitude = ?, longitude = ?, geocoded_at = CURRENT_TIMESTAMP
@@ -439,12 +555,12 @@ class OttoAutoPlaceService
         return $s->rowCount() > 0;
     }
 
-    /** @return array{pins: array, pin_tried: array, border_tried: array, border_reason: array, border_refused: array} */
+    /** @return array{pins: array, pin_tried: array, pin_reason: array, border_tried: array, border_reason: array, border_refused: array, new_after_id: ?int} */
     private function state(): array
     {
         // city_tried: properties already looked up in a city's own lot map (once each, so a property the
         // province map gave up on is retried as soon as a city map covers it — 2026-10-19).
-        $empty = ['pins' => [], 'pin_tried' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => [], 'city_tried' => []];
+        $empty = ['pins' => [], 'pin_tried' => [], 'pin_reason' => [], 'border_tried' => [], 'border_reason' => [], 'border_refused' => [], 'city_tried' => [], 'new_after_id' => null];
         try {
             $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
             $s->execute([self::STATE_KEY]);
@@ -454,10 +570,31 @@ class OttoAutoPlaceService
         }
         if (!is_array($j)) return $empty;
         $out = $empty;
-        foreach ($empty as $k => $_) {
+        foreach (array_keys($empty) as $k) {
+            if ($k === 'new_after_id') {
+                $out[$k] = array_key_exists($k, $j) ? (int)$j[$k] : null;
+                continue;
+            }
             foreach ((array)($j[$k] ?? []) as $id => $v) $out[$k][(int)$id] = $v;
         }
         return $out;
+    }
+
+    /** What Otto last learned about one property's missing pin or lot border. */
+    public function status(int $propertyId): array
+    {
+        $state = $this->state();
+        $pin = isset($state['pin_reason'][$propertyId]) ? (string)$state['pin_reason'][$propertyId] : null;
+        $border = isset($state['border_reason'][$propertyId]) ? (string)$state['border_reason'][$propertyId] : null;
+        $dates = array_filter([$state['pin_tried'][$propertyId] ?? null, $state['border_tried'][$propertyId] ?? null]);
+        rsort($dates);
+        return [
+            'pin_reason' => $pin,
+            'pin_text' => $pin !== null ? self::pinReasonText($pin) : null,
+            'border_reason' => $border,
+            'border_text' => $border !== null ? self::reasonText($border) : null,
+            'tried' => $dates ? (string)$dates[0] : null,
+        ];
     }
 
     private function saveState(array $state): void

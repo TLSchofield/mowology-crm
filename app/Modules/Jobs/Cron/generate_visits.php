@@ -153,6 +153,23 @@ try {
         $sideProblems[] = 'Otto auto-place failed: ' . $apWhy;
     }
 
+    // Tim 2026-11-03: the original business cron starts Otto once for every other business database.
+    if ($isCli && Tenant::isDefault()) {
+        try {
+            require_once APP_ROOT . '/Core/BusinessCronFanout.php';
+            $businessOtto = BusinessCronFanout::run(APP_ROOT . '/Modules/Operations/Cron/otto_place_properties.php');
+            $businessSummary = BusinessCronFanout::summary($businessOtto);
+            if ($businessSummary !== '') $autoPlace .= '; Otto for ' . $businessSummary;
+            foreach ($businessOtto as $businessRun) {
+                if ((int)$businessRun['exit'] !== 0) {
+                    $sideProblems[] = 'Otto for ' . $businessRun['key'] . ' failed: ' . $businessRun['last_line'];
+                }
+            }
+        } catch (Throwable $e) {
+            $sideProblems[] = 'Otto for businesses failed: ' . cronFailureDetail($e);
+        }
+    }
+
     // Local market prices (MarketPriceService, migration 1375): each public source read once a week.
     try {
         require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
