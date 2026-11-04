@@ -19,6 +19,7 @@ class OnboardingServiceTest extends TestCase
         $db->exec("CREATE TABLE business_identity (id INTEGER PRIMARY KEY, legal_name TEXT, operating_name TEXT, registration_number TEXT)");
         $db->exec("CREATE TABLE qbo_connections (site_id INT, status TEXT, refresh_token_enc TEXT)");
         $db->exec("CREATE TABLE qbo_onboarding_parts (site_id INT, part TEXT)");
+        $db->exec("CREATE TABLE qbo_onboarding_snapshot (site_id INT, kind TEXT, qbo_id TEXT, data TEXT)");
         $db->exec("INSERT INTO users (id, first_name, role) VALUES (1, NULL, 'admin')");
         return $db;
     }
@@ -102,6 +103,20 @@ class OnboardingServiceTest extends TestCase
         $map = array_column($this->svc($db)->map(), 'state', 'key');
         $this->assertSame('not_needed', $map['books']);
         $this->assertSame('Uses QuickBooks — not connected yet.', array_column($this->svc($db)->map(), 'summary', 'key')['quickbooks']);
+    }
+
+    /** Claudia walk 1 (2026-11-03): "all five accepted" made Continue loop. Connected + read = done. */
+    public function test_quickbooks_is_done_once_connected_and_read_without_accepting_parts(): void
+    {
+        $db = $this->db();
+        $s = $this->svc($db);
+        $s->module('quickbooks')->setAnswer($s->context(), true);
+        $db->exec("INSERT INTO qbo_connections VALUES (1, 'connected', 'enc')");
+        $this->assertNotSame('done', array_column($this->svc($db)->map(), 'state', 'key')['quickbooks'], 'connected but not read yet');
+        $db->exec("INSERT INTO qbo_onboarding_snapshot VALUES (1, 'customer', '1', '{}')");
+        $map = array_column($this->svc($db)->map(), 'state', 'key');
+        $this->assertSame('done', $map['quickbooks']);
+        $this->assertNotSame('quickbooks', $this->svc($db)->next(), 'Continue moves on');
     }
 
     public function test_skipping_quickbooks_unanswered_does_not_trap_your_books(): void

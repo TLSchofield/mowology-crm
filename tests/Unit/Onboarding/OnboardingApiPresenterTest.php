@@ -19,5 +19,9 @@ final class OnboardingApiPresenterTest extends TestCase
         $this->assertTrue($company['confirmed']); $this->assertSame('active', $company['status']);
         $qbo = OnboardingApiPresenter::quickBooksData('yes', true, true, ['clients'=>'2 added'], false);
         $this->assertFalse($qbo['can_write']); $this->assertTrue($qbo['parts'][1]['done']); $this->assertSame('2 added', $qbo['parts'][1]['summary']);
+        $qbo = OnboardingApiPresenter::quickBooksData('yes', true, true, ['clients'=>'2 added'], true, ['clients'=>'3 clients to add', 'services'=>'4 services to add']);
+        $this->assertSame('2 added', $qbo['parts'][1]['summary'], 'done rows say what was done');
+        $this->assertFalse($qbo['parts'][2]['done']); $this->assertSame('4 services to add', $qbo['parts'][2]['summary'], 'rows say what Accept would do');
+        $this->assertSame('', $qbo['parts'][3]['summary']);
     }
 }

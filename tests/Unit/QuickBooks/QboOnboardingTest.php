@@ -121,6 +121,29 @@ class QboOnboardingTest extends TestCase
         $this->assertSame([], $live->partSummaries());
     }
 
+    /** Claudia walk 1: every business but Mowology imports; Mowology's live site keeps the preview. */
+    public function test_writes_are_allowed_on_any_business_but_the_default_one(): void
+    {
+        $this->assertTrue(QboOnboardingService::writesAllowed(true, true), 'local test site');
+        $this->assertTrue(QboOnboardingService::writesAllowed(false, false), 'a founding business');
+        $this->assertFalse(QboOnboardingService::writesAllowed(false, true), 'Mowology live: preview only');
+    }
+
+    public function test_rows_preview_what_accept_would_do(): void
+    {
+        $db = $this->db();
+        $ob = $this->loaded($db);
+        $p = $ob->partPreviews();
+        $this->assertSame('1 supplier to add', $p['suppliers']);
+        $this->assertArrayHasKey('clients', $p); $this->assertArrayHasKey('services', $p);
+        $this->assertArrayNotHasKey('accounts', $p, 'no chart in this fixture: that part is left out, the rest still preview');
+        $ob->apply('suppliers', 1);
+        $this->assertSame('Nothing new — 1 already here', $ob->partPreviews()['suppliers']);
+        $this->assertSame([], (new QboOnboardingService($this->db(), null, 1, null, true))->partPreviews(), 'nothing before a read');
+        $this->assertSame('None found', QboOnboardingService::countLine(0, 0, 'client', 'clients'));
+        $this->assertSame('3 clients to add, 2 already here', QboOnboardingService::countLine(3, 2, 'client', 'clients'));
+    }
+
     public function test_the_local_import_of_suppliers_runs_once(): void
     {
         $db = $this->db();

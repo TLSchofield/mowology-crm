@@ -196,12 +196,26 @@ class OnboardingQuickBooksModule extends OnboardingModule
         }
     }
 
+    /** Penny has read the connected QuickBooks at least once (a snapshot exists). */
+    public function hasRead(OnboardingContext $c): bool
+    {
+        try {
+            return (int)$c->one('SELECT COUNT(*) FROM qbo_onboarding_snapshot WHERE site_id = 1') > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Done once connected and read: accepting the five parts is optional and stays available (here and on the
+     * QuickBooks page). Tim 2026-11-03 after Claudia walk 1, where "all five accepted" made Continue loop.
+     */
     public function state(OnboardingContext $c): string
     {
         $a = $this->answer($c);
         if ($a === 'no') return self::NOT_NEEDED;
         if ($a !== 'yes' || !$this->connected($c)) return self::TODO;
-        return count(array_intersect(self::PARTS, $this->partsDone($c))) === count(self::PARTS) ? self::DONE : self::TODO;
+        return $this->hasRead($c) ? self::DONE : self::TODO;
     }
 
     public function summary(OnboardingContext $c): string

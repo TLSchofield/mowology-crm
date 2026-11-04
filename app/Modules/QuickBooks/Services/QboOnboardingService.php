@@ -16,8 +16,10 @@
  * pull() reads QuickBooks into qbo_onboarding_snapshot (production, read-only on QuickBooks). export() /
  * import() move that snapshot to the local test site, where PHP can't call Intuit (no CA bundle).
  *
- * WRITES ONLY ON THE LOCAL TEST SITE (LOCAL_TEST_SITE in secrets.php): Ittai has one business today, so an
- * import on the live site would put a test company's customers into Mowology's CRM. The live site previews.
+ * WRITES on the local test site (LOCAL_TEST_SITE in secrets.php) and on every business except the default one
+ * (Mowology). Each Ittai business has its own database (Tenant), so its import lands only in its own books;
+ * Mowology's live CRM keeps the preview (a test company's customers must never land there). 2026-11-03, Claudia
+ * walk 1: the old "one business" guard blocked founding businesses too.
  * Imported clients get NO marketing consent (CASL): they are clients, not subscribers.
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -43,7 +45,14 @@ class QboOnboardingService
         $this->conn = $conn;
         $this->siteId = $siteId;
         $this->clock = $clock ?? 'time';
-        $this->local = $local ?? (defined('LOCAL_TEST_SITE') && LOCAL_TEST_SITE === true);
+        $this->local = $local ?? self::writesAllowed(defined('LOCAL_TEST_SITE') && LOCAL_TEST_SITE === true,
+            !class_exists('Tenant') || Tenant::isDefault());
+    }
+
+    /** Pure rule: the local test site, or any business other than the default (Mowology) one. */
+    public static function writesAllowed(bool $localTestSite, bool $defaultBusiness): bool
+    {
+        return $localTestSite || !$defaultBusiness;
     }
 
     public function canWrite(): bool { return $this->local; }
@@ -295,8 +304,10 @@ class QboOnboardingService
     public function accounts(): array
     {
         // Their accounts: the live connection's list, else the snapshot's (the local test site has no connection).
-        $remote = $this->conn ? $this->conn->remote('account') : array_map(fn($a) => ['qbo_id' => (string)$a['Id'], 'name' => (string)($a['FullyQualifiedName'] ?? $a['Name'] ?? ''),
-                                                                                       'detail' => (string)($a['AccountType'] ?? '')], $this->rows('account'));
+        // An empty stored list (a connection whose list read failed) falls back to the snapshot too.
+        $remote = $this->conn ? $this->conn->remote('account') : [];
+        if (!$remote) $remote = array_map(fn($a) => ['qbo_id' => (string)$a['Id'], 'name' => (string)($a['FullyQualifiedName'] ?? $a['Name'] ?? ''),
+                                                     'detail' => (string)($a['AccountType'] ?? '')], $this->rows('account'));
         $maps = $this->conn ? $this->conn->mappings()['account'] : [];
         $ittai = $this->db->query("SELECT code, name, type FROM chart_of_accounts WHERE is_active = 1 AND (type IN ('revenue', 'expense') OR code = '1500') ORDER BY code")->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $out = ['matched' => 0, 'total' => 0, 'rows' => []];
@@ -318,7 +329,7 @@ class QboOnboardingService
     /** @return array{ok:bool, message:string} */
     public function apply(string $part, int $userId): array
     {
-        if (!$this->local) return ['ok' => false, 'message' => 'This is a preview: on the live site nothing is imported yet (Ittai has one business). The import runs on the local test site.'];
+        if (!$this->local) return ['ok' => false, 'message' => 'This is a preview: nothing is imported into this business from QuickBooks.'];
         if (!$this->hasSnapshot()) return ['ok' => false, 'message' => 'Read QuickBooks first.'];
         switch ($part) {
             case 'business':  $r = $this->applyBusiness(); break;
@@ -451,10 +462,49 @@ class QboOnboardingService
         $now = date('Y-m-d H:i:s', ($this->clock)());
         $u = $this->db->prepare('UPDATE qbo_onboarding_parts SET summary = ?, applied_by = ?, applied_at = ? WHERE site_id = ? AND part = ?');
         $u->execute([mb_substr($summary, 0, 500), $userId ?: null, $now, $this->siteId, $part]);
-        if ($u->rowCount() === 0) {
+        // MySQL counts changed rows: an identical re-accept in the same second reports 0. Insert only when missing.
+        $chk = $this->db->prepare('SELECT 1 FROM qbo_onboarding_parts WHERE site_id = ? AND part = ?');
+        $chk->execute([$this->siteId, $part]);
+        if ($chk->fetchColumn() === false) {
             $this->db->prepare('INSERT INTO qbo_onboarding_parts (site_id, part, summary, applied_by, applied_at) VALUES (?, ?, ?, ?, ?)')
                      ->execute([$this->siteId, $part, mb_substr($summary, 0, 500), $userId ?: null, $now]);
         }
+    }
+
+    /**
+     * What accepting each part WOULD do, from the snapshot — shown on a row before Accept (Claudia walk 1: the rows
+     * were blank until accepted). Empty array before the first read. A part that fails to preview is left out.
+     * @return array<string, string>
+     */
+    public function partPreviews(): array
+    {
+        if (!$this->hasSnapshot()) return [];
+        $out = [];
+        $try = function (string $part, callable $f) use (&$out): void {
+            try { $out[$part] = (string)$f(); } catch (Throwable $e) { error_log('[qbo-onboarding] preview ' . $part . ' failed: ' . get_class($e)); }
+        };
+        $try('business', function (): string {
+            $b = $this->business();
+            $bits = array_values(array_filter([$b['name'], $b['gst_number'] !== '' ? 'GST ' . $b['gst_number'] : '']));
+            return $bits ? implode(' · ', $bits) : 'Nothing to bring in.';
+        });
+        $try('clients', function (): string {
+            $c = $this->clients();
+            return self::countLine($c['new'], $c['match'], 'client', 'clients') . ($c['properties'] ? ', ' . $c['properties'] . ' extra ' . ($c['properties'] === 1 ? 'property' : 'properties') : '');
+        });
+        $try('services', function (): string { $s = $this->services(); return self::countLine($s['new'], $s['match'], 'service', 'services'); });
+        $try('suppliers', function (): string { $s = $this->suppliers(); return self::countLine($s['new'], $s['match'], 'supplier', 'suppliers'); });
+        $try('accounts', function (): string { $a = $this->accounts(); return $a['matched'] . ' of ' . $a['total'] . ' accounts matched'; });
+        return $out;
+    }
+
+    /** "3 clients to add, 2 already here" / "Nothing new — 2 already here" / "None found". */
+    public static function countLine(int $new, int $match, string $one, string $many): string
+    {
+        if ($new === 0 && $match === 0) return 'None found';
+        $here = $match ? $match . ' already here' : '';
+        if ($new === 0) return 'Nothing new — ' . $here;
+        return $new . ' ' . ($new === 1 ? $one : $many) . ' to add' . ($here !== '' ? ', ' . $here : '');
     }
 
     /** @return array<string, string> part => what accepting it did */

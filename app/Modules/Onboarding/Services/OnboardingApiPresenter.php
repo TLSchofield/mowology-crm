@@ -24,7 +24,7 @@ final class OnboardingApiPresenter
         return [
             'name' => self::nameData($name->me($ctx), $name->known($ctx), $name->nextPart($ctx)),
             'company' => self::companyData($identity->current()),
-            'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite()),
+            'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite(), $qbo->partPreviews()),
             'books' => ['acknowledged' => $ctx->setting('onboarding_books_ack') === '1'],
             'accountant' => ['invited_name' => $invited !== null && $invited !== '' ? $invited : null, 'logins' => $logins],
             'done' => ['ready' => (new OnboardingService($ctx))->readyToFinish(), 'complete' => $ctx->setting('onboarding_complete') === '1'],
@@ -59,11 +59,15 @@ final class OnboardingApiPresenter
             'confirmed' => !empty($i['owner_confirmed_at']) || (($i['source'] ?? '') === 'owner' && !empty($i['legal_name']))];
     }
 
-    public static function quickBooksData(?string $answer, bool $connected, bool $hasSnapshot, array $summaries, bool $canWrite): array
+    /** A row's summary: what accepting did once done, else what it would bring in (from the read). */
+    public static function quickBooksData(?string $answer, bool $connected, bool $hasSnapshot, array $summaries, bool $canWrite, array $previews = []): array
     {
         $labels = ['business' => 'Business', 'clients' => 'Clients', 'services' => 'Services', 'suppliers' => 'Suppliers', 'accounts' => 'Accounts'];
         $parts = [];
-        foreach ($labels as $key => $label) $parts[] = ['key' => $key, 'label' => $label, 'done' => array_key_exists($key, $summaries), 'summary' => (string)($summaries[$key] ?? '')];
+        foreach ($labels as $key => $label) {
+            $done = array_key_exists($key, $summaries);
+            $parts[] = ['key' => $key, 'label' => $label, 'done' => $done, 'summary' => (string)($done ? $summaries[$key] : ($previews[$key] ?? ''))];
+        }
         return ['answer' => in_array($answer, ['yes', 'no'], true) ? $answer : null, 'connected' => $connected, 'has_snapshot' => $hasSnapshot, 'parts' => $parts, 'can_write' => $canWrite];
     }
 }
