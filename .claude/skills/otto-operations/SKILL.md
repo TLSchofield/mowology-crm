@@ -3,6 +3,8 @@ name: otto-operations
 description: Use BEFORE touching anything operations-related in the Mowology CRM / Ittai — Otto (the Operations head) and his card/suggestions, the schedule and calendar stops, crews and crew assignment, visits and job timers, the time clock, timesheets, breaks, GPS/tracking (crew phones, truck tablet, Trackimo), trip/dump/supply runs, trucks and equipment, weather moves, bylaw hours, bulk material deliveries, the supplier directory and supplier account forms, company documents (business licence, insurance), or snow/salt routes. Also when Tim asks "where is the crew…", "why didn't the phone track…", "who forgot to clock out…", "fill this supplier form…", or reports a wrong Otto suggestion. Holds how Otto is allowed to operate, the single source of truth for each job, iPhone vs web/Android parity, and the traps already hit.
 covers:
   - app/Modules/Operations/*
+  - app/Core/BusinessCronFanout.php
+  - public/crm/includes/otto-property-card.php
   - app/Modules/Team/Api/equipment-mobile.php
   - ios/MowologyCRM/MowologyCRM/Features/Team/EquipmentAddView.swift
   - app/Modules/Tracking/*
@@ -31,7 +33,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -136,6 +138,7 @@ reference that matches the task:
 | Filling + sending a supplier form | `SupplierFormService::capture()` / `SupplierFormService::send()` with `PdfFormFiller::fill()` | Otto card, iPhone |
 | Company answers for forms (and owner-only blocklist) | `CompanyProfileService::answer()` | forms |
 | Business licence, insurance, WCB letter | `CompanyDocumentService::current()` / `CompanyDocumentService::briefItems()` | forms, brief (30-day reminder) |
+| Pins + lot borders for every new property, every business, any source (QuickBooks, phone, web, Jobber, leads) | `OttoAutoPlaceService::run()` (new = id above `OttoAutoPlaceService::watermark()`; 0 on an Ittai business); province gate `OttoAutoPlaceService::regionOf()` + `LOT_MAPS` (BC only); why it failed `OttoAutoPlaceService::status()`. Runs per business through `BusinessCronFanout::run()` from `generate_visits.php` → `app/Modules/Operations/Cron/otto_place_properties.php --tenant=<key>` | Otto's property card `public/crm/includes/otto-property-card.php`, property map, visit report |
 | Snow/salt routes set up on signing | `SnowContractService::setupFromSignedQuote()`; no-crew routes `SnowContractService::ottoBriefItems()` | quote signing, brief |
 | Phone fix ingest + policy | `TrackingIngestService::ingest()` / `TrackingIngestService::policy()` | every GPS path (incl. the web widget's `crew-location.php` since 2026-10-12); `newest` skips mock fixes |
 | Client route proof (fixes ON the property only, no mocks) | `RouteProofService::forVisits()` in `app/Modules/Tracking/Services/RouteProofService.php` | `public/customer/portal.php`, `public/customer/visit-report.php` |

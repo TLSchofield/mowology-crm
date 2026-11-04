@@ -166,3 +166,8 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    **Migrations per business (found 2026-11-03):** a migration run on Mowology after a business is provisioned never
    reaches that business (walk-1 rehearsal lacked `snow_runs`). Needs a per-business migration runner before more
    founding businesses; until then provision Claudia's after the latest migrations.
+
+- **Every other cron is still Mowology-only (found 2026-11-03).** Business databases had never run a cron (0 `cron_runs` rows). Otto's pins + lot borders now fan out per business (`BusinessCronFanout` from `generate_visits`, `--tenant=<key>`). Reminders, pollers, Charlie's brief, weather moves and the rest still run for Mowology only. Decide which run per business (some must not: sending and charging crons refuse test businesses) and route them through the same fan-out, one cron at a time, checking `cron_runs` in each business after.
+- **QuickBooks import drops the property's province (found 2026-11-03).** `QboOnboardingService::applyClients()` passes `property_address/city/postal_code` but no province, so every imported property is stored as the default 'BC'. Fine for Claudia. For a business outside BC, Otto would wrongly treat its properties as BC. Pass `ShipAddr.CountrySubDivisionCode`.
+- **Lot maps outside BC:** `OttoAutoPlaceService::LOT_MAPS` has BC only. Other provinces show "no public lot map for <province> yet — draw the border". Add a source per province when a business there signs up (Alberta: municipal open data, e.g. Calgary parcels; research needed).
+- **Local harness:** `scripts/local-site.sh php …` does not set the dead proxy that `start` does, so a CLI run reaches real outside services. Export the proxy variables in `php_run` too.

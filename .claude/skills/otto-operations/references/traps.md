@@ -192,3 +192,8 @@ at 2:00 (Android 1.4.0 sent `client_time` and it was ignored too). **Rule:** a q
 never cleared, before reading server state; every offline action carries its tap time as
 `client_time` and the server decides with `OfflineTime::accept()` (clock, timer). Fixed in iOS
 1.3.26 and the timer endpoint the same day.
+
+## 2026-11-03 — Otto's lot borders were Mowology-only, and only for properties with a plan, quote or lead
+**What happened:** clients imported from QuickBooks onto a new business would never have got a pin or lot border. The auto-place candidates were active properties, quotes from the last 12 months and leads from the last 30 days, and no business database had ever run a cron (0 `cron_runs` rows in testcompany, rehearsal and rehearsal2). The 6-hourly summary said "0 pinned, 0 lot border(s)", which looked like "nothing to do".
+**Signature:** a 0 from Otto's run while new clients sit unpinned; a business's `cron_runs` table is empty.
+**Rule:** "new" is decided by id above a frozen starting line (`otto_new_after_id`, its own `ops_settings` row), never by which code path made the property or by its `created_at` (Jobber reconsent back-dates it). A per-business job runs as its own CLI process with `--tenant=<key>` (`BusinessCronFanout`; production has `exec` disabled but `proc_open` allowed). `GET_LOCK` names are server-wide, so they carry the database name. Outside BC there is no lot map: record `no_source:<code>` and make no request.
