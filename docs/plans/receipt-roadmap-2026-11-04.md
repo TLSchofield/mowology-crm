@@ -65,8 +65,9 @@ ships. The vendor directory fills itself from the receipts, and Otto knows each 
     confirmed or reversed later by the desk. Never treated as approval of the expense itself.
 13. **Global lessons vs store lessons.** "Total printed above its label" is a rule for every receipt; SKU names and
     category defaults stay per store. Today almost every lesson is per vendor.
-14. **Crew corrections as provisional lessons.** *Tim decides:* today a crew member's corrections teach nothing until
-    the desk approves, by design. Option: record them as provisional, reversed if the desk changes the field.
+14. **Crew corrections teach (Tim, 2026-11-04: yes).** A crew member's corrections are recorded as lessons at save,
+    marked provisional; the desk's approval confirms them and a desk change to the same field reverses them.
+    Replaces the earlier rule that a crew capture waits for the desk.
 
 ## Phase 4 — vendors and Otto (M)
 
