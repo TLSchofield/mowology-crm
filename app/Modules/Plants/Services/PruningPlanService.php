@@ -359,6 +359,12 @@ final class PruningPlanService
         return $this->setStatus($id, ['draft'], 'approved', $userId, true);
     }
 
+    /** The visit that ticked every crew line closes the plan (PlantWorkService::recordFromChecklist). */
+    public function markDone(int $id, int $userId): array
+    {
+        return $this->setStatus($id, ['approved', 'scheduled'], 'done', $userId, false);
+    }
+
     public function reject(int $id, int $userId): array
     {
         return $this->setStatus($id, ['draft', 'approved'], 'rejected', $userId, false);

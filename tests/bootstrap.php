@@ -428,3 +428,4 @@ require_once __DIR__ . '/../app/Modules/Plants/Services/PlantCareService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/SitePlantQuizService.php';
 require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';

@@ -26,7 +26,7 @@ $db = getDB();
 
 // Load visit + plan
 $stmt = $db->prepare("
-    SELECT v.*, p.title AS plan_title, p.checklist_template, p.service_type AS plan_service_type,
+    SELECT v.*, p.title AS plan_title, p.checklist_template, p.service_type AS plan_service_type, p.property_id,
            p.plan_number, pr.address AS property_address,
            c.first_name AS contact_first, c.last_name AS contact_last
     FROM job_visits v
@@ -54,15 +54,13 @@ $visit['service_type'] = $visit['service_type'] ?? $visit['plan_service_type'] ?
 $isLocked = ($visit['locked_at'] !== null);
 
 // Load existing checklist / materials / service data
-$checklist = !empty($visit['checklist_json'])    ? json_decode($visit['checklist_json'], true)    : [];
 $materials = !empty($visit['materials_json'])    ? json_decode($visit['materials_json'], true)    : [];
 $svcData   = !empty($visit['service_data_json']) ? json_decode($visit['service_data_json'], true) : [];
 
-// Seed checklist from plan template if empty
-if (empty($checklist) && !empty($visit['checklist_template'])) {
-    $tpl       = json_decode($visit['checklist_template'], true) ?? [];
-    $checklist = array_map(fn($t) => ['item'=>$t,'checked'=>false,'note'=>''], $tpl);
-}
+// Saved checklist, else the plan's template plus the plant care due on the property (same rule as the crew apps)
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+$checklist = VisitWorkService::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null,
+                                                (new VisitWorkService($db))->plantLinesFor($visit));
 
 $csrfToken = generateCSRFToken();
 
