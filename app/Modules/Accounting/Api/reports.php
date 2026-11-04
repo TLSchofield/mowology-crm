@@ -179,6 +179,7 @@ try {
                   AND t.status NOT IN ('void', 'deleted')
                   AND NOT EXISTS (SELECT 1 FROM bank_import_rows bir WHERE bir.transaction_id = t.id AND bir.is_duplicate = 1)
                   AND NOT (t.reference_type = 'bank_import' AND t.matched_invoice_id IS NOT NULL)
+                  AND " . AccountingService::countedSql('t') . "
                 ORDER BY t.transaction_date ASC, t.type ASC
             ");
             $stmt->execute([$dateFrom, $dateTo]);

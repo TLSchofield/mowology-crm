@@ -329,8 +329,18 @@ class ShareholderAccountService
         $c = $s->fetch(PDO::FETCH_ASSOC);
         if (!$c) return ['ok' => false, 'message' => 'Not found'];
         if ($this->ledger->isLocked((string)$c['entry_date'])) return ['ok' => false, 'message' => substr((string)$c['entry_date'], 0, 7) . ' is locked.'];
-        $rev = $c['journal_entry_id'] ? $this->ledger->reverseEntry((int)$c['journal_entry_id'], $userId, 'shareholder clearing undone', 'owner') : null;
-        $this->db->prepare("UPDATE shareholder_clearings SET undone_at = NOW(), undone_by = ?, reversal_entry_id = ? WHERE id = ?")->execute([$userId ?: null, $rev, $id]);
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $rev = $c['journal_entry_id'] ? $this->ledger->reverseEntry((int)$c['journal_entry_id'], $userId, 'shareholder clearing undone', 'owner') : null;
+            $mark = $this->db->prepare("UPDATE shareholder_clearings SET undone_at = NOW(), undone_by = ?, reversal_entry_id = ? WHERE id = ? AND undone_at IS NULL");
+            $mark->execute([$userId ?: null, $rev, $id]);
+            if ($mark->rowCount() !== 1) throw new RuntimeException('That clearing was already undone.');
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => 'Not undone: ' . $e->getMessage()];
+        }
         return ['ok' => true, 'message' => 'Clearing undone' . ($rev ? ' (reversal #' . $rev . ')' : '') . '.'];
     }
 

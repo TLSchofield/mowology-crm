@@ -840,12 +840,24 @@ class LedgerService
      */
     public function reverseEntry(int $entryId, ?int $userId, string $why, string $proposedBy = 'owner'): int
     {
-        $lock = 'ledger_rev_' . $entryId;
-        $this->acquireNamedLock($lock);
+        // Same lock name as postEntry() for the entry's own source, so a repost and a reversal of that source can never interleave
+        // (Codex review 2026-11-04); the per-entry lock stays for manual entries, which have no source.
+        $locks = ['ledger_rev_' . $entryId];
         try {
+            $src = $this->db->prepare("SELECT source_type, source_id FROM journal_entries WHERE id = ?");
+            $src->execute([$entryId]);
+            if ($r = $src->fetch(PDO::FETCH_ASSOC)) {
+                if (($r['source_type'] ?? 'manual') !== 'manual' && $r['source_id'] !== null) {
+                    array_unshift($locks, 'ledger_post_' . md5($r['source_type'] . ':' . $r['source_id']));
+                }
+            }
+        } catch (Throwable $e) { /* no source columns here: the entry lock alone */ }
+        $held = [];
+        try {
+            foreach ($locks as $lock) { $this->acquireNamedLock($lock); $held[] = $lock; }
             return $this->reverseEntryUnlocked($entryId, $userId, $why, $proposedBy);
         } finally {
-            $this->releaseNamedLock($lock);
+            foreach (array_reverse($held) as $lock) $this->releaseNamedLock($lock);
         }
     }
 

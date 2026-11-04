@@ -52,4 +52,24 @@ final class AccountingIntegrityTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         BankImportService::validateCommitAmounts(['amount' => 'abc']);
     }
+
+    public function testReversalTakesThePostingLockOfItsSourceAndUndoIsOneTransaction(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $ledger = (string)file_get_contents($root . '/app/Modules/Accounting/Services/LedgerService.php');
+        $i = strpos($ledger, 'public function reverseEntry');
+        self::assertStringContainsString("'ledger_post_' . md5(", substr($ledger, $i, 1200));
+        $sh = (string)file_get_contents($root . '/app/Modules/Accounting/Services/ShareholderAccountService.php');
+        $j = strpos($sh, 'public function undoClearing');
+        $body = substr($sh, $j, 1800);
+        self::assertStringContainsString('beginTransaction', $body);
+        self::assertStringContainsString('AND undone_at IS NULL', $body);
+    }
+
+    public function testAccountantExportUsesTheCanonicalCountedFilter(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 2) . '/app/Modules/Accounting/Api/reports.php');
+        self::assertGreaterThanOrEqual(2, substr_count($src, "AccountingService::countedSql('t')"));
+        self::assertStringContainsString("t.status NOT IN ('void', 'deleted')", $src);
+    }
 }
