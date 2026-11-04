@@ -132,6 +132,38 @@ class QboOnboardingTest extends TestCase
         $this->assertSame(['client:11'=>'2','company:7'=>'2','contact:9'=>'2'],$links);
     }
 
+    public function test_accepting_clients_writes_all_links_keeps_conflicts_and_is_idempotent(): void
+    {
+        if (!class_exists('ContactService')) class_alias(QboOnboardingContactServiceStub::class, 'ContactService');
+        $db=$this->db();
+        $note=QboOnboardingService::importNote('1');
+        $db->prepare("INSERT INTO contacts (id,first_name,last_name,notes,company_id) VALUES (1,'Adwin','Ko',?,1)")->execute([$note]);
+        $db->exec("INSERT INTO contacts (id,first_name,last_name,email) VALUES (2,'O','X','oxon@example.ca')");
+        $db->exec('INSERT INTO companies (id,primary_contact_id) VALUES (1,1)');
+        $db->exec('INSERT INTO clients (id,legacy_contact_id,contact_id) VALUES (1,1,1),(2,2,2)');
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES (1,'realm','client','contact:1','other','sent')");
+        $conn=new class($db) extends QboConnectionService {
+            public function company(): ?array { return ['realm_id'=>'realm']; }
+        };
+        $ob=new QboOnboardingService($db,$conn,1,fn()=>1792540800,true);
+        $ob->import($this->snapshot());
+
+        $first=$ob->apply('clients',7);
+        $this->assertStringContainsString('1 QuickBooks link conflicts kept unchanged',$first['message']);
+        $this->assertSame('other',$db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='contact:1'")->fetchColumn());
+        $this->assertSame(2,(int)$db->query('SELECT COUNT(*) FROM contacts')->fetchColumn());
+        $this->assertSame(2,(int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn());
+        $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM companies')->fetchColumn());
+        $this->assertSame(5,(int)$db->query("SELECT COUNT(*) FROM qbo_links WHERE entity_type='client'")->fetchColumn(),
+                          'conflicting contact plus contact/company/client identities are all represented');
+
+        $ob->apply('clients',7);
+        $this->assertSame([2,2,1,5],[(int)$db->query('SELECT COUNT(*) FROM contacts')->fetchColumn(),
+                                    (int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn(),
+                                    (int)$db->query('SELECT COUNT(*) FROM companies')->fetchColumn(),
+                                    (int)$db->query("SELECT COUNT(*) FROM qbo_links WHERE entity_type='client'")->fetchColumn()]);
+    }
+
     public function test_services_skip_folders_and_keep_their_group(): void
     {
         $db = $this->db();

@@ -39,7 +39,8 @@ class QboSyncTest extends TestCase
         $db->exec("CREATE TABLE stripe_payments (id INTEGER PRIMARY KEY, invoice_id INT, amount_cents INT, status TEXT, created_at TEXT, stripe_charge_id TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, client_id INT, contact_id INT, company_id INT, property_id INT, amount_paid REAL, invoice_number TEXT, status TEXT, subtotal REAL, tax_amount REAL, tax_rate REAL, total REAL,
                    total_amount REAL, issue_date TEXT, invoice_date TEXT, due_date TEXT, created_at TEXT, bill_to_name TEXT, sent_to_email TEXT, updated_at TEXT)");
-        $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, product_id INT, quantity REAL, unit_price REAL, line_total REAL, title TEXT, description TEXT, sort_order INT)");
+        $db->exec("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)");
+        $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, title TEXT, description TEXT, quantity REAL, unit_price REAL, line_total REAL, visit_id INT, service_date TEXT, sort_order INT)");
         $db->exec("CREATE TABLE invoice_payment_allocations (id INTEGER PRIMARY KEY, invoice_id INT, amount REAL, payment_date TEXT, created_at TEXT, reference TEXT)");
 
         $v = new QboTokenVault(str_repeat("\x07", 32));
@@ -52,7 +53,8 @@ class QboSyncTest extends TestCase
         $db->exec("INSERT INTO chart_of_accounts VALUES ('4100', 'Lawn Care Services', 'revenue', 1), ('4200', 'Hedge & Shrub Trimming', 'revenue', 1), ('4600', 'Fertilization', 'revenue', 1)");
         $db->exec("INSERT INTO clients VALUES (5, 'Susan O''Lim', 'susan@example.ca')");
         $db->exec("INSERT INTO invoices VALUES (10, 5, NULL, NULL, NULL, 416.06, 'INV-2026-0500', 'sent', 396.25, 19.81, 0.05, 416.06, 416.06, '2026-10-16', NULL, '2026-10-30', '2026-10-16 10:00:00', 'Susan O''Lim', NULL, '2026-10-16 10:00:00')");
-        $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 7, 2, 198.125, 396.25, 'Hedge trim', NULL, 1)");
+        $db->exec("INSERT INTO products VALUES (7, 'Hedge trim')");
+        $db->exec("INSERT INTO invoice_line_items VALUES (1, 10, 'Hedge trim', NULL, 2, 198.125, 396.25, NULL, NULL, 1)");
         $db->exec("INSERT INTO invoice_payment_allocations VALUES (100, 10, 416.06, '2026-10-20', '2026-10-20 09:00:00', 'ET-55')");
         return $db;
     }
@@ -122,16 +124,17 @@ class QboSyncTest extends TestCase
     public function test_product_lines_require_every_mapping_and_the_rounded_subtotal(): void
     {
         $rows = [
-            ['product_id'=>7,'quantity'=>2,'unit_price'=>12.345,'line_total'=>24.69,'title'=>'Cut','description'=>'Front'],
-            ['product_id'=>8,'quantity'=>1,'unit_price'=>10,'line_total'=>10,'title'=>'Trim','description'=>''],
+            ['quantity'=>2,'unit_price'=>12.345,'line_total'=>24.69,'title'=>'Cut','description'=>'Front'],
+            ['quantity'=>1,'unit_price'=>10,'line_total'=>10,'title'=>'','description'=>"Trim\nBack garden"],
         ];
-        $lines = QboSyncService::productLines($rows, ['7'=>'700','8'=>'800'], 34.69);
+        $lines = QboSyncService::productLines($rows, ['cut'=>'700','trim'=>'800'], 34.69);
         $this->assertSame('700', $lines[0]['item']);
+        $this->assertSame('800', $lines[1]['item'], 'an empty title uses only the description first line for matching');
         $this->assertSame(12.35, $lines[0]['unit_price']);
         $this->assertSame(24.69, $lines[0]['amount']);
         $this->assertSame('Cut — Front', $lines[0]['description']);
-        $this->assertNull(QboSyncService::productLines($rows, ['7'=>'700'], 34.69), 'one unmapped line falls back');
-        $this->assertNull(QboSyncService::productLines($rows, ['7'=>'700','8'=>'800'], 34.68), 'a subtotal mismatch falls back');
+        $this->assertNull(QboSyncService::productLines($rows, ['cut'=>'700'], 34.69), 'one unmapped line falls back');
+        $this->assertNull(QboSyncService::productLines($rows, ['cut'=>'700','trim'=>'800'], 34.68), 'a subtotal mismatch falls back');
     }
 
     public function test_mapped_invoice_lines_are_loaded_from_the_database_and_sent_as_item_refs(): void
@@ -144,6 +147,25 @@ class QboSyncTest extends TestCase
         $this->assertSame('700', $invoice['Line'][0]['SalesItemLineDetail']['ItemRef']['value']);
         $this->assertEquals(2.0, $invoice['Line'][0]['SalesItemLineDetail']['Qty']);
         $this->assertSame(198.13, $invoice['Line'][0]['SalesItemLineDetail']['UnitPrice']);
+    }
+
+    public function test_distinct_product_mappings_with_the_same_normalized_name_fall_back_to_the_account_item(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO products VALUES (8, 'Mow & Blow'), (9, 'Mow-Blow')");
+        $db->exec("INSERT INTO qbo_mappings (site_id, kind, ittai_key, qbo_id, qbo_name) VALUES
+                   (1, 'item', '8', '700', 'Mow & Blow'), (1, 'item', '9', '800', 'Mow-Blow')");
+        $db->exec("UPDATE invoice_line_items SET title = 'Mow Blow' WHERE invoice_id = 10");
+
+        $r = $this->sync($db)->sendInvoice(10);
+
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame(['item', 'customer', 'invoice', 'payment'], array_column($this->sent, 'entity'),
+            'a normalized-name collision uses the safe account-split path');
+        $this->assertSame('81', $this->sent[0]['body']['IncomeAccountRef']['value']);
+        $invoice = $this->sent[2]['body'];
+        $this->assertNotContains($invoice['Line'][0]['SalesItemLineDetail']['ItemRef']['value'], ['700', '800'],
+            'neither ambiguous product mapping may supply the invoice item');
     }
 
     public function test_complete_run_summary_covers_counts_failures_and_stops(): void

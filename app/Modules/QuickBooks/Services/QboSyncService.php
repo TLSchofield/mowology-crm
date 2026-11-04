@@ -41,6 +41,8 @@ class QboSyncService
     private $splits;
     /** @var callable(): int */
     protected $clock;
+    /** A database failure loading product lines; ordinary unmatched lines are not errors. */
+    private ?string $productLineFallbackReason = null;
 
     public function __construct(QboConnectionService $conn, ?callable $splits = null, ?callable $clock = null)
     {
@@ -125,21 +127,34 @@ class QboSyncService
         if (!$rows) return null;
         $out = []; $sum = 0.0;
         foreach ($rows as $row) {
-            $productId = (string)($row['product_id'] ?? '');
-            if ($productId === '' || empty($itemMappings[$productId])) return null;
+            $title = trim((string)($row['title'] ?? ''));
+            $description = trim((string)($row['description'] ?? ''));
+            $lineName = $title;
+            if ($lineName === '' && $description !== '') {
+                $parts = preg_split('/\R/', $description, 2);
+                $lineName = trim((string)($parts[0] ?? ''));
+            }
+            $normalName = self::normalName($lineName);
+            if ($normalName === '' || empty($itemMappings[$normalName])) return null;
             $qty = round((float)($row['quantity'] ?? 1), 4);
             if ($qty == 0.0) $qty = 1.0;
             $amount = round((float)($row['line_total'] ?? $row['amount'] ?? 0), 2);
             $unit = isset($row['unit_price']) ? round((float)$row['unit_price'], 2) : round($amount / $qty, 2);
-            $description = trim((string)($row['title'] ?? ''));
-            if (trim((string)($row['description'] ?? '')) !== '') {
-                $description .= ($description !== '' ? ' — ' : '') . trim((string)$row['description']);
+            $lineDescription = $title;
+            if ($description !== '') {
+                $lineDescription .= ($lineDescription !== '' ? ' — ' : '') . $description;
             }
-            $out[] = ['item' => (string)$itemMappings[$productId], 'qty' => $qty, 'unit_price' => $unit,
-                      'amount' => $amount, 'description' => $description];
+            $out[] = ['item' => (string)$itemMappings[$normalName], 'qty' => $qty, 'unit_price' => $unit,
+                      'amount' => $amount, 'description' => $lineDescription];
             $sum += $amount;
         }
         return self::sameMoney($sum, $subtotal) ? $out : null;
+    }
+
+    /** Kept byte-for-byte equivalent to QboOnboardingService::norm(), without loading onboarding here. */
+    private static function normalName(string $name): string
+    {
+        return trim((string)preg_replace('/[^a-z0-9]+/', ' ', strtolower($name)));
     }
 
     /**
@@ -333,7 +348,10 @@ class QboSyncService
         if (($why = self::cannotSend($net, $gst, $ittaiTotal, $splits, $rate)) !== null) {
             return ['ok' => false, 'message' => $label . ' was not sent: ' . $why];
         }
-        $lines = $this->mappedProductLines($invoiceId, $net, $maps);
+        $lines = $this->mappedProductLines($invoiceId, $net);
+        if ($this->productLineFallbackReason !== null) {
+            error_log('QuickBooks invoice ' . $invoiceId . ' product-line fallback: ' . $this->productLineFallbackReason);
+        }
         if ($lines === null) {
             $lines = [];
             foreach ($splits as [$code, $amt]) {
@@ -554,18 +572,34 @@ class QboSyncService
         return $t ? implode('; ', $t) : 'Account ' . $code;
     }
 
-    private function mappedProductLines(int $invoiceId, float $subtotal, array $maps): ?array
+    private function mappedProductLines(int $invoiceId, float $subtotal): ?array
     {
+        $this->productLineFallbackReason = null;
         try {
-            $s = $this->db->prepare('SELECT product_id, quantity, unit_price, line_total, title, description
+            $s = $this->db->prepare('SELECT quantity, unit_price, line_total, title, description
                                       FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order, id');
             $s->execute([$invoiceId]);
             $itemMappings = [];
-            foreach ((array)($maps['item'] ?? []) as $key => $mapping) {
-                if (!empty($mapping['qbo_id'])) $itemMappings[(string)$key] = (string)$mapping['qbo_id'];
+            $collidingNames = [];
+            $p = $this->db->prepare("SELECT p.name, m.qbo_id
+                                     FROM products p
+                                     JOIN qbo_mappings m ON m.ittai_key = CAST(p.id AS CHAR)
+                                     WHERE m.site_id = ? AND m.kind = 'item'");
+            $p->execute([$this->siteId]);
+            foreach ($p->fetchAll(PDO::FETCH_ASSOC) ?: [] as $product) {
+                $name = self::normalName((string)$product['name']);
+                $qboId = (string)($product['qbo_id'] ?? '');
+                if ($name === '' || $qboId === '' || isset($collidingNames[$name])) continue;
+                if (isset($itemMappings[$name]) && $itemMappings[$name] !== $qboId) {
+                    unset($itemMappings[$name]);
+                    $collidingNames[$name] = true;
+                    continue;
+                }
+                $itemMappings[$name] = $qboId;
             }
             return self::productLines($s->fetchAll(PDO::FETCH_ASSOC) ?: [], $itemMappings, $subtotal);
         } catch (Throwable $e) {
+            $this->productLineFallbackReason = $e->getMessage();
             return null;
         }
     }

@@ -112,14 +112,13 @@ final class OnboardingStepService
     public static function businessToday(PDO $db, ?DateTimeImmutable $now = null): string
     {
         try {
-            $s = $db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
-            $s->execute(['business_timezone']);
+            $s = $db->query('SELECT timezone FROM business_settings ORDER BY id LIMIT 1');
             $timezone = trim((string)($s->fetchColumn() ?: ''));
             if ($timezone !== '') {
                 return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone($timezone))->format('Y-m-d');
             }
-        } catch (Throwable $e) { /* installations without the setting use PHP's configured timezone */ }
-        return ($now ?? new DateTimeImmutable('now'))->format('Y-m-d');
+        } catch (Throwable $e) { /* installations without the column use PHP's configured timezone */ }
+        return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
     }
 
     private function identity(int $userId)
