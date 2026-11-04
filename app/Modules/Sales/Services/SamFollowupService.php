@@ -16,6 +16,9 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
+
 class SamFollowupService
 {
     public const TEMPLATE_KEYS = ['first_nudge', 'second_nudge', 'viewed', 'last_call', 'multi', 'reply'];
@@ -168,22 +171,15 @@ class SamFollowupService
         } catch (Throwable $e) { /* no examples yet */ }
 
         $prompt = self::replyPrompt($card, $owner, $examples);
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 45,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => ['content-type: application/json', 'x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01'],
-            CURLOPT_POSTFIELDS     => json_encode([
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $gw = LlmGateway::send([
                 'model'      => self::CLAUDE_MODEL,
                 'max_tokens' => 600,
                 'system'     => $prompt['system'],
                 'messages'   => [['role' => 'user', 'content' => $prompt['user']]],
-            ]),
-        ]);
-        $raw = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+            ], ['head' => 'sam', 'skill' => 'reply_draft', 'db' => $this->db, 'timeout' => 45]);
+        $raw = $gw['body'];
+        $code = $gw['code'];
         $d = is_string($raw) ? json_decode($raw, true) : null;
         $text = trim((string)($d['content'][0]['text'] ?? ''));
         $in = (int)($d['usage']['input_tokens'] ?? 0);
@@ -225,6 +221,12 @@ class SamFollowupService
      * @param array $in channel, subject, body, suggested_subject, suggested_body, template, drafted_by
      */
     public function send(array $card, array $in, array $user, string $owner): array
+    {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'sam', 'action' => 'sam.send_followup', 'skill' => 'send_followup', 'entity_type' => 'contact', 'entity_id' => (string)($card['contact_id'] ?? ''), 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doSend($card, $in, $user, $owner));
+    }
+
+    private function doSend(array $card, array $in, array $user, string $owner): array
     {
         // One send at a time per customer, and never the same message twice in ten minutes: a double tap or a retry
         // after the card left the queue must not email them again (Codex review 2026-10-15).

@@ -14,6 +14,10 @@
 import SwiftUI
 
 struct ReceiptReviewView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var usesAccessibleAmounts: Bool { appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize }
+    @Environment(\.itAppStyle) private var appStyle
 
     /// What the user chose after a successful save.
     enum SaveFollowUp { case snapAnother, done }
@@ -24,6 +28,7 @@ struct ReceiptReviewView: View {
     let lat: Double?
     let lng: Double?
     @Binding var isPresented: Bool
+    var onRetake: (() -> Void)? = nil
     var onSaved: (SaveFollowUp) -> Void
 
     // Form state — pre-filled from OCR
@@ -64,6 +69,7 @@ struct ReceiptReviewView: View {
     @State private var showSavedDialog = false
     @State private var savedMessage = ""
     @State private var showImageFull = false
+    @State private var showRetakeConfirm = false
 
     private enum Field: Hashable { case vendor, amount, gst, pst, total, jobSearch, description }
     @FocusState private var focus: Field?
@@ -81,6 +87,7 @@ struct ReceiptReviewView: View {
          lat: Double?,
          lng: Double?,
          isPresented: Binding<Bool>,
+         onRetake: (() -> Void)? = nil,
          onSaved: @escaping (SaveFollowUp) -> Void) {
         self.viewModel    = viewModel
         self.intake       = intake
@@ -88,6 +95,7 @@ struct ReceiptReviewView: View {
         self.lat          = lat
         self.lng          = lng
         self._isPresented = isPresented
+        self.onRetake     = onRetake
         self.onSaved      = onSaved
 
         let p = intake.parsed
@@ -106,7 +114,10 @@ struct ReceiptReviewView: View {
         _pst           = State(initialValue: pstD > 0 ? Self.money(pstD) : "")
         _total         = State(initialValue: totalD > 0 ? Self.money(totalD) : "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
-        _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
+        // The card on the receipt (when the server matched one) decides the payment method.
+        _paymentMethod = State(initialValue: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card")
+        // One decisive schedule match starts selected; "No Job" or another pill undoes it.
+        _selectedJob   = State(initialValue: intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) })
         _items         = State(initialValue: p?.lineItems ?? [])
     }
 
@@ -126,7 +137,9 @@ struct ReceiptReviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                unreadSection
                 receiptImageSection
+                summarySection
                 duplicateSection
                 totalSection
                 vendorSection
@@ -137,26 +150,29 @@ struct ReceiptReviewView: View {
 
                 if let err = viewModel.saveError {
                     Section {
-                        Text(err).foregroundStyle(.red).font(.subheadline)
+                        Text(err).foregroundStyle(appStyle.blocked).font(appStyle.font(.subheadline))
                     }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await attemptSave(andSend: false) }
                     } label: {
                         if viewModel.isSaving {
-                            ProgressView().tint(Color.MW.green)
+                            ProgressView().tint(appStyle.tenant)
                         } else {
-                            Text("Submit").font(.subheadline.weight(.semibold))
-                                .foregroundStyle(canSave ? Color.MW.green : .secondary)
+                            Text("Submit").font(appStyle.font(.subheadline, weight: .semibold))
+                                .foregroundStyle(canSave ? appStyle.tenant : appStyle.meta)
                         }
                     }
                     .disabled(!canSave)
@@ -182,6 +198,12 @@ struct ReceiptReviewView: View {
         }
         // Save-time duplicate confirm — desktop web uses confirm(); Android toasts and
         // allows. This is the explicit version: one tap to proceed, one to go back.
+        .alert("Discard this receipt and retake?", isPresented: $showRetakeConfirm) {
+            Button("Retake", role: .destructive) { onRetake?() }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("Your edits on this form will be lost. If you cancel the camera, this receipt comes back.")
+        }
         .alert("Possible duplicate", isPresented: $showDuplicateConfirm) {
             Button("Save anyway") {
                 duplicatesAcknowledged = true
@@ -232,10 +254,10 @@ struct ReceiptReviewView: View {
                     Image(uiImage: ui)
                         .resizable().scaledToFit()
                         .frame(maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.caption.weight(.bold))
+                                .font(appStyle.font(.caption, weight: .bold))
                                 .foregroundStyle(.white)
                                 .padding(6)
                                 .background(.black.opacity(0.55), in: Circle())
@@ -244,10 +266,10 @@ struct ReceiptReviewView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { showImageFull = true }
                 } else {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(.systemGray5))
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                        .fill(appStyle.sunk)
                         .frame(height: 120)
-                        .overlay { Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary) }
+                        .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
                 }
                 Spacer()
             }
@@ -255,24 +277,34 @@ struct ReceiptReviewView: View {
                 ocrBadge
                 if intake.gstValidation?.valid == false {
                     Label(intake.gstValidation?.message ?? "Tax math doesn't add up — check the amounts", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(Color.MW.orange)
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.attention)
                 }
             }
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private var readBadgeText: String {
+        if intake.totalSource == "device" { return "Read on the phone" }
+        switch intake.ocrSource {
+        case "vision":    return "Read by Google"
+        case "tesseract": return "Read locally"
+        default:          return "Read from the photo"
         }
     }
 
     @ViewBuilder
     private var ocrBadge: some View {
         if intake.ocrAvailable && !(intake.ocrText ?? "").isEmpty {
-            Label("AI detected\(intake.ocrSource == "vision" ? " (AI)" : intake.ocrSource == "tesseract" ? " (local)" : "")", systemImage: "text.viewfinder")
-                .font(.caption2).foregroundStyle(Color.MW.green)
+            Label(readBadgeText, systemImage: "text.viewfinder")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
         } else if intake.ocrAvailable {
             Label("No text found", systemImage: "questionmark.circle")
-                .font(.caption2).foregroundStyle(Color.MW.orange)
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
         } else {
             Label("Manual entry", systemImage: "pencil")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
         }
     }
 
@@ -282,40 +314,142 @@ struct ReceiptReviewView: View {
             Section {
                 Label {
                     Text("This exact receipt image was already uploaded. You may be about to create a duplicate expense — please verify before saving.")
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                 } icon: {
-                    Image(systemName: "doc.on.doc.fill").foregroundStyle(Color.MW.orange)
+                    Image(systemName: "doc.on.doc.fill").foregroundStyle(appStyle.attention)
                 }
             }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
         } else if !duplicates.isEmpty {
             Section("Possible duplicate\(duplicates.count == 1 ? "" : "s")") {
                 ForEach(duplicates) { d in
                     HStack {
-                        Image(systemName: "doc.on.doc").foregroundStyle(Color.MW.orange)
+                        Image(systemName: "doc.on.doc").foregroundStyle(appStyle.attention)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(d.displayVendor).font(.subheadline.weight(.semibold))
+                            Text(d.displayVendor).font(appStyle.font(.subheadline, weight: .semibold))
                             Text("$\(d.total, specifier: "%.2f") on \(d.expenseDate) · \(d.status.replacingOccurrences(of: "_", with: " "))")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                     }
                 }
             }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    // MARK: - Review by exception
+
+    /// True while the job is still the one the server picked from the schedule.
+    private var jobAutoSelected: Bool { selectedJob != nil }
+
+    private var readFailed: Bool {
+        let p = intake.parsed
+        let noTotal  = (p?.totalDouble ?? 0) <= 0
+        let noVendor = (intake.suggestions?.vendorName ?? p?.vendorHint ?? "").isEmpty
+        return !intake.ocrAvailable || (noTotal && noVendor)
+    }
+
+    private var totalConfirmed: Bool {
+        let p = intake.parsed
+        // Total, subtotal and a printed (not estimated) GST must be present, and a GST validation the
+        // server sent must say valid (none sent is fine). PST may be absent: when subtotal + GST alone
+        // equals the total to the cent, no PST was charged (fuel, GST-only items) — the arithmetic proves it.
+        guard intake.totalSource != nil, let t = p?.totalDouble, t > 0,
+              let sub = p?.subtotal.flatMap(Double.init),
+              let g = p?.gstDouble, !gstEstimated else { return false }
+        if let gv = intake.gstValidation, gv.valid != true { return false }
+        let ps = p?.pst.flatMap(Double.init) ?? 0
+        return abs(sub + g + ps - t) <= 0.02
+    }
+
+    private var gstEstimated: Bool { intake.parsed?.gstEstimated == true }
+
+    private var confirmedFields: [String] {
+        var f: [String] = []
+        if totalConfirmed && !gstEstimated { f.append("Total") }
+        if intake.suggestions?.vendorId != nil && intake.suggestions?.vendorNeedsReview != true { f.append("Vendor") }
+        if let d = intake.parsed?.date, !d.isEmpty { f.append("Date") }
+        if intake.card != nil { f.append("Card") }
+        if intake.jobSuggestions?.contains(where: { $0.autoSelect == true }) == true { f.append("Job") }
+        return f
+    }
+
+    /// Fields that need a look — never hidden, never collapsed.
+    private var attentionFields: [String] {
+        var f: [String] = []
+        if (intake.parsed?.totalDouble ?? 0) <= 0 { f.append("Total is missing") }
+        else if !totalConfirmed { f.append("Total, subtotal and tax don't add up or weren't confirmed") }
+        if gstEstimated { f.append("GST is estimated") }
+        else if intake.parsed?.gstDouble == nil { f.append("GST is missing") }
+        // PST missing matters only when the numbers don't close without it.
+        if intake.parsed?.pst.flatMap(Double.init) == nil && !totalConfirmed && (intake.parsed?.totalDouble ?? 0) > 0 {
+            f.append("PST is missing — add it or leave it at zero")
+        }
+        if (intake.suggestions?.vendorName ?? intake.parsed?.vendorHint ?? "").isEmpty { f.append("Vendor is missing") }
+        else if intake.suggestions?.vendorId == nil || intake.suggestions?.vendorNeedsReview == true { f.append("Vendor needs a look") }
+        if (intake.parsed?.date ?? "").isEmpty { f.append("Date is missing") }
+        return f
+    }
+
+    @ViewBuilder
+    private var unreadSection: some View {
+        if readFailed {
+            Section {
+                Label("Couldn't read this receipt — retake, or save it and fill in what you know", systemImage: "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.attention)
+                if onRetake != nil {
+                    Button {
+                        showRetakeConfirm = true
+                    } label: {
+                        Label("Retake", systemImage: "camera")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
+                    }
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var summarySection: some View {
+        let confirmed = readFailed ? [] : confirmedFields
+        let attention = readFailed ? [] : attentionFields
+        if !confirmed.isEmpty || !attention.isEmpty {
+            Section {
+                if !confirmed.isEmpty {
+                    DisclosureGroup {
+                        Text(confirmed.joined(separator: " · "))
+                            .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    } label: {
+                        Label("\(confirmed.count) field\(confirmed.count == 1 ? "" : "s") confirmed", systemImage: "checkmark.circle.fill")
+                            .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.tenant)
+                    }
+                }
+                ForEach(attention, id: \.self) { line in
+                    Label(line, systemImage: "exclamationmark.circle.fill")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
         }
     }
 
     private var totalSection: some View {
         Section {
-            HStack {
-                Text("Total").font(.title3.weight(.semibold))
-                Spacer()
-                Text("$").foregroundStyle(.secondary)
-                TextField("0.00", text: $total)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 110)
-                    .focused($focus, equals: .total)
-                if let c = intake.parsed?.total, !c.isEmpty { confidenceDot(70) }
+            (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+                Text("Total").font(appStyle.font(.title3, weight: .semibold))
+                if !usesAccessibleAmounts { Spacer() }
+                HStack {
+                    Text("$").foregroundStyle(appStyle.meta)
+                    TextField("0.00", text: $total)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(appStyle.font(.title3, weight: .semibold))
+                        .frame(width: usesAccessibleAmounts ? nil : 110)
+                        .focused($focus, equals: .total)
+                    if let c = intake.parsed?.total, !c.isEmpty { confidenceDot(70) }
+                }
             }
             amountRow(label: "Subtotal", value: $amount, field: .amount)
             amountRow(label: "GST",      value: $gst,    field: .gst)
@@ -323,6 +457,7 @@ struct ReceiptReviewView: View {
         } footer: {
             Text("Editing subtotal or tax recalculates the total; editing the total recalculates the subtotal.")
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var vendorSection: some View {
@@ -332,7 +467,7 @@ struct ReceiptReviewView: View {
                     .focused($focus, equals: .vendor)
                     .autocorrectionDisabled()
                 if vendorId != nil {
-                    Image(systemName: "link").font(.caption).foregroundStyle(Color.MW.green)
+                    Image(systemName: "link").font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
                 } else if let conf = intake.suggestions?.vendorConfidence, conf > 0, !vendorName.isEmpty {
                     confidenceDot(conf)
                 }
@@ -343,18 +478,19 @@ struct ReceiptReviewView: View {
                         pickVendor(v)
                     } label: {
                         HStack {
-                            Text(v.name).foregroundStyle(.primary)
+                            Text(v.name).foregroundStyle(appStyle.text)
                             Spacer()
                             if let cat = v.defaultAccountingCategory {
-                                Text(cat).font(.caption).foregroundStyle(.secondary)
+                                Text(cat).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                             }
                         }
                     }
                 }
             }
             DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var jobSection: some View {
@@ -372,8 +508,12 @@ struct ReceiptReviewView: View {
                 }
                 .padding(.vertical, 2)
             }
+            if let pick = selectedJob, jobAutoSelected, intake.jobSuggestions?.first(where: { $0.autoSelect == true })?.planId == pick.id {
+                Label("Picked from the schedule", systemImage: "calendar")
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+            }
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
                 TextField("Search jobs by client, address or job #", text: $jobSearch)
                     .focused($focus, equals: .jobSearch)
                     .autocorrectionDisabled()
@@ -387,26 +527,28 @@ struct ReceiptReviewView: View {
                         focus = nil
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(JobPick(search: j).title).foregroundStyle(.primary)
-                            if let a = j.address { Text(a).font(.caption).foregroundStyle(.secondary) }
+                            Text(JobPick(search: j).title).foregroundStyle(appStyle.text)
+                            if let a = j.address { Text(a).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                         }
                     }
                 }
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func jobPill(title: String, subtitle: String?, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+                Text(title).font(appStyle.font(.caption, weight: .semibold)).lineLimit(appStyle.isEnabled ? nil : 1)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption2).lineLimit(1).opacity(0.8)
+                    Text(subtitle).font(appStyle.font(.caption2)).lineLimit(appStyle.isEnabled ? nil : 1).opacity(0.8)
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(selected ? Color.MW.green : Color(.systemGray5))
-            .foregroundStyle(selected ? .white : .primary)
+            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+            .background(selected ? appStyle.tenant : appStyle.sunk)
+            .foregroundStyle(selected ? appStyle.onTenant : appStyle.text)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -421,7 +563,12 @@ struct ReceiptReviewView: View {
             Picker("Payment", selection: $paymentMethod) {
                 ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
             }
+            if let card = intake.card {
+                Label("\(card.display) — from the receipt", systemImage: "creditcard.fill")
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+            }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     /// Detected line items — editable pre-save on both platforms: tap to rename, swipe
@@ -445,19 +592,19 @@ struct ReceiptReviewView: View {
         let source = intake.parsed?.lineItemsSource
         if source == "llm" {
             Label("AI extracted — please verify each line", systemImage: "sparkles")
-                .font(.caption2).foregroundStyle(.blue)
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.progress)
         } else if source == "vision" && intake.parsed?.escalationReason != nil {
             Label("Re-read with Vision for better item detail", systemImage: "eye")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
         }
         if activeItemCount > 0, let ref = subtotalReference {
             let tol = max(0.05, ref * 0.01)
             if abs(itemsSum - ref) > tol {
                 Label(String(format: "Items total $%.2f ≠ subtotal $%.2f — a line may be missing or mis-read", itemsSum, ref), systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2).foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
             } else {
                 Label("Items add up to the subtotal", systemImage: "checkmark.circle.fill")
-                    .font(.caption2).foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
             }
         }
     }
@@ -471,32 +618,32 @@ struct ReceiptReviewView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(item.name ?? "Unknown Item")
-                                    .font(.subheadline)
+                                    .font(appStyle.font(.subheadline))
                                     .strikethrough(item.removed)
-                                    .foregroundStyle(item.removed ? .secondary : .primary)
+                                    .foregroundStyle(item.removed ? appStyle.meta : appStyle.text)
                                 if item.productId != nil {
-                                    Image(systemName: "link").font(.caption2).foregroundStyle(Color.MW.green)
+                                    Image(systemName: "link").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
                                 }
                                 if item.manual {
-                                    Text("added").font(.caption2).foregroundStyle(.secondary)
+                                    Text("added").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                                 } else if item.nameSource == "learned" {
-                                    Text("learned").font(.caption2).foregroundStyle(Color.MW.green)
+                                    Text("learned").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
                                 }
                             }
                             if let sku = item.skuRaw, !sku.isEmpty {
-                                Text(sku).font(.caption2).foregroundStyle(.secondary)
+                                Text(sku).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                             }
                         }
                         if let qty = item.quantity, qty > 1 {
                             Text("×\(qty, specifier: "%g")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
                         }
                         Spacer()
                         Text(item.amount.map { "$\($0)" } ?? "—")
-                            .font(.subheadline)
+                            .font(appStyle.font(.subheadline))
                             .strikethrough(item.removed)
-                            .foregroundStyle(item.removed ? Color.secondary : ((item.amountDouble ?? 0) < 0 ? Color.red : Color.primary))
+                            .foregroundStyle(item.removed ? appStyle.meta : ((item.amountDouble ?? 0) < 0 ? appStyle.blocked : appStyle.text))
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -509,7 +656,7 @@ struct ReceiptReviewView: View {
                             Button(role: .destructive) { items.remove(at: idx) } label: { Label("Remove", systemImage: "trash") }
                         } else if item.removed {
                             Button { items[idx].removed = false } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
-                                .tint(Color.MW.green)
+                                .tint(appStyle.tenant)
                         } else {
                             Button(role: .destructive) { items[idx].removed = true } label: { Label("Not an item", systemImage: "xmark") }
                         }
@@ -519,13 +666,14 @@ struct ReceiptReviewView: View {
                     showAddItem = true
                 } label: {
                     Label("Add missed item", systemImage: "plus.circle")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.tenant)
                 }
             }
         } footer: {
             Text("Tap an item to rename it, swipe left to mark it as not an item. Corrections teach the parser for this vendor.")
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var descriptionSection: some View {
@@ -534,23 +682,26 @@ struct ReceiptReviewView: View {
                 .lineLimit(2, reservesSpace: true)
                 .focused($focus, equals: .description)
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func amountRow(label: String, value: Binding<String>, field: Field) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text("$").foregroundStyle(.secondary)
-            TextField("0.00", text: value)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
-                .focused($focus, equals: field)
+        (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+            Text(label).foregroundStyle(appStyle.meta)
+            if !usesAccessibleAmounts { Spacer() }
+            HStack {
+                Text("$").foregroundStyle(appStyle.meta)
+                TextField("0.00", text: value)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: usesAccessibleAmounts ? nil : 90)
+                    .focused($focus, equals: field)
+            }
         }
     }
 
     private func confidenceDot(_ confidence: Int) -> some View {
-        let color: Color = confidence >= 70 ? Color.MW.green : confidence >= 40 ? Color.MW.orange : .red
+        let color: Color = confidence >= 70 ? appStyle.tenant : confidence >= 40 ? appStyle.attention : .red
         return Circle().fill(color).frame(width: 8, height: 8)
     }
 
@@ -727,6 +878,7 @@ struct ReceiptReviewView: View {
 /// Pinch/pan viewer for the just-captured photo (a local UIImage, not a URL —
 /// ReceiptDetailView's ZoomableReceiptView handles the server-hosted case).
 private struct ZoomableCapturedImageView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
     @State private var scale: CGFloat = 1
@@ -753,7 +905,7 @@ private struct ZoomableCapturedImageView: View {
             }
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.title)
+                    .font(appStyle.font(.title))
                     .foregroundStyle(.white.opacity(0.9))
                     .padding()
             }

@@ -67,7 +67,9 @@ $max = max(1, min(5, $max));
 
 $log = [];
 $pennyLog = function (string $m) use (&$log): void { $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; };
-$finish = function (string $status, string $summary, ?string $error = null) use (&$log, $startMs, $isCli, $dryRun): void {
+$readerLine = '';   // the nightly receipt-reader score, carried into the recorded summary
+$finish = function (string $status, string $summary, ?string $error = null) use (&$log, &$readerLine, $startMs, $isCli, $dryRun): void {
+    $summary .= $readerLine;
     if (!$dryRun) {
         recordCronRun(PENNY_PREPARE_KEY, $status, $summary, (int)(microtime(true) * 1000) - $startMs, $error, !$isCli);
     }
@@ -78,6 +80,24 @@ $finish = function (string $status, string $summary, ?string $error = null) use 
 
 try {
     $db = getDB();
+
+    // Once nightly, score the live approved-receipt corpus. A missing migration/column is non-fatal.
+    if (!$dryRun && (int)date('G') === 1) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptParserScoreService.php';
+            $scoreService = new ReceiptParserScoreService($db);
+            $existingScores = $scoreService->latestTwo();
+            $parserScore = (($existingScores[0]['run_date'] ?? '') === date('Y-m-d')) ? null : $scoreService->run();
+            if ($parserScore !== null && empty($parserScore['skipped'])) {
+                $totalScore = $parserScore['summary']['total'];
+                $share = $totalScore['of'] ? 100 * $totalScore['right'] / $totalScore['of'] : 0;
+                $pennyLog('Receipt reader score: ' . number_format($share, 1) . '% totals right (' . $totalScore['right'] . '/' . $totalScore['of'] . ').');
+                $readerLine = ' Receipt reader: ' . number_format($share, 1) . '% totals right (' . $totalScore['right'] . '/' . $totalScore['of'] . ').';
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Receipt reader score skipped (non-fatal): ' . $e->getMessage());
+        }
+    }
 
     // Receipt facts backfill (migration 1227): parse printed facts for receipts that have OCR text,
     // copy finished OCR onto never-read receipts, queue never-read receipts with a photo for OCR
@@ -123,6 +143,20 @@ try {
             }
         } catch (Throwable $e) {
             $pennyLog('Statements check failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinFinder.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinCheckService.php';
+            $tc = new TwinCheckService($db);
+            if ($tc->ready()) {
+                $r = $tc->refreshDaily();
+                if ($r['ran']) $pennyLog('Twin check: ' . $r['open'] . ' open question(s) ($' . number_format($r['dollars'], 2) . '), new ' . $r['new'] . ', closed ' . $r['closed'] . '.');
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Twin check failed (non-fatal): ' . $e->getMessage());
         }
     }
 

@@ -37,6 +37,8 @@ class CashFlowForecastService
     ];
 
     private PDO $db;
+    /** @var array<string,int[]> raw payment lags per client from the last latenessByClient() */
+    private array $lastLags = [];
     private ?array $settings = null;
 
     public function __construct(PDO $db)
@@ -93,6 +95,58 @@ class CashFlowForecastService
         }
         return ['opening' => round($opening, 2), 'weeks' => $out, 'low' => $low,
                 'below_floor' => $low !== null && $low['closing'] < $floor, 'floor' => $floor];
+    }
+
+    /**
+     * Confidence band for the money-in line (harvested from the plugin's cash-flow-snapshot, 2026-11-03, then
+     * changed on the first live dry run). The plugin divides the stddev of payment lag by its mean; on our data a
+     * client who pays 10 days early 26 times and 12 days late 3 times scored the 50% cap, the same as one who is
+     * all over the place. For a WEEKLY forecast the question is "how often does this client's money land a week or
+     * more away from where we put it?", so per client the band is the share of their last 12 months' payments that
+     * fell more than BAND_WEEK_DAYS from their own median lag (lags clamped at 0: early is on time). Kept from the
+     * plugin: fewer than 3 payments → 30%; capped at 50% and marked "thin"; the overall band is the inflow-weighted
+     * average, one decimal.
+     * @param array<string,int[]>   $lagsByClient   client key → lags in days (negative = early)
+     * @param array<string,float>   $inflowByClient client key → expected money in over the horizon
+     * @return array{pct:float, thin:bool, clients:int, by_client:array<string,float>}
+     */
+    public const BAND_WEEK_DAYS = 7;
+
+    public static function band(array $lagsByClient, array $inflowByClient): array
+    {
+        $by = [];
+        $thin = false;
+        foreach ($inflowByClient as $key => $inflow) {
+            if ($inflow <= 0) continue;
+            $lags = array_map(static function ($l): int { return max(0, (int)$l); }, $lagsByClient[$key] ?? []);
+            if (count($lags) < 3) { $by[$key] = 0.30; continue; }
+            $median = (float)self::median($lags);
+            $off = 0;
+            foreach ($lags as $l) if (abs($l - $median) > self::BAND_WEEK_DAYS) $off++;
+            $pct = $off / count($lags);
+            if ($pct > 0.5) { $pct = 0.5; $thin = true; }
+            $by[$key] = round($pct, 3);
+        }
+        $total = array_sum(array_intersect_key($inflowByClient, $by));
+        $w = 0.0;
+        foreach ($by as $key => $pct) $w += $pct * (float)$inflowByClient[$key];
+        $overall = $total > 0 ? round($w / $total * 100, 1) : 0.0;
+        return ['pct' => $overall, 'thin' => $thin, 'clients' => count($by), 'by_client' => $by];
+    }
+
+    /** Low / high closing per week: money in scaled by (1 ∓ band), money out unchanged, cumulative from the opening. */
+    public static function applyBand(array $weeks, float $opening, float $pct): array
+    {
+        $lo = $hi = round($opening, 2);
+        $k = $pct / 100;
+        foreach ($weeks as &$w) {
+            $lo = round($lo + $w['in'] * (1 - $k) - $w['out'], 2);
+            $hi = round($hi + $w['in'] * (1 + $k) - $w['out'], 2);
+            $w['closing_low'] = $lo;
+            $w['closing_high'] = $hi;
+        }
+        unset($w);
+        return $weeks;
     }
 
     /** Median of numbers (null when empty). */
@@ -313,6 +367,7 @@ class CashFlowForecastService
         $events = [];
         $notes = [];
         $doubtful = [];
+        $inflowByClient = [];
 
         // ── Money in: open invoices ─────────────────────────────────────────
         [$late, $globalLate] = $this->latenessByClient();
@@ -327,7 +382,9 @@ class CashFlowForecastService
                 $doubtful[] = ['label' => $label, 'amount' => round((float)$inv['balance_due'], 2), 'days' => $pastDue, 'id' => (int)$inv['id']];
                 continue;
             }
-            $events[] = ['date' => self::expectedPayDate($due, $lateDays, $today), 'amount' => (float)$inv['balance_due'],
+            $expected = self::expectedPayDate($due, $lateDays, $today);
+            if ($expected <= $until) $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$inv['balance_due'];   // band weight = money inside the horizon only
+            $events[] = ['date' => $expected, 'amount' => (float)$inv['balance_due'],
                          'kind' => 'invoice', 'label' => $label, 'id' => (int)$inv['id'],
                          // Late for THIS client: past due and past their own usual lateness (operating rules).
                          'late' => self::isLateForClient($pastDue, $lateDays),
@@ -342,6 +399,7 @@ class CashFlowForecastService
             $date = date('Y-m-d', strtotime($v['scheduled_date'] . ' +' . ($terms + $lateDays) . ' days'));
             if ($date > $until) continue;
             $visitTotal += (float)$v['price'];
+            $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$v['price'];
             $events[] = ['date' => $date, 'amount' => (float)$v['price'], 'kind' => 'visit',
                          'label' => 'Visit ' . date('M j', strtotime($v['scheduled_date'])) . ' · ' . ($v['address'] ?: 'job'),
                          'why' => 'invoiced after the visit, paid ' . ($terms + $lateDays) . ' days later'];
@@ -351,6 +409,7 @@ class CashFlowForecastService
             $lateDays = $late[$key] ?? $globalLate;
             $date = date('Y-m-d', strtotime($v['date'] . ' +' . ($terms + $lateDays) . ' days'));
             if ($date > $until) continue;
+            $inflowByClient[$key] = ($inflowByClient[$key] ?? 0.0) + (float)$v['price'];
             $events[] = ['date' => $date, 'amount' => (float)$v['price'], 'kind' => 'visit_projected',
                          'label' => 'Expected visit ' . date('M j', strtotime($v['date'])) . ' · ' . ($v['address'] ?: 'job'),
                          'why' => "projected from the plan's schedule (not on the calendar yet)"];
@@ -425,6 +484,16 @@ class CashFlowForecastService
         foreach ($f['weeks'] as $i => &$w) $w['safe_to_pay'] = $safe[$i] ?? 0.0;
         unset($w);
         $notes[] = 'Tax is paid when cash allows, so no instalments are scheduled. "Could spare" shows what each week can put toward tax without the like-last-year balance dropping under the floor later.';
+        // Sam → Penny (2026-11-03): what the open quotes would bring at Sam's win rate — its own sentence, never in the booked line.
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/SalesDeskService.php';
+            $f_pipeline = (new SalesDeskService($this->db))->pipeline($terms, $globalLate, $today);
+        } catch (Throwable $e) { $f_pipeline = null; error_log('[CashFlow] pipeline: ' . $e->getMessage()); }
+        $band = self::band($this->lastLags, $inflowByClient);
+        $f['band'] = $band;
+        $f['pipeline'] = $f_pipeline;
+        $f['weeks'] = self::applyBand($f['weeks'], (float)$opening['balance'], $band['pct']);
+        if ($band['thin']) $notes[] = 'Some clients\' payment timing is too uneven to model (band capped at ±50%): treat their money in as a guess, not a date.';
         $f['opening_as_of'] = $opening['as_of'];
         $f['opening_accounts'] = $opening['accounts'];
         $f['doubtful'] = $doubtful;
@@ -434,6 +503,39 @@ class CashFlowForecastService
         $f['notes'] = $notes;
         $f['chase'] = self::chaseList($events);
         return $f;
+    }
+
+    /**
+     * The year's tax, said honestly (TaxInstalmentNote, 2026-11-03): YTD net from the ledger for the current fiscal year,
+     * annualised only beside the seasonal caveat, instalment schedule from the cashflow settings (payment is not tracked
+     * here, so no "missed" verdict), rate from ops_settings tax_rate_combined when the accountant has confirmed one.
+     */
+    public function taxNote(?string $today = null): ?array
+    {
+        $today = $today ?: date('Y-m-d');
+        try {
+            require_once dirname(__DIR__, 2) . '/Ledger/Services/FiscalYear.php';
+            require_once __DIR__ . '/AccountingService.php';
+            require_once __DIR__ . '/TaxInstalmentNote.php';
+            $fy = FiscalYear::of($today);
+            [$from, $to] = FiscalYear::bounds($fy);
+            $pl = (new AccountingService($this->db))->getProfitLoss($from, $today);
+            $net = (float)($pl['net_profit'] ?? 0);
+            $months = max(1, ((int)substr($today, 0, 4) * 12 + (int)substr($today, 5, 2)) - ((int)substr($from, 0, 4) * 12 + (int)substr($from, 5, 2)) + 1);   // calendar months, inclusive
+            $rate = null; $seasonal = true;
+            try {
+                $st = $this->db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('tax_rate_combined','business_seasonal')")->fetchAll(PDO::FETCH_KEY_PAIR);
+                if (!empty($st['tax_rate_combined']) && (float)$st['tax_rate_combined'] > 0) $rate = (float)$st['tax_rate_combined'] / ((float)$st['tax_rate_combined'] > 1 ? 100 : 1);
+                if (isset($st['business_seasonal'])) $seasonal = $st['business_seasonal'] !== '0';
+            } catch (Throwable $e) { /* defaults */ }
+            $note = TaxInstalmentNote::build($fy, $net, $months, $seasonal, [], $rate, $today);
+            $rc = (float)$this->setting('cashflow_rc_instalment');
+            if ($rc > 0) $note['text'] .= ' Instalments: $' . number_format($rc, 0) . ' a month is scheduled (day ' . (int)$this->setting('cashflow_rc_day') . '); whether each was paid is not tracked here.';
+            return $note;
+        } catch (Throwable $e) {
+            error_log('[CashFlow] tax note: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** Penny's line for Charlie when the forecast dips under the floor. */
@@ -457,7 +559,8 @@ class CashFlowForecastService
             return [];
         }
         $chase = array_slice($f['chase'], 0, 3);
-        $text = 'Cash dips to $' . number_format($f['low']['closing'], 0) . ' the week of ' . date('M j', strtotime($f['low']['start']))
+        $bandNote = !empty($f['band']['pct']) ? ' (±' . $f['band']['pct'] . '% on money in)' : '';
+        $text = 'Cash dips to $' . number_format($f['low']['closing'], 0) . $bandNote . ' the week of ' . date('M j', strtotime($f['low']['start']))
               . ($chase ? '. Chase ' . implode(', ', array_map(fn($c) => $c['label'] . ' ($' . number_format($c['amount'], 0) . ')', $chase)) : '') . '.';
         return [['key' => 'penny:cashflow:' . $f['low']['start'], 'kind' => 'penny:cashflow', 'priority' => $f['low']['closing'] < 0 ? 1 : 2,
                  'text' => $text, 'url' => '/crm/accounting/cashflow.php']];
@@ -544,6 +647,7 @@ class CashFlowForecastService
         foreach ($by as $k => $v) {
             if (count($v) >= 2) $out[$k] = self::lateness($v);   // two payments before trusting a habit
         }
+        $this->lastLags = $by;   // raw lags per client, for band()
         return [$out, self::lateness($all) ?? 0];
     }
 

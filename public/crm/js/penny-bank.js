@@ -115,7 +115,7 @@
               '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
               '<button type="button" class="mw-rc-arrow" data-bl="next" aria-label="Next">›</button></span></div>' +
             '<div class="mw-bl-line">' +
-              '<div class="mw-bl-top"><span>' + esc(l.date) + (l.bank ? ' · ' + esc(l.bank) : '') + '</span>' +
+              '<div class="mw-bl-top"><span>' + esc(l.date) + (l.age && (l.age.bucket === 'stale' || l.age.bucket === 'overdue') ? ' <span class="mw-pb-age is-' + esc(l.age.bucket) + '" title="' + esc(l.age.why) + '">' + l.age.age + ' d</span>' : '') + (l.bank ? ' · ' + esc(l.bank) : '') + '</span>' +
                 '<b class="' + (l.type === 'income' ? 'is-in' : 'is-out') + '">' + (l.type === 'income' ? '+' : '−') + money(l.amount) + '</b></div>' +
               (l.payee_name ? '<div class="mw-bl-payee">' + esc(l.payee_name) + '</div>' : '') +
               '<div class="mw-bl-desc">' + esc(l.description) + '</div>' +

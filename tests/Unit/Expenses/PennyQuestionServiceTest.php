@@ -9,6 +9,31 @@ use PHPUnit\Framework\TestCase;
  */
 class PennyQuestionServiceTest extends TestCase
 {
+    public function test_different_is_rejected_for_an_ordinary_question_without_mutation(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->exec('CREATE TABLE expenses (id INTEGER PRIMARY KEY, job_id INTEGER)');
+        $db->exec('CREATE TABLE penny_questions (
+            id INTEGER PRIMARY KEY, plan_id INTEGER, status TEXT, kind TEXT,
+            expense_id INTEGER, subject TEXT, answer TEXT, answered_by INTEGER, answered_at TEXT
+        )');
+        $db->exec("INSERT INTO expenses (id, job_id) VALUES (9, 12)");
+        $db->exec("INSERT INTO penny_questions (id, status, kind, expense_id, subject) VALUES (1, 'open', 'unbilled_materials', 9, '')");
+
+        $result = (new PennyQuestionService($db))->answer(1, 'different', 7, 'Tim');
+
+        $this->assertSame(['ok' => false, 'message' => 'Unknown answer'], $result);
+        $row = $db->query('SELECT status, answer, answered_by, answered_at FROM penny_questions WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(['status' => 'open', 'answer' => null, 'answered_by' => null, 'answered_at' => null], $row);
+    }
+
+    public function test_twin_subjects_are_parsed_and_unknown_formats_are_zero(): void
+    {
+        $this->assertSame(['copy_id' => 0, 'keep_id' => 102, 'line_id' => 0, 'right_id' => 0], PennyQuestionService::parseSubject('possible_twin', 'keep:102'));
+        $this->assertSame(['copy_id' => 0, 'keep_id' => 108, 'line_id' => 0, 'right_id' => 0], PennyQuestionService::parseSubject('possible_twin', 'with:108'));
+        $this->assertSame(['copy_id' => 0, 'keep_id' => 0, 'line_id' => 55, 'right_id' => 212], PennyQuestionService::parseSubject('bad_link', 'line:55;right:212'));
+        $this->assertSame(['copy_id' => 0, 'keep_id' => 0, 'line_id' => 0, 'right_id' => 0], PennyQuestionService::parseSubject('possible_twin', 'broken'));
+    }
     public function test_invoice_line_naming_the_product_counts_as_billed(): void
     {
         $this->assertTrue(PennyQuestionService::lineMentions(

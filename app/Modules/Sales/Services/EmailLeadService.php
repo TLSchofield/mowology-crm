@@ -48,6 +48,12 @@ class EmailLeadService
         'pruning' => '/\bprun(?:e|ing)\b|\btrim(?:ming)?\b/i',
     ];
 
+    /** The service tags this business offers (LeadScore fit / out-of-scope, 2026-11-03). @return string[] */
+    public static function serviceTags(): array
+    {
+        return array_keys(self::SERVICES);
+    }
+
     /** Words that ask for a price or a visit (kept for the score; intent is what gates). */
     private const ASK = '/\bquote\b|\bquotes\b|\bestimate\b|\bhow much\b|\bare you available\b|\bwould you be available\b|\bpricing\b|\bprice for\b|\bdo you (?:do|offer|service|provide)\b|\bcan you (?:quote|come|do|help)\b|\bcould you (?:quote|come|do)\b|\blooking for (?:someone|a|help)\b|\binterested in\b|\bneed (?:someone|help)\b/i';
 

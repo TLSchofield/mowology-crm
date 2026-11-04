@@ -182,11 +182,8 @@ final class GPSTrackingService: ObservableObject {
     func stop(reason: StopReason = .clockedOut) {
         // A clock-out (or sign-out) ends any break; only a break keeps the pause.
         if reason == .clockedOut || reason == .signedOut { UserDefaults.standard.set(false, forKey: Self.kOnBreak) }
-        if reason == .signedOut {
-            // Whatever is still on disk belongs to the person signing out — never the next user.
-            FixStore.shared.removeAll()
-            queueDepth = 0
-        }
+        // Signing out keeps what is on disk for this person's next sign-in (FixStore.claim drops it
+        // if someone else signs in instead) — an expired login mid-shift used to erase the trail.
         guard isTracking || UserDefaults.standard.bool(forKey: Self.kShiftActive) else {
             if reason == .signedOut { apiClient = nil }
             return

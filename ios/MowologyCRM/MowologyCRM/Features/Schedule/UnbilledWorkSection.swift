@@ -13,13 +13,14 @@
 import SwiftUI
 
 struct UnbilledWorkSection: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: VisitCompletionViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Also unbilled at this address", systemImage: "exclamationmark.circle")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.footnote, weight: .semibold))
+                .foregroundStyle(appStyle.meta)
                 .textCase(.uppercase)
                 .padding(.leading, 4)
 
@@ -31,8 +32,8 @@ struct UnbilledWorkSection: View {
                 ForEach(vm.unbilledHints) { hint in
                     Divider()
                     Text(hint.text)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
                 }
@@ -40,18 +41,18 @@ struct UnbilledWorkSection: View {
                     Divider()
                     HStack {
                         Text("Adding \(vm.tickedUnbilled.count) line\(vm.tickedUnbilled.count == 1 ? "" : "s")")
-                            .font(.subheadline)
+                            .font(appStyle.font(.subheadline))
                         Spacer()
                         Text(String(format: "+$%.2f + GST", vm.unbilledSubtotal))
-                            .font(.subheadline.bold().monospacedDigit())
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(appStyle.tenant)
                     }
                     .padding(.top, 10)
                 }
             }
             .padding(14)
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
@@ -64,27 +65,27 @@ struct UnbilledWorkSection: View {
             )) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.badge.uppercased())
-                        .font(.caption2.bold())
+                        .font(appStyle.font(.caption2, weight: .bold))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(item.isPossiblyDone ? Color.MW.orange : Color.MW.green.opacity(0.12))
-                        .foregroundStyle(item.isPossiblyDone ? Color.white : Color.MW.green)
+                        .background(item.isPossiblyDone ? appStyle.attention : appStyle.tenant.opacity(0.12))
+                        .foregroundStyle(item.isPossiblyDone ? Color.white : appStyle.tenant)
                         .clipShape(Capsule())
                     Text(item.description)
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                     if !item.needsPrice {
                         Text(String(format: "$%.2f", item.amount))
-                            .font(.subheadline.monospacedDigit())
+                            .font(appStyle.font(.subheadline).monospacedDigit())
                     }
                 }
             }
-            .tint(Color.MW.green)
+            .tint(appStyle.tenant)
             .disabled(locked || (item.needsPrice && vm.unbilledAmount(item) <= 0 && !vm.tickedUnbilled.contains(item.visitId)))
 
             if item.needsPrice {
                 HStack {
-                    Text("Price").font(.caption).foregroundStyle(.secondary)
+                    Text("Price").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     TextField("0.00", value: Binding(
                         get: { vm.unbilledPrices[item.visitId] },
                         set: { vm.setPrice(item, $0) }
@@ -96,17 +97,17 @@ struct UnbilledWorkSection: View {
             }
 
             ForEach(item.evidence, id: \.self) { e in
-                Text(e).font(.caption).foregroundStyle(.secondary)
+                Text(e).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
             ForEach(item.warnings, id: \.self) { w in
                 Label(w, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.attention)
             }
             if locked {
                 Text("The office has to confirm this one.")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.attention)
             }
         }
         .padding(.vertical, 8)

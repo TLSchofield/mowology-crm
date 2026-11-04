@@ -37,16 +37,18 @@ struct HeadCardResponse: Decodable {
     let post: MiaPostDraft?
     let googleMode: String?
     let canApprove: Bool
+    /// Optional future office roster. A malformed or unknown entry must never break the brief.
+    let heads: [String: HeadOfficeState]?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote
+        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         ok = c.bkBool(.ok) ?? false
-        error = c.bkString(.error)
+        error = c.bkString(.error) ?? c.bkString(.message)
         head = c.bkString(.head) ?? ""
         name = c.bkString(.name) ?? ""
         role = c.bkString(.role) ?? ""
@@ -63,6 +65,23 @@ struct HeadCardResponse: Decodable {
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
         googleMode = c.bkString(.googleMode)
         canApprove = c.bkBool(.canApprove) ?? false
+        heads = try? c.decodeIfPresent([String: HeadOfficeState].self, forKey: .heads)
+    }
+}
+
+struct HeadOfficeState: Decodable, Equatable {
+    let state: String?
+    let reason: String?
+    let open: Int?
+    let needsYou: Int?
+
+    private enum CodingKeys: String, CodingKey { case state, reason, open; case needsYou = "needs_you" }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        state = c.bkString(.state)
+        reason = c.bkString(.reason)
+        open = c.bkInt(.open)
+        needsYou = c.bkInt(.needsYou)
     }
 }
 
@@ -387,6 +406,13 @@ struct OttoDesk: Decodable, Equatable {
     let total: Int
     let autolog: OttoAutoLog?
     let reviewURL: String
+
+    /// Only recorded, pending decisions with a readable reason warrant interrupting Schedule.
+    /// Completed auto-logs and aggregate counts alone are informational.
+    var scheduleAttention: OttoSuggestion? {
+        items.filter { $0.id > 0 && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.priority < $1.priority }.first
+    }
 
     private enum CodingKeys: String, CodingKey { case items, total, autolog, reviewURL = "review_url" }
 

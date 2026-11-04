@@ -25,6 +25,7 @@ class SecurityPostureRules
         '/php.ini', '/.user.ini', '/database/migrations/', '/crm/email-logs/',
         '/LANDING_PAGE_MARKETING_INTEGRATION.md',                          // an *.md sample that exists
         '/database/migrations/1340_payment_mail_sender_verified.sql',      // an *.sql sample that exists
+        '/talkinghands.ca/database/fox_content.sql',                       // a sub-site's own database/ (exempt from check 2 because of this)
     ];
 
     /** (2) Data-file extensions that should never sit in the web root outside uploads/ and _media/. */
@@ -43,7 +44,7 @@ class SecurityPostureRules
     /** (6) / (9) heartbeat ages. */
     public const BACKUP_MAX_HOURS = 36;
     public const COMPOSER_MAX_DAYS = 14;
-    public const HEARTBEAT_KINDS = ['db', 'files', 'composer'];
+    public const HEARTBEAT_KINDS = ['db', 'files', 'composer', 'verify'];   // verify = the dump read back on the Mac (gzip intact, tables counted)
 
     /** (7) audit copy must grow at least this often. */
     public const AUDIT_MAX_HOURS = 36;
@@ -139,6 +140,11 @@ class SecurityPostureRules
     {
         $relPath = trim($relPath, '/');
         if (strpos($relPath, 'database/migrations/') === 0) return false;   // expected; denied by .htaccess (check 1)
+        // app/Storage (receipt archive, backups) is the place data belongs: denied, and check 1 fetches /app/Storage/.
+        if (strpos($relPath, 'app/Storage/') === 0) return false;
+        // A sub-site's own database/ folder (a domain-named top-level folder, e.g. talkinghands.ca/database/):
+        // its migrations belong to that site; check 1 fetches one of its .sql files to prove they are denied.
+        if (preg_match('#^[^/]+\.[a-z]{2,}/database/#i', $relPath)) return false;
         $parts = explode('/', $relPath);
         foreach (array_slice($parts, 0, -1) as $dir) {
             if (in_array($dir, self::STRAY_SKIP_DIRS, true)) return false;
@@ -265,6 +271,34 @@ class SecurityPostureRules
             'No successful ' . ($isDb ? 'database' : 'file') . ' backup in ' . self::BACKUP_MAX_HOURS . ' h — ' . $why . '.',
             'On the iMac: is it awake at 02:30? Check ~/Backups/mowology/backup.log and `launchctl print gui/$(id -u)/ca.mowology.backup`; run scripts/backup-nightly.sh by hand.',
             'tim');
+    }
+
+    /**
+     * audit-support: a backup is not a control until it has been read back. The Mac gzip-tests last
+     * night's dump and counts its table definitions (heartbeat kind 'verify', advisories = tables).
+     * @param ?array $last newest verify heartbeat {ok, advisories, detail, finished_at}; $liveTables = tables in the live database now
+     */
+    public static function backupVerifyCheck(?array $last, ?int $liveTables, string $now): array
+    {
+        $b = self::base('backup-verified', 'Database backup reads back (Mac)', $last && (int)$last['ok'] ? $last['finished_at'] : null);
+        if (!$last) {
+            return $b + self::v('amber', 'never', 'No dump has been read back yet — a backup nobody has opened is a hope, not a control.',
+                'On the iMac, pull the branch: scripts/backup-nightly.sh now gzip-tests each dump and reports it. Run it once by hand.', 'tim');
+        }
+        $ago = AdaRules::ago((string)$last['finished_at'], $now);
+        $tables = $last['advisories'] !== null ? (int)$last['advisories'] : null;
+        if (!(int)$last['ok']) {
+            return $b + self::v('red', 'unreadable', "Last night's dump did not read back ({$ago}): " . (trim((string)$last['detail']) ?: 'gzip test failed') . '.',
+                'On the iMac: ~/Backups/mowology/backup.log — the newest .sql.gz is damaged; run scripts/prod-backup.sh by hand and keep the previous good one.', 'tim');
+        }
+        if (self::hoursBetween((string)$last['finished_at'], $now) > self::BACKUP_MAX_HOURS) {
+            return $b + self::v('amber', 'stale', "The last dump read back {$ago} — nothing newer has been checked.", 'On the iMac: is the 02:30 backup job running? ~/Backups/mowology/backup.log.', 'tim');
+        }
+        if ($tables !== null && $liveTables !== null && $tables < $liveTables) {
+            return $b + self::v('red', 'short', "Last night's dump holds {$tables} tables; the live database has {$liveTables}. The backup is missing " . ($liveTables - $tables) . '.',
+                'Ada: scripts/prod-backup.sh is dumping fewer tables than exist (permissions, a skipped table, or a cut-off dump). Count the table definitions in the dump (zgrep) against information_schema.tables.', 'developer');
+        }
+        return $b + self::v('green', 'ok', "Last night's dump reads back ({$ago})" . ($tables !== null ? ": {$tables} tables" . ($liveTables !== null ? ($tables >= $liveTables ? ', matches the database' : '') : '') : '') . '.');
     }
 
     public static function composerCheck(?array $last, string $now): array

@@ -27,7 +27,7 @@ covers:
   - public/crm/downloads/app-version.json
   - scripts/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   status: built (phase 1, 2026-10-11)
   owner: Tim Schofield (Mowology)
@@ -60,6 +60,19 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 > `SecurityPostureRules` / `SecurityPostureService`, 15 checks in the Security group, a new red emailed
 > once via Kaname; Mac heartbeats (`scripts/lib/heartbeat.sh`) and the deploy manifest
 > (`scripts/lib/deploy_manifest.py`). See `references/checks.md` section (7).
+
+> **Built (2026-11-03, the register — harvested from Anthropic's operations/finance plugins, plan
+> `docs/plans/2026-11-03-ada-harvest.md`):** `AdaRiskRegister` (pure: the 3×3 level Critical / High /
+> Medium / Low from state × cost of waiting; a Critical check can never be accepted) and
+> `AdaAcceptedRisks` (migration 1431: "Accept for 90 days" with a reason; released when the check
+> clears). `AdaRules::costRank()` orders problems money → crew → the rest; `AdaRules::withAge()` puts
+> "— for N days" on every line (brief items carry the real `since`); `AdaRules::headline()` says what
+> changed since yesterday from the nightly count snapshot (`AdaDeskService::recordDailyCounts()`, ops_settings
+> `ada_daily_counts`, written by the `security_posture` cron); `AdaRules::accessReviewCheck()` asks every 90
+> days (or when the roster changes) who holds admin/manager, truck tablets named; `SecurityPostureRules::backupVerifyCheck()`
+> reads the Mac's nightly dump read-back (heartbeat kind `verify`, `scripts/backup-nightly.sh`); `AdaRules::evidenceCheck()`
+> names findings without a time. `scripts/deploy-step.sh` and `scripts/deploy-file.sh` now record the deploy manifest —
+> until then every file shipped that way read as drift (99 ghosts by Nov 3).
 
 **Build order (agreed):** (1) scheduled jobs and (2) outside connections — BUILT; first security slice (unused logins) — BUILT. Next: apps, deploys, migrations never run, data soundness, the rest of security.
 

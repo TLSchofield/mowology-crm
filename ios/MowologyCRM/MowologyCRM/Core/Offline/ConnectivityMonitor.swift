@@ -13,24 +13,27 @@
 //
 
 import Foundation
+import Combine
 import Network
 
-final class ConnectivityMonitor {
+@MainActor
+final class ConnectivityMonitor: ObservableObject {
 
     static let shared = ConnectivityMonitor()
 
     private let monitor = NWPathMonitor()
     private let queue   = DispatchQueue(label: "ca.mowology.connectivity", qos: .utility)
-    /// Only read and written on `queue`.
-    private var isOnline = true
+    /// Updated on the main actor so SwiftUI can distinguish offline from server failures.
+    @Published private(set) var isOnline = true
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            let wasOffline = !self.isOnline
-            self.isOnline  = path.status == .satisfied
-            if wasOffline && self.isOnline {
-                DispatchQueue.main.async {
+            let online = path.status == .satisfied
+            Task { @MainActor in
+                let wasOffline = !self.isOnline
+                self.isOnline = online
+                if wasOffline && online {
                     NotificationCenter.default.post(name: .mwPingQueueOnline, object: nil)
                 }
             }

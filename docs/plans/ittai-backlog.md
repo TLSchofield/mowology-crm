@@ -89,6 +89,124 @@ trades first. The AI back office is the edge.
   read as site_id 1 (HeadLessons default; PennyLessons::forVendor's $siteId). Once tenancy exists,
   every caller passes the tenant's site_id (Codex review 2026-10-14).
 
+## Design studio (2026-10-25)
+- Built: skill `.claude/skills/ittai-design-studio`, `/design`, `scripts/codex-design.sh`, `scripts/ittai-design/` (token build + `review-shots.mjs`). Proven on a smoke brief, two rounds.
+- Web tokens AAA: done 2026-10-25 by porting snow-contracts `032151de` (tokens.json, tenant.config.json, tenants.generated.json, contrast test) onto this branch; regenerating `ItTokens.swift` is a no-op and `ittai-swift-tokens.mjs --check` + `IttaiSwiftTokensInSyncTest` guard against drift (iOS 1.3.58 had hand-edited the generated Swift while the source stayed behind).
+- Codex raster image generation: Codex says it has an image tool; unverified. Ask Tim before using it for assets.
+
+## Penny harvest from the small-business plugin (queued by Tim 2026-11-03)
+- Source map: `docs/plans/2026-11-03-small-business-skills-harvest.md` (pieces 3, 7 and the cash-forecast half of 10). Sam's piece 1 shipped the same day as the pattern to copy (`LeadScore` + plan doc + Codex review + prod-run dry run).
+- **Reminder tone under ReminderGate:** last 12 months, ≥3 invoices: ≥75% on time → gentle; 25–50% late (or <3 invoices) → neutral; >50% late → firm; one email per client, one call to action; skip anyone paid in the last 14 days. The grace / AP / deposit / statement gates stay on top — the plugin has no day ladder.
+- **Bill and receipt controls:** duplicate = same vendor + invoice no., or same total within 5 days, or same total staged in 90 days (Penny twin check has part of this); recurring bill moved >10% → flag; expense >$25 with no receipt → flag; auto-code only after N agreeing bills (decide 2 vs 3 against the lessons threshold).
+- **Cash-forecast bands:** band = stddev/mean of payment lag capped 50%; <3 payments → 30%; mean lag ≤1 day → 5%; fixed cost = same vendor 3+ consecutive months within 10% (`CashFlowForecastService`).
+- Canada-only reminder: nothing in the plugin covers GST/HST/PST or CRA; Penny's BC rules are ours.
+## Consumables and price history from receipts (Penny/Otto) — Tim 2026-10-29
+- Goal: tools, equipment and consumables bought on receipts are stored so prices can be compared across vendors (chainsaw chain, DEF, bar oil, trimmer line, diesel).
+- Checked live 2026-10-29: line items keep name, qty, unit price and total, but the line stays `open` (not linked to the shared catalogue) until a person taps "Add to catalogue"; price memory has 24 rows against ~700 lines and matches exact uppercase names only; `comparePricesAcrossVendors()` has no caller; no screen shows a comparison; no "consumables" family.
+- Real DEF lines: Chevron "AIR 1 DEF 9.46L" $29.99 (size in the name); Shell "B SHELL ROTELLA DEF" $36.99 with no unit price, misread once as "ROELLA"; a repeated $4.72 "EHC AUTO DEF 9.46L" line on both Shell receipts that looks like a second line of one purchase, not a second jug (check before trusting). Pump diesel is a $200.00 lump, or litres and $/L inside the name, never in qty/unit price.
+- Build, in this order: (1) a "Consumables" catalogue family next to "tools" (accounting category on the receipt stays as it is); (2) a unit size on the catalogue product so every price shows per litre or per piece; (3) match on supplier code / mfr part number plus a cleaned-up name, a person confirms the first match and the learned match carries over; (4) save a price for every receipt line, linked to the catalogue product; (5) one price-history-by-vendor view and a "last paid / cheapest" hint on the receipt; (6) read pump litres and $/L into qty and unit price (also fixes fuel comparison).
+- Product scan (Tim 2026-10-29): when a line has no catalogue match or no unit size, offer "Scan the product" once per new product (barcode first for UPC / part number, label photo as fallback, read like a receipt). Optional; skipping keeps the line unlinked. A scan is the confirmation: it creates the catalogue product directly (no separate "Add to catalogue" tap) and links the line, after first looking up the barcode / part number so it never duplicates. New products start tenant-private and move to the shared layer when a second tenant scans the same barcode or an admin approves. Receipt text alone (no scan) still stays `open` until confirmed. Later purchases link without asking. Unchecked: whether the catalogue stores product photos, whether the phone apps can scan barcodes in the receipt flow.
+- Open: whether catalogue families are a code list or a table; whether the iPhone Review Receipt screen has a catalogue step (web only per surfaces.md, Swift not read); why only 24 of ~700 lines wrote a price row.
+- Tenant-neutral: no trade words in the schema or copy; the unit-size and family fields are shared, the prices stay private per tenant.
+
+## Mia harvest from the plugins (queued by Tim 2026-11-03, after Sam)
+- From the small-business map (`docs/plans/2026-11-03-small-business-skills-harvest.md`, piece 9 and the marketing rows):
+  social content mix 40% useful / 30% proof / 20% offer / 10% people; posts per week by team size (solo 2, with office help
+  3–4, with marketing help 5); caption = hook, benefit, CTA, 3–5 hashtags; email subject under 50 characters, 100–250 words;
+  staged times must be in the future; voice profile learned from 15–30 sent emails (greeting, sign-off, sentence length,
+  never-uses) and the banned-opener slop test; ad diagnostics (pause only after 30 days or 50 results, judge a new campaign
+  after 7 days, raise budget 20–30% at a time, dollar impact never percentages alone); review replies under 60 words;
+  content-strategy brief of 200–400 words (push / hold / reposition / seasonal / offers).
+- Not yet surveyed: the sibling `marketing` plugin (campaign-plan, content-creation, performance-report, brand-review,
+  competitive-brief) — survey like today's, then diff against `MiaCalendar`, `MiaSequenceService`, `MiaSocialService`,
+  `MiaWording`, `ReviewReplyDrafter`.
+
+## Otto follow-ups (2026-11-03, after the harvest shipped)
+- **Plan lengths that cannot be right:** job plan #99 WEEKLY LAWN CUT = 8,009 min, #59 WILLOW FRONT BEDS = 1,319 min for one
+  person. `DwellTimeService::updatePlanDwellAverage()` writes `estimated_duration_minutes` from GPS dwell; cap it at a
+  crew-day there, and let Otto's duration suggestion (VisitDurationRules) be the only writer. Owner: Otto / schedule.
+- **Vendor "Mowology INVOICE"** ($1,235 in 90 days) is one of our own invoices filed as an expense — Penny re-files.
+- **No hourly rates on users** (`users.hourly_rate` empty for the crew) — the clock review says "cost unknown"; Tim can
+  fill them in Settings → Users and Penny's payroll checks gain the same.
+- **Restock velocity** stays n/a until stock is counted somewhere (no table today).
+
+## Ada follow-ups (2026-11-03, after the register shipped)
+- **Drift: 88 files on production differ from `feature/language`** (`app/Core/Auth/JwtAuth.php`, `session_config.php`, Accounting services, schedule pages, `appstack_*.php`, `public/.htaccess`…) — other sessions' deploys from other branches. Ada's drift row is now truthful and Critical. A session should walk the list: `scripts/prod-pull.sh --into-repo` each, decide branch vs live, commit what is wanted, redeploy through a manifest-recording script. Until then the red stands, correctly.
+- **`ReviewRequestService`: Unknown column `c.review_request_sent_at`** (live error log 13:38, visit #2378) — a migration shipped and never run, or a column renamed; one of the "116 never run". Owner: Mia / visits.
+- **"116 migrations never run"**: mark the hand-applied and renamed ones (done-/todo-) so the amber means something; 1390 failed on "column already exists" (already applied by hand).
+- **Pulse `head_cards` fail 14× / `queues` warn 288× in 24 h** — the AI Office cards take 12.7 s to build; Pulse's own code (another session).
+
+## Head harvest queue (Tim, 2026-11-03): complete each head entirely, in this order
+1. **Sam** — in progress 2026-11-03 (client rhythm, comparables pricing, Penny→Sam payer terms, Sam→Penny pipeline line,
+   signals digest, renewal radar, tiering, lead response times, quote hygiene, objection replies).
+2. **Mia** — DONE 2026-11-03 (`docs/plans/2026-11-03-mia-harvest.md`); left: ads wiring when an account exists, content-strategy brief after margin-by-service, page-level SEO checks. Was: small-business pieces above + survey the sibling `marketing` plugin; diff against MiaCalendar / MiaSequenceService /
+   MiaSocialService / MiaWording / ReviewReplyDrafter / MiaCampaignService.
+3. **Ada** — DONE 2026-11-03 (`docs/plans/2026-11-03-ada-harvest.md`) — `operations` plugin (runbook, risk-assessment, compliance-tracking, status-report, process-doc) and finance
+   `audit-support`/`sox-testing` evidence standards; diff against AdaSecurityRules / AdaSecurityWatch / BooksWatchService.
+4. **Otto** — DONE 2026-11-03 (`docs/plans/2026-11-03-otto-harvest.md`) — `operations` plugin (capacity-plan, vendor-review, change-request) + small-business inventory/restock
+   (velocity, stockout, reorder maths, buffer = min(30, max(7, lead/2))), payroll-prep punch rules weekly on time_entries;
+   diff against OttoRules / OttoActionService / RecurringBillService / supplier lists.
+5. **Yui** — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
+   voice profile + slop test, outreach cadences (0/+4/+11/+21; never two sends in 48 h; trades 6–8 am or after 5 pm),
+   customer-support `ticket-triage` / `draft-response`; diff against YuiRules / YuiDraftService / IcloudInboxRouter.
+6. **Kaname (Charlie)** — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
+   before posting bad news), business-pulse rollup (worst section; forced red on named client + amount + deadline ≤ 7 d),
+   report-builder sanity checks (partial period, totals tie, "n/a — source" never an estimate), report-pack cadence;
+   diff against CharlieBriefService / CharlieRankService / CharlieUrgentService / HouseBriefAdapter.
+Pattern for each: survey → plan doc → pure classes + tests → wire → prod-run dry run → Codex → deploy → verify → vault + skill.
+
+## Sam: record why quotes are lost (2026-11-03)
+- Add `lost_reason` (competitor / budget / timing / no decision / other) when a quote is declined or expires, so the plugin's win-loss review (win rate by source, size band and service; where losses die; median cycle) can run in a year. Today 34 accepted and 0 declined are recorded in 12 months — losses are not being marked.
+
+## Earned autonomy — the Ittai Trust Ladder (Tim, 2026-11-04) — DECIDED: not for Sam
+- **Tim, 2026-11-04: "Sam stays on a click."** No autonomy level for client-facing sends; Sam drafts, Tim sends. The notes below are kept for the other heads if the question ever comes up for them; nothing is to be built for Sam.
+- Tim's direction: Sam (and every head) starts by recommending; the more Tim approves unchanged, the more Sam may do, until Sam himself asks "you've approved my last 20 quote follow-ups without changes — do you trust me to send these automatically?" Tim grants; nothing ever self-promotes.
+- Five levels per head **per task type** (observe → assist → approve → trusted → autonomous). Trust belongs to the task, not the head: routine reminders may be trusted while discounts, price changes and scheduling promises always need Tim.
+- Charlie runs a Trust Engine across the seven heads: approvals, edits, reversals, outcomes, complaints, exceptions. Approval earns confidence; outcomes validate it (20 unedited sends ≠ 20 good decisions). Reversible actions can be delegated; irreversible ones (changing an accepted quote, committing a price) stay with Tim.
+- Granting needs: named action categories, spending limits, escalation rules, a complete log, one-tap revoke, and a weekly "your team handled N tasks, I needed you for M" line from Charlie.
+- **Blocker to decide first:** this reverses Sam's rule 1 ("nothing goes to a client without Tim's yes"; nine automatic nudge rules disabled 2026-10-05 and must stay off). The ladder is a deliberate, logged exception granted by Tim per task type — a council decision before any build. Not part of the 2026-11-04 Sam dashboard hierarchy work.
+## Ideas from the Aspire 2026 Commercial Landscape Industry Report — added 2026-10-27
+Source: Aspire (ServiceTitan) survey of 1,015 US commercial landscape owners, May 2025, published
+July 2025. It is a vendor's survey of commercial firms, so treat the numbers as direction, not as
+Mowology's market (Mowology is mostly residential and strata). Each idea names what is shared and
+what stays private.
+- **Get paid on time (biggest signal).** 76% invoice within 4 days but only 39% are paid on terms;
+  60% are paid a week or more late, 7% two to three months late. Ittai already sends the invoice with
+  its PDF; the gap is the chase and the payment route.
+  - Automatic, polite reminder ladder per invoice (email first; SMS only the short no-link form).
+  - "Pay by e-transfer / card / ACH" on every invoice and reminder; late-payment cost shown to the
+    owner, not only the client.
+  - Shared: reminder wording and timing defaults. Private: each tenant's terms, clients, amounts.
+- **Job-cost forecasting.** 37% expect equipment and material costs up 10%+; 58% expect 2-3 week lead
+  times; "forecasting job costs and margins" is a named worry. Penny/Otto can warn when a quoted
+  price no longer clears the margin given recent receipts and supplier price lists.
+  - Shared: price-index hints from the supplier lists. Private: the tenant's margins and prices.
+- **Wage-aware pricing.** 70% plan raises (44% by 4%+); maintenance crews mostly $17-$30/hr in the
+  survey. Prompt "your labour cost moved, re-check recurring prices" at renewal time.
+- **Recurring maintenance is the money** (59% earn most revenue there; 35% of revenue is repeat
+  business, 26% referrals). Make renewal, upsell and referral nudges first-class (Sam's pipeline).
+- **One system, not seven.** 90% use 4+ tools, 62% use 7+, 29% use 10+. Top reasons to switch:
+  automate workflows (58%), efficiency (51%), feature gaps (44%), scale (36%), margins (30%). Top
+  switch worries: features, price, all-in-one, integrations, support/training. The pitch and
+  onboarding should say "replaces your N tools" and show the list (accounting, payroll, GPS,
+  marketing, estimating, invoicing).
+- **Features tenants say they want in 2025:** process automation, customer notifications, smart
+  routing, employee training and certification. Ittai has or is building all four (heads, notices,
+  route planner, quiz); name them in the product copy in the survey's own words.
+- **Client-retention reporting.** Retention is the top risk to goals; give the owner a retention and
+  repeat-revenue view (churned, at-risk, renewal dates).
+- **Quality validation** ("validating quality of work" is a listed risk): before/after photos and
+  visit proof attached to the invoice, already in the selling points.
+
+## Platform Terms of Service — built 2026-10-25 (gate OFF)
+- Draft at /terms.php, acceptance tables (migration 1381), sign-in gate for admin/manager.
+- **Owed before the gate goes on:** a lawyer settles the [bracketed] items (entity name, liability cap,
+  governing law and venue, export window); then insert a terms_versions row (is_current=1) whose
+  version matches TERMS_VERSION in public/terms.php.
+- **Later:** clean /terms URL (needs the live .htaccess merged), add-on schedules for Payments and
+  Accounting (Wave-style), acceptance in the native apps, and a send-to-owner email when the terms change.
+
+- (2026-11-04) Receipts roadmap: faster capture, learning from every read, self-filling vendor directory, Otto lot borders for stores — docs/plans/receipt-roadmap-2026-11-04.md. Firecrawl-style page fetch for supplier availability: PageFetchService (curl + cleaner, Firecrawl API per supplier behind a flag), with supplier availability. Bank statements Claude fallback: StatementLlmExtractor gated by opening + lines = closing, learned per-bank preset.
 ## Android crew app as a founding business sees it — first local run 2026-10-26
 Seen on the emulator against `claudia.ittai.ca` on the local test site (`scripts/local-android.sh up`;
 docs/LOCAL_SITE.md "Android emulator"). The server side is right: Host → tenant database, Ittai sign-in page,
@@ -166,6 +284,11 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
    **Migrations per business (found 2026-11-03):** a migration run on Mowology after a business is provisioned never
    reaches that business (walk-1 rehearsal lacked `snow_runs`). Needs a per-business migration runner before more
    founding businesses; until then provision Claudia's after the latest migrations.
+
+- **Every other cron is still Mowology-only (found 2026-11-03).** Business databases had never run a cron (0 `cron_runs` rows). Otto's pins + lot borders now fan out per business (`BusinessCronFanout` from `generate_visits`, `--tenant=<key>`). Reminders, pollers, Charlie's brief, weather moves and the rest still run for Mowology only. Decide which run per business (some must not: sending and charging crons refuse test businesses) and route them through the same fan-out, one cron at a time, checking `cron_runs` in each business after.
+- **QuickBooks import drops the property's province (found 2026-11-03).** `QboOnboardingService::applyClients()` passes `property_address/city/postal_code` but no province, so every imported property is stored as the default 'BC'. Fine for Claudia. For a business outside BC, Otto would wrongly treat its properties as BC. Pass `ShipAddr.CountrySubDivisionCode`.
+- **Lot maps outside BC:** `OttoAutoPlaceService::LOT_MAPS` has BC only. Other provinces show "no public lot map for <province> yet — draw the border". Add a source per province when a business there signs up (Alberta: municipal open data, e.g. Calgary parcels; research needed).
+- **Local harness:** `scripts/local-site.sh php …` does not set the dead proxy that `start` does, so a CLI run reaches real outside services. Export the proxy variables in `php_run` too.
 
 **Claudia keeps QuickBooks (2026-11-04):** sending to QuickBooks is built but runs for Mowology only; per-business
 run, imported-customer links, her own items, phone switch, payment bank-match test, Production keys; shadow

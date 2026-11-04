@@ -17,6 +17,11 @@
  * Each check fails on its own (logged, then shown as "can't tell") — one bad query never
  * blanks the page or Charlie's brief.
  *
+ *   (5) the register (2026-11-03, operations/finance plugins): every problem carries a cost-of-waiting
+ *       rank and a 3×3 level; Tim may accept a non-Critical one for 90 days (AdaRiskRegister /
+ *       AdaAcceptedRisks); who holds admin/manager is reviewed every 90 days; a nightly count snapshot
+ *       gives the headline its trend; findings without a date are named.
+ *
  * brief() is Charlie's contract (CharlieBriefService). It runs every 15 minutes inside
  * charlie_morning_brief, so everything here is a handful of indexed queries and small reads.
  *
@@ -41,7 +46,105 @@ class AdaDeskService
 
     private function now(): string { return $this->now ?? date('Y-m-d H:i:s'); }
 
-    /** Ada needs no table of her own. */
+    private ?AdaFixedMarks $marks = null;
+    private ?AdaAcceptedRisks $risks = null;
+    private ?array $accepted = null;
+    private ?array $yesterday = null;
+
+    public const TREND_KEY = 'ada_daily_counts';
+    public const ACCESS_REVIEW_KEY = 'ada_access_review';
+
+    public function risks(): AdaAcceptedRisks
+    {
+        if ($this->risks === null) {
+            require_once __DIR__ . '/AdaAcceptedRisks.php';
+            $this->risks = new AdaAcceptedRisks($this->db);
+        }
+        return $this->risks;
+    }
+
+    /** Accepted problems within their review date (shown apart on the page). checks() must run first. */
+    public function accepted(): array
+    {
+        $this->checks();
+        return $this->accepted ?? [];
+    }
+
+    private function setting(string $key): ?string
+    {
+        try {
+            $st = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $st->execute([$key]);
+            $v = $st->fetchColumn();
+            return $v === false ? null : (string)$v;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function putSetting(string $key, string $value, string $description): void
+    {
+        $this->db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([$key, $value, $description]);
+    }
+
+    /** Yesterday's counts (status-report: what changed since last time), from the nightly snapshot. */
+    public function yesterday(): ?array
+    {
+        if ($this->yesterday !== null) return $this->yesterday ?: null;
+        $hist = json_decode((string)$this->setting(self::TREND_KEY), true);
+        $this->yesterday = is_array($hist) ? (AdaRules::trendYesterday($hist, substr($this->now(), 0, 10)) ?? []) : [];
+        return $this->yesterday ?: null;
+    }
+
+    /** Nightly (security_posture cron): remember today's counts and reds for the trend. */
+    public function recordDailyCounts(): array
+    {
+        $checks = $this->checks();
+        $counts = AdaRules::counts($checks);
+        $reds = [];
+        foreach ($checks as $c) if ($c['state'] === 'red') $reds[] = (string)$c['system'];
+        $hist = json_decode((string)$this->setting(self::TREND_KEY), true);
+        $hist = AdaRules::trendAppend(is_array($hist) ? $hist : [], substr($this->now(), 0, 10), $counts, $reds);
+        $this->putSetting(self::TREND_KEY, (string)json_encode($hist), 'Ada: nightly red/amber/unknown/green counts, last ' . AdaRules::TREND_DAYS . ' days (trend in her headline)');
+        return $counts;
+    }
+
+    /** Charlie's and the page's headline, with the trend against yesterday. */
+    public function headline(): string
+    {
+        return AdaRules::headline(AdaRules::counts($this->checks()), $this->yesterday());
+    }
+
+    /** Tim pressed Reviewed on the admin/manager list: remember when, who and the roster fingerprint. */
+    public function markAccessReviewed(?int $userId, string $userName): void
+    {
+        $hash = AdaRules::rosterHash($this->privilegedUsers(true));
+        $this->putSetting(self::ACCESS_REVIEW_KEY, (string)json_encode(['at' => $this->now(), 'by' => mb_substr($userName, 0, 80), 'by_id' => $userId, 'hash' => $hash]),
+            'Ada: last review of who can sign in as admin or manager (asked again every ' . AdaRules::ACCESS_REVIEW_DAYS . ' days or when the list changes)');
+    }
+
+    /** @return array<array{id:int,name:string,role:string,is_active:int,last_login:?string}> */
+    public function privilegedUsers(bool $activeOnly = false): array
+    {
+        $rows = $this->db->query(
+            "SELECT u.id, COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.full_name, u.username) AS name,
+                    u.role, u.is_active, u.last_login, COALESCE(u.is_vehicle_tablet, 0) AS is_vehicle_tablet
+               FROM users u WHERE u.role IN ('admin', 'manager')" . ($activeOnly ? ' AND u.is_active = 1' : '') . ' ORDER BY u.role, u.id'
+        )->fetchAll(PDO::FETCH_ASSOC);
+        return array_values(array_filter($rows, static fn($u) => (int)($u['is_active'] ?? 1) === 1 || !$activeOnly));
+    }
+
+    public function marks(): AdaFixedMarks
+    {
+        if ($this->marks === null) {
+            require_once __DIR__ . '/AdaFixedMarks.php';
+            $this->marks = new AdaFixedMarks($this->db);
+        }
+        return $this->marks;
+    }
+
+    /** Ada needs no table of her own (the "Mark fixed" history, migration 1420, is optional). */
     public function ready(): bool { return true; }
 
     /** Charlie's contract. */
@@ -52,7 +155,7 @@ class AdaDeskService
         $items = AdaRules::briefItems($checks, substr($this->now(), 0, 10));
         return [
             'head'     => AdaRules::HEAD,
-            'headline' => AdaRules::headline($counts),
+            'headline' => AdaRules::headline($counts, $this->yesterday()),
             'count'    => $counts['red'] + $counts['amber'],
             'items'    => $items,
         ];
@@ -63,7 +166,7 @@ class AdaDeskService
     {
         if ($this->checks !== null) return $this->checks;
         $all = [];
-        foreach (['cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks'] as $part) {
+        foreach (['pulseChecks', 'cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks'] as $part) {
             try {
                 $all = array_merge($all, $this->$part());
             } catch (Throwable $e) {
@@ -75,7 +178,18 @@ class AdaDeskService
                           'handoff_to' => 'developer'];
             }
         }
-        return $this->checks = AdaRules::sortChecks(AdaRules::applyProxies($all));
+        $all = AdaRules::applyProxies($all);
+        if ($row = AdaRules::evidenceCheck($all)) $all[] = $row;
+        // The register: cost rank + level on every row; accepted risks set apart until their review date.
+        require_once __DIR__ . '/AdaRiskRegister.php';
+        $acceptances = [];
+        try { $acceptances = $this->risks()->open(); } catch (Throwable $e) { error_log('Ada: accepted risks unreadable: ' . $e->getMessage()); }
+        $reg = AdaRiskRegister::apply($all, $acceptances, substr($this->now(), 0, 10));
+        foreach ($reg['released'] as $sys) {
+            try { $this->risks()->release($sys, 'cleared', $this->now()); } catch (Throwable $e) { error_log('Ada: could not release ' . $sys . ': ' . $e->getMessage()); }
+        }
+        $this->accepted = AdaRules::sortChecks($reg['accepted']);
+        return $this->checks = AdaRules::sortChecks($reg['active']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -109,11 +223,15 @@ class AdaDeskService
         }
         $maxMs = [];
         $st = $this->db->prepare("SELECT cron_key, MAX(duration_ms) AS m FROM cron_runs WHERE ran_at > ? GROUP BY cron_key");
-        $st->execute([date('Y-m-d H:i:s', strtotime($now) - 14 * 86400)]);
+        $st->execute([date('Y-m-d H:i:s', strtotime($now) - AdaRules::SLOW_DAYS * 86400)]);
         foreach ($st as $r) $maxMs[(string)$r['cron_key']] = (int)$r['m'];
 
         $recentSt = $this->db->prepare("SELECT status, ran_at, error_message, summary FROM cron_runs WHERE cron_key = ? ORDER BY ran_at DESC LIMIT 12");
         $okSt = $this->db->prepare("SELECT MAX(ran_at) FROM cron_runs WHERE cron_key = ? AND status <> 'error'");
+        // Problems Tim marked fixed: those jobs are judged on runs after the mark only.
+        $marks = $this->marks();
+        $open = $marks->open();
+        $sinceSt = $this->db->prepare("SELECT status, ran_at, error_message, summary, duration_ms FROM cron_runs WHERE cron_key = ? AND ran_at > ? ORDER BY ran_at DESC LIMIT 12");
 
         $out = [];
         foreach ($reg as $key => $row) {
@@ -149,7 +267,35 @@ class AdaDeskService
                     'recent'      => $recent,
                 ];
             }
-            $out[] = AdaRules::cronCheck($row, $stats, $records, $exist, $now, $base);
+            $fix = null;
+            $mark = $open['cron:' . $key] ?? null;
+            if ($mark !== null) {
+                $sinceSt->execute([$key, $mark['fixed_at']]);
+                $after = $sinceSt->fetchAll(PDO::FETCH_ASSOC);
+                $fix = ['at' => $mark['fixed_at'], 'runs' => count($after)];
+                if ($after && $stats !== null) {
+                    $stats['recent'] = array_map(static fn($r) => [(string)$r['status'], (string)$r['ran_at'], (string)($r['error_message'] ?: $r['summary'])], $after);
+                    $stats['last_status'] = (string)$after[0]['status'];
+                    $stats['last_error'] = (string)($after[0]['error_message'] ?: $after[0]['summary']);
+                    $stats['max_ms'] = (int)max(array_map(static fn($r) => (int)$r['duration_ms'], $after));
+                    if ($stats['last_status'] !== 'error') $stats['last_ok_at'] = (string)$after[0]['ran_at'];
+                }
+            }
+            if ($stats !== null) {
+                $stats['runs'] = count($stats['recent']);
+                $stats['since'] = $stats['recent'] ? (string)end($stats['recent'])[1] : null;
+            }
+            $check = AdaRules::cronCheck($row, $stats, $records, $exist, $now, $base, $fix);
+            $check['basis'] = AdaRules::cronBasis($stats, $fix, $now);
+            $check['fixable'] = in_array($check['state'], ['red', 'amber'], true);
+            if ($mark !== null && $fix !== null && $fix['runs'] > 0) {
+                // A run has landed since the mark: write down how it turned out.
+                try {
+                    if ($check['state'] === 'green') $marks->close($mark['id'], 'cleared', $check['evidence'], $now);
+                    elseif ($check['state'] !== 'info') $marks->close($mark['id'], 'came_back', $check['evidence'], $now);
+                } catch (Throwable $e) { error_log('Ada: could not record outcome: ' . $e->getMessage()); }
+            }
+            $out[] = $check;
         }
         foreach (array_diff_key($lastByKey, $reg) as $key => $lastAt) {
             $out[] = AdaRules::unlistedCron((string)$key, $lastAt, $now);
@@ -232,6 +378,13 @@ class AdaDeskService
     // (3) Security
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** Pulse's live checks (is the app working right now?): one row each, from the 5-minute check. */
+    private function pulseChecks(): array
+    {
+        require_once __DIR__ . '/PulseService.php';
+        return (new PulseService($this->db))->adaChecks();
+    }
+
     private function securityChecks(): array
     {
         $rows = $this->db->query(
@@ -244,6 +397,13 @@ class AdaDeskService
         )->fetchAll(PDO::FETCH_ASSOC);
         $out = [AdaRules::loginsCheck($rows, $this->now()),
                 AdaRules::jwtSecretCheck(defined('BLUEMOON_JWT_SECRET') ? strlen((string)BLUEMOON_JWT_SECRET) : null)];
+        // Who can sign in as admin or manager, reviewed every 90 days (audit-support: access recertification).
+        try {
+            $last = json_decode((string)$this->setting(self::ACCESS_REVIEW_KEY), true);
+            $out[] = AdaRules::accessReviewCheck($this->privilegedUsers(false), is_array($last) ? $last : null, $this->now());
+        } catch (Throwable $e) {
+            error_log('Ada: access review check failed: ' . $e->getMessage());
+        }
         // Failed-login spikes and role / password / migration / log-clear changes (Fable audit #25d).
         require_once __DIR__ . '/AdaSecurityWatch.php';
         foreach ((new AdaSecurityWatch($this->db, $this->now))->checks() as $c) $out[] = $c;

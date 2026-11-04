@@ -113,11 +113,14 @@ final class ClockQueue: ObservableObject {
     /// Earlier items of the same type are preserved because they may form part of
     /// a completed [clock_in, clock_out] pair — stripping them reorders the queue
     /// and replays clock_out before clock_in, corrupting the payroll record.
-    func enqueue(action: String, lat: Double?, lng: Double?, at tappedAt: Date = Date(), userId: Int?) {
+    /// `id` is the Idempotency-Key the live attempt already sent: if that attempt reached the server
+    /// before timing out, the replay is answered from the server's record instead of punching twice.
+    func enqueue(action: String, lat: Double?, lng: Double?, at tappedAt: Date = Date(), userId: Int?,
+                 id: String = UUID().uuidString) {
         var current = items
         if current.last?.action == action, current.last?.userId == userId { current.removeLast() }
         current.append(PendingAction(
-            id:       UUID().uuidString,
+            id:       id,
             action:   action,
             lat:      lat,
             lng:      lng,

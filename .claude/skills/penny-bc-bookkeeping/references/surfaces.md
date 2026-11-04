@@ -8,7 +8,7 @@
   `app/Modules/*/Api/` (e.g. `expense-line-items.php`, `bookkeeper-mobile.php`).
 
 ## The rules
-1. **Logic lives in one server service** (see SKILL.md "One place for each job"). Endpoints and
+1. **Logic lives in one server service** (see `references/one-place.md`). Endpoints and
    pages only call it. Then a rule change reaches all three at once — the GST fix of 2026-10-11
    reached save, desktop, Penny's desk, the inbox and both apps through `detectAnomalies()`.
 2. **Every Penny feature has a row below.** Adding or changing a feature on one surface means

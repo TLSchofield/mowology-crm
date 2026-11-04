@@ -48,6 +48,11 @@ final class VendorIdentityTest extends TestCase
         $this->assertSame('123456789RT0001', VendorIdentity::gstNumber("GST # 123456789 RT0001\nTOTAL 12.40"));
         $this->assertSame('123456789RT0001', VendorIdentity::gstNumber('GST/HST REG 123456789RT0001'));
         $this->assertSame('123456789RT0001', VendorIdentity::gstNumber('123456789 rt 0001'));
+        // Old R-prefixed number, label and number on separate lines (gas-station receipts, replay 2026-11-04).
+        $this->assertSame('743318321', VendorIdentity::gstNumber("STORE #: 43016\nGST:\nR743318321\nCashier: manager"));
+        $this->assertSame('743318321', VendorIdentity::gstNumber('GST: R743318321'));
+        // A legend with no number, and a store number, are not GST numbers.
+        $this->assertNull(VendorIdentity::gstNumber("GSTV:\nSee GST #\nTOTAL CAD $ 14.49"));
         $this->assertSame('123456789', VendorIdentity::gstNumber('GST# 123456789'));
         $this->assertSame('123456789', VendorIdentity::gstNumber('Business Number: 123456789'));
         $this->assertNull(VendorIdentity::gstNumber('Invoice 123456789'), 'a bare 9-digit number without a tax label is not a GST number');

@@ -3,6 +3,8 @@ name: otto-operations
 description: Use BEFORE touching anything operations-related in the Mowology CRM / Ittai — Otto (the Operations head) and his card/suggestions, the schedule and calendar stops, crews and crew assignment, visits and job timers, the time clock, timesheets, breaks, GPS/tracking (crew phones, truck tablet, Trackimo), trip/dump/supply runs, trucks and equipment, weather moves, bylaw hours, bulk material deliveries, the supplier directory and supplier account forms, company documents (business licence, insurance), or snow/salt routes. Also when Tim asks "where is the crew…", "why didn't the phone track…", "who forgot to clock out…", "fill this supplier form…", or reports a wrong Otto suggestion. Holds how Otto is allowed to operate, the single source of truth for each job, iPhone vs web/Android parity, and the traps already hit.
 covers:
   - app/Modules/Operations/*
+  - app/Core/BusinessCronFanout.php
+  - public/crm/includes/otto-property-card.php
   - app/Modules/Team/Api/equipment-mobile.php
   - ios/MowologyCRM/MowologyCRM/Features/Team/EquipmentAddView.swift
   - app/Modules/Tracking/*
@@ -31,7 +33,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -136,6 +138,7 @@ reference that matches the task:
 | Filling + sending a supplier form | `SupplierFormService::capture()` / `SupplierFormService::send()` with `PdfFormFiller::fill()` | Otto card, iPhone |
 | Company answers for forms (and owner-only blocklist) | `CompanyProfileService::answer()` | forms |
 | Business licence, insurance, WCB letter | `CompanyDocumentService::current()` / `CompanyDocumentService::briefItems()` | forms, brief (30-day reminder) |
+| Pins + lot borders for every new property, every business, any source (QuickBooks, phone, web, Jobber, leads) | `OttoAutoPlaceService::run()` (new = id above `OttoAutoPlaceService::watermark()`; 0 on an Ittai business); province gate `OttoAutoPlaceService::regionOf()` + `LOT_MAPS` (BC only); why it failed `OttoAutoPlaceService::status()`. Runs per business through `BusinessCronFanout::run()` from `generate_visits.php` → `app/Modules/Operations/Cron/otto_place_properties.php --tenant=<key>` | Otto's property card `public/crm/includes/otto-property-card.php`, property map, visit report |
 | Snow/salt routes set up on signing | `SnowContractService::setupFromSignedQuote()`; no-crew routes `SnowContractService::ottoBriefItems()` | quote signing, brief |
 | Phone fix ingest + policy | `TrackingIngestService::ingest()` / `TrackingIngestService::policy()` | every GPS path (incl. the web widget's `crew-location.php` since 2026-10-12); `newest` skips mock fixes |
 | Client route proof (fixes ON the property only, no mocks) | `RouteProofService::forVisits()` in `app/Modules/Tracking/Services/RouteProofService.php` | `public/customer/portal.php`, `public/customer/visit-report.php` |
@@ -149,11 +152,20 @@ reference that matches the task:
 | Visit status changes (guarded) | `VisitLifecycleService::updateVisitStatus()` / `VisitLifecycleService::canTransition()` | every completion/skip path |
 | End-of-day missed-visit review (open at last clock-out or 18:00, Otto's pick per visit, apply, lesson) | `MissedVisitReviewService::tick()` (rides Kaname's 15-min cron) / `MissedVisitReviewService::decide()`; pure pick `MissedVisitRules::pick()` | dashboard card section `public/crm/includes/otto-missed-panel.php`, desk `public/crm/ops/missed-visits.php`, iPhone `OttoMissedReviewSheet` via `/api/schedule/missed-review` |
 | What the nightly rollover does to a past-due visit (roll / skip / hold a contract visit open) | `MissedVisitRules::rolloverAction()` in `app/Modules/Jobs/Cron/auto_rollover.php` | rollover cron |
+| Last week's clock review (Mon–Wed): duplicate / overlapping shifts, double taps, open shifts, >12 h, >16 h a day, 7 days straight, a week > 125% of the person's own average, nobody-clocked (2026-11-03, payroll-prep rules) | `ClockWeekRules::person()` on `PayrollRunChecks::punchFlags()`; rows from `OttoHarvestService::clockWeekItems()` | Charlie's brief, team card, iPhone |
+| The week's load against crew capacity (80% full, 100% over, a plan length that looks wrong first) | `WeekLoadRules::days()` / `WeekLoadRules::briefItem()`; crew count `OttoHarvestService::crewCount()` (ops_settings `otto_crew_count` overrides) | brief |
+| Seasonal stock watch (owner-named items, dated decide-by; seeded with ice melt / salt when snow routes exist) | `SeasonalStockRules::items()`; list in ops_settings `otto_seasonal_stock` via `OttoHarvestService::watchList()` | brief |
+| Quarterly supplier review (90-day receipt spend, concentration > 60% with an alternative in the directory, price lists > 90 days old) | `SupplierReviewRules::build()` / `SupplierReviewRules::briefItem()` | brief |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself
 (`OttoSuggestionViews.swift`, mirroring the per-kind controls in `otto-card.js`); only server-sent buttons are
 shared. A change to an older kind's buttons means both files.
+
+**Harvest 2026-11-03** (`docs/plans/2026-11-03-otto-harvest.md`): the four rows above are the only numbers the
+operations / small-business plugins held that Otto could run on. Not built, on purpose: velocity / reorder quantities
+(there is no stock count — the repeat items on receipts are coffee cups and bottle deposits), change-request states,
+process-optimization tags, call-list blocks. Otto still only suggests: every line is a question with the numbers in it.
 
 ## Keeping this skill true
 

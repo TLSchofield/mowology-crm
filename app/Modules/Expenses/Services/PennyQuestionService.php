@@ -17,7 +17,7 @@ class PennyQuestionService
 {
     public const BILLABLE_CATEGORIES = ['Materials', 'Disposal/Dump', 'Subcontractors'];
     /** 'billed' (2026-10-12): it is already on an invoice Penny didn't connect (Marc Nelitz's hedge disposal). */
-    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account', 'seen', 'use_bank_line'];
+    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account', 'seen', 'use_bank_line', 'different'];
     /** Answers to a payment-source notice / question (ReceiptFundingCheck, 2026-10-12). */
     public const SOURCE_ANSWERS = ['seen', 'use_bank_line'];
     /** Give the owner time to invoice before asking; stop asking about old receipts. */
@@ -281,6 +281,20 @@ class PennyQuestionService
     public function open(int $limit = 5, string $name = ''): array
     {
         if (!$this->ready()) return [];
+        $twins = [];
+        try {
+            $twins = $this->db->query("SELECT q.id, q.kind, q.expense_id, q.amount, q.question, q.subject, q.category
+                FROM penny_questions q JOIN expenses e ON e.id = q.expense_id
+                WHERE q.status = 'open' AND q.kind IN ('possible_twin','bad_link','repeat_amount') AND (q.kind = 'bad_link' OR e.status <> 'rejected')
+                ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(40, $limit)))->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($twins as &$q) {
+                $q['expense_id'] = (int)$q['expense_id'];
+                $q['amount'] = (float)$q['amount'];
+                $q += self::parseSubject((string)$q['kind'], (string)$q['subject']);
+                if ($q['kind'] === 'possible_twin') $q['copy_id'] = $q['expense_id'];
+            }
+            unset($q);
+        } catch (Throwable $e) { /* before subject / twin questions */ }
         $service = [];
         try {
             $service = $this->db->query("SELECT id, kind, subject, amount, question FROM penny_questions
@@ -326,7 +340,22 @@ class PennyQuestionService
             $out[] = $r;
         }
         usort($out, fn($a, $b) => [(float)$b['amount'], $a['id']] <=> [(float)$a['amount'], $b['id']]);
-        return array_slice(array_merge($this->paymentSource(), $service, $out), 0, max(1, $limit));
+        return array_slice(array_merge($twins, $this->paymentSource(), $service, $out), 0, max(1, $limit));
+    }
+
+    /** Parse the compact routing data stored with a twin question. */
+    public static function parseSubject(string $kind, string $subject): array
+    {
+        $out = ['copy_id' => 0, 'keep_id' => 0, 'line_id' => 0, 'right_id' => 0];
+        if ($kind === 'possible_twin' && preg_match('/^keep:(\d+)$/', $subject, $m)) {
+            $out['keep_id'] = (int)$m[1];
+        } elseif (in_array($kind, ['possible_twin', 'repeat_amount'], true) && preg_match('/^with:(\d+)$/', $subject, $m)) {
+            $out['keep_id'] = (int)$m[1];
+        } elseif ($kind === 'bad_link' && preg_match('/^line:(\d+);right:(\d+)$/', $subject, $m)) {
+            $out['line_id'] = (int)$m[1];
+            $out['right_id'] = (int)$m[2];
+        }
+        return $out;
     }
 
     /**
@@ -362,11 +391,39 @@ class PennyQuestionService
         if ($answer === 'account') {
             return $this->answerAccount($id, (int)$accountId, $userId, $name);
         }
-        $s = $this->db->prepare("SELECT COALESCE(e.job_id, q.plan_id) AS plan_id, q.status, q.kind FROM penny_questions q LEFT JOIN expenses e ON e.id = q.expense_id WHERE q.id = ?");
+        $s = $this->db->prepare("SELECT COALESCE(e.job_id, q.plan_id) AS plan_id, q.status, q.kind, q.expense_id, q.subject FROM penny_questions q LEFT JOIN expenses e ON e.id = q.expense_id WHERE q.id = ?");
         $s->execute([$id]);
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') {
             return ['ok' => false, 'message' => 'Already answered'];
+        }
+        if ($answer === 'different' && !in_array((string)$q['kind'], ['possible_twin', 'repeat_amount'], true)) {
+            return ['ok' => false, 'message' => 'Unknown answer'];
+        }
+        if (in_array((string)$q['kind'], ['possible_twin', 'bad_link', 'repeat_amount'], true)) {
+            if ($answer === 'seen') {
+                $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = 'seen', answered_by = ?, answered_at = NOW() WHERE id = ?")
+                   ->execute([$userId, $id]);
+                return ['ok' => true, 'message' => 'Got it.'];
+            }
+            if (!in_array((string)$q['kind'], ['possible_twin', 'repeat_amount'], true) || $answer !== 'different') return ['ok' => false, 'message' => 'Unknown answer'];
+            $ids = self::parseSubject((string)$q['kind'], (string)$q['subject']);
+            $a = (int)$q['expense_id'];
+            $b = (int)$ids['keep_id'];
+            if (!$a || !$b) return ['ok' => false, 'message' => 'Unknown answer'];
+            $this->db->beginTransaction();
+            try {
+                $this->db->prepare("INSERT IGNORE INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (?, ?, ?)")
+                   ->execute([min($a, $b), max($a, $b), $userId]);
+                $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = 'different', answered_by = ?, answered_at = NOW() WHERE id = ?")
+                   ->execute([$userId, $id]);
+                $this->db->commit();
+            } catch (Throwable $e) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                throw $e;
+            }
+            $this->lesson($id, 'duplicate_receipt', $q['kind'] === 'repeat_amount' ? 'repeat amount' : 'possible twin', 'different purchase', $userId);
+            return ['ok' => true, 'message' => 'Got it. I will not ask about these two again.'];
         }
         if (($q['kind'] ?? '') === 'payment_source' || in_array($answer, self::SOURCE_ANSWERS, true)) {
             return $this->answerPaymentSource($id, $answer, $userId, $name);

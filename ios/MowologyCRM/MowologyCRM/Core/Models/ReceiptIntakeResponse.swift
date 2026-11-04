@@ -24,9 +24,15 @@ struct ReceiptIntakeResponse: Decodable {
     let jobSuggestions: [JobSuggestion]?
     let duplicateImage: DuplicateImageInfo?
     let gstValidation: GstValidation?
+    /// "server" | "device" — "device" means the phone's own text read supplied the total.
+    let totalSource: String?
+    /// The card the receipt was paid with, mapped to a person when the server knows it.
+    let card: ReceiptCard?
 
     enum CodingKeys: String, CodingKey {
         case success
+        case totalSource    = "total_source"
+        case card
         case mediaId        = "media_id"
         case ocrAvailable   = "ocr_available"
         case ocrSource      = "ocr_source"
@@ -35,6 +41,55 @@ struct ReceiptIntakeResponse: Decodable {
         case jobSuggestions = "job_suggestions"
         case duplicateImage = "duplicate_image"
         case gstValidation  = "gst_validation"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        success        = try c.decode(Bool.self, forKey: .success)
+        mediaId        = try c.decode(Int.self, forKey: .mediaId)
+        ocrAvailable   = try c.decode(Bool.self, forKey: .ocrAvailable)
+        ocrSource      = try c.decodeIfPresent(String.self, forKey: .ocrSource)
+        ocrText        = try c.decodeIfPresent(String.self, forKey: .ocrText)
+        parsed         = try c.decodeIfPresent(ParsedReceipt.self, forKey: .parsed)
+        suggestions    = try c.decodeIfPresent(ReceiptSuggestions.self, forKey: .suggestions)
+        jobSuggestions = try c.decodeIfPresent([JobSuggestion].self, forKey: .jobSuggestions)
+        duplicateImage = try c.decodeIfPresent(DuplicateImageInfo.self, forKey: .duplicateImage)
+        gstValidation  = try c.decodeIfPresent(GstValidation.self, forKey: .gstValidation)
+        // The extras are best effort: a malformed one must not fail the whole response
+        // (the receipt is already uploaded and would be re-queued forever).
+        totalSource    = (try? c.decodeIfPresent(String.self, forKey: .totalSource)) ?? nil
+        card           = (try? c.decodeIfPresent(ReceiptCard.self, forKey: .card)) ?? nil
+    }
+}
+
+struct ReceiptCard: Decodable {
+    let last4: String?
+    let userId: Int?
+    let holder: String?
+    let label: String?
+    let paymentMethod: String?
+
+    enum CodingKeys: String, CodingKey {
+        case last4, holder, label
+        case userId        = "user_id"
+        case paymentMethod = "payment_method"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        last4         = (try? c.decodeIfPresent(String.self, forKey: .last4)) ?? nil
+        userId        = (try? c.decodeIfPresent(Int.self, forKey: .userId)) ?? nil
+        holder        = (try? c.decodeIfPresent(String.self, forKey: .holder)) ?? nil
+        label         = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil
+        paymentMethod = (try? c.decodeIfPresent(String.self, forKey: .paymentMethod)) ?? nil
+    }
+
+    /// "Visa ••5760 — Tim": label (else "Card"), last four when present, holder when known.
+    var display: String {
+        let name   = (label?.isEmpty == false) ? label! : "Card"
+        let digits = (last4?.isEmpty == false) ? " ••\(last4!)" : ""
+        let who    = (holder?.isEmpty == false) ? " — \(holder!)" : ""
+        return "\(name)\(digits)\(who)"
     }
 }
 
@@ -298,6 +353,8 @@ struct JobSuggestion: Decodable, Identifiable {
     let serviceType: String?
     let propertyAddress: String?
     let score: Int?
+    /// True on at most one suggestion, only when the schedule match is decisive.
+    let autoSelect: Bool?
 
     var id: Int { planId }
 
@@ -309,6 +366,19 @@ struct JobSuggestion: Decodable, Identifiable {
         case serviceType     = "service_type"
         case propertyAddress = "property_address"
         case score
+        case autoSelect      = "auto_select"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        planId          = try c.decode(Int.self, forKey: .planId)
+        propertyId      = try c.decodeIfPresent(Int.self, forKey: .propertyId)
+        contactId       = try c.decodeIfPresent(Int.self, forKey: .contactId)
+        contactName     = try c.decodeIfPresent(String.self, forKey: .contactName)
+        serviceType     = try c.decodeIfPresent(String.self, forKey: .serviceType)
+        propertyAddress = try c.decodeIfPresent(String.self, forKey: .propertyAddress)
+        score           = try c.decodeIfPresent(Int.self, forKey: .score)
+        autoSelect      = (try? c.decodeIfPresent(Bool.self, forKey: .autoSelect)) ?? nil
     }
 }
 
@@ -431,6 +501,11 @@ struct JobPick: Identifiable, Equatable {
     let contactId: Int?
     let title: String
     let subtitle: String?
+
+    init(id: Int, propertyId: Int?, contactId: Int?, title: String, subtitle: String?) {
+        self.id = id; self.propertyId = propertyId; self.contactId = contactId
+        self.title = title; self.subtitle = subtitle
+    }
 
     init(suggestion s: JobSuggestion) {
         id         = s.planId

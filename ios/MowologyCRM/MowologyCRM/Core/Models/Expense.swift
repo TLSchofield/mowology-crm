@@ -13,6 +13,7 @@ struct Expense: Decodable, Identifiable {
     let description: String?
     let amount: Double?
     let gstAmount: Double?
+    var pstAmount: Double? = nil
     let total: Double
     let accountingCategory: String?
     let paymentMethod: String?
@@ -34,6 +35,7 @@ struct Expense: Decodable, Identifiable {
         case vendorNameRaw          = "vendor_name_raw"
         case amount
         case gstAmount              = "gst_amount"
+        case pstAmount              = "pst_amount"
         case total
         case accountingCategory     = "accounting_category"
         case paymentMethod          = "payment_method"

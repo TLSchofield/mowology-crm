@@ -83,7 +83,10 @@ class WavePayrollImportService
         self::ACC_NET_PAY => '/net pay/i',
         self::ACC_SHAREHOLDER => '/shareholder/i',
     ];
-    public const WAVE_REMIT_RE = '/\bWAVE\b.*\bPYRL\b|\bPYRL\b.*\bWAVE\b/i';
+    /** Wave's CRA remittance debit. The bank writes it both "Wave PYRL 0012345" and, in its compact form, "PREAUTHORIZEDPAYMENT(WAVEPYRL)"
+     *  (no space: no word boundary between WAVE and PYRL). The old pattern needed the boundary, so January 2026's two debits (which
+     *  add up to the exact $3,117.27 due) were "not found" and would have stayed on wages, counting them twice (found 2026-10-21). */
+    public const WAVE_REMIT_RE = '/\bWAVE\s*PYRL\b|\bWAVE\b.*\bPYRL\b|\bPYRL\b.*\bWAVE\b/i';
     public const WAVE_FEE_RE = '/\bWAVE\b.*PAYROLL\s*FEE/i';
 
     private PDO $db;
@@ -507,7 +510,10 @@ class WavePayrollImportService
             $isSh = $shAcct !== null;
             foreach ($out as $l) {
                 if (isset($claimed[$l['id']]) || preg_match(self::WAVE_REMIT_RE, $l['description'])) continue;
-                $lo = $isSh ? $start : self::addDays($start, -3);
+                // Employees are paid by e-Transfer about 5 days BEFORE Wave's payday, so a month whose first payday is the 1st or 2nd
+                // has its first payment in the previous month (April 2026: paydays 1, 15, 29 Apr paid 27 Mar, 10 Apr, 24 Apr). Seven days
+                // back reaches it; an earlier month's own lines are already claimed (oldest month first) or moved, so this cannot steal them.
+                $lo = $isSh ? $start : self::addDays($start, -7);
                 $hi = $isSh ? $end : self::addDays($end, 5);
                 if ($l['date'] < $lo || $l['date'] > $hi) continue;
                 if (!self::nameMatches($l['description'], $e, $month['employees'])) continue;
@@ -869,6 +875,25 @@ class WavePayrollImportService
             $r['hours'] = $this->hoursCheck($r['employees']);
         }
         unset($r);
+        // Payroll-prep checks (PayrollRunChecks, 2026-11-03): each run against the runs before it and its clock punches.
+        require_once __DIR__ . '/PayrollRunChecks.php';
+        $rates = $this->hourlyRates(array_merge(...array_map(fn($r) => array_column($r['employees'], 'user_id'), $runs ?: [['employees' => []]])));
+        foreach ($runs as $i => &$r) {
+            if ($r['status'] !== 'preview') { $r['checks'] = null; continue; }   // booked months are done; checks are for what is about to be booked
+            try {   // the journal pre-post checklist (JournalEntryCheck, 2026-11-03): warnings only, the ledger still enforces balance
+                require_once __DIR__ . '/JournalEntryCheck.php';
+                $r['entry_warnings'] = !empty($r['entry'])
+                    ? JournalEntryCheck::check($r['entry'], $this->postedOnDate((string)$r['entry']['entry_date']), $this->lockedMonths(), date('Y-m-d')) : [];
+            } catch (Throwable $e) { $r['entry_warnings'] = []; }
+            try {
+                $prior = array_values(array_filter(array_slice($runs, 0, $i), fn($x) => $x['month'] < $r['month']));
+                $r['checks'] = PayrollRunChecks::check($r, $prior, $this->runShifts($r), $rates);
+            } catch (Throwable $e) {
+                error_log('[WavePayroll] checks: ' . $e->getMessage());
+                $r['checks'] = [['person' => '', 'kind' => 'error', 'impact' => null, 'text' => 'The payroll checks could not run (' . $e->getMessage() . ')']];
+            }
+        }
+        unset($r);
         $booked = array_values(array_map(fn($r) => $r['month'], array_filter($runs, fn($r) => $r['status'] === 'booked')));
         $shList = [];
         foreach ($this->shareholders() as $n => $code) $shList[] = ['name' => $n, 'account' => $code, 'account_name' => $names[$code] ?? null];
@@ -984,6 +1009,53 @@ class WavePayrollImportService
             $out[] = ['name' => $e['name'], 'user_id' => $uid, 'rows' => $rows];
         }
         return $out;
+    }
+
+    /** Journal entries already posted on a date, with their lines as account codes (for the duplicate check). */
+    private function postedOnDate(string $date): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT e.id, e.entry_date, c.code AS account, l.debit, l.credit FROM journal_entries e
+                                     JOIN journal_lines l ON l.entry_id = e.id JOIN chart_of_accounts c ON c.id = l.account_id
+                                     WHERE e.entry_date = ? ORDER BY e.id, l.id");
+            $s->execute([substr($date, 0, 10)]);
+            $by = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $by[(int)$row['id']]['entry_date'] = (string)$row['entry_date'];
+                $by[(int)$row['id']]['lines'][] = ['account' => (string)$row['account'], 'debit' => (float)$row['debit'], 'credit' => (float)$row['credit']];
+            }
+            return array_values($by);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** user_id => clock entries inside the run's whole period (for PayrollRunChecks). */
+    private function runShifts(array $run): array
+    {
+        $out = [];
+        foreach ($run['employees'] as $e) {
+            $uid = $e['user_id'] ?? null;
+            if (!$uid || !$e['paydays']) continue;
+            $out[(int)$uid] = $this->clockEntries((int)$uid, min(array_column($e['paydays'], 'period_start')), max(array_column($e['paydays'], 'period_end')));
+        }
+        return $out;
+    }
+
+    /** user_id => hourly rate from users (dollar impact on the checks); empty when the column is missing. */
+    private function hourlyRates(array $userIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if (!$ids) return [];
+        try {
+            $s = $this->db->prepare("SELECT id, hourly_rate FROM users WHERE id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
+            $s->execute($ids);
+            $out = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) if ($r['hourly_rate'] !== null && (float)$r['hourly_rate'] > 0) $out[(int)$r['id']] = (float)$r['hourly_rate'];
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 
     private function clockEntries(int $userId, string $from, string $to): array

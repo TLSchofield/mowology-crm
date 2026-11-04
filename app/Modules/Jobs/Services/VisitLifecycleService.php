@@ -294,6 +294,10 @@ class VisitLifecycleService
 
             require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
             (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+            if ($userId) {                                                     // single-operator mode: the owner's heart also approves the pair (after the reply)
+                require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+                MiaHeartFlow::schedule($visitId, (int)$userId);
+            }
         } catch (Throwable $e) {
             // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
             error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());
@@ -601,8 +605,88 @@ class VisitLifecycleService
      * running timer that must be stopped first; terminal states stay terminal.
      * PURE — no DB.
      */
-    public static function canSkipFromStatus(string $status): bool {
-        return $status === 'scheduled';
+    public static function canSkipFromStatus(string $status, bool $fromDesk = false): bool {
+        if ($status === 'scheduled') return true;
+        // The office may skip a visit that was started by mistake (proximity auto-start while
+        // driving past, or a tap on the wrong card) — the crew's own Skip stays "not yet started"
+        // (2026-11-03). A completed visit is never skipped from anywhere.
+        return $fromDesk && $status === 'in_progress';
+    }
+
+    /**
+     * The visits of a stop that a Skip on the stop card may skip. PURE.
+     * Rows need 'visit_id' and 'visit_status'; a locked or invoiced row is never skipped.
+     * Returns ['skip' => [visit ids], 'refused' => ['<id>: <why>', …]].
+     */
+    public static function skippableAtStop(array $visits, bool $fromDesk): array {
+        $skip = []; $refused = [];
+        foreach ($visits as $v) {
+            $id = (int)($v['visit_id'] ?? 0);
+            if ($id < 1) continue;
+            $status = (string)($v['visit_status'] ?? 'scheduled');
+            if ($status === 'skipped') continue;              // already there — nothing to do
+            if (!empty($v['locked_at']))        { $refused[] = "{$id}: locked"; continue; }
+            if (!empty($v['invoice_id']))       { $refused[] = "{$id}: invoiced"; continue; }
+            if (!self::canSkipFromStatus($status, $fromDesk)) { $refused[] = "{$id}: {$status}"; continue; }
+            $skip[] = $id;
+        }
+        return ['skip' => $skip, 'refused' => $refused];
+    }
+
+    /**
+     * Close the open job timers of a visit the office is skipping after it was started.
+     * An auto-started timer (proximity) was a false positive: voided with no duration. A timer
+     * someone started by hand is ended now, so the minutes already spent stay on the books.
+     * Returns the number of rows touched.
+     */
+    public static function closeOpenTimersForSkip(PDO $db, int $visitId): int {
+        $n = 0;
+        try {
+            $void = $db->prepare("UPDATE job_time_entries
+                                  SET end_time = start_time, duration_minutes = 0, status = 'void',
+                                      notes = TRIM(CONCAT(COALESCE(notes, ''), ' Voided: visit skipped from the schedule after an auto-start.'))
+                                  WHERE visit_id = ? AND status = 'active' AND end_time IS NULL AND auto_started = 1");
+            $void->execute([$visitId]);
+            $n += $void->rowCount();
+            $end = $db->prepare("UPDATE job_time_entries
+                                 SET end_time = NOW(), duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()), status = 'completed',
+                                     notes = TRIM(CONCAT(COALESCE(notes, ''), ' Ended: visit skipped from the schedule.'))
+                                 WHERE visit_id = ? AND status = 'active' AND end_time IS NULL");
+            $end->execute([$visitId]);
+            $n += $end->rowCount();
+        } catch (Throwable $e) {
+            error_log("closeOpenTimersForSkip visit {$visitId}: " . $e->getMessage());
+        }
+        return $n;
+    }
+
+    /**
+     * Skip every open visit on a stop from the schedule card (desktop Skip, 2026-11-03).
+     * $fromDesk (office) also skips in_progress visits, closing their timers first.
+     *
+     * @return array ['success' => bool, 'skipped' => int[], 'refused' => string[], 'message' => string]
+     */
+    public static function skipStop(int $stopId, int $userId, string $reason = '', bool $fromDesk = false): array {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id AS visit_id, status AS visit_status, locked_at, invoice_id
+                              FROM job_visits WHERE stop_id = ? AND status <> 'cancelled'");
+        $stmt->execute([$stopId]);
+        $pick = self::skippableAtStop($stmt->fetchAll(PDO::FETCH_ASSOC), $fromDesk);
+        $done = [];
+        foreach ($pick['skip'] as $visitId) {
+            $r = self::skipVisit($visitId, $userId, $reason, $fromDesk);
+            if (!empty($r['success'])) $done[] = $visitId;
+            else $pick['refused'][] = "{$visitId}: " . ($r['message'] ?? 'failed');
+        }
+        if (!$done && !$pick['refused']) {
+            return ['success' => true, 'skipped' => [], 'refused' => [], 'message' => 'Nothing left to skip on this stop'];
+        }
+        return [
+            'success' => (bool)$done,
+            'skipped' => $done,
+            'refused' => $pick['refused'],
+            'message' => $done ? 'Stop skipped' : 'No visit on this stop could be skipped (' . implode('; ', $pick['refused']) . ')',
+        ];
     }
 
     /**
@@ -611,7 +695,7 @@ class VisitLifecycleService
      *
      * @return array ['success' => bool, 'message' => string]
      */
-    public static function skipVisit(int $visitId, int $userId, string $reason = ''): array {
+    public static function skipVisit(int $visitId, int $userId, string $reason = '', bool $fromDesk = false): array {
         $db = getDB();
         $stmt = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
         $stmt->execute([$visitId]);
@@ -623,8 +707,11 @@ class VisitLifecycleService
         if ($status === 'skipped') {
             return ['success' => true, 'message' => 'Visit already skipped'];
         }
-        if (!self::canSkipFromStatus((string)$status)) {
+        if (!self::canSkipFromStatus((string)$status, $fromDesk)) {
             return ['success' => false, 'message' => "A visit that is {$status} cannot be skipped"];
+        }
+        if ($status === 'in_progress') {
+            self::closeOpenTimersForSkip($db, $visitId);
         }
 
         $reason = trim($reason);
@@ -654,6 +741,13 @@ class VisitLifecycleService
             // Ensure stop exists for new date
             $crewId = $visit['assigned_crew_id'] ?? $plan['default_crew_id'];
             $newStopId = ensureCalendarStop((int)$plan['property_id'], $newDate, $crewId ? (int)$crewId : null);
+
+            // Finished work stays on its day (VisitCarryGuard, 2026-10-27): a visit that already has an
+            // After photo is completed here and a fresh visit is created on the new date instead.
+            require_once __DIR__ . '/VisitCarryGuard.php';
+            if ((new VisitCarryGuard($db))->splitIfFinished($visitId, $newDate, $newStopId ? (int)$newStopId : null) !== null) {
+                return true;
+            }
 
             // Update visit — always update scheduled_date; only update stop_id if a valid stop was found
             $built = self::buildMoveVisitSet($newDate, (int)$newStopId, $newTimeStart);

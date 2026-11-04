@@ -28,6 +28,8 @@ if (!defined('EXPENSE_ACCOUNTING_CATEGORIES') && defined('APP_ROOT')) {
     require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
 }
 
+require_once __DIR__ . '/BankLineAge.php';   // age bucket + reconciling-item class on every waiting line (2026-11-03)
+
 class BankDeskService
 {
     public const DEFAULT_CODES = ['4900', '6900'];
@@ -92,6 +94,27 @@ class BankDeskService
         return (int)$this->db->query("SELECT COUNT(*) " . $this->waitingSql())->fetchColumn();
     }
 
+    /**
+     * A deposit the Jobber ledger has already matched to its payments and booked (and not undone)
+     * is done: asking Penny's "I don't know yet" about it only buries the lines that are still open.
+     * Pure SQL fragment, empty when the log table does not exist yet.
+     */
+    public static function notBookedByJobberLedger(bool $logExists): string
+    {
+        return $logExists
+            ? "                  AND NOT EXISTS (SELECT 1 FROM jobber_ledger_log jl WHERE jl.transaction_id = t.id AND jl.undone_at IS NULL)"
+            : '';
+    }
+
+    private function hasJobberLedgerLog(): bool
+    {
+        try {
+            return $this->db->query("SHOW TABLES LIKE 'jobber_ledger_log'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     private function waitingSql(): string
     {
         $codes = "'" . implode("','", self::DEFAULT_CODES) . "'";
@@ -104,8 +127,18 @@ class BankDeskService
                        OR (t.type = 'transfer' AND a.code = '2400' AND t.matched_expense_id IS NULL
                            AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU|AUTOMATIC PAYMENT|PAYMENT RECEIVED'))
                   AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
+" . self::notBookedByJobberLedger($this->hasJobberLedgerLog()) . "
                   AND NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.status = 'locked'
                                   AND p.year = YEAR(t.transaction_date) AND p.month = MONTH(t.transaction_date))";
+    }
+
+    /** Age classes for a month's waiting lines (BankLineAge::summarise) — the close's "over 90 days" sentences. */
+    public function ageSummary(string $month, ?string $today = null): array
+    {
+        if (!$this->ready() || !preg_match('/^\d{4}-\d{2}$/', $month)) return BankLineAge::summarise([], $today ?: date('Y-m-d'));
+        $rows = $this->db->query("SELECT t.transaction_date, t.amount, t.description " . $this->waitingSql()
+            . " AND t.transaction_date >= '{$month}-01' AND t.transaction_date < '" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'")->fetchAll(PDO::FETCH_ASSOC);
+        return BankLineAge::summarise($rows, $today ?: date('Y-m-d'));
     }
 
     /**
@@ -144,6 +177,7 @@ class BankDeskService
                 'suggestion'  => $s,
                 'note'        => self::note($r),
                 'stripe'      => self::isStripePayout($r),
+                'age'         => BankLineAge::classify($r, date('Y-m-d')),   // {class, bucket, age, why}
                 // A client paying (e-Transfer, EFT, cheque): the card asks "which invoice?" first.
                 'client_payment' => $r['type'] === 'income' && !self::isStripePayout($r)
                                     && BankInvoiceMatchService::looksLikeClientPayment((string)$r['description']),

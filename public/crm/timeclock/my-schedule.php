@@ -161,6 +161,12 @@ $extraHead = '<script>(function(){var n=!!(window.Capacitor&&window.Capacitor.is
     </div>
 </div>
 
+<?php
+// Salt & snow route stops are listed only while a run is on (SnowRunGate): the strip with Start / End run.
+$snowRunBanner = ['date' => $viewDate];
+include dirname(__DIR__) . '/includes/snow-run-banner.php';
+?>
+
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">
     <div class="mw-schedule-stat">
@@ -629,24 +635,111 @@ function mwInjectFlatlineCSS() {
         .catch(function() { callback(0, null); });
     }
 
+    // callback(lat, lng, err) — err is null on success; otherwise an Error whose
+    // .code (from capacitor-bridge.js) is LOCATION_OFF, PERMISSION or NO_FIX.
     function mwGetGPS(callback) {
-        if (window.MwTimeClock && window.MwTimeClock.getGPS) {
-            window.MwTimeClock.getGPS(callback);
-            return;
-        }
+        // Native bridge first: its own chain is bounded (10 s fresh + 8 s cached) and
+        // reports WHY it failed. The topbar widget's getGPS wraps the same call in a
+        // hard timer and drops the error code, so it is only the non-native fallback.
         if (window.MwNative && window.MwNative.geo) {
+            var settled = false;
+            var guard = setTimeout(function() {
+                if (!settled) { settled = true; callback(null, null, mwGpsError('NO_FIX')); }
+            }, 22000);
             window.MwNative.geo.getCurrentPosition()
-                .then(function(pos) { callback(pos.lat, pos.lng); })
-                .catch(function() { callback(null, null); });
+                .then(function(pos) {
+                    if (settled) return; settled = true; clearTimeout(guard);
+                    callback(pos.lat, pos.lng, null);
+                })
+                .catch(function(err) {
+                    if (settled) return; settled = true; clearTimeout(guard);
+                    callback(null, null, err && err.code ? err : mwGpsError('NO_FIX'));
+                });
+        } else if (window.MwTimeClock && window.MwTimeClock.getGPS) {
+            window.MwTimeClock.getGPS(function(lat, lng) {
+                callback(lat, lng, (lat === null || lng === null) ? mwGpsError('NO_FIX') : null);
+            });
         } else if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
-                function(pos) { callback(pos.coords.latitude, pos.coords.longitude); },
-                function() { callback(null, null); },
-                { timeout: 5000, maximumAge: 60000 }
+                function(pos) { callback(pos.coords.latitude, pos.coords.longitude, null); },
+                function(e) { callback(null, null, mwGpsError(e && e.code === 1 ? 'PERMISSION' : 'NO_FIX')); },
+                { timeout: 10000, maximumAge: 300000 }
             );
         } else {
-            callback(null, null);
+            callback(null, null, mwGpsError('NO_FIX'));
         }
+    }
+
+    function mwGpsError(code) {
+        var e = new Error(code);
+        e.code = code;
+        return e;
+    }
+
+    // Replaces alert(): says what actually failed and offers the fix that matches.
+    // No confirm()/alert() — the Android WebView swallows them (see clock-out note below).
+    function mwShowLocationNotice(err, retryFn) {
+        var section = document.getElementById('mobileClockSection');
+        if (!section) return;
+        mwHideLocationNotice();
+        var code = (err && err.code) || 'NO_FIX';
+        var text, fixLabel, fixFn;
+        if (code === 'LOCATION_OFF') {
+            text = 'Location is switched off on this device. Settings \u2192 Location \u2192 turn it on, then try again.';
+            fixLabel = 'Open settings';
+            fixFn = function() {
+                if (window.MwNative && window.MwNative.geo && window.MwNative.geo.openLocationSettings) {
+                    window.MwNative.geo.openLocationSettings().catch(function() {});
+                } else if (window.MwNative && window.MwNative.openAppSettings) {
+                    window.MwNative.openAppSettings();
+                }
+            };
+        } else if (code === 'PERMISSION') {
+            text = 'The app is not allowed to use location. Allow it in the app\'s settings, then try again.';
+            fixLabel = 'Open app settings';
+            fixFn = function() {
+                if (window.MwNative && window.MwNative.openAppSettings) window.MwNative.openAppSettings();
+            };
+        } else {
+            text = 'Couldn\'t get a GPS fix. Move into the open, away from the dash, and try again.';
+            fixLabel = null;
+            fixFn = null;
+        }
+        var box = document.createElement('div');
+        box.id = 'mwLocationNotice';
+        box.className = 'alert alert-warning mt-2 mb-0';
+        box.setAttribute('role', 'alert');
+        var p = document.createElement('div');
+        p.textContent = text;
+        box.appendChild(p);
+        var row = document.createElement('div');
+        row.className = 'mt-2';
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-sm btn-success mr-2';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', function() { mwHideLocationNotice(); retryFn(); });
+        row.appendChild(retry);
+        if (fixLabel && fixFn && window.MwNative) {
+            var fix = document.createElement('button');
+            fix.type = 'button';
+            fix.className = 'btn btn-sm btn-outline-secondary';
+            fix.textContent = fixLabel;
+            fix.addEventListener('click', fixFn);
+            row.appendChild(fix);
+        }
+        box.appendChild(row);
+        section.appendChild(box);
+    }
+
+    function mwHideLocationNotice() {
+        var old = document.getElementById('mwLocationNotice');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    // The server refuses a clock action without coordinates when GPS is required.
+    function mwIsLocationRefusal(data) {
+        return !!(data && data.error && /GPS fix|location/i.test(data.error));
     }
 
     // Mobile clock-in button
@@ -656,12 +749,13 @@ function mwInjectFlatlineCSS() {
             btnIn.disabled = true;
             btnIn.textContent = 'Clocking in...';
 
-            mwGetGPS(function(lat, lng) {
+            var resetIn = function() { btnIn.disabled = false; btnIn.textContent = 'Clock In'; };
+            var retryIn = function() { btnIn.click(); };
+            mwGetGPS(function(lat, lng, gpsErr) {
                 mwClockPost('clock_in', lat, lng, function(status, data) {
                     if (data === null) {
                         alert('Network error — please try again');
-                        btnIn.disabled = false;
-                        btnIn.textContent = 'Clock In';
+                        resetIn();
                         return;
                     }
                     if (data.success) {
@@ -674,10 +768,12 @@ function mwInjectFlatlineCSS() {
 
                         targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
                         setTimeout(function() { location.reload(); }, 3200);
+                    } else if (gpsErr && mwIsLocationRefusal(data)) {
+                        mwShowLocationNotice(gpsErr, retryIn);
+                        resetIn();
                     } else {
                         alert(data.error || 'Clock in failed');
-                        btnIn.disabled = false;
-                        btnIn.textContent = 'Clock In';
+                        resetIn();
                     }
                 });
             });
@@ -707,20 +803,23 @@ function mwInjectFlatlineCSS() {
             btnOut.disabled = true;
             btnOut.textContent = 'Clocking out...';
 
-            mwGetGPS(function(lat, lng) {
+            var resetOut = function() { btnOut.disabled = false; btnOut.textContent = 'Clock Out'; };
+            var retryOut = function() { btnOut.dataset.confirming = '1'; btnOut.click(); };
+            mwGetGPS(function(lat, lng, gpsErr) {
                 mwClockPost('clock_out', lat, lng, function(status, data) {
                     if (data === null) {
                         alert('Network error — please try again');
-                        btnOut.disabled = false;
-                        btnOut.textContent = 'Clock Out';
+                        resetOut();
                         return;
                     }
                     if (data.success) {
                         location.reload();
+                    } else if (gpsErr && mwIsLocationRefusal(data)) {
+                        mwShowLocationNotice(gpsErr, retryOut);
+                        resetOut();
                     } else {
                         alert(data.error || 'Clock out failed');
-                        btnOut.disabled = false;
-                        btnOut.textContent = 'Clock Out';
+                        resetOut();
                     }
                 });
             });

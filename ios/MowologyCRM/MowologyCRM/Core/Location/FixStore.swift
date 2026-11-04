@@ -104,7 +104,18 @@ final class FixStore {
         scheduleFlush()
     }
 
-    /// Everything is dropped when the person signs out — it is their data, not the next user's.
+    private static let ownerKey = "mw.fixstore.owner"
+
+    /// Whose fixes these are. A sign-out (or a login that expired mid-shift, which signs out) keeps
+    /// them for that person's next sign-in — a 401 used to erase a day of route proof. A different
+    /// person signing in drops them first: one person's trail is never sent under another's login.
+    func claim(for userId: Int?) {
+        guard let userId else { return }
+        let owner = UserDefaults.standard.object(forKey: Self.ownerKey) as? Int
+        if let owner, owner != userId { removeAll() }
+        UserDefaults.standard.set(userId, forKey: Self.ownerKey)
+    }
+
     func removeAll() {
         fixes.removeAll()
         flushNow()

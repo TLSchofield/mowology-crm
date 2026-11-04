@@ -48,6 +48,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
            . '<script src="/crm/js/penny-approve.js?v=' . (@filemtime(__DIR__ . '/js/penny-approve.js') ?: '20261014') . '" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Offline / sync status banner -->
@@ -265,6 +266,7 @@ async function submitReceiptExport() {
     </div>
 </div>
 <?php endif; ?>
+<script src="/crm/js/receipt-inbox-tools.js?v=20261022a" defer></script>
 
 <?php if ($canEdit): ?>
 <!-- Hidden file inputs (must stay outside hidden containers for mobile access) -->
@@ -674,11 +676,12 @@ async function submitReceiptExport() {
                         <th data-sort="status" onclick="sortExpenses('status')" class="mw-sortable">Status</th>
                         <th class="text-center" title="OCR Confidence">Conf</th>
                         <th>Receipt</th>
+                        <th class="text-center" title="Linked to a bank line">Bank</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="expensesTableBody">
-                    <tr><td colspan="10" class="text-center py-4 text-muted">Loading...</td></tr>
+                    <tr><td colspan="11" class="text-center py-4 text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -1469,6 +1472,10 @@ async function submitReceiptExport() {
                 <?php if ($canApprove): ?>
                 <button type="button" class="btn btn-outline-danger" id="expRejectBtn" onclick="rejectExpenseFromModal()" style="display:none;">
                     <i data-feather="x" style="width:16px;height:16px;margin-right:4px;"></i> Reject
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="expFileBookedBtn" onclick="fileBookedFromModal()" style="display:none;"
+                        title="This purchase is already in your filed books: keep the receipt, teach Penny, book nothing">
+                    <i data-feather="archive" style="width:16px;height:16px;margin-right:4px;"></i> Already booked — file it
                 </button>
                 <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
                     <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
@@ -3179,11 +3186,12 @@ async function submitReceiptExport() {
             var r = await fetch('/crm/api/expenses.php?' + params);
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+            window.__bankDataThrough = d.bank_data_through || null;
             renderExpenses(d.expenses, d.total, d.page, d.pages, d.per_page);
             renderMobileExpenses(d.expenses);
         } catch(e) {
             document.getElementById('expensesTableBody').innerHTML =
-                '<tr><td colspan="10" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
+                '<tr><td colspan="11" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
         }
     };
 
@@ -3206,6 +3214,29 @@ async function submitReceiptExport() {
             rejected: 'bg-danger',
             forwarded: 'bg-success',
         }[e.status] || 'bg-secondary';
+
+        // A copy of a receipt already in a filed year is stored as 'rejected' with a "Filed:" reason; it is not a rejection.
+        var statusLabel = e.status;
+        if (e.status === 'rejected' && /^Filed:/.test(e.rejection_reason || '')) {
+            statusBadge = 'bg-secondary';
+            statusLabel = 'filed';
+        }
+
+        window.__expBank = window.__expBank || {};
+        window.__expBank[e.id] = e;
+        // Bank icon + word (Ittai v1.2 status colours in mowology-brand.css .it-bank): Linked (click to check) /
+        // Missing (booked card receipt, no bank line) / Waiting (newer than the last imported statement) / grey dash (not expected yet).
+        var BANK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>';
+        var bankExpected = (e.status === 'approved' || e.status === 'forwarded' || statusLabel === 'filed')
+            && String(e.payment_method || '').toLowerCase() !== 'cash';
+        var bankWaiting = bankExpected && window.__bankDataThrough && e.expense_date > window.__bankDataThrough;
+        var bankCell = e.bank_line
+            ? '<a href="#" class="it-bank it-bank--linked" onclick="openBankLinkPopup(event,' + e.id + ');return false;" title="Linked to a bank line — click to check">' + BANK_SVG + 'Linked</a>'
+            : (bankWaiting
+                ? '<span class="it-bank it-bank--waiting" title="Waiting for a statement: bank lines are imported only up to ' + esc(window.__bankDataThrough) + '">' + BANK_SVG + 'Waiting</span>'
+            : bankExpected
+                ? '<span class="it-bank it-bank--missing" title="Not linked to a bank line">' + BANK_SVG + 'Missing</span>'
+                : '<span class="it-bank it-bank--idle" title="Not linked to a bank line (not expected yet)">' + BANK_SVG + '&ndash;</span>');
 
         var conf = parseInt(e.match_confidence) || 0;
         var confDot = '';
@@ -3256,16 +3287,17 @@ async function submitReceiptExport() {
             '<td>' + (e.job_id
                 ? '<a href="#" class="mw-job-assign-link" onclick="openJobPopover(event,' + e.id + ',' + e.job_id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>'
                 : (CAN_EDIT ? '<a href="#" class="mw-job-assign-link text-muted" onclick="openJobPopover(event,' + e.id + ',null);return false;" title="Assign to job">Assign</a>' : '<span class="text-muted">—</span>')) + '</td>' +
-            '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
+            '<td><span class="badge ' + statusBadge + '"' + (statusLabel === 'filed' ? ' title="' + esc(e.rejection_reason || '') + '"' : '') + '>' + statusLabel + '</span></td>' +
             '<td class="text-center">' + confDot + '</td>' +
             '<td>' + receiptIcon + '</td>' +
+            '<td class="text-center">' + bankCell + '</td>' +
             '<td class="text-end text-nowrap">' + actions + '</td>' +
         '</tr>';
     }
 
     function renderExpenses(expenses, total, page, pages, perPage) {
         var tbody = document.getElementById('expensesTableBody');
-        var colSpan = CAN_EDIT ? 10 : 9;
+        var colSpan = CAN_EDIT ? 11 : 10;
 
         if (!expenses.length) {
             tbody.innerHTML = '<tr><td colspan="' + colSpan + '" class="text-center py-4 text-muted">No expenses found</td></tr>';
@@ -3702,6 +3734,41 @@ async function submitReceiptExport() {
         loadStats();
     };
 
+    // ── Bank line check popup: is this receipt linked, and does it agree with the line? ──
+    window.openBankLinkPopup = function(evt, expenseId) {
+        evt.stopPropagation();
+        var e = (window.__expBank || {})[expenseId];
+        var old = document.getElementById('bankLinkPopup');
+        if (old) old.remove();
+        if (!e || !e.bank_line) return;
+        var b = e.bank_line;
+        var diff = Math.round((parseFloat(e.total) - parseFloat(b.amount)) * 100) / 100;
+        var verdict = diff === 0
+            ? '<span class="it-bank it-bank--linked">Amounts match</span>'
+            : '<span class="it-bank it-bank--missing" style="white-space:normal">Receipt differs from the line by $' + Math.abs(diff).toFixed(2) + '</span>';
+        var thumb = e.receipt_path && e.receipt_kind === 'image'
+            ? '<img src="' + esc(e.receipt_thumb || e.receipt_path) + '" alt="Receipt" style="width:64px;height:64px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="openLightbox(\'' + esc(e.receipt_path) + '\')">'
+            : '';
+        var pop = document.createElement('div');
+        pop.id = 'bankLinkPopup';
+        pop.style.cssText = 'position:absolute;z-index:1080;width:300px;background:#fff;border:1px solid var(--mw-light);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:12px;font-size:.85rem';
+        pop.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Bank line' + (b.extra ? ' (one of several receipts)' : '') + '</strong>'
+            + '<a href="#" onclick="document.getElementById(\'bankLinkPopup\').remove();return false;" style="color:#888;text-decoration:none">&times;</a></div>'
+            + '<div style="display:flex;gap:10px"><div style="flex:1;min-width:0">'
+            + '<div>' + esc(b.date) + ' &middot; <strong>$' + esc(b.amount) + '</strong></div>'
+            + '<div style="color:#666;word-break:break-word">' + esc(b.description) + '</div>'
+            + '<div style="margin-top:6px">Receipt: ' + esc(e.vendor_name || e.vendor_name_raw || '—') + ' &middot; $' + parseFloat(e.total).toFixed(2) + '</div>'
+            + '<div style="margin-top:4px">' + verdict + '</div></div>' + thumb + '</div>';
+        document.body.appendChild(pop);
+        var rect = evt.currentTarget.getBoundingClientRect();
+        pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+        pop.style.left = Math.max(8, Math.min(rect.left + window.scrollX - 140, window.innerWidth - 316)) + 'px';
+    };
+    document.addEventListener('click', function(ev) {
+        var pop = document.getElementById('bankLinkPopup');
+        if (pop && !pop.contains(ev.target)) pop.remove();
+    });
+
     // ── Inline Job Assign Popover ────────────────────────────────
     window.openJobPopover = function(evt, expenseId, currentJobId) {
         evt.stopPropagation();
@@ -3882,6 +3949,8 @@ async function submitReceiptExport() {
             var canAct = e.status !== 'approved' && e.status !== 'rejected' && e.status !== 'forwarded';
             if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
             if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
+            var fileBtn = document.getElementById('expFileBookedBtn');   // only a receipt dated in a filed year
+            if (fileBtn) fileBtn.style.display = (canAct && String(e.expense_date || '') < '2026-01-01') ? '' : 'none';
             if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
             var personalGrp = document.getElementById('expPersonalGroup');
             if (personalGrp) personalGrp.style.display = (e.status === 'rejected' || e.status === 'forwarded' || e.forwarded_to_accounting) ? 'none' : '';
@@ -3952,22 +4021,6 @@ async function submitReceiptExport() {
                 document.getElementById('matchConfidenceBadge').textContent = e.match_confidence + '%';
             } else {
                 document.getElementById('matchConfidenceRow').style.display = 'none';
-            }
-
-            // Printed on the receipt (receipt_facts, migration 1227): "12:22–12:39 · ticket 43176009 · ••1234"
-            var factsEl = document.getElementById('expFactsLine');
-            if (!factsEl) {
-                var factsAnchor = document.getElementById('matchConfidenceRow');
-                if (factsAnchor && factsAnchor.parentNode) {
-                    factsEl = document.createElement('div');
-                    factsEl.id = 'expFactsLine';
-                    factsEl.className = 'small text-muted mb-2';
-                    factsAnchor.parentNode.insertBefore(factsEl, factsAnchor);
-                }
-            }
-            if (factsEl) {
-                factsEl.textContent = e.receipt_facts_line ? '🧾 Printed: ' + e.receipt_facts_line : '';
-                factsEl.style.display = e.receipt_facts_line ? 'block' : 'none';
             }
 
             // Anomaly detection display
@@ -4080,6 +4133,8 @@ async function submitReceiptExport() {
                             var saved = window.mwExpSavedTotal || 0, form = parseFloat(fTot) || 0;
                             if (agree(saved)) return '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>';
                             if (agree(form)) return '<button type="button" class="mw-action-btn" disabled title="Save the new total first">Save, then attach</button>';
+                            // A meal charged more than its receipt by a plausible tip: fill amount + total + a note (the tax is left as printed).
+                            if (c.vendor_only && c.tip) return '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\', ' + c.tip.tip.toFixed(2) + ', ' + c.tip.amount.toFixed(2) + ')">Use $' + c.amount.toFixed(2) + ' with tip</button>';
                             return c.vendor_only ? '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\')">Use $' + c.amount.toFixed(2) + '</button>'
                                                  : '<button type="button" class="mw-action-btn" disabled title="The amounts differ">Totals differ</button>';
                         })() +
@@ -4094,11 +4149,19 @@ async function submitReceiptExport() {
     };
 
     /** Put a same-vendor bank line's amount and date in the form (nothing saved): check the paper, then Save, then Attach. */
-    window.mwUseBankLine = function(amount, date) {
+    window.mwUseBankLine = function(amount, date, tip, preTax) {
         var t = document.getElementById('expTotal'), d = document.getElementById('expDate');
+        // With a tip: the pre-tax amount takes it (a tip carries no GST or PST) and the notes say so.
+        if (tip && preTax) {
+            var a = document.getElementById('expAmount'), n = document.getElementById('expNotes');
+            if (a) { a.value = Number(preTax).toFixed(2); a.dispatchEvent(new Event('input', { bubbles: true })); a.dispatchEvent(new Event('change', { bubbles: true })); }
+            if (n && n.value.indexOf('Tip $') === -1) n.value = (n.value ? n.value + ' · ' : '') + 'Tip $' + Number(tip).toFixed(2) + ' (bank charge $' + Number(amount).toFixed(2) + ')';
+        }
         if (t) { t.value = amount; t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); }
         if (d && date) { d.value = date; d.dispatchEvent(new Event('input', { bubbles: true })); d.dispatchEvent(new Event('change', { bubbles: true })); }
-        if (window.mwToast) mwToast('Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
+        if (window.mwToast) mwToast(tip && preTax
+            ? 'Added a $' + Number(tip).toFixed(2) + ' tip: pre-tax $' + Number(preTax).toFixed(2) + ', total $' + amount + ' (tax unchanged). Check the receipt, then Save Expense and Attach.'
+            : 'Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
     };
 
     window.mwAttachExpenseMatch = async function(transactionId, expenseId) {
@@ -4150,7 +4213,7 @@ async function submitReceiptExport() {
         } catch (err) { /* the split is a bonus — the form works without it */ }
     }
 
-    window.saveExpense = async function() {
+    window.saveExpense = async function(opts) {
         var id = document.getElementById('expenseId').value;
         function buildData() {
             var d = {
@@ -4194,10 +4257,34 @@ async function submitReceiptExport() {
                 if (!d.success) throw new Error(d.error);
                 if (d.warning) alert(d.warning);
             });
+            if (!(opts && opts.keepOpen)) {
+                $('#expenseModal').modal('hide');
+                loadExpenses(currentPage);
+                loadStats();
+            }
+            return true;
+        } catch(e) { alert('Error: ' + e.message); return false; }
+    };
+
+    // "Already booked — file it": save what is on screen (so the corrections teach), then keep the receipt and book nothing.
+    window.fileBookedFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        if (!confirm('This purchase is already in your filed books. Keep the receipt and photo, teach Penny from what is on screen, and book nothing?')) return;
+        if (!(await window.saveExpense({ keepOpen: true }))) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'file_booked', csrf_token: CSRF, id: parseInt(id) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
             $('#expenseModal').modal('hide');
+            loadApprovals();
             loadExpenses(currentPage);
             loadStats();
-        } catch(e) { alert('Error: ' + e.message); }
+        } catch (e) { alert('Error: ' + e.message); }
     };
 
     /** Penny's read in the edit modal (shared with the iPhone receipt detail via PennyReadService). */
@@ -6223,13 +6310,22 @@ async function submitReceiptExport() {
     // as "Is this …?"; nothing alike → "Add to catalogue". Each answer teaches her the vendor's wording.
     var mwCatFamilies = [], mwCatCanDecide = false, mwCatSeq = 0;
     function mwCatHow(m) { return m === 'alias' ? 'Penny knew it' : (m === 'exact' ? 'matched by name' : (m === 'added' ? 'added by you' : 'confirmed')); }
+    function mwCatMoney(v) { return '$' + Number(v || 0).toFixed(2); }
+    function mwCatUnit(v, label) { return v == null || !label ? '' : ' ($' + Number(v).toFixed(2) + esc(label.substring(1)) + ')'; }
     function mwCatCell(id, c) {
         if (!c || !c.eligible) return '';
         var h = '<div class="mw-li-cat small mt-1" data-cat-line="' + id + '">';
-        if (!mwCatCanDecide) return c.product ? h + 'Catalogue: <strong>' + esc(c.product.name) + '</strong></div>' : '';
         if (c.product) {
             h += 'Catalogue: <strong>' + esc(c.product.name) + '</strong> <span class="text-muted">(' + esc(mwCatHow(c.match)) + ')</span>'
-               + ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">change</button>';
+               + (mwCatCanDecide ? ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">change</button>' : '')
+               + ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="history" data-cat-product="' + c.product.id + '">price history</button>';
+            if (c.hint) {
+                h += '<div class="mw-li-hint">Last paid ' + mwCatMoney(c.hint.last.price) + ' at ' + esc(c.hint.last.vendor) + ' (' + esc(c.hint.last.date) + ')'
+                   + mwCatUnit(c.hint.last.per_unit_value, c.hint.last.per_unit_label) + ' · cheapest ' + mwCatMoney(c.hint.cheapest.price) + ' at ' + esc(c.hint.cheapest.vendor)
+                   + mwCatUnit(c.hint.cheapest.per_unit_value, c.hint.cheapest.per_unit_label) + '</div>';
+            }
+        } else if (!mwCatCanDecide) {
+            return '';
         } else if (c.suggested) {
             h += 'Is this <strong>' + esc(c.suggested.name) + '</strong>? '
                + '<button type="button" class="btn btn-outline-success btn-sm py-0 px-2" data-cat-act="yes" data-cat-product="' + c.suggested.id + '">Yes</button> '
@@ -6279,8 +6375,26 @@ async function submitReceiptExport() {
         if (!box) return;
         var line = parseInt(box.getAttribute('data-cat-line'), 10), act = b.getAttribute('data-cat-act');
         var panel = box.querySelector('[data-cat-panel]'), c = box._cat || {};
+        if (act === 'history') {
+            panel.innerHTML = '<div class="mw-li-hint mt-1">Loading price history…</div>';
+            fetch('/crm/api/expenses.php?action=catalog_price_history&product_id=' + encodeURIComponent(b.getAttribute('data-cat-product')), { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var rows = (d && d.by_vendor) || [];
+                    var body = rows.map(function (x) {
+                        var per = x.cheapest_per_unit == null ? '—' : '$' + Number(x.cheapest_per_unit).toFixed(2) + esc((x.per_unit_label || '').substring(1));
+                        return '<tr><td>' + esc(x.vendor) + '</td><td>' + mwCatMoney(x.last_price) + '<div class="mw-li-hint">' + esc(x.last_date) + '</div></td>'
+                            + '<td>' + mwCatMoney(x.cheapest_price) + '</td><td>' + per + '</td><td>' + Number(x.count || 0) + '</td></tr>';
+                    }).join('');
+                    panel.innerHTML = '<div class="mw-li-history"><table class="table table-sm mb-1"><thead><tr><th>Vendor</th><th>Last paid</th><th>Cheapest</th><th>Per unit</th><th>Times bought</th></tr></thead><tbody>'
+                        + (body || '<tr><td colspan="5" class="text-muted">No other purchases yet.</td></tr>')
+                        + '</tbody></table><button type="button" class="btn btn-link btn-sm p-0" data-cat-act="close">Close</button></div>';
+                }).catch(function () { panel.innerHTML = '<div class="text-danger mt-1">Price history could not be loaded.</div>'; });
+            return;
+        }
+        if (act === 'close') { panel.innerHTML = ''; return; }
         if (act === 'find') {
-            panel.innerHTML = '<div class="d-flex mt-1" style="gap:6px"><input type="search" class="form-control form-control-sm" data-cat-q placeholder="Search the catalogue" aria-label="Search the catalogue"></div><div data-cat-results></div>';
+            panel.innerHTML = '<div class="d-flex mt-1 mw-li-cat-fields"><input type="search" class="form-control form-control-sm" data-cat-q placeholder="Search the catalogue" aria-label="Search the catalogue"></div><div data-cat-results></div>';
             var q = panel.querySelector('[data-cat-q]'), t = null;
             q.value = (c.add && c.add.name) || '';
             var run = function () {
@@ -6303,10 +6417,14 @@ async function submitReceiptExport() {
         }
         if (act === 'add') {
             var opts = mwCatFamilies.map(function (f) { return '<option value="' + esc(f.slug) + '"' + (c.add && c.add.family === f.slug ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
-            panel.innerHTML = '<div class="d-flex flex-wrap mt-1" style="gap:6px">'
-                + '<input type="text" class="form-control form-control-sm" style="max-width:260px" data-cat-name aria-label="Product name" value="' + esc((c.add && c.add.name) || '') + '">'
-                + '<input type="text" class="form-control form-control-sm" style="max-width:140px" data-cat-brand aria-label="Brand (optional)" placeholder="Brand (optional)">'
-                + '<select class="form-control form-control-sm" style="max-width:180px" data-cat-family aria-label="Kind of product">' + opts + '</select>'
+            var size = (c.add && c.add.size) || {}, units = ['l', 'ml', 'kg', 'g', 'm', 'cm', 'pc'];
+            var unitOpts = units.map(function (u) { return '<option value="' + u + '"' + (size.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('');
+            panel.innerHTML = '<div class="d-flex flex-wrap mt-1 mw-li-cat-fields">'
+                + '<input type="text" class="form-control form-control-sm mw-li-cat-name" data-cat-name aria-label="Product name" value="' + esc((c.add && c.add.name) || '') + '">'
+                + '<input type="text" class="form-control form-control-sm mw-li-cat-brand" data-cat-brand aria-label="Brand (optional)" placeholder="Brand (optional)">'
+                + '<select class="form-control form-control-sm mw-li-cat-family" data-cat-family aria-label="Kind of product">' + opts + '</select>'
+                + '<input type="number" min="0" step="0.001" class="form-control form-control-sm mw-li-cat-size" data-cat-size-qty aria-label="Package size" placeholder="Size" value="' + esc(size.qty == null ? '' : size.qty) + '">'
+                + '<select class="form-control form-control-sm mw-li-cat-unit" data-cat-size-unit aria-label="Package size unit">' + unitOpts + '</select>'
                 + '<button type="button" class="btn btn-success btn-sm" data-cat-act="save">Add</button></div>';
             var nm = panel.querySelector('[data-cat-name]');
             if (nm) nm.focus();
@@ -6320,6 +6438,8 @@ async function submitReceiptExport() {
             body.name = (panel.querySelector('[data-cat-name]') || {}).value || '';
             body.brand = (panel.querySelector('[data-cat-brand]') || {}).value || '';
             body.family = (panel.querySelector('[data-cat-family]') || {}).value || '';
+            body.size_qty = (panel.querySelector('[data-cat-size-qty]') || {}).value || '';
+            body.size_unit = (panel.querySelector('[data-cat-size-unit]') || {}).value || '';
         } else return;
         if (box.getAttribute('data-busy') === '1') return;             // Yes and No can't both go
         box.setAttribute('data-busy', '1');

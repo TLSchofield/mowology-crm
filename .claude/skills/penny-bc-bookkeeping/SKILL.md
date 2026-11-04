@@ -1,6 +1,6 @@
 ---
 name: penny-bc-bookkeeping
-description: Use BEFORE touching anything money-related in the Mowology CRM / Ittai — Penny (the AI bookkeeper), receipts and OCR, expenses, GST/PST/ITCs, invoices and payments, bank or credit-card statements, deposits, Stripe payouts, e-Transfers, Yardi/SparcPay remittances, the ledger/journal, cash-flow forecast, payroll remittances, ROEs, T4s, WorkSafeBC, year-end, or any question about Tim's books. Also when Tim asks "how much…", "why is income…", "is this paid…", or reports a wrong flag on a receipt. Holds British Columbia bookkeeping rules, how this ledger works (and where it already double-counted), how Penny is allowed to operate, the single source of truth for each job, and the traps already hit.
+description: Use BEFORE touching anything money-related in the Mowology CRM / Ittai: Penny (the AI bookkeeper), receipts and OCR, expenses, GST/PST/ITCs, invoices and payments, bank or card statements, deposits, Stripe payouts, e-Transfers, Yardi/SparcPay remittances, the ledger/journal, cash-flow forecast, payroll, ROEs, T4s, WorkSafeBC, year-end, or any question about Tim's books ("how much…", "why is income…", "is this paid…", a wrong flag on a receipt).
 covers:
   - app/Modules/Accounting/*
   - app/Modules/Expenses/*
@@ -20,7 +20,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
   - database/migrations/*
 metadata:
-  version: 1.0.0
+  version: 1.3.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — tax facts to be confirmed by Steve Lim CPA (Sit Lim CPA)
 ---
@@ -37,7 +37,8 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 | What Penny does with those rules | `references/bc-rules.md` |
 | Income, deposits, payments, Stripe, Jobber era, journal vs P&L, tables | `references/ledger.md` |
 | What Penny may do, learn, flag, chase; approvals | `references/operating-rules.md` |
-| Traps already hit (read before ANY write to the books) | `references/traps.md` |
+| Which function owns each job (the full "one place" table) | `references/one-place.md` |
+| Traps already hit, grouped by area (read before ANY write to the books) | `references/traps.md` |
 | iPhone vs Android vs web — keeping Penny the same everywhere | `references/surfaces.md` |
 
 ## Before and after every change (Obsidian + Graphify)
@@ -79,8 +80,21 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
 5. **Penny learns only from confirmed facts.** Owner decisions and certain matches teach;
    imports, guesses and single sightings do not (thresholds in `references/operating-rules.md`).
 
-## One place for each job (improve it there, and every screen and app gets it)
+## One place for each job
 
+Full table (about 50 jobs, each with its one function and everything that uses it): `references/one-place.md`.
+Change the rule there and every screen and app gets it. The ones touched most often:
+
+| Job | The one place |
+|---|---|
+| Receipt risk flags | `detectAnomalies()` in `app/Services/Receipts/AnomalyDetector.php` |
+| Every expense change (create, edit, approve, lines, flags) | `ExpenseGate::apply()` |
+| Recording a customer payment | `InvoiceReconciliationService::applyAllocation()` |
+| Paying an invoice from a deposit | `InvoiceReconciliationService::attach()` |
+| Stripe payout → invoices + fee | `StripePayoutService` |
+| Moving a bank line to another account | `BankLineMoveService::move()` |
+| Journal posting | `LedgerSyncService`, `LedgerAccountMap`, `JobberLedgerService` |
+| Invoice PDF before any invoice email | `InvoicePdfGate` |
 | Job | The one place | Used by |
 |---|---|---|
 | Receipt risk flags | `detectAnomalies()` in `app/Services/Receipts/AnomalyDetector.php` | save, desktop, Penny desk, inbox, mobile |

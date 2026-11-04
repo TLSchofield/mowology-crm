@@ -180,6 +180,15 @@ enum APIEndpoint {
     case teamHeadBriefReady(head: String)
     /// GET /api/team/team-mobile?mode=brains — every head's brain, for the face row's flip.
     case teamBrains
+    /// Penny's owner-confirmed vendor knowledge and one vendor's learned items.
+    case pennyKnowledge
+    case pennyKnowledgeItems(key: String)
+
+    /// Penny onboarding Step 1 — persisted business identity.
+    case businessIdentityCurrent
+    case businessIdentitySearch(name: String)
+    case businessIdentityContacts
+    case businessIdentityAction(mode: String)
 
     /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
     /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
@@ -480,6 +489,31 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brains")]
             return components?.url
+        case .pennyKnowledge:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "knowledge"), URLQueryItem(name: "head", value: "penny")]
+            return components?.url
+        case .pennyKnowledgeItems(let key):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "knowledge_items"), URLQueryItem(name: "head", value: "penny"), URLQueryItem(name: "key", value: key)]
+            return components?.url
+        case .businessIdentityCurrent:
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "current")]
+            return components?.url
+        case .businessIdentitySearch(let name):
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "search"),
+                                      URLQueryItem(name: "q", value: name)]
+            return components?.url
+        case .businessIdentityContacts:
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "contacts")]
+            return components?.url
+        case .businessIdentityAction(let mode):
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
 
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
@@ -666,6 +700,12 @@ enum APIEndpoint {
              .teamHeadBrief,
              .teamHeadBriefReady,
              .teamBrains,
+             .pennyKnowledge,
+             .pennyKnowledgeItems,
+             .businessIdentityCurrent,
+             .businessIdentitySearch,
+             .businessIdentityContacts,
+             .businessIdentityAction,
              .teamHeadAction,
              .ottoMissedReview,
              .ottoMissedReviewAction,
@@ -712,6 +752,9 @@ enum APIEndpoint {
              .snowRouteChoice,
              .equipmentOptions,
              .equipmentList,
+             .businessIdentityCurrent,
+             .businessIdentitySearch,
+             .businessIdentityContacts,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
@@ -739,7 +782,8 @@ enum APIEndpoint {
              .ottoMissedReviewAction,
              .expenseDelete,
              .expenseLineItemAction,
-             .deviceTokenRegister: return "POST"
+             .deviceTokenRegister,
+             .businessIdentityAction: return "POST"
 
         case .expenseList,
              .bookkeeperQueue,
@@ -750,6 +794,8 @@ enum APIEndpoint {
              .teamHeadBrief,
              .teamHeadBriefReady,
              .teamBrains,
+             .pennyKnowledge,
+             .pennyKnowledgeItems,
              .ottoMissedReview,
              .expenseLookup,
              .expenseLineItems,

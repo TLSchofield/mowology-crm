@@ -515,6 +515,49 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
     }
 
     // ── Reopen Visit ─────────────────────────────────────────────────────────
+    // ── Skip stop (desktop schedule card, 2026-11-03) ─────────────────────
+    // Skips every open visit on the stop. The office (admin / jobs.edit) may also skip a
+    // visit started by mistake — its timers are closed first (VisitLifecycleService).
+    if ($action === 'skip_stop') {
+        $stopId = isset($input['stop_id']) ? (int)$input['stop_id'] : 0;
+        if ($stopId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'stop_id is required']);
+            exit;
+        }
+        if (!$isAdmin) {
+            $skStmt = $db->prepare("
+                SELECT 1 FROM calendar_stops
+                WHERE id = ? AND stop_date = CURDATE() AND (crew_id = ? OR id IN (
+                    SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?
+                ))
+            ");
+            $skStmt->execute([$stopId, (int)$user['id'], (int)$user['id']]);
+            if (!$skStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Not authorized for this stop.']);
+                exit;
+            }
+        }
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+        $sk = VisitLifecycleService::skipStop($stopId, (int)$user['id'], (string)($input['reason'] ?? ''), (bool)$isAdmin);
+        if (!empty($sk['skipped'])) {
+            foreach ($sk['skipped'] as $skVisitId) {
+                try { addAuditLog($db, (int)$skVisitId, (int)$user['id'], 'skip', $input['reason'] ?? null, $ip); } catch (Throwable $e) { /* trail only */ }
+            }
+        }
+        if (!$sk['success']) http_response_code(409);
+        echo json_encode([
+            'success' => $sk['success'],
+            'skipped' => $sk['skipped'],
+            'refused' => $sk['refused'],
+            'message' => $sk['message'],
+            'error'   => $sk['success'] ? null : $sk['message'],
+        ]);
+        exit;
+    }
+
     if ($action === 'reopen_visit') {
         if ($visitId < 1) {
             http_response_code(400);

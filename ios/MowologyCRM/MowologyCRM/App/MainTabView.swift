@@ -6,14 +6,46 @@
 //
 
 import SwiftUI
+import UIKit
+
+@MainActor
+final class ReadyBriefStore: ObservableObject {
+    @Published private(set) var response: HeadCardResponse?
+    @Published private(set) var loaded = false
+    @Published private(set) var failed = false
+    @Published private(set) var updatedAt: Date?
+    private var refreshTask: Task<Void, Never>?
+
+    func refresh(authSession: AuthSession, force: Bool = false) async {
+        if let refreshTask { await refreshTask.value; return }
+        guard force || !loaded || failed else { return }
+        let task = Task { @MainActor in
+            failed = false
+            do {
+                let value: HeadCardResponse = try await APIClient(authSession: authSession)
+                    .request(.teamHeadBriefReady(head: "charlie"))
+                if value.ok { response = value; updatedAt = Date() }
+                else { failed = true }
+            } catch { failed = true }
+            loaded = true
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+}
 
 struct MainTabView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
     /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var readyBriefStore = ReadyBriefStore()
+    private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
+    @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
     /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
     /// thumb reaches it, then the occasional Receipts, and Account last by convention.
@@ -51,9 +83,9 @@ struct MainTabView: View {
             // Admins: Team (department heads + Penny's receipt card, with the profile
             // row and Sign Out moved in). Everyone else: the Account tab, unchanged.
             if authSession.user?.isAdmin == true {
-                TeamView(authSession: authSession)
+                TeamView(authSession: authSession, readyBriefStore: readyBriefStore)
                     .tabItem {
-                        Label("Team", systemImage: "person.3.fill")
+                        Label("AI Office", uiImage: AI_OfficeTabIcon.image)
                     }
                     .tag(Tab.account)
             } else {
@@ -64,7 +96,25 @@ struct MainTabView: View {
                     .tag(Tab.account)
             }
         }
-        .tint(Color.MW.green)
+        .tint(appStyle.tenant)
+        .itAppScreen()
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if selectedTab != .schedule && authSession.user?.isAdmin == true && ittaiDesignEnabled {
+                ItOfficeBar(members: officeBarMembers,
+                            connectionUnavailable: readyBriefStore.failed,
+                            portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
+                                ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
+                    selectedTab = .account
+                    notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
+                }
+                .ittaiTheme(field: ittaiFieldEnabled)
+            }
+        }
+        .task {
+            if authSession.user?.isAdmin == true && ittaiDesignEnabled {
+                await readyBriefStore.refresh(authSession: authSession)
+            }
+        }
         .sheet(item: $pullForward.offer, onDismiss: { pullForward.sheetDismissed() }) { offer in
             PullForwardSheet(coordinator: pullForward, offer: offer)
         }
@@ -98,6 +148,18 @@ struct MainTabView: View {
         }
     }
 
+    private var officeBarMembers: [ItOfficeMember] {
+        let order = [("ada", "Ada"), ("mia", "Mia"), ("otto", "Otto"), ("charlie", "Charlie"),
+                     ("penny", "Penny"), ("sam", "Sam"), ("yui", "Yui")]
+        return order.map { slug, name in
+            let report = readyBriefStore.response?.heads?[slug]
+            return ItOfficeMember(id: slug, name: name, department: "",
+                                  state: slug == "ada" ? .unavailable : report?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                                  stateReason: report?.reason, loaded: readyBriefStore.loaded,
+                                  loadFailed: readyBriefStore.failed, available: slug != "ada")
+        }
+    }
+
     /// Clocked in on the server but not yet asked "are you driving today?" → open the Time Clock
     /// tab, whose own sheet asks (no new root-level sheet: those blocked other sheets 2026-10-08).
     private func checkDriverQuestion() {
@@ -123,19 +185,19 @@ struct MainTabView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color(.systemGray3))
+                    .font(appStyle.font(size: 48))
+                    .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
 
                 Text(title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
+                    .font(appStyle.font(.title2, weight: .bold))
+                    .foregroundStyle(appStyle.text)
 
                 Text("Coming soon in v2")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
+            .background(appStyle.page)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -150,16 +212,42 @@ struct MainTabView: View {
                     Section {
                         AccountProfileRow(user: user)
                             .padding(.vertical, 4)
+                            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                     }
                 }
+
+                Section("Appearance") {
+                    ItDesignSettingsRows()
+                }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
 
                 Section {
                     SignOutButton(authSession: authSession)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+@MainActor
+private enum AI_OfficeTabIcon {
+    /// Render once: the tab bar then applies its normal selected/unselected tint.
+    static let image: UIImage = {
+        let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
+        renderer.scale = UIScreen.main.scale
+        return (renderer.uiImage ?? UIImage(systemName: "person.3.fill")!)
+            .withRenderingMode(.alwaysTemplate)
+    }()
+}
+
+private extension Label where Title == Text, Icon == Image {
+    init(_ title: String, uiImage: UIImage) {
+        self.init { Text(title) } icon: { Image(uiImage: uiImage) }
     }
 }
 
@@ -167,20 +255,21 @@ struct MainTabView: View {
 
 /// The signed-in user's name and email — on Account, and on Team for admins.
 struct AccountProfileRow: View {
+    @Environment(\.itAppStyle) private var appStyle
     let user: User
 
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "person.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(size: 44))
+                .foregroundStyle(appStyle.tenant)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.name)
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                 Text(user.email)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
         }
     }
@@ -191,6 +280,7 @@ struct AccountProfileRow: View {
 /// Sign Out — asks first when a shift is still open (see SignOutViewModel).
 /// On Account, and on Team for admins.
 struct SignOutButton: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var vm: SignOutViewModel
 

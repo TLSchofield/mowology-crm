@@ -11,6 +11,7 @@ import SwiftUI
 import UIKit
 
 struct PennyCardView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: PennyCardViewModel
 
@@ -68,12 +69,12 @@ struct PennyCardView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(size: 40))
+                .foregroundStyle(appStyle.tenant)
             Text("Nothing to review. Penny is working through the backlog.")
-                .font(.subheadline)
+                .font(appStyle.font(.subheadline))
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(appStyle.meta)
             messageLine
         }
         .frame(maxWidth: .infinity)
@@ -83,12 +84,12 @@ struct PennyCardView: View {
     private func errorState(_ err: String) -> some View {
         VStack(spacing: 10) {
             Label(err, systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline)
-                .foregroundStyle(.red)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.blocked)
                 .multilineTextAlignment(.center)
             Button("Try again") { Task { await vm.load() } }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -103,8 +104,8 @@ struct PennyCardView: View {
 
             if let who = item.submittedBy, !who.isEmpty {
                 Text("from \(who)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.footnote))
+                    .foregroundStyle(appStyle.meta)
             }
 
             field("Vendor", key: "vendor") {
@@ -122,7 +123,7 @@ struct PennyCardView: View {
                     ForEach(vm.categoryChoices, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.menu)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
             }
             field("For", key: "asset_tag") {
                 Picker("For", selection: $vm.assetTag) {
@@ -132,8 +133,8 @@ struct PennyCardView: View {
             }
             field("Job", key: "job") {
                 Text(vm.jobLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(vm.jobLabel == "None" ? .secondary : .primary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(vm.jobLabel == "None" ? appStyle.meta : appStyle.text)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -151,19 +152,19 @@ struct PennyCardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(item.checks) { c in
                         Label(c.message, systemImage: c.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(c.ok ? Color.MW.green : Color.MW.orange)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(c.ok ? appStyle.tenant : appStyle.attention)
                     }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             }
 
             if let notes = vm.notes {
                 Label(notes, systemImage: "note.text")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
 
             actions
@@ -174,11 +175,11 @@ struct PennyCardView: View {
     private func header(_ item: BookkeeperItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("Receipt \(vm.index + 1) of \(vm.queue.count)")
-                .font(.headline)
+                .font(appStyle.font(.headline))
             badge(item.status == "pending_approval" ? "Submitted" : "Draft",
-                  color: item.status == "pending_approval" ? Color.MW.green : .gray)
+                  color: item.status == "pending_approval" ? appStyle.tenant : appStyle.meta)
             if item.savedDraft != nil {
-                badge("Saved draft", color: Color.MW.orange)
+                badge("Saved draft", color: appStyle.attention)
             }
             Spacer()
         }
@@ -193,17 +194,17 @@ struct PennyCardView: View {
                         img.resizable().scaledToFit()
                     } else if phase.error != nil {
                         Label("Couldn't load the photo", systemImage: "photo")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
                     } else {
                         ProgressView()
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 260)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption.bold())
+                        .font(appStyle.font(.caption, weight: .bold))
                         .padding(6)
                         .background(.ultraThinMaterial, in: Circle())
                         .padding(8)
@@ -213,10 +214,10 @@ struct PennyCardView: View {
             .accessibilityLabel("Receipt photo — tap to zoom")
         } else {
             Label("No photo", systemImage: "photo")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.footnote))
+                .foregroundStyle(appStyle.meta)
                 .frame(maxWidth: .infinity, minHeight: 80)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
@@ -224,12 +225,12 @@ struct PennyCardView: View {
     private func field<Content: View>(_ label: String, key: String?, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                 if let key, let c = vm.confidence(key) { ConfidenceChip(level: c) }
             }
             content()
             if let key, let why = vm.reason(key), !why.isEmpty {
-                Text(why).font(.caption2).foregroundStyle(.secondary)
+                Text(why).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
         }
     }
@@ -237,7 +238,7 @@ struct PennyCardView: View {
     private func amount(_ label: String, key: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                 if let c = vm.confidence(key) { ConfidenceChip(level: c) }
             }
             TextField("0.00", text: text)
@@ -245,7 +246,7 @@ struct PennyCardView: View {
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
             if let why = vm.reason(key), !why.isEmpty {
-                Text(why).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                Text(why).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta).lineLimit(3)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,13 +258,13 @@ struct PennyCardView: View {
                 Task { await vm.approve() }
             } label: {
                 HStack {
-                    if vm.isBusy { ProgressView().tint(.white) }
+                    if vm.isBusy { ProgressView().tint(appStyle.onTenant) }
                     Text("Approve").bold()
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(Color.MW.green)
+            .tint(appStyle.tenant)
             .controlSize(.large)
 
             HStack(spacing: 10) {
@@ -271,7 +272,7 @@ struct PennyCardView: View {
                     Text("Save draft").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
 
                 Button(role: .destructive) {
                     rejectReason = ""
@@ -285,7 +286,7 @@ struct PennyCardView: View {
                     Text("Skip").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .tint(.secondary)
+                .tint(appStyle.meta)
                 .disabled(vm.queue.count < 2)
             }
         }
@@ -296,8 +297,8 @@ struct PennyCardView: View {
     private var messageLine: some View {
         if let m = vm.message {
             Text(m)
-                .font(.footnote)
-                .foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
+                .font(appStyle.font(.footnote))
+                .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -309,32 +310,32 @@ struct PennyCardView: View {
         if !vm.messages.isEmpty || vm.mailNote != nil {
             VStack(alignment: .leading, spacing: 10) {
                 Text("From customers")
-                    .font(.subheadline.weight(.semibold))
+                    .font(appStyle.font(.subheadline, weight: .semibold))
                 ForEach(vm.messages) { m in
                     mailRow(m)
                     if m.id != vm.messages.last?.id { Divider() }
                 }
                 if let n = vm.mailNote {
                     Text(n)
-                        .font(.footnote)
-                        .foregroundStyle(vm.mailNoteIsError ? .red : Color.MW.green)
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(vm.mailNoteIsError ? appStyle.blocked : appStyle.tenant)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(12)
-            .background(Color.MW.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.tenant.opacity(0.06), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
     private func mailRow(_ m: PennyMessage) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(m.text)
-                .font(.subheadline.weight(.semibold))
+                .font(appStyle.font(.subheadline, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
             if let note = m.note {
                 Text(note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(m.attachments) { a in
@@ -342,11 +343,11 @@ struct PennyCardView: View {
                     if let u = URL(string: a.url) { openURL(u) }
                 } label: {
                     Label(a.filename, systemImage: "doc.richtext")
-                        .font(.caption)
+                        .font(appStyle.font(.caption))
                         .lineLimit(1)
                 }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
             }
             HStack(spacing: 8) {
                 if let to = m.emailTo {
@@ -360,16 +361,16 @@ struct PennyCardView: View {
                 Spacer(minLength: 0)
                 MoveToMenu(current: "penny", disabled: vm.isBusy) { to in Task { await vm.moveMessage(m, to: to) } }
                 Button("Done") { Task { await vm.messageDone(m) } }
-                    .buttonStyle(.bordered).tint(.secondary)
+                    .buttonStyle(.bordered).tint(appStyle.meta)
                     .disabled(vm.isBusy)
             }
-            .font(.caption)
+            .font(appStyle.font(.caption))
         }
     }
 
     private func badge(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .font(appStyle.font(.caption, weight: .semibold))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(color.opacity(0.15), in: Capsule())
             .foregroundStyle(color)
@@ -381,15 +382,15 @@ struct PennyCardView: View {
         let n = group.members.count
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(n > 2 ? "Possible duplicates" : "Possible duplicate").font(.headline)
+                Text(n > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
                 if vm.dupes.count > 1 {
-                    badge("group 1 of \(vm.dupes.count)", color: .gray)
+                    badge("group 1 of \(vm.dupes.count)", color: appStyle.meta)
                 }
                 Spacer()
             }
             Text("\(n == 2 ? "These two look" : "These \(n) look") like the same purchase: same total, within 3 days. Sorted before anything is approved.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 10) {
@@ -407,12 +408,12 @@ struct PennyCardView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(Color.MW.green)
+            .tint(appStyle.tenant)
             .disabled(vm.isBusy)
 
             Text("Same receipt? Tap \"Keep this one\" under the copy to keep — the others are set aside, not deleted.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
             messageLine
         }
     }
@@ -424,41 +425,41 @@ struct PennyCardView: View {
                     Button { zoomTarget = ZoomTarget(url: url) } label: {
                         AsyncImage(url: url) { phase in
                             if let img = phase.image { img.resizable().scaledToFill() }
-                            else if phase.error != nil { Image(systemName: "photo").foregroundStyle(.secondary) }
+                            else if phase.error != nil { Image(systemName: "photo").foregroundStyle(appStyle.meta) }
                             else { ProgressView() }
                         }
                     }
                     .buttonStyle(.plain)
                 } else {
-                    Label("No photo", systemImage: "photo").font(.caption).foregroundStyle(.secondary)
+                    Label("No photo", systemImage: "photo").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
             }
             .frame(width: 150, height: 170)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(appStyle.sunk)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
 
-            Text(m.displayVendor).font(.subheadline.bold()).lineLimit(1)
+            Text(m.displayVendor).font(appStyle.font(.subheadline, weight: .bold)).lineLimit(1)
             Text("\(m.expenseDate ?? "") · \(m.total.map { String(format: "$%.2f", $0) } ?? "—")")
-                .font(.caption)
+                .font(appStyle.font(.caption))
             Text("#\(m.id) · \((m.status ?? "").replacingOccurrences(of: "_", with: " "))\(m.submittedBy.map { " · from \($0)" } ?? "")")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
                 .lineLimit(2)
             if !m.isWaiting {
                 Text(m.status == "forwarded" ? "Already sent to accounting" : "Already approved")
-                    .font(.caption2)
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.tenant)
             }
             if PennyCardViewModel.canKeep(m, in: group) {
                 Button {
                     keepTarget = KeepTarget(member: m, group: group)
                 } label: {
                     Label("Keep this one", systemImage: "checkmark.circle")
-                        .font(.caption.weight(.semibold))
+                        .font(appStyle.font(.caption, weight: .semibold))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
                 .controlSize(.small)
                 .disabled(vm.isBusy)
             }
@@ -470,11 +471,12 @@ struct PennyCardView: View {
 // MARK: - Confidence chip
 
 private struct ConfidenceChip: View {
+    @Environment(\.itAppStyle) private var appStyle
     let level: String
 
     var body: some View {
         Text(level)
-            .font(.system(size: 10, weight: .semibold))
+            .font(appStyle.font(size: 12, weight: .semibold))
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(color.opacity(0.15), in: Capsule())
             .foregroundStyle(color)
@@ -482,9 +484,9 @@ private struct ConfidenceChip: View {
 
     private var color: Color {
         switch level.lowercased() {
-        case "high": return Color.MW.green
-        case "medium": return Color.MW.orange
-        default: return .red
+        case "high": return appStyle.tenant
+        case "medium": return appStyle.attention
+        default: return appStyle.blocked
         }
     }
 }

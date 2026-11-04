@@ -14,6 +14,8 @@
  *
  * Global-namespace service: require_once the file.
  */
+require_once __DIR__ . '/HttpFetch.php';
+
 class MarketPriceService
 {
     public const WEEK_SEC = 7 * 86400;
@@ -35,10 +37,7 @@ class MarketPriceService
     {
         $this->db = $db;
         $this->fetch = $fetch ?? static function (string $url): ?string {
-            $ctx = stream_context_create(['http' => ['timeout' => 15, 'ignore_errors' => true,
-                'header' => "User-Agent: Mowology-CRM/1.0 (market research; office@mowology.ca)\r\nAccept: application/json\r\n"]]);
-            $body = @file_get_contents($url, false, $ctx);
-            return $body === false ? null : $body;
+            return HttpFetch::get($url, 15, ['User-Agent: Mowology-CRM/1.0 (market research; office@mowology.ca)', 'Accept: application/json']);
         };
     }
 

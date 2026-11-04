@@ -117,6 +117,7 @@ final class AuthSession: ObservableObject {
         token           = authResponse.token
         user            = authResponse.user
         isAuthenticated = true
+        FixStore.shared.claim(for: authResponse.user.id)   // someone else's unsent GPS is dropped first
     }
 
     // MARK: - Logout
@@ -151,6 +152,7 @@ final class AuthSession: ObservableObject {
         token           = storedToken
         user            = storedUser
         isAuthenticated = true
+        FixStore.shared.claim(for: storedUser.id)
     }
 
     private func extractErrorMessage(from data: Data) -> String? {

@@ -112,4 +112,31 @@ class CashFlowForecastServiceTest extends TestCase
         $this->assertFalse(CashFlowForecastService::inSeason('2026-11-23', '12-01', '03-01'));
         $this->assertFalse(CashFlowForecastService::inSeason('2027-03-01', '12-01', '03-01'));
     }
+
+    public function test_band_is_the_share_of_payments_a_week_or_more_off_the_clients_median(): void
+    {
+        $b = CashFlowForecastService::band([
+            'steady' => [10, 10, 10, 10],                        // nobody off the median → 0%
+            'prompt' => [-14, -10, -7, -3, -3, 2, 12, 12, 12],   // clamped: median 0, three at 12 → 3/9 = 33.3%
+            'erratic' => [-18, -16, 10, 15, 20],                 // median 10: 0,0 and 20 are >7 off → 3/5 = 60% → capped 50%, thin
+            'new'    => [30, 2],                                 // < 3 payments → 30%
+        ], ['steady' => 1000, 'prompt' => 1000, 'erratic' => 1000, 'new' => 1000, 'nothing_due' => 0]);
+        $this->assertSame(['steady' => 0.0, 'prompt' => 0.333, 'erratic' => 0.5, 'new' => 0.3], $b['by_client']);
+        $this->assertTrue($b['thin']);
+        $this->assertSame(4, $b['clients']);
+        $this->assertSame(28.3, $b['pct']);     // (0 + 33.3 + 50 + 30) / 4, one decimal
+        $this->assertSame(0.0, CashFlowForecastService::band([], [])['pct']);
+        $this->assertSame(0.0, CashFlowForecastService::band(['early' => [-20, 0, 1, -3]], ['early' => 100])['by_client']['early']);   // early = on time
+        // Even count: the median averages the two middle values (same convention as median()), so 0,0,10,30 → median 5 → 30 is off, 10 is not
+        $this->assertSame(0.25, CashFlowForecastService::band(['even' => [0, 0, 10, 30]], ['even' => 100])['by_client']['even']);
+    }
+
+    public function test_band_widens_only_the_money_in_cumulatively(): void
+    {
+        $weeks = CashFlowForecastService::applyBand([
+            ['in' => 1000.0, 'out' => 400.0], ['in' => 0.0, 'out' => 300.0],
+        ], 500.0, 20.0);
+        $this->assertSame([1300.0, 1000.0], [$weeks[0]['closing_high'], $weeks[1]['closing_high']]);   // 500 + 1200 − 400; − 300
+        $this->assertSame([900.0, 600.0], [$weeks[0]['closing_low'], $weeks[1]['closing_low']]);       // 500 + 800 − 400; − 300
+    }
 }

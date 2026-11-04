@@ -270,6 +270,9 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                               <hr class="my-2">
                               <div class="mw-fd-mix-row">Recurring share <strong><?= fd_pct($m['recurring_share_pct']) ?></strong> <span class="text-muted">goal 70%+</span></div>
                               <div class="mw-fd-mix-row">Biggest client <strong><?= fd_pct($m['top_client_share_pct']) ?></strong> <span class="text-muted"><?= $m['top_client_name'] ? h((string)$m['top_client_name']) : '' ?></span></div>
+                              <?php $pulse = $report['pulse'] ?? null; if ($pulse): $dot = static fn($b) => '<span class="mw-fd-pulse is-' . h($b) . '" title="' . h($b) . '"></span>'; ?>
+                              <div class="mw-fd-mix-row"><?= $dot($pulse['overall']) ?> Pulse <strong><?= h(ucfirst($pulse['overall'] === 'na' ? 'n/a' : $pulse['overall'])) ?></strong> <span class="text-muted"><?= $dot($pulse['ar']['band']) ?> <?= h($pulse['ar']['text']) ?> · <?= $dot($pulse['revenue']['band']) ?> <?= h($pulse['revenue']['text']) ?> · <?= h($pulse['runway']['text']) ?></span></div>
+                              <?php foreach (array_slice($pulse['ar']['named'] ?? [], 0, 5) as $n): ?><div class="mw-fd-mix-row small text-muted">· <?= h($n) ?></div><?php endforeach; endif; ?>
                               <div class="mw-fd-mix-row">Overdue <strong><?= fd_money((float)$m['overdue']) ?></strong> <span class="text-muted">of <?= fd_money((float)$m['outstanding']) ?> outstanding</span></div>
                           </div>
                       </div>

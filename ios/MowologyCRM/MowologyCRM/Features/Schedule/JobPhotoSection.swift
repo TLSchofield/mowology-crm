@@ -19,6 +19,7 @@ import UIKit
 import PhotosUI
 import AVFoundation
 import CoreLocation
+import UserNotifications
 
 // MARK: - JobPhotoType
 
@@ -187,7 +188,9 @@ final class JobPhotoViewModel: ObservableObject {
     func addFromLibrary(_ images: [UIImage]) {
         for image in images {
             localExtras.append(LocalExtraPhoto(image: image))
-            guard let data = image.jpegData(compressionQuality: 0.78) else { continue }
+            // 1920 px / ~0.2-1.5 MB (same as receipts): full-size library photos timed out on weak signal.
+            let data = ReceiptsView.resizeAndCompress(image)
+            guard !data.isEmpty else { continue }
             Task { await upload(data: data, slot: .additional) }
         }
     }
@@ -220,12 +223,11 @@ final class JobPhotoViewModel: ObservableObject {
                                              userId: apiClient.currentUserId)
                 refreshPendingState()
             } else {
-                errorMessage = slot.isSingleSlot
-                    ? "Upload failed — retake the photo to try again."
-                    : "A photo failed to upload — take it again."
+                errorMessage = ErrorDetails.describe(err)
             }
         } catch {
-            errorMessage = "Upload failed — retake the photo to try again."
+            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
     }
 }
@@ -236,6 +238,7 @@ final class JobPhotoViewModel: ObservableObject {
 /// Pass `isActive` true once the job has started (timer running OR visit in progress — an
 /// auto-stopped or reopened visit has no live timer but is still mid-job) to unlock After.
 struct JobPhotoSection: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let visitId:     Int
     let isActive:    Bool
@@ -255,19 +258,88 @@ struct JobPhotoSection: View {
     /// True while that gate would block — the library picker is swapped for a plain button.
     let photosLocked:   Bool
 
+    @ViewBuilder
+    private func plantLine(_ it: PlantSendQueue.Item) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: it.state == "failed" ? "exclamationmark.circle" : "leaf")
+                .foregroundStyle(it.state == "failed" ? appStyle.attention : appStyle.tenant)
+            VStack(alignment: .leading, spacing: 2) {
+                switch it.state {
+                case "ready" where it.response?.record?.choose == true && (it.response?.record?.matches.count ?? 0) >= 2:
+                    Text("Not sure — which is it?").font(appStyle.font(.subheadline, weight: .semibold))
+                    ForEach(Array((it.response?.record?.matches ?? []).prefix(2))) { m in
+                        Button { plantPick = m.scientific; plantToConfirm = it } label: { plantChoice(m) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(m.name), \(Int((m.score * 100).rounded())) percent. Tap if it is this one.")
+                    }
+                    Button("Something else, or leave it for the office") { plantPick = nil; plantToConfirm = it }
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.text).underline().frame(minHeight: 44)
+                case "ready":
+                    Text("Plant: \(it.answerLine ?? "identified")").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text("Confirm it, or leave it for the office.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                case "failed":
+                    Text("Plant not identified").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(it.message ?? "Try again with closer photos.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                default:
+                    Text("Plant: identifying…").font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(it.mediaIds.count < it.files.count ? "Sending photos — it carries on by itself." : "Asking Pl@ntNet.")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                }
+            }
+            Spacer(minLength: 4)
+            switch it.state {
+            case "ready" where it.response?.record?.choose == true && (it.response?.record?.matches.count ?? 0) >= 2:
+                EmptyView()   // the choices above are the buttons
+            case "ready":
+                Button("Confirm") { plantPick = nil; plantToConfirm = it }
+                    .buttonStyle(.borderedProminent).tint(appStyle.tenant).frame(minHeight: 44)
+            case "failed":
+                Button("Clear") { PlantSendQueue.shared.remove(it.id) }
+                    .buttonStyle(.bordered).tint(appStyle.meta).frame(minHeight: 44)
+            default:
+                ProgressView().tint(appStyle.tenant)
+            }
+        }
+        .padding(12)
+        .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+    }
+
+    /// One choice: Pl@ntNet's reference photo, the name and how sure it is, the photo's credit (CC BY-SA requires it).
+    private func plantChoice(_ m: PlantMatchDTO) -> some View {
+        HStack(spacing: 10) {
+            PlantRefPhoto(url: m.photo, size: 56)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(m.name).font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.text)
+                Text("\(m.scientific) · \(Int((m.score * 100).rounded()))%").font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
+                if let c = m.photoCredit { Text(c).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").foregroundStyle(appStyle.meta)
+        }
+        .padding(8)
+        .frame(minHeight: 48)
+        .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .contentShape(Rectangle())
+    }
+
     private var chooseLabel: some View {
         Label("Choose", systemImage: "photo.on.rectangle")
-            .font(.subheadline.weight(.semibold))
+            .font(appStyle.font(.subheadline, weight: .semibold))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(Color(.systemGray6))
-            .foregroundStyle(.primary)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .frame(minHeight: 48)
+            .background(appStyle.sunk)
+            .foregroundStyle(appStyle.text)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
     }
 
     @StateObject private var vm: JobPhotoViewModel
     @State private var libraryItems: [PhotosPickerItem] = []
     @State private var showPlantId = false
+    @ObservedObject private var plantSends = PlantSendQueue.shared
+    @State private var plantToConfirm: PlantSendQueue.Item?
+    /// The choice tapped on the card (opens the confirm screen with it picked); nil = let the person pick there.
+    @State private var plantPick: String?
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
@@ -293,17 +365,17 @@ struct JobPhotoSection: View {
 
             // Section header
             Label("Photo Proof", systemImage: "camera.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption, weight: .semibold))
+                .foregroundStyle(appStyle.meta)
                 .textCase(.uppercase)
 
             // Upload progress indicator
             if vm.isUploading {
                 HStack(spacing: 6) {
-                    ProgressView().scaleEffect(0.75).tint(Color.MW.green)
+                    ProgressView().scaleEffect(0.75).tint(appStyle.tenant)
                     Text("Uploading…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -311,33 +383,33 @@ struct JobPhotoSection: View {
             if vm.beforePendingSync || vm.afterPendingSync || vm.extrasPendingSync > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.tenant)
                     Text(vm.extrasPendingSync > 1
                          ? "\(vm.extrasPendingSync) photos saved — will upload when signal returns"
                          : "Photo saved — will upload when signal returns")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.tenant)
                 }
                 .padding(8)
-                .background(Color.MW.green.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(appStyle.tenant.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             }
 
             // Error banner (server errors, not network-offline)
             if let err = vm.errorMessage {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.attention)
                     Text(err)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.attention)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(8)
-                .background(Color.orange.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(appStyle.attention.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             }
 
             // Photo slots + optional heart endorsement slot
@@ -353,8 +425,8 @@ struct JobPhotoSection: View {
 
             if !endorsedBy.isEmpty {
                 Label("Endorsed by \(endorsedBy.joined(separator: ", "))", systemImage: "heart.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.attention)
                     .lineLimit(2)
             }
 
@@ -367,14 +439,22 @@ struct JobPhotoSection: View {
                     showPlantId = true
                 } label: {
                     Label("What is this plant?", systemImage: "leaf")
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                 }
                 .buttonStyle(.bordered)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
+            }
+
+            // Plants sent from this job (PlantSendQueue): identifying → the answer → confirm (optional).
+            ForEach(plantSends.sent(forVisit: visitId, userId: authSession.user?.id)) { it in
+                plantLine(it)
             }
         }
         .fullScreenCover(isPresented: $showPlantId) {
             PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
+        }
+        .fullScreenCover(item: $plantToConfirm) { it in
+            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id, presetPick: plantPick) { plantToConfirm = nil }
         }
         .task { await vm.loadExisting() }
         // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
@@ -411,8 +491,8 @@ struct JobPhotoSection: View {
     private func extrasStrip() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(vm.extraCount > 0 ? "More photos (\(vm.extraCount))" : "More photos")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption2, weight: .medium))
+                .foregroundStyle(appStyle.meta)
 
             if vm.extraCount > 0 {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -422,18 +502,18 @@ struct JobPhotoSection: View {
                                 if let img = phase.image {
                                     img.resizable().scaledToFill()
                                 } else {
-                                    Color(.systemGray6)
+                                    appStyle.sunk
                                 }
                             }
                             .frame(width: 72, height: 72)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                         }
                         ForEach(vm.localExtras) { extra in
                             Image(uiImage: extra.image)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 72, height: 72)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                         }
                     }
                 }
@@ -445,12 +525,13 @@ struct JobPhotoSection: View {
                     vm.beginCapture(.additional)
                 } label: {
                     Label("Take photos", systemImage: "camera.fill")
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.MW.green.opacity(0.10))
-                        .foregroundStyle(Color.MW.green)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .frame(minHeight: 48)
+                        .background(appStyle.tenant.opacity(0.10))
+                        .foregroundStyle(appStyle.tenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                 }
                 .buttonStyle(.plain)
 
@@ -494,8 +575,8 @@ struct JobPhotoSection: View {
                             if let img = phase.image {
                                 img.resizable().scaledToFill()
                             } else {
-                                Color.MW.green.opacity(0.08)
-                                    .overlay { ProgressView().tint(Color.MW.green) }
+                                appStyle.tenant.opacity(0.08)
+                                    .overlay { ProgressView().tint(appStyle.tenant) }
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -504,8 +585,8 @@ struct JobPhotoSection: View {
                     } else {
                         Rectangle()
                             .fill(enabled
-                                  ? Color.MW.green.opacity(0.08)
-                                  : Color(.systemGray6))
+                                  ? appStyle.tenant.opacity(0.08)
+                                  : appStyle.sunk)
                             .frame(maxWidth: .infinity)
                             .frame(height: 110)
                             .overlay {
@@ -513,17 +594,17 @@ struct JobPhotoSection: View {
                                     Image(systemName: enabled
                                           ? "camera.badge.plus"
                                           : "lock.fill")
-                                        .font(.title3)
+                                        .font(appStyle.font(.title3))
                                         .foregroundStyle(enabled
-                                                         ? Color.MW.green
-                                                         : Color(.systemGray3))
+                                                         ? appStyle.tenant
+                                                         : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
                                     Text(label)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(enabled ? Color.MW.green : Color(.systemGray2))
+                                        .font(appStyle.font(.caption, weight: .semibold))
+                                        .foregroundStyle(enabled ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
                                     if !enabled {
                                         Text("Start job first")
-                                            .font(.caption2)
-                                            .foregroundStyle(.tertiary)
+                                            .font(appStyle.font(.caption2))
+                                            .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
                                     }
                                 }
                             }
@@ -542,7 +623,7 @@ struct JobPhotoSection: View {
                                     .accessibilityLabel("Retake")
                             }
                         }
-                        .font(.caption2.weight(.semibold))
+                        .font(appStyle.font(.caption2, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.top, 14)
@@ -553,13 +634,13 @@ struct JobPhotoSection: View {
                         )
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .stroke(
                             filled
-                                ? Color.MW.green.opacity(0.5)
-                                : (enabled ? Color.MW.green.opacity(0.25) : Color(.systemGray5)),
+                                ? appStyle.tenant.opacity(0.5)
+                                : (enabled ? appStyle.tenant.opacity(0.25) : (appStyle.isEnabled ? appStyle.line : Color(.systemGray5))),
                             lineWidth: filled ? 2 : 1
                         )
                 )
@@ -582,8 +663,8 @@ struct JobPhotoSection: View {
                 || vm.remoteProofShots.filter { $0.photoType == "after" }.count > 1) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("All before & after (\(vm.remoteProofShots.count))")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.caption2, weight: .medium))
+                    .foregroundStyle(appStyle.meta)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 8) {
@@ -593,14 +674,14 @@ struct JobPhotoSection: View {
                                     if let img = phase.image {
                                         img.resizable().scaledToFill()
                                     } else {
-                                        Color(.systemGray6)
+                                        appStyle.sunk
                                     }
                                 }
                                 .frame(width: 84, height: 84)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                                 .overlay(alignment: .bottomLeading) {
                                     Text(photo.photoType.capitalized)
-                                        .font(.system(size: 9, weight: .bold))
+                                        .font(appStyle.font(size: 9, weight: .bold))
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
@@ -609,8 +690,8 @@ struct JobPhotoSection: View {
                                 }
 
                                 Text(photo.takenBy ?? "Unknown")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .font(appStyle.font(.caption2))
+                                    .foregroundStyle(appStyle.meta)
                                     .lineLimit(1)
                                     .frame(width: 84, alignment: .leading)
                             }
@@ -631,31 +712,31 @@ struct JobPhotoSection: View {
                 Task { await toggle() }
             } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .fill(isFlagged
-                              ? Color.MW.orange.opacity(0.12)
-                              : Color(.systemGray6))
+                              ? appStyle.attention.opacity(0.12)
+                              : appStyle.sunk)
                         .frame(maxWidth: .infinity)
                         .frame(height: 110)
                     if isFlagLoading {
                         ProgressView()
                             .scaleEffect(0.85)
-                            .tint(Color.MW.orange)
+                            .tint(appStyle.attention)
                     } else {
                         VStack(spacing: 4) {
                             Image(systemName: isFlagged ? "heart.fill" : "heart")
-                                .font(.system(size: 28))
+                                .font(appStyle.font(size: 28))
                             Text(isFlagged ? "Endorsed" : "Endorse")
-                                .font(.caption.weight(.semibold))
+                                .font(appStyle.font(.caption, weight: .semibold))
                         }
-                        .foregroundStyle(isFlagged ? Color.MW.orange : Color(.systemGray2))
+                        .foregroundStyle(isFlagged ? appStyle.attention : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
                     }
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .stroke(isFlagged
-                                ? Color.MW.orange.opacity(0.4)
-                                : Color(.systemGray5),
+                                ? appStyle.attention.opacity(0.4)
+                                : (appStyle.isEnabled ? appStyle.line : Color(.systemGray5)),
                                 lineWidth: isFlagged ? 2 : 1)
                 )
             }
@@ -670,6 +751,179 @@ struct JobPhotoSection: View {
 
 
 
+// MARK: - Plant sender (snap and walk away, owner 2026-10-19)
+//
+// "Once the 3rd photo is taken the snap button should change to Submit and the screen should transition
+// to a thinking screen that says submitted, so the user can continue working (it takes a while to ID)."
+// The camera hands the three photos here and closes; this sends them and asks Pl@ntNet with no screen
+// open. Photos wait on the phone (QueueStorage) until sent, so no signal, a locked phone or a closed app
+// only delays it — the app resumes it on open and on reconnect (MowologyCRMApp, like job photos).
+// The answer comes back as a notification and a line on the job card; confirming it is optional.
+// Same rules as JobPhotoQueue: one run at a time; no signal / expired login keeps everything; a server
+// fault backs off and gives up after 5, shown on the card; re-sending the same photos is safe (the server
+// answers a re-sent set with its existing record).
+@MainActor
+final class PlantSendQueue: ObservableObject {
+    static let shared = PlantSendQueue()
+
+    struct Item: Codable, Identifiable {
+        let id: String
+        let visitId: Int
+        let userId: Int?
+        let files: [String]              // QueueStorage filenames: whole, closer, close-up
+        var mediaIds: [Int] = []         // shots already uploaded, in order
+        let lat: Double?
+        let lng: Double?
+        let accuracy: Double?
+        let heading: Double?
+        let queuedAt: Date
+        var attempts = 0
+        var nextTryAt: Date?
+        var state = "sending"            // sending | ready | failed
+        var message: String?
+        var response: PlantIdResponse?
+
+        /// "Bigleaf Hydrangea (86%)", from the best match.
+        var answerLine: String? {
+            guard let m = response?.record?.matches.first else { return nil }
+            let name = (m.common?.isEmpty == false ? m.common! : m.scientific)
+            return "\(name) (\(Int((m.score * 100).rounded()))%)"
+        }
+    }
+
+    @Published private(set) var items: [Item] = []
+    private let storeKey = "mw.plantsend.queue.v1"
+    private let maxAttempts = 5
+    private var apiClient: APIClient?
+    private var running: Task<Void, Never>?
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: storeKey),
+           let saved = try? JSONDecoder().decode([Item].self, from: data) {
+            // Answers are kept two days for the job card; anything older has been seen or dealt with.
+            items = saved.filter { $0.state == "sending" || $0.queuedAt > Date().addingTimeInterval(-2 * 86_400) }
+        }
+        // Signal back (the app's reconnect ping, as for job photos): send what is waiting.
+        NotificationCenter.default.addObserver(forName: .mwPingQueueOnline, object: nil, queue: .main) { _ in
+            Task { @MainActor in await PlantSendQueue.shared.drain() }
+        }
+    }
+
+    private func save() { UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: storeKey) }
+
+    func configure(apiClient: APIClient) { self.apiClient = apiClient }
+
+    func sent(forVisit visitId: Int, userId: Int?) -> [Item] {
+        items.filter { $0.visitId == visitId && ($0.userId == nil || $0.userId == userId) }
+    }
+
+    /// The camera's three shots. Returns false when the phone could not keep them (no storage).
+    @discardableResult
+    func submit(shots: [Data], visitId: Int, userId: Int?, fix: CLLocation?, heading: Double?, apiClient: APIClient) -> Bool {
+        let id = UUID().uuidString
+        var files: [String] = []
+        for (i, data) in shots.enumerated() {
+            let name = "plant-\(id)-\(i).jpg"
+            guard QueueStorage.write(data, filename: name) else { files.forEach(QueueStorage.remove); return false }
+            files.append(name)
+        }
+        items.append(Item(id: id, visitId: visitId, userId: userId, files: files,
+                          lat: fix?.coordinate.latitude, lng: fix?.coordinate.longitude,
+                          accuracy: fix?.horizontalAccuracy, heading: heading, queuedAt: Date()))
+        save()
+        self.apiClient = apiClient
+        Task { await drain() }
+        return true
+    }
+
+    /// The owner confirmed it, or cleared a failed one, on the job card.
+    func remove(_ id: String) {
+        if let it = items.first(where: { $0.id == id }) { it.files.forEach(QueueStorage.remove) }
+        items.removeAll { $0.id == id }
+        save()
+    }
+
+    func drain() async {
+        if let running { await running.value; return }
+        let task = Task { await drainOnce() }
+        running = task
+        await task.value
+        running = nil
+    }
+
+    private func drainOnce() async {
+        guard let api = apiClient else { return }
+        let me = api.currentUserId
+        let bg = BackgroundTaskHold(name: "plant-send")
+        defer { bg.end() }
+        for id in items.filter({ $0.state == "sending" }).map(\.id) {
+            guard var it = items.first(where: { $0.id == id }) else { continue }
+            if let owner = it.userId, owner != me { continue }                 // only its taker's login sends it
+            if let next = it.nextTryAt, next > Date() { continue }
+            do {
+                for i in it.mediaIds.count..<it.files.count {
+                    guard let data = QueueStorage.read(it.files[i]) else { throw APIError.serverError("A plant photo is missing from this phone") }
+                    let res = try await api.uploadVisitPhoto(imageData: data, visitId: it.visitId, photoTypeRaw: "other", queuedAt: it.queuedAt)
+                    if let mid = res["media_id"] as? Int { it.mediaIds.append(mid) }
+                    else if let s = res["media_id"] as? String, let mid = Int(s) { it.mediaIds.append(mid) }
+                    else { throw APIError.serverError("A photo uploaded without an id") }
+                    update(it)                                                // a resend sends only the rest
+                }
+                var body: [String: Any] = ["mode": "identify", "visit_id": it.visitId, "media_ids": it.mediaIds]
+                if let v = it.lat { body["lat"] = v }
+                if let v = it.lng { body["lng"] = v }
+                if let v = it.accuracy { body["accuracy"] = v }
+                if let v = it.heading { body["heading"] = v }
+                let res: PlantIdResponse = try await api.request(.plantId, body: body, timeout: 90)
+                if res.ok, res.record != nil {
+                    it.state = "ready"; it.response = res; it.message = res.message
+                } else {
+                    it.state = "failed"; it.message = res.message ?? "Pl@ntNet couldn't tell what it is. Try closer photos."
+                }
+                it.files.forEach(QueueStorage.remove)                          // sent: the server has the photos
+                update(it)
+                notify(it)
+            } catch let err as APIError {
+                switch err {
+                case .networkError, .unauthorized:
+                    update(it)
+                    return                                                     // no signal / signed out: keep everything
+                default:
+                    it.attempts += 1
+                    if it.attempts >= maxAttempts {
+                        it.state = "failed"; it.message = err.localizedDescription
+                        notify(it)
+                    } else {
+                        it.nextTryAt = Date().addingTimeInterval(60 * pow(2, Double(it.attempts)))
+                    }
+                    update(it)
+                }
+            } catch {
+                update(it)
+                return
+            }
+        }
+    }
+
+    private func update(_ it: Item) {
+        if let i = items.firstIndex(where: { $0.id == it.id }) { items[i] = it; save() }
+    }
+
+    private func notify(_ it: Item) {
+        let c = UNMutableNotificationContent()
+        if it.state == "ready", let line = it.answerLine {
+            c.title = "Plant identified"
+            c.body = "It looks like \(line). Open the job to confirm it, or leave it for the office."
+        } else {
+            c.title = "Plant not identified"
+            c.body = it.message ?? "Try the plant again with closer photos."
+        }
+        c.sound = .default
+        c.userInfo = ["visit_id": it.visitId]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "plant-\(it.id)", content: c, trigger: nil))
+    }
+}
+
 // MARK: - Plant ID ("What is this plant?", 2026-10-15)
 //
 // Three photos of one plant — whole plant, closer, close-up — taken with the app's own camera
@@ -678,46 +932,57 @@ struct JobPhotoSection: View {
 // Pl@ntNet on the visit's property and suggests the bed (inside it / facing it / near it).
 // The crew picks the name and the bed; approved care from the plant library is shown back.
 
-struct PlantMatchDTO: Decodable, Identifiable, Hashable {
+struct PlantMatchDTO: Codable, Identifiable, Hashable {
     let scientific: String
     let common: String?
     let score: Double
+    /// Pl@ntNet's reference photo of this species (CC BY-SA) and its required credit — 2026-10-20.
+    let photo: String?
+    let photoCredit: String?
     var id: String { scientific }
+    var name: String { common?.isEmpty == false ? common! : scientific }
+
+    enum CodingKeys: String, CodingKey {
+        case scientific, common, score, photo
+        case photoCredit = "photo_credit"
+    }
 }
 
-struct PlantBedRefDTO: Decodable, Hashable {
+struct PlantBedRefDTO: Codable, Hashable {
     let id: Int
     let name: String
     let sure: Bool?
 }
 
-struct PlantBedDTO: Decodable, Identifiable, Hashable {
+struct PlantBedDTO: Codable, Identifiable, Hashable {
     let id: Int
     let name: String
 }
 
-struct PlantRecordDTO: Decodable {
+struct PlantRecordDTO: Codable {
     let id: Int
     let status: String
     let scientificName: String?
     let commonName: String?
     let matches: [PlantMatchDTO]
     let bed: PlantBedRefDTO?
+    /// Not sure (best under 50%, or the top two close): offer the top matches as choices, not one Confirm.
+    let choose: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case id, status, matches, bed
+        case id, status, matches, bed, choose
         case scientificName = "scientific_name"
         case commonName = "common_name"
     }
 }
 
-struct PlantCareTaskDTO: Decodable, Hashable {
+struct PlantCareTaskDTO: Codable, Hashable {
     let task: String
     let when: String
     let how: String?
 }
 
-struct PlantCareDTO: Decodable {
+struct PlantCareDTO: Codable {
     let name: String?
     let general: Bool?
     let tasks: [PlantCareTaskDTO]
@@ -737,7 +1002,7 @@ struct PlantCareDTO: Decodable {
     }
 }
 
-struct PlantIdResponse: Decodable {
+struct PlantIdResponse: Codable {
     let ok: Bool
     let message: String?
     let record: PlantRecordDTO?
@@ -825,8 +1090,14 @@ final class BackgroundTaskHold {
 }
 
 struct PlantIdView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let visitId: Int
     let authSession: AuthSession
+    /// An answer the sender already has (PlantSendQueue): open straight at "What is it?" — no camera.
+    var preset: PlantIdResponse? = nil
+    var presetItemId: String? = nil
+    /// The match tapped on the job card — opens already picked.
+    var presetPick: String? = nil
     let onClose: () -> Void
 
     private static let steps = [
@@ -846,11 +1117,8 @@ struct PlantIdView: View {
     @State private var other: String = ""
     @State private var bedId: Int = 0
     @State private var saved: PlantIdResponse?
-    /// Media ids of the shots already uploaded, in order — a retry sends only the rest (2026-10-16).
-    @State private var uploaded: [Int] = []
-    /// The send stopped (no signal, or the app went to the background): the photos are kept for Try again.
-    @State private var sendFailed = false
-    @Environment(\.scenePhase) private var scenePhase
+    /// Handed to PlantSendQueue: the "Submitted" screen shows, then closes by itself.
+    @State private var submitted = false
 
     var body: some View {
         Group {
@@ -858,17 +1126,21 @@ struct PlantIdView: View {
                 doneView(saved)
             } else if let result, let record = result.record {
                 pickView(result, record)
+            } else if submitted {
+                submittedView
             } else {
                 shootView
             }
         }
         .task {
+            if let preset, let rec = preset.record {
+                pick = presetPick ?? rec.scientificName ?? (rec.choose == true ? "" : (rec.matches.first?.scientific ?? ""))
+                bedId = rec.bed?.id ?? 0
+                result = preset
+                return
+            }
             fix.start()
             await camera.start(videoMode: false)
-        }
-        // Back from the background after a send was cut off: carry on by itself.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active, sendFailed, !busy, shots.count == 3 { Task { await identify() } }
         }
         .onDisappear {
             fix.stop()
@@ -886,39 +1158,45 @@ struct PlantIdView: View {
                 HStack {
                     Button("Cancel") { onClose() }.foregroundStyle(.white)
                     Spacer()
-                    Text(fixText).font(.caption).foregroundStyle(.white.opacity(0.9))
+                    Text(fixText).font(appStyle.font(.caption)).foregroundStyle(.white.opacity(0.9))
                 }
                 .padding(.horizontal)
                 if shots.count < 3 {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(shots.count + 1) of 3 — \(Self.steps[shots.count].0)").font(.headline)
-                        Text(Self.steps[shots.count].1).font(.subheadline)
+                        Text("\(shots.count + 1) of 3 — \(Self.steps[shots.count].0)").font(appStyle.font(.headline))
+                        Text(Self.steps[shots.count].1).font(appStyle.font(.subheadline))
                     }
                     .foregroundStyle(.white)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.black.opacity(0.55))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                     .padding(.horizontal)
                 }
                 Spacer()
                 if let status {
-                    Text(status).font(.callout).foregroundStyle(.white)
-                        .padding(10).background(Color.black.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text(status).font(appStyle.font(.callout)).foregroundStyle(.white)
+                        .padding(10).background(Color.black.opacity(0.6)).clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                 }
                 HStack(spacing: 10) {
                     ForEach(Array(shots.enumerated()), id: \.offset) { _, data in
                         if let img = PhotoMetadata.thumbnail(from: data, maxPixel: 160) {
-                            Image(uiImage: img).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 6))
+                            Image(uiImage: img).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(6)))
                         }
                     }
                 }
-                if sendFailed && !busy {
+                if shots.count == 3 {
+                    // All three taken: the shutter becomes Submit (owner, 2026-10-19).
                     HStack(spacing: 12) {
-                        Button("Retake photos") { Task { await retake() } }
+                        Button("Retake") { Task { await retake() } }
+                            .font(appStyle.font(.headline))
+                            .frame(minWidth: 110, minHeight: 56)
                             .buttonStyle(.bordered).tint(.white)
-                        Button("Try again") { Task { await identify() } }
-                            .buttonStyle(.borderedProminent)
+                        Button(action: submit) {
+                            Text("Submit").font(appStyle.font(.headline))
+                                .frame(minWidth: 170, minHeight: 56)
+                        }
+                        .buttonStyle(.borderedProminent).tint(appStyle.tenant)
                     }
                     .padding(.bottom, 24)
                 } else {
@@ -948,62 +1226,58 @@ struct PlantIdView: View {
                 guard let data else { status = "That photo didn't take — try again."; return }
                 shots.append(data)
                 if shots.count == 3 {
-                    camera.stop()   // the camera's job is done — no indicator light during upload and picking
-                    await identify()
+                    camera.stop()   // the camera's job is done — Submit or Retake
                 }
             }
         }
     }
 
-    private func identify() async {
-        guard !busy else { return }
-        busy = true
-        sendFailed = false
-        // Switching apps mid-send: iOS lets a background task finish (about 30 s) instead of cutting it off.
-        let bg = BackgroundTaskHold(name: "plant-id")
-        defer { busy = false; bg.end() }
-        let api = APIClient(authSession: authSession)
-        do {
-            // Only the shots not sent yet (a re-sent photo is recognised by the server anyway).
-            for i in uploaded.count..<shots.count {
-                status = "Uploading photo \(i + 1) of 3…"
-                let data = shots[i]
-                let res = try await api.uploadVisitPhoto(imageData: data, visitId: visitId, photoTypeRaw: "other")
-                if let id = res["media_id"] as? Int { uploaded.append(id) }
-                else if let s = res["media_id"] as? String, let id = Int(s) { uploaded.append(id) }
-                else { throw APIError.serverError("A photo uploaded without an id") }
+    /// Hand the three photos to the sender and let the crew get back to work.
+    private func submit() {
+        let ok = PlantSendQueue.shared.submit(shots: shots, visitId: visitId, userId: authSession.user?.id,
+                                              fix: fix.best, heading: wholeHeading, apiClient: APIClient(authSession: authSession))
+        guard ok else { status = "This phone is out of space, so the photos couldn't be kept. Free some space and try again."; return }
+        fix.stop()
+        submitted = true
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            onClose()
+        }
+    }
+
+    // MARK: Submitted — the "thinking" screen
+
+    private var submittedView: some View {
+        ZStack {
+            appStyle.page.ignoresSafeArea()
+            VStack(spacing: 18) {
+                Spacer()
+                ProgressView().controlSize(.large).tint(appStyle.tenant)
+                Text("Submitted").font(appStyle.font(.title2, weight: .bold)).foregroundStyle(appStyle.text)
+                Text("Identifying the plant. Carry on working — the answer comes to this job and as a notification.")
+                    .font(appStyle.font(.body)).foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center).padding(.horizontal, 32)
+                HStack(spacing: 10) {
+                    ForEach(Array(shots.enumerated()), id: \.offset) { _, data in
+                        if let img = PhotoMetadata.thumbnail(from: data, maxPixel: 160) {
+                            Image(uiImage: img).resizable().scaledToFill().frame(width: 64, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                        }
+                    }
+                }
+                Spacer()
+                Button { onClose() } label: {
+                    Text("Done").font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: 56)
+                }
+                .buttonStyle(.borderedProminent).tint(appStyle.tenant)
+                .padding(.horizontal, 24).padding(.bottom, 24)
             }
-            let ids = uploaded
-            status = "Asking Pl@ntNet…"
-            var body: [String: Any] = ["mode": "identify", "visit_id": visitId, "media_ids": ids]
-            if let b = fix.best {
-                body["lat"] = b.coordinate.latitude
-                body["lng"] = b.coordinate.longitude
-                body["accuracy"] = b.horizontalAccuracy
-            }
-            if let h = wholeHeading { body["heading"] = h }
-            let res: PlantIdResponse = try await api.request(.plantId, body: body, timeout: 90)
-            if res.ok, let rec = res.record {
-                pick = rec.scientificName ?? (rec.matches.first?.scientific ?? "")
-                bedId = rec.bed?.id ?? 0
-                result = res
-                status = nil
-            } else {
-                status = res.message ?? "Couldn't identify it — try again."
-                await retake()
-            }
-        } catch {
-            // Keep the photos: Try again sends what is left (or it carries on by itself when the app comes back).
-            status = "Couldn't send — your photos are kept. Tap Try again."
-            sendFailed = true
         }
     }
 
     /// Back to shooting: clear the shots and turn the camera on again.
     private func retake() async {
         shots = []
-        uploaded = []
-        sendFailed = false
         status = nil
         await camera.start(videoMode: false)
     }
@@ -1013,23 +1287,25 @@ struct PlantIdView: View {
     private func pickView(_ res: PlantIdResponse, _ rec: PlantRecordDTO) -> some View {
         NavigationStack {
             Form {
-                if let m = res.message, !m.isEmpty { Section { Text(m).font(.headline) } }
+                if let m = res.message, !m.isEmpty { Section { Text(m).font(appStyle.font(.headline)) } }
                 Section("What is it?") {
                     ForEach(rec.matches) { m in
                         Button {
                             pick = m.scientific
                         } label: {
-                            HStack {
+                            HStack(spacing: 10) {
+                                PlantRefPhoto(url: m.photo, size: 48)
                                 VStack(alignment: .leading) {
-                                    Text(m.common?.isEmpty == false ? m.common! : m.scientific)
-                                    Text(m.scientific).font(.caption).italic().foregroundStyle(.secondary)
+                                    Text(m.name)
+                                    Text(m.scientific).font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
+                                    if let c = m.photoCredit { Text(c).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta).lineLimit(1) }
                                 }
                                 Spacer()
-                                Text("\(Int((m.score * 100).rounded()))%").foregroundStyle(.secondary)
-                                if pick == m.scientific { Image(systemName: "checkmark").foregroundStyle(Color.MW.green) }
+                                Text("\(Int((m.score * 100).rounded()))%").foregroundStyle(appStyle.meta)
+                                if pick == m.scientific { Image(systemName: "checkmark").foregroundStyle(appStyle.tenant) }
                             }
                         }
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(appStyle.text)
                     }
                     TextField("Something else (type the name)", text: $other)
                         .onChange(of: other) { _, v in if !v.isEmpty { pick = "" } }
@@ -1040,11 +1316,13 @@ struct PlantIdView: View {
                         ForEach(res.beds ?? []) { b in Text(b.name).tag(b.id) }
                     }
                     if let b = rec.bed, b.sure != true {
-                        Text("Probably \(b.name) — from where you stood. Change it if not.").font(.caption).foregroundStyle(.secondary)
+                        Text("Probably \(b.name) — from where you stood. Change it if not.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     }
                 }
-                if let status { Section { Text(status).foregroundStyle(.orange) } }
+                if let status { Section { Text(status).foregroundStyle(appStyle.attention) } }
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Plant")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1063,9 +1341,13 @@ struct PlantIdView: View {
         if pick.isEmpty { body["common_name"] = other.trimmingCharacters(in: .whitespaces) } else { body["scientific_name"] = pick }
         do {
             let res: PlantIdResponse = try await APIClient(authSession: authSession).request(.plantId, body: body)
-            if res.ok { saved = res } else { status = res.message ?? "Couldn't save it." }
+            if res.ok {
+                saved = res
+                if let presetItemId { PlantSendQueue.shared.remove(presetItemId) }   // dealt with: off the job card
+            } else { status = res.message ?? "Plant save response ok=false; server returned no message field." }
         } catch {
-            status = "Couldn't save it — check the signal."
+            AppDiagnostics.shared.record(category: "JobPhotoSection", message: ErrorDetails.describe(error))
+            status = ErrorDetails.describe(error)
         }
     }
 
@@ -1075,38 +1357,65 @@ struct PlantIdView: View {
         NavigationStack {
             List {
                 Section {
-                    Text(res.record?.commonName ?? res.record?.scientificName ?? "Saved").font(.headline)
-                    if let b = res.record?.bed { Text("In \(b.name)").foregroundStyle(.secondary) }
+                    Text(res.record?.commonName ?? res.record?.scientificName ?? "Saved").font(appStyle.font(.headline))
+                    if let b = res.record?.bed { Text("In \(b.name)").foregroundStyle(appStyle.meta) }
                 }
                 if let care = res.care, care.weed == true {
                     Section {
                         Label(care.invasive == true ? "Weed — invasive in BC" : "Weed", systemImage: "exclamationmark.octagon")
-                            .foregroundStyle(care.invasive == true ? Color.MW.red : Color.MW.orange)
-                        if let n = care.invasiveNote, !n.isEmpty { Text(n).font(.caption) }
-                        if let s = care.safety, !s.isEmpty { Label(s, systemImage: "hand.raised").font(.caption).foregroundStyle(Color.MW.red) }
-                        if let d = care.disposal, !d.isEmpty { Label(d, systemImage: "trash").font(.caption) }
+                            .foregroundStyle(care.invasive == true ? appStyle.blocked : appStyle.attention)
+                        if let n = care.invasiveNote, !n.isEmpty { Text(n).font(appStyle.font(.caption)) }
+                        if let s = care.safety, !s.isEmpty { Label(s, systemImage: "hand.raised").font(appStyle.font(.caption)).foregroundStyle(appStyle.blocked) }
+                        if let d = care.disposal, !d.isEmpty { Label(d, systemImage: "trash").font(appStyle.font(.caption)) }
                     }
                 }
                 if let care = res.care, !care.tasks.isEmpty {
                     Section(care.weed == true ? "How to remove it" : (care.general == true ? "Care (general for this kind)" : "Care")) {
                         ForEach(care.tasks, id: \.self) { t in
                             VStack(alignment: .leading, spacing: 2) {
-                                HStack { Text(t.task).bold(); Spacer(); Text(t.when).foregroundStyle(.secondary) }
-                                if let how = t.how, !how.isEmpty { Text(how).font(.caption).foregroundStyle(.secondary) }
+                                HStack { Text(t.task).bold(); Spacer(); Text(t.when).foregroundStyle(appStyle.meta) }
+                                if let how = t.how, !how.isEmpty { Text(how).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                             }
                         }
                         if care.toxicPets == true {
                             Label(care.toxicNote?.isEmpty == false ? care.toxicNote! : "Toxic to pets", systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(Color.MW.red)
+                                .foregroundStyle(appStyle.blocked)
                         }
                     }
                 } else {
-                    Section { Text("Its care card isn't in the library yet — the office will add it.").font(.caption).foregroundStyle(.secondary) }
+                    Section { Text("Its care card isn't in the library yet — the office will add it.").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
                 }
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Saved")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { onClose() } } }
         }
     }
 }
+
+/// Pl@ntNet's reference photo of a species: a small square, a quiet leaf while it loads or when there is none.
+struct PlantRefPhoto: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let url: String?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let url, let u = URL(string: url) {
+                AsyncImage(url: u) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() } else { placeholder }
+                }
+            } else { placeholder }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+        .accessibilityHidden(true)
+    }
+
+    private var placeholder: some View {
+        ZStack { appStyle.sunk; Image(systemName: "leaf").foregroundStyle(appStyle.meta) }
+    }
+}
+

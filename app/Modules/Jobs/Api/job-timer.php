@@ -115,6 +115,16 @@ try {
                 exit;
             }
 
+            // A salt & snow route stop starts only while a run is open (SnowRunGate, 2026-11-03) —
+            // also stops GPS proximity auto-starts. 409, never 5xx: the apps keep 5xx queued.
+            require_once APP_ROOT . '/Modules/Schedule/Services/SnowRunGate.php';
+            $snowRefusal = (new SnowRunGate(getDB()))->refuseStart($visitId);
+            if ($snowRefusal !== null) {
+                http_response_code(409);
+                echo json_encode(['success' => false, 'code' => $snowRefusal['code'], 'error' => $snowRefusal['message']]);
+                exit;
+            }
+
             // Return cached response if this key was already processed.
             if ($idempKey) {
                 $db = getDB();

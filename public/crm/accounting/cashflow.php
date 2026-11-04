@@ -21,6 +21,7 @@ if ($isAdmin) {
         require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
         require_once APP_ROOT . '/Modules/Accounting/Services/CashFlowForecastService.php';
         $f = (new CashFlowForecastService(getDB()))->forecast();
+        try { $taxNote = (new CashFlowForecastService(getDB()))->taxNote(); } catch (Throwable $e) { $taxNote = null; }   // the year's tax, honestly (2026-11-03)
     } catch (Throwable $e) {
         error_log('cashflow page: ' . $e->getMessage());
         $err = 'Penny could not build the forecast just now.';
@@ -89,6 +90,9 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
     <?php endif; ?>
 
     <div class="card mb-3"><div class="card-body">
+        <?php $pl = $f['pipeline'] ?? null; if ($pl && ($pl['count'] ?? 0) > 0): $wk = array_slice($pl['by_week'], 0, 3, true); ?>
+        <p class="small text-muted mb-3"><strong>Sam's open quotes (not in the lines above):</strong> <?= (int)$pl['count'] ?> for <?= $money($pl['total']) ?>. <?php if ($pl['win_rate'] !== null): ?>At his <?= (int)$pl['win_rate'] ?>% win rate about <?= $money($pl['weighted']) ?> would land<?php if ($wk): ?>, mostly the weeks of <?= h(implode(', ', array_map(fn($d) => date('M j', strtotime($d)), array_keys($wk)))) ?><?php endif; ?>. <?php else: ?><?= h($pl['basis']) ?>. <?php endif; ?></p>
+        <?php endif; ?>
         <h2 class="h6 mb-2">Week by week</h2>
         <div class="table-responsive">
         <table class="table table-sm mw-cf-table">
@@ -112,7 +116,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
                     </td>
                     <td class="text-end"><?= $money($w['in']) ?></td>
                     <td class="text-end"><?= $money(-$w['out']) ?></td>
-                    <td class="text-end"><b><?= $money($w['closing']) ?></b></td>
+                    <td class="text-end"><b><?= $money($w['closing']) ?></b><?php if (isset($w['closing_low'], $w['closing_high']) && ($f['band']['pct'] ?? 0) > 0): ?><br><small class="text-muted"><?= $money($w['closing_low']) ?> – <?= $money($w['closing_high']) ?></small><?php endif; ?></td>
                     <td class="text-end"><?= $l ? $money($l['closing']) : '—' ?></td>
                     <td class="text-end"><?= ($w['safe_to_pay'] ?? 0) > 0 ? '<b class="mw-cf-spare">' . $money($w['safe_to_pay']) . '</b>' : '—' ?></td>
                     <td class="mw-cf-barcol"><span class="mw-cf-bar<?= $w['closing'] < 0 ? ' is-neg' : '' ?>" style="width: <?= (int)round(min(100, abs($w['closing']) / $max * 100)) ?>%"></span></td>
@@ -135,6 +139,7 @@ $kindLabel = ['invoice' => 'Invoice', 'visit' => 'Booked visit', 'visit_projecte
             <h2 class="h6 mb-2">Not counted</h2>
             <ul class="small mb-0">
                 <?php foreach ($f['notes'] as $n): ?><li><?= h($n) ?></li><?php endforeach; ?>
+                <?php $taxNote = $taxNote ?? null; if ($taxNote && !empty($taxNote['text'])): ?><li><strong>Tax, honestly:</strong> <?= h($taxNote['text']) ?></li><?php endif; ?>
                 <?php foreach ($f['doubtful'] as $d): ?><li>Doubtful (<?= (int)$d['days'] ?> days overdue): <a href="/crm/invoices/view.php?id=<?= (int)$d['id'] ?>"><?= h($d['label']) ?></a> — <?= $money($d['amount']) ?></li><?php endforeach; ?>
                 <li>Tax instalments, payment terms, the alert floor (<?= $money($f['floor']) ?>) and an optional fixed weekly spend are settings (cashflow_*).</li>
             </ul>

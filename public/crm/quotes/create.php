@@ -637,8 +637,33 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                            value="<?php echo $quote['valid_until'] ?? date('Y-m-d', strtotime('+30 days')); ?>">
                                 </div>
 
+                                <?php
+                                // Penny → Sam (2026-11-03): how this payer has paid us, before the terms are written. Read-only; a notice, not a rule.
+                                $payerNotice = null;
+                                try {
+                                    $pk = null;
+                                    $payerProp = !empty($prefilledPropertyId) ? (int)$prefilledPropertyId : (int)($quote['property_id'] ?? 0);   // edit mode: the quote's own property
+                                    if ($payerProp > 0) {
+                                        $pq = $db->prepare("SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? AND cp.is_primary = 1 LIMIT 1"); $pq->execute([$payerProp]);
+                                        $pc = (int)$pq->fetchColumn(); if ($pc > 0) $pk = 'company:' . $pc;
+                                    }
+                                    if ($pk === null && !empty($prefilledContactId)) $pk = 'contact:' . (int)$prefilledContactId;
+                                    if ($pk !== null && defined('APP_ROOT')) {
+                                        require_once APP_ROOT . '/Modules/Invoices/Services/ReminderGate.php';
+                                        $gate = new ReminderGate($db);
+                                        $tone = PayerTone::classify($gate->historyFor($pk));
+                                        $habit = $gate->habitFor($pk);
+                                        if ($tone['n'] > 0) {
+                                            $payerNotice = 'This payer: ' . $tone['reason'] . ($habit ? ', usually ' . $habit['p75'] . ' days late at the slow end' : '') . '.';
+                                            if ($tone['tone'] === 'firm' || ($habit && $habit['p75'] >= 21)) $payerNotice .= ' Consider a deposit line or shorter terms on this quote.';
+                                            elseif ($tone['tone'] === 'gentle') $payerNotice .= ' Standard terms are fine.';
+                                        }
+                                    }
+                                } catch (Throwable $e) { $payerNotice = null; }
+                                ?>
                                 <div class="mw-form-group">
                                     <label class="form-label">Terms &amp; Conditions</label>
+                                    <?php if ($payerNotice): ?><div class="mw-payer-notice"><?= h($payerNotice) ?></div><?php endif; ?>
                                     <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nGST (5%) is added to all prices.\nWork to be completed weather permitting."); ?></textarea>
                                 </div>
 

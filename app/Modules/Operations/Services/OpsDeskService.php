@@ -248,6 +248,12 @@ class OpsDeskService
                 foreach ((new ProductCareService($this->db, $this->today))->briefItems() as $it) $out[] = $it;
             }
         } catch (Throwable $e) { /* additive only (migration 1225) */ }
+        // Harvested 2026-11-03 (operations / small-business plugins): last week's clock review (Mon–Wed), the week's
+        // load against crew capacity, the dated seasonal stock watch, the quarterly supplier review — read-only.
+        try {
+            require_once __DIR__ . '/OttoHarvestService.php';
+            foreach ((new OttoHarvestService($this->db, $this->today))->briefItems() as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only */ }
         $out = OttoRules::sortItems($out);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }

@@ -1,11 +1,19 @@
 <?php
 declare(strict_types=1);
 
+// Database timestamps are timezone-less. Keep date arithmetic deterministic across
+// developer/CI host timezones and daylight-saving transitions.
+date_default_timezone_set('UTC');
+
 // Composer autoloader (PHPUnit + smalot/pdfparser)
 require_once __DIR__ . '/../vendor/autoload.php';
 
 // Load service classes under test
 // No namespace — plain PHP classes, loaded directly
+
+// Settings — public business registry lookup (no live HTTP in unit tests)
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/BusinessRegistryProvider.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/OrgBookBcProvider.php';
 
 // Accounting
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerService.php';
@@ -39,6 +47,13 @@ require_once __DIR__ . '/../app/Services/HeadLessons.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 
 // Sales — Sam, the sales head
+require_once __DIR__ . '/../app/Modules/Sales/Services/LeadScore.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/RenewalRadar.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ClientTier.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/ObjectionReply.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamFollowupService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
@@ -49,6 +64,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteApprovalService.php'
 require_once __DIR__ . '/../app/Modules/Operations/Services/MaterialDeliveryService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CashFlowForecastService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/BreakService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorPlacementRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorLotService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorHoursService.php';
 // Otto's end-of-day missed-visit review (migration 1349)
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitReviewService.php';
@@ -56,6 +74,7 @@ require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
 require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';
 require_once __DIR__ . '/../app/Core/Tenant.php';
+require_once __DIR__ . '/../app/Core/BusinessCronFanout.php';
 require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
@@ -78,9 +97,16 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaSecurityWatch.php
 require_once __DIR__ . '/../app/Modules/Technology/Services/AuditExportService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaFixedMarks.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/PulseRules.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRiskRegister.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php';
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
@@ -104,6 +130,7 @@ require_once __DIR__ . '/../app/Modules/Referrals/Services/ReferralRules.php';
 require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';
 
 // Mia — marketing & relationships head
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ArticleGeneratorService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWording.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
@@ -111,6 +138,11 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/VoiceProfile.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EvidenceMinimums.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ContentMix.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/AdDiagnostics.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MarketingWeek.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCampaignService.php';
 // Mia — channels (GBP, social, website watch, listings) and the media library
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSeasonThemes.php';
@@ -132,6 +164,15 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaEmailHubService.ph
 
 // Otto — operations head
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/ClockWeekRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/WeekLoadRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SeasonalStockRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierReviewRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoHarvestService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/HttpFetch.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
@@ -150,6 +191,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService
 require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptParserScoreService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
@@ -218,6 +261,10 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieFactAnswere
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAskService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/AutomatedInvoiceInbox.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/PayerTone.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/ReminderGate.php';
 
 // Products
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
@@ -231,6 +278,7 @@ require_once __DIR__ . '/../app/Modules/Products/Services/ProductFactAnswerer.ph
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoManualService.php';
 
 // Expenses
+require_once __DIR__ . '/../app/Services/Receipts/ReceiptIntakeRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptArchiveService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptIntakeService.php';
@@ -266,11 +314,19 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 // Bank balance check + each invoice payment its own journal entry (migration 1236)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/SettlementStatusService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineAge.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PulseBands.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/JournalEntryCheck.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/CloseNarrative.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/TaxInstalmentNote.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineReceipts.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BooksWatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PayerIdentityService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseListService.php';
 // Wave payroll import + shareholder account (migration 1255)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PayrollRunChecks.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/WavePayrollImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ShareholderAccountService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService.php';
@@ -278,6 +334,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
@@ -324,6 +383,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitServic
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledWorkFinder.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRefundService.php';
 
 // CMS
 require_once __DIR__ . '/../app/Modules/CMS/Services/ArticleService.php';
@@ -333,6 +393,40 @@ require_once __DIR__ . '/../app/Modules/CMS/Services/CmsSiteFunctions.php';
 
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
+
+// Agents (policy + ledger + tasks + registries + evals + studio)
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentStudioService.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/SkillRegistry.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
+require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/TaskService.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentDetectors.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
+
+// Tenant context
+require_once __DIR__ . '/../app/Services/TenantContext.php';
+
+// Invoice reminders / rejection notices
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionNotice.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionWatch.php';
+
+// Pulse (health monitor)
+require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
+
+// Charlie payment story
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharliePaymentStory.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAnswerStyle.php';
+
+// LLM gateway
+require_once __DIR__ . '/../app/Services/LlmDailyCap.php';
+require_once __DIR__ . '/../app/Services/Llm/ModelCatalog.php';
+require_once __DIR__ . '/../app/Services/Llm/LlmFence.php';
+require_once __DIR__ . '/../app/Services/Llm/LlmGateway.php';
+
+// Legal (platform Terms of Service)
+require_once __DIR__ . '/../app/Modules/Legal/Services/TermsService.php';
 
 // Quiz / Certification
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
@@ -345,6 +439,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetApprovalService.p
 require_once __DIR__ . '/../app/Modules/Schedule/Services/CrewViewScope.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/AppointmentService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/VisitNeedsService.php';
+require_once __DIR__ . '/../app/Modules/Schedule/Services/SnowRunGate.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReceiptBankCheck.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorDetailsService.php';

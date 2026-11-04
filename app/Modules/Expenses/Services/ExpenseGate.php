@@ -31,7 +31,7 @@
  *   ExpenseGate::DELETE => true remove the expense (its posted entry is reversed first)
  * $actor:  ['id' => ?int, 'kind' => 'user'|'penny'|'system']
  * $opts:   transition (approve|reject|forward|cancel), only_if (fn(array $before): bool),
- *          allow_locked, ocr_parsed (capture baseline), learn_lines (save payload),
+ *          allow_locked, ocr_parsed (capture baseline), learn_lines (save payload), learn_now (office phone save teaches),
  *          learn_baseline (fallback baseline on approval), price_intel (bool)
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -69,6 +69,8 @@ class ExpenseGate
     public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line'];
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
+    /** Receipts dated before this are in a filed, closed year (same date as LedgerService::FY_START — a test keeps them equal). */
+    public const CLOSED_BEFORE = '2026-01-01';
     /** The audited transition that may set each closed status. */
     // 'reopen': an approved receipt back to draft by its audited path (ReceiptBankCheck: no statement line for it, 2026-10-15).
     public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft'];
@@ -116,6 +118,27 @@ class ExpenseGate
     public static function actor(?array $user, string $kind = 'user'): array
     {
         return ['id' => isset($user['id']) && (int)$user['id'] > 0 ? (int)$user['id'] : null, 'kind' => $kind];
+    }
+
+    /**
+     * A receipt dated in a filed year must not be approved or changed in the books (Tim, 2026-10-26). The ledger refuses to post
+     * a 2025-dated receipt into 2025, so approving one posted a NEW entry dated today (#18, Shell $150, 2025-05-14: a second copy of
+     * an expense already in the filed 2025 books). Only a step that would put it in the books, or change what the books carry, is
+     * refused: rejecting, re-opening and edits that leave the books alone (notes, lines) are fine. Pure.
+     * @param array $before the receipt as saved ([] on create)  @param array $cols what the save sets  @param array $set the changed columns
+     * @param bool $structure the save changes the split or its lines (those repost the receipt too — Codex review 2026-10-26)
+     * @return ?string the reason to show, or null
+     */
+    public static function closedYearProblem(array $before, array $cols, array $set, bool $create, bool $structure = false): ?string
+    {
+        $status = (string)($cols['status'] ?? $before['status'] ?? '');
+        if (!in_array($status, self::POSTED, true)) return null;
+        $date = substr((string)($cols['expense_date'] ?? $before['expense_date'] ?? ''), 0, 10);
+        if ($date === '' || $date >= self::CLOSED_BEFORE) return null;
+        $wasPosted = !$create && in_array((string)($before['status'] ?? ''), self::POSTED, true);
+        $booksChange = $create || !$wasPosted || $structure || (bool)array_intersect(array_keys($set), self::BOOKS);
+        if (!$booksChange) return null;
+        return 'This receipt is dated ' . $date . ' — in a year that is already filed. It is the same purchase as an entry already in your 2025 books, and approving it would book it again today. Reject it and keep the photo, or ask your accountant.';
     }
 
     /**
@@ -177,6 +200,10 @@ class ExpenseGate
         if (!$delete && !$set && !$linesChange && !$splitChange) {
             return self::result((int)$expenseId, 'none', [], true);
         }
+        // A receipt dated in a filed year never reaches the books (see closedYearProblem()); an explicit override exists for history builders.
+        if (!$delete && empty($opts['allow_closed_year']) && ($why = self::closedYearProblem($before, $cols, $set, $create, $linesChange || $splitChange))) {
+            throw new Exception($why);
+        }
         // GST that can't be right (owner, 2026-10-19: "surely if the gst is obviously wrong the receipt shouldnt
         // save"; #114, a $2.61 coffee read as $5.00 GST, failed the nightly posting for months). TaxCheck:
         //   impossible — a person's edit is refused; a NEW receipt (phone / email / desktop capture, which save as the
@@ -226,7 +253,9 @@ class ExpenseGate
                 }
                 if (function_exists('reverseLineItemInventory')) reverseLineItemInventory($this->db, $id);
                 if ($this->split->ready()) $this->split->clear($id);
-                $this->db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$id]);
+                // Plain statement, id cast to int: on production a PREPARED delete here fails with MySQL 1615 ("needs to be re-prepared")
+                // because the table has four foreign-key children (2026-10-26, #490); the same delete run plainly works.
+                $this->db->exec('DELETE FROM expenses WHERE id = ' . (int)$id);
                 $this->audit($id, 'delete', $source, $actor, array_keys($before), self::auditValues($before), [], null);
                 if ($own) $this->db->commit();
                 return self::result($id, 'delete', [], false);
@@ -370,6 +399,10 @@ class ExpenseGate
             $this->hooks->learnConfirmed($id, isset($opts['learn_baseline']) && is_array($opts['learn_baseline']) ? $opts['learn_baseline'] : null);
             // Reconciliation: link it to its ONE exact bank / card line, so the nightly posting books the purchase once.
             $this->hooks->linkBank($id, $after);
+        }
+        // An owner's or manager's phone save is their confirmation: it teaches now, once (claimReceiptLearning).
+        if (!$nowConfirmed && $create && !empty($opts['learn_now']) && ($after['status'] ?? '') === 'pending_approval') {
+            $this->hooks->learnConfirmed($id, null, false, true);
         }
         if (array_key_exists('allocations', $changes) && !empty($extra['allocations']) && ($person || ($actor['kind'] ?? '') === 'penny')) {
             $this->hooks->learnSplit($id, $extra['allocations']);

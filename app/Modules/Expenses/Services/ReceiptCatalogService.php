@@ -22,6 +22,7 @@
 require_once dirname(__DIR__, 2) . '/Operations/Services/CatalogService.php';
 require_once dirname(__DIR__, 2) . '/Knowledge/Services/VendorIdentity.php';
 require_once dirname(__DIR__, 2) . '/Operations/Services/MarketPriceService.php';
+require_once __DIR__ . '/ProductPriceHistoryService.php';
 
 class ReceiptCatalogService
 {
@@ -31,9 +32,9 @@ class ReceiptCatalogService
     public const MARGIN = 0.1;
     /** Receipt categories whose lines are products, and the families each searches (first = default for Add). */
     public const CATEGORY_FAMILIES = [
-        'Materials'           => ['hardscape', 'plants', 'irrigation', 'chemicals', 'tools', 'other'],
-        'Tools/Equipment'     => ['tools', 'irrigation', 'other'],
-        'Repairs/Maintenance' => ['tools', 'plumbing', 'electrical', 'irrigation', 'other'],
+        'Materials'           => ['hardscape', 'plants', 'irrigation', 'chemicals', 'tools', 'other', 'consumables'],
+        'Tools/Equipment'     => ['tools', 'irrigation', 'other', 'consumables'],
+        'Repairs/Maintenance' => ['tools', 'plumbing', 'electrical', 'irrigation', 'other', 'consumables'],
     ];
     private const NOT_A_PRODUCT = '/^\W*(ehf|eco ?fee|env\w* ?fee|deposit|core charge|gst|pst|hst|tax|sub ?total|subotal|total|amount|value|savings?|discount|coupon|bag fee|delivery|fuel surcharge|labou?r|purchase|change|cash|visa|debit|mastercard)\b|\b(disposal|shop|service) fee\b/i';
     /** Words that only say a kind of thing ("Annuals 6 Pack", "Perennial × 18", "Herbs/Veggies") — a category, not a product. */
@@ -44,12 +45,14 @@ class ReceiptCatalogService
         'irrigation' => '/\b(hose|timer|sprinkler|drip|valve|nozzle|faucet|irrigat|emitter|rain ?bird|orbit|hunter|spigot)/i',
         'chemicals'  => '/\b(fertili[sz]|moss|herbicide|weed|killer|insect|pesticide|fungicide|lime|grass seed|seed)/i',
         'tools'      => '/\b(rake|saw|shovel|spade|pruner|shear|lopper|glove|glasses|trimmer|blower|mower|drill|driver|hammer|knife|tarp|strap|wheelbarrow|broom|hoe|fork)/i',
+        'consumables'=> '/\b(oil|lube|grease|fluid|def|coolant|antifreeze|filter|line|chain|blade|spark\s+plug|bar\s+oil|fuel\s+additive|wire|tape|ties?|bags?|string)\b/i',
     ];
 
     private PDO $db;
     private CatalogService $catalog;
     /** @var array<string, list<array{id: int, name: string, family: string, tokens: string[]}>> */
     private array $products = [];
+    private ?bool $sizeColumnsReady = null;
 
     public function __construct(PDO $db, ?CatalogService $catalog = null)
     {
@@ -131,6 +134,35 @@ class ReceiptCatalogService
         return $u !== null && strlen($u) >= 12 ? $u : null;
     }
 
+    /** A package size printed in a product name. PURE. */
+    public static function parseSize(string $name): ?array
+    {
+        if (!preg_match('/(?<![\d.])(\d+(?:\.\d+)?)\s*(litres?|liters?|ml|kg|cm|l|g|m|packs?|pk|pcs?|pieces?)\b/i', $name, $m)) return null;
+        $qty = (float)$m[1];
+        if ($qty <= 0) return null;
+        $unit = strtolower($m[2]);
+        $unit = ['litre' => 'l', 'litres' => 'l', 'liter' => 'l', 'liters' => 'l', 'pack' => 'pc', 'packs' => 'pc',
+                 'pk' => 'pc', 'pcs' => 'pc', 'piece' => 'pc', 'pieces' => 'pc'][$unit] ?? $unit;
+        return ['qty' => $qty, 'unit' => $unit];
+    }
+
+    /** Price per normalized measure (ml→L, g→kg, cm→m). PURE. */
+    public static function perUnit(float $price, ?float $size, ?string $unit): ?array
+    {
+        if ($size === null || $size <= 0) return null;
+        $unit = strtolower(trim((string)$unit));
+        $labels = ['l' => '$/L', 'ml' => '$/L', 'kg' => '$/kg', 'g' => '$/kg', 'm' => '$/m', 'cm' => '$/m', 'pc' => '$/piece'];
+        if (!isset($labels[$unit])) return null;
+        if ($unit === 'ml' || $unit === 'g' || $unit === 'cm') $size /= 1000;
+        return ['value' => round($price / $size, 4), 'label' => $labels[$unit]];
+    }
+
+    /** Whether a catalog_products column list contains the complete package-size schema. PURE. */
+    public static function hasSizeColumns(array $columns): bool
+    {
+        return in_array('unit_size', $columns, true) && in_array('unit_size_unit', $columns, true);
+    }
+
     /** Is this line a product at all (not a fee, a tax, a deposit)? PURE. */
     public static function isProduct(string $name): bool
     {
@@ -192,13 +224,12 @@ class ReceiptCatalogService
         $lines = $this->db->prepare("SELECT id, name, sku_raw FROM expense_line_items WHERE expense_id = ?
                                      AND (catalog_match IS NULL OR catalog_match IN ('alias', 'exact', 'suggested', 'open', 'skip'))");
         $lines->execute([$expenseId]);
-        $set = $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = ?, catalog_match = ?, catalog_suggested_id = ?, catalog_score = ? WHERE id = ?");
         foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $l) {
-            if (!self::isProduct((string)$l['name'])) { $set->execute([null, 'skip', null, null, (int)$l['id']]); continue; }
+            if (!self::isProduct((string)$l['name'])) { $this->setMatch((int)$l['id'], null, 'skip', null, null); continue; }
             [$id, $score, $how] = $this->find((string)$l['name'], $l['sku_raw'] ?? null, $vk, $fams);
-            if ($how === 'suggested') { $set->execute([null, 'suggested', $id, $score, (int)$l['id']]); $r['suggested']++; }
-            elseif ($id !== null)     { $set->execute([$id, $how, null, $score, (int)$l['id']]); $r['linked']++; }
-            else                      { $set->execute([null, 'open', null, null, (int)$l['id']]); $r['open']++; }
+            if ($how === 'suggested') { $this->setMatch((int)$l['id'], null, 'suggested', $id, $score); $r['suggested']++; }
+            elseif ($id !== null)     { $this->setMatch((int)$l['id'], $id, $how, null, $score); $r['linked']++; }
+            else                      { $this->setMatch((int)$l['id'], null, 'open', null, null); $r['open']++; }
         }
         return $r;
     }
@@ -252,8 +283,7 @@ class ReceiptCatalogService
         $p = $this->catalog->product($productId);
         if (!$l || !$p) return ['ok' => false, 'message' => 'That line or product is gone.'];
         $was = $this->currentName($l);
-        $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = ?, catalog_match = 'confirmed', catalog_suggested_id = NULL, catalog_score = 1 WHERE id = ?")
-                 ->execute([$productId, $lineId]);
+        $this->setMatch($lineId, $productId, 'confirmed', null, 1.0);
         $this->teach($l, $productId, (string)$p['family']);
         // Penny's lessons (PennyLessons): what she had for this line vs what the person said it is.
         if ($was !== (string)$p['canonical_name']) $this->lesson($l, $was, (string)$p['canonical_name'], $by, $why);
@@ -277,13 +307,12 @@ class ReceiptCatalogService
                                                 ->execute([self::NOT_FAMILY, mb_substr($nk, 0, 255), $pid]);
             }
         }
-        $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = NULL, catalog_match = 'none', catalog_suggested_id = NULL, catalog_score = NULL WHERE id = ?")
-                 ->execute([$lineId]);
+        $this->setMatch($lineId, null, 'none', null, null);
         return ['ok' => true];
     }
 
     /** "Add to catalogue": the product a person names (an exact match is reused, never duplicated). */
-    public function add(int $lineId, string $family, string $name, ?string $brand = null, ?int $by = null): array
+    public function add(int $lineId, string $family, string $name, ?string $brand = null, ?int $by = null, ?array $size = null): array
     {
         $l = $this->line($lineId);
         $name = trim(preg_replace('/\s+/', ' ', $name));
@@ -292,10 +321,16 @@ class ReceiptCatalogService
         if (empty($fam['id'])) return ['ok' => false, 'message' => 'Pick what kind of product it is.'];   // family() falls back for unknown slugs
         $res = $this->catalog->resolve($family, ['name' => mb_substr($name, 0, 255), 'brand' => $brand, 'upc' => self::barcode($l['sku_raw'] ?? null)], null, false);
         if (empty($res['product_id'])) return ['ok' => false, 'message' => "That couldn't be added."];
+        $size = $size ?? self::parseSize($name);
+        if ($size && $this->columnsReady() && in_array($size['unit'] ?? '', ['l', 'ml', 'kg', 'g', 'm', 'cm', 'pc'], true) && (float)($size['qty'] ?? 0) > 0) {
+            $onlyEmpty = ($res['how'] ?? '') === 'new' ? '' : ' AND unit_size IS NULL';
+            $this->db->prepare("UPDATE catalog_products SET unit_size = ?, unit_size_unit = ? WHERE id = ?$onlyEmpty")
+                     ->execute([(float)$size['qty'], $size['unit'], (int)$res['product_id']]);
+        }
         unset($this->products[$family]);   // a new product: read the family again
         $r = $this->confirm($lineId, (int)$res['product_id'], $by, 'added to catalogue');
         if (!$r['ok']) return $r;
-        $this->db->prepare("UPDATE expense_line_items SET catalog_match = 'added' WHERE id = ?")->execute([$lineId]);
+        $this->setMatch($lineId, (int)$res['product_id'], 'added', null, 1.0);
         return $r + ['new' => ($res['how'] ?? '') === 'new'];
     }
 
@@ -321,8 +356,9 @@ class ReceiptCatalogService
     {
         if (!$this->ready()) return [];
         $e = $this->expense($expenseId);
+        $sizeSelect = $this->columnsReady() ? ', p.unit_size, p.unit_size_unit' : ', NULL AS unit_size, NULL AS unit_size_unit';
         $s = $this->db->prepare("SELECT l.id, l.name, l.catalog_match, l.catalog_score, l.catalog_product_id, l.catalog_suggested_id,
-                                        p.canonical_name AS product, p.family, q.canonical_name AS suggested
+                                        p.canonical_name AS product, p.family, q.canonical_name AS suggested $sizeSelect
                                  FROM expense_line_items l
                                  LEFT JOIN catalog_products p ON p.id = l.catalog_product_id
                                  LEFT JOIN catalog_products q ON q.id = l.catalog_suggested_id
@@ -330,14 +366,17 @@ class ReceiptCatalogService
         $s->execute([$expenseId]);
         $cat = (string)($e['accounting_category'] ?? '');
         $out = [];
+        $prices = $this->columnsReady() ? new ProductPriceHistoryService($this->db) : null;
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $eligible = isset(self::CATEGORY_FAMILIES[$cat]) && self::isProduct((string)$r['name']);
             [$clean] = self::clean((string)$r['name']);
             $out[(int)$r['id']] = [
                 'eligible' => $eligible, 'match' => $r['catalog_match'], 'score' => $r['catalog_score'] !== null ? (float)$r['catalog_score'] : null,
-                'product' => $r['catalog_product_id'] ? ['id' => (int)$r['catalog_product_id'], 'name' => (string)$r['product'], 'family' => (string)$r['family']] : null,
+                'product' => $r['catalog_product_id'] ? ['id' => (int)$r['catalog_product_id'], 'name' => (string)$r['product'], 'family' => (string)$r['family'],
+                    'unit_size' => $r['unit_size'] !== null ? (float)$r['unit_size'] : null, 'unit_size_unit' => $r['unit_size_unit']] : null,
                 'suggested' => $r['catalog_suggested_id'] ? ['id' => (int)$r['catalog_suggested_id'], 'name' => (string)$r['suggested']] : null,
-                'add' => ['name' => $clean, 'family' => self::guessFamily($cat, (string)$r['name'], (string)($e['vendor'] ?? ''))],
+                'add' => ['name' => $clean, 'family' => self::guessFamily($cat, (string)$r['name'], (string)($e['vendor'] ?? '')), 'size' => self::parseSize((string)$r['name'])],
+                'hint' => $r['catalog_product_id'] && $prices ? $prices->hint((int)$r['catalog_product_id'], (int)$r['id']) : null,
             ];
         }
         return $out;
@@ -425,10 +464,9 @@ class ReceiptCatalogService
                                  WHERE l.id <> ? AND e.vendor_id = ? AND e.status <> 'rejected'
                                    AND (l.catalog_match IS NULL OR l.catalog_match IN ('suggested', 'open', 'alias', 'exact')) LIMIT 2000");
         $s->execute([$exceptLineId, (int)$line['vendor_id']]);
-        $set = $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = ?, catalog_match = 'alias', catalog_suggested_id = NULL, catalog_score = 1 WHERE id = ?");
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $o) {
             $k = self::aliasKeys($vk, $o['sku_raw'] ?? null, self::clean((string)$o['name'])[0]);
-            if (array_intersect_assoc($k, $taught)) $set->execute([$productId, (int)$o['id']]);
+            if (array_intersect_assoc($k, $taught)) $this->setMatch((int)$o['id'], $productId, 'alias', null, 1.0);
         }
     }
 
@@ -453,6 +491,28 @@ class ReceiptCatalogService
         $s = $this->db->prepare("SELECT 1 FROM catalog_products WHERE id = ?");
         $s->execute([$productId]);
         return (bool)$s->fetchColumn();
+    }
+
+    /** A line's catalogue link: never money, so it is written here, not through the gate. */
+    private function setMatch(int $lineId, ?int $productId, string $match, ?int $suggestedId, ?float $score): void
+    {
+        $this->db->prepare("UPDATE expense_line_items SET catalog_product_id = ?, catalog_match = ?, catalog_suggested_id = ?, catalog_score = ? WHERE id = ?")
+                 ->execute([$productId, $match, $suggestedId, $score, $lineId]);
+    }
+
+    private function columnsReady(): bool
+    {
+        if ($this->sizeColumnsReady !== null) return $this->sizeColumnsReady;
+        try {
+            $found = [];
+            foreach (['unit_size', 'unit_size_unit'] as $column) {
+                $s = $this->db->query("SHOW COLUMNS FROM catalog_products LIKE '" . $column . "'");
+                if ($s->fetch(PDO::FETCH_ASSOC)) $found[] = $column;
+            }
+            return $this->sizeColumnsReady = self::hasSizeColumns($found);
+        } catch (Throwable $e) {
+            return $this->sizeColumnsReady = false;
+        }
     }
 
     /** A family's products with their words (name + common names), read once per request. */

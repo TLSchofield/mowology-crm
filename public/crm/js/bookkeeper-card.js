@@ -877,6 +877,35 @@
                 pqBox.innerHTML = '<div class="mw-pq-head"><b>' + head + '</b>' +
                     (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
                     qs.map(function (q) {
+                        if (q.kind === 'possible_twin') {
+                            var copyId = q.copy_id || q.expense_id;
+                            var keepId = q.keep_id || q.expense_id;
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(copyId) + '" target="_blank" rel="noopener">Open #' + esc(copyId) + '</a>' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(keepId) + '" target="_blank" rel="noopener">Open #' + esc(keepId) + '</a>' +
+                                  '<button type="button" data-ans="different">Not the same purchase</button>' +
+                                '</div></div>';
+                        }
+                        if (q.kind === 'repeat_amount') {
+                            // Same vendor and total weeks apart (RepeatAmountFinder): surfaced only, Tim decides.
+                            var olderId = q.keep_id || q.expense_id;
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(q.expense_id) + '" target="_blank" rel="noopener">Open #' + esc(q.expense_id) + '</a>' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(olderId) + '" target="_blank" rel="noopener">Open #' + esc(olderId) + '</a>' +
+                                  '<button type="button" data-ans="different">Different purchases</button>' +
+                                  '<button type="button" data-ans="seen">I\'ll sort it</button>' +
+                                '</div></div>';
+                        }
+                        if (q.kind === 'bad_link') {
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(q.expense_id) + '" target="_blank" rel="noopener">Open #' + esc(q.expense_id) + '</a>' +
+                                  (q.right_id ? '<a href="/crm/expenses_appstack.php?edit=' + esc(q.right_id) + '" target="_blank" rel="noopener">Open #' + esc(q.right_id) + '</a>' : '') +
+                                  '<button type="button" data-ans="seen">Got it</button>' +
+                                '</div></div>';
+                        }
                         if (q.kind === 'payment_source') {
                             // The bank line said where the money came from (ReceiptFundingCheck).
                             return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +

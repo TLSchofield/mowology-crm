@@ -18,6 +18,8 @@
  */
 require_once __DIR__ . '/PropertyBorderRules.php';
 
+require_once __DIR__ . '/HttpFetch.php';
+
 class ParcelLotService
 {
     public const ATTRIBUTION = 'Contains information licensed under the Open Government Licence – British Columbia (ParcelMap BC).';
@@ -50,10 +52,7 @@ class ParcelLotService
     {
         $this->pauseMs = $pauseMs ?? ($fetch === null ? 500 : 0);
         $this->fetch = $fetch ?? static function (string $url): ?string {
-            $ctx = stream_context_create(['http' => ['timeout' => 12, 'ignore_errors' => true,
-                'header' => "User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)\r\n"]]);
-            $body = @file_get_contents($url, false, $ctx);
-            return $body === false ? null : $body;
+            return HttpFetch::get($url, 12, ['User-Agent: Mowology-CRM/1.0 (arrival borders; office@mowology.ca)']);
         };
     }
 
@@ -61,7 +60,7 @@ class ParcelLotService
      * The lot under the pin.
      * @return array{ok: bool, reason?: string, ring?: array, pid?: string, plan?: string, class?: string, area_sqm?: int, municipality?: string}
      */
-    public function lotAt(float $lat, float $lng): array
+    public function lotAt(float $lat, float $lng, float $maxAreaSqm = self::MAX_AREA_SQM): array
     {
         $box = sprintf('%.6F,%.6F,%.6F,%.6F,urn:ogc:def:crs:EPSG::4326',
             $lat - self::PIN_BOX_DEG, $lng - self::PIN_BOX_DEG, $lat + self::PIN_BOX_DEG, $lng + self::PIN_BOX_DEG);
@@ -77,7 +76,7 @@ class ParcelLotService
             // A full page may be truncated: an arbitrary outline is worse than the one lot.
             if ($plan && count($plan) < self::PLAN_MAX_FEATURES) $lot = self::mergePlan($lot, $plan);
         }
-        return self::checkArea($lot);
+        return self::checkArea($lot, $maxAreaSqm);
     }
 
     /** @return array<int, array{ring: array, class: string, plan: string, pid: string, municipality: string}>|null */
@@ -198,11 +197,11 @@ class ParcelLotService
         return $best;
     }
 
-    public static function checkArea(array $lot): array
+    public static function checkArea(array $lot, float $maxAreaSqm = self::MAX_AREA_SQM): array
     {
         if (!$lot['ok']) return $lot;
         if ($lot['area_sqm'] < self::MIN_AREA_SQM) return ['ok' => false, 'reason' => 'too_small'];
-        if ($lot['area_sqm'] > self::MAX_AREA_SQM) return ['ok' => false, 'reason' => 'too_big'];
+        if ($lot['area_sqm'] > $maxAreaSqm) return ['ok' => false, 'reason' => 'too_big'];
         return $lot;
     }
 }

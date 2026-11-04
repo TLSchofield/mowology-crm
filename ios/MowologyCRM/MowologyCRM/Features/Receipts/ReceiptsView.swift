@@ -9,6 +9,8 @@ import PhotosUI
 
 @MainActor
 struct ReceiptsView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
@@ -33,6 +35,8 @@ struct ReceiptsView: View {
     @State private var captureLng: Double?
     // "Snap Another" from the review sheet — reopen the camera once the sheet is gone.
     @State private var snapAnotherPending = false
+    /// Camera opened from the review's Retake: cancelling it brings the same review back.
+    @State private var retakePending = false
 
     // Label mode: the next photo is a product bag / machine nameplate, not a receipt.
     // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
@@ -62,15 +66,16 @@ struct ReceiptsView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
-                expenseList
-                if !isSelectMode { captureButton }
-            }
+            expenseList
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .bottom) {
-                if isSelectMode && !selectedIds.isEmpty {
-                    bulkActionBar
+                if isSelectMode {
+                    if !selectedIds.isEmpty { bulkActionBar }
+                } else {
+                    captureButton   // a bar under the list, never floating over it (owner, 2026-10-19)
                 }
             }
         }
@@ -102,6 +107,7 @@ struct ReceiptsView: View {
             CameraPicker(
                 onCapture: { image in
                     showCamera = false
+                    retakePending = false
                     Task {
                         // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
                         let compressed: Data = await Task.detached(priority: .userInitiated) {
@@ -111,7 +117,14 @@ struct ReceiptsView: View {
                         await handleCapture(compressed)
                     }
                 },
-                onCancel: { showCamera = false }
+                onCancel: {
+                    showCamera = false
+                    // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
+                    if retakePending {
+                        retakePending = false
+                        if viewModel.intakeResponse != nil { showReview = true }
+                    }
+                }
             )
             .ignoresSafeArea()
         }
@@ -138,7 +151,13 @@ struct ReceiptsView: View {
                     imageData: capturedImageData,
                     lat: captureLat,
                     lng: captureLng,
-                    isPresented: $showReview
+                    isPresented: $showReview,
+                    onRetake: {
+                        // Same path as "Snap Another": close the sheet, then reopen the camera.
+                        snapAnotherPending = true
+                        retakePending = true
+                        showReview = false
+                    }
                 ) { followUp in
                     snapAnotherPending = (followUp == .snapAnother)
                 }
@@ -232,6 +251,9 @@ struct ReceiptsView: View {
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
+        // The phone's own text read starts now and runs while the fix settles; upload waits for both.
+        let deviceRead: DeviceTextScanner.Prefetched? = labelMode ? nil : DeviceTextScanner.Prefetched(compressed)
+        defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
         let loc = await Self.captureFix() ?? locationManager.location
         if labelMode {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
@@ -244,7 +266,8 @@ struct ReceiptsView: View {
         await viewModel.uploadImage(
             compressed,
             lat: captureLat,
-            lng: captureLng
+            lng: captureLng,
+            deviceRead: deviceRead
         )
         if viewModel.intakeResponse != nil { showReview = true }
     }
@@ -269,7 +292,7 @@ struct ReceiptsView: View {
                     if !chase.items.isEmpty {
                         PennyCrewChaseCard(vm: chase, onSnap: snapForPenny)
                             .padding(16)
-                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                            .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                             .padding(16)
                     }
                     emptyState
@@ -280,6 +303,7 @@ struct ReceiptsView: View {
                         Section {
                             PennyCrewChaseCard(vm: chase, onSnap: snapForPenny)
                         }
+                        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                     }
                     ForEach(viewModel.expenses) { expense in
                         Button {
@@ -294,6 +318,7 @@ struct ReceiptsView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                         // Swipe-to-delete — Android's mobile card has the same gesture.
                         // Forwarded receipts are part of the books; the server refuses
                         // them, so don't offer the action at all.
@@ -313,6 +338,7 @@ struct ReceiptsView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .itAppForm()
                 .refreshable {
                     await chase.loadMine()
                     await viewModel.loadExpenses()
@@ -324,30 +350,32 @@ struct ReceiptsView: View {
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "doc.text.image")
-                .font(.system(size: 48))
-                .foregroundStyle(Color(.systemGray3))
+                .font(appStyle.font(size: 48))
+                .foregroundStyle(appStyle.meta)
             Text("No receipts yet")
-                .font(.title2.bold())
+                .font(appStyle.font(.title2, weight: .bold))
             Text("Tap + to snap a receipt")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
     }
 
     // MARK: - FAB
 
     private var captureButton: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            // Receipt | Label toggle — what the next photo is.
+        // AAA: a labelled 56 pt button and a 44 pt switch in a bar of their own — the floating
+        // icon-only button and switch covered "No receipt" and the list text (2026-10-19).
+        HStack(spacing: 12) {
+            // Receipt | Label — what the next photo is.
             Picker("Capture", selection: $labelMode) {
                 Text("Receipt").tag(false)
                 Text("Label").tag(true)
             }
             .pickerStyle(.segmented)
-            .frame(width: 170)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .frame(width: 150)
+            .frame(minHeight: 44)
             .accessibilityHint("Label: photo of a product bag or a machine's nameplate. It is never an expense.")
 
             Button {
@@ -355,17 +383,18 @@ struct ReceiptsView: View {
                 viewModel.uploadError = nil
                 showCamera = true
             } label: {
-                Image(systemName: labelMode ? "tag.fill" : "camera.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 60, height: 60)
-                    .background(Color.MW.green)
-                    .clipShape(Circle())
-                    .shadow(color: Color.MW.green.opacity(0.4), radius: 8, y: 4)
+                Label(labelMode ? "Snap a label" : "Snap a receipt", systemImage: labelMode ? "tag.fill" : "camera.fill")
+                    .font(appStyle.font(.headline))
+                    .foregroundStyle(appStyle.onTenant)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(appStyle.tenant, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .accessibilityLabel(labelMode ? "Photograph a label" : "Photograph a receipt")
         }
-        .padding(24)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(appStyle.surface)
+        .overlay(alignment: .top) { Rectangle().fill(appStyle.line).frame(height: 1) }
         .contextMenu {
             Button {
                 pickerItem = nil
@@ -386,23 +415,25 @@ struct ReceiptsView: View {
                 photoLibrary: .shared()
             ) {
                 Label("Select Photo", systemImage: "photo.on.rectangle")
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                     .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
                     .padding()
             }
             .navigationTitle("Choose from Library")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showLibrary = false }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                 }
             }
         }
-        .presentationDetents([.height(160)])
+        .presentationDetents(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? [.large] : [.height(160)])
     }
 
     // MARK: - Upload overlay
@@ -413,7 +444,7 @@ struct ReceiptsView: View {
             VStack(spacing: 14) {
                 ProgressView().scaleEffect(1.5).tint(.white)
                 Text("Reading receipt…")
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                     .foregroundStyle(.white)
             }
         }
@@ -426,11 +457,11 @@ struct ReceiptsView: View {
             if viewModel.isPerformingAction {
                 ProgressView().frame(maxWidth: .infinity)
             } else {
-                bulkActionButton(title: "Reject (\(selectedIds.count))", systemImage: "xmark", color: .red) {
+                bulkActionButton(title: "Reject (\(selectedIds.count))", systemImage: "xmark", color: appStyle.blocked) {
                     bulkRejectReason = ""
                     showBulkRejectSheet = true
                 }
-                bulkActionButton(title: "Approve (\(selectedIds.count))", systemImage: "checkmark", color: Color.MW.green) {
+                bulkActionButton(title: "Approve (\(selectedIds.count))", systemImage: "checkmark", color: appStyle.tenant) {
                     Task { await performBulkApprove() }
                 }
             }
@@ -443,11 +474,11 @@ struct ReceiptsView: View {
     private func bulkActionButton(title: String, systemImage: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .font(appStyle.font(.subheadline, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 44)
                 .background(color)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(appStyle.isEnabled && color == appStyle.tenant ? appStyle.onTenant : .white)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
         }
     }
 
@@ -458,9 +489,12 @@ struct ReceiptsView: View {
                     TextField("Explain why these expenses are being rejected…", text: $bulkRejectReason, axis: .vertical)
                         .lineLimit(3...6)
                 }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
             }
             .navigationTitle("Reject \(selectedIds.count) Receipts")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showBulkRejectSheet = false }
@@ -469,12 +503,12 @@ struct ReceiptsView: View {
                     Button("Reject") {
                         Task { await performBulkReject() }
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(appStyle.blocked)
                     .disabled(bulkRejectReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents(appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium])
     }
 
     private func performBulkApprove() async {
@@ -505,13 +539,13 @@ struct ReceiptsView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
-                Text("Receipts").font(.headline.weight(.semibold))
+                Text("Receipts").font(appStyle.font(.headline, weight: .semibold))
                 if receiptQueue.pendingCount + actionQueue.pendingCount > 0 {
                     Text("\(receiptQueue.pendingCount + actionQueue.pendingCount) pending")
-                        .font(.caption2.weight(.semibold))
+                        .font(appStyle.font(.caption2, weight: .semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.MW.orange.opacity(0.15))
-                        .foregroundStyle(Color.MW.orange)
+                        .background(appStyle.attention.opacity(0.15))
+                        .foregroundStyle(appStyle.attention)
                         .clipShape(Capsule())
                 }
             }
@@ -522,7 +556,7 @@ struct ReceiptsView: View {
                 if !isSelectMode { selectedIds.removeAll() }
             } label: {
                 Text(isSelectMode ? "Cancel" : "Select")
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
             }
         }
         if !isSelectMode {
@@ -536,12 +570,12 @@ struct ReceiptsView: View {
                         Label("Archive & Export Old Receipts", systemImage: "archivebox")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(Color.MW.green)
+                    Image(systemName: "ellipsis.circle").foregroundStyle(appStyle.tenant)
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { Task { await viewModel.loadExpenses() } } label: {
-                    Image(systemName: "arrow.clockwise").foregroundStyle(Color.MW.green)
+                    Image(systemName: "arrow.clockwise").foregroundStyle(appStyle.tenant)
                 }
                 .disabled(viewModel.isLoadingList)
             }
@@ -573,40 +607,42 @@ struct ReceiptsView: View {
 // MARK: - ExpenseRow
 
 private struct ExpenseRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.itAppStyle) private var appStyle
     let expense: Expense
     var isSelectMode: Bool = false
     var isSelected: Bool = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
             if isSelectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? Color.MW.green : Color(.systemGray3))
+                    .font(appStyle.font(.title3))
+                    .foregroundStyle(isSelected ? appStyle.tenant : appStyle.meta)
             }
             receiptThumb
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(expense.displayVendor)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .lineLimit(appStyle.isEnabled ? nil : 1)
                     if expense.isArchived {
                         Image(systemName: "archivebox.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(appStyle.font(.caption2))
+                            .foregroundStyle(appStyle.meta)
                     }
                     anomalyIcon
                 }
                 HStack(spacing: 6) {
                     Text(formattedDate)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                     if let cat = expense.accountingCategory {
                         Text(cat)
-                            .font(.caption2.weight(.medium))
+                            .font(appStyle.font(.caption2, weight: .medium))
                             .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.MW.green.opacity(0.1))
-                            .foregroundStyle(Color.MW.green)
+                            .background(appStyle.tenant.opacity(0.1))
+                            .foregroundStyle(appStyle.tenant)
                             .clipShape(Capsule())
                     }
                 }
@@ -616,7 +652,7 @@ private struct ExpenseRow: View {
                 HStack(spacing: 4) {
                     confidenceDot
                     Text("$\(expense.total, specifier: "%.2f")")
-                        .font(.subheadline.weight(.semibold))
+                        .font(appStyle.font(.subheadline, weight: .semibold))
                 }
                 statusBadge
             }
@@ -628,7 +664,7 @@ private struct ExpenseRow: View {
     @ViewBuilder
     private var confidenceDot: some View {
         if let tier = expense.confidenceTier {
-            let color: Color = tier == "high" ? Color.MW.green : (tier == "medium" ? Color.MW.orange : .red)
+            let color: Color = tier == "high" ? appStyle.tenant : (tier == "medium" ? appStyle.attention : appStyle.blocked)
             Circle().fill(color).frame(width: 6, height: 6)
         }
     }
@@ -638,8 +674,8 @@ private struct ExpenseRow: View {
     private var anomalyIcon: some View {
         if let tier = expense.anomalyTier {
             Image(systemName: tier == "high" ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(tier == "high" ? .red : Color.MW.orange)
+                .font(appStyle.font(.caption2))
+                .foregroundStyle(tier == "high" ? appStyle.blocked : appStyle.attention)
         }
     }
 
@@ -649,39 +685,39 @@ private struct ExpenseRow: View {
                 AsyncImage(url: url) { img in
                     img.resizable().scaledToFill()
                 } placeholder: {
-                    Color(.systemGray5)
+                    appStyle.sunk
                 }
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(.systemGray5))
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
+                    .fill(appStyle.sunk)
                     .frame(width: 44, height: 44)
-                    .overlay { Image(systemName: "doc.text").foregroundStyle(.secondary) }
+                    .overlay { Image(systemName: "doc.text").foregroundStyle(appStyle.meta) }
             }
         }
     }
 
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
-        case "forwarded":        ("Sent", .blue)
-        case "approved":         ("Approved", Color.MW.green)
-        case "rejected":         ("Rejected", .red)
-        case "pending_approval": ("Pending", Color.MW.orange)
-        default:                 ("Draft", Color.MW.orange)
+        case "forwarded":        ("Sent", appStyle.progress)
+        case "approved":         ("Approved", appStyle.tenant)
+        case "rejected":         ("Rejected", appStyle.blocked)
+        case "pending_approval": ("Pending", appStyle.attention)
+        default:                 ("Draft", appStyle.attention)
         }
         return Text(label)
-            .font(.caption2.weight(.semibold))
+            .font(appStyle.font(.caption2, weight: .semibold))
             .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(color.opacity(0.12))
-            .foregroundStyle(color)
+            .background(appStyle.statusColor(expense.status, legacy: color).opacity(0.12))
+            .foregroundStyle(appStyle.statusColor(expense.status, legacy: color))
             .clipShape(Capsule())
     }
 
     private var formattedDate: String {
-        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withFullDate]
-        guard let date = iso.date(from: expense.expenseDate) else { return expense.expenseDate }
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none
+        // A receipt's date is a Vancouver calendar day; read and shown in that zone (GMT showed it a day early).
+        guard let date = VancouverDay.date(from: expense.expenseDate) else { return expense.expenseDate }
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; f.timeZone = VancouverDay.zone
         return f.string(from: date)
     }
 }

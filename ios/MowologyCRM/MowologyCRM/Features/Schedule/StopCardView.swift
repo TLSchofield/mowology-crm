@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct StopCardView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let stop: Stop
     let isAdmin: Bool
@@ -16,137 +18,179 @@ struct StopCardView: View {
     var distanceMeters: Double? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
 
             // MARK: Top Row — Address + Arrival
-            HStack(alignment: .top) {
+            headerLayout {
                 // Who, then where: crews know a stop by the building or client, not the street number.
                 VStack(alignment: .leading, spacing: 2) {
                     if let headline = stop.headline {
-                        Text(headline)
-                            .font(.body.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
+                        Text(DisplayNameFormatter.string(headline))
+                            .font(appStyle.font(.body, weight: .bold))
+                            .foregroundStyle(appStyle.text)
+                            .lineLimit(appStyle.isEnabled ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
 
                         Text(stop.fullAddress)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .font(appStyle.font(.subheadline))
+                            .foregroundStyle(appStyle.meta)
+                            .lineLimit(appStyle.isEnabled ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
                     } else {
                         Text(stop.propertyAddress)
-                            .font(.body.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
+                            .font(appStyle.font(.body, weight: .bold))
+                            .foregroundStyle(appStyle.text)
+                            .lineLimit(appStyle.isEnabled ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
 
                         Text(stop.propertyCity)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .font(appStyle.font(.subheadline))
+                            .foregroundStyle(appStyle.meta)
+                            .lineLimit(appStyle.isEnabled ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
                     }
                 }
 
-                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 1) {
                     if let arrival = stop.estimatedArrival {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(arrival)
-                                .font(.subheadline.monospacedDigit().bold())
-                                .foregroundStyle(Color.MW.green)
+                        VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 1) {
+                            Text([arrival, distanceText].compactMap { $0 }.joined(separator: " · "))
+                                .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                                .foregroundStyle(appStyle.tenant)
+                                .lineLimit(1)
 
                             Text("est. arrival")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                .font(appStyle.font(.caption2))
+                                .foregroundStyle(appStyle.meta)
                         }
                     }
 
-                    if let text = distanceText {
-                        Label(text, systemImage: "location.fill")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
 
             // MARK: Service Type Badges
             if !stop.visits.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(uniqueServiceBadges(from: stop.visits), id: \.label) { badge in
-                            ServiceBadge(label: badge.label, color: badge.color)
-                        }
+                if appStyle.isEnabled {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) { serviceBadges }
+                        VStack(alignment: .leading, spacing: 6) { serviceBadges }
                     }
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) { serviceBadges }
+                    }
+                    // Preserve the legacy row's navigation gesture.
+                    .allowsHitTesting(false)
                 }
-                // Disable hit testing so the scroll view's gesture recognizer
-                // doesn't block the parent List row's NavigationLink tap.
-                .allowsHitTesting(false)
             }
 
             // MARK: Last done
             if let line = stop.historyLine {
                 HStack(spacing: 5) {
                     Image(systemName: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
-                        .font(.caption2)
+                        .font(appStyle.font(.caption2))
                     Text(line.service.map { "\($0): \(line.text)" } ?? line.text)
-                        .font(.caption)
-                        .lineLimit(1)
+                        .font(appStyle.font(.caption))
+                        .lineLimit(appStyle.isEnabled ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
                 }
-                .foregroundStyle(line.warning ? Color.MW.orange : .secondary)
+                .foregroundStyle(line.warning ? appStyle.attention : appStyle.meta)
             }
 
-            Divider()
+            if appStyle.isEnabled, let statusPresentation {
+                HStack(spacing: 5) {
+                    ItIcon(shape: statusPresentation.icon, size: 14, color: statusPresentation.color)
+                    Text(statusPresentation.label)
+                }
+                .font(appStyle.font(.caption, weight: .medium))
+                .foregroundStyle(statusPresentation.color)
+                .accessibilityElement(children: .combine)
+            }
+
+            Divider().overlay(appStyle.isEnabled ? appStyle.line : Color.clear)
 
             // MARK: Bottom Row — Client + Crew + Visit Count
-            HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
 
                 // Client / Contact Name — only when it isn't already the card's headline
                 // (a named building still shows who the client is down here).
                 if let name = stop.footerClientName {
-                    Label(name, systemImage: "person.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    Label(DisplayNameFormatter.string(name), systemImage: "person.fill")
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                Spacer()
 
                 // Crew names (admin only)
                 if isAdmin && !stop.crewNames.isEmpty {
-                    Label(stop.crewNames.joined(separator: ", "), systemImage: "person.2.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: 140, alignment: .trailing)
+                    Label(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "), systemImage: "person.2.fill")
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 // Visit count badge
                 HStack(spacing: 3) {
                     Image(systemName: "checkmark.circle")
-                        .font(.caption2)
+                        .font(appStyle.font(.caption2))
                     Text("\(stop.visitCount) visit\(stop.visitCount == 1 ? "" : "s")")
-                        .font(.caption.monospacedDigit())
+                        .font(appStyle.font(.caption).monospacedDigit())
                 }
-                .foregroundStyle(.secondary)
-                .padding(.leading, 8)
+                .foregroundStyle(appStyle.meta)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
-        .overlay(
-            // Left accent stripe
-            HStack {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(accentColor(for: stop))
-                    .frame(width: 4)
-                Spacer()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(minHeight: 48)
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? 0 : appStyle.cornerRadius(14)))
+        .shadow(color: appStyle.shadow(0.06), radius: 8, x: 0, y: 2)
+        .overlay(alignment: .leading) {
+            if !appStyle.isEnabled {
+                HStack {
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(3))
+                        .fill(accentColor(for: stop))
+                        .frame(width: 4)
+                    Spacer()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-        )
+        }
+        .overlay(alignment: .bottom) {
+            if appStyle.isEnabled {
+                Rectangle().fill(appStyle.line).frame(height: 1)
+            }
+        }
     }
 
     // MARK: - Helpers
+
+    private var serviceBadges: some View {
+        ForEach(uniqueServiceBadges(from: stop.visits), id: \.label) { badge in
+            ServiceBadge(label: badge.label, color: badge.color)
+        }
+    }
+
+    private var headerLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .top))
+    }
+
+    private var statusPresentation: (label: String, icon: ItIconShape, color: Color)? {
+        let raw = stop.stopStatus.lowercased()
+        if stop.isComplete || ["complete", "completed", "done"].contains(raw) { return ("Done", .check, appStyle.complete) }
+        if stop.isInProgress || raw == "in_progress" { return ("In progress", .clock, appStyle.progress) }
+        if raw == "late" || raw == "overdue" { return ("Late", .triangle, appStyle.attention) }
+        if raw == "skipped" || (!stop.visits.isEmpty && stop.visits.allSatisfy({ $0.visitStatus.lowercased() == "skipped" })) { return ("Skipped", .dashedCircle, appStyle.meta) }
+        if stop.isResolved { return ("Resolved", .check, appStyle.meta) }
+        return nil
+    }
 
     private var distanceText: String? {
         guard let m = distanceMeters else { return nil }
@@ -165,29 +209,34 @@ struct StopCardView: View {
             let label = visit.serviceTypeLabel
             guard !seen.contains(label) else { return nil }
             seen.insert(label)
-            return BadgeInfo(label: label, color: visit.statusColor)
+            return BadgeInfo(label: label, color: appStyle.statusColor(visit.visitStatus, legacy: visit.statusColor))
         }
     }
 
     private func accentColor(for stop: Stop) -> Color {
         if stop.isComplete     { return .green }
-        if stop.isInProgress   { return Color.MW.green }
-        return Color(.systemGray4)
+        if stop.isInProgress   { return appStyle.tenant }
+        #if canImport(UIKit)
+        return appStyle.color(.line, legacy: Color(.systemGray4))
+        #else
+        return appStyle.color(.line, legacy: Color.secondary.opacity(0.3))
+        #endif
     }
 }
 
 // MARK: - ServiceBadge
 
 private struct ServiceBadge: View {
+    @Environment(\.itAppStyle) private var appStyle
     let label: String
     let color: Color
 
     var body: some View {
         Text(label)
-            .font(.caption2.weight(.semibold))
+            .font(appStyle.font(.caption2, weight: .semibold))
             .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
             .background(color.opacity(0.12))
             .clipShape(Capsule())
     }
@@ -233,6 +282,6 @@ private struct ServiceBadge: View {
 
     return StopCardView(stop: sampleStop, isAdmin: true)
         .padding()
-        .background(Color(.systemGroupedBackground))
+        .background(ItAppStyle().page)
         .previewLayout(.sizeThatFits)
 }

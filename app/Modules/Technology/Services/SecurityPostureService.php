@@ -144,7 +144,7 @@ class SecurityPostureService
             $out[] = ['system' => $r['check_key'], 'group' => SecurityPostureRules::GROUP, 'name' => $r['name'],
                       'last_worked' => $r['last_worked'], 'state' => $r['state'], 'problem' => $r['problem'],
                       'evidence' => $r['evidence'], 'handoff' => $r['handoff'], 'handoff_to' => $r['handoff_to'],
-                      'red_since' => $r['red_since']];
+                      'red_since' => $r['red_since'], 'checked_at' => $r['checked_at']];
         }
         $stale = SecurityPostureRules::staleCheck($last, $this->now());
         if ($stale) $out[] = $stale;
@@ -156,6 +156,14 @@ class SecurityPostureService
     {
         $rows = $this->deskChecks();
         foreach ($rows as $r) if ($r['system'] === 'posture:run') return [];   // stale: don't re-alert old reds
+        // An accepted risk (within its review date, not Critical) is not emailed either (Codex 2026-11-03).
+        try {
+            require_once __DIR__ . '/AdaAcceptedRisks.php';
+            $acc = (new AdaAcceptedRisks($this->db))->open();
+            if ($acc) $rows = AdaRiskRegister::apply($rows, $acc, substr($this->now(), 0, 10))['active'];
+        } catch (Throwable $e) {
+            error_log('Ada posture urgent: acceptances unreadable: ' . $e->getMessage());
+        }
         return SecurityPostureRules::urgentAlerts($rows);
     }
 
@@ -284,7 +292,18 @@ class SecurityPostureService
         return [
             SecurityPostureRules::backupCheck('db', $this->heartbeat('db', true), $this->heartbeat('db', false), $now),
             SecurityPostureRules::backupCheck('files', $this->heartbeat('files', true), $this->heartbeat('files', false), $now),
+            SecurityPostureRules::backupVerifyCheck($this->heartbeat('verify', false), $this->liveTableCount(), $now),
         ];
+    }
+
+    private function liveTableCount(): ?int
+    {
+        try {
+            $n = $this->db->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")->fetchColumn();
+            return $n === false ? null : (int)$n;
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     private function checkDependencies(): array

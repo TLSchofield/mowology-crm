@@ -41,9 +41,48 @@ function lineItemsNeedBetterExtraction(array $parsed): bool
 }
 
 /**
+ * Are the header fields (total, date, tax maths) good enough? Returns the reasons they are not
+ * (empty = fine). Pure, no DB. Arithmetic is only tested on values the receipt printed: anything the
+ * parser worked out itself (total_derived, subtotal_derived, gst_estimated) is skipped, because a
+ * derived figure agrees with its inputs by construction.
+ *
+ * @return list<string> total_missing | date_missing | math_fails | gst_unknown
+ */
+function headersNeedBetterExtraction(array $parsed): array
+{
+    $has = static function ($v): bool {
+        return $v !== null && $v !== '' && is_numeric($v);
+    };
+    $reasons = [];
+    if (!$has($parsed['total'] ?? null)) $reasons[] = 'total_missing';
+    if (empty($parsed['date'])) $reasons[] = 'date_missing';
+
+    $derived = !empty($parsed['total_derived']) || !empty($parsed['subtotal_derived']) || !empty($parsed['gst_estimated']);
+    if (!$derived && $has($parsed['total'] ?? null) && $has($parsed['subtotal'] ?? null)
+        && $has($parsed['gst'] ?? null)
+        && abs((float)$parsed['subtotal'] + (float)$parsed['gst'] + (float)($has($parsed['pst'] ?? null) ? $parsed['pst'] : 0) - (float)$parsed['total']) > 0.02) {
+        $reasons[] = 'math_fails';
+    }
+
+    $noPrintedGst = !$has($parsed['gst'] ?? null) || !empty($parsed['gst_estimated']);
+    if ($noPrintedGst && !receiptLooksTaxFree($parsed)) $reasons[] = 'gst_unknown';
+    return $reasons;
+}
+
+/** A receipt that says it carries no tax (or prints a zero tax line) is not a missing-GST case. Pure. */
+function receiptLooksTaxFree(array $parsed): bool
+{
+    if (isset($parsed['gst']) && is_numeric($parsed['gst']) && empty($parsed['gst_estimated']) && (float)$parsed['gst'] == 0.0) {
+        return true;
+    }
+    $text = (string)($parsed['ocr_text'] ?? '');
+    return $text !== '' && preg_match('/\b(TAX[\s-]*(FREE|EXEMPT)|ZERO[\s-]*RATED|NO\s+TAX|GST\s+EXEMPT|NON[\s-]*TAXABLE)\b/i', $text) === 1;
+}
+
+/**
  * @param array $ctx {
  *   file_path:      string      image on disk (for Vision escalation)
- *   ocr_source:     string      'tesseract' | 'vision' | 'none'
+ *   ocr_source:     string      'tesseract' | 'vision' | 'device_<engine>' | 'none'
  *   ocr_text:       string
  *   raw_response:   ?array      Vision response when available
  *   parsed:         array       parseReceiptText() output
@@ -63,7 +102,8 @@ function enhanceLineItemExtraction(array $ctx): array
     $profile = $ctx['vendor_profile'] ?? getVendorLineItemProfile($ctx['vendor_id'] ?? null);
 
     // ── Step 1: Tesseract → Vision when items failed ─────────────────
-    if (($ctx['ocr_source'] ?? '') === 'tesseract'
+    $cheapSource = (string)($ctx['ocr_source'] ?? '');
+    if (($cheapSource === 'tesseract' || strpos($cheapSource, 'device_') === 0)   // the phone's own read is a cheap read too
         && lineItemsNeedBetterExtraction($parsed)
         && !empty($ctx['file_path'])
         && function_exists('extractTextFromImage')) {
@@ -113,6 +153,108 @@ function enhanceLineItemExtraction(array $ctx): array
         $parsed['line_items_source'] = ($ctx['ocr_source'] ?? '') === 'vision' ? 'vision' : 'ocr';
     }
 
+    $parsed['header_flags'] = headersNeedBetterExtraction($parsed + ['ocr_text' => (string)$ctx['ocr_text']]);
+
     $ctx['parsed'] = $parsed;
+    return $ctx;
+}
+
+
+/**
+ * The whole header ladder for a surface that already holds parsed text (rescan, inbox, queue):
+ * the vendor's learned layout where the rules came up empty, then the AI for what is still
+ * missing. Never throws; a read that cannot be improved comes back unchanged.
+ */
+function runHeaderLadder(PDO $db, array $parsed, string $ocrText, ?int $vendorId): array
+{
+    if (!$parsed || $ocrText === '' || !function_exists('applyHeaderLayouts') || !function_exists('receiptReadMode')) {
+        return $parsed;
+    }
+    try {
+        $profile = $vendorId ? getVendorParseProfile($db, $vendorId) : null;
+        $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($profile));
+        $mode = receiptReadMode($profile);
+        if ($mode === 'strong') $parsed['read_mode'] = 'strong';
+        $out = enhanceHeaders(['parsed' => $parsed, 'ocr_text' => $ocrText, 'read_mode' => $mode]);
+        return $out['parsed'];
+    } catch (Throwable $e) {
+        error_log('Header ladder: ' . $e->getMessage());
+        return $parsed;
+    }
+}
+
+/**
+ * Header rung of the ladder: runs after the rules and after enhanceLineItemExtraction. When total or
+ * date is missing, or the printed maths fails, the AI is asked ONCE for those fields and only values
+ * printed in the OCR text are merged. A printed value that passes the checks is never overwritten;
+ * replacements offered for a failing sum are kept only if the sum then adds up.
+ *
+ * @param array $ctx  ['parsed' => array, 'ocr_text' => string, 'read_mode' => 'cheap'|'strong' (optional)]
+ * @param callable|null $transport / $capTaker  test seams, passed to extractHeadersWithLlm()
+ * @return array $ctx with parsed updated (header_flags, header_source, header_llm_fields)
+ */
+function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capTaker = null): array
+{
+    $parsed = $ctx['parsed'] ?? [];
+    $text   = (string)($ctx['ocr_text'] ?? '');
+    if (!$parsed || $text === '') return $ctx;
+    $check = static function (array $p) use ($text): array {
+        return headersNeedBetterExtraction($p + ['ocr_text' => $text]);
+    };
+    $reasons = $check($parsed);
+    $parsed['header_flags'] = $reasons;
+    $ctx['parsed'] = $parsed;
+
+    $missing = [];
+    if (in_array('total_missing', $reasons, true)) $missing[] = 'total';
+    if (in_array('date_missing', $reasons, true)) $missing[] = 'date';
+    $mathFails = in_array('math_fails', $reasons, true);
+    if ($mathFails) $missing = array_merge($missing, ['total', 'subtotal', 'gst', 'pst']);
+    // Strong read mode (vendor the cheap read keeps getting wrong): an unprinted GST is worth asking about too.
+    if (($ctx['read_mode'] ?? '') === 'strong' && in_array('gst_unknown', $reasons, true)) $missing[] = 'gst';
+    if (!$missing || ($transport === null && !receiptLlmEnabled())) return $ctx;
+
+    try {
+        $llm = extractHeadersWithLlm($text, array_values(array_unique($missing)), $transport, $capTaker);
+    } catch (Throwable $e) {
+        error_log('Header LLM tier failed: ' . $e->getMessage());
+        return $ctx;
+    }
+    if (!$llm['success']) {
+        $parsed['header_llm_rejected'] = $llm['rejected_reason'];
+        $ctx['parsed'] = $parsed;
+        return $ctx;
+    }
+
+    $merged = [];
+    $next = $parsed;
+    foreach ($llm['fields'] as $f => $v) {
+        $isEmpty = $f === 'date' ? empty($parsed['date']) : !isset($parsed[$f]) || $parsed[$f] === '' || $parsed[$f] === null;
+        if ($f === 'gst' && !empty($parsed['gst_estimated'])) $isEmpty = true;      // an estimate is not a printed value
+        if (!$isEmpty) continue;                       // never overwrite a value the rules read
+        $next[$f] = $v;
+        $merged[] = $f;
+    }
+    if ($mathFails) {
+        // Replacements for a failing sum: only the fields the rules derived or that disagree; kept only if the sum then holds.
+        $try = $next;
+        foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+            if (isset($llm['fields'][$f]) && !in_array($f, $merged, true)) $try[$f] = $llm['fields'][$f];
+        }
+        if (!in_array('math_fails', $check($try), true)) {
+            foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+                if (isset($llm['fields'][$f]) && ($try[$f] ?? null) !== ($next[$f] ?? null)) $merged[] = $f;
+            }
+            $next = $try;
+        }
+    }
+    if (!$merged) return $ctx;
+    if (in_array('total', $merged, true)) unset($next['total_derived']);
+    if (in_array('subtotal', $merged, true)) unset($next['subtotal_derived']);
+    if (in_array('gst', $merged, true)) { $next['gst_estimated'] = false; $next['gst_source'] = 'printed'; }
+    $next['header_source']     = 'llm';
+    $next['header_llm_fields'] = array_values(array_unique($merged));
+    $next['header_flags']      = $check($next);
+    $ctx['parsed'] = $next;
     return $ctx;
 }

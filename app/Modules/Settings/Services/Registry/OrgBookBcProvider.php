@@ -59,8 +59,15 @@ final class OrgBookBcProvider implements BusinessRegistryProvider
     {
         $started = microtime(true);
         if (!$this->takeRateToken()) { $this->logResult('rate_limited', $started, 0); return null; }
+        // Preserve the deployed provider baseline; correct only the record lookup query.
+        // BC's official guide uses search/topic?q=<registration number> (Step 1):
+        // https://github.com/bcgov/orgbook-bc-api-docs/blob/main/docs/api.md#step-1-query-for-a-topic
+        // inactive=true is an exact inactive-only filter; 'any' removes it so active
+        // and historical records can both be re-fetched (official StatusFilterBuilder):
+        // https://github.com/bcgov/aries-vcr/blob/main/server/vcr-server/api/v2/search/filters.py
+        // Keep the exact source_id check below: search can return unrelated candidates.
         $json = $this->get(self::BASE . '/search/topic?' . http_build_query([
-            'topic_source_id' => $recordId, 'latest' => 'true', 'inactive' => 'true',
+            'q' => $recordId, 'latest' => 'true', 'inactive' => 'any',
         ]));
         if ($json === null) { $this->logResult('unavailable', $started, 0); return null; }
         foreach ($this->items($json) as $item) {

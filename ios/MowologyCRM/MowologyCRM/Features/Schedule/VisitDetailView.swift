@@ -7,6 +7,7 @@ import SwiftUI
 import MapKit
 
 struct VisitDetailView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stop: Stop
     let isAdmin: Bool
@@ -33,15 +34,27 @@ struct VisitDetailView: View {
 
     /// Drives the Move Stop sheet.
     @State private var isShowingMoveSheet = false
+
+    /// A quick action picked on the schedule card (touch and hold, or ⋯) — run once, here, so the
+    /// special-request gate and every other check is the same as tapping this screen's own buttons.
+    private let onInitialActionRun: () -> Void
+    /// Kept in @State from the first init: the schedule clears its copy on appear, and the redraw that
+    /// follows passes nil — the screen's own copy is what runs.
+    @State private var queuedAction: VisitQuickAction?
+    @State private var isShowingWork = false
+    @State private var scrollTarget: String?
     @Environment(\.dismiss) private var dismissDetail
 
 
     // MARK: - Init
 
-    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession,
+         initialAction: VisitQuickAction? = nil, onInitialActionRun: @escaping () -> Void = {}) {
         self.stop        = stop
         self.isAdmin     = isAdmin
         self.authSession = authSession
+        _queuedAction = State(initialValue: initialAction)
+        self.onInitialActionRun = onInitialActionRun
         let client       = APIClient(authSession: authSession)
         _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
         _specialRequests = StateObject(wrappedValue: SpecialRequestStore(visitIds: stop.visits.map(\.visitId),
@@ -59,6 +72,7 @@ struct VisitDetailView: View {
     // MARK: - Body
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
 
@@ -93,12 +107,33 @@ struct VisitDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
         }
-        .background(Color(.systemGroupedBackground))
+        .onChange(of: scrollTarget) { _, target in
+            guard let target else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { scrollProxy.scrollTo(target, anchor: .top) }
+            scrollTarget = nil
+        }
+        }
+        .background(appStyle.page)
+        .itAppScreen()
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
-        .task { await viewModel.restoreActiveTimer() }
-        .task { await specialRequests.load() }
+        // One task, in order: the running timer is restored and the special requests loaded BEFORE a
+        // card's quick action runs, so it sees the real status (a stale "scheduled" card must not start twice).
+        .task {
+            await viewModel.restoreActiveTimer()
+            await specialRequests.load()
+            await runInitialAction()
+        }
+        .onAppear {
+            // Cleared at once: if this screen is left before the action runs, it must not run later.
+            if queuedAction != nil { onInitialActionRun() }
+        }
+        .navigationDestination(isPresented: $isShowingWork) {
+            if let visit = stop.visits.first {
+                VisitWorkView(visitId: visit.visitId, authSession: authSession)
+            }
+        }
         .fullScreenCover(item: $gateRequest) { request in
             SpecialRequestGateView(
                 request:  request,
@@ -145,6 +180,32 @@ struct VisitDetailView: View {
         }
     }
 
+    /// Runs the card's quick action once, after the special requests are loaded (the gate needs them).
+    private func runInitialAction() async {
+        guard let action = queuedAction, let visit = stop.visits.first else { return }
+        queuedAction = nil
+        let status = viewModel.status(for: visit).lowercased()
+        switch action {
+        case .start:
+            guard status == "scheduled", !specialRequestBlocks(visit.visitId) else { return }
+            await viewModel.startJob(visitId: visit.visitId)
+            if viewModel.errorMessage?.hasPrefix("Special request") == true {
+                await specialRequests.load()
+                if specialRequestBlocks(visit.visitId) { viewModel.errorMessage = nil }
+            }
+        case .finish:
+            if status == "in_progress" { completingVisit = visit }
+        case .skip:
+            if status == "scheduled" { skippingVisit = visit }
+        case .move:
+            if isAdmin && stop.canBeMoved { isShowingMoveSheet = true }
+        case .notes:
+            isShowingWork = true
+        case .photos:
+            scrollTarget = "photos-\(visit.visitId)"
+        }
+    }
+
     private static let skipReasons = [
         "Weather",
         "No access to property",
@@ -158,21 +219,21 @@ struct VisitDetailView: View {
     private func noticeBanner(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "clock.badge.checkmark.fill")
-                .foregroundStyle(Color.MW.green)
+                .foregroundStyle(appStyle.tenant)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.tenant)
             Spacer()
             Button { onDismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption, weight: .bold))
+                    .foregroundStyle(appStyle.tenant)
             }
         }
         .padding(12)
-        .background(Color.MW.green.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.green.opacity(0.25), lineWidth: 1))
+        .background(appStyle.tenant.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.tenant.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Error Banner
@@ -180,21 +241,21 @@ struct VisitDetailView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.MW.orange)
+                .foregroundStyle(appStyle.attention)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(Color.MW.orange)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.attention)
             Spacer()
             Button { viewModel.errorMessage = nil } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption, weight: .bold))
+                    .foregroundStyle(appStyle.attention)
             }
         }
         .padding(12)
-        .background(Color.MW.orange.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.orange.opacity(0.25), lineWidth: 1))
+        .background(appStyle.attention.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.attention.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Compact Property Header
@@ -210,8 +271,8 @@ struct VisitDetailView: View {
                 HStack(spacing: 12) {
                     Button { openInMaps() } label: {
                         Image(systemName: "mappin.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.title2))
+                            .foregroundStyle(appStyle.tenant)
                     }
                     .buttonStyle(.plain)
 
@@ -219,16 +280,16 @@ struct VisitDetailView: View {
                         // Building name only — the client's name gets its own row below.
                         if let name = stop.propertyName?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
                             Text(name)
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
+                                .font(appStyle.font(.subheadline, weight: .bold))
+                                .foregroundStyle(appStyle.text)
+                                .lineLimit(appStyle.isEnabled ? nil : 1)
                             Text(stop.propertyCity)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
                         } else {
                             Text(stop.propertyCity)
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.primary)
+                                .font(appStyle.font(.subheadline, weight: .bold))
+                                .foregroundStyle(appStyle.text)
                         }
                     }
 
@@ -236,8 +297,8 @@ struct VisitDetailView: View {
 
                     if let arrival = stop.estimatedArrival {
                         Text(arrival)
-                            .font(.subheadline.monospacedDigit().bold())
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(appStyle.tenant)
                     }
 
                     Button { openInMaps() } label: {
@@ -245,11 +306,11 @@ struct VisitDetailView: View {
                             Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
                             Text("Maps")
                         }
-                        .font(.caption.bold())
+                        .font(appStyle.font(.caption, weight: .bold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.MW.green.opacity(0.1))
-                        .foregroundStyle(Color.MW.green)
+                        .background(appStyle.tenant.opacity(0.1))
+                        .foregroundStyle(appStyle.tenant)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -263,17 +324,17 @@ struct VisitDetailView: View {
                 if let osc = stop.onsiteContact, !osc.name.isEmpty {
                     Divider().padding(.leading, 52)
                     contactRow(name: osc.name, tag: "ON SITE", icon: "figure.wave.circle.fill",
-                               iconTint: Color.MW.green, phone: osc.phone, email: osc.email)
+                               iconTint: appStyle.tenant, phone: osc.phone, email: osc.email)
                 }
                 if let name = stop.contactName ?? stop.companyName {
                     Divider().padding(.leading, 52)
                     contactRow(name: name, tag: stop.onsiteContact == nil ? nil : "CLIENT",
-                               icon: "person.circle.fill", iconTint: Color(.systemGray3),
+                               icon: "person.circle.fill", iconTint: appStyle.color(.meta, legacy: Color(.systemGray3)),
                                phone: stop.contactPhone, email: stop.contactEmail)
                 }
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
@@ -286,18 +347,18 @@ struct VisitDetailView: View {
         let address = (email ?? "").trimmingCharacters(in: .whitespaces)
         return HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.title2)
+                .font(appStyle.font(.title2))
                 .foregroundStyle(iconTint)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .font(appStyle.font(.subheadline, weight: .bold))
+                    .foregroundStyle(appStyle.text)
+                    .lineLimit(appStyle.isEnabled ? nil : 1)
                 if let tag {
                     Text(tag)
-                        .font(.caption2.bold())
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption2, weight: .bold))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -319,10 +380,10 @@ struct VisitDetailView: View {
                                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.subheadline.bold())
-                .frame(width: 36, height: 36)
-                .background(enabled ? Color.MW.green.opacity(0.12) : Color(.systemGray6))
-                .foregroundStyle(enabled ? Color.MW.green : Color(.systemGray3))
+                .font(appStyle.font(.subheadline, weight: .bold))
+                .frame(width: appStyle.isEnabled ? 48 : 36, height: appStyle.isEnabled ? 48 : 36)
+                .background(enabled ? appStyle.tenant.opacity(0.12) : appStyle.sunk)
+                .foregroundStyle(enabled ? appStyle.tenant : appStyle.color(.meta, legacy: Color(.systemGray3)))
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
@@ -347,7 +408,7 @@ struct VisitDetailView: View {
                             icon:        "exclamationmark.triangle.fill",
                             label:       "SITE NOTES",
                             text:        notes,
-                            tint:        Color.MW.orange
+                            tint:        appStyle.attention
                         )
                     }
 
@@ -356,7 +417,7 @@ struct VisitDetailView: View {
                             icon:        "note.text",
                             label:       "TODAY",
                             text:        notes,
-                            tint:        Color.blue
+                            tint:        appStyle.color(.statusProgress, legacy: Color.blue)
                         )
                     }
                 }
@@ -368,17 +429,17 @@ struct VisitDetailView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .foregroundStyle(tint)
-                .font(.subheadline)
+                .font(appStyle.font(.subheadline))
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)
-                    .font(.caption2.weight(.semibold))
+                    .font(appStyle.font(.caption2, weight: .semibold))
                     .foregroundStyle(tint)
                     .tracking(0.5)
                 Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.primary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -386,8 +447,8 @@ struct VisitDetailView: View {
         }
         .padding(12)
         .background(tint.opacity(0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(0.22), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(tint.opacity(0.22), lineWidth: 1))
     }
 
     // MARK: - Visits Section
@@ -424,18 +485,18 @@ struct VisitDetailView: View {
                 )
             }
             if let srError = specialRequests.errorMessage, !specialRequests.requests(for: visit.visitId).isEmpty {
-                Text(srError).font(.caption).foregroundStyle(.orange)
+                Text(srError).font(appStyle.font(.caption)).foregroundStyle(appStyle.color(.statusAttention, legacy: .orange))
             }
 
             // Title + badge row
             HStack {
                 Text(visit.planTitle ?? visit.serviceTypeLabel)
-                    .font(.subheadline.bold())
+                    .font(appStyle.font(.subheadline, weight: .bold))
 
                 Spacer()
 
                 Text(statusLabelFor(currentStatus))
-                    .font(.caption.bold())
+                    .font(appStyle.font(.caption, weight: .bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(statusColor.opacity(0.15))
@@ -445,25 +506,25 @@ struct VisitDetailView: View {
 
             // Service type
             Label(visit.serviceTypeLabel, systemImage: "tag")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
 
             // Meta row
             HStack(spacing: 16) {
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
                 if let price = visit.pricePerVisit {
                     Label(String(format: "$%.2f", price), systemImage: "dollarsign.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
                 if let start = visit.scheduledStart {
                     Label(start, systemImage: "clock.arrow.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -476,16 +537,16 @@ struct VisitDetailView: View {
             if isActive {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
-                        .foregroundStyle(Color.MW.green)
-                        .font(.caption)
+                        .foregroundStyle(appStyle.tenant)
+                        .font(appStyle.font(.caption))
                     Text(viewModel.elapsedFormatted)
-                        .font(.title3.monospacedDigit().bold())
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.title3, weight: .bold).monospacedDigit())
+                        .foregroundStyle(appStyle.tenant)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.MW.green.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .background(appStyle.tenant.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             }
 
             // MARK: Action CTA — Start Job / Mark Complete
@@ -502,16 +563,16 @@ struct VisitDetailView: View {
                 } label: {
                     HStack {
                         Label("Checklist, materials & notes", systemImage: "checklist")
-                            .font(.subheadline.weight(.semibold))
+                            .font(appStyle.font(.subheadline, weight: .semibold))
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .foregroundStyle(appStyle.meta)
                     }
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
                 }
-                .tint(.primary)
+                .tint(appStyle.text)
             }
 
             // MARK: Crew Service Recommendations
@@ -548,49 +609,50 @@ struct VisitDetailView: View {
                     captureGate:   { specialRequestBlocks(visit.visitId) },
                     photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil
                 )
+                .id("photos-\(visit.visitId)")
 
                 // Review earned strip — visible once the client has actually reviewed.
                 if isVisitFlagged && visit.contactHasReviewed {
                     HStack(spacing: 0) {
                         Image(systemName: "heart.fill")
-                            .foregroundStyle(Color.MW.orange)
-                            .font(.caption)
+                            .foregroundStyle(appStyle.attention)
+                            .font(appStyle.font(.caption))
                             .padding(.trailing, 6)
                         Text("You endorsed this visit · ")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.dark)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.color(.tenant, legacy: Color.MW.dark))
                         Text("Review received ★★★★★")
-                            .font(.caption.bold())
-                            .foregroundStyle(Color.MW.dark)
+                            .font(appStyle.font(.caption, weight: .bold))
+                            .foregroundStyle(appStyle.color(.tenant, legacy: Color.MW.dark))
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Color.MW.green.opacity(0.08))
+                    .background(appStyle.tenant.opacity(0.08))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
+                            .stroke(appStyle.tenant.opacity(0.25), lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                 }
             }
         }
         .padding(14)
         .background(
             currentStatus.lowercased() == "in_progress"
-                ? Color.MW.green.opacity(0.03)
-                : Color(.systemBackground)
+                ? appStyle.tenant.opacity(0.03)
+                : appStyle.surface
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(12))
                 .stroke(statusColor.opacity(0.2), lineWidth: 1)
         )
         .overlay(alignment: .leading) {
             if currentStatus.lowercased() == "in_progress" {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(2))
                     .frame(width: 4)
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
                     .padding(.vertical, 4)
             }
         }
@@ -612,16 +674,16 @@ struct VisitDetailView: View {
                     } label: {
                         VStack(spacing: 6) {
                             Image(systemName: "forward.end.fill")
-                                .font(.title2)
+                                .font(appStyle.font(.title2))
                             Text("Skip Visit")
-                                .font(.subheadline.weight(.semibold))
+                                .font(appStyle.font(.subheadline, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 110)
-                        .foregroundStyle(.secondary)
-                        .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
+                        .foregroundStyle(appStyle.meta)
+                        .background(appStyle.sunk)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(appStyle.line, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .disabled(isThisLoading)
@@ -639,19 +701,19 @@ struct VisitDetailView: View {
                     } label: {
                         VStack(spacing: 6) {
                             if isThisLoading {
-                                ProgressView().tint(.white)
-                                Text("Starting…").font(.headline)
+                                ProgressView().tint(appStyle.onTenant)
+                                Text("Starting…").font(appStyle.font(.headline))
                             } else {
                                 Image(systemName: "play.fill")
-                                    .font(.title)
-                                Text("Start Job").font(.headline)
+                                    .font(appStyle.font(.title))
+                                Text("Start Job").font(appStyle.font(.headline))
                             }
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 110)
-                        .foregroundStyle(.white)
-                        .background(Color.MW.green)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(appStyle.onTenant)
+                        .background(appStyle.tenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                     }
                     .buttonStyle(.plain)
                     .disabled(isThisLoading)
@@ -661,18 +723,18 @@ struct VisitDetailView: View {
                 if viewModel.isClockedIn == false {
                     HStack(spacing: 6) {
                         Image(systemName: "clock.badge.exclamationmark.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.orange)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.attention)
                         Text("Not clocked in — starting this job will clock you in automatically.")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.orange)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.attention)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Color.MW.orange.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.MW.orange.opacity(0.2), lineWidth: 1))
+                    .background(appStyle.attention.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).stroke(appStyle.attention.opacity(0.2), lineWidth: 1))
                 }
             }
 
@@ -681,11 +743,11 @@ struct VisitDetailView: View {
                 completingVisit = visit
             } label: {
                 Label("Mark Complete", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.bold())
+                    .font(appStyle.font(.subheadline, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
                     .clipShape(Capsule())
             }
             .disabled(isThisLoading)
@@ -704,16 +766,16 @@ struct VisitDetailView: View {
             HStack {
                 Image(systemName: "calendar.badge.clock")
                 Text("Move to another date")
-                    .font(.subheadline.weight(.semibold))
+                    .font(appStyle.font(.subheadline, weight: .semibold))
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
             }
-            .foregroundStyle(Color.MW.green)
+            .foregroundStyle(appStyle.tenant)
             .padding(14)
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
         .buttonStyle(.plain)
     }
@@ -729,29 +791,29 @@ struct VisitDetailView: View {
                     isShowingCrewSheet = true
                 } label: {
                     Text(viewModel.currentCrewNames.isEmpty ? "Assign" : "Edit")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.footnote, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
                 }
             }
 
             if viewModel.currentCrewNames.isEmpty {
                 Text("No crew assigned")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(appStyle.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(viewModel.currentCrewNames.enumerated()), id: \.offset) { index, name in
                         HStack {
                             Image(systemName: "person.circle.fill")
-                                .foregroundStyle(Color.MW.green)
-                                .font(.title3)
+                                .foregroundStyle(appStyle.tenant)
+                                .font(appStyle.font(.title3))
                             Text(name)
-                                .font(.body)
+                                .font(appStyle.font(.body))
                             Spacer()
                         }
                         .padding(.horizontal, 16)
@@ -762,8 +824,8 @@ struct VisitDetailView: View {
                         }
                     }
                 }
-                .background(Color(.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(appStyle.surface)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
         }
     }
@@ -772,23 +834,25 @@ struct VisitDetailView: View {
 
     private func sectionHeader(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
+            .font(appStyle.font(.footnote, weight: .semibold))
+            .foregroundStyle(appStyle.meta)
+            .textCase(appStyle.isEnabled ? nil : .uppercase)
             .padding(.leading, 4)
     }
 
     // MARK: - Status Helpers
 
     private func statusColorFor(_ status: String) -> Color {
+        let legacy: Color
         switch status.lowercased() {
-        case "completed":   return .green
-        case "in_progress": return Color.MW.green
-        case "scheduled":   return .blue
-        case "cancelled":   return .red
-        case "skipped":     return .orange
-        default:            return .gray
+        case "completed":   legacy = appStyle.complete
+        case "in_progress": legacy = appStyle.tenant
+        case "scheduled":   legacy = appStyle.progress
+        case "cancelled":   legacy = appStyle.blocked
+        case "skipped":     legacy = appStyle.attention
+        default:            legacy = .gray
         }
+        return appStyle.statusColor(status, legacy: legacy)
     }
 
     private func statusLabelFor(_ status: String) -> String {
@@ -835,6 +899,7 @@ struct VisitDetailView: View {
 /// (first in the list the server receives), so it's derived from team-member list
 /// order rather than tap order to stay deterministic.
 private struct CrewAssignSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: VisitDetailViewModel
     @Environment(\.dismiss) private var dismiss
 
@@ -855,11 +920,11 @@ private struct CrewAssignSheet: View {
                     }
                 } label: {
                     HStack {
-                        Text(member.name).foregroundStyle(.primary)
+                        Text(member.name).foregroundStyle(appStyle.text)
                         Spacer()
                         if selectedIds.contains(member.id) {
                             Image(systemName: "checkmark")
-                                .foregroundStyle(Color.MW.green)
+                                .foregroundStyle(appStyle.tenant)
                         }
                     }
                 }
@@ -873,7 +938,7 @@ private struct CrewAssignSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(Color.MW.green)
+                    Button("Cancel") { dismiss() }.foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if viewModel.isCrewActionBusy {
@@ -885,7 +950,7 @@ private struct CrewAssignSheet: View {
                                 dismiss()
                             }
                         }
-                        .foregroundStyle(Color.MW.green)
+                        .foregroundStyle(appStyle.tenant)
                         .fontWeight(.semibold)
                     }
                 }

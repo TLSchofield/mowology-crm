@@ -14,58 +14,82 @@ import SwiftUI
 // MARK: - Declaration
 
 struct DriverDeclarationSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: DriverTripViewModel
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "steeringwheel")
-                .font(.system(size: 52))
-                .foregroundStyle(Color.MW.green)
-                .padding(.top, 28)
+        ScrollView {
+            VStack(spacing: 12) {
+                Image(systemName: "steeringwheel")
+                    .font(appStyle.font(size: 28))
+                    .foregroundStyle(appStyle.tenant)
+                    .accessibilityHidden(true)
 
-            Text("Are you driving a company vehicle this shift?")
-                .font(.title3.bold())
-                .multilineTextAlignment(.center)
+                Text("Are you driving a company vehicle this shift?")
+                    .font(appStyle.font(.title3, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Text("The driver has to inspect the vehicle before it moves and log the trip — it's a legal requirement. If you're riding along, you don't. You can change this later if you take over the wheel.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                Text("Drivers must inspect the vehicle before moving and log the trip. Passengers don't need to. You can change this later if you take over driving.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            declarationActions
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .background(appStyle.surface)
+        }
+        .background(appStyle.surface)
+        .itAppScreen()
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled()
+    }
 
-            Spacer(minLength: 0)
-
+    private var declarationActions: some View {
+        VStack(spacing: 10) {
             Button {
                 viewModel.declareDriving()
             } label: {
                 Label("Yes, I'm driving", systemImage: "steeringwheel")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
+                    .font(appStyle.font(.headline))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999))
             }
 
             Button {
                 Task { await viewModel.declareNotDriving() }
             } label: {
                 Text("No, I'm not driving")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .overlay(Capsule().stroke(Color(.separator), lineWidth: 1))
+                    .font(appStyle.font(.headline))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999).stroke(appStyle.line, lineWidth: 1))
             }
-            .tint(.primary)
+            .tint(appStyle.text)
         }
-        .padding(24)
-        .presentationDetents([.medium, .large])
-        .interactiveDismissDisabled()
+        .buttonStyle(.plain)
     }
 }
 
 // MARK: - Pre-trip
 
 struct PreTripView: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: DriverTripViewModel
     @Environment(\.dismiss) private var dismiss
 
@@ -108,11 +132,12 @@ struct PreTripView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: checked.contains(item.field) ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(checked.contains(item.field) ? Color.MW.green : Color(.systemGray3))
-                                Text(item.label).foregroundStyle(.primary)
+                                    .font(appStyle.font(.title3))
+                                    .foregroundStyle(checked.contains(item.field) ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
+                                Text(item.label).foregroundStyle(appStyle.text)
                                 Spacer(minLength: 0)
                             }
+                            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -126,7 +151,7 @@ struct PreTripView: View {
                 Section {
                     TextField("Anything that makes the vehicle unsafe", text: $criticalDefects, axis: .vertical)
                         .lineLimit(2...5)
-                    Toggle("Trailer unhitched because of this", isOn: $unhitched).tint(Color.MW.orange)
+                    Toggle("Trailer unhitched because of this", isOn: $unhitched).tint(appStyle.attention)
                 } header: {
                     Text("Critical defects")
                 } footer: {
@@ -139,11 +164,11 @@ struct PreTripView: View {
                 }
 
                 Section {
-                    Toggle("This vehicle is safe to drive", isOn: $safeToDrive).tint(Color.MW.green)
+                    Toggle("This vehicle is safe to drive", isOn: $safeToDrive).tint(appStyle.tenant)
                 }
 
                 if let error = viewModel.errorMessage {
-                    Section { Text(error).font(.footnote).foregroundStyle(Color.MW.orange) }
+                    Section { Text(error).font(appStyle.font(.footnote)).foregroundStyle(appStyle.attention) }
                 }
 
                 Section {
@@ -159,9 +184,10 @@ struct PreTripView: View {
                         HStack {
                             Spacer()
                             if viewModel.isWorking { ProgressView() }
-                            else { Text("Save inspection").font(.headline) }
+                            else { Text("Save inspection").font(appStyle.font(.headline)) }
                             Spacer()
                         }
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     }
                     .disabled(viewModel.isWorking || (viewModel.vehicles.count > 1 && vehicleId == nil))
                 } footer: {
@@ -170,6 +196,8 @@ struct PreTripView: View {
                     }
                 }
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Pre-trip inspection")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -188,6 +216,7 @@ struct PreTripView: View {
 // MARK: - Post-trip
 
 struct PostTripView: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: DriverTripViewModel
     /// Called after the trip is closed — the clock-out gate uses this to carry on.
     var onClosed: () -> Void = {}
@@ -214,8 +243,8 @@ struct PostTripView: View {
                 Section("Odometer end") {
                     TextField("Odometer (km)", text: $odometer).keyboardType(.numberPad)
                     if let odometerProblem {
-                        Text(odometerProblem).font(.footnote).foregroundStyle(Color.MW.orange)
-                        Toggle("This reading is correct", isOn: $confirmOdometer).tint(Color.MW.orange)
+                        Text(odometerProblem).font(appStyle.font(.footnote)).foregroundStyle(appStyle.attention)
+                        Toggle("This reading is correct", isOn: $confirmOdometer).tint(appStyle.attention)
                     }
                 }
 
@@ -233,7 +262,7 @@ struct PostTripView: View {
                 }
 
                 if let error = viewModel.errorMessage {
-                    Section { Text(error).font(.footnote).foregroundStyle(Color.MW.orange) }
+                    Section { Text(error).font(appStyle.font(.footnote)).foregroundStyle(appStyle.attention) }
                 }
 
                 Section {
@@ -248,13 +277,16 @@ struct PostTripView: View {
                         HStack {
                             Spacer()
                             if viewModel.isWorking { ProgressView() }
-                            else { Text("Close trip").font(.headline) }
+                            else { Text("Close trip").font(appStyle.font(.headline)) }
                             Spacer()
                         }
+                        .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     }
                     .disabled(viewModel.isWorking)
                 }
             }
+            .itAppForm()
+            .itAppScreen()
             .navigationTitle("Post-trip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -268,52 +300,53 @@ struct PostTripView: View {
 // MARK: - Time Clock card
 
 struct DriverCard: View {
+    @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var viewModel: DriverTripViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: "steeringwheel")
-                    .foregroundStyle(viewModel.hasOpenTrip ? Color.MW.green : .secondary)
+                    .foregroundStyle(viewModel.hasOpenTrip ? appStyle.tenant : appStyle.meta)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(headline).font(.subheadline.weight(.semibold))
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(headline).font(appStyle.font(.subheadline, weight: .semibold))
+                    Text(detail).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
                 Spacer(minLength: 0)
             }
 
             if let confirmation = viewModel.confirmation, viewModel.waitingToSync == 0 {
                 Label(confirmation, systemImage: "checkmark.seal.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.isEnabled ? appStyle.sent : appStyle.tenant)
             }
 
             if viewModel.waitingToSync > 0 {
                 Label("No signal when you did this — \(viewModel.waitingToSync) saved on this phone as a backup. It files itself when you're back in range.",
                       systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption)
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.isEnabled ? appStyle.saved : appStyle.tenant)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let rejected = viewModel.rejectedMessage {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("An entry could not be filed: \(rejected)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.MW.orange)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.attention)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("It is still saved on this phone. Tell the office so your log can be corrected.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
                     Button("I've dealt with it — remove") { viewModel.discardRejected() }
-                        .font(.caption.weight(.semibold))
-                        .tint(Color.MW.orange)
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .tint(appStyle.attention)
                 }
             }
 
             if let grounded = viewModel.groundedMessage {
                 Label(grounded, systemImage: "exclamationmark.octagon.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.red)
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.blocked)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -321,16 +354,17 @@ struct DriverCard: View {
                 if viewModel.hasOpenTrip { viewModel.showPostTrip = true } else { viewModel.showPreTrip = true }
             } label: {
                 Text(viewModel.hasOpenTrip ? "End trip (post-trip)" : "I'm driving now")
-                    .font(.footnote.weight(.semibold))
+                    .font(appStyle.font(.footnote, weight: .semibold))
                     .frame(maxWidth: .infinity)
+                    .frame(minHeight: appStyle.isEnabled ? 48 : nil)
                     .padding(.vertical, 9)
-                    .overlay(Capsule().stroke(Color.MW.green.opacity(0.5), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.isEnabled ? appStyle.cornerRadius(12) : 999).stroke(appStyle.tenant.opacity(0.5), lineWidth: 1))
             }
-            .tint(Color.MW.green)
+            .tint(appStyle.tenant)
         }
         .padding(14)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
     }
 
     private var headline: String {

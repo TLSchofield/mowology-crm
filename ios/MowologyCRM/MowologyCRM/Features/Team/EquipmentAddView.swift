@@ -206,6 +206,7 @@ final class EquipmentAddViewModel: ObservableObject {
 // MARK: - Entry button (Otto's card on the Team tab)
 
 struct OttoAddEquipmentButton: View {
+    @Environment(\.itAppStyle) private var appStyle
     let api: EquipmentAPI
     @State private var showing = false
     @State private var showingList = false
@@ -226,7 +227,7 @@ struct OttoAddEquipmentButton: View {
             }
         }
         .buttonStyle(.bordered)
-        .tint(Color.MW.green)
+        .tint(appStyle.tenant)
         .sheet(isPresented: $showing) {
             EquipmentAddView(vm: EquipmentAddViewModel(api: api))
         }
@@ -239,6 +240,7 @@ struct OttoAddEquipmentButton: View {
 // MARK: - The register (open a machine to edit it)
 
 struct EquipmentListView: View {
+    @Environment(\.itAppStyle) private var appStyle
     let api: EquipmentAPI
     @Environment(\.dismiss) private var dismiss
     @State private var items: [EquipmentItem] = []
@@ -258,19 +260,19 @@ struct EquipmentListView: View {
     var body: some View {
         NavigationStack {
             List {
-                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+                if let error { Text(error).font(appStyle.font(.footnote)).foregroundStyle(appStyle.blocked) }
                 if loading && items.isEmpty { ProgressView() }
                 if !loading && items.isEmpty && error == nil {
-                    Text("No equipment yet — add one by snapping its plate.").foregroundStyle(.secondary)
+                    Text("No equipment yet — add one by snapping its plate.").foregroundStyle(appStyle.meta)
                 }
                 ForEach(shown) { i in
                     Button { editing = i } label: {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(i.name).font(.subheadline.weight(.semibold))
-                            Text(Self.subtitle(i)).font(.caption).foregroundStyle(i.serialNo?.isEmpty ?? true ? .orange : .secondary)
+                            Text(i.name).font(appStyle.font(.subheadline, weight: .semibold))
+                            Text(Self.subtitle(i)).font(appStyle.font(.caption)).foregroundStyle(i.serialNo?.isEmpty ?? true ? appStyle.attention : appStyle.meta)
                         }
                     }
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(appStyle.text)
                 }
             }
             .searchable(text: $search, prompt: "Name, model, serial, who uses it")
@@ -310,6 +312,7 @@ struct EquipmentListView: View {
 // MARK: - The sheet
 
 struct EquipmentAddView: View {
+    @Environment(\.itAppStyle) private var appStyle
     @StateObject var vm: EquipmentAddViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var cameraFor: CameraTarget?
@@ -330,7 +333,7 @@ struct EquipmentAddView: View {
                 }
                 if let m = vm.message, !m.isEmpty {
                     Section {
-                        Text(m).font(.footnote).foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
+                        Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
                     }
                 }
             }
@@ -390,13 +393,13 @@ struct EquipmentAddView: View {
     private func photoRow(title: String, image: UIImage?, target: CameraTarget, item: Binding<PhotosPickerItem?>) -> some View {
         HStack(spacing: 12) {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill().frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 8))
+                Image(uiImage: image).resizable().scaledToFill().frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             } else {
-                RoundedRectangle(cornerRadius: 8).fill(Color(.secondarySystemBackground)).frame(width: 56, height: 56)
-                    .overlay(Image(systemName: target == .plate ? "barcode.viewfinder" : "photo").foregroundStyle(.secondary))
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).fill(appStyle.sunk).frame(width: 56, height: 56)
+                    .overlay(Image(systemName: target == .plate ? "barcode.viewfinder" : "photo").foregroundStyle(appStyle.meta))
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.subheadline.weight(.semibold))
+                Text(title).font(appStyle.font(.subheadline, weight: .semibold))
                 HStack(spacing: 10) {
                     Button("Camera") { cameraFor = target }.buttonStyle(.bordered).controlSize(.small)
                     PhotosPicker("Library", selection: item, matching: .images).buttonStyle(.bordered).controlSize(.small)
@@ -413,7 +416,7 @@ struct EquipmentAddView: View {
         if let k = vm.knownModel {
             Section {
                 Text("I know this model: \(k.name)" + (k.intervals > 0 ? " — the manual's \(k.intervals) service interval(s) are on file." : "."))
-                    .font(.footnote)
+                    .font(appStyle.font(.footnote))
             }
         }
         if vm.editingId != nil {
@@ -449,14 +452,14 @@ struct EquipmentAddView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("#\(r.id) · \(r.date) · \(r.vendor.isEmpty ? "receipt" : r.vendor)").font(.subheadline)
-                            Text((r.total.map { String(format: "$%.2f", $0) } ?? "") + " — " + r.why).font(.caption).foregroundStyle(.secondary)
+                            Text("#\(r.id) · \(r.date) · \(r.vendor.isEmpty ? "receipt" : r.vendor)").font(appStyle.font(.subheadline))
+                            Text((r.total.map { String(format: "$%.2f", $0) } ?? "") + " — " + r.why).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                         }
                         Spacer()
-                        if vm.expenseId == r.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.MW.green) }
+                        if vm.expenseId == r.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(appStyle.tenant) }
                     }
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(appStyle.text)
             }
         }
         Section("Who and where") {
@@ -483,7 +486,7 @@ struct EquipmentAddView: View {
         Section {
             Label(vm.editingId == nil ? "Added. Service intervals, parts and the cost this year are on the machine's page on the web."
                                       : "Saved.", systemImage: "checkmark.seal.fill")
-                .foregroundStyle(Color.MW.green)
+                .foregroundStyle(appStyle.tenant)
             if vm.editingId == nil { Button("Add another") {
                 vm.step = .snap
                 vm.plateImage = nil; vm.photoImage = nil; vm.message = nil

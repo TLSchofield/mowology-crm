@@ -94,9 +94,14 @@ function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, arr
  */
 function headerCorrections(array $original, array $final, ?string $vendorName): array
 {
+    // PST: a stored 0.00 means "none", the same as nothing printed — not a correction.
+    $pstVal = static function ($v) {
+        return ($v === null || $v === '' || (is_numeric($v) && (float)$v == 0.0)) ? null : $v;
+    };
     $pairs = [
         'total'    => [$original['total'] ?? null,       $final['total'] ?? null],
         'gst'      => [$original['gst'] ?? null,         $final['gst_amount'] ?? null],
+        'pst'      => [$pstVal($original['pst'] ?? null), $pstVal($final['pst_amount'] ?? null)],
         'subtotal' => [$original['subtotal'] ?? null,    $final['amount'] ?? null],
         'date'     => [$original['date'] ?? null,        $final['expense_date'] ?? null],
         'vendor'   => [$original['vendor_hint'] ?? null, $vendorName],
@@ -144,7 +149,7 @@ function sameVendorName(?string $printed, ?string $kept): bool
         return true;
     }
     // Containment only for real names — "CO" must not match "COSTCO".
-    return min(strlen($a), strlen($b)) >= 4 && (str_contains($a, $b) || str_contains($b, $a));
+    return min(strlen($a), strlen($b)) >= 4 && (strpos($a, $b) !== false || strpos($b, $a) !== false);
 }
 
 /**
@@ -165,52 +170,223 @@ function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array
         if (!$d['corrected']) continue;
         $hadCorrections = true;
 
-        $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
-        if ($existing) {
-            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-               ->execute([$existing['id']]);
-        } else {
-            $db->prepare("
-                INSERT INTO receipt_parse_lessons
-                    (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ")->execute([
-                $vendorId, $vendorName, $fieldName, $ocrVal, $userVal,
-                extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal),
-            ]);
-        }
+        addFieldLesson($db, $vendorId, $vendorName, $fieldName, $ocrVal, $userVal, $ocrText);
     }
 
     // ── Accounting category corrections ────────────────────────────────
     // After 2+ identical corrections, the learned category overrides vendor default.
     if ($vendorId && $diff['category']) {
-        [$ocrCategory, $userCategory] = [$diff['category']['ocr'], $diff['category']['user']];
         $hadCorrections = true;
-        $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
-        if ($existing) {
-            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-               ->execute([$existing['id']]);
-            // Promote to vendor profile after 2+ consistent corrections
-            if ((int)$existing['times_seen'] >= 2) {
-                $db->prepare("
-                    INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
-                    VALUES (?, ?, 1)
-                    ON DUPLICATE KEY UPDATE
-                        learned_accounting_category = VALUES(learned_accounting_category),
-                        category_correction_count = category_correction_count + 1,
-                        updated_at = NOW()
-                ")->execute([$vendorId, $userCategory]);
-            }
-        } else {
-            $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
-               ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
-        }
+        addCategoryLesson($db, $vendorId, $vendorName, $diff['category']['ocr'], $diff['category']['user']);
     }
 
     // Update vendor parse profile stats
     if ($vendorId) {
         updateVendorProfile($db, $vendorId, $fieldMap, $hadCorrections);
     }
+}
+
+/** One header correction (parser read -> person kept): seen once more, or recorded the first time. */
+function addFieldLesson(PDO $db, ?int $vendorId, ?string $vendorName, string $fieldName, ?string $ocrVal, ?string $userVal, string $ocrText): void
+{
+    $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
+    if ($existing) {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+        return;
+    }
+    $db->prepare("
+        INSERT INTO receipt_parse_lessons
+            (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ")->execute([
+        $vendorId, $vendorName, $fieldName, $ocrVal, $userVal,
+        extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal),
+    ]);
+}
+
+/** A category correction: recorded, and promoted to the vendor's default after 2+ identical ones. */
+function addCategoryLesson(PDO $db, int $vendorId, ?string $vendorName, string $ocrCategory, string $userCategory): void
+{
+    $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    if ($existing) {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+        if ((int)$existing['times_seen'] >= 2) {
+            $db->prepare("
+                INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
+                VALUES (?, ?, 1)
+                ON DUPLICATE KEY UPDATE
+                    learned_accounting_category = VALUES(learned_accounting_category),
+                    category_correction_count = category_correction_count + 1,
+                    updated_at = NOW()
+            ")->execute([$vendorId, $userCategory]);
+        }
+        return;
+    }
+    $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
+       ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
+}
+
+/** Takes a category correction back; a promoted default that no longer has two sightings behind it goes too. */
+function forgetCategoryLesson(PDO $db, int $vendorId, string $ocrCategory, string $userCategory): void
+{
+    forgetFieldLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    $left = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+    if (!$left || (int)$left['times_seen'] < 2) {
+        $db->prepare("UPDATE vendor_parse_profiles SET learned_accounting_category = NULL,
+                          category_correction_count = GREATEST(category_correction_count - 1, 0), updated_at = NOW()
+                      WHERE vendor_id = ? AND learned_accounting_category = ?")->execute([$vendorId, $userCategory]);
+    }
+}
+
+/** Takes one sighting back (a lesson the desk overturned); the last one removes the row. */
+function forgetFieldLesson(PDO $db, ?int $vendorId, string $fieldName, ?string $ocrVal, ?string $userVal): void
+{
+    $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
+    if (!$existing) return;
+    if ((int)$existing['times_seen'] <= 1) {
+        $db->prepare("DELETE FROM receipt_parse_lessons WHERE id = ?")->execute([$existing['id']]);
+    } else {
+        $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen - 1, updated_at = NOW() WHERE id = ?")
+           ->execute([$existing['id']]);
+    }
+}
+
+/** Does this table have the column? Cached per request (a migration may not have run yet). */
+function receiptTableHasColumn(PDO $db, string $table, string $column): bool
+{
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (!array_key_exists($key, $cache)) {
+        try {
+            $cache[$key] = $db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $db->quote($column))->rowCount() > 0;
+        } catch (Throwable $e) {
+            $cache[$key] = false;
+        }
+    }
+    return $cache[$key];
+}
+
+/** The header values a phone save taught, kept so the desk's approval can confirm or overturn them. */
+function phoneLessonSnapshot(array $row, ?string $vendorName): array
+{
+    return [
+        'vendor_id' => $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null,
+        'total' => $row['total'] ?? null, 'gst_amount' => $row['gst_amount'] ?? null,
+        'pst_amount' => $row['pst_amount'] ?? null, 'amount' => $row['amount'] ?? null,
+        'expense_date' => $row['expense_date'] ?? null, 'accounting_category' => $row['accounting_category'] ?? null,
+        'vendor' => $vendorName,
+    ];
+}
+
+/**
+ * Pure: what the desk's approval changes about the lessons a phone save already taught.
+ * Unchanged -> nothing (the approval confirms the read). A field the desk changed -> the phone's
+ * lesson for it is taken back and the desk's recorded instead; the net change in corrected fields
+ * moves the vendor's accuracy the same way.
+ *
+ * @return array{forget: array<string, array{ocr: ?string, user: ?string}>, add: array<string, array{ocr: ?string, user: ?string}>, delta: int, old_corrections: int, new_corrections: int}
+ */
+function amendmentPlan(array $baseline, array $snapshot, array $final, ?string $vendorName, bool $vendorMoved = false): array
+{
+    $str = static function ($v): ?string { return $v === null ? null : (string)$v; };
+    $diffS = headerCorrections($baseline, $snapshot, $snapshot['vendor'] ?? $vendorName);
+    $diffD = headerCorrections($baseline, $final, $vendorName);
+    $forget = [];
+    $add = [];
+    $delta = 0;
+    $oldN = 0;
+    $newN = 0;
+    foreach (array_unique(array_merge(array_keys($diffS['fields']), array_keys($diffD['fields']))) as $field) {
+        $s = $diffS['fields'][$field] ?? ['ocr' => null, 'user' => null, 'corrected' => false];
+        $d = $diffD['fields'][$field] ?? ['ocr' => null, 'user' => null, 'corrected' => false];
+        $same = $field === 'vendor'
+            ? sameVendorName($str($s['user']), $str($d['user']))
+            : normalizeFieldValue($field, $str($s['user'])) === normalizeFieldValue($field, $str($d['user']));
+        if ($same && !$vendorMoved) continue;   // a moved vendor takes every lesson with it
+        if ($s['corrected']) $forget[$field] = ['ocr' => $str($s['ocr']), 'user' => $str($s['user'])];
+        if ($d['corrected']) $add[$field] = ['ocr' => $str($d['ocr']), 'user' => $str($d['user'])];
+        $delta += ($d['corrected'] ? 1 : 0) - ($s['corrected'] ? 1 : 0);
+        $oldN += $s['corrected'] ? 1 : 0;
+        $newN += $d['corrected'] ? 1 : 0;
+    }
+    $sc = $diffS['category'];
+    $dc = $diffD['category'];
+    if ($vendorMoved || ($sc['user'] ?? null) !== ($dc['user'] ?? null)) {
+        if ($sc) $forget['accounting_category'] = ['ocr' => $sc['ocr'], 'user' => $sc['user']];
+        if ($dc) $add['accounting_category'] = ['ocr' => $dc['ocr'], 'user' => $dc['user']];
+    }
+    return ['forget' => $forget, 'add' => $add, 'delta' => $delta, 'old_corrections' => $oldN, 'new_corrections' => $newN];
+}
+
+/**
+ * The desk approves a receipt a phone save already taught: once, compare what was taught with what
+ * was approved and move the lessons and the vendor's accuracy to match (owner, 2026-10-28:
+ * approval confirms the phone's read, a correction goes the other way).
+ */
+function amendPhoneLessons(PDO $db, array $row, ?array $fallbackBaseline): bool
+{
+    $own = false;
+    try {
+        if (!receiptTableHasColumn($db, 'expenses', 'learning_snapshot')) return false;
+        if (!$db->inTransaction()) { $db->beginTransaction(); $own = true; }
+        // Lock the row: a second approval path waits, then finds the snapshot gone.
+        $lock = $db->prepare("SELECT learning_snapshot FROM expenses WHERE id = ? FOR UPDATE");
+        $lock->execute([(int)$row['id']]);
+        $raw = (string)$lock->fetchColumn();
+        if ($raw === '') { if ($own) $db->rollBack(); return false; }
+
+        $snapshot = json_decode($raw, true);
+        $baseline = captureBaseline($row['ocr_parsed_json'] ?? null) ?? $fallbackBaseline;
+        if (is_array($snapshot) && $baseline) {
+            $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
+            $oldVendor  = isset($snapshot['vendor_id']) ? (int)$snapshot['vendor_id'] : $vendorId;
+            $moved      = $oldVendor !== $vendorId;
+            $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
+            $plan = amendmentPlan($baseline, $snapshot, $row, $vendorName, $moved);
+            $ocrText = ocrTextFromStored($row['raw_ocr_json'] ?? null);
+            foreach ($plan['forget'] as $field => $v) {
+                if ($field === 'accounting_category') { if ($oldVendor) forgetCategoryLesson($db, $oldVendor, (string)$v['ocr'], (string)$v['user']); }
+                else forgetFieldLesson($db, $oldVendor, $field, $v['ocr'], $v['user']);
+            }
+            foreach ($plan['add'] as $field => $v) {
+                if ($field === 'accounting_category') { if ($vendorId) addCategoryLesson($db, $vendorId, $vendorName, (string)$v['ocr'], (string)$v['user']); }
+                else addFieldLesson($db, $vendorId, $vendorName, $field, $v['ocr'], $v['user'], $ocrText);
+            }
+            if ($moved) {
+                if ($oldVendor) adjustVendorCorrections($db, $oldVendor, -$plan['old_corrections']);
+                if ($vendorId) adjustVendorCorrections($db, $vendorId, $plan['new_corrections']);
+            } elseif ($vendorId) {
+                adjustVendorCorrections($db, $vendorId, $plan['delta']);
+            }
+            if ($vendorId && ($plan['forget'] || $plan['add'])) deriveVendorPatterns($db, $vendorId);
+            if ($oldVendor && $moved) deriveVendorPatterns($db, $oldVendor);
+        }
+        // Last: only a finished amendment uses the snapshot up.
+        $db->prepare("UPDATE expenses SET learning_snapshot = NULL WHERE id = ?")->execute([(int)$row['id']]);
+        if ($own) $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        if ($own && $db->inTransaction()) $db->rollBack();
+        error_log('Receipt learning amend #' . ($row['id'] ?? '?') . ': ' . $e->getMessage());
+        return false;
+    }
+}
+
+/** Move a vendor's correction count (and accuracy) by what the desk changed, without counting the receipt twice. */
+function adjustVendorCorrections(PDO $db, int $vendorId, int $delta): void
+{
+    if ($delta === 0) return;
+    $stmt = $db->prepare("SELECT total_receipts, total_corrections FROM vendor_parse_profiles WHERE vendor_id = ?");
+    $stmt->execute([$vendorId]);
+    $p = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$p) return;
+    $corrections = max(0, (int)$p['total_corrections'] + $delta);
+    $fields = (int)$p['total_receipts'] * 5;
+    $accuracy = $fields > 0 ? round((($fields - $corrections) / $fields) * 100, 2) : null;
+    $db->prepare("UPDATE vendor_parse_profiles SET total_corrections = ?, accuracy_rate = ?, updated_at = NOW() WHERE vendor_id = ?")
+       ->execute([$corrections, $accuracy, $vendorId]);
 }
 
 /** Have migration 1123's columns been added? Cached per request. */
@@ -285,6 +461,7 @@ function baselineFromExpenseRow(array $row): array
     return [
         'total'               => $row['total'] ?? null,
         'gst'                 => $row['gst_amount'] ?? null,
+        'pst'                 => $row['pst_amount'] ?? null,
         'subtotal'            => $row['amount'] ?? null,
         'date'                => $row['expense_date'] ?? null,
         'vendor_hint'         => $row['vendor_name_raw'] ?? null,
@@ -382,6 +559,8 @@ function recordLineItemLessonsAtConfirmation(PDO $db, int $expenseId, int $vendo
  * Non-critical: never throws — learning must not block an approval.
  *
  * @param array|null $fallbackBaseline Used when ocr_parsed_json is empty (emailed receipts)
+ * @param bool $allowPending An owner/manager's phone save (pending_approval) counts as the confirmation —
+ *                           their corrections are the best signal and teach at once (owner, 2026-10-28)
  * @return bool Whether lessons were recorded
  */
 /** Once per receipt: true for the caller that set learning_recorded_at. */
@@ -442,7 +621,7 @@ function recordConfirmedSkuNames(PDO $db, int $expenseId, int $vendorId): int
     }
 }
 
-function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null): bool
+function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null, bool $filedCopy = false, bool $allowPending = false): bool
 {
     try {
         if (!receiptLearningBaselineReady($db)) {
@@ -455,8 +634,17 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         ");
         $stmt->execute([$expenseId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row || $row['learning_recorded_at'] !== null
-            || !in_array($row['status'], ['approved', 'forwarded'], true)) {
+        if (!$row) {
+            return false;
+        }
+        // a filed copy of an already-booked receipt is rejected but its values are confirmed
+        $confirmed = in_array($row['status'], $filedCopy ? ['approved', 'forwarded', 'rejected'] : ['approved', 'forwarded'], true);
+        if ($row['learning_recorded_at'] !== null) {
+            // Taught at the phone save; the desk's approval confirms it or overturns part of it.
+            // A filed copy of an already-booked receipt counts too: the desk confirmed its values by filing it (2026-10-28).
+            return $confirmed ? amendPhoneLessons($db, $row, $fallbackBaseline) : false;
+        }
+        if (!$confirmed && !($allowPending && $row['status'] === 'pending_approval')) {
             return false;
         }
 
@@ -478,7 +666,19 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         }
 
         $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
-        recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        $phone = $row['status'] === 'pending_approval' && receiptTableHasColumn($db, 'expenses', 'learning_snapshot');
+        try {
+            // What the phone taught is kept first, so a claim is never left without its snapshot.
+            if ($phone) {
+                $db->prepare("UPDATE expenses SET learning_snapshot = ? WHERE id = ?")
+                   ->execute([json_encode(phoneLessonSnapshot($row, $vendorName)), $expenseId]);
+            }
+            recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        } catch (Throwable $e) {
+            // Give the claim back: a failed lesson must not stop the approval from teaching it later.
+            $db->prepare("UPDATE expenses SET learning_recorded_at = NULL" . ($phone ? ", learning_snapshot = NULL" : "") . " WHERE id = ?")->execute([$expenseId]);
+            throw $e;
+        }
         if ($vendorId && !empty($row['ocr_parsed_json']) && is_array($baseline['line_items'] ?? null)) {
             recordLineItemLessonsAtConfirmation($db, $expenseId, $vendorId, $vendorName, $baseline['line_items']);
         }
@@ -578,7 +778,7 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         if (empty($parsed[$field]) && !empty($fix['corrected_value']) && $fix['times_seen'] >= 3) {
             // Don't auto-fill amounts — those change per receipt
             // Only auto-fill structural patterns (labels, formats)
-            if (!in_array($field, ['total', 'gst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
+            if (!in_array($field, ['total', 'gst', 'pst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
                 $parsed[$field] = $fix['corrected_value'];
                 $parsed[$field . '_source'] = 'learned';
             }
@@ -593,11 +793,31 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
 
     // ── Apply learned accounting category ─────────────────────────────
     // Override suggested category if the user has consistently corrected it (2+).
+    $parsed = resolveLearnedCategory($parsed, $profile, $ocrText);
+
+    // ── Learned header layouts (rung 2 of the ladder: rules → learned layout → AI) ──
+    $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($profile));
+
+    return $parsed;
+}
+
+/**
+ * The vendor's learned category, unless the receipt itself says otherwise: a pump receipt is Fuel
+ * whatever the vendor lesson says (Chevron taught Meals by twenty coffee receipts must not turn a
+ * fill-up into Meals). Pure.
+ */
+function resolveLearnedCategory(array $parsed, array $profile, string $ocrText): array
+{
+    require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptBookkeeperRules.php';
     if (!empty($profile['learned_accounting_category']) && (int)($profile['category_correction_count'] ?? 0) >= 2) {
+        if (ReceiptBookkeeperRules::fuelType(strtoupper($ocrText)) !== null) {
+            $parsed['accounting_category']        = 'Fuel';
+            $parsed['accounting_category_source'] = 'content';
+            return $parsed;
+        }
         $parsed['accounting_category']        = $profile['learned_accounting_category'];
         $parsed['accounting_category_source'] = 'learned';
     }
-
     return $parsed;
 }
 
@@ -801,6 +1021,23 @@ function deriveVendorPatterns(PDO $db, int $vendorId): void
             $updates['pst_label'] = 'PST/QST';
         }
 
+        // ── Header layouts + date format, from confirmed corrections (>= 2 consistent) ──
+        // Needs migration 1405's header_layouts column; without it nothing is written.
+        if (vendorProfileHasColumn($db, 'header_layouts')) {
+            $hl = $db->prepare("
+                SELECT field_name, ocr_context, corrected_value, times_seen
+                FROM receipt_parse_lessons
+                WHERE vendor_id = ? AND field_name IN ('total','subtotal','gst','pst','date')
+                  AND ocr_context IS NOT NULL AND ocr_context <> '' AND corrected_value IS NOT NULL
+            ");
+            $hl->execute([$vendorId]);
+            $lessons = $hl->fetchAll(PDO::FETCH_ASSOC);
+            $layouts = deriveHeaderLayouts($lessons);
+            if ($layouts) $updates['header_layouts'] = json_encode($layouts);
+            $fmt = deriveDateFormat($lessons);
+            if ($fmt !== null) $updates['date_format'] = $fmt;
+        }
+
         // ── Auto-derive Tesseract threshold from accuracy history ──────
         $pfStmt = $db->prepare("SELECT accuracy_rate, total_receipts FROM vendor_parse_profiles WHERE vendor_id = ?");
         $pfStmt->execute([$vendorId]);
@@ -894,20 +1131,34 @@ function extractOcrContext(string $ocrText, string $fieldName, ?string $ocrVal, 
     $searchVal = $userVal ?? $ocrVal;
     if (empty($searchVal)) return null;
 
-    // Find the value in the OCR text and grab surrounding lines
+    // Find the value in the OCR text and grab surrounding lines. An amount printed twice
+    // ("Fuel sales $ 23.28" and "TOTAL / CAD$ 23.28") is taken where its own label is: the window
+    // is what header-layout learning reads the label and position from.
     $lines = preg_split('/\r?\n/', $ocrText);
     $lineCount = count($lines);
-
+    $hint = headerFieldLabelHint($fieldName);
+    $hits = [];
     for ($i = 0; $i < $lineCount; $i++) {
-        if (stripos($lines[$i], $searchVal) !== false) {
-            $start = max(0, $i - 2);
-            $end = min($lineCount - 1, $i + 2);
-            return implode("\n", array_slice($lines, $start, $end - $start + 1));
+        if (stripos($lines[$i], $searchVal) !== false) $hits[] = $i;
+    }
+    if ($hits && $hint !== null && count($hits) > 1) {
+        foreach ($hits as $i) {
+            $near = ($lines[max(0, $i - 2)] ?? '') . "\n" . ($lines[max(0, $i - 1)] ?? '') . "\n" . $lines[$i];
+            if (preg_match($hint, $near)) {
+                $hits = [$i];
+                break;
+            }
         }
+    }
+    if ($hits) {
+        $i = $hits[0];
+        $start = max(0, $i - 2);
+        $end = min($lineCount - 1, $i + 2);
+        return implode("\n", array_slice($lines, $start, $end - $start + 1));
     }
 
     // For amounts, search by the numeric value
-    if (in_array($fieldName, ['total', 'gst', 'subtotal'])) {
+    if (in_array($fieldName, ['total', 'gst', 'pst', 'subtotal'])) {
         $amount = preg_quote($searchVal, '/');
         for ($i = 0; $i < $lineCount; $i++) {
             if (preg_match('/' . $amount . '/', $lines[$i])) {
@@ -945,6 +1196,11 @@ function extractDateWithFormat(string $text, string $format): ?string
                 return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[2], (int)$m[1]);
             }
             break;
+        case 'MM/DD/YYYY':
+            if (preg_match('/(\d{1,2})\/(\d{1,2})\/(\d{4})/', $text, $m)) {
+                return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[1], (int)$m[2]);
+            }
+            break;
         case 'YYYY-MM-DD':
             if (preg_match('/(\d{4})-(\d{2})-(\d{2})/', $text, $m)) {
                 return $m[0];
@@ -965,7 +1221,7 @@ function normalizeFieldValue(string $fieldName, ?string $value): ?string
     $value = trim($value);
 
     // Normalize amounts to 2 decimal places
-    if (in_array($fieldName, ['total', 'gst', 'subtotal', ''])) {
+    if (in_array($fieldName, ['total', 'gst', 'pst', 'subtotal', ''])) {
         if (preg_match('/^\d+\.?\d*$/', $value)) {
             return number_format((float)$value, 2, '.', '');
         }
@@ -1688,4 +1944,295 @@ function ocrTextFromStored(?string $raw): string
         return $decoded['text'];
     }
     return '';
+}
+
+
+// ============================================================================
+//  Learned header layouts (2026-10-28) — where this vendor prints each header field.
+//
+//  A correction teaches STRUCTURE, never values: for total / subtotal / gst / pst the label text
+//  (normalised), whether the amount sits on the label's line (same_line), the next line, or the line
+//  after next, and the currency prefix ("CAD$"). Stored per vendor as JSON in
+//  vendor_parse_profiles.header_layouts (migration 1405):
+//      {"total":[{"label":"TOTAL","pos":"next_line","cur":"CAD$","seen":3}], ...}
+//  A layout needs >= 2 consistent corrections. It is applied only when the generic extractor
+//  returned nothing (or derived/estimated the field itself) or the printed sum fails — and it reads
+//  the amount off the NEW receipt; a past amount is never replayed.
+//
+//  Teaching from a phone save: an owner's or manager's `pending_approval` save counts as the
+//  confirmation (ExpenseGate opt `learn_now`, set by expense-save.php for the office roles) and runs
+//  learnFromConfirmedExpense(..., allowPending: true) once per receipt (claimReceiptLearning). Crew
+//  captures never do — they carry no corrections.
+// ============================================================================
+
+/** Does vendor_parse_profiles have this column? Cached per request. */
+function vendorProfileHasColumn(PDO $db, string $column): bool
+{
+    static $cache = [];
+    if (!array_key_exists($column, $cache)) {
+        try {
+            // No placeholder: MySQL rejects parameter markers in SHOW with native prepares, so header-layout
+            // lessons were never stored from 2026-10-28 until this fix (2026-11-04).
+            $cache[$column] = (bool)$db->query("SHOW COLUMNS FROM vendor_parse_profiles LIKE " . $db->quote($column))->fetch();
+        } catch (Throwable $e) {
+            $cache[$column] = false;
+        }
+    }
+    return $cache[$column];
+}
+
+/** Regex of the labels a header field is printed under (null for fields without one). Pure. */
+function headerFieldLabelHint(string $field): ?string
+{
+    switch ($field) {
+        case 'total':    return '/(?<!SUB)TOTAL|AMOUNT|BALANCE|\bDUE\b|\bPAY\b/i';
+        case 'subtotal': return '/SUB[\s\-]*TOTAL/i';
+        case 'gst':      return '/GST|HST|TAX/i';
+        case 'pst':      return '/PST|RST/i';
+    }
+    return null;
+}
+
+/** A line's label: letters and single spaces, upper case, currency words dropped ("GST INCLUDED $ 1.11" → "GST INCLUDED"). Pure. */
+function headerLineLabel(string $line): string
+{
+    $l = strtoupper(preg_replace('/\$?\s*\d{1,6}[.,]\d{2}(?!\d)/', ' ', $line));
+    $l = preg_replace('/\b(CAD|CDN|USD)\b/', ' ', (string)$l);
+    $l = preg_replace('/[^A-Z]+/', ' ', (string)$l);
+    return trim((string)preg_replace('/\s{2,}/', ' ', (string)$l));
+}
+
+/** The currency prefix printed just before the amount on a line: 'CAD$' | 'CDN$' | '$' | ''. Pure. */
+function headerLineCurrency(string $line): string
+{
+    if (preg_match('/(CAD|CDN)?\s*(\$)?\s*\d{1,6}[.,]\d{2}(?!\d)/i', $line, $m)) {
+        return strtoupper((string)($m[1] ?? '')) . (!empty($m[2]) ? '$' : '');
+    }
+    return '';
+}
+
+/**
+ * Where does `$value` sit in a window of receipt lines, relative to its label? Pure.
+ *
+ * @return ?array{label: string, pos: string, cur: string}
+ */
+function observeHeaderLayout(string $field, string $contextText, string $value): ?array
+{
+    require_once __DIR__ . '/ReceiptParser.php';
+    if (!is_numeric($value)) return null;
+    $want  = round((float)$value, 2);
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $contextText)), static function ($l) { return $l !== ''; }));
+    $hint  = headerFieldLabelHint($field);
+    $found = [];
+    foreach ($lines as $i => $line) {
+        foreach (lineMoneyAmounts($line) as $a) {
+            if (abs($a - $want) < 0.005) { $found[] = $i; break; }
+        }
+    }
+    $candidates = [];
+    foreach ($found as $i) {
+        $own = headerLineLabel($lines[$i]);
+        if ($own !== '') {
+            $candidates[] = ['label' => $own, 'pos' => 'same_line', 'cur' => headerLineCurrency($lines[$i])];
+            continue;
+        }
+        foreach ([1 => 'next_line', 2 => 'line_after_next'] as $back => $pos) {
+            if ($i - $back < 0) break;
+            $above = $lines[$i - $back];
+            if (lineMoneyAmounts($above)) break;
+            $lab = headerLineLabel($above);
+            if ($lab !== '') {
+                $candidates[] = ['label' => $lab, 'pos' => $pos, 'cur' => headerLineCurrency($lines[$i])];
+                break;
+            }
+        }
+    }
+    if (!$candidates) return null;
+    if ($hint !== null) {
+        foreach ($candidates as $c) {
+            if (preg_match($hint, $c['label'])) return $c;
+        }
+        return null;                        // the amount is there but under another label: teach nothing
+    }
+    return $candidates[0];
+}
+
+/**
+ * Group lessons into layouts; keep those seen >= 2 times. Pure.
+ *
+ * @param list<array{field_name: string, ocr_context: ?string, corrected_value: ?string, times_seen?: int|string}> $lessons
+ * @return array<string, list<array{label: string, pos: string, cur: string, seen: int}>>
+ */
+function deriveHeaderLayouts(array $lessons): array
+{
+    $groups = [];
+    foreach ($lessons as $l) {
+        $f = (string)($l['field_name'] ?? '');
+        if (!in_array($f, ['total', 'subtotal', 'gst', 'pst'], true)) continue;
+        $obs = observeHeaderLayout($f, (string)($l['ocr_context'] ?? ''), (string)($l['corrected_value'] ?? ''));
+        if ($obs === null) continue;
+        $key = $obs['label'] . '|' . $obs['pos'] . '|' . $obs['cur'];
+        if (!isset($groups[$f][$key])) $groups[$f][$key] = $obs + ['seen' => 0];
+        $groups[$f][$key]['seen'] += max(1, (int)($l['times_seen'] ?? 1));
+    }
+    $out = [];
+    foreach ($groups as $f => $g) {
+        $keep = array_values(array_filter($g, static function ($x) { return $x['seen'] >= 2; }));
+        usort($keep, static function ($a, $b) { return $b['seen'] <=> $a['seen']; });
+        if ($keep) $out[$f] = $keep;
+    }
+    return $out;
+}
+
+/**
+ * The date format confirmed by >= 2 date corrections ('DD/MM/YYYY' etc., as extractDateWithFormat reads). Pure.
+ */
+function deriveDateFormat(array $lessons): ?string
+{
+    $counts = [];
+    foreach ($lessons as $l) {
+        if (($l['field_name'] ?? '') !== 'date') continue;
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', (string)($l['corrected_value'] ?? ''), $m)) continue;
+        [$y, $mo, $d] = [$m[1], $m[2], $m[3]];
+        $ctx = (string)($l['ocr_context'] ?? '');
+        $y2 = substr($y, 2);
+        $cands = [
+            'YYYY-MM-DD' => "$y-$mo-$d",
+            'DD/MM/YYYY' => "$d/$mo/$y",
+            'MM/DD/YYYY' => "$mo/$d/$y",
+            'DD/MM/YY'   => "$d/$mo/$y2",
+            'MM/DD/YY'   => "$mo/$d/$y2",
+        ];
+        foreach ($cands as $fmt => $str) {
+            if (preg_match('/(?<!\d)' . preg_quote($str, '/') . '(?!\d)/', $ctx) && $d !== $mo) {
+                $counts[$fmt] = ($counts[$fmt] ?? 0) + max(1, (int)($l['times_seen'] ?? 1));
+                break;
+            }
+        }
+    }
+    arsort($counts);
+    foreach ($counts as $fmt => $n) {
+        return $n >= 2 ? $fmt : null;
+    }
+    return null;
+}
+
+/** The profile's stored layouts as an array (empty when absent or unreadable). Pure. */
+function headerLayoutsFromProfile(?array $profile): array
+{
+    $raw = $profile['header_layouts'] ?? null;
+    if (!is_string($raw) || $raw === '') return [];
+    $d = json_decode($raw, true);
+    return is_array($d) ? $d : [];
+}
+
+/**
+ * Read one amount off the text with a learned layout, or null. Pure.
+ * same_line: label and amount on one line; next_line / line_after_next: the label stands alone and
+ * the amount-only line follows (the line between may hold only a currency mark).
+ */
+function readHeaderAmountWithLayout(string $ocrText, array $layout, bool $last): ?string
+{
+    require_once __DIR__ . '/ReceiptParser.php';
+    $lines = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $ocrText)), static function ($l) { return $l !== ''; }));
+    $label = (string)($layout['label'] ?? '');
+    $pos   = (string)($layout['pos'] ?? '');
+    if ($label === '') return null;
+    $hit = null;
+    foreach ($lines as $i => $line) {
+        if (headerLineLabel($line) !== $label) continue;
+        if ($pos === 'same_line') {
+            $amts = lineMoneyAmounts($line);
+            $j = $i;
+        } else {
+            if (lineMoneyAmounts($line)) continue;
+            $j = $i + ($pos === 'line_after_next' ? 2 : 1);
+            if ($pos === 'line_after_next' && (!isset($lines[$i + 1]) || lineMoneyAmounts($lines[$i + 1]) || headerLineLabel($lines[$i + 1]) !== '')) continue;
+            $amts = isset($lines[$j]) && headerLineLabel($lines[$j]) === '' ? lineMoneyAmounts($lines[$j]) : [];
+        }
+        if (!$amts || $amts[count($amts) - 1] <= 0) continue;
+        $hit = number_format($amts[count($amts) - 1], 2, '.', '');
+        if (!$last) break;
+    }
+    return $hit;
+}
+
+/**
+ * Fill header amounts from a vendor's learned layouts, only where the generic extractor failed:
+ *  - a field that is empty, or that the parser derived/estimated itself, is read with the layout;
+ *  - when the printed sum fails, the layouts' readings replace the four amounts, kept only if the sum then holds.
+ * A value that was printed and passes the checks is never touched. Pure.
+ *
+ * @param array<string, list<array>> $layouts deriveHeaderLayouts() shape
+ */
+function applyHeaderLayouts(array $parsed, string $ocrText, array $layouts): array
+{
+    if (!$layouts || trim($ocrText) === '') return $parsed;
+    require_once __DIR__ . '/ReceiptParser.php';
+    require_once __DIR__ . '/ReceiptLineItemIntelligence.php';
+    $empty = static function (array $p, string $f): bool {
+        if ($p[$f] ?? null) return false;
+        return true;
+    };
+    $weak = [
+        'total'    => !empty($parsed['total_derived']),
+        'subtotal' => !empty($parsed['subtotal_derived']),
+        'gst'      => !empty($parsed['gst_estimated']),
+        'pst'      => false,
+    ];
+    $read = static function (string $f) use ($layouts, $ocrText): ?string {
+        foreach ($layouts[$f] ?? [] as $lay) {
+            $v = readHeaderAmountWithLayout($ocrText, $lay, $f === 'total');
+            if ($v !== null) return $v;
+        }
+        return null;
+    };
+    $changed = [];
+    foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+        if (!($empty($parsed, $f) || $weak[$f])) continue;
+        $v = $read($f);
+        if ($v === null) continue;
+        $parsed[$f] = $v;
+        $parsed[$f . '_source'] = 'learned';
+        unset($parsed[$f . '_derived']);
+        if ($f === 'gst') { $parsed['gst_estimated'] = false; }
+        $changed[] = $f;
+    }
+    // The printed sum fails: try the layouts' readings of all four, keep them only if the sum then holds.
+    if (!$changed && in_array('math_fails', headersNeedBetterExtraction($parsed + ['ocr_text' => $ocrText]), true)) {
+        $try = $parsed;
+        foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+            $v = $read($f);
+            if ($v !== null) $try[$f] = $v;
+        }
+        if (!in_array('math_fails', headersNeedBetterExtraction($try + ['ocr_text' => $ocrText]), true)) {
+            foreach (['total', 'subtotal', 'gst', 'pst'] as $f) {
+                if (($try[$f] ?? null) !== ($parsed[$f] ?? null)) { $try[$f . '_source'] = 'learned'; $changed[] = $f; }
+            }
+            $parsed = $try;
+        }
+    }
+    if ($changed) $parsed['header_layout_fields'] = $changed;
+    return $parsed;
+}
+
+
+/**
+ * Router: how hard should this vendor's receipts be read? 'cheap' (rules, then AI only when a check
+ * fails) or 'strong' (strongest read straight away and the header AI rung enabled up front).
+ * Strong when the owner set read_mode = 'strong', or the vendor's header accuracy is poor
+ * (accuracy_rate < 60 over 5+ receipts). An explicit owner 'cheap' wins over the accuracy rule.
+ * Pure — depends only on the profile row, not on any OCR engine. Default cheap.
+ */
+function receiptReadMode(?array $profile): string
+{
+    if (!$profile) return 'cheap';
+    $manual = strtolower(trim((string)($profile['read_mode'] ?? '')));
+    if ($manual === 'strong' || $manual === 'cheap') return $manual;
+    $rate  = $profile['accuracy_rate'] ?? null;
+    $count = (int)($profile['total_receipts'] ?? 0);
+    if ($rate !== null && $rate !== '' && is_numeric($rate) && (float)$rate < 60 && $count >= 5) {
+        return 'strong';
+    }
+    return 'cheap';
 }

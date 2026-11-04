@@ -109,12 +109,21 @@ try {
                 'stats'     => $desk->stats(),
                 'queue'     => $cards,
                 'leads'     => $desk->leads(8),
+                'quiet'     => $desk->quietClients(6),                   // clients gone quiet against their own rhythm (2026-11-03)
+                'renewals'  => $desk->renewals(),                        // contracts inside the renewal radar window
+                'hygiene'   => $desk->hygiene(),                         // open quotes with no amount / no service
                 'questions' => $sq->open($name),
                 'approved'  => $approvals->pending(),   // just-approved quotes, every line ✓ / ✗ (migration 1316)
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
                 'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
-                'unclaimed' => array_slice($desk->unclaimed($all), 0, 12), // replies about a quote nobody answered ("Handled" = Charlie dismiss)
+                'unclaimed' => array_map(static function (array $u) use ($name): array {   // what the reply really says + a reply in shape (ObjectionReply, 2026-11-03)
+                    require_once APP_ROOT . '/Modules/Sales/Services/ObjectionReply.php';
+                    $o = ObjectionReply::classify((string)($u['subject'] ?? '') . "\n" . (string)($u['quote'] ?? $u['snippet'] ?? ''));
+                    $u['objection'] = $o['type'];
+                    $u['objection_reply'] = $o['type'] === 'unclear' ? null : ObjectionReply::draft($o['type'], ['first_name' => explode(' ', (string)($u['name'] ?? ''))[0] ?? '', 'signoff' => $name]);
+                    return $u;
+                }, array_slice($desk->unclaimed($all), 0, 12)), // replies about a quote nobody answered ("Handled" = Charlie dismiss)
                 'acceptances' => (static function () use ($db): array {     // "Looks like an acceptance" (2026-10-15)
                     try {
                         require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';

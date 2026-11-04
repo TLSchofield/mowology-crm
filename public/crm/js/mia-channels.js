@@ -59,6 +59,22 @@
         var g = d.google, s = d.social, w = d.website, l = d.listings;
         var live = g.mode === 'live';
         var html = '<div class="mw-mia-ch-head"><b>Channels</b><span>Google · social · website · listings</span></div>';
+        // Harvest 2026-11-03: the week in one page, the calendar's balance, his voice, findability — all drafts and facts, nothing posts
+        if (d.week) {
+            html += '<section class="mw-mia-week"><div class="mw-mia-ch-sub">' + esc(d.week.headline) + '</div>';
+            if (d.week.actions && d.week.actions.length) html += '<ol class="mw-mia-week-actions">' + d.week.actions.map(function (a) { return '<li>' + esc(a.text) + ' <small>— ' + esc(a.because) + ' · worth ' + esc(a.worth) + '</small></li>'; }).join('') + '</ol>';
+            var bands = d.week.bands || {}; var bl = [];
+            Object.keys(bands).forEach(function (k) { var b = bands[k]; bl.push('<span class="mw-mia-band is-' + esc(b.band) + '">' + esc(k.replace('_', ' ')) + (b.pct != null ? ' ' + (b.pct >= 0 ? '+' : '') + b.pct + '%' : (b.now != null ? ' ' + b.now : '')) + '</span>'); });
+            if (bl.length) html += '<p class="mw-mia-ch-note">' + bl.join(' ') + '</p>';
+            html += '<p class="mw-mia-ch-note">' + esc(d.week.sources_line) + '</p></section>';
+        }
+        if (d.mix && d.mix.say) html += '<section><div class="mw-mia-ch-sub">The calendar</div>' + d.mix.say.map(function (l) { return '<p class="mw-mia-ch-note">' + esc(l) + '</p>'; }).join('') + '</section>';
+        if (d.voice) {
+            html += '<section><div class="mw-mia-ch-sub">His voice' + (d.voice.samples ? ' · from ' + d.voice.samples + ' sent emails' : '') + '</div>' +
+                (d.voice.enough ? '<p class="mw-mia-ch-note">Opens "' + esc(d.voice.greeting || '…') + '", signs "' + esc(d.voice.signoff || '…') + '", about ' + esc(d.voice.avg_sentence_words) + ' words a sentence, ' + (d.voice.contractions ? 'contractions' : 'no contractions') + ', exclamation marks ' + esc(d.voice.exclamations) + '.' +
+                    (d.voice.phrases && d.voice.phrases.length ? ' Says: "' + d.voice.phrases.map(esc).join('", "') + '".' : '') + ' Every draft is checked against this before it reaches you.</p>' : '<p class="mw-mia-ch-note">' + esc(d.voice.note || 'Not enough sent mail to learn from yet.') + '</p>') + '</section>';
+        }
+        if (d.findability && d.findability.say && d.findability.say.length) html += '<section><div class="mw-mia-ch-sub">Found by assistants?</div>' + d.findability.say.map(function (l) { return '<p class="mw-mia-ch-note">' + esc(l) + '</p>'; }).join('') + '</section>';
 
         // Facebook first when it's broken — nothing posts until it's fixed.
         if (s.needs_reconnect) {

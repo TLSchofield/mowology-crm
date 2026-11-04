@@ -146,6 +146,14 @@ try {
             echo json_encode(['success' => true, 'results' => (new ReceiptCatalogService($db))->search(mb_substr((string)($_GET['q'] ?? ''), 0, 80), $fam !== '' ? $fam : null)]);
             break;
 
+        case 'catalog_price_history': // GET product_id
+            require_once APP_ROOT . '/Modules/Expenses/Services/ProductPriceHistoryService.php';
+            $prices = new ProductPriceHistoryService($db);
+            $productId = (int)($_GET['product_id'] ?? 0);
+            $history = $prices->history($productId);
+            echo json_encode(['success' => true, 'product' => $history['product'], 'by_vendor' => $prices->byVendor($productId), 'history' => $history['history']]);
+            break;
+
         case 'catalog_confirm':   // POST line_id, product_id — "yes" / "it's this one"
         case 'catalog_dismiss':   // POST line_id — "not this"
         case 'catalog_add':       // POST line_id, family, name, brand? — "Add to catalogue"
@@ -174,6 +182,13 @@ try {
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
             handleReject($db, $input, $user);
+            break;
+
+        case 'file_booked':   // a receipt in a filed year: keep it, teach Penny, book nothing
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            if (!$input || !verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+            echo json_encode((new ExpenseApprovalService($db))->fileAsBooked((int)($input['id'] ?? 0), $user));
             break;
 
         case 'batch_approve':
@@ -458,9 +473,26 @@ function handleList(PDO $db): void
     }
     unset($row);
 
+    // Which bank line each receipt is linked to, so the list can show it (and the popup can say which line).
+    $bankLinks = [];
+    $bankDataThrough = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+        $bankSvc = new BankLineReceipts($db);
+        $bankLinks = $bankSvc->linksFor(array_column($rows, 'id'));
+        $bankDataThrough = $bankSvc->dataThrough();
+    } catch (Throwable $e) {
+        error_log('expenses list bank links: ' . $e->getMessage());
+    }
+    foreach ($rows as &$row) {
+        $row['bank_line'] = $bankLinks[(int)$row['id']] ?? null;
+    }
+    unset($row);
+
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
+        'bank_data_through' => $bankDataThrough,
         'total'    => $total,
         'page'     => $page,
         'per_page' => $perPage,
@@ -726,6 +758,8 @@ function handleCreate(PDO $db, ?array $input, array $user): void
             'ocr_parsed'  => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input['ocr_parsed'] : null,
             'learn_lines' => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input : null,
             'price_intel' => true,
+            // Anyone's save teaches now, provisionally; the desk confirms or overturns (same rule as expense-save.php).
+            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']),
         ]);
         $expenseId = (int)$created['expense_id'];
     } finally {
@@ -884,8 +918,13 @@ function handleCatalogLine(PDO $db, ?array $input, string $action): array
     $by = (int)$actor['id'] ?: null;
     if ($action === 'catalog_confirm') $r = $rc->confirm($lineId, (int)($input['product_id'] ?? 0), $by);
     elseif ($action === 'catalog_dismiss') $r = $rc->dismiss($lineId, $by);
-    else $r = $rc->add($lineId, (string)($input['family'] ?? ''), mb_substr((string)($input['name'] ?? ''), 0, 255),
-                       ($b = trim((string)($input['brand'] ?? ''))) !== '' ? mb_substr($b, 0, 120) : null, $by);
+    else {
+        $unit = (string)($input['size_unit'] ?? '');
+        $qty = (float)($input['size_qty'] ?? 0);
+        $size = $qty > 0 && in_array($unit, ['l', 'ml', 'kg', 'g', 'm', 'cm', 'pc'], true) ? ['qty' => $qty, 'unit' => $unit] : null;
+        $r = $rc->add($lineId, (string)($input['family'] ?? ''), mb_substr((string)($input['name'] ?? ''), 0, 255),
+                      ($b = trim((string)($input['brand'] ?? ''))) !== '' ? mb_substr($b, 0, 120) : null, $by, $size);
+    }
     return ['success' => !empty($r['ok'])] + $r + (empty($r['ok']) ? ['error' => $r['message'] ?? 'Not saved'] : [])
            + ['lines' => $rc->forExpense((int)$exp['id'])];
 }
@@ -1148,6 +1187,9 @@ function handleLinkProduct(PDO $db, ?array $input): void
     // Shared with the iOS line-item endpoint (expense-line-items.php): links, trains the
     // vendor catalog, and records the SKU → product memory for the next receipt.
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $own = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $own->execute([(int)($input['line_item_id'] ?? 0)]);
+    assertCanEditExpense($db, (int)$own->fetchColumn());
     $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
         ? (int)$input['product_id']
         : null;

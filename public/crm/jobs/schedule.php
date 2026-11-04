@@ -138,14 +138,14 @@ try {
         foreach ($stRows as $stRow) { $serviceTypeLabels[$stRow['slug']] = $stRow['label']; }
     }
 } catch (Exception $e) { /* use fallback */ }
-$serviceFilter = (isset($_GET['service']) && in_array($_GET['service'], $validServiceTypes, true))
-    ? $_GET['service']
-    : null;
+require_once APP_ROOT . '/Modules/Schedule/Services/ServiceTypeFilter.php';
+// Several job types can be ticked at once; the filter is one comma-separated string.
+$serviceFilter = isset($_GET['service']) ? ServiceTypeFilter::parse((string)$_GET['service'], $validServiceTypes) : null;
 // The job type is remembered too: ?service= sets it, ?service=all clears it.
 if (isset($_GET['service'])) {
     $__remember('mw_sched_service', $serviceFilter ?? '');
-} elseif (in_array($_COOKIE['mw_sched_service'] ?? '', $validServiceTypes, true)) {
-    $serviceFilter = $_COOKIE['mw_sched_service'];
+} else {
+    $serviceFilter = ServiceTypeFilter::parse((string)($_COOKIE['mw_sched_service'] ?? ''), $validServiceTypes);
 }
 
 // ─── Weather forecast ───────────────────────────────────────────────
@@ -975,6 +975,21 @@ function buildFilterQuery(?int $crewId, ?string $serviceType): string {
 
 $filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 
+/** Tick-box job-type picker (a <details> list). Ticking updates a hidden csv input; $onDone runs after a short pause. */
+function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = ''): string {
+    $on = ServiceTypeFilter::slugs($selected);
+    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' job types');
+    $h = '<details class="mw-typemulti"><summary>' . htmlspecialchars($summary) . '</summary><div class="mw-typemulti-list">';
+    $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-all"' . (count($on) === 0 ? ' checked' : '') . '> ' . htmlspecialchars($allLabel) . '</label>';
+    foreach ($types as $slug => $label) {
+        $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-one" value="' . htmlspecialchars((string)$slug) . '"'
+            . (in_array((string)$slug, $on, true) ? ' checked' : '') . '> ' . htmlspecialchars((string)$label) . '</label>';
+    }
+    $h .= '</div><input type="hidden" id="' . htmlspecialchars($inputId) . '" value="' . htmlspecialchars((string)$selected) . '"'
+        . ($dataBase !== '' ? ' data-base="' . htmlspecialchars($dataBase) . '"' : '') . ' data-done="' . htmlspecialchars($onDone) . '"></details>';
+    return $h;
+}
+
 // ─── Day names ──────────────────────────────────────────────────────
 $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
@@ -1385,15 +1400,7 @@ if ($apiKey) {
 
               <div class="mw-schedule-filters">
                   <!-- Service filter -->
-                  <select id="serviceFilter" class="form-control form-control-sm" onchange="applyFilter()">
-                      <option value="">All Services</option>
-                      <?php foreach ($serviceLabels as $key => $label): ?>
-                          <option value="<?php echo htmlspecialchars($key); ?>"
-                              <?php echo ($serviceFilter === $key) ? 'selected' : ''; ?>>
-                              <?php echo htmlspecialchars($label); ?>
-                          </option>
-                      <?php endforeach; ?>
-                  </select>
+                  <?php echo mwTypeMultiHtml($serviceLabels, $serviceFilter, 'serviceFilter', 'All Services', 'applyFilter'); ?>
                   <!-- Crew filter -->
                   <select id="crewFilter" class="form-control form-control-sm" onchange="applyFilter()">
                       <option value="">All Crews</option>
@@ -1425,6 +1432,9 @@ if ($apiKey) {
           // Otto owns the schedule: his strip for the day / week in view (jobs.edit only; loads after the page).
           $ottoStrip = $view === 'day' ? ['date' => $dayDate] : ['from' => $startDate, 'to' => $endDate];
           include dirname(__DIR__) . '/includes/otto-schedule-strip.php';
+          // Salt & snow route stops show only while a run is on (SnowRunGate): the strip with Start / End run.
+          $snowRunBanner = ['date' => $view === 'day' ? $dayDate : date('Y-m-d')];
+          include dirname(__DIR__) . '/includes/snow-run-banner.php';
           ?>
 
           <!-- ═══════════════════════════════════════════════
@@ -2254,6 +2264,9 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2370,7 +2383,26 @@ if ($apiKey) {
                               }
                           }
                           ?>
-                          <?php if ($dvStopDone): ?>
+                          <?php
+                          $dvVisitStatuses2 = array_column($stop['visits'] ?? [], 'visit_status');
+                          $dvStopSkipped2 = !$dvStopDone && !empty($dvVisitStatuses2)
+                              && (($stop['stop_status'] ?? '') === 'skipped'
+                                  || count(array_filter($dvVisitStatuses2, fn($s) => $s === 'skipped')) === count($dvVisitStatuses2));
+                          ?>
+                          <?php if ($dvStopSkipped2): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-skipped">
+                              <span class="mw-dv-skip-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Skipped
+                              </span>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen mw-dv-btn-unskip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Undo skip — put this stop back on the route">Unskip</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php elseif ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
                               <span class="mw-dv-done-badge">
                                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -2414,6 +2446,9 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2611,14 +2646,7 @@ if ($apiKey) {
                              <?php echo $viewScope['scope'] === 'all' ? 'aria-current="true"' : ''; ?>>All crews</a>
                       </div>
                       <?php endif; ?>
-                      <select class="mw-mc-scope-type" aria-label="Job type"
-                              data-base="<?php echo htmlspecialchars($__scopeBase); ?>"
-                              onchange="location.href = this.dataset.base + '&service=' + encodeURIComponent(this.value || 'all')">
-                          <option value="">All job types</option>
-                          <?php foreach ($__typeList as $__slug => $__label): ?>
-                          <option value="<?php echo htmlspecialchars($__slug); ?>" <?php echo $serviceFilter === $__slug ? 'selected' : ''; ?>><?php echo htmlspecialchars($__label); ?></option>
-                          <?php endforeach; ?>
-                      </select>
+                      <?php echo mwTypeMultiHtml($__typeList, $serviceFilter, 'mcServiceFilter', 'All job types', 'mwMcTypeGo', $__scopeBase); ?>
                   </div>
 
                   <!-- Row 2: prev-week · 7 days · next-week -->
@@ -3051,6 +3079,28 @@ if ($apiKey) {
  * attributes above. Week-view picks navigate to the Monday of the chosen
  * week; day-view picks navigate to that day.
  */
+
+/* Tick-box job-type pickers: "All" clears the rest, ticking a type clears "All"; applies after a short pause so several ticks go in one trip. */
+var mwTypeTimer = null;
+document.addEventListener('change', function (e) {
+    var box = e.target;
+    if (!box.classList || !(box.classList.contains('mw-typemulti-all') || box.classList.contains('mw-typemulti-one'))) return;
+    var det = box.closest('.mw-typemulti');
+    var all = det.querySelector('.mw-typemulti-all');
+    var ones = det.querySelectorAll('.mw-typemulti-one');
+    if (box === all) { ones.forEach(function (o) { o.checked = false; }); all.checked = true; }
+    else { all.checked = !Array.prototype.some.call(ones, function (o) { return o.checked; }); }
+    var picked = [];
+    ones.forEach(function (o) { if (o.checked) picked.push(o.value); });
+    var input = det.querySelector('input[type=hidden]');
+    input.value = picked.join(',');
+    clearTimeout(mwTypeTimer);
+    mwTypeTimer = setTimeout(function () { window[input.getAttribute('data-done')](); }, 700);
+});
+function mwMcTypeGo() {
+    var input = document.getElementById('mcServiceFilter');
+    location.href = input.getAttribute('data-base') + '&service=' + encodeURIComponent(input.value || 'all');
+}
 
 /**
  * Apply filters: navigate with crew + service params
@@ -3952,7 +4002,7 @@ if ($__srOn): ?>
 <script>window.MW_SR = { canAdd: <?= userHasPermission('jobs.edit') ? 'true' : 'false' ?> };</script>
 <script src="<?= _av('/crm/js/mw-special-request.js') ?>" defer></script>
 <?php endif; ?>
-<script src="../js/schedule-pill-workflow.js?v=20261020photo" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20261102pins" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>

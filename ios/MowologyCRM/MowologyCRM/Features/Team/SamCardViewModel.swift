@@ -119,14 +119,15 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.loadDesk()
             if !r.ok {
-                loadError = r.error ?? "Sam isn't set up yet."
+                loadError = r.error ?? "Sam card response ok=false; server returned no error field."
             } else {
                 apply(r)
             }
         } catch let err as APIError {
             loadError = err.errorDescription
         } catch {
-            loadError = "Couldn't load Sam's list — pull to try again."
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            loadError = ErrorDetails.describe(error)
         }
         isLoading = false
         hasLoaded = true
@@ -179,6 +180,38 @@ final class SamCardViewModel: ObservableObject {
 
     /// Skip: the next customer, nothing recorded (as the web's arrows).
     func skip() { move(1) }
+
+    /// Open one customer from the list (their row or the Next row).
+    func open(_ i: Int) {
+        guard queue.indices.contains(i) else { return }
+        index = i
+        followupMessage = nil
+    }
+
+    /// Sam's one sentence, worded as the web card: the money waiting, who wrote back, what comes after.
+    var briefing: (money: String?, rest: String) {
+        func plural(_ n: Int, _ w: String) -> String { "\(n) \(w)\(n == 1 ? "" : "s")" }
+        let replied = queue.filter(\.replied)
+        let chase = queue.count - replied.count
+        let nl = leads.count
+        guard !queue.isEmpty else {
+            var t = "Nobody is waiting on a follow-up" + (name.isEmpty ? "." : ", \(name).")
+            if nl > 0 { t += " \(plural(nl, "new lead")) to look at." }
+            return (nil, t)
+        }
+        var parts = ["is waiting on \(plural(queue.count, "customer"))."]
+        if !replied.isEmpty {
+            let names = replied.prefix(2).map { $0.firstName.isEmpty ? $0.name : $0.firstName }
+            let who = replied.count > 2 ? names.joined(separator: ", ") + " and \(replied.count - 2) more" : names.joined(separator: " and ")
+            var t = "\(who) wrote back. Start there"
+            if chase > 0 { t += ", then the \(chase) to chase" }
+            if nl > 0 { t += (chase > 0 ? " and the " : ", then the ") + plural(nl, "new lead") }
+            parts.append(t + ".")
+        } else if nl > 0 {
+            parts.append("\(plural(nl, "new lead")) after that.")
+        }
+        return (Self.money(queueTotal), parts.joined(separator: " "))
+    }
 
     func sendFollowup() async {
         guard let c = current, !isBusy else { return }
@@ -343,9 +376,10 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.loadThread(contactId: contactId)
             if r.ok { threadMessages = r.messages.reversed() }       // oldest first, like a chat
-            else { threadError = r.error ?? "Couldn't load the conversation." }
+            else { threadError = r.error ?? "Conversation response ok=false; server returned no error field." }
         } catch {
-            threadError = "Couldn't load the conversation."
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            threadError = ErrorDetails.describe(error)
         }
     }
 
@@ -369,11 +403,12 @@ final class SamCardViewModel: ObservableObject {
         do {
             let r = try await api.send(body)
             if r.ok { return r }
-            onError(r.message ?? r.error ?? "That didn't work — try again.")
+            onError(r.message ?? r.error ?? "Sam action response ok=false; server returned no message/error field.")
         } catch let err as APIError {
-            onError(err.errorDescription ?? "That didn't work — try again.")
+            onError(ErrorDetails.describe(err))
         } catch {
-            onError("Network error — nothing was sent. Try again.")
+            AppDiagnostics.shared.record(category: "SamCardViewModel", message: ErrorDetails.describe(error))
+            onError(ErrorDetails.describe(error))
         }
         return nil
     }

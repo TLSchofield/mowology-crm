@@ -247,7 +247,7 @@ final class VisitCompletionViewModel: ObservableObject {
 
             guard created.success, let invoiceId = created.invoiceId else {
                 phase = .failed
-                statusMessage = created.error ?? "Could not create the invoice."
+                statusMessage = created.error ?? "Invoice create response success=\(created.success), invoice_id=\(created.invoiceId == nil ? "missing" : "present"); server returned no error field."
                 return false
             }
             invoice = created
@@ -264,7 +264,7 @@ final class VisitCompletionViewModel: ObservableObject {
                 return true
             } else {
                 phase = .failed
-                statusMessage = sent.error ?? "Invoice created but could not be emailed. Send it from the office."
+                statusMessage = sent.error ?? "Invoice created; send response success=false; server returned no error field. Send it from the office."
                 return false
             }
         } catch let error as APIError {
@@ -272,7 +272,7 @@ final class VisitCompletionViewModel: ObservableObject {
             if case .networkError = error {
                 statusMessage = "Visit completed, but you're offline — create & send this invoice from the office when you're back online."
             } else {
-                statusMessage = error.errorDescription ?? "Could not send the invoice."
+                statusMessage = ErrorDetails.describe(error)
             }
             return false
         } catch {

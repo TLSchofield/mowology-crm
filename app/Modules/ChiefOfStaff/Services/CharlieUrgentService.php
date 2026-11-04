@@ -143,6 +143,26 @@ class CharlieUrgentService
             }
         }
 
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Invoices/Services/InvoiceRejectionWatch.php')) {
+            try {
+                // A client's accounts system refused one of our invoices (e.g. LeapAP: "No PDF found"): the owner hears the same day.
+                require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRejectionWatch.php';
+                foreach (InvoiceRejectionWatch::urgent($this->db) as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: invoice rejection watch unavailable: ' . $e->getMessage());
+            }
+        }
+
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Technology/Services/PulseService.php')) {
+            try {
+                // Pulse: something the owner would notice has stopped working (two failing 5-minute checks in a row), once per incident.
+                require_once APP_ROOT . '/Modules/Technology/Services/PulseService.php';
+                foreach ((new PulseService($this->db))->urgent() as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: Pulse unavailable: ' . $e->getMessage());
+            }
+        }
+
         if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php')) {
             try {
                 require_once APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php';

@@ -155,3 +155,11 @@ live-edited file (the "prod ahead of repo" trap) is invisible until the next dep
 - Payment-mail: Yardi lines that auto-record are stored with sender_verified NULL and status
   'recorded' (only proven mail auto-records) — count them as verified, or a quiet week of good
   Yardi mail reads as "all held".
+
+## 2026-11-03 — Ada's own drift check cried wolf for 17 days (99 "changed" files)
+`posture:drift` compares live files with the deploy manifest that only `scripts/deploy-checked.sh` wrote.
+Every file shipped through `scripts/deploy-file.sh` or `scripts/deploy-step.sh` since Oct 17 therefore read
+as "changed on the server" — red, Critical, standing. Signature: a drift list that is exactly the files you
+deployed on purpose. Rule: every deploy path records the manifest (both scripts now call
+`scripts/lib/deploy_manifest.py`); when a red stands for weeks, ask first whether the checker, not the system,
+is wrong. The matching check: `AdaRules::withAge()` now says "— for 17 days", so a standing red is visible as one.

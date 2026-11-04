@@ -50,7 +50,8 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             listError = err.errorDescription
         } catch {
-            listError = "Failed to load expenses."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            listError = ErrorDetails.describe(error)
         }
         isLoadingList = false
     }
@@ -68,9 +69,9 @@ final class ReceiptsViewModel: ObservableObject {
         ReceiptQueue.shared.activeUserId = apiClient.currentUserId
         ReceiptQueue.shared.userProvider = { [weak apiClient] in apiClient?.currentUserId }
         ReceiptQueue.shared.startMonitoring(
-            upload: { [weak self] data, lat, lng, jobId in
+            upload: { [weak self] data, lat, lng, jobId, takenAt in
                 guard let self else { throw APIError.invalidURL }
-                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId, takenAt: takenAt)
             },
             save: { [weak self] owed, lat, lng, _ in
                 guard let self else { throw APIError.invalidURL }
@@ -85,9 +86,9 @@ final class ReceiptsViewModel: ObservableObject {
         ReceiptQueue.shared.activeUserId = apiClient.currentUserId
         let before = ReceiptQueue.shared.pendingCount
         await ReceiptQueue.shared.drain(
-            upload: { [weak self] data, lat, lng, jobId in
+            upload: { [weak self] data, lat, lng, jobId, takenAt in
                 guard let self else { throw APIError.invalidURL }
-                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId)
+                return try await self.replayUpload(data, lat: lat, lng: lng, jobId: jobId, takenAt: takenAt)
             },
             save: { [weak self] owed, lat, lng, _ in
                 guard let self else { throw APIError.invalidURL }
@@ -101,27 +102,33 @@ final class ReceiptsViewModel: ObservableObject {
     /// Replays one queued receipt, step 1: upload + OCR. What it returns is kept on the queue
     /// item (OwedDraft) so a failed save is retried without uploading the photo again — the
     /// item used to be removed and its photo deleted when the save failed (review round 2).
-    private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptQueue.OwedDraft {
+    private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?, takenAt: Date) async throws -> ReceiptQueue.OwedDraft {
         let intake = try await apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
         let p = intake.parsed
         let s = intake.suggestions
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let total = p?.totalDouble ?? 0
         let gst   = p?.gstDouble ?? 0
         let pst   = p?.pst.flatMap { ReceiptNumber.parse($0) } ?? 0
+        let pick  = intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) }
         return ReceiptQueue.OwedDraft(
             mediaId:       intake.mediaId,
             vendorId:      s?.vendorId,
             vendorName:    s?.vendorName ?? p?.vendorHint ?? "",
-            date:          Self.normalizeDate(p?.date) ?? fmt.string(from: .now),
+            // No readable date: the day it was taken, not the day it synced (GST period).
+            date:          Self.normalizeDate(p?.date) ?? VancouverDay.string(from: takenAt),
             amount:        p?.subtotal.flatMap { ReceiptNumber.parse($0) } ?? max(0, total - gst - pst),
             gst:           gst,
             pst:           pst,
             total:         total,
             category:      s?.accountingCategory ?? "",
-            paymentMethod: p?.paymentMethod ?? "credit_card",
+            paymentMethod: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card",
             rawOcrText:    intake.ocrText,
-            ocrParsed:     p
+            ocrParsed:     p,
+            jobId:         pick?.id,
+            jobPropertyId: pick?.propertyId,
+            jobContactId:  pick?.contactId,
+            jobTitle:      pick?.title,
+            jobSubtitle:   pick?.subtitle
         )
     }
 
@@ -144,7 +151,7 @@ final class ReceiptsViewModel: ObservableObject {
             mediaId:       o.mediaId,
             rawOcrText:    o.rawOcrText,
             ocrParsed:     o.ocrParsed,
-            job:           nil,
+            job:           o.jobId.map { JobPick(id: $0, propertyId: o.jobPropertyId, contactId: o.jobContactId, title: o.jobTitle ?? "Job", subtitle: o.jobSubtitle) },
             lat:           lat,
             lng:           lng
         )
@@ -230,11 +237,12 @@ final class ReceiptsViewModel: ObservableObject {
             if r.ok {
                 await loadExpenses()
             } else {
-                actionError = r.message ?? r.error ?? "Not saved."
+                actionError = r.message ?? r.error ?? "Bookkeeper action response ok=false; server returned no message/error field."
             }
             return r
         } catch {
-            actionError = (error as? APIError)?.errorDescription ?? "Not saved."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
             return nil
         }
     }
@@ -257,7 +265,7 @@ final class ReceiptsViewModel: ObservableObject {
                                                                         body: ["op": "rescan", "expense_id": expenseId],
                                                                         timeout: 75)
             if r.success { return .success(r) }
-            return .failure(APIError.serverError(r.error ?? "The rescan failed."))
+            return .failure(APIError.serverError(r.error ?? "Receipt rescan response success=false; server returned no error field."))
         } catch {
             return .failure(error)
         }
@@ -268,11 +276,12 @@ final class ReceiptsViewModel: ObservableObject {
         do {
             let r: LineItemMutationResponse = try await apiClient.request(.expenseLineItemAction, body: body)
             if r.success { return r }
-            actionError = r.error ?? "Line item update failed."
+            actionError = r.error ?? "Line item update response success=false; server returned no error field."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            actionError = "Line item update failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
         }
         return nil
     }
@@ -320,23 +329,24 @@ final class ReceiptsViewModel: ObservableObject {
                 expenses.removeAll { $0.id == id }
                 return true
             }
-            actionError = r.error ?? r.message ?? "Delete failed."
+            actionError = r.error ?? r.message ?? "Expense delete response success=false; server returned no error/message field."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            actionError = "Delete failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
         }
         return false
     }
 
     // MARK: - Upload
 
-    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
+    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?, deviceRead: DeviceTextScanner.Prefetched? = nil) async {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil, deviceRead: deviceRead)
         } catch let err as APIError {
             // Queue the receipt only when the server didn't decide (review round 2):
             // - .networkError: offline, our 45s cap, 5xx / PHP kill, a truncated answer (UploadFault)
@@ -360,7 +370,8 @@ final class ReceiptsViewModel: ObservableObject {
                 uploadError = err.errorDescription
             }
         } catch {
-            uploadError = "Upload failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            uploadError = ErrorDetails.describe(error)
         }
         isUploading = false
     }
@@ -377,10 +388,11 @@ final class ReceiptsViewModel: ObservableObject {
             if case .networkError = err {
                 uploadError = "No connection — the label photo wasn't sent. Try again when you have signal."
             } else {
-                uploadError = err.errorDescription ?? "Label upload failed."
+                uploadError = ErrorDetails.describe(err)
             }
         } catch {
-            uploadError = "Label upload failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            uploadError = ErrorDetails.describe(error)
         }
         isUploading = false
     }
@@ -469,7 +481,8 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             saveError = err.errorDescription
         } catch {
-            saveError = "Failed to save expense."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            saveError = ErrorDetails.describe(error)
         }
         isSaving = false
         return nil
@@ -482,7 +495,7 @@ final class ReceiptsViewModel: ObservableObject {
     func updateExpense(
         expenseId: Int,
         vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
+        amount: Double, gst: Double, pst: Double, total: Double,
         category: String, paymentMethod: String, description: String
     ) async -> Bool {
         isSaving  = true
@@ -493,6 +506,7 @@ final class ReceiptsViewModel: ObservableObject {
             "vendor_name_raw":     vendorName,
             "amount":              amount,
             "gst_amount":          gst,
+            "pst_amount":          pst,
             "total":               total,
             "accounting_category": category,
             "payment_method":      paymentMethod,
@@ -506,7 +520,8 @@ final class ReceiptsViewModel: ObservableObject {
         } catch let err as APIError {
             saveError = err.errorDescription
         } catch {
-            saveError = "Failed to update expense."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            saveError = ErrorDetails.describe(error)
         }
         isSaving = false
         return false
@@ -561,11 +576,12 @@ final class ReceiptsViewModel: ObservableObject {
                 }
                 return true
             }
-            actionError = response.error ?? "Bulk action failed."
+            actionError = response.error ?? "Receipt bulk action response success=false; server returned no error field."
         } catch let err as APIError {
             actionError = err.errorDescription
         } catch {
-            actionError = "Bulk action failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
         }
         isPerformingAction = false
         return false
@@ -586,12 +602,13 @@ final class ReceiptsViewModel: ObservableObject {
                 await loadExpenses()
                 return true
             }
-            actionError = response.error ?? "Archive failed."
+            actionError = response.error ?? "Receipt archive response success=false; server returned no error field."
         } catch let err as APIError {
             actionError = err.errorDescription
             isPerformingAction = false
         } catch {
-            actionError = "Archive failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
             isPerformingAction = false
         }
         return false
@@ -632,7 +649,7 @@ final class ReceiptsViewModel: ObservableObject {
                 isPerformingAction = false
                 return true
             }
-            actionError = response.error ?? response.message ?? "Action failed."
+            actionError = response.error ?? response.message ?? "Receipt action response success=false; server returned no error/message field."
         } catch let err as APIError {
             // Same policy as uploadImage(): queue only when the server didn't decide, so the tap
             // isn't lost; a 4xx refusal is shown, never queued (it would block the queue).
@@ -650,7 +667,8 @@ final class ReceiptsViewModel: ObservableObject {
                 actionError = err.errorDescription
             }
         } catch {
-            actionError = "Action failed."
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
         }
         isPerformingAction = false
         return false

@@ -97,6 +97,57 @@ class BankLineReceipts
         return $id === false || $id === null ? null : (int)$id;
     }
 
+    /**
+     * For the expenses list (2026-10-28): which bank line each receipt is linked to, so a row can say so without a trip
+     * to the bank page. [expenseId => ['line' => id, 'date', 'description', 'amount', 'extra' => bool]]. One query per source.
+     * @param int[] $expenseIds
+     */
+    public function linksFor(array $expenseIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $expenseIds))));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $s = $this->db->prepare("SELECT id AS line, matched_expense_id AS expense_id, transaction_date, description, amount
+                                 FROM accounting_transactions WHERE matched_expense_id IN ($in)");
+        $s->execute($ids);
+        $main = $s->fetchAll(PDO::FETCH_ASSOC);
+        $extra = [];
+        if (self::tableExists($this->db)) {
+            $s = $this->db->prepare("SELECT t.id AS line, b.expense_id, t.transaction_date, t.description, t.amount
+                                     FROM bank_line_receipts b JOIN accounting_transactions t ON t.id = b.transaction_id
+                                     WHERE b.expense_id IN ($in)");
+            $s->execute($ids);
+            $extra = $s->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return self::groupLinks($main, $extra);
+    }
+
+    /** Date of the newest imported bank line up to today: receipts dated after it are simply waiting for a statement. */
+    public function dataThrough(): ?string
+    {
+        $d = $this->db->query("SELECT MAX(transaction_date) FROM accounting_transactions
+                               WHERE reference_type = 'bank_import' AND transaction_date <= CURDATE()")->fetchColumn();
+        return $d ? (string)$d : null;
+    }
+
+    /** Pure: rows from the main and extra sources → the per-expense map (main wins when both exist). */
+    public static function groupLinks(array $mainRows, array $extraRows): array
+    {
+        $out = [];
+        foreach ([[$extraRows, true], [$mainRows, false]] as [$rows, $isExtra]) {
+            foreach ($rows as $r) {
+                $out[(int)$r['expense_id']] = [
+                    'line'        => (int)$r['line'],
+                    'date'        => (string)$r['transaction_date'],
+                    'description' => (string)$r['description'],
+                    'amount'      => number_format(abs((float)$r['amount']), 2, '.', ''),
+                    'extra'       => $isExtra,
+                ];
+            }
+        }
+        return $out;
+    }
+
     /** Extra receipt ids on a line (not the main one), oldest link first. */
     public function extras(int $transactionId): array
     {

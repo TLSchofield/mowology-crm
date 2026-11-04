@@ -563,6 +563,11 @@ the line's date. Otherwise a fresh single upload is flagged `DATE_UNREADABLE` (P
 (5+ by one person within the hour) are old on purpose and never flagged. The scanner's fallback for an
 unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated Apr 2.
 
+## Teaching and the phone's own text read (2026-10-28)
+
+- **Who teaches:** an owner's or manager's phone/web save of a scanned receipt (`pending_approval`) teaches the reader at once (`learn_now` → `learnFromConfirmedExpense(..., allowPending)`); the desk's approval then confirms it or overturns the fields it changed (`amendPhoneLessons`, migration 1406 `expenses.learning_snapshot`). Crew captures never teach.
+- **Header ladder** (`runHeaderLadder`) runs in intake, the queue, rescan and the email inbox: rules → learned vendor layout → AI for missing/inconsistent total, date, tax.
+- **Phone text scan:** the apps send `client_ocr_text` / `client_ocr_engine` (`apple_vision`, `mlkit`) with the photo. `ops_settings.receipt_device_ocr` = `off` | `shadow` (default; Vision reads, agreement logged to `receipt_ocr_compare`, migration 1407) | `on` (a device text that parses to a complete header replaces Vision; 25% spot-checked against Vision). Report: `scripts/prod-run.sh scripts/ocr-compare-report.snippet.php`. Code: `app/Services/Receipts/DeviceOcrCompare.php`.
 ## Receipt lines ↔ the shared catalogue — 2026-10-19
 Each saved line of a Materials / Tools/Equipment / Repairs receipt is matched to the SHARED product catalogue by
 itself (`ReceiptCatalogService`, migration 1378, runs after every save via `ExpenseGateHooks::catalog`):

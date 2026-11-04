@@ -74,6 +74,7 @@ foreach ($jobs as $j) {
 // Add travel buffer between stops
 $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 
+$snowGate = snowRunVisitPredicate($db); // route stops count only while a run is open (SnowRunGate)
 $revStmt = $db->prepare("
     SELECT COALESCE(SUM(jp.price_per_visit), 0)
     FROM job_visits jv
@@ -81,8 +82,9 @@ $revStmt = $db->prepare("
     WHERE jv.scheduled_date = ?
       AND jv.assigned_crew_id = ?
       AND jv.status IN ('scheduled','in_progress','completed')
+      AND {$snowGate['sql']}
 ");
-$revStmt->execute([$today, $user['id']]);
+$revStmt->execute(array_merge([$today, $user['id']], $snowGate['params']));
 $summaryRevenue = (float)($revStmt->fetchColumn() ?: 0);
 
 // ── Weather — hourly AM/PM split, daily fallback ──────────────────────────────
@@ -207,19 +209,20 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0D3B2E">
     <title>Home Base — Mowology</title>
-    <link rel="manifest" href="/assets/favicon/site.webmanifest">
-    <link rel="icon" href="/assets/favicon/favicon.ico">
-    <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
+    <link rel="manifest" href="/assets/favicon-ittai/site.webmanifest">
+    <link rel="icon" href="/assets/favicon-ittai/favicon.ico">
+    <link rel="apple-touch-icon" href="/assets/favicon-ittai/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/crew-team.css?v=20261007a" rel="stylesheet">
+    <link href="/crm/css/mobile-nav.css?v=20261008b" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20261007p" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261103gps" defer></script>
     <link href="/crm/css/mw-pull-forward.css?v=20261008a" rel="stylesheet">
     <?php
     // On site where the visit is booked another day → "doing it now?" (CSRF via get-csrf.php).
@@ -237,7 +240,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             /* Brand colour + shared sizing tokens come from
                /crm/css/tokens.css loaded in <head>. Only keep the
                homebase-specific values here. */
-            --hb-nav-h:        68px;
+            --hb-nav-h:        64px;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -448,29 +451,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         .hb-mem-answer-text { font-size: 15px; font-weight: 700; color: var(--hb-dark); }
         .hb-mem-notes { font-size: 13px; color: var(--hb-muted); line-height: 1.55; font-style: italic; }
 
-        /* ── Bottom nav ──────────────────────────────────────────── */
-        .hb-nav {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            height: calc(var(--hb-nav-h) + var(--hb-safe-bottom));
-            padding-bottom: var(--hb-safe-bottom);
-            background: #fff;
-            border-top: 1px solid var(--hb-border);
-            display: grid; grid-template-columns: repeat(5, 1fr);
-            z-index: 100;
-        }
-        .hb-nav-btn {
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 3px;
-            text-decoration: none; color: var(--hb-muted);
-            font-size: 11px; font-weight: 500;
-            border: none; background: none; cursor: pointer;
-            -webkit-tap-highlight-color: transparent;
-            transition: color 0.15s;
-        }
-        .hb-nav-btn svg { stroke: currentColor; }
-        .hb-nav-btn.active  { color: var(--hb-green); }
-        .hb-nav-btn:active  { color: var(--hb-dark); }
-
+        /* Bottom nav: the shared crew bar (.mw-mobile-bottombar, /crm/css/mobile-nav.css) */
         /* ── Slide-up menu ───────────────────────────────────────── */
         .hb-menu-overlay {
             position: fixed; inset: 0; z-index: 200; pointer-events: none;
@@ -705,30 +686,30 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
 </div><!-- /.hb-scroll -->
 
 <!-- ── Bottom Nav ────────────────────────────────────────────────────────────── -->
-<nav class="hb-nav">
-    <!-- Same five tabs, same order, as the iOS app and the Schedule page:
-         Schedule · Time Clock · Search · Receipts · Account. -->
-    <a href="/crm/jobs/schedule.php" class="hb-nav-btn" aria-label="Schedule">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+<div class="mw-mobile-bottombar">
+    <!-- The one crew bar — same five tabs as includes/mobile-nav.php and the Schedule page:
+         Home · Schedule · Receipts · Timesheet · Account -->
+    <button type="button" class="mw-mobile-nav-btn mw-mobile-nav-active" aria-label="Home Base" aria-current="page">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Home</span>
+    </button>
+    <a href="/crm/jobs/schedule.php" class="mw-mobile-nav-btn" aria-label="Schedule">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span>Schedule</span>
     </a>
-    <button class="hb-nav-btn active" aria-label="Time Clock">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <span>Time Clock</span>
-    </button>
-    <a href="/crm/search.php" class="hb-nav-btn" aria-label="Search">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span>Search</span>
-    </a>
-    <a href="/crm/expenses_appstack.php?mode=quick&return=<?php echo urlencode('/crm/homebase.php'); ?>" class="hb-nav-btn" aria-label="Receipts">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    <a href="/crm/expenses_appstack.php?mode=quick&return=<?php echo urlencode('/crm/homebase.php'); ?>" class="mw-mobile-nav-btn" aria-label="Receipts">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         <span>Receipts</span>
     </a>
-    <button class="hb-nav-btn" id="hbMenuBtn" aria-label="Account">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    <a href="/crm/timeclock/my-timesheet.php" class="mw-mobile-nav-btn" aria-label="Timesheet">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Timesheet</span>
+    </a>
+    <button type="button" class="mw-mobile-nav-btn" id="hbMenuBtn" aria-label="Account">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span>Account</span>
     </button>
-</nav>
+</div>
 
 <!-- ── Slide-up Menu ─────────────────────────────────────────────────────────── -->
 <div class="hb-menu-overlay" id="hbMenuOverlay">

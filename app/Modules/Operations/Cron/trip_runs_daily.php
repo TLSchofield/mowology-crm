@@ -146,6 +146,36 @@ try {
         $ss = new SupplierStopService(getDB());
         if ($ss->ready()) {
             $geo = $ss->geocodePending();
+            // Store enrichment is cron-only and independent: one unavailable source must not stop the others.
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/VendorLotService.php';
+                $vendorLots = new VendorLotService(getDB());
+                $placed = $vendorLots->placeFromReceipts();
+                $lots = $vendorLots->run();
+                $__facts .= "; store placement: {$placed['placed']} from receipt GPS ({$placed['unmatched']} unmatched cluster(s)); lots: {$lots['stored']} saved, {$lots['refused']} unavailable/refused";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor lots: ' . $e->getMessage());
+                $__facts .= '; store lots failed: ' . $e->getMessage();
+            }
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/VendorHoursService.php';
+                $hours = (new VendorHoursService(getDB()))->run();
+                $__facts .= "; store hours {$hours['status']}: {$hours['saved']} saved of {$hours['checked']} checked";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor hours: ' . $e->getMessage());
+                $__facts .= '; store hours failed: ' . $e->getMessage();
+            }
+            try {
+                if (!isset($vendorLots)) {
+                    require_once APP_ROOT . '/Modules/Operations/Services/VendorLotService.php';
+                    $vendorLots = new VendorLotService(getDB());
+                }
+                $commons = $vendorLots->linkCommons();
+                $__facts .= "; vendor commons: {$commons['linked']} linked of {$commons['checked']} checked";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor commons: ' . $e->getMessage());
+                $__facts .= '; vendor commons failed: ' . $e->getMessage();
+            }
             $js = new SupplierJobSuggestService(getDB(), $ss);
             $st = ['stops' => 0, 'with_receipt' => 0, 'suggested' => 0];
             for ($t = strtotime($__from . ' -2 days'); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {

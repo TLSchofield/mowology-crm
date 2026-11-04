@@ -2,6 +2,15 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-11-04 — Two boxes named `qbox`, and a class that already meant something
+**What happened:** `sam-card.js` declared `var qbox` twice (questions `#mw-sq`, then quiet clients
+`#mw-sam-quiet`); the second won, so Sam's expired-quote questions rendered into the quiet-clients
+box and the real questions box stayed empty. Found while restructuring the card. Separately, the new
+"Next" row was first named `.mw-sam-next`, which the lead rows already use for their "what to do"
+line — every lead grew a green border. **Rule:** before a new id, variable or class on Sam's card,
+grep `sam-card.js`, `sam-card.php` and the LIVE `mowology-brand.css` for the name
+(`feedback_live_css_class_clash`). New card CSS goes under `.mw-sam-v2`.
+
 ## 2026-10-10 — A client's "yes, but not that line" was invisible
 Monica (Macdonald PM) emailed "council approved, but not the sprinkler line" on QUO-2026-0073.
 She was not a contact, so office@ skipped the mail, and the office would have had to rebuild the

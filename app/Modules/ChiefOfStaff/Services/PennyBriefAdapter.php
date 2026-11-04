@@ -92,7 +92,48 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (missing receipts): ' . $e->getMessage());
         }
+        // Nightly receipt-reader score: mention changes, and a Monday pulse even when steady.
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptParserScoreService.php';
+            $item = self::receiptScoreItem((new ReceiptParserScoreService($this->db))->latestTwo(), date('Y-m-d'));
+            if ($item !== null) $brief = self::withItems($brief, [$item]);
+        } catch (Throwable $e) {
+            error_log('Penny brief (receipt reader): ' . $e->getMessage());
+        }
         return $brief;
+    }
+
+    /** Pure: two newest score rows to Penny's brief item, if today's rules call for one. */
+    public static function receiptScoreItem(array $runs, string $today): ?array
+    {
+        if (!$runs) return null;
+        $new = $runs[0];
+        $old = $runs[1] ?? null;
+        $newOf = (int)($new['total_of'] ?? 0);
+        if ($newOf <= 0) return null;
+        $newShare = 100 * (int)($new['total_right'] ?? 0) / $newOf;
+        $oldShare = $old && (int)($old['total_of'] ?? 0) > 0
+            ? 100 * (int)$old['total_right'] / (int)$old['total_of'] : null;
+        $delta = $oldShare === null ? null : $newShare - $oldShare;
+        $hashChanged = $old !== null && (string)($new['parser_hash'] ?? '') !== (string)($old['parser_hash'] ?? '');
+        $monday = (int)date('N', strtotime($today)) === 1;
+        if (!$hashChanged && ($delta === null || abs($delta) < 2.0) && !$monday) return null;
+
+        $text = 'Receipt reader: totals right on ' . number_format($newShare, 1) . '% of ' . $newOf . ' approved receipts';
+        if ($delta !== null) $text .= ' (' . ($delta >= 0 ? '+' : '') . number_format($delta, 1) . ' since ' . (string)$old['run_date'] . ')';
+        $misses = json_decode((string)($new['misses_json'] ?? ''), true);
+        if (is_array($misses) && $misses) {
+            $kind = array_key_first($misses);
+            $miss = $misses[$kind];
+            $text .= '. Biggest miss: ' . $kind . ' — ' . (int)($miss['count'] ?? $miss['n'] ?? 0)
+                  . ' receipts, ' . (int)($miss['vendors'] ?? $miss['vendor_count'] ?? 0) . ' vendors.';
+        } else {
+            $text .= '.';
+        }
+        if ($delta !== null && $delta < 0) $text = 'Warning: ' . lcfirst($text);
+        return ['key' => 'penny:receipt_reader', 'kind' => 'penny:receipt_reader',
+                'priority' => $delta !== null && $delta < 0 ? 1 : 3,
+                'text' => $text, 'url' => '/crm/expenses_appstack.php', 'value' => round($newShare, 1)];
     }
 
     /** Pure: add items to a brief (count follows). */
@@ -148,8 +189,13 @@ class PennyBriefAdapter
         foreach ($questions as $q) {
             $amount = (float)($q['amount'] ?? 0);
             $source = ($q['kind'] ?? '') === 'payment_source';   // a receipt's payment source fixed from its bank line
-            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => $source ? 'penny:payment_source' : 'penny:unbilled',
-                        'priority' => $source ? (empty($q['ask']) ? 3 : 2) : ($amount >= self::BIG_QUESTION ? 1 : 2),
+            $twin = ($q['kind'] ?? '') === 'possible_twin';
+            $badLink = ($q['kind'] ?? '') === 'bad_link';
+            $kind = $twin ? 'penny:twin' : ($badLink ? 'penny:bad_link' : ($source ? 'penny:payment_source' : 'penny:unbilled'));
+            $priority = ($twin || $badLink) ? ($amount >= 20 ? 1 : 2)
+                : ($source ? (empty($q['ask']) ? 3 : 2) : ($amount >= self::BIG_QUESTION ? 1 : 2));
+            $items[] = ['key' => 'penny:question:' . (int)$q['id'], 'kind' => $kind,
+                        'priority' => $priority,
                         'text' => self::plainQuestion((string)($q['question'] ?? '')),
                         'url' => '/crm/dashboard_appstack.php#mw-pq', 'value' => round($amount, 2)];
         }
@@ -157,7 +203,9 @@ class PennyBriefAdapter
         $ready = (int)($stats['ready'] ?? 0);
         $bits = [];
         if ($ready > 0) $bits[] = $ready . ' receipt' . ($ready === 1 ? '' : 's') . ' ready';
-        $n -= count(array_filter($questions, fn($q) => ($q['kind'] ?? '') === 'payment_source'));
+        $twins = count(array_filter($questions, fn($q) => ($q['kind'] ?? '') === 'possible_twin'));
+        if ($twins > 0) $bits[] = $twins . ' possible duplicate receipt' . ($twins === 1 ? '' : 's');
+        $n -= count(array_filter($questions, fn($q) => in_array(($q['kind'] ?? ''), ['payment_source', 'possible_twin', 'bad_link'], true)));
         if ($n > 0) $bits[] = $n . ' billing question' . ($n === 1 ? '' : 's');
         return [
             'head'     => 'penny',

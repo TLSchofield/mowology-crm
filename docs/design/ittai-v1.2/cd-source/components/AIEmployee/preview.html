@@ -1,0 +1,32 @@
+<!-- @dsCard group="AI Office" height=200 subtitle="Rows · working, waiting, unavailable" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:var(--surface);color:var(--text);font-family:Inter,system-ui,sans-serif}
+.list{max-width:420px;padding:12px 24px}
+a.row{display:grid;grid-template-columns:36px minmax(0,1fr) auto;column-gap:12px;align-items:center;height:48px;border-top:1px solid var(--line);color:inherit;text-decoration:none}
+a.row:last-child{border-bottom:1px solid var(--line)}
+a.row:hover{background:var(--selected)}
+a.row:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
+.n{display:flex;align-items:center;gap:6px;font-size:14px;line-height:20px}
+.n b{font-weight:600}
+.tag{font-size:12px;line-height:16px;font-weight:500;padding:0 5px;border:1px solid var(--line);border-radius:6px;color:var(--meta)}
+.d{font-size:13px;color:var(--meta)}
+.t{display:block;font-size:13px;line-height:16px;color:var(--meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.r{text-align:right}
+.i{display:block;font-size:13px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+.s{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:12px;line-height:16px;font-weight:500;white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="list">
+<a class="row" href="#" aria-label="Charlie, AI, Chief of Staff. Working: coordinating 27 items, 4 held for you. Opens the Chief of Staff workspace."><svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="16.75" fill="none" stroke-width="2" style="stroke:var(--state-working)"/><circle cx="18" cy="18" r="13" style="fill:var(--sunk)"/><text x="18" y="18" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" style="fill:var(--text)">C</text></svg><span style="min-width:0"><span class="n"><b>Charlie</b><span class="tag">AI</span><span class="d">Chief of staff</span></span><span class="t">Coordinating 27 items, 4 held for you</span></span><span class="r"><span class="i">4 decisions</span><span class="s" style="color:var(--state-working)"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Working</span></span></a>
+<a class="row" href="#" aria-label="Penny, AI, Finance. Waiting for approval: reminder for INV-2026-0233, $546. Opens Penny's workspace."><svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="16.75" fill="none" stroke-width="2" style="stroke:var(--state-approval)"/><circle cx="18" cy="18" r="13" style="fill:var(--sunk)"/><text x="18" y="18" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" style="fill:var(--text)">P</text></svg><span style="min-width:0"><span class="n"><b>Penny</b><span class="tag">AI</span><span class="d">Finance</span></span><span class="t">Reminder drafted, 3 deposits matched</span></span><span class="r"><span class="i">INV-2026-0233 · $546</span><span class="s" style="color:var(--state-approval)"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/></svg>Waiting for approval</span></span></a>
+<a class="row" href="#" aria-label="Mia, AI, Marketing. Unavailable: social account disconnected. Opens Mia's workspace."><svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="16.75" fill="none" stroke-width="1" stroke-dasharray="0.01 3" stroke-linecap="round" style="stroke:var(--state-unavailable)"/><circle cx="18" cy="18" r="13" style="fill:var(--sunk)"/><text x="18" y="18" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" style="fill:var(--meta)">M</text></svg><span style="min-width:0"><span class="n"><b>Mia</b><span class="tag">AI</span><span class="d">Marketing</span></span><span class="t">Social account disconnected</span></span><span class="r"><span class="i" style="color:var(--meta)">Reconnect needed</span><span class="s" style="color:var(--state-unavailable)"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12zM3.8 12.2 12.2 3.8" fill="none" stroke="currentColor" stroke-width="2"/></svg>Unavailable</span></span></a>
+</div>
+<script>document.querySelectorAll('a[href="#"]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();});});</script>
+</body>
+</html>

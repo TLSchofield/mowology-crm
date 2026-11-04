@@ -33,13 +33,20 @@ final class SecurityPostureRulesTest extends TestCase
     public function test_stray_files_skip_uploads_media_vendor_and_migrations(): void
     {
         $this->assertTrue(SecurityPostureRules::isStray('crm/tmp/jobber1.csv'));
-        $this->assertTrue(SecurityPostureRules::isStray('app/Storage/backups/dump.sql.gz'));
+        $this->assertTrue(SecurityPostureRules::isStray('app/Modules/Team/Cron/1031_x.sql'));
+        $this->assertTrue(SecurityPostureRules::isStray('crm/database/schema_master.sql'));        // crm's own folder is not exempt
+        $this->assertTrue(SecurityPostureRules::isStray('talkinghands.ca/admin/payload.json.gz'));  // only the sub-site's database/ is
         $this->assertTrue(SecurityPostureRules::isStray('old.BAK'));
         $this->assertFalse(SecurityPostureRules::isStray('uploads/expenses/a.csv'));
         $this->assertFalse(SecurityPostureRules::isStray('_media/x.zip'));
         $this->assertFalse(SecurityPostureRules::isStray('vendor/pkg/tests/data.csv'));
         $this->assertFalse(SecurityPostureRules::isStray('database/migrations/1347_security_posture.sql'));
         $this->assertFalse(SecurityPostureRules::isStray('crm/index.php'));
+        // Denied places: app/Storage, and a sub-site's own database/ (whose denial check 1 proves).
+        $this->assertFalse(SecurityPostureRules::isStray('app/Storage/receipt-archive/_tmp/receipts-2025-03-b1.zip'));
+        $this->assertFalse(SecurityPostureRules::isStray('app/Storage/backups/dump.sql.gz'));
+        $this->assertFalse(SecurityPostureRules::isStray('talkinghands.ca/database/fox_content.sql'));
+        $this->assertContains('/talkinghands.ca/database/fox_content.sql', SecurityPostureRules::BLOCKED_PATHS);
         $many = array_map(fn($i) => "x/f{$i}.csv", range(1, 25));
         $c = SecurityPostureRules::strayFilesCheck($many);
         $this->assertSame('amber', $c['state']);

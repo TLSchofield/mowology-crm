@@ -225,3 +225,5 @@ if ! mw_lftp "
 fi
 
 echo "Uploaded: $LOCAL -> $EXPECTED_DEST"
+# Record the deploy for Ada's drift check (never fails the deploy; 2026-11-03).
+python3 "$(cd "$(dirname "$0")" && pwd)/lib/deploy_manifest.py" "$LOCAL" || echo "WARNING: deploy manifest not updated (Ada's drift check will flag $LOCAL)"

@@ -61,6 +61,10 @@ try {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Quote id required']); break; }
             $res = $closer->forQuote($id);
+            // Comparables (2026-11-03): the rate-card figure is the Closer's total for the quote when every line has one.
+            $closerTotal = 0.0; $complete = true;
+            foreach ((array)($res['lines'] ?? []) as $l) { if (!empty($l['closer']['price'])) $closerTotal += (float)$l['closer']['price'] * (float)($l['quantity'] ?? 1); else $complete = false; }
+            $res['comparables'] = $closer->comparables($id, $complete && $closerTotal > 0 ? $closerTotal : null);
             // Trip lines from Otto's shared cost facts (migration 1218) — a bonus, never a reason to fail
             $res['trip_lines'] = [];
             try {

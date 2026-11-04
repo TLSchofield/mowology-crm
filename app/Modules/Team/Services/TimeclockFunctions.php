@@ -101,7 +101,7 @@ function clockInLocked($userId, $lat = null, $lng = null, $enforceGpsRequirement
     if ($enforceGpsRequirement
         && getTimeClockSetting('require_gps_for_clock_in', '0') === '1'
         && ($lat === null || $lng === null)) {
-        throw new Exception('Location is required to clock in. Enable location services and try again.');
+        throw new Exception('Couldn\'t get a GPS fix for this clock-in. Move into the open and try again.');
     }
 
     $db = getDB();
@@ -714,6 +714,7 @@ function recalculateTimesheetTotals($userId, $weekStart) {
  */
 function getAllJobsForDate($date) {
     $db = getDB();
+    $snowGate = snowRunVisitPredicate($db);
     $stmt = $db->prepare("
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end, jv.assigned_crew_id,
@@ -731,10 +732,25 @@ function getAllJobsForDate($date) {
         LEFT JOIN companies c ON cprop.company_id = c.id
         WHERE jv.scheduled_date = ?
           AND jv.status IN ('scheduled', 'in_progress')
+          AND {$snowGate['sql']}
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $stmt->execute([$date]);
+    $stmt->execute(array_merge([$date], $snowGate['params']));
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Salt & snow route visits are only listed while a run is open (SnowRunGate, 2026-11-03).
+ * ['sql' => predicate on alias jv, 'params' => bound values]; '1=1' before migration 1432.
+ */
+function snowRunVisitPredicate(PDO $db): array {
+    try {
+        require_once dirname(__DIR__, 2) . '/Schedule/Services/SnowRunGate.php';
+        return (new SnowRunGate($db))->visitVisibleSql('jv');
+    } catch (Throwable $e) {
+        error_log('[timeclock] snow run gate: ' . $e->getMessage());
+        return ['sql' => '1=1', 'params' => []];
+    }
 }
 
 /**
@@ -744,6 +760,7 @@ function getAllJobsForDate($date) {
  */
 function getUserJobsForDate($userId, $date) {
     $db = getDB();
+    $snowGate = snowRunVisitPredicate($db);
     $stmt = $db->prepare("
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end,
@@ -766,9 +783,10 @@ function getUserJobsForDate($userId, $date) {
               jv.assigned_crew_id = ?
               OR jte.id IS NOT NULL
           )
+          AND {$snowGate['sql']}
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $stmt->execute([$userId, $date, $userId]);
+    $stmt->execute(array_merge([$userId, $date, $userId], $snowGate['params']));
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 

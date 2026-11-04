@@ -65,6 +65,8 @@ require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
 require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
 require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+require_once APP_ROOT . '/Services/Receipts/ReceiptLlmExtractor.php';
+require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
 require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 // ── Mutex: prevent overlapping runs ───────────────────────────────────
@@ -398,9 +400,19 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
         }
 
+        // Same header ladder as ReceiptIntakeService::intake(): the vendor's learned layout, then the AI for what is still missing.
+        if (function_exists('enhanceHeaders') && function_exists('applyHeaderLayouts')) {
+            $qVendor = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null;
+            $qProfile = $qVendor ? getVendorParseProfile($db, $qVendor) : null;
+            $parsed = applyHeaderLayouts($parsed, $ocrText, headerLayoutsFromProfile($qProfile));
+            $qEnh = enhanceHeaders(['parsed' => $parsed, 'ocr_text' => $ocrText, 'read_mode' => receiptReadMode($qProfile)]);
+            $parsed = $qEnh['parsed'];
+        }
+
         if (!empty($suggestions['vendor_gst_exempt'])) {
             $parsed['gst'] = '0.00';
             $parsed['gst_estimated'] = false;
+            $parsed['gst_source']    = 'exempt';
             $parsed['gst_exempt']    = true;
             if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
                 $parsed['total'] = $parsed['subtotal'];
