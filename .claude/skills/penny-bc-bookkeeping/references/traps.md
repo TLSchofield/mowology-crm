@@ -822,3 +822,11 @@ the one exact line. Also: the repost tool must never "fix" 1015/1016 holding-acc
 (4900 "Other Services" aliases the service type 'other' — 3 receipts were income). Feb's −$80: Home Depot #7 $64.26 is
 marked debit but no statement line has it (paid another way — ask Tim).
 
+
+## A GST number names the operator, not the brand (2026-11-04)
+A McDonald's inside an Esso station printed the station franchisee's GST/HST number (841236417RT0001), the same one the
+Esso vendor carries. Linking receipts to vendors by GST number alone would file that McDonald's under Esso, and old
+"R" numbers on gas-station receipts belong to the dealer, so different Esso stations print different numbers.
+**Rule:** a GST number may confirm a vendor the name already points to, or pick between candidates; it never
+assigns a vendor on its own. A vendor record keeps the first number seen (empty fields only); franchises legitimately
+show several.
