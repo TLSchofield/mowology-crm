@@ -819,8 +819,10 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     // receipt sent to accounting, an approved receipt is the office's to change.
     if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
 
-    $expenseDate = $input['expense_date'] ?? date('Y-m-d');
-    $total = (float)($input['total'] ?? 0);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+    $expenseDate = ReceiptAmountRules::inputValue($input, $existing, 'expense_date');
+    $totalValue = ReceiptAmountRules::inputValue($input, $existing, 'total');
+    $total = $totalValue === null ? null : (float)$totalValue;
 
     // Status can only move between non-approval states here — 'approved'/'rejected'/
     // 'forwarded' require the audited handleApprove()/handleReject()/sendReceiptToAccounting()
@@ -838,7 +840,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
         $anomalyData = array_merge($input, [
             'id'           => $id,
-            'total'        => $total,
+            'total'        => (float)($total ?? 0),
             'expense_date' => $expenseDate,
             'created_by'   => $user['id'],
         ]);
@@ -854,34 +856,35 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     // when the modal sends one); printed facts and the duplicate check re-run; line-item
     // lessons recorded (header / category lessons are recorded once, at approval or send,
     // against the capture baseline). A posted receipt is reversed and posted again.
-    assertMayUseReceiptMedia($db, !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null);
+    $receiptMediaValue = ReceiptAmountRules::inputValue($input, $existing, 'receipt_media_id');
+    assertMayUseReceiptMedia($db, empty($receiptMediaValue) ? null : (int)$receiptMediaValue);
     $changes = [
         'expense_date'        => $expenseDate,
-        'vendor_id'           => !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-        'vendor_name_raw'     => $input['vendor_name_raw'] ?? null,
-        'description'         => $input['description'] ?? null,
-        'amount'              => (float)($input['amount'] ?? 0),
-        'gst_amount'          => (float)($input['gst_amount'] ?? 0),
-        'pst_amount'          => (float)($input['pst_amount'] ?? 0),
+        'vendor_id'           => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'vendor_id')) ? null : (int)$v),
+        'vendor_name_raw'     => ReceiptAmountRules::inputValue($input, $existing, 'vendor_name_raw'),
+        'description'         => ReceiptAmountRules::inputValue($input, $existing, 'description'),
+        'amount'              => (($v = ReceiptAmountRules::inputValue($input, $existing, 'amount')) === null ? null : (float)$v),
+        'gst_amount'          => (($v = ReceiptAmountRules::inputValue($input, $existing, 'gst_amount')) === null ? null : (float)$v),
+        'pst_amount'          => (($v = ReceiptAmountRules::inputValue($input, $existing, 'pst_amount')) === null ? null : (float)$v),
         'total'               => $total,
-        'accounting_category' => $input['accounting_category'] ?? null,
-        'gbp_category'        => $input['gbp_category'] ?? null,
-        'payment_method'      => $input['payment_method'] ?? null,
-        'receipt_media_id'    => !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
+        'accounting_category' => ReceiptAmountRules::inputValue($input, $existing, 'accounting_category'),
+        'gbp_category'        => ReceiptAmountRules::inputValue($input, $existing, 'gbp_category'),
+        'payment_method'      => ReceiptAmountRules::inputValue($input, $existing, 'payment_method'),
+        'receipt_media_id'    => empty($receiptMediaValue) ? null : (int)$receiptMediaValue,
         // The desktop edit form doesn't send match_confidence / property_id / contact_id —
         // absent keys keep the stored value instead of being wiped to 0/NULL on every edit.
         'match_confidence'    => array_key_exists('match_confidence', $input) ? (int)$input['match_confidence'] : (int)($existing['match_confidence'] ?? 0),
         'anomaly_flags'       => $anomalyFlags ?: null,
         'anomaly_score'       => $anomalyScore,
-        'job_id'              => !empty($input['job_id']) ? (int)$input['job_id'] : null,
+        'job_id'              => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'job_id')) ? null : (int)$v),
         'property_id'         => expenseKeptId($input, $existing, 'property_id'),
         'contact_id'          => expenseKeptId($input, $existing, 'contact_id'),
-        'notes'               => $input['notes'] ?? null,
+        'notes'               => ReceiptAmountRules::inputValue($input, $existing, 'notes'),
         'status'              => $status,
-        'odometer_start'      => !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
-        'odometer_end'        => !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
-        'fuel_litres'         => !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
-        'fuel_price_per_litre'=> !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
+        'odometer_start'      => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'odometer_start')) ? null : (int)$v),
+        'odometer_end'        => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'odometer_end')) ? null : (int)$v),
+        'fuel_litres'         => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'fuel_litres')) ? null : (float)$v),
+        'fuel_price_per_litre'=> (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'fuel_price_per_litre')) ? null : (float)$v),
     ];
     if (isset($input['line_items']) && is_array($input['line_items'])) $changes['line_items'] = $input['line_items'];
     if (array_key_exists('split', $input)) {
@@ -1112,6 +1115,16 @@ function handleMergeExpenses(PDO $db, ?array $input): void
             if ($choice !== 'discard' || !isset($fieldMap[$key])) continue;
             foreach ($fieldMap[$key] as $col) $merged[$col] = $discard[$col] ?? null;
         }
+
+        $footed = array_merge($keep, $merged);
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+        $footingError = ReceiptAmountRules::footingErrorMessage(
+            (float)($footed['amount'] ?? 0) + (float)($footed['recycling_tax'] ?? 0),   // recycling tax is part of the total (migration 1005)
+            (float)($footed['gst_amount'] ?? 0),
+            (float)($footed['pst_amount'] ?? 0),
+            (float)($footed['total'] ?? 0)
+        );
+        if ($footingError !== null) throw new Exception('Cannot merge expenses: ' . $footingError);
 
         // Through the expense gate (audited as the merge; MySQL 1615 re-prepare is the gate's).
         if ($merged) {

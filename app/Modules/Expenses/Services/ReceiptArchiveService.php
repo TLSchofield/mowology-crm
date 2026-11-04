@@ -408,10 +408,17 @@ class ReceiptArchiveService
                     $thumbWeb,
                     $mediaId,
                 ]);
+                require_once __DIR__ . '/ReceiptAmountRules.php';
+                $wonArchiveClaim = ReceiptAmountRules::updateWonArchiveClaim($stmt->rowCount());
                 $this->db->commit();
             } catch (Throwable $e) {
                 if ($this->db->inTransaction()) { $this->db->rollBack(); }
                 error_log('[ReceiptArchiveService] pointer update failed for media ' . $mediaId . ': ' . $e->getMessage());
+                $skipped++;
+                continue;
+            }
+
+            if (!$wonArchiveClaim) {
                 $skipped++;
                 continue;
             }
