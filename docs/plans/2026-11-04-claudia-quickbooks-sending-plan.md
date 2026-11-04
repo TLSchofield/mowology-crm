@@ -48,6 +48,23 @@ that she never files from, and checks it against QuickBooks every month:
 
 Shadow is built after G1–G8 and only when she shows interest; nothing in it is needed for her first day.
 
+## Leaving QuickBooks elegantly (Tim 2026-11-04: "when she decides to cancel QuickBooks can we do that elegantly?")
+
+Because Ittai's ledger posts every invoice, payment and receipt from day one (the same ones it sends), on the day
+she cancels Ittai already holds everything since her start date. One "Leave QuickBooks" step does the rest:
+
+1. **Pick the month end** to switch at (the last month QuickBooks was complete).
+2. **Bring in what happened before Ittai:** read her QuickBooks trial balance at her Ittai start date → one opening
+   balance entry in Ittai (bank, receivables, payables, GST owing, equity). Invoices already in Ittai are never
+   posted again (Jobber-exit lesson: income counted once).
+3. **Check the gap:** for the months Ittai and QuickBooks both ran, compare each account (the shadow compare, S3).
+   Differences (bank-only spending she never snapped, owner draws) become Penny's questions before switching.
+4. **Keep her records:** download her QuickBooks reports (P&L, balance sheet, GST, general ledger, per year) and
+   attachments into Ittai's records before she cancels — CRA wants six years.
+5. **Stop sending, disconnect,** `books_mode=ittai`; her accountant gets Ittai's accountant login.
+
+Done well, cancelling QuickBooks is a 10-minute step, not a migration. Building 2–3 needs the Reports API (U4).
+
 ## Unknowns and how each is settled
 
 | Unknown | Settled by |
