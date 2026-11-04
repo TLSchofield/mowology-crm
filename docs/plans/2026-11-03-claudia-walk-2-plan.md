@@ -58,3 +58,18 @@ link goes to Tim. Walk 2 itself is the final proof.
 1. S2: QuickBooks step done once connected and read (recommended), or keep all five accepted plus a Done button.
 2. A1: package for Claudia's real build — keep `ca.mowology.crew.test` for walk 2 (recommended), decide the store identity later.
 3. A3: axis style in the app and the design system — yes (you suggested it).
+
+## Progress
+
+- 2026-11-03 Tim approved (S2 done once connected+read; keep test package; axis yes).
+- Server S1–S7 LIVE 2026-11-03 (Tim's go): import guard → `writesAllowed()`, step done once read, stored row
+  previews (Codex P1 fixed), `markPart` upsert, activity_log without `client_id` (absent on business DBs),
+  styled return page + "Back to Ittai" (`ittai://return`, from the Android session), `user.business_name` +
+  `user.chief_name` in token.php / signup-confirm.php. 3621 tests; Codex reviewed. Live probes: token 401 on
+  mowology.ca and rehearsal, onboarding 401 without token, callback 302 on a bad state.
+- rehearsal2.ittai.ca provisioned (DB `mowology_rehearsal2`, 500 tables incl. snow_runs, unclaimed, owner
+  mowology@icloud.com); feed override live (22 switches); mowology.ca feed unchanged.
+- Android A1–A10: building in the Android session (task 29). Walk-2 APK host rehearsal2.ittai.ca, package
+  ca.mowology.crew.test.
+- Found: rehearsal (walk 1) lacked `snow_runs` — migrations run on Mowology after a business is provisioned do not
+  reach it. Claudia's business must be provisioned after the latest migrations, or migrations applied per business.
