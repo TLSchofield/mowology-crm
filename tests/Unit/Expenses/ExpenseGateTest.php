@@ -68,7 +68,7 @@ class ExpenseGateTest extends TestCase
         ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'pending_approval', 'created_by' => 6]),
             self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_now' => true]);
         $this->assertSame(1, $this->hooks->count('learnConfirmed'), 'the manager\'s own save is the confirmation');
-        $this->assertTrue($this->hooks->calls['learnConfirmed'][0][2], 'a pending_approval row is allowed to teach');
+        $this->assertTrue($this->hooks->calls['learnConfirmed'][0][3], 'a pending_approval row is allowed to teach (args: id, baseline, filedCopy, allowPending)');
     }
 
     public function test_a_draft_phone_save_never_teaches_even_with_learn_now(): void
