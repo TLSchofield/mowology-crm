@@ -95,6 +95,7 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBrainService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/ClueService.php';

@@ -15,6 +15,8 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 require_once __DIR__ . '/YuiRules.php';
 
 class YuiDraftService
@@ -97,22 +99,15 @@ class YuiDraftService
         } catch (Throwable $e) { /* no examples yet */ }
 
         $prompt = YuiRules::replyPrompt($item, $this->thread((int)$item['contact_id'], 8), $owner, $examples);
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 45,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => ['content-type: application/json', 'x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01'],
-            CURLOPT_POSTFIELDS     => json_encode([
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $gw = LlmGateway::send([
                 'model'      => self::CLAUDE_MODEL,
                 'max_tokens' => 600,
                 'system'     => $prompt['system'],
                 'messages'   => [['role' => 'user', 'content' => $prompt['user']]],
-            ]),
-        ]);
-        $raw = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+            ], ['head' => 'yui', 'skill' => 'reply_draft', 'db' => $this->db, 'timeout' => 45]);
+        $raw = $gw['body'];
+        $code = $gw['code'];
         $d = is_string($raw) ? json_decode($raw, true) : null;
         $text = trim((string)($d['content'][0]['text'] ?? ''));
         $in = (int)($d['usage']['input_tokens'] ?? 0);
@@ -142,12 +137,37 @@ class YuiDraftService
      */
     public function send(array $item, array $in, array $user, string $owner): array
     {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'yui', 'action' => 'yui.send_reply', 'skill' => 'send_reply', 'entity_type' => 'yui_item', 'entity_id' => (string)($item['key'] ?? ''), 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doSend($item, $in, $user, $owner));
+    }
+
+    private function doSend(array $item, array $in, array $user, string $owner): array
+    {
+        // "Offer autopay" is a second note for the same overdue account: honoured only when the server's own check says it can be offered.
+        if (($in['template'] ?? '') === 'autopay') {
+            if (empty($item['autopay']['offer'])) {
+                return ['ok' => false, 'message' => "I can't offer autopay to that client: " . rtrim((string)($item['autopay']['why'] ?? 'it is not available'), '.') . '.'];
+            }
+            $item['template'] = 'autopay';
+        }
         $to = $item['to'] ?? null;
         if (!$to || empty($item['template'])) return ['ok' => false, 'message' => 'There is nobody to write to on that one.'];
         $channel = ($in['channel'] ?? 'email') === 'sms' ? 'sms' : 'email';
         $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
         $subject = trim((string)($in['subject'] ?? ''));
         if ($body === '') return ['ok' => false, 'message' => 'The message is empty.'];
+        // The autopay link is a private invoice token. Whatever the browser sent, the only sign-up link that may go out is THIS client's,
+        // as worked out on the server (a stale editor or a crafted request must never mail client A's link to client B).
+        if (($item['template'] ?? '') === 'autopay') {
+            $mine = (string)($item['autopay']['link'] ?? '');
+            if (preg_match_all('~/customer/autopay\.php\?token=[A-Za-z0-9%._\-]+~', $body, $found)) {
+                foreach ($found[0] as $f) {
+                    if ($mine === '' || strpos($mine, $f) === false) {
+                        return ['ok' => false, 'message' => "The sign-up link in that note isn't this client's. Reload the card and draft it again."];
+                    }
+                }
+            }
+        }
         $cid = (int)$to['contact_id'];
         $name = $to['first_name'] !== '' ? $to['first_name'] : $to['name'];
 
@@ -161,7 +181,7 @@ class YuiDraftService
         } else {
             $dest = $to['email'];
             if ($dest === '') return ['ok' => false, 'message' => 'No email address on file for ' . $name . '.'];
-            if ($subject === '') $subject = (string)(YuiRules::draft($item, $owner)['subject'] ?? 'Mowology');
+            if ($subject === '') $subject = (string)(YuiRules::draft($item, $owner)['subject'] ?? YuiRules::businessName());
         }
         $suggested = trim(str_replace("\r\n", "\n", (string)($in['suggested_body'] ?? '')));
         $edited = SamFollowupService::isEdited($suggested, $body);
@@ -173,17 +193,22 @@ class YuiDraftService
         if ($this->inFlight((string)$item['key'])) {
             return ['ok' => false, 'message' => 'That one is already going out — give it a minute.'];
         }
-        $rowId = $this->record($item, $channel, 'sending', (int)($user['id'] ?? 0), $draftedBy, $suggested ?: null,
-            $channel === 'email' ? $subject : null, $body, null, null);
+        // The sign-up link is a live private token: the history keeps the words, not the key.
+        $keepBody = self::redactAutopayToken($body);
+        $keepSuggested = $suggested !== '' ? self::redactAutopayToken($suggested) : null;
+        $rowId = $this->record($item, $channel, 'sending', (int)($user['id'] ?? 0), $draftedBy, $keepSuggested,
+            $channel === 'email' ? $subject : null, $keepBody, null, null);
 
         $r = $channel === 'sms' ? sendSms($dest, $body) : sendEmail($dest, $subject, $this->emailHtml($body));
         $ok = !empty($r['success']);
-        if ($ok) $this->logMessage($cid, $channel, $dest, $subject, $body);   // history first: it is what stops a resend
+        if ($ok) $this->logMessage($cid, $channel, $dest, $subject, $keepBody);   // history first: it is what stops a resend
 
         $learned = null;
         if ($ok && $edited && $channel === 'email' && $item['template'] !== 'reply') {
             try {
                 $learned = YuiRules::learnFrom($body, $item, $owner);
+                // An autopay note is only worth learning if the link came back out as its placeholder; any other trace of a token = learn nothing.
+                if (($item['template'] ?? '') === 'autopay' && (strpos((string)$learned, '{autopay_link}') === false || preg_match('/token=/i', (string)$learned))) $learned = null;
             } catch (Throwable $e) { /* learning is a bonus */ }
         }
         $this->settle($rowId, $ok ? ($edited ? 'edited' : 'sent') : 'failed', $learned, $ok ? null : 'send failed');
@@ -289,16 +314,25 @@ class YuiDraftService
         try {
             $this->db->prepare("
                 INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
-                VALUES ('yui', ?, 'outbound', ?, ?, 'office@mowology.ca', ?, ?, ?, NOW())
-            ")->execute(['yui-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
+                VALUES ('yui', ?, 'outbound', ?, ?, ?, ?, ?, ?, NOW())
+            ")->execute(['yui-' . bin2hex(random_bytes(12)), $channel, $contactId ?: null, YuiRules::fromAddr(), $to, mb_substr($subject, 0, 255), mb_substr($body, 0, 800)]);
         } catch (Throwable $e) { /* history is a bonus — the send already happened */ }
     }
 
     /** Tim's words as HTML in the house email wrapper (no links — this is a conversation). */
+    /** The autopay sign-up link with its private token blanked, for anything stored (the email itself carries the real one). */
+    public static function redactAutopayToken(string $text): string
+    {
+        return (string)preg_replace('~(/customer/autopay\.php\?token=)[A-Za-z0-9%._\-]+~', '$1[link]', $text);
+    }
+
     private function emailHtml(string $body): string
     {
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
-        $html = '<p>' . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8')) . '</p>';
+        $safe = htmlspecialchars($body, ENT_QUOTES, 'UTF-8');
+        // The autopay sign-up link must be tappable on a phone: make our own /customer/ links clickable (already escaped, so nothing else can slip in).
+        $safe = (string)preg_replace('~(https://[A-Za-z0-9.\-]+/customer/[A-Za-z0-9_./?=&%+\-]*)~', '<a href="$1">$1</a>', $safe);
+        $html = '<p>' . nl2br($safe) . '</p>';
         return EmailWrapper::wrap($html, null, null, EmailWrapper::getCompanyInfo());
     }
 }

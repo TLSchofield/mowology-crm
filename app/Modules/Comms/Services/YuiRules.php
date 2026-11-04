@@ -28,7 +28,27 @@ require_once dirname(__DIR__, 2) . '/Sales/Services/SamFollowupService.php';
 class YuiRules
 {
     public const HEAD = 'yui';
-    public const OFFICE_PHONE = '(778) 846-9273';
+    /** The business's own phone (BusinessIdentity), "" when none is on file. */
+    public static function officePhone(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return BusinessIdentity::get()['phone'];
+    }
+    /** The business's short name (BusinessIdentity), e.g. for "it's Tim at <name>". */
+    public static function businessName(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $n = BusinessIdentity::get()['name'];
+        return $n !== '' ? $n : 'our team';
+    }
+
+    /** The business's own address, logged as the sender of outbound messages (BusinessIdentity). */
+    public static function fromAddr(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        $b = BusinessIdentity::get();
+        return $b['reply_to'] !== '' ? $b['reply_to'] : $b['mail_from'];
+    }
     public const SMS_MAX = 160;
 
     public const PROMISE_WINDOW_DAYS = 60;
@@ -58,30 +78,37 @@ class YuiRules
         'reply' => [
             'Re: {subject}',
             "Hi {first_name},\n\n\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology. Got your note. Check your email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business}. Got your note. Check your email or call {phone}.",
         ],
         'checkin' => [
-            'Your buildings with Mowology',
+            'Your buildings with {business}',
             "Hi {first_name},\n\nIt's been a while since we spoke, so a quick note from me. Is there anything at your buildings you'd like us to look at, or anything about our visits you'd change?\n\nIf it helps with your owners or council, I can send one page listing what we do at each site.\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology. I sent you a quick note about your buildings. Check your email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business}. I sent you a quick note about your buildings. Check your email or call {phone}.",
         ],
         'renewal' => [
             'Your contract for {place}',
             "Hi {first_name},\n\nYour contract for {place} runs until {end_date}. I'd like to keep the same crew on it next term. Should I send the renewal over, or is there anything you'd like changed first?\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology about renewing {place}. Check your email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business} about renewing {place}. Check your email or call {phone}.",
         ],
         'season' => [
             'Salting and snow at {place} this winter',
             "Hi {first_name},\n\nWe looked after {place} last winter, and the season starts {season_start}. I'm putting the winter routes together now. Would you like us back on it this year? If anything needs to change from last year, tell me and I'll update it.\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology about salting and snow this winter. Check your email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business} about salting and snow this winter. Check your email or call {phone}.",
         ],
         'arrears' => [
             'Open {invoice_word} for {place}',
             "Hi {first_name},\n\nI'm going through our open invoices and {invoice_list} {is_are} still showing as unpaid on our side ({total}, the oldest due {oldest_due}). If it's already been paid, could you tell me when and how, so I can match it up? If something on {it_them} needs fixing, tell me and I'll sort it out.\n\nThanks,\n{owner}",
-            "Hi {first_name}, it's {owner} at Mowology. I sent you an email about an open invoice. Check your email or call {phone}.",
+            "Hi {first_name}, it's {owner} at {business}. I sent you an email about an open invoice. Check your email or call {phone}.",
+        ],
+        // Offer autopay to an overdue individual client (Tim, 2026-10-28). Written for Tim's voice: short, plain, no pressure, and
+        // honest that the open balance is taken once autopay is on (autopay_charge's next run does exactly that).
+        'autopay' => [
+            'Autopay for {place}',
+            "Hi {first_name},\n\nYou've had a few reminders from me about {open_phrase} ({total_exact}). I'd rather not keep chasing you, and I'd guess you'd rather not get them.\n\nAutopay takes care of it. You enter your card once, we charge it when an invoice goes out, and the invoice still arrives by email so you can see what was charged. You can stop it any time by calling me on {phone}.\n\nSaving the card doesn't charge it on the spot. The {total_exact} that's open now is taken at our next billing run, and future invoices when they're sent.\n\nIt takes about a minute, and the card goes straight into Stripe's secure form: {autopay_link}\n\nIf something on those invoices isn't right, or you'd rather pay another way, reply and tell me.\n\nThanks,\n{owner}",
+            "Hi {first_name}, it's {owner} at Mowology. I sent you an email about setting up autopay. Check your email or call {phone}.",
         ],
     ];
-    public const SMS_FALLBACK = "Hi, it's Mowology. I sent you an email. Check your email or call {phone}.";
+    public const SMS_FALLBACK = "Hi, it's {business}. I sent you an email. Check your email or call {phone}.";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Promises
@@ -491,8 +518,9 @@ class YuiRules
         $subject = UnclaimedReplyService::cleanSubject((string)($item['subject'] ?? ''));
         return [
             '{first_name}'   => (string)($to['first_name'] ?? ($item['name'] ?? '')) ?: 'there',
-            '{owner}'        => $owner !== '' ? $owner : 'the Mowology team',
-            '{phone}'        => self::OFFICE_PHONE,
+            '{owner}'        => $owner !== '' ? $owner : 'the ' . self::businessName() . ' team',
+            '{phone}'        => self::officePhone(),
+            '{business}'     => self::businessName(),
             '{place}'        => (string)($item['place'] ?? '') ?: 'your property',
             '{subject}'      => $subject !== '' ? $subject : 'your note',
             '{end_date}'     => !empty($item['end_date']) ? date('F j', strtotime((string)$item['end_date'])) : 'the end of the term',
@@ -503,6 +531,9 @@ class YuiRules
             '{it_them}'      => count($inv) > 1 ? 'them' : 'it',
             '{total}'        => SalesDeskService::money((float)($item['total'] ?? 0)),
             '{oldest_due}'   => !empty($item['oldest_due']) ? date('F j', strtotime((string)$item['oldest_due'])) : 'a while ago',
+            '{total_exact}'  => '$' . number_format((float)($item['total'] ?? 0), 2),   // the autopay note quotes the exact amount, cents included
+            '{open_phrase}'  => count($inv) === 1 ? 'an open invoice' : (count($inv) ?: 'some') . ' open invoices',
+            '{autopay_link}' => (string)($item['autopay']['link'] ?? ''),
         ];
     }
 
@@ -514,8 +545,12 @@ class YuiRules
     public static function learnFrom(string $body, array $item, string $owner): string
     {
         $vars = array_intersect_key(self::vars($item, $owner), array_flip(['{first_name}', '{owner}', '{phone}', '{place}', '{end_date}',
-                                                                             '{season_start}', '{invoice_list}', '{total}', '{oldest_due}']));
+                                                                             '{season_start}', '{invoice_list}', '{total}', '{oldest_due}', '{open_phrase}', '{autopay_link}', '{total_exact}']));
         $out = SamFollowupService::unfill($body, $vars);
+        // If Tim touched the link while editing, the exact-match unfill misses it: catch any autopay link and any stray token anyway,
+        // so one client's private invoice link can never become the next client's draft.
+        $out = (string)preg_replace('~(?:https?://)?[A-Za-z0-9.\-]*/customer/autopay\.php\?token=[A-Za-z0-9%._\-]+~i', '{autopay_link}', $out);
+        $out = (string)preg_replace('~token=[A-Za-z0-9%._\-]{6,}~i', 'token=[removed]', $out);
         return (string)preg_replace('/\{invoice_list\} (?:is|are)\b/', '{invoice_list} {is_are}', $out);
     }
 
@@ -543,7 +578,7 @@ class YuiRules
     {
         $p = SamFollowupService::smsProblems($text);
         if (trim($text) === '') return $p;
-        if (strpos($text, self::OFFICE_PHONE) === false) $p[] = 'it needs the office number ' . self::OFFICE_PHONE;
+        if (strpos($text, self::officePhone()) === false) $p[] = 'it needs the office number ' . self::officePhone();
         if (!preg_match('/\bemail\b/i', $text)) $p[] = 'it should point them to their email';
         return $p;
     }
@@ -563,7 +598,7 @@ class YuiRules
         }, array_reverse($thread));
         $rules = SamFollowupService::copyRules();
         $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '')
-            . "You draft short, friendly, plain emails for {$owner}, owner of Mowology, a landscaping and snow removal company in Vancouver, "
+            . "You draft short, friendly, plain emails for {$owner}, owner of " . BusinessIdentity::describe() . ", "
             . "to an EXISTING client. Write as {$owner}, first person. Answer what the client actually said; never invent prices, dates, "
             . "visits or promises that aren't in the conversation — if something needs checking, say {$owner} will check and get back to them. "
             . "No subject line, no placeholders, no markdown. Start with 'Hi {$first},' and end with 'Thanks,\\n{$owner}'. Under 120 words.\n\n"

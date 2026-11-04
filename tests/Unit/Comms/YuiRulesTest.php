@@ -9,6 +9,20 @@ use PHPUnit\Framework\TestCase;
  */
 class YuiRulesTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Yui now asks BusinessIdentity for the phone and name (live code, 2026-10-22); these tests are about Mowology's.
+        require_once __DIR__ . '/../../../app/Services/BusinessIdentity.php';
+        BusinessIdentity::use(BusinessIdentity::from(['company_name' => 'Mowology', 'company_phone' => '(778) 846-9273', 'company_email' => 'office@mowology.ca'], [], [], ['preferred_name' => 'Tim']));
+    }
+
+    protected function tearDown(): void
+    {
+        BusinessIdentity::reset();
+        parent::tearDown();
+    }
+
     private const NOW = '2026-10-06 12:00:00';
 
     // ── Promises ─────────────────────────────────────────────────────────
