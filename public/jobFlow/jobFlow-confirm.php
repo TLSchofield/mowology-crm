@@ -29,6 +29,8 @@ require_once __DIR__ . '/recaptcha-helpers.php';
 require_once __DIR__ . '/helpers/validators.php';
 require_once __DIR__ . '/helpers/pricing.php';
 require_once __DIR__ . '/helpers/classification.php';
+// Tracking helpers are optional: the form works without them.
+if (is_file(__DIR__ . '/helpers/arrival.php')) { require_once __DIR__ . '/helpers/arrival.php'; }
 
 if (!function_exists('h')) {
     function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -218,9 +220,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 // ── 3. Log lead event (ROI tracking) ───────────────────────
                 $leadEventId = logLeadEvent(
-                    $_SERVER['HTTP_REFERER'] ?? null,
+                    (function_exists('jfLandingFor') ? jfLandingFor($data['tracking'], (string)($_SERVER['HTTP_HOST'] ?? ''), (string)($_SERVER['HTTP_REFERER'] ?? '')) : '') ?: null,
                     [
-                        'source'   => $data['tracking']['utm_source']   ?? $quoteSource,
+                        'source'   => function_exists('jfSourceFor') ? jfSourceFor($data['tracking'], $quoteSource) : ($data['tracking']['utm_source'] ?? $quoteSource),
                         'medium'   => $data['tracking']['utm_medium']   ?? 'website',
                         'campaign' => $data['tracking']['utm_campaign']  ?? null,
                         'content'  => $data['tracking']['utm_content']   ?? null,
@@ -400,16 +402,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     error_log('[jobFlow-confirm] sendQuoteRequestNotifications failed: ' . $t->getMessage());
                 }
 
-                // Customer confirmation email (non-blocking, CASL-compliant)
-                if (!empty($data['email'])) {
-                    try {
-                        $confirmationResult = sendQuoteConfirmationEmail($data, $servicesCsv);
-                        if ($confirmationResult === false || (is_array($confirmationResult) && isset($confirmationResult['success']) && !$confirmationResult['success'])) {
-                            error_log('[jobFlow-confirm] sendQuoteConfirmationEmail returned failure');
+                // ── 9b. Campaign event: lead submitted ────────────────────
+                try {
+                    $__dir = dirname(__DIR__);
+                    for ($__i = 0; $__i < 4; $__i++) {
+                        if (is_file($__dir . '/app/Core/paths.php')) {
+                            if (!defined('APP_ROOT')) require_once $__dir . '/app/Core/paths.php';
+                            break;
                         }
-                    } catch (Throwable $t) {
-                        error_log('[jobFlow-confirm] sendQuoteConfirmationEmail failed: ' . $t->getMessage());
+                        $__dir = dirname($__dir);
                     }
+                    unset($__dir, $__i);
+                    if (defined('APP_ROOT')) {
+                        $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+                        if (file_exists($__emitter)) {
+                            require_once $__emitter;
+                            CampaignEventEmitter::fire(
+                                'lead_submitted', 'lead', $quoteRequestId, $contactId,
+                                [
+                                    'lead_quality'    => $classification['value_tier'] ?? 'unknown',
+                                    'is_priority'     => $classification['is_priority'] ?? false,
+                                    'service_types'   => $servicesCsv,
+                                    'urgency'         => $data['urgency'],
+                                    'city'            => $data['city'],
+                                    'utm_source'      => $data['tracking']['utm_source'] ?? null,
+                                    'utm_campaign'    => $data['tracking']['utm_campaign'] ?? null,
+                                    'consent_sms'     => $data['consent_sms'],
+                                    'consent_marketing' => $data['consent_marketing'],
+                                    'source'          => $quoteSource,
+                                ],
+                                'jobflow'
+                            );
+                        }
+                    }
+                } catch (Throwable $__t) {
+                    error_log('[jobFlow-confirm] campaign event error: ' . $__t->getMessage());
                 }
 
                 // ── 10. Session cleanup & success redirect ─────────────────

@@ -100,7 +100,6 @@ final class BatchFSmallFixesTest extends TestCase
     {
         $source = $this->source('public/jobFlow/jobFlow-confirm.php');
         self::assertStringContainsString('sendQuoteRequestNotifications returned failure', $source);
-        self::assertStringContainsString('sendQuoteConfirmationEmail returned failure', $source);
         self::assertStringContainsString("header('Location: jobFlow-success.php');", $source);
     }
 }

@@ -663,7 +663,7 @@ if (!empty($quote)) {
                                         <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?><?php if ($isDeclined): ?> <span class="portal-line-declined">Not included</span><?php endif; ?></td>
+                                <td><?php echo nl2br(htmlspecialchars($item['description'] ?: '—')); ?><?php if ($isDeclined): ?> <span class="portal-line-declined">Not included</span><?php endif; ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
                             </tr>
                         <?php endforeach;
