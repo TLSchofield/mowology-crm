@@ -35,7 +35,7 @@ final class SnowRunGateTest extends TestCase
                     ['visit_id' => 1, 'plan_id' => 10, 'visit_status' => 'scheduled'],
                     ['visit_id' => 2, 'plan_id' => 20, 'visit_status' => 'scheduled'],
                 ]],
-                101 => ['visits' => [['visit_id' => 3, 'plan_id' => 10, 'visit_status' => 'scheduled']]],
+                101 => ['visits' => [['visit_id' => 3, 'plan_id' => 10, 'visit_status' => 'skipped']]],
                 102 => ['visits' => [
                     ['visit_id' => 4, 'plan_id' => 10, 'visit_status' => 'in_progress'],
                     ['visit_id' => 5, 'plan_id' => 10, 'visit_status' => 'completed'],
@@ -122,11 +122,12 @@ final class SnowRunGateTest extends TestCase
             (1, 10, 'scheduled', '2026-11-03', 1),
             (2, 10, 'completed', '2026-11-03', 2),
             (3, 20, 'scheduled', '2026-11-03', 3),
-            (4, 10, 'scheduled', '2026-11-01', 4)");
+            (4, 10, 'scheduled', '2026-11-01', 4),
+            (5, 10, 'skipped', '2026-11-03', 5)");
         $gate = $this->gate();
-        $this->assertSame([2, 3], $this->visibleIds($gate));
+        $this->assertSame([2, 3], $this->visibleIds($gate), 'a skipped route visit hides like a scheduled one');
         $gate->start('salt', 9);
-        $this->assertSame([1, 2, 3], $this->visibleIds($gate));
+        $this->assertSame([1, 2, 3, 5], $this->visibleIds($gate));
     }
 
     public function test_not_ready_degrades_to_no_op(): void

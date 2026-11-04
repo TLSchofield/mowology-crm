@@ -11,6 +11,8 @@ final class SnowRunGate
     public const KINDS = ['salt', 'snow'];
     public const ACTIVE_HOURS = 20;
     public const MESSAGE = 'Start the salt/snow run first (Schedule → Start run).';
+    /** Visit statuses that count as worked: always visible, never gated. */
+    public const WORKED = ['in_progress', 'completed'];
 
     private PDO $db;
     private string $now;
@@ -93,9 +95,10 @@ final class SnowRunGate
                 $visits = [];
                 foreach (($stop['visits'] ?? []) as $visit) {
                     $isRoute = isset($routePlans[(int)($visit['plan_id'] ?? 0)]);
-                    $isScheduled = ($visit['visit_status'] ?? null) === 'scheduled';
+                    // Worked = in progress or completed; a scheduled OR skipped route visit hides outside a run.
+                    $isWorked = in_array((string)($visit['visit_status'] ?? ''), self::WORKED, true);
                     $inRange = $range !== null && (string)$date >= (string)$range[0] && (string)$date <= (string)$range[1];
-                    if ($isRoute && $isScheduled && !$inRange) {
+                    if ($isRoute && !$isWorked && !$inRange) {
                         $hiddenVisits++;
                         continue;
                     }
@@ -126,7 +129,7 @@ final class SnowRunGate
         if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias)) $alias = 'jv';
         $range = $this->unlockedRange() ?? ['1000-01-01', '1000-01-01'];
         return [
-            'sql' => "($alias.status <> 'scheduled' OR NOT EXISTS (SELECT 1 FROM snow_route_rates r WHERE r.plan_id = $alias.plan_id) OR $alias.scheduled_date BETWEEN ? AND ?)",
+            'sql' => "($alias.status IN ('in_progress', 'completed') OR NOT EXISTS (SELECT 1 FROM snow_route_rates r WHERE r.plan_id = $alias.plan_id) OR $alias.scheduled_date BETWEEN ? AND ?)",
             'params' => [$range[0], $range[1]],
         ];
     }
