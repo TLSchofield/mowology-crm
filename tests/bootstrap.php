@@ -64,6 +64,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteApprovalService.php'
 require_once __DIR__ . '/../app/Modules/Operations/Services/MaterialDeliveryService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CashFlowForecastService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/BreakService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorPlacementRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorLotService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VendorHoursService.php';
 // Otto's end-of-day missed-visit review (migration 1349)
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitReviewService.php';
