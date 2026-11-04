@@ -81,6 +81,15 @@ class CrewAssignmentService
             throw new Exception('A stop already exists for this property, date, and crew');
         }
 
+        // The plan id comes from the caller: it must be the plan this stop belongs to, or "all future" would rewrite another plan.
+        if ($scope === 'all_future' && $planId > 0) {
+            $own = $this->db->prepare("SELECT 1 FROM job_visits WHERE stop_id = ? AND plan_id = ? LIMIT 1");
+            $own->execute([$stopId, $planId]);
+            if (!$own->fetchColumn()) {
+                throw new Exception('That plan does not match this stop');
+            }
+        }
+
         $futureStopsUpdated = 0;
         $this->db->beginTransaction();
         try {

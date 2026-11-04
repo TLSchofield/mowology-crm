@@ -107,4 +107,11 @@ final class CrewServerFixesTest extends TestCase
         self::assertStringContainsString('JSON.stringify(String(s))', $clusters);
         self::assertStringContainsString(".replace(/&/g,'&amp;')", $clusters);
     }
+
+    public function testAllFutureAssignmentChecksThePlanBelongsToTheStop(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 2) . '/app/Modules/Jobs/Services/CrewAssignmentService.php');
+        $this->assertStringContainsString('That plan does not match this stop', $src);
+        $this->assertLessThan(strpos($src, '$this->db->beginTransaction();'), strpos($src, 'That plan does not match this stop'));
+    }
 }
