@@ -1169,9 +1169,16 @@ var MwDayViewMap = (function() {
         dvPost(
             { action: 'skip_stop', stop_id: stopId },
             function(data) {
-                setCardSkippedState(card, data.skipped || []);
                 var left = (data.refused || []).length;
-                showDvToast(left ? 'Stop skipped — ' + left + ' visit' + (left === 1 ? '' : 's') + ' left as is.' : 'Stop skipped.', 'info');
+                if (left) {
+                    // Part of the stop could not be skipped (completed / locked / invoiced visit):
+                    // the server's propagation decides what the card is now — reload rather than guess (Codex 2026-11-03).
+                    showDvToast('Skipped what could be skipped — ' + left + ' visit' + (left === 1 ? '' : 's') + ' left as is.', 'info');
+                    setTimeout(function() { window.location.reload(); }, 900);
+                    return;
+                }
+                setCardSkippedState(card, data.skipped || []);
+                showDvToast('Stop skipped.', 'info');
             },
             function(errMsg) {
                 btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
@@ -1238,17 +1245,28 @@ var MwDayViewMap = (function() {
         );
     }
 
-    function dvReopenStop(card, visitId, isUnskip) {
-        dvPost(
-            { action: 'reopen_visit', visit_id: visitId },
-            function() {
+    // Reopen / unskip EVERY visit on the stop, one request each (reopen_visit is per visit).
+    // Posting only the first left the others completed or skipped behind a pending card (Codex 2026-11-03).
+    function dvReopenStop(card, visitIds, isUnskip) {
+        var ids = Array.isArray(visitIds) ? visitIds.slice() : [visitIds];
+        var failed = 0;
+        (function next() {
+            if (!ids.length) {
+                if (failed) {
+                    showDvToast('Some visits could not be reopened — reloading.', 'error');
+                    setTimeout(function() { window.location.reload(); }, 900);
+                    return;
+                }
                 setCardPendingState(card);
                 showDvToast(isUnskip ? 'Skip undone — stop back on the route.' : 'Stop reopened — marked as scheduled.', 'info');
-            },
-            function(errMsg, errCode) {
-                showDvToast(errMsg, 'error');
+                return;
             }
-        );
+            dvPost(
+                { action: 'reopen_visit', visit_id: ids.shift() },
+                function() { next(); },
+                function(errMsg) { failed++; showDvToast(errMsg, 'error'); next(); }
+            );
+        })();
     }
 
     document.addEventListener('click', function(e) {
@@ -1280,7 +1298,7 @@ var MwDayViewMap = (function() {
             if (!rCard) return;
             var visitIds = (reopen.dataset.visitIds || '').split(',').map(Number).filter(Boolean);
             if (!visitIds.length) return;
-            dvReopenStop(rCard, visitIds[0], isUnskip);
+            dvReopenStop(rCard, visitIds, isUnskip);
         }
     });
 
