@@ -14,12 +14,41 @@ class HouseBriefAdapter
     /** House kinds a head now owns — left out here. */
     public const SKIP = [];
 
+    /** The work-queue sweep takes 6-7 seconds and dominated every AI Office card load (Pulse measured 9 s in all); its answer changes slowly. */
+    public const CACHE_SECONDS = 600;
+
+    private ?PDO $db;
+    /** @var callable|null fn(): array — the work-queue sweep (getWorkQueueItems); injected in tests */
+    private $sweep;
+
+    public function __construct(?PDO $db = null, ?callable $sweep = null)
+    {
+        $this->db = $db;
+        $this->sweep = $sweep;
+    }
+
     public function brief(string $ownerFirstName = ''): array
     {
-        if (!function_exists('getWorkQueueItems')) {
+        if ($this->sweep === null && !function_exists('getWorkQueueItems')) {
             require_once APP_ROOT . '/Services/CrmFunctions.php';
         }
-        return self::fromWorkQueue(getWorkQueueItems());
+        // A copy kept for up to CACHE_SECONDS (the 15-minute Charlie cron rebuilds it). Dismissed/snoozed items are still
+        // filtered out on the way in, so acting on one is never undone by the cache.
+        $cache = null;
+        try {
+            require_once __DIR__ . '/HeadBriefReadyService.php';
+            $cache = new HeadBriefReadyService($this->db ?? getDB());
+            $kept = $cache->get('house');
+            if ($kept && (time() - (int)strtotime((string)$kept['built_at'])) <= self::CACHE_SECONDS) return $kept['brief'];
+        } catch (Throwable $e) {
+            $cache = null;
+        }
+        $t = microtime(true);
+        $brief = self::fromWorkQueue($this->sweep ? ($this->sweep)() : getWorkQueueItems());
+        try {
+            if ($cache) $cache->put('house', $brief, (int)round((microtime(true) - $t) * 1000));
+        } catch (Throwable $e) { /* the cache is a speed-up, never the reason a brief fails */ }
+        return $brief;
     }
 
     /** Pure: Work Queue rows → the shared brief shape (critical lane only). */

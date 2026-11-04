@@ -157,3 +157,43 @@ Pattern for each: survey → plan doc → pure classes + tests → wire → prod
 
 ## Sam: record why quotes are lost (2026-11-03)
 - Add `lost_reason` (competitor / budget / timing / no decision / other) when a quote is declined or expires, so the plugin's win-loss review (win rate by source, size band and service; where losses die; median cycle) can run in a year. Today 34 accepted and 0 declined are recorded in 12 months — losses are not being marked.
+## Ideas from the Aspire 2026 Commercial Landscape Industry Report — added 2026-10-27
+Source: Aspire (ServiceTitan) survey of 1,015 US commercial landscape owners, May 2025, published
+July 2025. It is a vendor's survey of commercial firms, so treat the numbers as direction, not as
+Mowology's market (Mowology is mostly residential and strata). Each idea names what is shared and
+what stays private.
+- **Get paid on time (biggest signal).** 76% invoice within 4 days but only 39% are paid on terms;
+  60% are paid a week or more late, 7% two to three months late. Ittai already sends the invoice with
+  its PDF; the gap is the chase and the payment route.
+  - Automatic, polite reminder ladder per invoice (email first; SMS only the short no-link form).
+  - "Pay by e-transfer / card / ACH" on every invoice and reminder; late-payment cost shown to the
+    owner, not only the client.
+  - Shared: reminder wording and timing defaults. Private: each tenant's terms, clients, amounts.
+- **Job-cost forecasting.** 37% expect equipment and material costs up 10%+; 58% expect 2-3 week lead
+  times; "forecasting job costs and margins" is a named worry. Penny/Otto can warn when a quoted
+  price no longer clears the margin given recent receipts and supplier price lists.
+  - Shared: price-index hints from the supplier lists. Private: the tenant's margins and prices.
+- **Wage-aware pricing.** 70% plan raises (44% by 4%+); maintenance crews mostly $17-$30/hr in the
+  survey. Prompt "your labour cost moved, re-check recurring prices" at renewal time.
+- **Recurring maintenance is the money** (59% earn most revenue there; 35% of revenue is repeat
+  business, 26% referrals). Make renewal, upsell and referral nudges first-class (Sam's pipeline).
+- **One system, not seven.** 90% use 4+ tools, 62% use 7+, 29% use 10+. Top reasons to switch:
+  automate workflows (58%), efficiency (51%), feature gaps (44%), scale (36%), margins (30%). Top
+  switch worries: features, price, all-in-one, integrations, support/training. The pitch and
+  onboarding should say "replaces your N tools" and show the list (accounting, payroll, GPS,
+  marketing, estimating, invoicing).
+- **Features tenants say they want in 2025:** process automation, customer notifications, smart
+  routing, employee training and certification. Ittai has or is building all four (heads, notices,
+  route planner, quiz); name them in the product copy in the survey's own words.
+- **Client-retention reporting.** Retention is the top risk to goals; give the owner a retention and
+  repeat-revenue view (churned, at-risk, renewal dates).
+- **Quality validation** ("validating quality of work" is a listed risk): before/after photos and
+  visit proof attached to the invoice, already in the selling points.
+
+## Platform Terms of Service — built 2026-10-25 (gate OFF)
+- Draft at /terms.php, acceptance tables (migration 1381), sign-in gate for admin/manager.
+- **Owed before the gate goes on:** a lawyer settles the [bracketed] items (entity name, liability cap,
+  governing law and venue, export window); then insert a terms_versions row (is_current=1) whose
+  version matches TERMS_VERSION in public/terms.php.
+- **Later:** clean /terms URL (needs the live .htaccess merged), add-on schedules for Payments and
+  Accounting (Wave-style), acceptance in the native apps, and a send-to-owner email when the terms change.

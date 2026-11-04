@@ -75,6 +75,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     $result['card_last4']     = $paymentInfo['card_last4'];
     $result['payment_method'] = $paymentInfo['payment_method'];
 
+    // Pump receipt: one deterministic fuel line (litres x price per litre = amount) beats generic item parsing.
+    $fuelItem = extractFuelPumpItem($lines);
+
     // Line items — try position-aware extraction first (groups words by Y-coordinate)
     $positionLines = null;
     if ($rawResponse !== null) {
@@ -105,6 +108,10 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         }
     }
 
+    if ($fuelItem !== null) {
+        $result['_fuel_item'] = $fuelItem;     // resolved below, once the totals are known
+    }
+
     // Fallback: handle column-separated OCR where labels and amounts are in separate blocks
     // e.g. "SUBTOTAL\nPST\nGST\n...\nTOTAL\n...\n41.96\n2.94\n2.10\n...\n47.00"
     if ($result['total'] === null || $result['gst'] === null || $result['subtotal'] === null || $result['pst'] === null) {
@@ -131,6 +138,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
             '.',
             ''
         );
+        $result['total_derived'] = true;
     }
 
     // If we have total and GST but no subtotal, calculate subtotal = total - GST - PST
@@ -141,6 +149,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
             '.',
             ''
         );
+        $result['subtotal_derived'] = true;
     }
 
     // If we have total but no GST, estimate GST at 5% (BC standard)
@@ -151,17 +160,32 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         // Also calculate subtotal from the estimated GST
         if ($result['subtotal'] === null) {
             $result['subtotal'] = number_format($total / 1.05, 2, '.', '');
+            $result['subtotal_derived'] = true;
         }
     }
 
     // Impossible amounts (negative subtotal, tax ≥ total) are a failed read — fall back.
     $result = sanitizeReceiptAmounts($result);
 
+    // Where the GST number came from, so a client never shows an estimate as if it were printed.
+    $result = tagGstSource($result);
+
     // This vendor's learned layout (items an owner accepted from Penny's read, with where each
     // amount sits relative to its printed name): used when it adds up better than the generic
     // pass. Before the quality signal, so a receipt it reads right is not escalated to Vision/LLM.
     if (!empty($vendorProfile['layout'])) {
         $result = mergeLayoutItems($result, applyLineLayout($ocrText, $vendorProfile['layout']));
+    }
+
+    // The fuel line stands in for the generic items when it accounts for the whole purchase
+    // (its amount is the total, the subtotal, or the total less tax — pump prices include GST).
+    if (isset($result['_fuel_item'])) {
+        $fuel = $result['_fuel_item'];
+        unset($result['_fuel_item']);
+        if (fuelItemFitsReceipt($fuel, $result)) {
+            $result['line_items']        = [$fuel];
+            $result['line_items_source'] = 'fuel_pump';
+        }
     }
 
     // Line-item quality signal: do the parsed items add up to the subtotal?
@@ -171,6 +195,19 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     $result = array_merge($result, assessLineItemQuality($result));
 
     return $result;
+}
+
+
+/**
+ * gst_source: 'printed' (read off the receipt) | 'estimated' (5% of the total, the parser's own guess).
+ * The estimated number itself is unchanged — existing callers still receive it. Pure.
+ */
+function tagGstSource(array $r): array
+{
+    if (isset($r['gst']) && $r['gst'] !== null && $r['gst'] !== '') {
+        $r['gst_source'] = !empty($r['gst_estimated']) ? 'estimated' : 'printed';
+    }
+    return $r;
 }
 
 
@@ -190,6 +227,9 @@ function assessLineItemQuality(array $parsed): array
     foreach ($items as $it) {
         $sum += (float)($it['line_total'] ?? $it['amount'] ?? 0);
     }
+    if (($parsed['line_items_source'] ?? '') === 'fuel_pump' && count($items) === 1 && fuelItemFitsReceipt($items[0], $parsed)) {
+        return ['items_sum' => number_format($sum, 2, '.', ''), 'line_items_quality' => 'match'];
+    }
     $reference = $parsed['subtotal'] !== null && $parsed['subtotal'] !== ''
         ? (float)$parsed['subtotal']
         : (($parsed['total'] ?? null) !== null ? (float)$parsed['total'] : null);
@@ -199,6 +239,89 @@ function assessLineItemQuality(array $parsed): array
         $quality   = abs($sum - $reference) <= $tolerance ? 'match' : 'mismatch';
     }
     return ['items_sum' => number_format($sum, 2, '.', ''), 'line_items_quality' => $quality];
+}
+
+
+/**
+ * Does a fuel line account for the receipt? Its amount equals the total, the subtotal, or the total
+ * less GST/PST (within $0.05) — pump prices include GST, so any of the three is the same purchase. Pure.
+ */
+function fuelItemFitsReceipt(array $item, array $parsed): bool
+{
+    $amt = (float)($item['line_total'] ?? $item['amount'] ?? 0);
+    if ($amt <= 0) return false;
+    $refs = [];
+    foreach (['total', 'subtotal'] as $f) {
+        if (isset($parsed[$f]) && is_numeric($parsed[$f])) $refs[] = (float)$parsed[$f];
+    }
+    if (isset($parsed['total']) && is_numeric($parsed['total'])) {
+        $refs[] = (float)$parsed['total'] - (float)($parsed['gst'] ?? 0) - (float)($parsed['pst'] ?? 0);
+    }
+    foreach ($refs as $r) {
+        if (abs($amt - $r) <= 0.05) return true;
+    }
+    return false;
+}
+
+/**
+ * Recognise a fuel-pump block: grade, litres, price per litre and the printed fuel amount.
+ * One item when litres x price agrees with the amount (within 2% or $0.10), else null. Pure.
+ *
+ *   Supreme (91) / 10.124L AT $2.299/L / Fuel sales $ 23.28  →  "Supreme (91) fuel", 10.124 @ 2.299 = 23.28
+ *
+ * @param list<string> $lines
+ * @return ?array parser-shaped item (name, amount, line_total, quantity, unit_price, sku_raw, name_source 'fuel_pump')
+ */
+function extractFuelPumpItem(array $lines): ?array
+{
+    $text = implode("\n", $lines);
+    if (!preg_match('/\b(?:FUEL\s+SALES?|FUEL\s+AMOUNT|GAS\s+SALES?)\b\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})(?!\d)/i', $text, $am)) {
+        return null;
+    }
+    $amount = (float)str_replace(',', '.', $am[1]);
+
+    $litres = null;
+    if (preg_match('/(?<![\d.,])(\d{1,4}[.,]\d{2,3})\s*L(?:ITRES?|TRS?)?\b(?!\s*\/)/i', $text, $m)
+        || preg_match('/\b(?:VOLUME|LITRES?|LTRS?|QTY)\s*:?\s*(\d{1,4}[.,]\d{2,3})\b/i', $text, $m)) {
+        $litres = (float)str_replace(',', '.', $m[1]);
+    }
+    $price = null;
+    if (preg_match('/\$?\s*(\d[.,]\d{3,4})\s*\/\s*L\b/i', $text, $m)
+        || preg_match('/\bPRICE\s*\/?\s*(?:PER\s*)?L(?:ITRE)?\s*:?\s*\$?\s*(\d[.,]\d{3,4})\b/i', $text, $m)) {
+        $price = (float)str_replace(',', '.', $m[1]);
+    }
+    if ($litres === null || $price === null || $litres <= 0 || $price <= 0) {
+        return null;
+    }
+    if (abs($litres * $price - $amount) > max(0.10, $amount * 0.02)) {
+        return null;
+    }
+
+    $grade = null;
+    if (preg_match('/\b(REGULAR|PREMIUM|SUPREME|SUPER|PLUS|MID-?GRADE|MIDGRADE|DIESEL|UNLEADED|ULSD)\b([^\S\n]*\(?[^\S\n]*(\d{2})[^\S\n]*\)?(?![\d.,]))?/i', $text, $g)) {
+        $grade = ucfirst(strtolower($g[1])) . (!empty($g[3]) ? ' (' . $g[3] . ')' : '');
+    } elseif (preg_match('/\b(?:REGULAR|UNL|DSL)\b/i', $text)) {
+        $grade = 'Fuel';
+    }
+    if ($grade === null) {
+        require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptBookkeeperRules.php';
+        $type = ReceiptBookkeeperRules::fuelType(strtoupper($text));
+        if ($type === null) return null;
+        $grade = $type === 'diesel' ? 'Diesel' : 'Gasoline';
+    }
+    $name = $grade === 'Fuel' ? 'Fuel' : $grade . ' fuel';
+
+    return [
+        'name'        => $name,
+        'amount'      => number_format($amount, 2, '.', ''),
+        'line_total'  => number_format($amount, 2, '.', ''),
+        'quantity'    => $litres,
+        'unit_price'  => $price,
+        'unit'        => 'L',
+        'sku_raw'     => null,
+        'ocr_name'    => $name,
+        'name_source' => 'fuel_pump',
+    ];
 }
 
 
@@ -271,7 +394,7 @@ function learnLineLayout(string $ocrText, array $items): array
         foreach ($keys as $i => $k) {
             if (isset($used[$i]) || strlen($k) < 3) continue;
             $short = min(strlen($k), strlen($nameKey));
-            if ($k === $nameKey || ($short >= 5 && (str_starts_with($nameKey, $k) || str_starts_with($k, $nameKey)))) {
+            if ($k === $nameKey || ($short >= 5 && (strpos($nameKey, $k) === 0 || strpos($k, $nameKey) === 0))) {
                 $anchor = $i;
                 break;
             }
@@ -987,11 +1110,16 @@ function sanitizeReceiptAmounts(array $r): array
     if ($r['subtotal'] === null && $r['gst'] !== null) {
         $sub = round($total - $tax, 2);
         $r['subtotal'] = $sub > 0 ? number_format($sub, 2, '.', '') : null;
+        if ($r['subtotal'] !== null) $r['subtotal_derived'] = true;
     }
     if ($r['gst'] === null) {
         $r['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
         $r['gst_estimated'] = true;
-        if ($r['subtotal'] === null) $r['subtotal'] = number_format($total - (float)$r['gst'] - (float)($r['pst'] ?? 0), 2, '.', '');
+        $r['gst_source'] = 'estimated';
+        if ($r['subtotal'] === null) {
+            $r['subtotal'] = number_format($total - (float)$r['gst'] - (float)($r['pst'] ?? 0), 2, '.', '');
+            $r['subtotal_derived'] = true;
+        }
     }
     return $r;
 }
@@ -1288,7 +1416,7 @@ function extractTotal(string $text, array $lines): ?string
             stripos($line, 'sub') === false &&
             stripos($line, 'tendered') === false) {
             $nextLine = trim($lines[$i + 1]);
-            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+            if (preg_match('/^(?:CAD|CDN|C)?\s*\$?\s*(\d{1,6}[.,]\d{2})\s*$/i', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
             }
             // Handle three-line: "TOTAL\n$\n202.46"

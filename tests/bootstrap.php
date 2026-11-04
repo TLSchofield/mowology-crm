@@ -93,6 +93,7 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
@@ -116,6 +117,7 @@ require_once __DIR__ . '/../app/Modules/Referrals/Services/ReferralRules.php';
 require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';
 
 // Mia — marketing & relationships head
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ArticleGeneratorService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWording.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
@@ -357,6 +359,40 @@ require_once __DIR__ . '/../app/Modules/CMS/Services/CmsSiteFunctions.php';
 
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
+
+// Agents (policy + ledger + tasks + registries + evals + studio)
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentStudioService.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/SkillRegistry.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
+require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/TaskService.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentDetectors.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
+
+// Tenant context
+require_once __DIR__ . '/../app/Services/TenantContext.php';
+
+// Invoice reminders / rejection notices
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceReminderRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionNotice.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRejectionWatch.php';
+
+// Pulse (health monitor)
+require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
+
+// Charlie payment story
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharliePaymentStory.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAnswerStyle.php';
+
+// LLM gateway
+require_once __DIR__ . '/../app/Services/LlmDailyCap.php';
+require_once __DIR__ . '/../app/Services/Llm/ModelCatalog.php';
+require_once __DIR__ . '/../app/Services/Llm/LlmFence.php';
+require_once __DIR__ . '/../app/Services/Llm/LlmGateway.php';
+
+// Legal (platform Terms of Service)
+require_once __DIR__ . '/../app/Modules/Legal/Services/TermsService.php';
 
 // Quiz / Certification
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';

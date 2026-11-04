@@ -49,7 +49,8 @@ try {
     $jobId = isset($_POST['job_id']) && $_POST['job_id'] !== '' ? (int)$_POST['job_id']   : null;
 
     $intakeService = new ReceiptIntakeService(getDB());
-    $result = $intakeService->intake($userId, $_FILES['receipt_photo'] ?? [], $lat, $lng, $jobId);
+    require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
+    $result = $intakeService->intake($userId, $_FILES['receipt_photo'] ?? [], $lat, $lng, $jobId, cleanDeviceOcr($_POST));
 
     if (!empty($result['http_code']) && $result['http_code'] !== 200) {
         http_response_code($result['http_code']);

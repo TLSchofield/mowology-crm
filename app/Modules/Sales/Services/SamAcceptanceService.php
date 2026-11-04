@@ -15,6 +15,8 @@
  * Nothing is accepted here. Tim taps Accept (QuoteAcceptService::acceptSigned) or Not this one.
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
+
 class SamAcceptanceService
 {
     private const WORDS = '/\b(signed|approved|accepted|accept|authori[sz]ed|go ahead|proceed)\b/i';
@@ -220,6 +222,12 @@ class SamAcceptanceService
 
     /** Tim's Accept on one item. */
     public function accept(int $id, array $user): array
+    {
+        // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
+        return AgentActivity::run($this->db, ['head' => 'sam', 'action' => 'sam.accept_quote', 'skill' => 'accept_quote', 'entity_type' => 'quote_acceptance', 'entity_id' => (string)$id, 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doAccept($id, $user));
+    }
+
+    private function doAccept(int $id, array $user): array
     {
         $r = $this->row($id);
         if (!$r || $r['status'] !== 'open') return ['ok' => false, 'message' => 'Already decided.'];

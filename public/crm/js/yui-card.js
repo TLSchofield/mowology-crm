@@ -75,16 +75,20 @@
     }
     function drop(key) {
         for (var s in data) data[s] = data[s].filter(function (it) { return it.key !== key; });
-        delete edits[key];
+        delete edits[key]; delete edits[key + '|autopay']; delete variant[key];
         if (open === key) open = null;
     }
+    // A card can hold two drafts: its usual note, and (overdue accounts only) the "offer autopay" email. variant[key] says which one is open.
+    var variant = {};
+    function vkey(it) { return it.key + (variant[it.key] === 'autopay' ? '|autopay' : ''); }
     function state(it) {
-        if (!edits[it.key]) {
-            var d = it.draft || { subject: '', body: '', sms: '', drafted_by: 'template' };
-            edits[it.key] = { channel: (it.to && it.to.email) || !it.sms_ok ? 'email' : 'sms', subject: d.subject, body: d.body, sms: d.sms, drafted_by: d.drafted_by,
-                              suggested_body: d.body, suggested_sms: d.sms };
+        var k = vkey(it);
+        if (!edits[k]) {
+            var d = (variant[it.key] === 'autopay' ? it.draft_autopay : it.draft) || { subject: '', body: '', sms: '', drafted_by: 'template' };
+            edits[k] = { channel: (it.to && it.to.email) || !it.sms_ok ? 'email' : 'sms', subject: d.subject, body: d.body, sms: d.sms, drafted_by: d.drafted_by,
+                         suggested_body: d.body, suggested_sms: d.sms };
         }
-        return edits[it.key];
+        return edits[k];
     }
 
     function load() {
@@ -162,6 +166,7 @@
             // The brief's text names the person for Charlie; the card shows them on their own line.
             main = esc(String(it.text || '').replace(/ — a note to .*$/, '')) + (it.template ? who(it) : '');
             if (it.template && it.to && (it.to.email || it.sms_ok)) acts.push('<button type="button" class="mw-rc-ok" data-do="write">' + (s === 'arrears' ? 'Draft note' : 'Draft') + '</button>');
+            if (s === 'arrears' && it.autopay && it.autopay.offer) acts.push('<button type="button" class="mw-rc-ed" data-do="autopay">Offer autopay</button>');
             acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Open</a>');
         }
         acts.push('<button type="button" class="mw-rc-sk" data-do="handled">Handled</button>');
@@ -183,6 +188,7 @@
               '<div class="mw-sam-chan" role="group" aria-label="Send as">' +
                 '<button type="button" data-ch="email" class="' + (!isSms ? 'is-on' : '') + '"' + (it.to && it.to.email ? '' : ' disabled title="No email address on file"') + '>Email</button>' +
                 '<button type="button" data-ch="sms" class="' + (isSms ? 'is-on' : '') + '"' + (it.sms_ok ? '' : ' disabled title="No mobile number or no consent to texts"') + '>Text</button></div>' +
+              (variant[it.key] === 'autopay' ? '<div class="mw-sam-count">Autopay offer' + (it.autopay && it.autopay.card ? ' &middot; ' + esc(it.autopay.card) + ' is on file' : '') + ' &middot; the link is their own invoice link; they re-enter the card on Stripe.</div>' : '') +
               (isSms ? '' : '<label class="mw-sam-lbl">Subject<input class="mw-sam-in" data-f="subject" value="' + esc(st.subject) + '"></label>') +
               '<label class="mw-sam-lbl">' + (isSms ? 'Text' : 'Email to ' + esc(it.to ? it.to.name : '')) +
                 (st.drafted_by === 'learned' && !isSms ? ' <small class="mw-sam-learned">written your way</small>' : '') +
@@ -219,7 +225,8 @@
         var b = e.target.closest('[data-do]'); if (!b || busy || b.disabled) return;
         var act = b.getAttribute('data-do');
 
-        if (act === 'write') { open = open === key ? null : key; render(); return; }
+        if (act === 'write') { variant[key] = null; open = open === key ? null : key; render(); return; }
+        if (act === 'autopay') { var was = open === key && variant[key] === 'autopay'; variant[key] = 'autopay'; open = was ? null : key; render(); return; }
         if (act === 'close') { open = null; render(); return; }
 
         busy = true;
@@ -248,7 +255,8 @@
         if (act === 'send') {
             var st = state(it), sms = st.channel === 'sms';
             post({ mode: 'send', key: key, channel: st.channel, subject: sms ? '' : st.subject, body: sms ? st.sms : st.body,
-                   suggested_body: sms ? st.suggested_sms : st.suggested_body, drafted_by: st.drafted_by }).then(function (d) {
+                   suggested_body: sms ? st.suggested_sms : st.suggested_body, drafted_by: st.drafted_by,
+                   template: variant[key] === 'autopay' ? 'autopay' : '' }).then(function (d) {
                 if (d && d.ok) { drop(key); if (stats) stats.sent_30 = (stats.sent_30 || 0) + 1; renderTop(); done(d.message); }
                 else done(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t go out — try again.');
             }).catch(function () { done('Network error — nothing was sent. Try again.'); });

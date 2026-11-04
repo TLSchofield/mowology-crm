@@ -22,6 +22,9 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieFactAnswerer.php';
+require_once __DIR__ . '/CharliePaymentStory.php';
+require_once __DIR__ . '/CharlieAnswerStyle.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 
 class CharlieAskService
 {
@@ -159,6 +162,11 @@ TXT;
             foreach ($summary['heads'] as $h) $from[] = CharlieFactAnswerer::FROM[$h];
         }
         $matched = self::matched($ctx);
+        // Why money is owed (reminders, card/autopay, delivery, what they said), worked out in code: the model phrases it.
+        $story = CharliePaymentStory::forMatches($this->db, $ctx, $this->today());
+        if ($story) $ctx['payment_story'] = $story;
+        // A cached answer is only valid while the facts behind it are the same (a reminder going out or a payment landing changes them).
+        $reuseKey = $matched + ($story ? ['story' => substr(md5(json_encode(array_column($story, 'signals'))), 0, 8)] : []);
 
         // Nothing in the CRM matched: say so for free.
         if (array_sum($matched) === 0) {
@@ -170,7 +178,7 @@ TXT;
         }
 
         // The same question about the same records within the hour: his last answer, no new call (D6, 2026-10-15).
-        if ($prev = $this->recentAnswer($question, $matched)) {
+        if ($prev = $this->recentAnswer($question, $reuseKey)) {
             $this->record($question, $terms, $matched, 'reused', $prev['answer'], null, 0, 0, null, $userId);
             $mins = max(1, (int)round((time() - strtotime((string)$prev['created_at'])) / 60));
             $answer = $prev['answer'] . "\n— my answer from {$mins} minute" . ($mins === 1 ? '' : 's') . ' ago (nothing new matched since)';
@@ -200,13 +208,30 @@ TXT;
         }
         $in = (int)($usage['input_tokens'] ?? 0) + (int)($usage['cache_read_input_tokens'] ?? 0) + (int)($usage['cache_creation_input_tokens'] ?? 0);
         $out = (int)($usage['output_tokens'] ?? 0);
-        $this->record($question, $terms, $matched, 'claude', $error ? null : $answer, self::MODEL, $in, $out, $error, $userId);
+        // The style rules are in the prompt, but a prompt is a request, not a guarantee: if the answer reads like a ledger
+        // (lists, invoice numbers, a guessed pronoun), ask once for a rewrite and keep whichever reads better.
+        $detail = CharlieAnswerStyle::wantsDetail($question);
+        $problems = $error ? [] : CharlieAnswerStyle::check((string)$answer, $detail);
+        if ($problems) {
+            $r2 = $this->send(self::buildRetryRequest(self::buildPrompt($question, $ctx, $this->today()), (string)$answer, $problems));
+            if ($r2['code'] === 200) {
+                $resp2 = json_decode($r2['body'], true) ?: [];
+                $a2 = self::textOf($resp2);
+                $u2 = $resp2['usage'] ?? [];
+                $in += (int)($u2['input_tokens'] ?? 0) + (int)($u2['cache_read_input_tokens'] ?? 0) + (int)($u2['cache_creation_input_tokens'] ?? 0);
+                $out += (int)($u2['output_tokens'] ?? 0);
+                if (($resp2['stop_reason'] ?? '') !== 'refusal' && $a2 !== '' && count(CharlieAnswerStyle::check($a2, $detail)) < count($problems)) $answer = $a2;
+            }
+        }
+        $this->record($question, $terms, $reuseKey, 'claude', $error ? null : $answer, self::MODEL, $in, $out, $error, $userId);
         if ($error) {
             error_log('Charlie ask: ' . $error);
             return ['ok' => false, 'message' => 'I couldn\'t answer that just now (' . $error . '). Try again in a minute.',
                     'left' => self::capLeft($cap, $used + 1)];
         }
-        if ($from) $answer .= "\n— from " . implode(' and ', array_values(array_unique($from)));
+        // "from the CRM" is noise; name a source only when it is something else (Otto's trip log, Penny's receipts …).
+        $others = array_values(array_diff(array_unique($from), ['the CRM']));
+        if ($others) $answer .= "\n— from " . implode(' and ', $others);
         return ['ok' => true, 'answer' => $answer, 'source' => 'claude', 'left' => self::capLeft($cap, $used + 1)];
     }
 
@@ -239,28 +264,12 @@ TXT;
 
     private function send(array $body): array
     {
-        if ($this->transport) {
-            return ($this->transport)($body);
-        }
-        $ch = curl_init(self::API_URL);
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 60,
-            CURLOPT_HTTPHEADER     => [
-                'content-type: application/json',
-                'x-api-key: ' . ANTHROPIC_API_KEY,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($body),
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $r = LlmGateway::send($body, [
+            'head' => 'charlie', 'skill' => 'ask', 'db' => $this->db,
+            'timeout' => 60, 'transport' => $this->transport,
         ]);
-        $raw  = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($raw === false) {
-            error_log('Charlie ask curl: ' . curl_error($ch));
-        }
-        curl_close($ch);
-        return ['code' => $code, 'body' => (string)$raw];
+        return ['code' => $r['code'], 'body' => $r['body']];
     }
 
     // ── Context (read-only, prepared statements only) ───────────────────────
@@ -439,12 +448,30 @@ TXT;
 
     public static function buildRequest(string $prompt): array
     {
-        return [
+        return self::withStyle([
             'model'      => self::MODEL,
             'max_tokens' => 600,
             'system'     => [['type' => 'text', 'text' => self::SYSTEM_PROMPT, 'cache_control' => ['type' => 'ephemeral']]],
             'messages'   => [['role' => 'user', 'content' => [['type' => 'text', 'text' => $prompt]]]],
-        ];
+        ]);
+    }
+
+    /** The same question again, with the first answer and what was wrong with it: say it the way a person would. */
+    public static function buildRetryRequest(string $prompt, string $firstAnswer, array $problems): array
+    {
+        $req = self::buildRequest($prompt);
+        $req['messages'][] = ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => $firstAnswer]]];
+        $req['messages'][] = ['role' => 'user', 'content' => [['type' => 'text', 'text' =>
+            'That reads like a ledger (' . implode('; ', $problems) . '). Say it again the way you would out loud to the owner: the answer first, then the one reason that explains it, under 60 words, no lists, no invoice numbers, no he/she. Same facts only.']]];
+        return $req;
+    }
+
+    /** The speaking-style rules go in as a second cached system block; answers are short, so the output cap is lower. */
+    private static function withStyle(array $req): array
+    {
+        $req['system'][] = ['type' => 'text', 'text' => CharlieAnswerStyle::PROMPT, 'cache_control' => ['type' => 'ephemeral']];
+        $req['max_tokens'] = 400;
+        return $req;
     }
 
     /** The answer's text blocks, joined and trimmed. */

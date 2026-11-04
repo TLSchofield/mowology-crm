@@ -458,6 +458,16 @@ class YuiDeskService
             $it['draft'] = YuiRules::draft($it, $owner, $drafts->learned((string)$it['template']));
             $it['sms_ok'] = $to['phone'] !== '' && $to['contact_id'] > 0 && function_exists('hasSmConsent') && hasSmConsent((int)$to['contact_id']);
         }
+        if (($it['section'] ?? '') === 'arrears' && $to) {
+            // "Offer autopay": only for an individual client Yui can reach, who is not on autopay yet (YuiAutopayOffer). The sign-up link
+            // is that client's own invoice link, so it lives on the server copy and in the draft Tim reads, never in Charlie's brief.
+            require_once __DIR__ . '/YuiAutopayOffer.php';
+            $offer = YuiAutopayOffer::load($this->db, $it, $this->now());
+            $it['autopay'] = $offer;
+            if ($offer['offer']) {
+                $it['draft_autopay'] = YuiRules::draft(['template' => 'autopay'] + $it, $owner, $drafts->learned('autopay'));
+            }
+        }
         if (($it['section'] ?? '') === 'inbox') $it['thread'] = $drafts->thread((int)$it['contact_id'], 4);
         unset($it['message_key']);
         return $it;
