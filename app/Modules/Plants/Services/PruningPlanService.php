@@ -106,7 +106,10 @@ final class PruningPlanService
         $plan = $parsed ? self::clean($parsed['plan']) : null;
         $now = date('Y-m-d H:i:s');
         if (!$plan) {
-            $why = $res['code'] !== 200 ? 'Anthropic answered ' . $res['code'] : 'The answer did not fit the plan shape';
+            $j = json_decode((string)$res['body'], true);
+            $stop = is_array($j) ? (string)($j['stop_reason'] ?? ($j['error']['message'] ?? '')) : '';
+            $why = $res['code'] !== 200 ? 'Anthropic answered ' . $res['code'] . ($stop !== '' ? " ($stop)" : '')
+                 : 'The answer did not fit the plan shape' . ($stop !== '' ? " (stop_reason $stop)" : '');
             $this->db->prepare("INSERT INTO plant_work_plans (property_id, plant_record_id, kind, media_ids, scientific_name, common_name, status, model, error, created_by, created_at)
                                 VALUES (?, ?, 'pruning', ?, ?, ?, 'failed', ?, ?, ?, ?)")
                      ->execute([(int)$plant['property_id'], $plantRecordId, implode(',', $usedIds), $ctx['scientific'], $ctx['common'], self::MODEL,
@@ -144,9 +147,12 @@ final class PruningPlanService
         $content[] = ['type' => 'text', 'text' => $text];
         return [
             'model' => self::MODEL,
-            'max_tokens' => 3000,
+            // Sonnet 5.5 thinks by default and the thinking counts against max_tokens: 3000 was eaten
+            // before the JSON finished (2026-11-03, "did not fit the plan shape"). Effort low: a plan,
+            // not a proof.
+            'max_tokens' => 16000,
+            'output_config' => ['effort' => 'low', 'format' => ['type' => 'json_schema', 'schema' => self::schema()]],
             'system' => [['type' => 'text', 'text' => $system, 'cache_control' => ['type' => 'ephemeral']]],
-            'output_config' => ['format' => ['type' => 'json_schema', 'schema' => self::schema()]],
             'messages' => [['role' => 'user', 'content' => $content]],
         ];
     }
@@ -340,6 +346,7 @@ final class PruningPlanService
             'created_at' => (string)$r['created_at'], 'approved_at' => $r['approved_at'], 'job_plan_id' => $r['job_plan_id'] ? (int)$r['job_plan_id'] : null,
             'quote_id' => $r['quote_id'] ? (int)$r['quote_id'] : null, 'after_media_ids' => self::ids((string)($r['after_media_ids'] ?? '')),
             'cost_usd' => $r['cost_usd'] !== null ? (float)$r['cost_usd'] : null,
+            'error' => ($r['status'] ?? '') === 'failed' ? (string)($r['error'] ?? '') : null,
         ];
     }
 
