@@ -11,6 +11,10 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/DeadlineRules.php';
+// The payroll reminder checks the Wave report and the bank lines (2026-11-03); absent on a tenant without Accounting = plain reminder.
+$__prc = dirname(__DIR__, 2) . '/Accounting/Services/PayrollRemitCheck.php';
+if (is_file($__prc)) require_once $__prc;
+unset($__prc);
 
 class DeadlineService
 {
@@ -134,6 +138,13 @@ class DeadlineService
             if ($r['needs_setup']) { $setup++; continue; }
             if (!$r['due_date'] || $r['priority'] === 3) continue;
             if ($r['occ_status'] === 'snoozed' && $r['snoozed_until'] && $r['snoozed_until'] > $this->today() && !$r['overdue']) continue;
+            // The payroll remittance: ask for the Wave report BEFORE worrying, close it when Wave's debits match, alarm only when they do not.
+            $pay = $this->payrollAssessment($r);
+            if ($pay !== null) {
+                if ($pay['state'] === PayrollRemitMatch::MATCHED) continue; // the cron closes it; until then it is not news
+                if (in_array($pay['state'], [PayrollRemitMatch::NO_REPORT, PayrollRemitMatch::UNCHECKED], true)) { $items[] = self::askItem($r, $pay); continue; }
+                if ($pay['state'] === PayrollRemitMatch::SHORT) $r['title'] = (string)$pay['text'];
+            }
             $items[] = self::item($r);
         }
         $over = count(array_filter($items, fn($i) => $i['overdue']));
@@ -143,6 +154,51 @@ class DeadlineService
         if ($setup > 0) $headline .= ' · ' . $setup . ' still need' . ($setup === 1 ? 's' : '') . ' a date';
         foreach ($items as &$i) unset($i['overdue']);
         return ['head' => 'charlie', 'headline' => $headline, 'items' => $items, 'count' => count($items)];
+    }
+
+    /** The payroll remittance's check, or null when it does not apply (another deadline, no payroll through Wave, or the Accounting module is absent). */
+    private function payrollAssessment(array $r): ?array
+    {
+        if (($r['slug'] ?? '') !== 'payroll_remit' || empty($r['due_date']) || !class_exists('PayrollRemitCheck', false)) return null;
+        $a = (new PayrollRemitCheck($this->db))->forDue((string)$r['due_date'], $this->today());
+        return $a['state'] === PayrollRemitMatch::NA ? null : $a;
+    }
+
+    /**
+     * Pure: the "upload the report" request that stands in for the payroll reminder. Its key is NOT a deadline key, so a past
+     * due date can never make it force the brief red (BriefStatus reads only charlie:deadline: keys); it asks, it does not alarm.
+     */
+    public static function askItem(array $r, array $pay): array
+    {
+        return [
+            'key'      => 'charlie:payroll_ask:' . $pay['month'],
+            'kind'     => 'charlie:payroll_report_ask',
+            'text'     => (string)$pay['text'],
+            'url'      => $pay['state'] === PayrollRemitMatch::NO_REPORT ? '/crm/accounting/payroll-import.php' : '/crm/accounting/bank-import.php',
+            'priority' => 2,
+            'value'    => null,
+            'since'    => date('Y-m-d', strtotime($r['due_date'] . ' -' . (int)$r['lead_days'] . ' days')),
+            'overdue'  => false, // brief() counts this field and then removes it
+        ];
+    }
+
+    /**
+     * Close every open payroll remittance whose Wave report matches Wave's bank debits, with the evidence in the note.
+     * Called from the Charlie cron (reading the brief writes nothing). Returns how many it closed.
+     */
+    public function autoClose(): int
+    {
+        if (!class_exists('PayrollRemitCheck', false)) return 0;
+        $rows = $this->db->query("SELECT o.id, o.due_date FROM charlie_deadline_occurrences o JOIN charlie_deadlines d ON d.id = o.deadline_id
+                                  WHERE d.slug = 'payroll_remit' AND d.active = 1 AND o.status IN ('open', 'snoozed') ORDER BY o.due_date")->fetchAll(PDO::FETCH_ASSOC);
+        $closed = 0;
+        foreach ($rows as $o) {
+            $a = (new PayrollRemitCheck($this->db))->forDue((string)$o['due_date'], $this->today());
+            if ($a['state'] !== PayrollRemitMatch::MATCHED) continue;
+            $res = $this->mark((int)$o['id'], 'done', 0, 3, (string)$a['note']);
+            if (!empty($res['ok'])) $closed++;
+        }
+        return $closed;
     }
 
     /** Pure: one calendar row → a brief item (stable key per due date). */
@@ -202,7 +258,7 @@ class DeadlineService
         }
         if (!in_array($what, ['done', 'skip'], true)) return ['ok' => false, 'message' => 'Unknown action'];
         $this->db->prepare("UPDATE charlie_deadline_occurrences SET status = ?, done_at = NOW(), done_by = ?, note = ? WHERE id = ?")
-            ->execute([$what === 'done' ? 'done' : 'skipped', $userId, $note, $occId]);
+            ->execute([$what === 'done' ? 'done' : 'skipped', $userId > 0 ? $userId : null, $note, $occId]); // 0 = the system closed it
         $this->sync();
         $next = DeadlineRules::nextDue((string)$o['rule'], date('Y-m-d', strtotime($o['due_date'] . ' +1 day')), $o['anchor_date'] ?: null);
         return ['ok' => true, 'message' => ($what === 'done' ? 'Done — ' : 'Skipped this time — ')

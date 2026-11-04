@@ -154,8 +154,10 @@ class CharlieInboxService
     {
         $out = [];
         foreach ($items as $it) {
+            // A request (e.g. "upload the Wave report") is not a deadline occurrence: no Done button for a key that does not resolve to one.
+            $isDeadline = DeadlineService::parseKey($it['key']) !== null;
             $out[] = $it + ['head' => 'charlie', 'channel' => 'other', 'due' => DeadlineService::parseKey($it['key'])[1] ?? null,
-                'actions' => [['label' => 'Done', 'endpoint' => '/crm/api/charlie.php', 'body' => ['mode' => 'deadline_done', 'key' => $it['key']], 'style' => 'primary']]];
+                'actions' => $isDeadline ? [['label' => 'Done', 'endpoint' => '/crm/api/charlie.php', 'body' => ['mode' => 'deadline_done', 'key' => $it['key']], 'style' => 'primary']] : []];
         }
         return $out;
     }
