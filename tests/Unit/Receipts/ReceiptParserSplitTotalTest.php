@@ -87,4 +87,46 @@ final class ReceiptParserSplitTotalTest extends TestCase
 
         $this->assertSame('0.50', $parsed['gst']);
     }
+
+    /** Replay 2026-11-04: "PST 7.0000 %" / "TOTAL" / "CAD $" / "0.53" / "11.53" — the payment line settles which is the total. */
+    public function testPaymentLineSettlesStackedTotal(): void
+    {
+        $parsed = parseReceiptText("16&Macdonld Twn Pnty\n2026-08-12\nGST 5.0000 % 0.50\nPST 7.0000 %\nTOTAL\nCAD $\n0.53\n11.53\nQTY PRICE\nAMOUNT\n3 0.07\n0.21\nDebit Purchase $ 11.53\nInterac");
+
+        $this->assertSame('11.53', $parsed['total']);
+        $this->assertSame('0.50', $parsed['gst']);
+    }
+
+    /** A payment line that is nowhere near the TOTAL label's amounts never overrides a printed total. */
+    public function testPaymentLineDoesNotOverrideUnrelatedTotal(): void
+    {
+        $parsed = parseReceiptText("SHOP\n2026-08-12\nGST 5% 1.00\nTOTAL\n21.00\nGift card\n5.00\nDebit Purchase $ 16.00");
+
+        $this->assertSame('21.00', $parsed['total']);
+    }
+
+    /** Zero-rated items at a store that itemises tax: no GST line means no GST, not a 5% guess. */
+    public function testNoGstGuessWhenTaxIsItemised(): void
+    {
+        $parsed = parseReceiptText("16&Macdonld Twn Pnty\nGSTV:\nSee GST #\n2025-06-03\nOTR WATER 500ML\n1 4.49\n4.49\nTOTAL,\nCAD $\n5.69\nDebit Purchase $ 5.69\nInterac");
+
+        $this->assertSame('5.69', $parsed['total']);
+        $this->assertSame('0.00', $parsed['gst']);
+    }
+
+    /** A garbled rate line is still a tax line: keep the old estimate rather than claim no GST. */
+    public function testGarbledRateLineKeepsEstimate(): void
+    {
+        $parsed = parseReceiptText("16&Macdonld Twn Pnty\nSee GST #\n2026-10-20\n9:8888 % 8:18\nTOTAL CAD $ 22.75\nDebit Purchase $ 22.75");
+
+        $this->assertNotSame('0.00', $parsed['gst']);
+    }
+
+    /** No legend at all: the 5% estimate is unchanged. */
+    public function testEstimateUnchangedWithoutLegend(): void
+    {
+        $parsed = parseReceiptText("SHOP\n2026-10-20\nTOTAL 21.00");
+
+        $this->assertSame('1.00', $parsed['gst']);
+    }
 }

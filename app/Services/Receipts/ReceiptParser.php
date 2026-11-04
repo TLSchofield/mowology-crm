@@ -59,6 +59,8 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     $result['total'] = extractTotal($ocrText, $lines);
     if ($result['total'] === null) {
         $result['total'] = extractPaymentLineAmount($lines);
+    } else {
+        $result['total'] = preferConfirmedPaymentTotal($lines, $result['total']);
     }
 
     // GST (5% — BC standard; also catches generic "TAX" labels)
@@ -153,6 +155,12 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
             ''
         );
         $result['subtotal_derived'] = true;
+    }
+
+    // A store that itemises tax (a "See GST #" / "P - GST" legend) prints a GST line whenever GST is charged:
+    // no GST line there means none was charged (water, deposits), not a 5% guess. Replay 2026-11-04.
+    if ($result['gst'] === null && $result['total'] !== null && receiptItemisesTaxWithoutGstLine($lines)) {
+        $result['gst'] = '0.00';
     }
 
     // If we have total but no GST, estimate GST at 5% (BC standard)
@@ -1457,6 +1465,49 @@ function extractTotal(string $text, array $lines): ?string
     }
 
     return null;
+}
+
+/**
+ * The total the payment line confirms, when the split-line rules read a different amount that sits among the
+ * bare amounts printed just after a TOTAL label ("PST 7.0000 %" / "TOTAL" / "CAD $" / "0.53" / "11.53" read
+ * 0.53). Only ever moves to an amount printed right there, so a stray payment line can't override a real total.
+ * Pure. Replay 2026-11-04 (Chevron #331, #334).
+ */
+function preferConfirmedPaymentTotal(array $lines, string $total): string
+{
+    $paid = extractPaymentLineAmount($lines);
+    if ($paid === null || abs((float)$paid - (float)$total) < 0.005) return $total;
+    $n = count($lines);
+    for ($i = 0; $i < $n; $i++) {
+        if (!preg_match('/^TOTAL,?(?:\s+CAD)?(?:\s*\$)?\s*$/i', trim($lines[$i]))) continue;
+        $seenTotal = false; $seenPaid = false;
+        for ($j = $i + 1; $j < min($n, $i + 6); $j++) {
+            $l = trim($lines[$j]);
+            if (preg_match('/^(?:\$|CAD|CAD\s*\$|CAD\s+P|CDN\s*\$)$/i', $l)) continue;
+            if (!preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $l, $m)) break;
+            $v = (float)str_replace(',', '.', $m[1]);
+            if (abs($v - (float)$total) < 0.005) $seenTotal = true;
+            if (abs($v - (float)$paid) < 0.005) $seenPaid = true;
+        }
+        if ($seenTotal && $seenPaid) return number_format((float)$paid, 2, '.', '');
+    }
+    return $total;
+}
+
+/** A tax legend is printed ("See GST #", "GSTV", "P - GST", "PG - GST, PST") but no GST line and no rate (%) line at all. Pure. */
+function receiptItemisesTaxWithoutGstLine(array $lines): bool
+{
+    $legend = false;
+    foreach ($lines as $line) {
+        $l = trim($line);
+        if (preg_match('/^(?:GST|HST)(?:\/HST)?\s*(?:@\s*)?\d+(?:[.,]\d+)?\s*%/i', $l)
+            || preg_match('/^(?:GST|HST)\b[^A-Za-z#]*\d{1,6}[.,]\d{2}\s*$/i', $l)) {
+            return false;                       // a GST line is printed: leave GST to the normal rules
+        }
+        if (strpos($l, '%') !== false) return false;   // a rate line OCR garbled ("9:8888 % 8:18") is still a tax line
+        if (preg_match('/See\s+GST\s*#|^GSTV\b|^[A-Z]{1,2}\s*-\s*GST\b/i', $l)) $legend = true;
+    }
+    return $legend;
 }
 
 /**
