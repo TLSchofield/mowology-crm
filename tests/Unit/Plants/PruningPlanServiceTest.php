@@ -60,13 +60,16 @@ class PruningPlanServiceTest extends TestCase
         $this->assertStringContainsString('confirmed by staff. Where: the property.', $req['messages'][0]['content'][0]['text']);
     }
 
-    public function test_schema_requires_every_key_and_limits_action_types(): void
+    public function test_schema_requires_every_key_limits_action_types_and_uses_no_unsupported_keywords(): void
     {
         $s = PruningPlanService::schema();
         $this->assertSame(array_keys($s['properties']), $s['required']);
         $this->assertFalse($s['additionalProperties']);
         $this->assertSame(array_keys(PruningKnowledge::TYPES), $s['properties']['actions']['items']['properties']['type']['enum']);
-        $this->assertSame(12, $s['properties']['main']['properties']['from']['maximum']);
+        $flat = json_encode($s);
+        foreach (['minimum', 'maximum', 'minLength', 'maxLength', 'minItems', 'maxItems', 'multipleOf'] as $kw) {
+            $this->assertStringNotContainsString('"' . $kw . '"', $flat, "structured outputs reject $kw (Anthropic 400, seen 2026-11-03)");
+        }
     }
 
     public function test_clean_renumbers_drops_bad_types_and_clamps_anchors(): void

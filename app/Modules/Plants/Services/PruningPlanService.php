@@ -158,12 +158,14 @@ final class PruningPlanService
         $int = ['type' => 'integer'];
         $num = ['type' => 'number'];
         $strs = ['type' => 'array', 'items' => $str];
-        $month = ['type' => 'integer', 'minimum' => 1, 'maximum' => 12];
+        // Structured outputs accept no minimum/maximum/minLength (Anthropic answers 400); the ranges
+        // live in the description and clean() clamps them.
+        $month = ['type' => 'integer', 'description' => 'Month number 1-12'];
         $obj = fn(array $props) => ['type' => 'object', 'properties' => $props, 'required' => array_keys($props), 'additionalProperties' => false];
         $window = $obj(['from' => $month, 'to' => $month, 'actions' => ['type' => 'array', 'items' => $int], 'note' => $str]);
         return $obj([
             'species' => $obj([
-                'scientific' => $str, 'common' => $str, 'confidence' => ['type' => 'number', 'minimum' => 0, 'maximum' => 1],
+                'scientific' => $str, 'common' => $str, 'confidence' => ['type' => 'number', 'description' => '0 to 1'],
                 'if_wrong' => ['type' => 'array', 'items' => $obj(['instead' => $str, 'what_changes' => $str])],
             ]),
             'form_goal' => $str,
