@@ -825,7 +825,7 @@ class MulchPricingService
             ['key' => 'margin', 'label' => 'Target margin', 'value' => round($margin * 100, 1), 'real' => true, 'source' => 'overhead_settings.profit_margin'],
         ];
         foreach (self::DEFAULTS as $k => $d) {
-            if ($k === 'mulch_receipts_n' || ($k === 'mulch_min_charge' && $sv($k) <= 0)) continue;   // 0 = derived, nothing assumed
+            if ($k === 'mulch_receipts_n' || $k === 'mulch_market_per_yard' || ($k === 'mulch_min_charge' && $sv($k) <= 0)) continue;   // 0 = derived / optional: nothing assumed, and the market rate never feeds the price
             $inputs[] = ['key' => $k, 'label' => self::SETTING_LABELS[$k], 'value' => $sv($k), 'real' => !$set[$k]['seeded'],
                          'source' => $set[$k]['present'] ? ($set[$k]['seeded'] ? 'setting, still the default' : 'Tim\'s setting') : 'default (migration 1270 not run)'];
         }
