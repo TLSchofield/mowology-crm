@@ -96,3 +96,19 @@ When the signed-in user is the owner/admin:
   (until then against `sage.ittai.ca` or the local harness). Screenshots of every screen to Claude.
 - Publish the walk-2 APK (`ittai` flavour, `-PittaiHost=rehearsal2.ittai.ca`) at
   `public/crm/downloads/ittai-rehearsal2-test.apk` only after Claude's review; Claude deploys it.
+
+## A11 — animated opening (added 2026-11-04, Tim: "Animation is pointed to now by ittai design")
+
+Source: `~/Projects/design-studio/sandbox/ittai-logo-motion/index.html` (= v4-pinball.html; frames v4-frames.png). The
+two-people app icon morphs into the "ittai" wordmark, the two gold dots hop onto the i's. Self-contained SVG + JS,
+`render(t)` is a pure function of time. Design log: 4.8 s ("Medium") is the splash candidate; splash = animation
+only, no tagline; navy background, icon gold.
+- The Android 12 system splash stays the still icon on navy (it cannot play a 4.8 s web animation). Right after it,
+  an opening screen plays the animation on the same navy, seamless from the still icon (frame 0 = the icon).
+- Port `render(t)` to a Compose Canvas (preferred: native, no WebView start-up), or bundle the HTML as an asset in a
+  WebView if the port would change the motion; say which and why.
+- Full 4.8 s on the first launch after install; later launches skip straight to the end state (or a ≤0.8 s
+  version). Tap anywhere skips. Respect the system "remove animations" setting (show the end state).
+- It ends on the welcome screen: the wordmark end state, "One business, working as one.", primary "Set up my
+  office", ghost "I already have an account" (replaces A2's welcome copy).
+- Separate build after walk 2: do not change the staged walk-2 APK. Screenshots of start/middle/end + diff to Claude.
