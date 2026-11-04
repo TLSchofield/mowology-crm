@@ -134,18 +134,28 @@ class ReceiptCaptureService
         }
 
         $ocrText = (string)($intake['ocr_text'] ?? '');
+        // No review sheet on Android: the card the receipt names sets the payment method, and a decisive schedule
+        // match (the crew's own visit, GPS on the property, bought during it) tags the job — the office can change both.
+        $card = is_array($intake['card'] ?? null) ? $intake['card'] : null;
+        $payment = (string)($card['payment_method'] ?? '') !== '' ? (string)$card['payment_method'] : (string)($p['payment_method'] ?? '');
+        $auto = null;
+        if (!$visit) {
+            foreach ((array)($intake['job_suggestions'] ?? []) as $js) {
+                if (is_array($js) && !empty($js['auto_select']) && !empty($js['plan_id'])) { $auto = $js; break; }
+            }
+        }
         return [
             'expense_date'        => $date,
             'vendor_id'           => !empty($s['vendor_id']) ? (int)$s['vendor_id'] : null,
             'vendor_name_raw'     => (string)($s['vendor_name'] ?? $p['vendor_hint'] ?? ''),
-            'payment_method'      => (string)($p['payment_method'] ?? ''),
+            'payment_method'      => $payment,
             'amount'              => number_format($sub, 2, '.', ''),
             'gst_amount'          => number_format($gst, 2, '.', ''),
             'pst_amount'          => number_format($pst, 2, '.', ''),
             'total'               => $total,
             'accounting_category' => (string)($s['accounting_category'] ?? ''),
-            'job_id'              => $visit && !empty($visit['plan_id']) ? (int)$visit['plan_id'] : null,
-            'property_id'         => $visit && !empty($visit['property_id']) ? (int)$visit['property_id'] : null,
+            'job_id'              => $visit && !empty($visit['plan_id']) ? (int)$visit['plan_id'] : ($auto ? (int)$auto['plan_id'] : null),
+            'property_id'         => $visit && !empty($visit['property_id']) ? (int)$visit['property_id'] : ($auto && !empty($auto['property_id']) ? (int)$auto['property_id'] : null),
             'description'         => $crew['note'] !== '' ? $crew['note'] : self::DEFAULT_DESCRIPTION,
             'receipt_media_id'    => (int)($intake['media_id'] ?? 0),
             'receipt_lat'         => $crew['lat'],

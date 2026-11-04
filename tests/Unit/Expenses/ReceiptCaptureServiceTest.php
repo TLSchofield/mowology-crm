@@ -177,4 +177,26 @@ class ReceiptCaptureServiceTest extends TestCase
         $this->assertNull($gate->calls[0]['changes']['job_id'] ?? null);
         $this->assertSame('pending_approval', $gate->calls[0]['changes']['status'], 'the receipt still saves');
     }
+
+    /** No review sheet on Android: the receipt's card sets the payment method; a decisive schedule match tags the job. */
+    public function test_card_and_decisive_job_fill_an_android_capture(): void
+    {
+        $i = $this->intake();
+        $i['card'] = ['last4' => '5760', 'user_id' => 1, 'holder' => 'Tim', 'label' => 'Company Visa', 'payment_method' => 'company_card'];
+        $i['job_suggestions'] = [['plan_id' => 44, 'property_id' => 9, 'auto_select' => true], ['plan_id' => 45, 'property_id' => 10, 'auto_select' => false]];
+        $in = ReceiptCaptureService::buildInput($i, $this->crew(), null, '2026-10-16');
+        $this->assertSame('company_card', $in['payment_method']);
+        $this->assertSame(44, $in['job_id']);
+        $this->assertSame(9, $in['property_id']);
+    }
+
+    /** A job the crew picked always wins; no decisive match means no job. */
+    public function test_crew_pick_wins_and_no_decisive_match_tags_nothing(): void
+    {
+        $i = $this->intake();
+        $i['job_suggestions'] = [['plan_id' => 44, 'property_id' => 9, 'auto_select' => false]];
+        $this->assertNull(ReceiptCaptureService::buildInput($i, $this->crew(), null, '2026-10-16')['job_id']);
+        $i['job_suggestions'][0]['auto_select'] = true;
+        $this->assertSame(7, ReceiptCaptureService::buildInput($i, $this->crew(), ['plan_id' => 7, 'property_id' => 3], '2026-10-16')['job_id']);
+    }
 }
