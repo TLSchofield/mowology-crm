@@ -375,11 +375,14 @@ class EtransferInboxService
      *
      * @return array{payer_name:string,lines:array<int,array{invoice_id:int,invoice_number:string,balance_due:float,apply_amount:float}>}|null
      */
-    public function suggestFifoAllocationByValue(float $amount): ?array
+    public function suggestFifoAllocationByValue(float $amount, ?string $senderName = null, ?string $memo = null): ?array
     {
         if ($amount <= 0) {
             return null;
         }
+        // A name clue + the oldest invoices to the cent is stronger evidence than an amount alone: it wins.
+        $clued = $this->suggestByClues($amount, $senderName, $memo);
+        if ($clued !== null) return $clued;
 
         $groups = [];
         foreach ($this->payableInvoicesWithPayer() as $inv) {
@@ -399,10 +402,75 @@ class EtransferInboxService
         ));
 
         if (count($matches) !== 1) {
-            return null;
+            return $clued;
         }
 
         return ['payer_name' => $matches[0]['payer_name'], 'lines' => self::allocateFifo($matches[0]['invoices'], $amount)];
+    }
+
+    /**
+     * The clues a person would use (owner, 2026-10-20: "She has clues though" — DARREN CANNON, memo "Canon", $409.50 =
+     * Kelly Canon's six oldest $68.25 invoices): a word of the MEMO or of the sender's name is the payer's name, allowing
+     * one letter's difference (Canon / Cannon), AND the amount is exactly that payer's oldest open invoices to the cent.
+     * Only when exactly ONE payer fits — else nothing. A suggestion only: the person still records it.
+     * @return array{payer_name:string,lines:array,clue:string}|null
+     */
+    public function suggestByClues(float $amount, ?string $senderName, ?string $memo): ?array
+    {
+        $words = self::clueWords((string)$memo . ' ' . (string)$senderName);
+        if (!$words || $amount <= 0) return null;
+        $groups = [];
+        foreach ($this->payableInvoicesWithPayer() as $inv) {
+            $payer = trim((string)$inv['payer_name']);
+            $key = self::normalizeName($payer);
+            if ($key === '') continue;
+            $groups[$key]['payer_name'] ??= $payer;
+            $groups[$key]['invoices'][] = $inv;
+        }
+        $hits = [];
+        foreach ($groups as $g) {
+            $hit = self::nameClue($words, $g['payer_name']);
+            if ($hit === null) continue;
+            $n = self::oldestSumming($g['invoices'], $amount);
+            if ($n > 0) $hits[] = ['payer_name' => $g['payer_name'], 'lines' => self::allocateFifo(array_slice($g['invoices'], 0, $n), $amount),
+                                   'clue' => '"' . $hit . '" is ' . $g['payer_name'] . ', and $' . number_format($amount, 2) . ' is their ' . $n . ' oldest open invoice' . ($n === 1 ? '' : 's')];
+        }
+        return count($hits) === 1 ? $hits[0] : null;
+    }
+
+    /** Words worth matching (4+ letters, not Interac / e-Transfer filler). PURE. */
+    public static function clueWords(string $text): array
+    {
+        $stop = ['INTERAC', 'TRANSFER', 'ETRANSFER', 'PAYMENT', 'INVOICE', 'INVOICES', 'THANK', 'THANKS', 'LAWN', 'LAWNS', 'CARE', 'MOWOLOGY', 'LANDSCAPES', 'LANDSCAPING'];
+        $out = [];
+        foreach (preg_split('/[^A-Za-z]+/', strtoupper($text)) as $w) {
+            if (strlen($w) >= 4 && !in_array($w, $stop, true)) $out[$w] = true;
+        }
+        return array_keys($out);
+    }
+
+    /** The clue word that is one of the payer's name words (same first letter, at most one letter different), or null. PURE. */
+    public static function nameClue(array $words, string $payerName): ?string
+    {
+        foreach (preg_split('/[^A-Za-z]+/', strtoupper($payerName)) as $p) {
+            if (strlen($p) < 4) continue;
+            foreach ($words as $w) {
+                if ($w[0] === $p[0] && levenshtein($w, $p) <= 1) return ucfirst(strtolower($w));
+            }
+        }
+        return null;
+    }
+
+    /** How many of these oldest-first invoices sum EXACTLY to $amount (0 = no prefix does). PURE. */
+    public static function oldestSumming(array $invoices, float $amount): int
+    {
+        $sum = 0.0;
+        foreach (array_values($invoices) as $i => $inv) {
+            $sum = round($sum + (float)$inv['balance_due'], 2);
+            if (abs($sum - round($amount, 2)) < 0.005) return $i + 1;
+            if ($sum > $amount + 0.005) return 0;
+        }
+        return 0;
     }
 
     /** All open invoices with their resolved payer name, oldest-due first — shared by both FIFO suggestion methods. */

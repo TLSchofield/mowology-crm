@@ -25,6 +25,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/BankLineReceipts.php';
+
 class BankImportService
 {
     private PDO $db;
@@ -3961,6 +3963,7 @@ class BankImportService
                                     AND DATE_ADD(?, INTERVAL 3 DAY)
               AND e.status IN ('approved','forwarded')
               AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "   -- one of several on another line (migration 1372)
               -- already joined to a statement line at an earlier import: one receipt, one charge (2026-10-13)
               AND NOT EXISTS (SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
                                WHERE x.reference_type = 'expense' AND x.reference_id = e.id)
@@ -4025,6 +4028,43 @@ class BankImportService
         return strncmp((string)$paymentReference, 'po_', 3) === 0 && strncmp($description, 'Stripe fees', 11) === 0;
     }
 
+    /**
+     * Amount part of a receipt ↔ bank line score. With Penny's read of the printed total (she disagrees
+     * with the saved one), the PRINTED amount is the receipt: exact to her read = 50; exact only to the
+     * saved (misread) total = 35, said so. Without her read: exact 50, within 2% 35. PURE.
+     * @return array{0: int, 1: string[]}|null
+     */
+    public static function amountScore(float $saved, float $bank, ?float $pennyTotal = null): ?array
+    {
+        $saved = round($saved, 2);
+        $bank = round($bank, 2);
+        $close = static fn(float $a) => abs($a - $bank) <= max(0.5, $a * 0.02);
+        if ($pennyTotal !== null && abs(round($pennyTotal, 2) - $saved) >= 0.01) {
+            $p = round($pennyTotal, 2);
+            if (abs($p - $bank) < 0.01) return [50, ['Exact match to the printed total (Penny\'s read)']];
+            if (abs($saved - $bank) < 0.01) return [35, ['Matches the saved total — Penny read $' . number_format($p, 2) . ' printed']];
+            if ($close($p)) return [35, ['Amount close to the printed total (within 2%)']];
+            return $close($saved) ? [30, ['Amount close (within 2%)']] : null;
+        }
+        if (abs($saved - $bank) < 0.01) return [50, ['Exact amount match']];
+        if ($close($saved)) return [35, ['Amount close (within 2%)']];
+        return null;
+    }
+
+    /** Penny's pending read of an expense's total (expense_suggestions, migration 1125), or null. */
+    private function pennyTotal(int $expenseId): ?float
+    {
+        try {
+            $s = $this->db->prepare("SELECT suggestion_json FROM expense_suggestions WHERE expense_id = ? AND source = 'live' AND status = 'pending' ORDER BY id DESC LIMIT 1");
+            $s->execute([$expenseId]);
+            $j = json_decode((string)$s->fetchColumn(), true);
+            $v = is_array($j) ? ($j['total']['value'] ?? ($j['total'] ?? null)) : null;
+            return is_numeric($v) && (float)$v > 0 ? round((float)$v, 2) : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     private const EXPENSE_MATCH_WINDOW_DAYS = 14; // wider than findExpenseMatch()'s ±3d, same reason
 
     /**
@@ -4057,17 +4097,10 @@ class BankImportService
      */
     private function scoreExpenseTransactionPair(array $expense, array $transaction, ?array $stop = null): ?array
     {
-        $expAmt = round((float)$expense['total'], 2);
-        $txAmt  = round((float)$transaction['amount'], 2);
-        $reasons = [];
-
-        if (abs($expAmt - $txAmt) < 0.01) {
-            $score = 50; $reasons[] = 'Exact amount match';
-        } elseif (abs($expAmt - $txAmt) <= max(0.5, $expAmt * 0.02)) {
-            $score = 35; $reasons[] = 'Amount close (within 2%)';
-        } else {
-            return null; // amounts unrelated
-        }
+        $amt = self::amountScore((float)$expense['total'], (float)$transaction['amount'],
+                                 isset($expense['penny_total']) ? (float)$expense['penny_total'] : null);
+        if ($amt === null) return null; // amounts unrelated
+        [$score, $reasons] = $amt;
 
         $dayDiff = (int) round(
             abs(strtotime((string)$transaction['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400
@@ -4113,6 +4146,19 @@ class BankImportService
         return ['points' => $points, 'reason' => 'GPS: ' . $who . ' at ' . trim((string)$stop['place_name']) . ' ' . $at . ' — ' . $how];
     }
 
+    /** The date printed on the receipt (receipt_facts), or null. Never fails a match. */
+    private function printedDateFor(int $expenseId): ?string
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
+            $f = (new ReceiptFactsService($this->db))->forExpense($expenseId);
+            $d = is_array($f) ? (string)($f['printed_date'] ?? '') : '';
+            return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     /** Otto's stop for a receipt, or null (never fails a match). */
     private function stopForExpense(int $expenseId): ?array
     {
@@ -4129,10 +4175,10 @@ class BankImportService
      * Edit Expense modal. Only offers transactions not already claimed by another
      * expense (mirrors findExpenseMatch()'s bt.id IS NULL guard).
      */
-    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null): array
+    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null, ?string $printedDate = null): array
     {
         $stmt = $this->db->prepare("
-            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name, e.amount, e.gst_amount, e.pst_amount, e.accounting_category
             FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?
         ");
         $stmt->execute([$expenseId]);
@@ -4140,43 +4186,71 @@ class BankImportService
         if (!$expense) return [];
         // What the Edit Expense form shows right now, before Save — a receipt saved without its
         // PST ($196.08) matched its $199.71 bank line as "within 2%" (2026-10-13).
+        $expense['saved_total'] = round((float)$expense['total'], 2);   // what the receipt says, for the tip check
         if ($total !== null && $total > 0) $expense['total'] = round($total, 2);
         if ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $expense['expense_date'] = $date;
+        // Penny's read of the PRINTED total, when she disagrees with the saved one (a scanner misread):
+        // the bank line for the printed amount is the exact match (Tim, 2026-10-19: Chevron $14.88 printed,
+        // saved $14.69 — the $14.69 line was shown as "exact", the right $14.88 line as "close").
+        $penny = $this->pennyTotal($expenseId);
+        if ($penny !== null && abs($penny - (float)$expense['total']) >= 0.01) $expense['penny_total'] = $penny;
+        $alt = $expense['penny_total'] ?? $expense['total'];
 
-        $stmt = $this->db->prepare("
+        // The date PRINTED on the receipt is a second anchor: the form's date can be wrong (Dunbar Lumber 2026-10-24:
+        // form said Jun 22, receipt and bank said May 27, so the exact $48.13 line fell outside the window and all
+        // three offered lines tied at 10%). Search and score around both dates, keep each line's best score.
+        $printed = ($printedDate !== null && $printedDate !== '') ? $printedDate : $this->printedDateFor($expenseId);
+        if ($printed !== null && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $printed) || $printed === $expense['expense_date'])) $printed = null;
+        $expense['printed_date'] = $printed;
+        $anchors = [(string)$expense['expense_date']];
+        if ($printed !== null) $anchors[] = $printed;
+
+        $stop = $this->stopForExpense($expenseId);
+        $best = [];
+        foreach ($anchors as $anchor) {
+            $stmt = $this->db->prepare("
             SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
             FROM accounting_transactions at
             WHERE at.type = 'expense'
               AND at.reference_type = 'bank_import'
               AND at.matched_expense_id IS NULL
               AND " . self::NOT_STRIPE_FEE_SQL . "
-              AND ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02)
+              AND (ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02) OR ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02))
               AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
                                           AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
             ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
             LIMIT 50
         ");
-        $stmt->execute([
-            $expense['total'], $expense['total'],
-            $expense['expense_date'], $expense['expense_date'],
-            $expense['expense_date'],
-        ]);
-
-        $out = [];
-        $stop = $this->stopForExpense($expenseId);
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
-            $score = $this->scoreExpenseTransactionPair($expense, $tx, $stop);
-            if ($score === null) continue;
-            $out[] = [
-                'transaction_id' => (int)$tx['id'],
-                'date'           => substr((string)$tx['transaction_date'], 0, 10),
-                'description'    => (string)$tx['description'],
-                'bank_account'   => (string)($tx['bank_account'] ?? ''),
-                'amount'         => round((float)$tx['amount'], 2),
-                'confidence'     => $score['confidence'],
-                'reasons'        => $score['reasons'],
-            ];
+            $stmt->execute([$expense['total'], $expense['total'], $alt, $alt, $anchor, $anchor, $anchor]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+                $scored = $expense;
+                $scored['expense_date'] = $anchor;
+                $score = $this->scoreExpenseTransactionPair($scored, $tx, $stop);
+                if ($score === null) continue;
+                $id = (int)$tx['id'];
+                $row = [
+                    'transaction_id' => $id,
+                    'date'           => substr((string)$tx['transaction_date'], 0, 10),
+                    'description'    => (string)$tx['description'],
+                    'bank_account'   => (string)($tx['bank_account'] ?? ''),
+                    'amount'         => round((float)$tx['amount'], 2),
+                    'confidence'     => $score['confidence'],
+                    'reasons'        => $score['reasons'],
+                ];
+                if (!isset($best[$id]) || $row['confidence'] > $best[$id]['confidence']) $best[$id] = $row;
+            }
         }
+        // Receipt and bank agree, the form does not: say so, and hand the UI the date to offer. Decided after the
+        // best row is chosen, so a tie between the two anchors (both capped at 100) cannot lose it.
+        foreach ($best as &$row) {
+            if ($printed !== null && $row['date'] === $printed) {
+                $row['reasons'][] = 'The receipt prints ' . date('M j', strtotime($printed)) . ', the same day as this line — the form says '
+                                  . date('M j', strtotime((string)$expense['expense_date'])) . '. Check the date.';
+                $row['suggest_expense_date'] = $printed;
+            }
+        }
+        unset($row);
+        $out = array_values($best);
         usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
         $out = $this->receiptFactsBoost($out, null, $expenseId);
         $out = array_slice($out, 0, $limit);
@@ -4213,12 +4287,14 @@ class BankImportService
             FROM accounting_transactions at
             WHERE at.type = 'expense' AND at.reference_type = 'bank_import' AND at.matched_expense_id IS NULL
               AND " . self::NOT_STRIPE_FEE_SQL . "
-              AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+              AND (at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+                   OR at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY))
               AND ({$like})
-            ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
+            ORDER BY LEAST(ABS(DATEDIFF(at.transaction_date, ?)), ABS(DATEDIFF(at.transaction_date, ?))) ASC
             LIMIT 50
         ");
-        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date']], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date']]));
+        $second = !empty($expense['printed_date']) ? $expense['printed_date'] : $expense['expense_date'];   // no printed date: the same window twice
+        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date'], $second, $second], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date'], $second]));
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $tx) {
             if (in_array((int)$tx['id'], $exclude, true)) continue;
@@ -4226,29 +4302,72 @@ class BankImportService
             foreach ($names as $n) if (self::vendorInDescription($n, (string)$tx['description'])) { $hit = true; break; }
             if (!$hit) continue;
             $out[] = self::vendorLine($expense, $tx);
-            if (count($out) >= self::VENDOR_LINES_MAX) break;
         }
-        return $out;
+        // Two same-vendor charges that could each be "the receipt plus a tip" (two visits): don't pick for the owner.
+        if (count(array_filter($out, fn($l) => !empty($l['tip']))) > 1) {
+            $out = array_map(fn($l) => !empty($l['tip']) ? self::vendorLine(['no_tip' => true] + $expense, ['id' => $l['transaction_id'], 'transaction_date' => $l['date'],
+                    'description' => $l['description'], 'amount' => $l['amount'], 'bank_account' => $l['bank_account']]) : $l, $out);
+        }
+        // The same amount first (a date to check), then a different amount; nearest date within each.
+        usort($out, fn($a, $b) => [empty($a['same_amount']), -$a['confidence']] <=> [empty($b['same_amount']), -$b['confidence']]);
+        return array_slice($out, 0, self::VENDOR_LINES_MAX);
+    }
+
+    /**
+     * A meal's bank charge is the receipt plus a tip the paper didn't carry (Tim, 2026-10-26: Moxies, Ah Long Sushi, Whitespot).
+     * When the receipt is a MEALS receipt, the bank charged $1+ more than the receipt total, the gap is a plausible tip (5–35% of
+     * the pre-tax amount) and the charge is within 3 days of the receipt, say what the tip would be and what the receipt would
+     * become: the tip goes in the PRE-TAX amount (a tip carries no GST or PST), the tax stays as printed, the total is the bank charge.
+     * @return array{tip: float, pct: float, amount: float, total: float}|null
+     */
+    public static function tipSuggestion(array $expense, float $bankAmount, string $bankDate): ?array
+    {
+        if (!in_array(strtolower(trim((string)($expense['accounting_category'] ?? ''))), ['meals', 'meals & entertainment'], true)) return null;
+        $total = round((float)($expense['saved_total'] ?? $expense['total'] ?? 0), 2);
+        $bank = round($bankAmount, 2);
+        $tip = round($bank - $total, 2);
+        if ($total <= 0 || $tip < 1.00) return null;
+        $gst = round((float)($expense['gst_amount'] ?? 0), 2);
+        $pst = round((float)($expense['pst_amount'] ?? 0), 2);
+        $pre = isset($expense['amount']) && (float)$expense['amount'] > 0 ? round((float)$expense['amount'], 2) : round($total - $gst - $pst, 2);
+        if ($pre <= 0) return null;
+        // The receipt must already add up (pre-tax + GST + PST = total); one that doesn't — a tip already in it, a misread — is not ours to guess at.
+        if (abs($pre + $gst + $pst - $total) > 0.011) return null;
+        $pct = $tip / $pre * 100;
+        if ($pct < 5 || $pct > 35) return null;
+        $dates = array_filter([(string)($expense['expense_date'] ?? ''), (string)($expense['printed_date'] ?? '')]);
+        $near = false;
+        foreach ($dates as $d) if (abs((int)round((strtotime(substr($bankDate, 0, 10) . ' 12:00:00 UTC') - strtotime(substr($d, 0, 10) . ' 12:00:00 UTC')) / 86400)) <= 3) $near = true;
+        if (!$near) return null;
+        return ['tip' => $tip, 'pct' => round($pct, 1), 'amount' => round($pre + $tip, 2), 'total' => $bank];
     }
 
     /** One same-vendor candidate, shaped like the others; low confidence, says what to check. Pure. */
     public static function vendorLine(array $expense, array $tx): array
     {
         $days = (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400);
+        if (!empty($expense['printed_date'])) {   // the date printed on the receipt counts too: nearest of the two
+            $days = min($days, (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['printed_date'])) / 86400));
+        }
         $amt = round((float)$tx['amount'], 2);
         $same = abs($amt - round((float)$expense['total'], 2)) < 0.01;
+        $tip = ($same || !empty($expense['no_tip'])) ? null : self::tipSuggestion($expense, $amt, (string)$tx['transaction_date']);
         $reasons = ['Same vendor'];
         $reasons[] = $same ? 'Same amount, ' . $days . ' day' . ($days === 1 ? '' : 's') . ' apart — check the date'
-                           : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total';
+                           : ($tip ? 'Adds a $' . number_format($tip['tip'], 2) . ' tip (' . rtrim(rtrim(number_format($tip['pct'], 1), '0'), '.') . '%) to the receipt — check the paper'
+                                   : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total');
         return [
             'transaction_id' => (int)$tx['id'],
             'date'           => substr((string)$tx['transaction_date'], 0, 10),
             'description'    => (string)$tx['description'],
             'bank_account'   => (string)($tx['bank_account'] ?? ''),
             'amount'         => $amt,
-            'confidence'     => max(10, 30 - $days),
+            // Same vendor AND amount is a real lead, only the date is off: it must not tie with a different amount.
+            'confidence'     => $same ? max(25, 45 - $days) : ($tip ? max(40, 55 - $days) : max(10, 30 - $days)),
             'reasons'        => $reasons,
             'vendor_only'    => true,
+            'same_amount'    => $same,
+            'tip'            => $tip,
         ];
     }
 
@@ -4278,6 +4397,7 @@ class BankImportService
             LEFT JOIN accounting_transactions bt ON bt.matched_expense_id = e.id
             WHERE e.status IN ('draft','pending_approval','approved','forwarded')
               AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "
               AND ABS(e.total - ?) <= GREATEST(0.5, ? * 0.02)
               AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
                                      AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
@@ -4353,9 +4473,7 @@ class BankImportService
                 . number_format((float)$transaction['amount'], 2) . ' — correct the receipt total and save it first.');
         }
 
-        $stmt = $this->db->prepare("SELECT id FROM accounting_transactions WHERE matched_expense_id = ?");
-        $stmt->execute([$expenseId]);
-        if ($stmt->fetch()) throw new RuntimeException('This expense is already matched to another transaction.');
+        if ((new BankLineReceipts($this->db))->lineFor($expenseId) !== null) throw new RuntimeException('This expense is already matched to another transaction.');
 
         // Recorded for reporting even though the user picked it manually — falls
         // back to 0 if the pair is outside the normal scoring window (a deliberate
@@ -4411,6 +4529,11 @@ class BankImportService
         if (!$transaction || !$transaction['matched_expense_id']) {
             throw new RuntimeException('Transaction is not currently matched.');
         }
+        // Several receipts on this line (migration 1372): unmatching the line unmatches them all — in one change.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+        $extras = (new BankLineReceipts($this->db))->detachExtras($transactionId);
 
         $this->db->prepare("
             UPDATE accounting_transactions SET
@@ -4421,8 +4544,13 @@ class BankImportService
               matched_by         = NULL
             WHERE id = ?
         ")->execute([$transactionId]);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
 
-        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id']];
+        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id'], 'also_unmatched' => $extras];
     }
 
     /**
