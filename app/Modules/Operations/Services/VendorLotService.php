@@ -30,9 +30,8 @@ final class VendorLotService
                 }
                 return false;
             }
-            $s = $this->db->prepare("SHOW COLUMNS FROM {$table} LIKE ?");
-            $s->execute([$column]);
-            return (bool)$s->fetchColumn();
+            // No placeholder: MySQL rejects parameter markers in SHOW statements with native prepares (emulation off).
+            return (bool)$this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($column))->fetch();
         } catch (Throwable $e) {
             return false;
         }
@@ -43,7 +42,7 @@ final class VendorLotService
     {
         $summary = ['checked' => 0, 'stored' => 0, 'refused' => 0, 'skipped' => false];
         foreach (['lot_json', 'lot_source', 'lot_reason', 'lot_checked_at'] as $c) {
-            if (!$this->hasColumn('vendor_locations', $c)) return $summary + ['skipped' => true];
+            if (!$this->hasColumn('vendor_locations', $c)) return ['skipped' => true] + $summary;
         }
         $limit = max(1, min(50, $limit));
         $rows = $this->db->query("SELECT id, address, city, lat, lng FROM vendor_locations
@@ -94,8 +93,8 @@ final class VendorLotService
     public function placeFromReceipts(): array
     {
         $out = ['vendors' => 0, 'clusters' => 0, 'placed' => 0, 'unmatched' => 0, 'skipped' => false];
-        foreach (['receipt_lat', 'receipt_lng'] as $c) if (!$this->hasColumn('expenses', $c)) return $out + ['skipped' => true];
-        if (!$this->hasColumn('vendor_locations', 'geo_exact')) return $out + ['skipped' => true];
+        foreach (['receipt_lat', 'receipt_lng'] as $c) if (!$this->hasColumn('expenses', $c)) return ['skipped' => true] + $out;
+        if (!$this->hasColumn('vendor_locations', 'geo_exact')) return ['skipped' => true] + $out;
         try {
             $rows = $this->db->prepare("SELECT vendor_id, receipt_lat, receipt_lng FROM expenses
                 WHERE vendor_id IS NOT NULL AND status = 'approved' AND receipt_lat IS NOT NULL AND receipt_lng IS NOT NULL
@@ -103,7 +102,7 @@ final class VendorLotService
             $rows->execute([date('Y-m-d H:i:s', strtotime('-365 days'))]);
             $rows = $rows->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
-            return $out + ['skipped' => true];
+            return ['skipped' => true] + $out;
         }
         $byVendor = [];
         foreach ($rows as $r) $byVendor[(int)$r['vendor_id']][] = [(float)$r['receipt_lat'], (float)$r['receipt_lng']];
@@ -162,9 +161,9 @@ final class VendorLotService
     public function linkCommons(int $limit = 20): array
     {
         $out = ['checked' => 0, 'linked' => 0, 'skipped' => false];
-        if (!$this->hasColumn('vendors', 'kb_vendor_id')) return $out + ['skipped' => true];
+        if (!$this->hasColumn('vendors', 'kb_vendor_id')) return ['skipped' => true] + $out;
         $store = new LocalVendorKnowledgeStore($this->db);
-        if (!$store->ready()) return $out + ['skipped' => true];
+        if (!$store->ready()) return ['skipped' => true] + $out;
         $columns = ['gst_number' => $this->hasColumn('vendors', 'gst_number'), 'phone' => $this->hasColumn('vendors', 'phone'),
                     'website' => $this->hasColumn('vendors', 'website'), 'domain' => $this->hasColumn('vendors', 'domain')];
         $select = 'id, name' . ($columns['gst_number'] ? ', gst_number' : ', NULL gst_number')

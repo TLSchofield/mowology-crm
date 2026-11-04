@@ -26,9 +26,8 @@ final class VendorHoursService
                 }
                 return false;
             }
-            $s = $this->db->prepare("SHOW COLUMNS FROM {$table} LIKE ?");
-            $s->execute([$column]);
-            return (bool)$s->fetchColumn();
+            // No placeholder: MySQL rejects parameter markers in SHOW statements with native prepares (emulation off).
+            return (bool)$this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($column))->fetch();
         } catch (Throwable $e) { return false; }
     }
 

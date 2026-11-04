@@ -1971,9 +1971,9 @@ function vendorProfileHasColumn(PDO $db, string $column): bool
     static $cache = [];
     if (!array_key_exists($column, $cache)) {
         try {
-            $q = $db->prepare("SHOW COLUMNS FROM vendor_parse_profiles LIKE ?");
-            $q->execute([$column]);
-            $cache[$column] = (bool)$q->fetch();
+            // No placeholder: MySQL rejects parameter markers in SHOW with native prepares, so header-layout
+            // lessons were never stored from 2026-10-28 until this fix (2026-11-04).
+            $cache[$column] = (bool)$db->query("SHOW COLUMNS FROM vendor_parse_profiles LIKE " . $db->quote($column))->fetch();
         } catch (Throwable $e) {
             $cache[$column] = false;
         }

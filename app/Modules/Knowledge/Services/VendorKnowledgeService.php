@@ -289,9 +289,9 @@ final class VendorKnowledgeService
         $k = $table . '.' . $col;
         if (isset($cache[$k])) return $cache[$k];
         try {
-            $s = $this->db->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
-            $s->execute([$col]);
-            return $cache[$k] = $s->rowCount() > 0;
+            // No placeholder: MySQL rejects parameter markers in SHOW with native prepares, so this used to answer
+            // "missing" for every column and the commons link (kb_vendor_id) never ran (found 2026-11-04).
+            return $cache[$k] = (bool)$this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($col))->fetch();
         } catch (Throwable $e) { return $cache[$k] = false; }
     }
 }
