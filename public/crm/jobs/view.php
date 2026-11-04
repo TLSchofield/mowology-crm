@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -1830,8 +1831,8 @@ if ($hasPropCoords) {
                                 </div>
                                 <div class="mw-plan-photo-grid">
                                     <?php foreach ($dayPhotos as $ph):
-                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: ('/uploads/photos/' . $ph['filename']);
-                                        $fullUrl = $ph['view_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: (uploadsUrl('photos') . '/' . $ph['filename']);
+                                        $fullUrl = $ph['view_path'] ?: (uploadsUrl('photos') . '/' . $ph['filename']);
                                         $typeLabel = ucfirst($ph['photo_type'] ?? 'other');
                                     ?>
                                     <a href="<?php echo h($fullUrl); ?>" target="_blank" class="mw-plan-photo-tile" title="<?php echo h($typeLabel); ?> &middot; <?php echo h($ph['uploaded_by_name'] ?? 'Crew'); ?>">
