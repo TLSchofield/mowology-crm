@@ -21,6 +21,8 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
+
 class CharlieUrgentService
 {
     public const DEFAULT_PAYMENT_MIN = 500.0;
@@ -138,6 +140,26 @@ class CharlieUrgentService
                 foreach ((new SecurityPostureService($this->db))->urgent() as $a) $out[] = $a;
             } catch (Throwable $e) {
                 error_log('Charlie urgent: Ada security posture unavailable: ' . $e->getMessage());
+            }
+        }
+
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Invoices/Services/InvoiceRejectionWatch.php')) {
+            try {
+                // A client's accounts system refused one of our invoices (e.g. LeapAP: "No PDF found"): the owner hears the same day.
+                require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRejectionWatch.php';
+                foreach (InvoiceRejectionWatch::urgent($this->db) as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: invoice rejection watch unavailable: ' . $e->getMessage());
+            }
+        }
+
+        if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Technology/Services/PulseService.php')) {
+            try {
+                // Pulse: something the owner would notice has stopped working (two failing 5-minute checks in a row), once per incident.
+                require_once APP_ROOT . '/Modules/Technology/Services/PulseService.php';
+                foreach ((new PulseService($this->db))->urgent() as $a) $out[] = $a;
+            } catch (Throwable $e) {
+                error_log('Charlie urgent: Pulse unavailable: ' . $e->getMessage());
             }
         }
 
@@ -312,7 +334,7 @@ class CharlieUrgentService
             $url = preg_match('#^https?://#', $a['url']) ? $a['url'] : $base . '/' . ltrim($a['url'], '/');
             $html .= '<li><a href="' . $e($url) . '" style="color:#0D3B2E;">' . $e($a['text']) . '</a></li>';
         }
-        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, books that stop matching the bank, same-day weather and security alarms. — Charlie</p>';
+        $html .= '</ul><p style="margin:0;font-size:13px;color:#4a6b5d;' . $font . '">I only email like this for payment failures, invoices that could not be sent, books that stop matching the bank, same-day weather and security alarms. — ' . htmlspecialchars(HeadIdentity::chiefName(), ENT_QUOTES, 'UTF-8') . '</p>';
         return ['subject' => $subject, 'body' => $html];
     }
 }
