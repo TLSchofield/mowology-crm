@@ -101,6 +101,17 @@ function compareParsedHeaders(array $server, array $device): array
     return $out;
 }
 
+/** Has migration 1433 added receipt_ocr_compare.device_text? One cheap probe per receipt; any error means no. */
+function deviceOcrHasTextColumn(PDO $db): bool
+{
+    try {
+        $db->query("SELECT device_text FROM receipt_ocr_compare WHERE 1 = 0");
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 /**
  * Parse the device text and record how it compares with what the server read (shadow mode).
  * Swallows every failure: the upload must never wait on, or fail because of, the measurement.
@@ -113,12 +124,22 @@ function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $devic
         $cmp = compareParsedHeaders($serverParsed, $deviceParsed);
         $fields = count($cmp);
         $agree = count(array_filter($cmp, static fn($c) => $c['match']));
-        $db->prepare("
-            INSERT INTO receipt_ocr_compare
-                (media_id, vendor_id, engine, engine_version, server_source, fields_compared, fields_agree, detail_json, device_text_chars)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ")->execute([$mediaId, $vendorId, $device['engine'], $device['version'], $serverSource, $fields, $agree,
-                     json_encode($cmp), strlen($device['text'])]);
+        $params = [$mediaId, $vendorId, $device['engine'], $device['version'], $serverSource, $fields, $agree,
+                   json_encode($cmp), strlen($device['text'])];
+        // The text itself feeds the parser replay corpus (migration 1433). Before 1433 runs, store the length only.
+        if (deviceOcrHasTextColumn($db)) {
+            $db->prepare("
+                INSERT INTO receipt_ocr_compare
+                    (media_id, vendor_id, engine, engine_version, server_source, fields_compared, fields_agree, detail_json, device_text_chars, device_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute(array_merge($params, [$device['text']]));
+        } else {
+            $db->prepare("
+                INSERT INTO receipt_ocr_compare
+                    (media_id, vendor_id, engine, engine_version, server_source, fields_compared, fields_agree, detail_json, device_text_chars)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute($params);
+        }
     } catch (Throwable $e) {
         error_log('Device OCR compare (non-fatal): ' . $e->getMessage());
     }

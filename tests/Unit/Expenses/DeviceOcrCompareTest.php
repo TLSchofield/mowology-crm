@@ -73,4 +73,25 @@ class DeviceOcrCompareTest extends TestCase
         $this->assertFalse(deviceMatchesServer(['total' => '23.28', 'date' => '2026-01-01'], ['total' => '23.28', 'date' => '2026-10-28']));
         $this->assertTrue(deviceMatchesServer(['total' => '23.28'], ['date' => '2026-10-28']), 'a field one side did not read is not a disagreement');
     }
+
+    /** Migration 1433: the phone's text is kept when the column exists, and the length-only insert still works before it runs. */
+    public function test_compare_row_keeps_device_text_once_the_column_exists(): void
+    {
+        foreach ([true, false] as $withText) {
+            $db = new PDO('sqlite::memory:');
+            $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $db->exec('CREATE TABLE receipt_ocr_compare (id INTEGER PRIMARY KEY, media_id INT, vendor_id INT, engine TEXT, engine_version TEXT,
+                server_source TEXT, fields_compared INT, fields_agree INT, detail_json TEXT, device_text_chars INT'
+                . ($withText ? ', device_text TEXT' : '') . ')');
+            $device = ['text' => "SHOP\n2026-11-04\nTOTAL 14.49", 'engine' => 'apple_vision', 'version' => '1'];
+            logDeviceOcrCompare($db, 7, null, $device, ['total' => '14.49', 'date' => '2026-11-04'], 'vision');
+            $row = $db->query('SELECT * FROM receipt_ocr_compare')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame(strlen($device['text']), (int)$row['device_text_chars']);
+            if ($withText) {
+                $this->assertSame($device['text'], $row['device_text']);
+            } else {
+                $this->assertArrayNotHasKey('device_text', $row);
+            }
+        }
+    }
 }
