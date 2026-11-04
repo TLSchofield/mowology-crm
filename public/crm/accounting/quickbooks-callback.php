@@ -13,7 +13,7 @@ if ($phoneResult !== null) {
     error_log('QuickBooks phone callback: ' . (!empty($result['ok']) ? 'connected' : 'not connected'));
     header('Content-Type: text/html; charset=utf-8');
     header('X-Content-Type-Options: nosniff');
-    ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuickBooks · Ittai</title><link rel="stylesheet" href="/crm/css/ittai-onboarding.css"></head><body class="it-onboard"><main class="it-ob-shell"><section class="it-ob-conversation"><h1><?= !empty($result['ok']) ? 'QuickBooks connected' : 'QuickBooks did not connect' ?></h1><p><?= h(!empty($result['ok']) ? 'QuickBooks connected — go back to the Ittai app.' : (string)$result['message']) ?></p></section></main></body></html><?php
+    ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuickBooks · Ittai</title><link rel="stylesheet" href="/crm/css/penny-onboarding.css"><link rel="stylesheet" href="/crm/css/ittai-onboarding.css"></head><body class="it-onboard"><main class="it-ob-shell"><section class="it-ob-conversation"><h1><?= !empty($result['ok']) ? 'QuickBooks is connected.' : 'QuickBooks did not connect.' ?></h1><p><?= h(!empty($result['ok']) ? 'Close this tab to go back to Ittai.' : (string)$result['message'] . ' Close this tab and try again from Ittai.') ?></p></section></main></body></html><?php
     exit;
 }
 

@@ -12,7 +12,7 @@ final class SignUpServiceTest extends TestCase
         $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, password_hash TEXT, full_name TEXT, first_name TEXT, last_name TEXT, preferred_name TEXT, role TEXT, is_active INT, last_login TEXT, phone TEXT, contact_channel TEXT, quiet_start TEXT, quiet_end TEXT, quiet_weekends INT DEFAULT 0)');
         $db->exec('CREATE TABLE business_settings (id INTEGER PRIMARY KEY, company_name TEXT, gst_registration TEXT)');
         $db->exec('CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)');
-        $db->exec('CREATE TABLE activity_log (user_id INT, client_id INT, action TEXT, details TEXT, ip_address TEXT)');
+        $db->exec('CREATE TABLE activity_log (id INTEGER PRIMARY KEY, user_id INT, contact_id INT, action TEXT, details TEXT, ip_address TEXT)');
         $db->exec('CREATE TABLE business_identity (id INTEGER PRIMARY KEY, legal_name TEXT)');
         $db->exec("INSERT INTO users (id,email,password_hash,full_name,role,is_active) VALUES (7,'owner@example.com','one-time','Old Owner','admin',1)");
         $db->exec("INSERT INTO business_settings VALUES (1,'Provisioned Placeholder','')");
@@ -78,6 +78,7 @@ final class SignUpServiceTest extends TestCase
         $db = $this->db(); $svc = new SignUpService($db, 'tenant'); $svc->requestCode($this->valid(), '123456', 1000);
         $r = $svc->confirm($this->valid('123456'), '127.0.0.1', static function (array $user): string { return 'token'; }, 1001);
         $this->assertTrue($r['ok']); $this->assertSame('token', $r['token']); $this->assertSame('name', $r['next']);
+        $this->assertSame('Sign-up (mobile)', $db->query('SELECT action FROM activity_log')->fetchColumn(), 'the claim is logged (production table has no client_id; walk 1)');
         $u = $db->query('SELECT first_name,last_name,preferred_name,phone,contact_channel FROM users WHERE id=7')->fetch(PDO::FETCH_ASSOC);
         $this->assertSame(['first_name'=>'Ada','last_name'=>'Lovelace','preferred_name'=>'Ada','phone'=>'(604) 555-0101','contact_channel'=>'text'], $u);
         $this->assertSame('Provisioned Placeholder', $db->query('SELECT company_name FROM business_settings')->fetchColumn());

@@ -161,8 +161,8 @@ try {
 
     $loginAction = $audience === 'mobile' ? 'iOS app login' : 'BlueMoon web login';
     $db->prepare("
-        INSERT INTO activity_log (user_id, client_id, action, details, ip_address)
-        VALUES (?, NULL, ?, ?, ?)
+        INSERT INTO activity_log (user_id, action, details, ip_address)
+        VALUES (?, ?, ?, ?)
     ")->execute([(int)$user['id'], $loginAction, 'JWT issued', $ip]);
 
 } catch (Throwable $e) {
@@ -210,6 +210,15 @@ $signature = base64url_encode(
 $token = $header . '.' . $payload . '.' . $signature;
 
 // ── Respond ────────────────────────────────────────────────────────────────
+// The app greets the business and its chief of staff by their shown names (Claudia walk 1, 2026-11-03: the
+// Android day screen still said "Charlie"). Both helpers never throw; empty means "use your default".
+$businessName = $chiefName = '';
+try {
+    require_once APP_ROOT . '/Services/BusinessIdentity.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
+    $businessName = (string)(BusinessIdentity::get($db)['name'] ?? '');
+    $chiefName = HeadIdentity::chiefName($db);
+} catch (Throwable $e) { error_log('[token] identity names: ' . get_class($e)); }
 http_response_code(200);
 echo json_encode([
     'token' => $token,
@@ -218,6 +227,8 @@ echo json_encode([
         'email' => (string)$user['email'],
         'name'  => (string)($user['full_name'] ?? ''),
         'role'  => (string)($user['role'] ?? 'user'),
+        'business_name' => $businessName,
+        'chief_name'    => $chiefName,
     ],
     'expires_in' => $ttl,
 ]);

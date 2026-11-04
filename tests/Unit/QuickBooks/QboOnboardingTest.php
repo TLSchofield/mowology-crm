@@ -17,6 +17,7 @@ class QboOnboardingTest extends TestCase
         foreach ([
             "CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)",
             "CREATE TABLE qbo_onboarding_parts (id INTEGER PRIMARY KEY, site_id INT, part TEXT, summary TEXT, applied_by INT, applied_at TEXT)",
+            "CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)",
             "CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, notes TEXT)",
             "CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, site_contact_id INT)",
             "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)",
@@ -137,8 +138,11 @@ class QboOnboardingTest extends TestCase
         $this->assertSame('1 supplier to add', $p['suppliers']);
         $this->assertArrayHasKey('clients', $p); $this->assertArrayHasKey('services', $p);
         $this->assertArrayNotHasKey('accounts', $p, 'no chart in this fixture: that part is left out, the rest still preview');
+        $this->assertNotFalse($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'qbo_onboarding_previews'")->fetchColumn(), 'stored once per read');
         $ob->apply('suppliers', 1);
-        $this->assertSame('Nothing new — 1 already here', $ob->partPreviews()['suppliers']);
+        $this->assertSame('1 supplier to add', $ob->partPreviews()['suppliers'], 'as of the read (the row itself now shows Done)');
+        $ob->import($this->snapshot());
+        $this->assertSame('Nothing new — 1 already here', $ob->partPreviews()['suppliers'], 'a new read works it out again');
         $this->assertSame([], (new QboOnboardingService($this->db(), null, 1, null, true))->partPreviews(), 'nothing before a read');
         $this->assertSame('None found', QboOnboardingService::countLine(0, 0, 'client', 'clients'));
         $this->assertSame('3 clients to add, 2 already here', QboOnboardingService::countLine(3, 2, 'client', 'clients'));

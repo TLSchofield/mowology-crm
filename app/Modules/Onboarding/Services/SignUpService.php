@@ -131,7 +131,7 @@ final class SignUpService
             $next = (new OnboardingService($context))->next();
             $token = $issueToken !== null ? $issueToken($owner) : null;
             try {
-                $this->db->prepare("INSERT INTO activity_log (user_id, client_id, action, details, ip_address) VALUES (?, NULL, 'Sign-up (mobile)', 'Business claimed, JWT issued', ?)")->execute([$ownerId, $ip]);
+                $this->db->prepare("INSERT INTO activity_log (user_id, action, details, ip_address) VALUES (?, 'Sign-up (mobile)', 'Business claimed, JWT issued', ?)")->execute([$ownerId, $ip]);
             } catch (Throwable $logError) { error_log('[signup] Activity log failed: ' . get_class($logError)); }
             $this->db->commit();
             return ['ok' => true, 'status' => 201, 'user' => $owner, 'token' => $token, 'next' => $next];

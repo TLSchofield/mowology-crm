@@ -132,6 +132,7 @@ class QboOnboardingService
             $ins = $this->db->prepare('INSERT INTO qbo_onboarding_snapshot (site_id, kind, qbo_id, data, pulled_at) VALUES (?, ?, ?, ?, ?)');
             foreach ($rows as [$kind, $id, $data]) $ins->execute([$this->siteId, $kind, $id, json_encode($data), $now]);
             $this->db->commit();
+            $this->storePreviews(null);   // worked out again from the new read, once
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
@@ -479,6 +480,51 @@ class QboOnboardingService
     public function partPreviews(): array
     {
         if (!$this->hasSnapshot()) return [];
+        // Worked out once per read and stored (Codex 2026-11-03: the clients preview runs queries per customer,
+        // too much for every screen load). A snapshot read before this existed is worked out on first use.
+        $stored = $this->storedPreviews();
+        if ($stored !== null) return $stored;
+        $out = $this->computePreviews();
+        $this->storePreviews($out);
+        return $out;
+    }
+
+    public const PREVIEWS_KEY = 'qbo_onboarding_previews';
+
+    /** @return array<string,string>|null */
+    private function storedPreviews(): ?array
+    {
+        try {
+            $s = $this->db->prepare('SELECT setting_value FROM ops_settings WHERE setting_key = ?');
+            $s->execute([self::PREVIEWS_KEY]);
+            $v = $s->fetchColumn();
+            if ($v === false || $v === null || $v === '') return null;
+            $d = json_decode((string)$v, true);
+            return is_array($d) ? array_map('strval', $d) : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function storePreviews(?array $previews): void
+    {
+        try {
+            if ($previews === null) { $this->db->prepare('DELETE FROM ops_settings WHERE setting_key = ?')->execute([self::PREVIEWS_KEY]); return; }
+            $json = (string)json_encode($previews);
+            $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ? WHERE setting_key = ?');
+            $u->execute([$json, self::PREVIEWS_KEY]);
+            $chk = $this->db->prepare('SELECT 1 FROM ops_settings WHERE setting_key = ?');
+            $chk->execute([self::PREVIEWS_KEY]);
+            if ($chk->fetchColumn() === false) $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')
+                ->execute([self::PREVIEWS_KEY, $json, 'QuickBooks onboarding: what each part would bring in, as of the last read']);
+        } catch (Throwable $e) {
+            error_log('[qbo-onboarding] previews not stored: ' . get_class($e));
+        }
+    }
+
+    /** @return array<string,string> */
+    private function computePreviews(): array
+    {
         $out = [];
         $try = function (string $part, callable $f) use (&$out): void {
             try { $out[$part] = (string)$f(); } catch (Throwable $e) { error_log('[qbo-onboarding] preview ' . $part . ' failed: ' . get_class($e)); }

@@ -36,8 +36,11 @@ clearLoginAttempts($rateKey, $ip);
 $user = $result['user'];
 $businessName = (string)(getDB()->query('SELECT company_name FROM business_settings ORDER BY id ASC LIMIT 1')->fetchColumn() ?: '');
 $host = (string)(parse_url(Tenant::appUrl(), PHP_URL_HOST) ?: '');
+$chiefName = '';
+try { require_once APP_ROOT . '/Services/HeadIdentity.php'; $chiefName = HeadIdentity::chiefName(getDB()); } catch (Throwable $e) { $chiefName = ''; }
 http_response_code(201);
 echo json_encode(['ok' => true, 'token' => (string)$result['token'],
-    'user' => ['id' => (int)$user['id'], 'email' => (string)$user['email'], 'name' => (string)$user['full_name'], 'role' => 'admin'],
+    'user' => ['id' => (int)$user['id'], 'email' => (string)$user['email'], 'name' => (string)$user['full_name'], 'role' => 'admin',
+               'business_name' => $businessName, 'chief_name' => $chiefName],
     'expires_in' => 2592000, 'business' => ['key' => Tenant::key(), 'host' => $host, 'name' => $businessName],
     'onboarding' => ['next' => $result['next']]]);
