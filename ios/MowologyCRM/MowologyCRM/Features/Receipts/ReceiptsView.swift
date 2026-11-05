@@ -11,6 +11,8 @@ import PhotosUI
 struct ReceiptsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.itAppStyle) private var appStyle
+    /// Room for the meniscus bar under pinned bottom controls (Tim, 2026-11-05).
+    @Environment(\.itBarClearance) private var barClearance
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
@@ -74,9 +76,10 @@ struct ReceiptsView: View {
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .bottom) {
                 if isSelectMode {
-                    if !selectedIds.isEmpty { bulkActionBar }
+                    if !selectedIds.isEmpty { bulkActionBar.padding(.bottom, barClearance) }
                 } else {
                     captureButton   // a bar under the list, never floating over it (owner, 2026-10-19)
+                        .padding(.bottom, barClearance)
                 }
             }
         }

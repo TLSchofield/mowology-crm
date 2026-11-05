@@ -88,6 +88,9 @@ struct MainTabView: View {
         }
     }
 
+    /// The room the meniscus bar takes at the bottom of every tab screen.
+    static let barReserve: CGFloat = ItMeniscusGeometry.rise + ItMeniscusBar.barHeight
+
     init() {
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
@@ -102,6 +105,8 @@ struct MainTabView: View {
                 screen(tab)
                     .tag(tab)
                     .toolbar(.hidden, for: .tabBar)
+                    // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
+                    .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
             }
         }
         // The ready brief's head states, for each screen's head face and "needs you" line (ScreenHead.swift).
@@ -109,7 +114,7 @@ struct MainTabView: View {
         // The bar's inset does not reach scroll views inside the tabs' navigation stacks, so the last rows of a
         // pushed screen sat under the bar (Tim, 2026-11-05: visit screen, "Move to another date"). Content margins
         // pass down to every scroll view, pushed screens included (proved in the simulator, 2026-11-05).
-        .contentMargins(.bottom, keyboardUp ? 0 : ItMeniscusGeometry.rise + ItMeniscusBar.barHeight, for: .scrollContent)
+        .contentMargins(.bottom, keyboardUp ? 0 : Self.barReserve, for: .scrollContent)
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
@@ -338,4 +343,16 @@ struct SignOutButton: View {
 #Preview {
     MainTabView()
         .environmentObject(AuthSession())
+}
+
+/// How far a control pinned to the bottom of a tab screen must sit up to clear the meniscus bar. The bar's own
+/// inset does not reach inside the tabs' navigation stacks (Known-Failure-Patterns, 2026-11-05); scroll content
+/// gets room from `contentMargins`, pinned controls read this. 0 outside the tabs (sheets set their own).
+private struct ItBarClearanceKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+
+extension EnvironmentValues {
+    var itBarClearance: CGFloat {
+        get { self[ItBarClearanceKey.self] }
+        set { self[ItBarClearanceKey.self] = newValue }
+    }
 }

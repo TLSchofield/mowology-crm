@@ -321,6 +321,8 @@ struct SearchResultRow: View {
 struct PropertyDetailView: View {
 
     @Environment(\.itAppStyle) private var appStyle
+    /// Room for the meniscus bar under pinned bottom controls (Tim, 2026-11-05).
+    @Environment(\.itBarClearance) private var barClearance
 
     /// What the result row already knew — shown instantly while the full page loads.
     let summary: SearchProperty
@@ -446,7 +448,7 @@ struct PropertyDetailView: View {
                     .background(appStyle.tenant)
                     .foregroundStyle(appStyle.onTenant)
                     .clipShape(Capsule())
-                    .padding(.bottom, 18)
+                    .padding(.bottom, 18 + barClearance)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .task {
                         try? await Task.sleep(nanoseconds: 2_500_000_000)

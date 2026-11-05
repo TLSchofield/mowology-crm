@@ -13,6 +13,8 @@ struct DayMapView: View {
     /// type and 48 pt buttons) let the time line spill off the top and Directions off the bottom (2026-10-19).
     @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 200
     @Environment(\.itAppStyle) private var appStyle
+    /// Room for the meniscus bar under pinned bottom controls (Tim, 2026-11-05).
+    @Environment(\.itBarClearance) private var barClearance
 
     let stops: [Stop]
     let isLoading: Bool
@@ -60,6 +62,7 @@ struct DayMapView: View {
 
             if !mappableStops.isEmpty {
                 carousel
+                    .padding(.bottom, barClearance)
                     .zIndex(1)
             }
         }
