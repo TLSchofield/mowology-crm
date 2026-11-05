@@ -114,30 +114,33 @@ try {
     // per week; a no-op until there are snow route runs). Never fails the visit run, but a failure
     // makes the run a warning so it shows in the cron log (Codex 2026-10-16: it was recorded as success).
     $sideProblems = [];
-    try {
-        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
-        require_once APP_ROOT . '/Modules/Contracts/Services/SnowWeeklyStatementService.php';
-        $snowStmt = (new SnowWeeklyStatementService(getDB()))->sendDue(date('Y-m-d'));
-        if ($snowStmt['sent'] || $snowStmt['failed']) {
-            error_log(sprintf('[generate_visits cron] snow statements week %s: sent=%d failed=%d',
-                $snowStmt['week']['start'], $snowStmt['sent'], $snowStmt['failed']));
+    // Mowology-only until the outbound gate and per-business settings are ready. (Tim, 2026-11-04)
+    if (Tenant::isDefault()) {
+        try {
+            require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+            require_once APP_ROOT . '/Modules/Contracts/Services/SnowWeeklyStatementService.php';
+            $snowStmt = (new SnowWeeklyStatementService(getDB()))->sendDue(date('Y-m-d'));
+            if ($snowStmt['sent'] || $snowStmt['failed']) {
+                error_log(sprintf('[generate_visits cron] snow statements week %s: sent=%d failed=%d',
+                    $snowStmt['week']['start'], $snowStmt['sent'], $snowStmt['failed']));
+            }
+            if (!empty($snowStmt['failed'])) $sideProblems[] = $snowStmt['failed'] . ' snow statement(s) not sent';
+        } catch (Throwable $e) {
+            error_log('[generate_visits cron] snow statements: ' . cronFailureDetail($e));
+            $sideProblems[] = 'snow statements failed: ' . cronFailureDetail($e);
         }
-        if (!empty($snowStmt['failed'])) $sideProblems[] = $snowStmt['failed'] . ' snow statement(s) not sent';
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] snow statements: ' . cronFailureDetail($e));
-        $sideProblems[] = 'snow statements failed: ' . cronFailureDetail($e);
-    }
 
-    // Approved quotes that no hook caught get Sam's summary + a tray job (QuoteApprovalService).
-    try {
-        require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
-        $appr = (new QuoteApprovalService(getDB()))->sweep();
-        if (!empty($appr['done'])) {
-            error_log(sprintf('[generate_visits cron] approved quotes: %d summarised / tray jobs', $appr['done']));
+        // Approved quotes that no hook caught get Sam's summary + a tray job (QuoteApprovalService).
+        try {
+            require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+            $appr = (new QuoteApprovalService(getDB()))->sweep();
+            if (!empty($appr['done'])) {
+                error_log(sprintf('[generate_visits cron] approved quotes: %d summarised / tray jobs', $appr['done']));
+            }
+        } catch (Throwable $e) {
+            error_log('[generate_visits cron] approved quotes: ' . cronFailureDetail($e));
+            $sideProblems[] = 'approved quotes failed: ' . cronFailureDetail($e);
         }
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] approved quotes: ' . cronFailureDetail($e));
-        $sideProblems[] = 'approved quotes failed: ' . cronFailureDetail($e);
     }
 
     // Otto pins client properties and gives them the city lot as an arrival border (owner, 2026-10-18:
@@ -153,59 +156,45 @@ try {
         $sideProblems[] = 'Otto auto-place failed: ' . $apWhy;
     }
 
-    // Tim 2026-11-03: the original business cron starts Otto once for every other business database.
-    if ($isCli && Tenant::isDefault()) {
+    // Mowology-only until the outbound gate and per-business settings are ready. (Tim, 2026-11-04)
+    if (Tenant::isDefault()) {
+        // Local market prices (MarketPriceService, migration 1375): each public source read once a week.
         try {
-            require_once APP_ROOT . '/Core/BusinessCronFanout.php';
-            $businessOtto = BusinessCronFanout::run(APP_ROOT . '/Modules/Operations/Cron/otto_place_properties.php');
-            $businessSummary = BusinessCronFanout::summary($businessOtto);
-            if ($businessSummary !== '') $autoPlace .= '; Otto for ' . $businessSummary;
-            foreach ($businessOtto as $businessRun) {
-                if ((int)$businessRun['exit'] !== 0) {
-                    $sideProblems[] = 'Otto for ' . $businessRun['key'] . ' failed: ' . $businessRun['last_line'];
-                }
-            }
+            require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
+            $mp = (new MarketPriceService(getDB()))->refreshDue();
+            if ($mp['sources']) $autoPlace .= "; market prices: {$mp['stored']} new/changed from {$mp['sources']} source(s)" . ($mp['errors'] ? ", {$mp['errors']} failed" : '');
         } catch (Throwable $e) {
-            $sideProblems[] = 'Otto for businesses failed: ' . cronFailureDetail($e);
+            error_log('[generate_visits cron] market prices: ' . cronFailureDetail($e));
+            $sideProblems[] = 'market prices failed: ' . cronFailureDetail($e);
         }
-    }
 
-    // Local market prices (MarketPriceService, migration 1375): each public source read once a week.
-    try {
-        require_once APP_ROOT . '/Modules/Operations/Services/MarketPriceService.php';
-        $mp = (new MarketPriceService(getDB()))->refreshDue();
-        if ($mp['sources']) $autoPlace .= "; market prices: {$mp['stored']} new/changed from {$mp['sources']} source(s)" . ($mp['errors'] ? ", {$mp['errors']} failed" : '');
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] market prices: ' . cronFailureDetail($e));
-        $sideProblems[] = 'market prices failed: ' . cronFailureDetail($e);
-    }
+        // Suppliers' public web shops (SupplierWebCatalogReader): each read at most once a week.
+        try {
+            require_once APP_ROOT . '/Modules/Operations/Services/SupplierPriceListService.php';
+            $wc = (new SupplierPriceListService(getDB()))->refreshWebDue();
+            if ($wc['shops']) $autoPlace .= "; web shops: {$wc['imported']} read" . ($wc['failed'] ? ", {$wc['failed']} failed" : '');
+        } catch (Throwable $e) {
+            error_log('[generate_visits cron] web shops: ' . get_class($e));
+        }
 
-    // Suppliers' public web shops (SupplierWebCatalogReader): each read at most once a week.
-    try {
-        require_once APP_ROOT . '/Modules/Operations/Services/SupplierPriceListService.php';
-        $wc = (new SupplierPriceListService(getDB()))->refreshWebDue();
-        if ($wc['shops']) $autoPlace .= "; web shops: {$wc['imported']} read" . ($wc['failed'] ? ", {$wc['failed']} failed" : '');
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] web shops: ' . get_class($e));
-    }
+        // Common names + reference photos for catalogue plants (CatalogTaxonService, migration 1391): a small batch each run.
+        try {
+            require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+            $tx = (new CatalogTaxonService(getDB()))->enrichBatch(25);
+            if ($tx['keys']) $autoPlace .= "; plant names/photos: {$tx['found']} found, {$tx['none']} not found for {$tx['keys']} species" . ($tx['stopped'] ? ' (stopped: ' . $tx['stopped'] . ')' : '');
+        } catch (Throwable $e) {
+            error_log('[generate_visits cron] plant names: ' . get_class($e));
+        }
 
-    // Common names + reference photos for catalogue plants (CatalogTaxonService, migration 1391): a small batch each run.
-    try {
-        require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
-        $tx = (new CatalogTaxonService(getDB()))->enrichBatch(25);
-        if ($tx['keys']) $autoPlace .= "; plant names/photos: {$tx['found']} found, {$tx['none']} not found for {$tx['keys']} species" . ($tx['stopped'] ? ' (stopped: ' . $tx['stopped'] . ')' : '');
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] plant names: ' . get_class($e));
-    }
-
-    // Machines from purchase receipts (EquipmentReceiptIntakeService, migration 1377): Otto adds them himself.
-    try {
-        require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
-        $eqIn = (new EquipmentReceiptIntakeService(getDB()))->sweep();
-        if ($eqIn['added']) $autoPlace .= "; equipment from receipts: {$eqIn['added']} added";
-    } catch (Throwable $e) {
-        error_log('[generate_visits cron] equipment intake: ' . cronFailureDetail($e));
-        $sideProblems[] = 'equipment intake failed: ' . cronFailureDetail($e);
+        // Machines from purchase receipts (EquipmentReceiptIntakeService, migration 1377): Otto adds them himself.
+        try {
+            require_once APP_ROOT . '/Modules/Operations/Services/EquipmentReceiptIntakeService.php';
+            $eqIn = (new EquipmentReceiptIntakeService(getDB()))->sweep();
+            if ($eqIn['added']) $autoPlace .= "; equipment from receipts: {$eqIn['added']} added";
+        } catch (Throwable $e) {
+            error_log('[generate_visits cron] equipment intake: ' . cronFailureDetail($e));
+            $sideProblems[] = 'equipment intake failed: ' . cronFailureDetail($e);
+        }
     }
 
     $hasErrors = !empty($result['errors']) || $sideProblems;

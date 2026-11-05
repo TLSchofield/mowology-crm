@@ -150,6 +150,67 @@ final class BusinessCronFanout
         return $results;
     }
 
+    public static function runPairs(array $pairs, ?callable $spawn = null): array
+    {
+        if (PHP_SAPI !== 'cli' || !Tenant::isDefault()) return [];
+        $php = self::cliBinary();
+        $spawn = $spawn ?? self::defaultSpawn();
+        $results = [];
+        foreach ($pairs as $pair) {
+            $key = (string)($pair['key'] ?? '');
+            if ($key === Tenant::DEFAULT || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
+            $started = microtime(true);
+            try {
+                $r = $spawn([$php, (string)($pair['script'] ?? ''), '--tenant=' . $key], (int)($pair['timeout'] ?? 900));
+                $exit = (int)($r['exit'] ?? 1);
+                $output = (string)($r['output'] ?? '');
+            } catch (Throwable $e) {
+                $exit = 1;
+                $output = get_class($e) . ': ' . $e->getMessage();
+            }
+            $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', $output) ?: []), 'strlen'));
+            $last = $lines ? (string)end($lines) : '';
+            $last = function_exists('mb_substr') ? mb_substr($last, 0, 300) : substr($last, 0, 300);
+            $results[] = ['key' => $key, 'cron' => (string)($pair['cron'] ?? ''), 'exit' => $exit,
+                          'last_line' => $last, 'seconds' => round(microtime(true) - $started, 3)];
+        }
+        return $results;
+    }
+
+    /**
+     * Start a process and do not wait for it (pulse_check starts the business runner this way, Tim 2026-11-04).
+     * One fork: the child starts its own session and execs at once. It never runs PHP's normal exit — that would run
+     * the parent's shutdown functions (CronLock release) and close the MySQL socket the two share. An exec that fails
+     * ends the child with SIGKILL, which the parent sees within 0.3 s and reports as false. The exited child is reaped
+     * by init once this short-lived cron ends.
+     */
+    public static function startDetached(array $argv): bool
+    {
+        if (!$argv || !is_executable((string)$argv[0])) return false;
+        if (function_exists('pcntl_fork') && function_exists('pcntl_exec') && function_exists('posix_setsid')) {
+            $pid = pcntl_fork();
+            if ($pid === -1) return false;
+            if ($pid === 0) {
+                posix_setsid();
+                @pcntl_exec((string)$argv[0], array_map('strval', array_slice($argv, 1)));
+                posix_kill(getmypid(), 9);
+                exit(127);   // not reached
+            }
+            usleep(300000);
+            $status = 0;
+            if (pcntl_waitpid($pid, $status, WNOHANG) === $pid) {
+                return pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0;   // finished already: only a clean exit counts
+            }
+            return true;
+        }
+        if (function_exists('proc_open')) {
+            $pipes = [];
+            $process = proc_open($argv, [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes);
+            return is_resource($process);
+        }
+        return false;
+    }
+
     public static function summary(array $results): string
     {
         if (!$results) return '';
