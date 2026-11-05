@@ -294,3 +294,9 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
 run, imported-customer links, her own items, phone switch, payment bank-match test, Production keys; shadow
 ledger (`books_mode`, monthly compare with her QuickBooks reports) when she considers switching.
 Plan: `2026-11-04-claudia-quickbooks-sending-plan.md`.
+
+**Walk 2 web view of rehearsal2 (Tim's screenshot, 2026-11-04, /crm/jobs/schedule.php):** a business that is not
+Mowology still shows "mowology" as the sidebar logo, "mowology CRM © 2026" in the footer and "Vancouver, BC" (not
+from business settings); the sidebar head is "Charlie" (should be Kaname); the visit-complete panel ("Job Complete!",
+"Add small job or extras", "Complete & Create Invoice", "Complete — No Invoice") renders unstyled and visible under
+the week grid; dashboard targets show Mowology's ($6,000 week target). All first-impression items for Claudia.
