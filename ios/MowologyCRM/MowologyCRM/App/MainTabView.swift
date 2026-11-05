@@ -47,26 +47,45 @@ struct MainTabView: View {
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
-    /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
-    /// thumb reaches it, then the occasional Receipts, and Account last by convention.
-    /// For admins the last tab is Team (it carries Account's profile row and Sign Out).
-    private enum Tab: Hashable { case schedule, timeClock, search, receipts, account }
+    /// One list drives both the screens and the meniscus bar (Tim, 2026-11-04 — docs/plans/kaname-tab-and-screen-heads-spec.md).
+    /// Admins: Schedule · Time · Kaname · Search · Receipts — Kaname, the chief of staff, in the centre: the pivot
+    /// of the bar, reached by either thumb. Crew: Schedule · Time · Search · Receipts · Account, unchanged in shape —
+    /// Search stays in the centre where it was. Kaname's tab carries the profile row and Sign Out for admins.
+    private enum Tab: Hashable { case schedule, time, kaname, search, receipts, account }
     @State private var selectedTab = Tab.schedule
     @State private var keyboardUp = false
-    private static let order: [Tab] = [.schedule, .timeClock, .search, .receipts, .account]
+    /// When a push last sent the user somewhere: the driver question doesn't pull them to Time over it.
+    @State private var routedAt: Date?
 
-    /// The meniscus bar's tabs, in `order`; the last is AI Office for admins, Account for everyone else.
+    private var tabs: [Tab] {
+        authSession.user?.isAdmin == true
+            ? [.schedule, .time, .kaname, .search, .receipts]
+            : [.schedule, .time, .search, .receipts, .account]
+    }
+
     private var meniscusItems: [ItMeniscusItem] {
-        let admin = authSession.user?.isAdmin == true
-        return [
-            ItMeniscusItem(id: 0, title: "Schedule", icon: Image(systemName: "calendar")),
-            ItMeniscusItem(id: 1, title: "Time Clock", icon: Image(systemName: "clock.fill")),
-            ItMeniscusItem(id: 2, title: "Search", icon: Image(systemName: "magnifyingglass")),
-            ItMeniscusItem(id: 3, title: "Receipts", icon: Image(systemName: "doc.text.image")),
-            ItMeniscusItem(id: 4, title: admin ? "AI Office" : "Account",
-                           icon: admin ? Image(uiImage: AI_OfficeTabIcon.image) : Image(systemName: "person.fill"),
-                           iconScale: admin ? 1.35 : 1),
-        ]
+        tabs.enumerated().map { index, tab in
+            switch tab {
+            case .schedule: return ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
+            case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
+            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
+            case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
+            case .receipts: return ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"))
+            case .account:  return ItMeniscusItem(id: index, title: "Account", icon: Image(systemName: "person.fill"))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func screen(_ tab: Tab) -> some View {
+        switch tab {
+        case .schedule: ScheduleView(authSession: authSession)
+        case .time:     TimeClockView(authSession: authSession)
+        case .kaname:   TeamView(authSession: authSession, readyBriefStore: readyBriefStore)
+        case .search:   SearchView(authSession: authSession)
+        case .receipts: ReceiptsView(authSession: authSession).environmentObject(authSession)
+        case .account:  accountTab
+        }
     }
 
     init() {
@@ -77,51 +96,11 @@ struct MainTabView: View {
 
     var body: some View {
         let _ = RenderRate.tick("MainTabView")
+        // TabView keeps each tab's screen and navigation alive while another tab shows; its own bar never shows.
         TabView(selection: $selectedTab) {
-            ScheduleView(authSession: authSession)
-                .tabItem {
-                    Label("Schedule", systemImage: "calendar")
-                }
-                .tag(Tab.schedule)
-                .toolbar(.hidden, for: .tabBar)
-
-            TimeClockView(authSession: authSession)
-                .tabItem {
-                    Label("Time Clock", systemImage: "clock.fill")
-                }
-                .tag(Tab.timeClock)
-                .toolbar(.hidden, for: .tabBar)
-
-            SearchView(authSession: authSession)
-                .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .tag(Tab.search)
-                .toolbar(.hidden, for: .tabBar)
-
-            ReceiptsView(authSession: authSession)
-                .environmentObject(authSession)
-                .tabItem {
-                    Label("Receipts", systemImage: "doc.text.image")
-                }
-                .tag(Tab.receipts)
-                .toolbar(.hidden, for: .tabBar)
-
-            // Admins: Team (department heads + Penny's receipt card, with the profile
-            // row and Sign Out moved in). Everyone else: the Account tab, unchanged.
-            if authSession.user?.isAdmin == true {
-                TeamView(authSession: authSession, readyBriefStore: readyBriefStore)
-                    .tabItem {
-                        Label("AI Office", uiImage: AI_OfficeTabIcon.image)
-                    }
-                    .tag(Tab.account)
-                    .toolbar(.hidden, for: .tabBar)
-            } else {
-                accountTab
-                    .tabItem {
-                        Label("Account", systemImage: "person.fill")
-                    }
-                    .tag(Tab.account)
+            ForEach(tabs, id: \.self) { tab in
+                screen(tab)
+                    .tag(tab)
                     .toolbar(.hidden, for: .tabBar)
             }
         }
@@ -129,18 +108,14 @@ struct MainTabView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
                 ItMeniscusBar(items: meniscusItems, selected: Binding(
-                    get: { Self.order.firstIndex(of: selectedTab) ?? 0 },
-                    set: { selectedTab = Self.order[$0] }))
+                    get: { tabs.firstIndex(of: selectedTab) ?? 0 },
+                    set: { selectedTab = tabs[$0] }))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .tint(appStyle.tenant)
         .itAppScreen()
-        // The AI Office bar: each tab but Schedule shows it under its own title (itOfficeBarSlot), as on Android.
-        .environment(\.itOfficeBarShown, authSession.user?.isAdmin == true && ittaiDesignEnabled)
-        .environment(\.itOfficeTabShowing, selectedTab == .account)
-        .environmentObject(readyBriefStore)
         .task {
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
@@ -161,21 +136,26 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .mwShiftMayHaveStarted)) { _ in
             checkDriverQuestion()
         }
+        // A sign-in as someone else (admin vs crew) changes the tab list; never leave a tab selected that isn't in it.
+        .onChange(of: tabs) { _, now in
+            if !now.contains(selectedTab) { selectedTab = .schedule }
+        }
         // Every notification route today lands on the schedule; ScheduleView
         // consumes the route itself and opens the stop.
         .onChange(of: notificationRouter.pendingRoute) { _, route in
-            if route != nil { selectedTab = .schedule }
+            if route != nil { routedAt = Date(); selectedTab = .schedule }
         }
         .onAppear {
             pullForward.appBecameActive(authSession: authSession)
+            if notificationRouter.pendingRoute != nil || notificationRouter.pendingHead != nil { routedAt = Date() }
             checkDriverQuestion()
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
             else if notificationRouter.pendingHead != nil { openTeamForHead() }
         }
-        // Department-head pushes ("Sam: Linda just opened QUO-…") land on the Team tab;
-        // TeamView consumes the route and shows that head's card. Admins only have Team.
+        // Department-head pushes ("Sam: Linda just opened QUO-…") land on the Kaname tab;
+        // TeamView consumes the route and shows that head's card. Only admins have Kaname.
         .onChange(of: notificationRouter.pendingHead) { _, head in
-            if head != nil { openTeamForHead() }
+            if head != nil { routedAt = Date(); openTeamForHead() }
         }
     }
 
@@ -183,16 +163,19 @@ struct MainTabView: View {
     /// tab, whose own sheet asks (no new root-level sheet: those blocked other sheets 2026-10-08).
     private func checkDriverQuestion() {
         Task {
+            let asked = Date()
             if await DriverTripViewModel.shiftNeedsDriverAnswer(authSession: authSession),
-               notificationRouter.pendingRoute == nil {
-                selectedTab = .timeClock
+               notificationRouter.pendingRoute == nil, notificationRouter.pendingHead == nil,
+               // A push that arrived (or was opened) since a few seconds before asking wins (Codex review 2026-11-04).
+               (routedAt ?? .distantPast) < asked.addingTimeInterval(-5) {
+                selectedTab = .time
             }
         }
     }
 
     private func openTeamForHead() {
         if authSession.user?.isAdmin == true {
-            selectedTab = .account
+            selectedTab = .kaname
         } else {
             notificationRouter.pendingHead = nil
         }
@@ -254,20 +237,14 @@ struct MainTabView: View {
 }
 
 @MainActor
-private enum AI_OfficeTabIcon {
-    /// Render once: the tab bar then applies its normal selected/unselected tint.
+private enum KanameTabIcon {
+    /// The Ittai hexagon, rendered once; the bar tints it.
     static let image: UIImage = {
         let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
         renderer.scale = UIScreen.main.scale
-        return (renderer.uiImage ?? UIImage(systemName: "person.3.fill")!)
+        return (renderer.uiImage ?? UIImage(systemName: "hexagon")!)
             .withRenderingMode(.alwaysTemplate)
     }()
-}
-
-private extension Label where Title == Text, Icon == Image {
-    init(_ title: String, uiImage: UIImage) {
-        self.init { Text(title) } icon: { Image(uiImage: uiImage) }
-    }
 }
 
 // MARK: - Profile row

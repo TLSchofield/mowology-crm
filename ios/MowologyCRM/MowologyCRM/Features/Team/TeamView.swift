@@ -183,8 +183,7 @@ struct TeamView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
-            .itOfficeBarSlot()
-            .navigationTitle("AI Office")
+            .navigationTitle("Kaname")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadBrains() }
             .task(id: ittaiDesignEnabled) {
@@ -200,8 +199,7 @@ struct TeamView: View {
                     if !chase.adminLoaded { await chase.loadAdmin() }
                 }
             }
-            .onAppear { consumeHeadRoute(); ItOfficeFocus.shared.head = path.last ?? "charlie" }
-            .onChange(of: path) { _, now in ItOfficeFocus.shared.head = now.last ?? "charlie" }
+            .onAppear { consumeHeadRoute() }
             .onChange(of: notificationRouter.pendingHead) { _, _ in consumeHeadRoute() }
             .onChange(of: scrollRequest) { _, _ in
                 if ittaiDesignEnabled {
@@ -236,7 +234,6 @@ struct TeamView: View {
                 .ittaiTheme(field: ittaiFieldEnabled)
                 .background(ItPageBackground().ittaiTheme(field: ittaiFieldEnabled))
                 .task { await loadHeadIfNeeded(slug) }
-                .itOfficeBarSlot()
                 .navigationTitle(TeamHead.all.first { $0.slug == slug }?.name ?? slug.capitalized)
                 .navigationBarTitleDisplayMode(.inline)
             }

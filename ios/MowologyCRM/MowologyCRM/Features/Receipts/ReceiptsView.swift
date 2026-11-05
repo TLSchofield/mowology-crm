@@ -68,7 +68,6 @@ struct ReceiptsView: View {
         let _ = RenderRate.tick("ReceiptsView")
         NavigationStack {
             expenseList
-            .itOfficeBarSlot()
             .navigationBarTitleDisplayMode(.inline)
             .itAppForm()
             .itAppScreen()

@@ -77,18 +77,6 @@ struct RecognizedTriangleRender: View {
     var body: some View { ItKnowledgeMark(stage:.recognized,size:96,key:"business-onboarding")
         .frame(maxWidth:.infinity,minHeight:130) }
 }
-struct OfficeBarRender: View {
-    let members = [
-        ItOfficeMember(id:"ada",name:"Ada",department:"",state:.working),
-        ItOfficeMember(id:"mia",name:"Mia",department:"",state:.idle),
-        ItOfficeMember(id:"otto",name:"Otto",department:"",state:.blocked),
-        ItOfficeMember(id:"charlie",name:"Charlie",department:"",state:.working),
-        ItOfficeMember(id:"penny",name:"Penny",department:"",state:.approval),
-        ItOfficeMember(id:"sam",name:"Sam",department:"",state:.idle),
-        ItOfficeMember(id:"yui",name:"Yui",department:"",state:.working),
-    ]
-    var body: some View { ItOfficeBar(members:members,onSelect:{_ in}) }
-}
 func registryMatch(_ id:String, _ legal:String, operating:[String] = []) -> BusinessRegistryMatch {
     let o:[String:Any] = ["record_id":id,"legal_name":legal,"operating_names":operating,
                           "registration_number":"BC1234567","registration_type":"bc_registration",
@@ -344,9 +332,6 @@ struct ScheduleComponentsRender: View {
     save(Screen(mode:.light,width:393){OnboardingRender(state:.confirmed(one.legalName),contacts:.available(contacts))},"penny-onboarding-contacts-step-393-light")
     save(Screen(mode:.dark,width:393){OnboardingRender(state:.oneMatch(one))},"penny-onboarding-one-match-single-393-dark")
     save(Screen(mode:.light,width:393){RecognizedTriangleRender()},"onboarding-recognized-triangle")
-    for mode in [ItMode.light,.dark] { for width in [375,430] {
-        save(Screen(mode:mode,width:CGFloat(width)){OfficeBarRender()},"office-bar-\(width)-\(mode.rawValue)-mixed")
-    } }
     for m in ItMode.allCases {
         save(Screen(mode: m) { ComponentsSheet() }, "components-\(m.rawValue)")
         for width in [375, 393, 430] {

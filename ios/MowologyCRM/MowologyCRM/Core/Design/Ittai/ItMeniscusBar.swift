@@ -48,7 +48,7 @@ struct ItMeniscusBar: View {
             .ignoresSafeArea(.container, edges: .bottom)
         }
         .onAppear { position = CGFloat(selected) }
-        .onChange(of: selected) { _, new in
+        .onChange(of: selected) { new in   // the one-value form: the Mac design render targets macOS 13
             if reduceMotion { position = CGFloat(new) }
             else { withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) { position = CGFloat(new) } }
         }
