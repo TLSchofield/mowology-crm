@@ -155,3 +155,8 @@ live-edited file (the "prod ahead of repo" trap) is invisible until the next dep
 - Payment-mail: Yardi lines that auto-record are stored with sender_verified NULL and status
   'recorded' (only proven mail auto-records) — count them as verified, or a quiet week of good
   Yardi mail reads as "all held".
+
+## 2026-11-04 — Business crons never ran, and then failed on the cron's PHP
+**What happened:** until 2026-11-04 no business database had ever run a cron. The crontab runs each script for Mowology only. The first per-business run (Otto, 2026-11-03) used proc_open. That passed every check made from the web side and failed at every cron run ("Call to undefined function proc_open()"): the crontab's `/usr/local/bin/php` is cPanel's PHP 8.1, and its ini disables `proc_open, popen, exec, system, shell_exec, passthru, allow_url_fopen`. The web PHP is 8.3 and allows proc_open.
+**Check that catches it:** a business's `cron_runs` table is empty or stale; Mowology's `business_crons` row says "failed". Test cron-side behaviour by running `/usr/local/bin/php` from a prod-run snippet, never by calling `function_exists()` in the web snippet.
+**Rule:** per-business work starts with fork + exec of `/opt/cpanel/ea-php83/root/usr/bin/php` (`BusinessCronFanout::spawnFork()` / `startDetached()`). A forked child never exits normally: it would close the MySQL socket and release the CronLock it shares with its parent.

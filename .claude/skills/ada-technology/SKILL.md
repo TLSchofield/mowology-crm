@@ -3,6 +3,10 @@ name: ada-technology
 description: Use BEFORE answering "is X working?" or touching system health in the Mowology CRM / Ittai — scheduled jobs (crons, cron_runs, the Database Manager registry), outside connections (Stripe, Google Maps / Search Console / Business Profile, Meta, Apple push, IMAP mailboxes, Trackimo), crew app versions, TestFlight builds, crash reports, deploys, OPcache, production-vs-repo drift, migrations shipped but never run, schema drift, secrets in the wrong place, unused logins. Also when building Ada herself (the planned head of Technology) or her health page. Holds what Ada will check, the exact table or file each check reads, how she is allowed to act, and the silent failures that justify her.
 covers:
   - app/Modules/Technology/*
+  - app/Core/BusinessCrons.php
+  - app/Core/BusinessCronFanout.php
+  - app/Core/CronSchedule.php
+  - app/Core/Cron/business_crons.php
   - public/crm/ada_appstack.php
   - public/crm/includes/ada-card.php
   - app/Services/CrmFunctions.php
@@ -27,7 +31,7 @@ covers:
   - public/crm/downloads/app-version.json
   - scripts/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   status: built (phase 1, 2026-10-11)
   owner: Tim Schofield (Mowology)
@@ -109,6 +113,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 
 | Job | The one place | Notes |
 |---|---|---|
+| Crons for every business (not just Mowology) | allow-list `BusinessCrons::REGISTRY` (exact set pinned by `tests/Unit/Core/BusinessCronsTest.php`); schedule `CronSchedule::dueBetween()`; runner `app/Core/Cron/business_crons.php` (started detached by `app/Modules/Technology/Cron/pulse_check.php` every 5 min via `BusinessCronFanout::startDetached()`; each due cron runs as `<php 8.3> <script> --tenant=<key>` through `BusinessCronFanout::runPairs()`) | Mowology's `cron_runs` has one `business_crons` row per tick; each business's own `cron_runs` holds its runs. Last tick: `ops_settings.business_crons_last_tick` (Mowology). Not on the list = Mowology-only on purpose (see the class docblock) |
 | Record a cron run | `recordCronRun()` in `app/Services/CrmFunctions.php` → table `cron_runs` (cron_key, status, summary, duration_ms, error_message, ran_at) | `ran_at` is Pacific local time, not UTC |
 | The list of crons that should exist | `$crons` array in `public/crm/database_appstack.php` (key, expr, app path) | registry entry does NOT schedule cPanel |
 | Cron run history API | `app/Modules/Database/Api/cron-log.php` (`latest`, `history`) | admin only |
