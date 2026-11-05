@@ -119,3 +119,12 @@ Done well, cancelling QuickBooks is a 10-minute step, not a migration. Building 
 1. Start the Intuit Production keys application now (it gates step 4 and her day).
 2. Receipts to QuickBooks on by default with invoices (recommended: yes, otherwise her bank feed in QuickBooks has
    spending Ittai knows about but QuickBooks does not).
+
+## Progress 2026-11-04 night
+
+- G9 LIVE (Tim's go): qbo_sync_business, contract_billing (0 3 1 * *) and contract_billing_retry run per business
+  from BusinessCrons::REGISTRY (Otto's runner); penny_prepare and contract_billing no longer fan out. Test businesses
+  (registry 'test' => true: rehearsal, rehearsal2, testcompany — set 2026-11-04 via TenantProvisioner's locked
+  writer) make contract drafts and send nothing. Checked live: 18:00 each business ran qbo_sync once (17:35/17:50 had
+  doubles from the old fan-out); business_crons 18:01 "6 run(s) for 3 business(es): 6 ok".
+- Next: G12–G14 (one import change), then U6 doc read → G10/G11.
