@@ -69,7 +69,7 @@ def main():
         items = ''.join(f'''<li class="f">
   <span class="sev sev-{e(f['severity'].lower())}">{e(f['severity'])}</span>
   <div class="f-body"><div class="f-title">{e(f['title'])}</div><div class="f-note">{e(f['note'])}</div></div>
-  <span class="pill pill-{STATUS[f['status']][1]}">{STATUS[f['status']][0]}</span>
+  <span class="pill pill-{STATUS.get(f['status'], (0, 'warn'))[1]}">{e(STATUS.get(f['status'], (f['status'], 0))[0])}</span>
 </li>''' for f in fs)
         fixed = sum(1 for f in fs if f['status'] == 'fixed')
         groups.append(f'''<section class="part"><header><h3>{e(title_of.get(uid, uid))}</h3>
