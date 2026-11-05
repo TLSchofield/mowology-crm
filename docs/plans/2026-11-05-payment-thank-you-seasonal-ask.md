@@ -58,7 +58,7 @@ and it lands while goodwill is highest (account just cleared). Three things prot
    anyone, including people who unsubscribed from marketing. Only the version with an ask needs marketing consent and
    the unsubscribe footer; for someone without consent, Mia drafts the plain one.
 
-**Measuring it, honestly.** Open tracking exists (`TrackingLinks`), but most of Tim's clients read on Apple Mail,
+**Measuring it, honestly.** Open tracking exists (`TrackingLinks`), but Apple Mail (common among clients; share not measured)
 which "opens" every email automatically (`SendTimeService::isProxyOpen()` already filters these), so opens are not
 the measure. The measures are **replies** and **a visit of that service booked within 30 days**, compared with
 Mia's ordinary seasonal emails (`MiaFinder::outcome()`). Shown on Mia's card as "Thank-you asks: 6 sent, 3 booked".
