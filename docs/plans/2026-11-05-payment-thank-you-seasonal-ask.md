@@ -46,6 +46,27 @@ Can we automate that?"
    later justify sending these without a tap, per service, and only if Tim says so (his rule of 2026-11-05:
    confirmation teaches and builds trust).
 
+## Why the thank-you, and what keeps it working (Tim, 2026-11-05: "the email is more likely to be opened if they've just paid")
+The thank-you is the carrier because it is expected and wanted: it answers "did my payment arrive?", so it gets read,
+and it lands while goodwill is highest (account just cleared). Three things protect that:
+1. **Speed.** Its value is being expected, so it must arrive the same day. Mia drafts it the moment Penny records the
+   payment and Tim gets a push ("Thank-you for Alison ready, with a fall cleanup ask"). If Tim hasn't tapped by the
+   end of the day, the ask is dropped and the plain thank-you waits for him, so a late tap never sends a stale offer.
+2. **The subject stays a thank-you.** "Thank you, Alison". Never the offer in the subject: a subject that reads as a
+   promotion loses the reason it gets opened, and makes it a marketing email in the inbox too.
+3. **The plain thank-you is transactional.** Confirming a payment is a transaction message under CASL, so it can go to
+   anyone, including people who unsubscribed from marketing. Only the version with an ask needs marketing consent and
+   the unsubscribe footer; for someone without consent, Mia drafts the plain one.
+
+**Measuring it, honestly.** Open tracking exists (`TrackingLinks`), but most of Tim's clients read on Apple Mail,
+which "opens" every email automatically (`SendTimeService::isProxyOpen()` already filters these), so opens are not
+the measure. The measures are **replies** and **a visit of that service booked within 30 days**, compared with
+Mia's ordinary seasonal emails (`MiaFinder::outcome()`). Shown on Mia's card as "Thank-you asks: 6 sent, 3 booked".
+
+**Other carriers considered:** the invoice email itself (opened too, but it asks for money, a worse moment to ask
+for more); a crew note from the visit ("leaves heavy on the lawn", a photo) is strong extra evidence and is a later
+addition: Mia can quote it in the ask when the crew logged one.
+
 ## Draft copy (Tim's voice; copywriting skill; checked against Mia's copy rules)
 With history, nothing booked:
 
