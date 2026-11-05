@@ -59,18 +59,31 @@ Groups of 3 or more: same layout with a column per receipt (scrolls sideways), a
 - Merging a **waiting** copy never touches the ledger (it was never posted). Approved-vs-approved twins (which do)
   stay in the 29 Oct plan's phase 2 and are not part of this build.
 
-## Penny merges the certain ones herself (behind a switch, off until Tim agrees)
-Only when **all** hold: the copy is waiting (never an approved one); same vendor and total; and
-`duplicateVerdict()` says **same** from a 5+ character number, or the same printed date **and** time.
-She merges into the kept one, writes `merged_by = Penny` and a `HeadLessons` entry, and her card says
-"Merged 7 copies today (same invoice / time) · Review". Each one has Split off. A person's Split off teaches her
-that signal was wrong for that vendor. Everything else is still asked.
+## Penny proposes, Tim confirms, and that is how she learns (Tim, 2026-11-05)
+Tim: "Penny must present the merges for confirmation. Affirmation teaches her and builds confidence in the user.
+She needs to master the vendor and the receipt read to be able to do things herself."
+
+- **Penny never merges on her own in this build.** The merge action is level 2 "prepare" in `AgentPolicy`
+  (a person approves before it runs). She does the work up front: picks the kept receipt, states her verdict and
+  her evidence, and the screen opens ready for one tap.
+- **She says how sure she is, and why, per vendor:** "Same invoice number on both. With Shell I've been right
+  14 of 14 times." For a vendor she has little history with: "First Lawnboy pair I've seen. Check the photos."
+- **Every answer teaches her.** Merge (agreed), Different (she was wrong) and Split off later (she was wrong after
+  the fact, the strongest signal) are recorded per vendor and per kind of evidence (same number, same time,
+  same total and date only) through `HeadLessons::record()` and the vendor scorecard (`PennyKnowledgeService`).
+  Her read of that receipt counts too: a merge whose facts row was misread (time or number wrong) counts
+  against the read, not the match.
+- **Mastery is earned per vendor, and shown.** The vendor scorecard gets a "duplicates" line: how many pairs she
+  called, how many Tim agreed with, and how often her read of that vendor's receipts was right. No autonomy
+  is switched on by this build. When a vendor shows a long clean record, Penny may *ask* for level 3
+  ("May I merge Shell copies with the same invoice number myself? 30 of 30 right."). Tim answers that per vendor,
+  later, and the thresholds are set then, from real numbers.
 
 ## Unknowns and how each is settled (cheapest first)
 | Unknown | How |
 |---|---|
 | Of today's groups, how many are "certain"? | Read-only `scripts/prod-run.sh`: `pairsInLine(60)` + `duplicateVerdict()` per group. Output: count of same / unknown, dollars. |
-| Is "same" ever wrong? | Same prod-run over history: every person's dismissal (`dismissed_by` NOT NULL) and every "Duplicate of receipt" reject. A "same" verdict on a pair a person called different = a false positive. Must be 0 before the switch goes on. |
+| What is her starting record per vendor? | Same prod-run over history: every person's dismissal (`dismissed_by` NOT NULL) and every "Duplicate of receipt" reject, scored against what `duplicateVerdict()` would have said. This seeds the per-vendor record so her first confidence lines are true, not zero. |
 | Can `unmerge` restore exactly? | Unit tests both ways, then a prod-run **preview** (rolled back) on one real pair: merge, split, compare every column with before. |
 | Locked months | A waiting copy has no posting, so a lock does not apply. Checked in the preview anyway (`accounting_periods`). |
 | Square buttons fit small phones and big text | `ios/DesignRender` at 320 / 375 / 393 pt widths, light / dark / field, and the largest Dynamic Type. |
@@ -87,16 +100,18 @@ that signal was wrong for that vendor. Everything else is still asked.
    toast, "Also on this purchase" + Split off on the receipt). Proof: compile, logic tests for the
    tick/highlight rules and the kept-receipt choice, design render at the sizes above.
 3. **Web card** (`bookkeeper-card.js`): same words, Merge / Different, undo. Proof: local render, phpunit.
-4. **Penny's auto-merge** in `penny_prepare` behind `business_settings` switch `penny_auto_merge_twins` (off).
-   Proof: dry run on production prints what she would merge; Tim reads the list; then the switch.
+4. **Penny's learning:** confidence line per vendor on the card; every Merge / Different / Split off recorded per
+   vendor and evidence kind; "duplicates" line on her vendor scorecard; merge registered as level 2 in `AgentPolicy`.
+   Proof: unit tests for the counting (agree / wrong / split-off, misread vs wrong match); prod-run preview of the
+   scorecard from past "Duplicate of receipt" rejects and dismissals.
 5. **Codex review, deploy web (deploy-safe), TestFlight**, verify on production and on Tim's phone.
 6. **Write-back:** Penny skill (`one-place.md` merge / unmerge rows, `surfaces.md`, `traps.md` if anything is found),
    Obsidian, Tim-To-Do.
 
 ## Decisions for Tim
-1. **May Penny merge the certain ones herself** (waiting copies only, undo always there)? Today she only proposes.
+1. ~~May Penny merge on her own?~~ **No (Tim, 2026-11-05):** she proposes, he confirms; autonomy is earned per vendor later.
 2. **Which one is kept when both are waiting:** the one linked to a bank line, else the older? (Same open question as
-   the 29 Oct plan.) When one is already in the books, that one is always kept.
+   the 29 Oct plan.) Planned default until Tim says otherwise. When one is already in the books, that one is always kept.
 
 ## Not doing
 - No approved-vs-approved merging here (29 Oct plan, phase 2). No deletes. No change to how pairs are found.
