@@ -89,6 +89,7 @@ The data already exists. The ready brief (`team/head-brief-ready?head=charlie`) 
    Then compile, logic tests for "when the line shows", a Codex review, and TestFlight.
 2. **Android (Codex writes, Claude reviews), same spec:**
    - Kaname in the centre and "New" moved to Schedule;
+   - the bead's collar: fill the bead–cup gap with the bar's colour plus the edge line, as iPhone 1.3.72 does (`ItMeniscusBar.kt` draws the bead over a see-through gap);
    - Ittai flavour only;
    - production `mowology` stays untouched.
 3. **Web:** fixed name in `HeadIdentity` once the `chief_name` check is done.
