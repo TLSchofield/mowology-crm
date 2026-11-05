@@ -390,13 +390,15 @@ struct TimelineStopRow: View {
 
     // MARK: Data helpers
 
-    private var name: String { stop.headline ?? stop.propertyAddress }
+    private var name: String {
+        stop.headline.map(ScheduleTimelineRules.displayName) ?? ScheduleTimelineRules.street(stop.propertyAddress)
+    }
 
     /// Address (city only when it is not the usual one is left to the visit screen) · service types.
     private var detailLine: String {
         var seen = Set<String>()
         let services = stop.visits.map(\.serviceTypeLabel).filter { seen.insert($0).inserted }
-        let parts = [stop.headline == nil ? nil : stop.propertyAddress] + services.map { Optional($0) }
+        let parts = [stop.headline == nil ? nil : ScheduleTimelineRules.street(stop.propertyAddress)] + services.map { Optional($0) }
         return parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
     }
 
@@ -524,3 +526,4 @@ private struct ScheduleTimelineDemo: View {
     }
 }
 #endif
+

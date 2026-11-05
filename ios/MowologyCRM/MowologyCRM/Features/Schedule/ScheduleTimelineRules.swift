@@ -175,6 +175,25 @@ enum ScheduleTimelineRules {
         return h * 60 + m
     }
 
+    // MARK: Names (Tim, 2026-11-05: "the word 'property' does not need to be shown")
+
+    /// "Rosie Perera Property" → "Rosie Perera"; "SHANNON STATION" → "Shannon Station" (DisplayNameFormatter).
+    static func displayName(_ raw: String) -> String {
+        var name = DisplayNameFormatter.string(raw.trimmingCharacters(in: .whitespaces))
+        for suffix in [" property", " Property", " PROPERTY"] where name.hasSuffix(suffix) {
+            let cut = String(name.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+            if !cut.isEmpty { name = cut }
+        }
+        return name
+    }
+
+    /// The street only: "3871 west 3rd avenue, Vancouver, Bc V6R 1M4, Canada" → "3871 west 3rd avenue".
+    static func street(_ address: String) -> String {
+        let first = address.split(separator: ",", maxSplits: 1).first.map(String.init) ?? address
+        let trimmed = first.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? address : trimmed
+    }
+
     /// "20 min ago", "1 h 5 min ago", "just now".
     static func agoText(since: Date, now: Date) -> String {
         let minutes = max(0, Int(now.timeIntervalSince(since) / 60))

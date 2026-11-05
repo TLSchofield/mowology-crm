@@ -120,4 +120,13 @@ expect(ScheduleTimelineSwitch.isOn(isAdmin: false, defaults: defaults), "explici
 defaults.set(2, forKey: ScheduleTimelineSwitch.defaultsKey)
 expect(!ScheduleTimelineSwitch.isOn(isAdmin: true, defaults: defaults), "explicit off")
 
+// Names and streets (Tim, 2026-11-05).
+expect(ScheduleTimelineRules.displayName("Rosie Perera Property") == "Rosie Perera", "drop Property")
+expect(ScheduleTimelineRules.displayName("Heather Franklyn property") == "Heather Franklyn", "drop lowercase property")
+expect(ScheduleTimelineRules.displayName("SHANNON STATION COMMERCIAL + RESIDENTIAL") == "Shannon Station Commercial + Residential", "all caps reads normally")
+expect(ScheduleTimelineRules.displayName("Property") == "Property", "never empty")
+expect(ScheduleTimelineRules.displayName("Maple Row Strata") == "Maple Row Strata", "other names unchanged")
+expect(ScheduleTimelineRules.street("3871 west 3rd avenue, Vancouver, Bc V6R 1M4, Canada") == "3871 west 3rd avenue", "street only")
+expect(ScheduleTimelineRules.street("4377 West 11th Avenue") == "4377 West 11th Avenue", "no comma unchanged")
+
 print("Schedule timeline tests passed")

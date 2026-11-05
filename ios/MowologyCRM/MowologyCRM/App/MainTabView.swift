@@ -106,6 +106,10 @@ struct MainTabView: View {
         }
         // The ready brief's head states, for each screen's head face and "needs you" line (ScreenHead.swift).
         .environmentObject(readyBriefStore)
+        // The bar's inset does not reach scroll views inside the tabs' navigation stacks, so the last rows of a
+        // pushed screen sat under the bar (Tim, 2026-11-05: visit screen, "Move to another date"). Content margins
+        // pass down to every scroll view, pushed screens included (proved in the simulator, 2026-11-05).
+        .contentMargins(.bottom, keyboardUp ? 0 : ItMeniscusGeometry.rise + ItMeniscusBar.barHeight, for: .scrollContent)
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
