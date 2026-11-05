@@ -128,12 +128,15 @@ exclamation marks. Street name only, never the house number in a subject line. A
 6. **Write-back:** Mia skill (`one-place.md`-style row for `MiaSeasonalHistory`, `surfaces.md`), Penny skill
    (the hand-off), Obsidian, Tim-To-Do.
 
-## Decisions for Tim
-1. **Every payment, or only when the account is clear?** Suggested: every payment gets a plain thank-you draft;
-   the seasonal ask only when the account is clear (asking someone who still owes for more work reads badly).
-2. **A claimed transfer:** fold Penny's "please use the auto-deposit address" request into this thank-you, so the
-   client gets one email, not two? Suggested: yes.
-3. **Wording:** the draft above, or one of the alternatives.
+## Decisions (Tim, 2026-11-05)
+1. **Every payment gets a thank-you; the seasonal ask goes even with a balance left, unless they're badly overdue.**
+   Tim: "people are lame in this industry but if they are not horribly overdue we need to do the work."
+   Rule: no ask when any of their invoices is more than **60 days past due** (a setting,
+   `mia_thanks_overdue_days`, default 60; Tim can change it). With a balance left, the first line says what was
+   received, not "your account is up to date".
+2. **A claimed transfer:** Penny's "please use the auto-deposit address" request is folded into this thank-you,
+   one email, not two (agreed).
+3. **Wording:** the draft above (agreed).
 
 ## Not doing
 - No sending without Tim's tap. No texts (marketing is email only). No discounts. No property-manager asks.
