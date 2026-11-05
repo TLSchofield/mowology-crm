@@ -52,6 +52,27 @@ struct MainTabView: View {
     /// For admins the last tab is Team (it carries Account's profile row and Sign Out).
     private enum Tab: Hashable { case schedule, timeClock, search, receipts, account }
     @State private var selectedTab = Tab.schedule
+    @State private var keyboardUp = false
+    private static let order: [Tab] = [.schedule, .timeClock, .search, .receipts, .account]
+
+    /// The meniscus bar's tabs, in `order`; the last is AI Office for admins, Account for everyone else.
+    private var meniscusItems: [ItMeniscusItem] {
+        let admin = authSession.user?.isAdmin == true
+        return [
+            ItMeniscusItem(id: 0, title: "Schedule", icon: Image(systemName: "calendar")),
+            ItMeniscusItem(id: 1, title: "Time Clock", icon: Image(systemName: "clock.fill")),
+            ItMeniscusItem(id: 2, title: "Search", icon: Image(systemName: "magnifyingglass")),
+            ItMeniscusItem(id: 3, title: "Receipts", icon: Image(systemName: "doc.text.image")),
+            ItMeniscusItem(id: 4, title: admin ? "AI Office" : "Account",
+                           icon: admin ? Image(uiImage: AI_OfficeTabIcon.image) : Image(systemName: "person.fill")),
+        ]
+    }
+
+    init() {
+        // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
+        // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
+        UITabBar.appearance().isHidden = true
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -60,18 +81,21 @@ struct MainTabView: View {
                     Label("Schedule", systemImage: "calendar")
                 }
                 .tag(Tab.schedule)
+                .toolbar(.hidden, for: .tabBar)
 
             TimeClockView(authSession: authSession)
                 .tabItem {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
                 .tag(Tab.timeClock)
+                .toolbar(.hidden, for: .tabBar)
 
             SearchView(authSession: authSession)
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
                 }
                 .tag(Tab.search)
+                .toolbar(.hidden, for: .tabBar)
 
             ReceiptsView(authSession: authSession)
                 .environmentObject(authSession)
@@ -79,6 +103,7 @@ struct MainTabView: View {
                     Label("Receipts", systemImage: "doc.text.image")
                 }
                 .tag(Tab.receipts)
+                .toolbar(.hidden, for: .tabBar)
 
             // Admins: Team (department heads + Penny's receipt card, with the profile
             // row and Sign Out moved in). Everyone else: the Account tab, unchanged.
@@ -88,14 +113,26 @@ struct MainTabView: View {
                         Label("AI Office", uiImage: AI_OfficeTabIcon.image)
                     }
                     .tag(Tab.account)
+                    .toolbar(.hidden, for: .tabBar)
             } else {
                 accountTab
                     .tabItem {
                         Label("Account", systemImage: "person.fill")
                     }
                     .tag(Tab.account)
+                    .toolbar(.hidden, for: .tabBar)
             }
         }
+        // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !keyboardUp {
+                ItMeniscusBar(items: meniscusItems, selected: Binding(
+                    get: { Self.order.firstIndex(of: selectedTab) ?? 0 },
+                    set: { selectedTab = Self.order[$0] }))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .tint(appStyle.tenant)
         .itAppScreen()
         .safeAreaInset(edge: .top, spacing: 0) {

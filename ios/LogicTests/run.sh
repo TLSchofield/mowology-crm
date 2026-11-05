@@ -20,6 +20,10 @@ python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 
+# Meniscus tab bar: notch shape (cups the bead with the gap, joins the edge horizontally, symmetric), slots, nearest tab.
+cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
+run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$OUT/main.swift"
+
 # Ittai v1.2 design layer: contrast in light/dark/field, precedence, frozen symbol ladder, hexagon tap areas.
 cp "$ROOT/ios/LogicTests/IttaiDesignTests.swift" "$OUT/main.swift"
 run ittaidesign -DKNOWLEDGE_GEOMETRY_ONLY "$SRC/Core/Design/Ittai/ItTokens.swift" "$SRC/Core/Design/Ittai/ItTheme.swift" \
