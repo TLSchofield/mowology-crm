@@ -127,4 +127,8 @@ Done well, cancelling QuickBooks is a 10-minute step, not a migration. Building 
   (registry 'test' => true: rehearsal, rehearsal2, testcompany — set 2026-11-04 via TenantProvisioner's locked
   writer) make contract drafts and send nothing. Checked live: 18:00 each business ran qbo_sync once (17:35/17:50 had
   doubles from the old fan-out); business_crons 18:01 "6 run(s) for 3 business(es): 6 ok".
-- Next: G12–G14 (one import change), then U6 doc read → G10/G11.
+- G12–G14 BUILT (commit 483b79393, not deployed; spec `2026-11-04-g12-g14-import-spec.md`). Codex review changed two
+  rules: only a property the import CREATES gets the sub-customer link (an existing property's invoices keep their
+  customer), and two units at one street get separate buildings. A person's billing address lives on a `clients` row
+  (individual, legacy_contact_id); PDFs still print the property address (known limit).
+- Next: deploy G12–G14 (Tim's go), then U6 doc read → G10/G11.
