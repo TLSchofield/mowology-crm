@@ -373,7 +373,7 @@ struct SamCardView: View {
             else { Text("No email on file. Add one in the CRM first.").font(appStyle.font(.caption)).foregroundStyle(appStyle.blocked) }
             ForEach(q.items, id: \.self) { it in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(it.name + (it.optional ? " (optional)" : "")).font(appStyle.font(.subheadline))
+                    Text(it.name + (it.optional && !it.name.lowercased().contains("(optional)") ? " (optional)" : "")).font(appStyle.font(.subheadline))
                     Spacer(minLength: 4)
                     Text(String(format: "$%.2f", it.total)).font(appStyle.font(.subheadline).monospacedDigit())
                 }

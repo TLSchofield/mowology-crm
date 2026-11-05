@@ -15,6 +15,9 @@ struct ItMeniscusItem: Identifiable {
     let id: Int
     let title: String
     let icon: Image
+    /// The Ittai hexagon is a thin outline: at the size of a filled icon it reads small (Tim, 2026-11-04), so it is
+    /// drawn larger. Everything else stays 1.
+    var iconScale: CGFloat = 1
 }
 
 struct ItMeniscusBar: View {
@@ -90,7 +93,7 @@ private struct ItMeniscusBarBody: View, Animatable {
                                     .renderingMode(.template)
                                     .resizable()
                                     .scaledToFit()
-                                    .frame(width: 22, height: 22)
+                                    .frame(width: 22 * item.iconScale, height: 22 * item.iconScale)
                                     .foregroundStyle(style.meta)
                                     .opacity(item.id == under ? 0 : 1)
                                 Text(item.title)
@@ -131,7 +134,7 @@ private struct ItMeniscusBarBody: View, Animatable {
                                 .renderingMode(.template)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: 24, height: 24)
+                                .frame(width: 24 * items[under].iconScale, height: 24 * items[under].iconScale)
                                 .foregroundStyle(style.onTenant)
                         }
                     }

@@ -65,7 +65,8 @@ struct MainTabView: View {
             ItMeniscusItem(id: 2, title: "Search", icon: Image(systemName: "magnifyingglass")),
             ItMeniscusItem(id: 3, title: "Receipts", icon: Image(systemName: "doc.text.image")),
             ItMeniscusItem(id: 4, title: admin ? "AI Office" : "Account",
-                           icon: admin ? Image(uiImage: AI_OfficeTabIcon.image) : Image(systemName: "person.fill")),
+                           icon: admin ? Image(uiImage: AI_OfficeTabIcon.image) : Image(systemName: "person.fill"),
+                           iconScale: admin ? 1.35 : 1),
         ]
     }
 
