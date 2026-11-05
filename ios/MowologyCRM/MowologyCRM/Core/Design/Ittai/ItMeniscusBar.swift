@@ -110,6 +110,17 @@ private struct ItMeniscusBarBody: View, Animatable {
                 .frame(height: ItMeniscusBar.barHeight)
                 .offset(y: edgeY)
 
+                // The collar: the gap between bead and cup in the bar's own colour, outlined like the bar's edge
+                // (its circle is the notch's arc). See-through, it let a navy button behind melt into the bead
+                // (Tim's iPhone, Schedule, 2026-11-04).
+                Circle()
+                    .fill(style.surface)
+                    .overlay { Circle().stroke(style.line, lineWidth: 1) }
+                    .frame(width: ItMeniscusGeometry.bowl * 2, height: ItMeniscusGeometry.bowl * 2)
+                    .offset(x: cx - ItMeniscusGeometry.bowl, y: ItMeniscusGeometry.centreBelowEdge + edgeY - ItMeniscusGeometry.bowl)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
                 // The bead.
                 Circle()
                     .fill(style.tenant)
