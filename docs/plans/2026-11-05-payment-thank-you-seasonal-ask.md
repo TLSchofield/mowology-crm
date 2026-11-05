@@ -82,8 +82,8 @@ With history, nothing booked:
 >
 > Thank you for your payment of $232.84. It's received, and your account is up to date.
 >
-> Last year we did a fall cleanup at Larch Street in mid-November. Most of the leaves are down now, so it's a good
-> time to do it again. Would you like me to put it on the schedule? Just reply to this email.
+> Last year we did a fall cleanup at your home at the start of December. Most of the leaves are down now, so it's a
+> good time to do it again. Would you like me to put it on the schedule? Just reply to this email.
 >
 > Tim
 > Mowology · (778) 846-9273
@@ -103,10 +103,22 @@ Plain, no history:
 Why it's written this way: the thank-you comes first and stands on its own, so the ask reads as a reminder, not a
 pitch. The ask is specific (what we did, when, where) because a true fact from her own history is the strongest proof
 we have. The reason to act now is real (the leaves are down), and the reply is one step. No price, no discount, no
-exclamation marks. Street name only, never the house number in a subject line. Alternatives for Tim to choose from:
+exclamation marks. Never the street or house number: "your home" (Tim, 2026-11-05: "Larch Street is too clinical"). Month in words, "at the start of December", never a date. Alternatives for Tim to choose from:
 - "Would you like the same again this year?" (shorter, assumes she remembers it)
 - "We have a few spots left before the end of the month." **Only if it's true that day** (from the schedule);
   otherwise it's fake scarcity and is not used.
+
+## Step 1 result (read-only prod-run, 2026-11-05)
+- **Alison Birdsall:** Jobber #11740, 2 Dec 2025, "MAINTENANCE FALL CLEAN UP", $1,190.00 + GST. Nothing but lawn cuts
+  booked since; no invoice owing. She qualifies, and the history line is true.
+- **How Jobber names it:** subjects are always empty; the service is in `line_items` ("Name (qty, $price), …").
+  Oct–Dec: "leaf clean" 145, "fall clean" 21, "seasonal clean" 7, "leaf fall" 3. **19 properties** had one in 2023 or later.
+- **Trap:** 16 of those lines are priced **$0.00** inside a monthly maintenance contract (e.g. "Leaf Clean Up (3, $0.00) …
+  MAINTENANCE MONTHLY CHARGE"). That cleanup was included in their contract: Mia must not offer it as an extra.
+  Only a priced fall cleanup line (or a CRM visit of it) counts.
+- **CRM:** no `job_plans.service_type` or invoice line in this system names a fall cleanup yet (only "Cleanup", 1 plan),
+  so this year's history is Jobber's. The CRM side matches `cleanup` / `clean up` plans in Oct–Dec.
+- The "2× usual bill" clue is not needed: every real one found is named. Dropped from the first build (fewer false asks).
 
 ## Unknowns and how each is settled (cheapest first)
 | Unknown | How |
