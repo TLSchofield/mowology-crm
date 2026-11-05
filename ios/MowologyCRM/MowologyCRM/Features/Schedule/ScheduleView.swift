@@ -78,6 +78,7 @@ struct ScheduleView: View {
     // MARK: - Body
 
     var body: some View {
+        let _ = RenderRate.tick("ScheduleView")
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
 

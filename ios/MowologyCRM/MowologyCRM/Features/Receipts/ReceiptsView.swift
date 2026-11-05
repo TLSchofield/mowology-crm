@@ -65,6 +65,7 @@ struct ReceiptsView: View {
     }
 
     var body: some View {
+        let _ = RenderRate.tick("ReceiptsView")
         NavigationStack {
             expenseList
             .itOfficeBarSlot()
@@ -718,9 +719,14 @@ private struct ExpenseRow: View {
     private var formattedDate: String {
         // A receipt's date is a Vancouver calendar day; read and shown in that zone (GMT showed it a day early).
         guard let date = VancouverDay.date(from: expense.expenseDate) else { return expense.expenseDate }
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; f.timeZone = VancouverDay.zone
-        return f.string(from: date)
+        return Self.dateFormatter.string(from: date)
     }
+
+    /// Built once: a new DateFormatter per row per redraw showed up hot in the CPU reports (2026-11-04).
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; f.timeZone = VancouverDay.zone
+        return f
+    }()
 }
 
 #Preview {

@@ -16,13 +16,22 @@ final class ItOfficeFocus: ObservableObject {
     @Published var head = "charlie"
 }
 
-private struct ItOfficeBarKey: EnvironmentKey { static let defaultValue: AnyView? = nil }
+private struct ItOfficeBarShownKey: EnvironmentKey { static let defaultValue = false }
+private struct ItOfficeTabShowingKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
-    /// The AI Office bar for the screens that show it (set by MainTabView for admins; nil hides it).
-    var itOfficeBar: AnyView? {
-        get { self[ItOfficeBarKey.self] }
-        set { self[ItOfficeBarKey.self] = newValue }
+    /// True on the screens that show the AI Office bar (MainTabView sets it for admins).
+    /// Plain Bools on purpose: 1.3.71 passed the bar itself down as a new AnyView on every update, SwiftUI could
+    /// never tell it was unchanged, every screen redrew in full, and iOS killed the app on Receipts (scene-update
+    /// watchdog, Tim's iPhone, 2026-11-04).
+    var itOfficeBarShown: Bool {
+        get { self[ItOfficeBarShownKey.self] }
+        set { self[ItOfficeBarShownKey.self] = newValue }
+    }
+    /// True while the AI Office tab is the one showing (the bar then lights the head on screen).
+    var itOfficeTabShowing: Bool {
+        get { self[ItOfficeTabShowingKey.self] }
+        set { self[ItOfficeTabShowingKey.self] = newValue }
     }
 }
 
@@ -34,9 +43,41 @@ extension View {
 }
 
 private struct ItOfficeBarSlot: ViewModifier {
-    @Environment(\.itOfficeBar) private var bar
+    @Environment(\.itOfficeBarShown) private var shown
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .top, spacing: 0) { if let bar { bar } }
+        content.safeAreaInset(edge: .top, spacing: 0) { if shown { ItOfficeBarHost() } }
+    }
+}
+
+/// The bar with its live data: the ready brief's head states (ReadyBriefStore, an environment object) and the
+/// head on screen (ItOfficeFocus). A tap routes through NotificationRouter, which MainTabView already follows.
+private struct ItOfficeBarHost: View {
+    @EnvironmentObject private var store: ReadyBriefStore
+    @ObservedObject private var focus = ItOfficeFocus.shared
+    @Environment(\.itOfficeTabShowing) private var tabShowing
+    @AppStorage("ittai.design.field") private var field = false
+
+    var body: some View {
+        ItOfficeBar(members: Self.members(store),
+                    highlighted: tabShowing ? focus.head : nil,
+                    connectionUnavailable: store.failed,
+                    portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
+                        ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
+            NotificationRouter.shared.pendingHead = HeadRoute(head: slug, quoteId: nil)
+        }
+        .ittaiTheme(field: field)
+    }
+
+    static func members(_ store: ReadyBriefStore) -> [ItOfficeMember] {
+        let order = [("ada", "Ada"), ("mia", "Mia"), ("otto", "Otto"), ("charlie", "Charlie"),
+                     ("penny", "Penny"), ("sam", "Sam"), ("yui", "Yui")]
+        return order.map { slug, name in
+            let report = store.response?.heads?[slug]
+            return ItOfficeMember(id: slug, name: name, department: "",
+                                  state: slug == "ada" ? .unavailable : report?.state.flatMap(ItEmployeeState.init(rawValue:)),
+                                  stateReason: report?.reason, loaded: store.loaded,
+                                  loadFailed: store.failed, available: slug != "ada")
+        }
     }
 }
 

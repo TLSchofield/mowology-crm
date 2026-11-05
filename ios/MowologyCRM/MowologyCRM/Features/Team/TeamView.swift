@@ -123,6 +123,7 @@ struct TeamView: View {
     }
 
     var body: some View {
+        let _ = RenderRate.tick("TeamView")
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
             ScrollView {

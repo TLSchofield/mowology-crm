@@ -42,7 +42,6 @@ struct MainTabView: View {
     @ObservedObject private var notificationRouter = NotificationRouter.shared
     /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
-    @ObservedObject private var officeFocus = ItOfficeFocus.shared
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var readyBriefStore = ReadyBriefStore()
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
@@ -77,6 +76,7 @@ struct MainTabView: View {
     }
 
     var body: some View {
+        let _ = RenderRate.tick("MainTabView")
         TabView(selection: $selectedTab) {
             ScheduleView(authSession: authSession)
                 .tabItem {
@@ -138,7 +138,9 @@ struct MainTabView: View {
         .tint(appStyle.tenant)
         .itAppScreen()
         // The AI Office bar: each tab but Schedule shows it under its own title (itOfficeBarSlot), as on Android.
-        .environment(\.itOfficeBar, officeBar)
+        .environment(\.itOfficeBarShown, authSession.user?.isAdmin == true && ittaiDesignEnabled)
+        .environment(\.itOfficeTabShowing, selectedTab == .account)
+        .environmentObject(readyBriefStore)
         .task {
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
@@ -174,33 +176,6 @@ struct MainTabView: View {
         // TeamView consumes the route and shows that head's card. Admins only have Team.
         .onChange(of: notificationRouter.pendingHead) { _, head in
             if head != nil { openTeamForHead() }
-        }
-    }
-
-    private var officeBar: AnyView? {
-        guard authSession.user?.isAdmin == true && ittaiDesignEnabled else { return nil }
-        return AnyView(
-            ItOfficeBar(members: officeBarMembers,
-                        highlighted: selectedTab == .account ? officeFocus.head : nil,
-                        connectionUnavailable: readyBriefStore.failed,
-                        portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
-                            ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
-                selectedTab = .account
-                notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
-            }
-            .ittaiTheme(field: ittaiFieldEnabled)
-        )
-    }
-
-    private var officeBarMembers: [ItOfficeMember] {
-        let order = [("ada", "Ada"), ("mia", "Mia"), ("otto", "Otto"), ("charlie", "Charlie"),
-                     ("penny", "Penny"), ("sam", "Sam"), ("yui", "Yui")]
-        return order.map { slug, name in
-            let report = readyBriefStore.response?.heads?[slug]
-            return ItOfficeMember(id: slug, name: name, department: "",
-                                  state: slug == "ada" ? .unavailable : report?.state.flatMap(ItEmployeeState.init(rawValue:)),
-                                  stateReason: report?.reason, loaded: readyBriefStore.loaded,
-                                  loadFailed: readyBriefStore.failed, available: slug != "ada")
         }
     }
 

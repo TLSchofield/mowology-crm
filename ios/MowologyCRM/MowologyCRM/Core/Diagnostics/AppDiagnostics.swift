@@ -173,3 +173,25 @@ final class AppDiagnostics: @unchecked Sendable {
         return result
     }
 }
+
+/// Tripwire for redraw loops. The app ran the phone at ~98% CPU for minutes at a time (cpu_resource reports from
+/// 1.3.64 on, 2026-11-03/04) with no app code on the hot stack, and this Xcode cannot profile the iPhone. A screen
+/// that calls `tick` from its body gets one diagnostic-log line, at most once a minute, when it redraws more than
+/// 40 times in 2 seconds, so the next report names the screen. Call as `let _ = RenderRate.tick("ReceiptsView")`.
+@MainActor
+enum RenderRate {
+    private static var windows: [String: (start: Date, count: Int)] = [:]
+    private static var lastReport: [String: Date] = [:]
+
+    static func tick(_ screen: String) {
+        let now = Date()
+        var w = windows[screen] ?? (now, 0)
+        if now.timeIntervalSince(w.start) > 2 { w = (now, 0) }
+        w.count += 1
+        windows[screen] = w
+        guard w.count == 41, now.timeIntervalSince(lastReport[screen] ?? .distantPast) > 60 else { return }
+        lastReport[screen] = now
+        AppDiagnostics.shared.record(category: "RenderRate",
+                                     message: "\(screen) redrew more than 40 times in 2 s — a redraw loop")
+    }
+}
