@@ -11,6 +11,14 @@ Agreed with Tim on 2026-11-04. One spec for both phones, so they can't drift apa
 ## 1. The Kaname tab (replaces "AI Office")
 
 - **Tab label:** "Kaname", with the hexagon icon. When the tab is selected, the hexagon rides in the meniscus bead.
+- **Position: the centre slot** (Tim, 2026-11-04). Kaname means the pivot, and the centre is the pivot of the bar.
+  - It's the strongest visual position: when he's selected, the bead sits dead centre.
+  - Either thumb reaches it.
+  - On Android it's the slot the raised "+ New" circle used to hold.
+- **Admin bar, both phones:** Schedule · Time · **Kaname** · Search · Receipts.
+  - Profile and Sign Out stay inside Kaname's tab, where they already live today.
+- **Crew bar: unchanged.** Search stays in the centre and Account stays last, so the field layout crew know doesn't move.
+- **"Time" replaces "Time Clock" as the tab label on both phones**, already the Android label. Every tab label is then one word. The screen's own title can stay "Time Clock".
 - **Order, top to bottom:**
   1. **Ask Kaname:** one box for asking him anything. A first version can open his chat or route the question to a head. This build only needs the box and where it leads; how smart it is comes later.
   2. **His brief:** today's top item with its actions, as now.
@@ -57,31 +65,34 @@ The data already exists. The ready brief (`team/head-brief-ready?head=charlie`) 
 - Remove the `chief_name` override from `app/Services/HeadIdentity.php`, so `chiefName()` always returns "Kaname". Keep `chief_pronoun` and `chief_photo`.
 - Check whether any business has `chief_name` set before removing it, and tell Tim if one does.
 
-## 5. Where the two phones differ today
+## 5. Bringing the two phones together
 
-- **iPhone tabs:** Schedule · Time Clock · Search · Receipts · AI Office (becomes Kaname).
-- **Android (Ittai build):**
+- **iPhone today:** Schedule · Time Clock · Search · Receipts · AI Office.
+  - Admins become Schedule · Time · Kaname · Search · Receipts.
+- **Android (Ittai build) today:**
   - bottom tabs: Schedule · Time · New · Search · Receipts;
-  - "AI Office" is an entry button in the top bar, not a tab.
-- **Open question for Tim:** does Android give Kaname a bottom tab like iPhone, or keep him as the top-bar entry, renamed Kaname with the hexagon?
-  - My recommendation is a bottom tab on both, so the hexagon bead means the same thing on both phones.
-  - Android would then have six tabs, so "New" has to move. One option is to make it a button on Schedule, like iPhone's "+ Job".
+  - "AI Office" is an entry button in the top bar.
+
+  Admins become Schedule · Time · Kaname · Search · Receipts:
+  - "New" moves to a button on Schedule, like the iPhone's "+ Job";
+  - the top-bar entry goes.
+- Older Android labels ("Clock", "Timesheet") become "Time" in the Ittai build. The production `mowology` flavour is untouched.
 
 ## 6. Order of work
 
-1. **Tim:** answer the Android tab question in section 5.
-2. **iPhone (Claude):**
-   - Kaname tab;
+1. **iPhone (Claude):**
+   - Kaname tab in the centre and "Time";
    - title-bar faces and the "needs you" line;
    - remove the strip;
    - Charlie → Kaname strings.
 
    Then compile, logic tests for "when the line shows", a Codex review, and TestFlight.
-3. **Android (Codex writes, Claude reviews), same spec:**
+2. **Android (Codex writes, Claude reviews), same spec:**
+   - Kaname in the centre and "New" moved to Schedule;
    - Ittai flavour only;
    - production `mowology` stays untouched.
-4. **Web:** fixed name in `HeadIdentity` once the `chief_name` check is done.
-5. **Check:** both phones side by side on the same three screens (Schedule, Receipts, Kaname), in light and dark.
+3. **Web:** fixed name in `HeadIdentity` once the `chief_name` check is done.
+4. **Check:** both phones side by side on the same three screens (Schedule, Receipts, Kaname), in light and dark.
 
 ## Not in this piece
 
