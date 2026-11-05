@@ -311,3 +311,7 @@ prices and QuickBooks item links all match; a second Accept added nothing (idemp
    in real data: couples entered as two customers, landlord + tenant, duplicate QuickBooks customers).
 Also seen: the QuickBooks page subtitle still says "nothing is sent to QuickBooks yet"; a new business's chart of
 accounts is Mowology's (Lawn Care, Hedge & Shrub, Snow Removal, Landscape Design).
+
+**From Otto's session (2026-11-04):** generate_visits, run per business, skips snow statements and the approved-quote
+sweep behind `Tenant::isDefault()`. Gate them on `Tenant::isTest()` instead (G9 added it), so real Ittai businesses
+get them after phase 2.

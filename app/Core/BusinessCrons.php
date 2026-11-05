@@ -30,9 +30,9 @@ final class BusinessCrons
         'seo_recommendations' => ['path' => '/crm/cron/seo_recommendations.php', 'expr' => '0 3 * * *', 'timeout' => 600],
         // QuickBooks sending (2026-11-04, G1): each business's own connection; a production company is refused unless
         // that business set qbo_live_sends=1. Was a fan-out inside penny_prepare, which ran twice (two crontab lines).
-        'qbo_sync' => ['path' => '/app/Modules/QuickBooks/Cron/qbo_sync.php', 'expr' => '*/15 * * * *', 'timeout' => 300],
+        'qbo_sync_business' => ['path' => '/app/Modules/QuickBooks/Cron/qbo_sync.php', 'expr' => '*/15 * * * *', 'timeout' => 300],
         // Contract billing (2026-11-04, G9): a test business ('test' => true in the registry) makes drafts, sends nothing.
-        'contract_billing' => ['path' => '/app/Modules/Contracts/Cron/contract_billing.php', 'expr' => '0 6 1 * *', 'timeout' => 900],
+        'contract_billing' => ['path' => '/app/Modules/Contracts/Cron/contract_billing.php', 'expr' => '0 3 1 * *', 'timeout' => 900],
         'contract_billing_retry' => ['path' => '/app/Modules/Contracts/Cron/contract_billing_retry.php', 'expr' => '15 7 * * *', 'timeout' => 600],
         'generate_visits' => ['path' => '/app/Modules/Jobs/Cron/generate_visits.php', 'expr' => '0 */6 * * *', 'timeout' => 1500],
     ];
