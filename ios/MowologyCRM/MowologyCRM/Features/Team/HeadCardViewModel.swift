@@ -228,7 +228,7 @@ final class HeadCardViewModel: ObservableObject {
         guard !isBusy else { return }
         guard let r = await perform(["mode": "move", "key": item.key, "to": head]) else { return }
         items.removeAll { $0.key == item.key }
-        show(r.message ?? "Moved to \(MoveToMenu.name(head)).", error: false)
+        show(r.message ?? "Given to \(MoveToMenu.name(head)).", error: false)
     }
 
     // MARK: - Charlie: Ask

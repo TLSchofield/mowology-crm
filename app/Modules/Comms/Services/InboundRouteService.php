@@ -217,7 +217,7 @@ class InboundRouteService
             : ((string)($row['topic'] ?? '') ?: $this->decide($row)['topic']);
         $name = InboundTopicClassifier::HEAD_NAMES[$to];
         $this->db->prepare('UPDATE sales_messages SET head = ?, topic = ?, head_source = ?, head_reason = ?, handled_at = NULL WHERE id = ?')
-           ->execute([$to, $topic, 'moved', 'Moved to ' . $name . ' by Tim', (int)$row['id']]);
+           ->execute([$to, $topic, 'moved', 'Given to ' . $name . ' by Tim', (int)$row['id']]);
         $this->log((string)$row['message_key'], $from, $to, $topic, 'move', $userId, $now);
         try {
             $taught = $this->teach((string)$row['from_addr'], $topic, $to, $userId, $now, $from, (int)$row['id']);
@@ -233,7 +233,7 @@ class InboundRouteService
             'head'    => $to,
             'topic'   => $topic,
             'taught'  => $taught,
-            'message' => 'Moved to ' . $name . '.' . ($taught && $addr !== ''
+            'message' => 'Given to ' . $name . '.' . ($taught && $addr !== ''
                 ? ' Next time ' . self::topicWords($topic) . ' from ' . $addr . ' goes straight to ' . $name . '.' : ''),
         ];
     }

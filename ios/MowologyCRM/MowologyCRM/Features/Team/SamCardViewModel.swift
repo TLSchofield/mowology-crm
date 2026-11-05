@@ -354,7 +354,7 @@ final class SamCardViewModel: ObservableObject {
         guard !isBusy else { return }
         guard let r = await perform(["mode": "move", "key": reply.key, "to": head],
                                     onError: { self.showReply($0, error: true) }) else { return }
-        removeReply(reply.key, r.message ?? "Moved to \(MoveToMenu.name(head)).")
+        removeReply(reply.key, r.message ?? "Given to \(MoveToMenu.name(head)).")
     }
 
     /// "Move to…" on a "they replied" card: the reply that made it is someone else's — the card
@@ -363,7 +363,7 @@ final class SamCardViewModel: ObservableObject {
         guard let c = current, c.replied, !isBusy else { return }
         guard let r = await perform(["mode": "move", "card_key": c.key, "to": head],
                                     onError: { self.showFollowup($0, error: true) }) else { return }
-        removeCard(c.key, r.message ?? "Moved to \(MoveToMenu.name(head)).")
+        removeCard(c.key, r.message ?? "Given to \(MoveToMenu.name(head)).")
         Task { await self.refreshQuietly() }
     }
 

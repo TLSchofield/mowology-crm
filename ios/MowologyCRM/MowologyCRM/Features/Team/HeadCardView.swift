@@ -343,7 +343,7 @@ struct MoveToMenu: View {
                 Button("\(h.name) · \(h.role)") { onMove(h.slug) }
             }
         } label: {
-            Label("Move to…", systemImage: "arrowshape.turn.up.right")
+            Label("Give to…", systemImage: "arrowshape.turn.up.right")
                 .labelStyle(.titleAndIcon)
         }
         .font(appStyle.font(.caption))

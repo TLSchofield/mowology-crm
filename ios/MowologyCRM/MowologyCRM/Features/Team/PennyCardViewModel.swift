@@ -270,7 +270,7 @@ final class PennyCardViewModel: ObservableObject {
 
     /// "Move to…": not Penny's after all. The sender + topic is learned.
     func moveMessage(_ m: PennyMessage, to head: String) async {
-        await mailAction(m, ["mode": "move", "key": m.key, "to": head], done: "Moved to \(MoveToMenu.name(head)).")
+        await mailAction(m, ["mode": "move", "key": m.key, "to": head], done: "Given to \(MoveToMenu.name(head)).")
     }
 
     /// Tim dealt with it (filled in the form and sent it himself): off the list.

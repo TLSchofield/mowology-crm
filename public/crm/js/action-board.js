@@ -107,7 +107,7 @@
         }).join('');
         return '<select class="custom-select custom-select-sm mw-ab-move" data-ab-move aria-label="Move this message to another head"'
             + ' title="Wrong head? Move it — next time mail like this from the same sender goes there.">'
-            + '<option value="">Move to…</option>' + opts + '</select>';
+            + '<option value="">Give to…</option>' + opts + '</select>';
     }
 
     function row(it, first) {
