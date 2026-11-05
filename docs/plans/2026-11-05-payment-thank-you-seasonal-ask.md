@@ -55,7 +55,7 @@ parameter so widening it later is a list change, not a rewrite.
 ## Why the thank-you, and what keeps it working (Tim, 2026-11-05: "the email is more likely to be opened if they've just paid")
 The thank-you is the carrier because it is expected and wanted: it answers "did my payment arrive?", so it gets read,
 and it lands while goodwill is highest (account just cleared). Three things protect that:
-1. **Speed.** Its value is being expected, so it must arrive the same day. Mia drafts it the moment Penny records the
+1. **Speed.** Its value is being expected, so it must arrive soon: at their best time within 36 hours (next section). Mia drafts it the moment Penny records the
    payment and Tim gets a push ("Thank-you for Alison ready, with a fall cleanup ask"). If Tim hasn't tapped by the
    end of the day, the ask is dropped and the plain thank-you waits for him, so a late tap never sends a stale offer.
 2. **The subject stays a thank-you.** "Thank you, Alison". Never the offer in the subject: a subject that reads as a
@@ -72,6 +72,35 @@ Mia's ordinary seasonal emails (`MiaFinder::outcome()`). Shown on Mia's card as 
 **Other carriers considered:** the invoice email itself (opened too, but it asks for money, a worse moment to ask
 for more); a crew note from the visit ("leaves heavy on the lawn", a photo) is strong extra evidence and is a later
 addition: Mia can quote it in the ask when the crew logged one.
+
+## Best time to send, learned from every contact (Tim, 2026-11-05)
+Tim: "Send it out at the best time and ensure we are always tracking best times to email people." "All emails and
+comms should feed that."
+
+**Sending the thank-you at the best time.** Tim's tap approves it; it then waits for that person's best time
+(`SendTimeService`), within the next 36 hours so it still arrives as a thank-you: their learned hour if Mia has one,
+else 7:30 pm for a homeowner, 9:30 am on a weekday for a property manager. The card says when: "Goes at 7:30 pm
+tonight (her usual time)" or "(default time)", with **Send now** beside it. New: `mia_suggestions.scheduled_at` and
+status `queued` (migration), sent by a step in the existing `campaign_sender` cron, which re-checks consent and Sam's
+open quotes at the moment of sending. Other Mia one-to-one emails get the same queue.
+
+**Learning from everything, in one place.** `SendTimeService::recompute()` (nightly, `mia_email_daily`) today learns only
+from campaign opens and clicks and email replies. It will read every contact signal the system already stores:
+| Signal | Where it is | Weight |
+|---|---|---|
+| Email reply (office@, iCloud) | `sales_messages` inbound | 3 (already) |
+| Text reply (text bridge) | inbound text log (step 1 finds the table) | 3 |
+| Paid by e-Transfer (when they sent it) | `etransfer_notifications.email_date` | 2 |
+| Approved a quote | quote approval time | 2 |
+| Clicked a link in any of our emails | `campaign_events` | 2 (already) |
+| Opened an invoice or quote email | `invoice_contacts.invoice_opened_at`, `quotes.email_opened_at` | 0.5, Apple proxy filtered |
+| Opened a campaign email | `campaign_events` | 0.5 (already) |
+| Opened a Mia one-to-one or thank-you | new pixel through the existing signed `track-open.php` | 0.5 |
+Invoice and quote emails keep going out straight away (the work triggers them) but now feed the learning. Every
+future email or comms channel adds its row to this table and to `recompute()`, nowhere else.
+Opens only count when believable: no user agent or within 2 minutes of the send = Apple's proxy, ignored
+(`SendTimeService::isProxyOpen()`). Invoice and quote opens store no user agent today, so they count only
+when 10+ minutes after the send.
 
 ## Draft copy (Tim's voice; copywriting skill; checked against Mia's copy rules)
 With history, nothing booked:
