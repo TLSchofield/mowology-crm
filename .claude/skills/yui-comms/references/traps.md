@@ -108,3 +108,13 @@ for operation 'like'" — 98 a day. Production mixes utf8mb4_0900_ai_ci (propert
 quotes, ops_settings) with utf8mb4_general_ci (contracts); CONCAT_WS over both has no collation,
 so the ZZTEST `NOT LIKE` fails. **Rule:** multi-column ZZTEST filters use
 `YuiDeskService::notTest()`, which collates each column (YuiDeskCollationTest enforces it).
+
+## 2026-11-04 — A booking request on Penny ("wrote about billing")
+Meghan replied to her invoice email, "Re: Invoice INV-2026-0447 from Mowology…", with "can we book you
+guys in for a fall cleanup". The subject counted double for billing, and her words matched no sales
+pattern, so the message landed on Penny. **Rule:** on a reply, the thread subject is ours, not theirs.
+When the new words match any topic, only they decide (`InboundTopicClassifier::isReply()`). The subject
+decides only when the body says nothing topical. "Fall cleanup" is NOT a sales word, because it names
+jobs in thread titles. "Book a crew/visit" is Otto's. Moving a machine-stamped message now learns from
+a fresh reading, not the stale stamp (`InboundRouteService::move()`). Rows stamped before the fix keep
+their head until Tim moves them.

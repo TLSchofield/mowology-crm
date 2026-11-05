@@ -25,6 +25,11 @@
  *   2. Scores: each topic's words, subject hits weigh SUBJECT_WEIGHT, body hits 1. A billing
  *      sender (accounts@, ap@, payables@, billing@, invoices@ … or a display name "Accounts
  *      Payable") adds SENDER_WEIGHT to billing. Highest score wins; ties go in TIE_ORDER.
+ *      On a REPLY ("Re:" / "Fwd:"), the subject is the thread's (often our own "Invoice INV-… from
+ *      Mowology"), not what they wrote: when their new words score anything, only those decide;
+ *      the thread subject counts only when the body says nothing topical (2026-11-04: Meghan
+ *      replied to her invoice email "can we book you guys in for a fall cleanup" — landed on
+ *      Penny as "wrote about billing"; it is a sale).
  *   3. Nothing scored: a clear short "yes" is Sam's; otherwise general (Yui).
  *
  * No namespace / no autoloader in production: require_once and call statically.
@@ -94,6 +99,7 @@ class InboundTopicClassifier
                 '/\b(interested\s+in|looking\s+for\s+(someone|a\s+company|a\s+landscaper)|would\s+like\s+(a|to\s+get|to\s+have))\b/i',
                 '/\b(can|could)\s+you\s+(do|take\s+on|provide|give\s+us)\b/i',
                 '/\b(contract\s+renewal|renew\s+(the|our)\s+contract)\b/i',
+                '/\bbook\s+(you|you\s+guys|your\s+(crew|team)|us|me)\s+in\b|\bget\s+(us|me)\s+booked\b/i',
             ],
             'schedule' => [
                 '/\b(re)?schedul\w*\b/i',
@@ -151,11 +157,13 @@ class InboundTopicClassifier
     {
         $scores = ['billing' => 0, 'sales' => 0, 'schedule' => 0, 'marketing' => 0];
         $hits = ['billing' => [], 'sales' => [], 'schedule' => [], 'marketing' => []];
+        // A reply whose new words say something: the thread subject is left out (see rule 2).
+        $useSubject = !(self::isReply($subject) && self::bodyScores($body));
         foreach (self::patterns() as $key => $regexes) {
             $topic = $key === 'billing_cs' ? 'billing' : $key;
             foreach ($regexes as $re) {
                 $w = 0;
-                if (preg_match($re, $subject, $mm)) { $w += self::SUBJECT_WEIGHT; $hits[$topic][] = strtolower(trim($mm[0])); }
+                if ($useSubject && preg_match($re, $subject, $mm)) { $w += self::SUBJECT_WEIGHT; $hits[$topic][] = strtolower(trim($mm[0])); }
                 elseif (preg_match($re, $body, $mm)) { $w += 1; $hits[$topic][] = strtolower(trim($mm[0])); }
                 $scores[$topic] += $w;
             }
@@ -178,6 +186,22 @@ class InboundTopicClassifier
         }
         $words = array_slice(array_values(array_unique($hits[$best])), 0, 3);
         return [$best, $scores, $best . ': ' . implode(', ', $words)];
+    }
+
+    /** "Re: …", "RE: …", "Fwd: …", "Fw: …", "AW: …" (one or more). */
+    public static function isReply(string $subject): bool
+    {
+        return (bool)preg_match('/^\s*(re|fwd?|aw|sv|antw)\s*(\[\d+\])?\s*:/i', $subject);
+    }
+
+    /** Do the new words alone match any topic? */
+    private static function bodyScores(string $body): bool
+    {
+        if (trim($body) === '') return false;
+        foreach (self::patterns() as $regexes) {
+            foreach ($regexes as $re) if (preg_match($re, $body)) return true;
+        }
+        return false;
     }
 
     /** "accounts@x.ca" / "Accounts Payable <x@y>" → the hint, else null. */

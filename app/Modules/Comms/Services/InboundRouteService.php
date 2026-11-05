@@ -209,7 +209,12 @@ class InboundRouteService
         if (!$row) return ['ok' => false, 'message' => 'That message is no longer here — refresh.'];
 
         $from = self::effectiveHead($row);
-        $topic = (string)($row['topic'] ?? '') ?: $this->decide($row)['topic'];
+        // A machine stamp may predate a classifier fix: learn from today's reading of the message, so moving
+        // a misread one does not teach "this sender's <old topic> goes to <head>" (2026-11-04, Meghan's
+        // booking request stamped billing). Tim's own moves and the re-route keep their topic.
+        $topic = in_array((string)($row['head_source'] ?? ''), self::RESTAMPABLE, true)
+            ? $this->decide($row)['topic']
+            : ((string)($row['topic'] ?? '') ?: $this->decide($row)['topic']);
         $name = InboundTopicClassifier::HEAD_NAMES[$to];
         $this->db->prepare('UPDATE sales_messages SET head = ?, topic = ?, head_source = ?, head_reason = ?, handled_at = NULL WHERE id = ?')
            ->execute([$to, $topic, 'moved', 'Moved to ' . $name . ' by Tim', (int)$row['id']]);
