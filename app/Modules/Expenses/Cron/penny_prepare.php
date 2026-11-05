@@ -40,7 +40,6 @@ require_once CRM_INCLUDES . '/functions.php';          // brings CrmFunctions.ph
 require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
 require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
-require_once APP_ROOT . '/Core/BusinessCronFanout.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
@@ -201,13 +200,6 @@ try {
         } catch (Throwable $e) {
             $pennyLog('QuickBooks sending failed (non-fatal): ' . $e->getMessage());
             recordCronRun('qbo_sync', 'error', 'QuickBooks sending failed', null, $e->getMessage(), !$isCli);
-        }
-        try {
-            $fanout = BusinessCronFanout::run(APP_ROOT . '/Modules/QuickBooks/Cron/qbo_sync.php', 300);
-            $fanoutSummary = BusinessCronFanout::summary($fanout);
-            if ($fanoutSummary !== '') $pennyLog('QuickBooks ' . $fanoutSummary);
-        } catch (Throwable $e) {
-            $pennyLog('QuickBooks business fan-out failed (non-fatal): ' . $e->getMessage());
         }
     }
 

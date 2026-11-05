@@ -28,6 +28,9 @@
  * Optional daily retry of held invoices (creates nothing new):
  *   15 7 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php retry-only
  *
+ * Other businesses: run per business by app/Core/Cron/business_crons.php (BusinessCrons::REGISTRY
+ * 'contract_billing' and 'contract_billing_retry'); a test business ('test' => true) makes drafts, sends nothing.
+ *
  * Can also be triggered manually by an admin via HTTP POST (same auth as other crons).
  */
 declare(strict_types=1);
@@ -74,7 +77,6 @@ require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // reso
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
-require_once APP_ROOT . '/Core/BusinessCronFanout.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 // Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
@@ -89,19 +91,6 @@ $logRun = static function (string $status, string $summary, ?string $error = nul
 $retryOnly = $isCli
     ? in_array('retry-only', array_slice($argv ?? [], 1), true)
     : !empty($_POST['retry_only']);
-$fanoutResults = null;
-$runFanout = static function () use (&$fanoutResults, $retryOnly): array {
-    if ($fanoutResults !== null) {
-        return $fanoutResults;
-    }
-    try {
-        $fanoutResults = BusinessCronFanout::run(__FILE__, 600, null, null, $retryOnly ? ['retry-only'] : []);
-    } catch (Throwable $e) {
-        error_log('[contract_billing] business fan-out failed: ' . $e->getMessage());
-        $fanoutResults = [];
-    }
-    return $fanoutResults;
-};
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
@@ -117,7 +106,6 @@ $lockStmt->execute([$lockName]);
 if ((int)$lockStmt->fetchColumn() !== 1) {
     $msg = 'contract_billing: another run is in progress — nothing done.';
     $logRun('success', $msg);
-    $runFanout();
     if ($isCli) { echo $msg . "\n"; exit(0); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -143,8 +131,7 @@ try {
         $msg = 'Migration 1007 not applied — invoices.contract_id column missing. Run /crm/api/run-migration-1007.php first.';
         error_log("[contract_billing] {$msg}");
         $logRun('error', 'Migration 1007 not applied', $msg);
-        $runFanout();
-        if ($isCli) { echo $msg . PHP_EOL; exit(1); }
+            if ($isCli) { echo $msg . PHP_EOL; exit(1); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
     }
@@ -262,7 +249,6 @@ try {
     $msg = 'Failed to query contracts: ' . $e->getMessage();
     error_log("[contract_billing] {$msg}");
     $logRun('error', 'Could not query contracts', $msg);
-    $runFanout();
     if ($isCli) { echo $msg . PHP_EOL; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -454,8 +440,6 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
 
 // ── 4. Report ─────────────────────────────────────────────────────────────────
 $elapsedMs = (int)(microtime(true) * 1000) - $startMs;
-$fanoutResults = $runFanout();
-$fanoutSummary = BusinessCronFanout::summary($fanoutResults);
 $testSummary = Tenant::isTest()
     ? 'test business: ' . count($testMade) . ' invoices made, not sent'
     : '';
@@ -464,7 +448,6 @@ $summaryParts = [
         . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
 ];
 if ($testSummary !== '') $summaryParts[] = $testSummary;
-if ($fanoutSummary !== '') $summaryParts[] = $fanoutSummary;
 $runSummary = implode('; ', $summaryParts);
 
 $report = [
