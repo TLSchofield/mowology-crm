@@ -29,6 +29,33 @@ over can we have the ledger operating in shadow?". Council 2026-11-04: she keeps
 | G7 | Payments: does a Payment sent by API match her bank-feed deposit (as Purchases did)? | Test in the sandbox: payment to Undeposited Funds vs straight to the bank account, then "For review" on a feed line |
 | G8 | GST: she may not be registered | Already handled by the exempt-code mapping; check her answer and map before the switch |
 
+## Status 2026-11-04 evening
+
+G1–G6 LIVE (deployed on Tim's go; Codex-built and reviewed; 4,116 tests). rehearsal2 sandbox customers moved to
+Vancouver public-place addresses; import accepted by Tim and checked field by field
+(`scripts/qbo-import-check.snippet.php`).
+
+## More eventualities (Tim 2026-11-04: Claudia has contracts; "the whole point of using my company for testing was
+## to ensure we cover as many eventualities as possible")
+
+| # | Gap | Fix |
+|---|---|---|
+| G9 | Contract billing (`contract_billing` cron) runs for Mowology only — a business's contracts would never bill | Fan it out per business with `BusinessCronFanout`, as qbo_sync; cron_runs per business; check on rehearsal2 with one test contract |
+| G10 | Double invoices: QuickBooks recurring invoices AND Ittai contract invoices once sending is on | Before `send` can be switched on, the QuickBooks step lists her QuickBooks recurring invoices and asks her to pause each one an Ittai contract replaces; sending holds an invoice whose customer has an active QuickBooks recurring invoice for the same amount (says why) |
+| G11 | Her contracts don't come across: the import reads no recurring transactions | Read QuickBooks RecurringTransaction (U6) into the snapshot; a "Contracts" part offers one Ittai contract per recurring invoice (client, property, amount, schedule), owner confirms each |
+| G12 | Management companies (VML / Dorset style): sub-customers become properties but lose their billing, and invoices for a building go to the parent customer | Link each imported property to its QuickBooks sub-customer (qbo_links 'property'); send that property's invoices to the sub-customer (QuickBooks' "bill with parent" then does the right thing); a sub-customer billed on its own → its bill-to name/address/email become the property's billing contact (existing PM routing, migration 1063); top-level customers that look like one company's buildings ("VML – …") → ask to group, never guess |
+| G13 | A person client's billing (mailing) address is dropped (only companies store billing) | Store it where the client/account model keeps a payer's address (check `clients` columns first); field check must show 0 misses |
+| G14 | A second client at the same street address gets no property (the first one's is reused) | Import creates the property for the second client unless it is the same QuickBooks customer; a shared address is said in the preview ("2 clients at 350 West Georgia St") |
+
+Unknowns: U6 QuickBooks RecurringTransaction API (entity, query support, minor version, what it returns for schedule
+and amount) — one Intuit docs read before G10/G11. U7 where the clients spine keeps a payer's mailing address — one
+schema read before G13. U8 `contract_billing` per-business safety (it sends invoices: a test business must not email
+real people) — read the cron and its guards before G9.
+
+Order: G9 (blocks any contract in any business) → G12/G13/G14 (import correctness, one change to the import) →
+G10/G11 (recurring transactions, after U6). Codex builds each, Claude reviews, Codex review (money), field check and
+a rehearsal2 walk before deploy.
+
 ## Shadow ledger (when she says she might switch)
 
 Ittai's ledger already posts her invoices and payments. Shadow mode makes it a deliberate second set of books
