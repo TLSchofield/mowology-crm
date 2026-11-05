@@ -100,4 +100,11 @@ class BusinessCronFanoutTest extends TestCase
         $this->assertFileExists($path);
         @unlink($path);
     }
+
+    /** Extra arguments ride after --tenant (contract_billing passes its retry-only flag through, G9). */
+    public function test_commands_pass_extra_args_after_the_tenant(): void
+    {
+        $this->assertSame([['key' => 'rehearsal', 'argv' => ['/php', '/c.php', '--tenant=rehearsal', '--retry-only']]],
+            BusinessCronFanout::commands(['rehearsal'], '/php', '/c.php', ['--retry-only']));
+    }
 }
