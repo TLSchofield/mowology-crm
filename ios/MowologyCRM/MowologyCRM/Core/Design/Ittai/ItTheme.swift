@@ -27,13 +27,16 @@ struct ItPalette: Equatable {
     let mode: ItMode
     private let values: [ItColorToken: UInt32]
 
-    init(_ mode: ItMode) {
+    init(_ mode: ItMode, brandIttai: Bool = false) {
         self.mode = mode
+        var v: [ItColorToken: UInt32]
         switch mode {
-        case .light: values = ItTokenHex.light
-        case .dark:  values = ItTokenHex.dark
-        case .field: values = ItTokenHex.field
+        case .light: v = ItTokenHex.light
+        case .dark:  v = ItTokenHex.dark
+        case .field: v = ItTokenHex.field
         }
+        if brandIttai { v.merge(ItIttaiBrandHex.overlay(mode)) { _, ittai in ittai } }
+        values = v
     }
 
     func color(_ token: ItColorToken) -> Color { Color(itHex: values[token] ?? 0xFF00FF) }
@@ -72,9 +75,10 @@ struct ItThemeModifier: ViewModifier {
     let field: Bool
     let chosen: ItMode?
     @Environment(\.colorScheme) private var system
+    @AppStorage(ItIttaiBrandHex.defaultsKey) private var brandIttai = false
 
     func body(content: Content) -> some View {
-        let palette = ItPalette(ItMode.resolve(field: field, chosen: chosen, system: system))
+        let palette = ItPalette(ItMode.resolve(field: field, chosen: chosen, system: system), brandIttai: brandIttai)
         return content
             .environment(\.it, palette)
             .environment(\.colorScheme, palette.colorScheme)
@@ -158,5 +162,22 @@ extension Color {
                   green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255,
                   opacity: 1)
+    }
+}
+
+/// Ittai brand preview (Tim, 2026-11-04: "brand my iPhone and desktop to ittai all the way through"): the business
+/// colour becomes Ittai's navy instead of Mowology's green, on this phone only (Account → Appearance). The same values
+/// as the Android ittai build (ItTokens.kt) and the desktop preview (public/crm/css/ittai-brand.css). Status colours
+/// are meanings, not brand, so they are left alone.
+enum ItIttaiBrandHex {
+    static let defaultsKey = "ittai.brand.preview"
+
+    static func overlay(_ mode: ItMode) -> [ItColorToken: UInt32] {
+        switch mode {
+        case .dark:
+            return [.tenant: 0x9CB8E4, .onTenant: 0x0F1512, .tenantMark: 0x4F688F, .tenantSoft: 0x17263F]
+        case .light, .field:
+            return [.tenant: 0x233A5E, .onTenant: 0xFFFFFF, .tenantMark: 0x233A5E, .tenantSoft: 0xE6EFFE]
+        }
     }
 }

@@ -121,9 +121,10 @@ struct ItAppThemeModifier: ViewModifier {
     let enabled: Bool
     let field: Bool
     @Environment(\.colorScheme) private var system
+    @AppStorage(ItIttaiBrandHex.defaultsKey) private var brandIttai = false
 
     func body(content: Content) -> some View {
-        let palette = ItPalette(ItMode.resolve(field: field, chosen: nil, system: system))
+        let palette = ItPalette(ItMode.resolve(field: field, chosen: nil, system: system), brandIttai: brandIttai)
         let style = ItAppStyle(isEnabled: enabled, palette: palette)
         // Keep the subtree's identity stable when the setting changes: a visual toggle
         // must not recreate time-clock, receipt, or schedule state objects.
@@ -180,10 +181,15 @@ extension View {
 struct ItDesignSettingsRows: View {
     // Ittai is the only design from 1.3.56; what's left to choose is field mode (high contrast, always light).
     @AppStorage("ittai.design.field") private var field = false
+    @AppStorage(ItIttaiBrandHex.defaultsKey) private var brandIttai = false
     @Environment(\.itAppStyle) private var style
 
     var body: some View {
         Toggle("Field mode (outdoors)", isOn: $field)
+            .font(style.font(.body)).tint(style.tenant)
+            .frame(minHeight: ItSize.targetPhone)
+        // Preview only: this phone shows Ittai's navy instead of the business colour.
+        Toggle("Ittai colours (preview)", isOn: $brandIttai)
             .font(style.font(.body)).tint(style.tenant)
             .frame(minHeight: ItSize.targetPhone)
     }

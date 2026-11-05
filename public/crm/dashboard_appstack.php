@@ -19,6 +19,15 @@ if (isset($_GET['it_design'])) {
 }
 $itDesign = ($_COOKIE['it_design'] ?? '') === '1';
 
+// Ittai brand preview, opt-in per browser (Tim, 2026-11-04): ?it_brand=ittai|mowology swaps Mowology's green for
+// Ittai's navy on this browser only (appstack_head.php loads css/ittai-brand.css). Look-only, so a cookie is enough.
+if (isset($_GET['it_brand'])) {
+    $brandIttai = $_GET['it_brand'] === 'ittai';
+    setcookie('it_brand', $brandIttai ? 'ittai' : 'mowology', ['expires' => time() + 365 * 86400, 'path' => '/crm/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    header('Location: /crm/dashboard_appstack.php');
+    exit;
+}
+
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Dashboard', $_SERVER['REQUEST_METHOD']);
 $GLOBALS['crm_error_handler'] = $errorHandler;

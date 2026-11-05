@@ -147,6 +147,10 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                 <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_design=<?php echo $__itOn ? '0' : '1'; ?>">
                     <i class="align-middle mr-1" data-feather="layout"></i> <?php echo $__itOn ? 'Back to the classic design' : 'Try the new design'; ?>
                 </a>
+                <?php $__brandIttai = ($_COOKIE['it_brand'] ?? '') === 'ittai'; // Ittai brand preview (dashboard_appstack.php sets it) ?>
+                <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_brand=<?php echo $__brandIttai ? 'mowology' : 'ittai'; ?>">
+                    <i class="align-middle mr-1" data-feather="droplet"></i> <?php echo $__brandIttai ? 'Back to Mowology colours' : 'Preview Ittai colours'; ?>
+                </a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" href="/crm/logout_secure.php">
                     <i class="align-middle mr-1" data-feather="log-out"></i> Log out

@@ -176,5 +176,14 @@ for unknown in ["not recorded", "2026-02-30", "2026-13-18", "", "2026-1-8"] {
     check(ItRegistryDisplay.registeredDate(unknown) == unknown, "Unknown or invalid registry date is preserved: \(unknown)")
 }
 
+// Ittai brand preview (navy business colour): the same contrast bars as the business colour above, every mode.
+for mode in ItMode.allCases {
+    let p = ItPalette(mode, brandIttai: true)
+    check(ratio(p.hex(.tenant), p.hex(.surface)) >= 4.5, "ittai brand \(mode) tenant as text on surface \(ratio(p.hex(.tenant), p.hex(.surface)))")
+    check(ratio(p.hex(.tenant), p.hex(.selected)) >= 4.5, "ittai brand \(mode) tenant on selected \(ratio(p.hex(.tenant), p.hex(.selected)))")
+    check(ratio(p.hex(.onTenant), p.hex(.tenant)) >= 7, "ittai brand \(mode) label on filled button \(ratio(p.hex(.onTenant), p.hex(.tenant)))")
+    check(p.hex(.statusComplete) == ItPalette(mode).hex(.statusComplete), "ittai brand \(mode) leaves status colours alone")
+}
+
 print(fails == 0 ? "Ittai design checks: all passed" : "Ittai design checks: \(fails) FAILED")
 exit(fails == 0 ? 0 : 1)

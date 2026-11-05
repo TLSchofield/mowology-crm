@@ -15,7 +15,7 @@
  *   1. AppStack classic.css  (vendor — never modify)
  *   2. mowology-brand.css    (brand override layer)
  *   3. Google Fonts (Montserrat + Open Sans — matches public site)
- *   4. Favicon set from /assets/favicon/
+ *   4. Favicon set from /assets/favicon-ittai/
  */
 
 // ── ERROR MODE (Fable review 2026-10-12) ─────────────────────────────────────
@@ -118,10 +118,10 @@ function _av(string $webPath): string {
   <script>window.MW_BUSINESS = <?php echo json_encode(function_exists('_idBrand') ? ['name' => html_entity_decode(_idBrand()['name'], ENT_QUOTES, 'UTF-8'), 'full' => html_entity_decode(_idBrand()['full'], ENT_QUOTES, 'UTF-8'), 'site' => html_entity_decode(_idBrand()['siteLabel'], ENT_QUOTES, 'UTF-8')] : ['name' => '', 'full' => '', 'site' => ''], JSON_HEX_TAG | JSON_HEX_AMP); ?>;</script>
 
   <!-- Favicon + PWA Icons -->
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
-  <link rel="manifest" href="/assets/favicon/site.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon-ittai/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-ittai/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-ittai/favicon-16x16.png">
+  <link rel="manifest" href="/assets/favicon-ittai/site.webmanifest">
 
   <?php if (!$crewLite): ?>
   <!-- iOS Splash Screens (generated via /crm/pwa-splash.php) -->
@@ -221,6 +221,14 @@ function _av(string $webPath): string {
   <script src="<?= _av('/crm/js/ittai-shell.js') ?>" defer></script>
   <?php endif; ?>
 
+  <?php
+  // Ittai brand preview (Tim, 2026-11-04): this browser chose Ittai's colours (it_brand cookie, set from the account
+  // menu via dashboard_appstack.php). Loaded last so it re-points the business colour over every other stylesheet.
+  $itBrand = (($_COOKIE['it_brand'] ?? '') === 'ittai');
+  if ($itBrand): ?>
+  <link href="<?= _av('/crm/css/ittai-brand.css') ?>" rel="stylesheet">
+  <?php endif; ?>
+
   <?php echo $extraHead; ?>
 
   <!-- Service Worker registration — see /crm/js/sw-register.js.
@@ -229,7 +237,7 @@ function _av(string $webPath): string {
        cleaned up by the new register script. -->
 
 </head>
-<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '') . ($itShell ? ' it-shell' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
+<body<?php $__bc = trim($bodyClass . ($crewLite ? ' mw-crew-lite' : '') . ($itShell ? ' it-shell' : '') . ($itBrand ? ' it-brand-ittai' : '')); echo $__bc ? ' class="' . htmlspecialchars($__bc) . '"' : ''; ?>>
   <?php if (!$mwLedgerOnly) include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
     <?php if (!$crewLite) include __DIR__ . '/appstack_sidebar.php'; ?>
