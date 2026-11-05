@@ -82,6 +82,10 @@ The data already exists. The ready brief (`team/head-brief-ready?head=charlie`) 
 
 1. **iPhone (Claude):**
    - Kaname tab in the centre and "Time";
+   - streamline the tab code in the same pass. One list of tabs (title, icon, screen, owning head) drives both the bar and the screens. That replaces:
+     - the system TabView, today hidden three ways (`UITabBar.appearance`, `.toolbar(.hidden)` on each tab, unused `.tabItem` labels);
+     - the second, index-matched `meniscusItems` list;
+     - the AI Office tab icon rendered from a view.
    - title-bar faces and the "needs you" line;
    - remove the strip;
    - Charlie → Kaname strings.
