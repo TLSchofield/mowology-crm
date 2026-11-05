@@ -145,6 +145,7 @@ struct SearchView: View {
             .itAppForm()
             .itAppScreen()
             .foregroundStyle(appStyle.text)
+            .itOfficeBarSlot()
             .navigationTitle("Search")
             // Inline like every other tab: a large title sat under the heads bar (MainTabView's top inset) and was
             // clipped (Tim's screenshot, 2026-10-19).

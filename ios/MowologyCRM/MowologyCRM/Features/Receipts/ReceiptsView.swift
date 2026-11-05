@@ -67,6 +67,7 @@ struct ReceiptsView: View {
     var body: some View {
         NavigationStack {
             expenseList
+            .itOfficeBarSlot()
             .navigationBarTitleDisplayMode(.inline)
             .itAppForm()
             .itAppScreen()

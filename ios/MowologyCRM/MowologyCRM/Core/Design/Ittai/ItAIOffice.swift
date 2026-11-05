@@ -16,6 +16,30 @@ final class ItOfficeFocus: ObservableObject {
     @Published var head = "charlie"
 }
 
+private struct ItOfficeBarKey: EnvironmentKey { static let defaultValue: AnyView? = nil }
+
+extension EnvironmentValues {
+    /// The AI Office bar for the screens that show it (set by MainTabView for admins; nil hides it).
+    var itOfficeBar: AnyView? {
+        get { self[ItOfficeBarKey.self] }
+        set { self[ItOfficeBarKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Puts the AI Office bar under this screen's navigation bar (and its search field), the way Android shows it
+    /// under the title bar. Apply inside the NavigationStack. It used to sit above the whole tab view and covered
+    /// Search's input (Tim's iPhone, 2026-11-04).
+    func itOfficeBarSlot() -> some View { modifier(ItOfficeBarSlot()) }
+}
+
+private struct ItOfficeBarSlot: ViewModifier {
+    @Environment(\.itOfficeBar) private var bar
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) { if let bar { bar } }
+    }
+}
+
 /// Persistent, compact navigation for the seven AI workspaces.
 struct ItOfficeBar: View {
     let members: [ItOfficeMember]

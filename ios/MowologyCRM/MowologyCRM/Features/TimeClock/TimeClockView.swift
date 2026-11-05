@@ -98,6 +98,7 @@ struct TimeClockView: View {
             }
             .background(appStyle.page)
             .itAppScreen()
+            .itOfficeBarSlot()
             .navigationTitle("Time Clock")
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadStatus() }

@@ -182,6 +182,7 @@ struct TeamView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
+            .itOfficeBarSlot()
             .navigationTitle("AI Office")
             .navigationBarTitleDisplayMode(.inline)
             .task { await loadBrains() }
@@ -234,6 +235,7 @@ struct TeamView: View {
                 .ittaiTheme(field: ittaiFieldEnabled)
                 .background(ItPageBackground().ittaiTheme(field: ittaiFieldEnabled))
                 .task { await loadHeadIfNeeded(slug) }
+                .itOfficeBarSlot()
                 .navigationTitle(TeamHead.all.first { $0.slug == slug }?.name ?? slug.capitalized)
                 .navigationBarTitleDisplayMode(.inline)
             }

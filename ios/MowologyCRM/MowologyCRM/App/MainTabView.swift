@@ -136,19 +136,8 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .tint(appStyle.tenant)
         .itAppScreen()
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if selectedTab != .schedule && authSession.user?.isAdmin == true && ittaiDesignEnabled {
-                ItOfficeBar(members: officeBarMembers,
-                            highlighted: selectedTab == .account ? officeFocus.head : nil,
-                            connectionUnavailable: readyBriefStore.failed,
-                            portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
-                                ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
-                    selectedTab = .account
-                    notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
-                }
-                .ittaiTheme(field: ittaiFieldEnabled)
-            }
-        }
+        // The AI Office bar: each tab but Schedule shows it under its own title (itOfficeBarSlot), as on Android.
+        .environment(\.itOfficeBar, officeBar)
         .task {
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
@@ -185,6 +174,21 @@ struct MainTabView: View {
         .onChange(of: notificationRouter.pendingHead) { _, head in
             if head != nil { openTeamForHead() }
         }
+    }
+
+    private var officeBar: AnyView? {
+        guard authSession.user?.isAdmin == true && ittaiDesignEnabled else { return nil }
+        return AnyView(
+            ItOfficeBar(members: officeBarMembers,
+                        highlighted: selectedTab == .account ? officeFocus.head : nil,
+                        connectionUnavailable: readyBriefStore.failed,
+                        portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
+                            ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in
+                selectedTab = .account
+                notificationRouter.pendingHead = HeadRoute(head: slug, quoteId: nil)
+            }
+            .ittaiTheme(field: ittaiFieldEnabled)
+        )
     }
 
     private var officeBarMembers: [ItOfficeMember] {
