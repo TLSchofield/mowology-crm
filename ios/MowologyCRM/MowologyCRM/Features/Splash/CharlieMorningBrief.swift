@@ -221,10 +221,10 @@ struct OpeningOverlay: View {
                 if phase != .done && !showingAssembly {
                     let side = phase == .splash ? bigSize : small
                     ZStack {
-                        BrainView(units: snap.units, tiers: snap.tiers, label: "Charlie's brain", onLight: light)
+                        BrainView(units: snap.units, tiers: snap.tiers, label: "Kaname's brain", onLight: light)
                             .opacity(showFace ? 0 : 1)
                         // The back: his face, drawn mirrored so it reads the right way round once flipped.
-                        HeadFaceView(slug: "charlie", name: "Charlie", size: side, ring: Color.MW.lime)
+                        HeadFaceView(slug: "charlie", name: "Kaname", size: side, ring: Color.MW.lime)
                             .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                             .opacity(showFace ? 1 : 0)
                     }
@@ -238,7 +238,7 @@ struct OpeningOverlay: View {
                         withAnimation(.easeInOut(duration: 0.45)) { showFace.toggle() }
                     }
                     .allowsHitTesting(phase == .brief)
-                    .accessibilityLabel(showFace ? "Charlie" : "Charlie's brain")
+                    .accessibilityLabel(showFace ? "Kaname" : "Kaname's brain")
                     .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
                     .position(phase == .splash ? center : corner)
                     .scaleEffect(phase == .splash && intro < 1 ? 0.82 : 1)
@@ -323,7 +323,7 @@ struct OpeningOverlay: View {
             HStack(alignment: .center, spacing: 12) {
                 Color.clear.frame(width: brainSlot, height: brainSlot)   // the brain lands here
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Charlie").font(.headline).foregroundStyle(ink)
+                    Text("Kaname").font(.headline).foregroundStyle(ink)
                     Text(loader.isFresh ? "Chief of Staff · this morning"
                          : "Chief of Staff · as of \(s.fetchedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption).foregroundStyle(ink.opacity(0.65))

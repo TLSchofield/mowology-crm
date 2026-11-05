@@ -104,6 +104,8 @@ struct MainTabView: View {
                     .toolbar(.hidden, for: .tabBar)
             }
         }
+        // The ready brief's head states, for each screen's head face and "needs you" line (ScreenHead.swift).
+        .environmentObject(readyBriefStore)
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {

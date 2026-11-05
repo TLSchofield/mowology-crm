@@ -30,7 +30,7 @@ struct TeamHead: Identifiable, Hashable {
         TeamHead(slug: "otto",    name: "Otto",    role: "Operations",     isLive: true),
         TeamHead(slug: "mia",     name: "Mia",     role: "Marketing",      isLive: true),
         TeamHead(slug: "yui",     name: "Yui",     role: "Comms", isLive: true),
-        TeamHead(slug: "charlie", name: "Charlie", role: "Chief of Staff", isLive: true),
+        TeamHead(slug: "charlie", name: "Kaname", role: "Chief of Staff", isLive: true),
     ]
 }
 
@@ -129,6 +129,11 @@ struct TeamView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if ittaiDesignEnabled {
+                        // Ask Kaname first: his tab is where you ask for anything (Kaname spec §1).
+                        KanameAskBox(vm: charlie)
+                            .padding(16)
+                            .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
+                            .task { if !charlie.hasLoaded && !charlie.isLoading { await charlie.load() } }
                         ittaiOffice
                             .ittaiTheme(field: ittaiFieldEnabled)
                             .id(Self.cardAnchor)
@@ -251,7 +256,8 @@ struct TeamView: View {
                     if head.isLoading && head.hasLoaded { ProgressView() }
                 }
             }
-            HeadCardView(vm: head, onBrainTap: { flip(slug) }, showsBrain: !ittaiDesignEnabled)
+            HeadCardView(vm: head, onBrainTap: { flip(slug) }, showsBrain: !ittaiDesignEnabled,
+                         showsAsk: !ittaiDesignEnabled)
             if slug == "otto" && showsAccount {
                 // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
                 OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
@@ -285,7 +291,7 @@ struct TeamView: View {
             briefTime: liveReadyBrief != nil
                 ? readyBriefTime.map(Self.timeFormatter.string)
                 : cachedBrief.map { cachedBriefLabel($0.savedAt) },
-            charlie: officeMember("charlie", name: "Charlie", department: "Chief of Staff", vm: charlie),
+            charlie: officeMember("charlie", name: "Kaname", department: "Chief of Staff", vm: charlie),
             sides: [
                 officeMember("yui", name: "Yui", department: "Communications", vm: yui),
                 officeMember("otto", name: "Otto", department: "Operations", vm: otto),

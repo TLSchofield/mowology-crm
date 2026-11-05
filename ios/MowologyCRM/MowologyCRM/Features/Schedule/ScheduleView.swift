@@ -326,6 +326,8 @@ struct ScheduleView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Otto owns Schedule (Kaname spec §2). His attention banner is already on this screen, so no line.
+        ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") }
         ToolbarItem(placement: .navigationBarLeading) {
             Button {
                 impactLight.impactOccurred()
@@ -385,4 +387,5 @@ struct ScheduleView: View {
 #Preview {
     ScheduleView()
         .environmentObject(AuthSession())
+        .environmentObject(ReadyBriefStore())
 }

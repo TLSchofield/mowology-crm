@@ -40,7 +40,7 @@ struct ItAIOfficeView<Workspace: View>: View {
         VStack(alignment: .leading, spacing: ItSpace.s8) {
             briefBlock
             priorityBlock
-            ItSection(title: "AI office", note: "Six specialists, coordinated by Charlie") {
+            ItSection(title: "The office", note: "Six heads of department, coordinated by Kaname") {
                 VStack(spacing: ItSpace.s4) {
                     ItHexagon(width: 340, charlie: charlie, sides: sides, selected: $selected, onOpen: onOpen)
                         .frame(maxWidth: .infinity)
@@ -127,7 +127,7 @@ struct ItAIOfficeView<Workspace: View>: View {
 
     private var briefContent: some View {
         VStack(alignment: .leading, spacing: ItSpace.s1) {
-            Text(briefTime.map { "Charlie's brief · \($0)" } ?? "Charlie's brief")
+            Text(briefTime.map { "Kaname's brief · \($0)" } ?? "Kaname's brief")
                 .itText(.meta13, weight: 600).foregroundStyle(it.meta)
             Text(charlieBrief)
                 .itText(.title22).foregroundStyle(it.text)
@@ -138,9 +138,9 @@ struct ItAIOfficeView<Workspace: View>: View {
     }
 
     private var charlieBrief: String {
-        if !charlie.loaded { return "Charlie is gathering the day." }
-        if charlie.loadFailed && !isOfflineBrief { return "Couldn't load Charlie's brief." }
-        return brief ?? "Charlie is gathering the day."
+        if !charlie.loaded { return "Kaname is gathering the day." }
+        if charlie.loadFailed && !isOfflineBrief { return "Couldn't load Kaname's brief." }
+        return brief ?? "Kaname is gathering the day."
     }
 
     @ViewBuilder

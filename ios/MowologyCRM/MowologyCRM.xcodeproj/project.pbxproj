@@ -156,6 +156,7 @@
 		2D23A80B6A741E3F711AB1C7 /* DeviceTextScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08535844B024088105A096C /* DeviceTextScanner.swift */; };
 		D4FD0070EE358D7A014A75C4 /* ItMeniscusGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4914118B08D22925FEEFD9A /* ItMeniscusGeometry.swift */; };
 		A1E1E9D3608B6A95A350EA19 /* ItMeniscusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94BAAB31AC20858A44F7CD4 /* ItMeniscusBar.swift */; };
+		0BE7CE13ABA043A34E57BE59 /* ScreenHead.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -310,6 +311,7 @@
 		F08535844B024088105A096C /* DeviceTextScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTextScanner.swift; sourceTree = "<group>"; };
 		C4914118B08D22925FEEFD9A /* ItMeniscusGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItMeniscusGeometry.swift; sourceTree = "<group>"; };
 		F94BAAB31AC20858A44F7CD4 /* ItMeniscusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItMeniscusBar.swift; sourceTree = "<group>"; };
+		F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenHead.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -595,6 +597,7 @@
 				8C71D31639DF2F5C586F3DA3 /* OttoMissedReviewViews.swift */,
 				6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */,
 				061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */,
+				F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -868,6 +871,7 @@
 				2D23A80B6A741E3F711AB1C7 /* DeviceTextScanner.swift in Sources */,
 				D4FD0070EE358D7A014A75C4 /* ItMeniscusGeometry.swift in Sources */,
 				A1E1E9D3608B6A95A350EA19 /* ItMeniscusBar.swift in Sources */,
+				0BE7CE13ABA043A34E57BE59 /* ScreenHead.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -941,7 +945,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.75;
+				MARKETING_VERSION = 1.3.76;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1027,7 +1031,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.75;
+				MARKETING_VERSION = 1.3.76;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

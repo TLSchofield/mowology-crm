@@ -292,7 +292,7 @@ struct CharlieBrainCache {
 struct BrainView: View {
     let units: Int
     let tiers: [String: Int]
-    var label: String = "Charlie's brain"
+    var label: String = "Kaname's brain"
     /// On a light background the unlit outline is drawn in forest, not pale mint (else it vanishes).
     var onLight: Bool = false
 
@@ -307,7 +307,7 @@ struct BrainView: View {
     @State private var startedAt = Date()
     private let prepared: Prepared
 
-    init(units: Int, tiers: [String: Int], label: String = "Charlie's brain", onLight: Bool = false) {
+    init(units: Int, tiers: [String: Int], label: String = "Kaname's brain", onLight: Bool = false) {
         self.units = units
         self.tiers = tiers
         self.label = label

@@ -19,8 +19,9 @@ struct HeadCardView: View {
     var onBrainTap: (() -> Void)? = nil
     /// Ittai explains learning once in ordinary language above this card.
     var showsBrain = true
+    /// Kaname's Ask box; off when his tab shows it at the top instead (Kaname spec §1: one door).
+    var showsAsk = true
     @Environment(\.openURL) private var openURL
-    @FocusState private var askFocused: Bool
     @State private var confirmPublish = false
 
     var body: some View {
@@ -32,7 +33,7 @@ struct HeadCardView: View {
                 errorState(err)
             } else if let card = vm.card {
                 header(card)
-                if vm.head == "charlie" { askSection }
+                if vm.head == "charlie" && showsAsk { KanameAskBox(vm: vm) }
                 note
                 itemsSection(card)
                 if vm.head == "otto" {
@@ -148,49 +149,6 @@ struct HeadCardView: View {
         case "silver":   return Color(red: 0.45, green: 0.5, blue: 0.55)
         case "bronze":   return Color(red: 0.65, green: 0.4, blue: 0.2)
         default:         return Color.primary
-        }
-    }
-
-    // MARK: - Charlie's Ask box
-
-    private var askSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHead("Ask Charlie", "about a customer, a quote, an invoice or a visit")
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Has Linda's quote been sent?", text: $vm.question, axis: .vertical)
-                    .lineLimit(1...4)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($askFocused)
-                    .submitLabel(.send)
-                    .onSubmit { Task { await vm.submitQuestion() } }
-                    .disabled(vm.ask?.ready != true)
-                Button {
-                    askFocused = false
-                    Task { await vm.submitQuestion() }
-                } label: {
-                    if vm.isAsking { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(appStyle.font(.title2)) }
-                }
-                .disabled(!vm.canAsk)
-                .tint(appStyle.tenant)
-                .accessibilityLabel("Ask Charlie")
-            }
-            if let left = vm.askLeftText {
-                Text(left).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-            }
-            if let a = vm.answer {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let q = vm.askedQuestion {
-                        Text(q).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
-                    }
-                    Text(a)
-                        .font(appStyle.font(.subheadline))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-            }
         }
     }
 
@@ -390,5 +348,57 @@ struct MoveToMenu: View {
         }
         .font(appStyle.font(.caption))
         .disabled(disabled)
+    }
+}
+
+/// Ask Kaname (the chief of staff; key "charlie"): one question about a customer, quote, invoice or visit.
+/// At the top of Kaname's tab (TeamView), and on his card where that tab isn't showing it.
+struct KanameAskBox: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var vm: HeadCardViewModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ask Kaname").font(appStyle.font(.headline))
+                Text("about a customer, a quote, an invoice or a visit").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Has Linda's quote been sent?", text: $vm.question, axis: .vertical)
+                    .lineLimit(1...4)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .submitLabel(.send)
+                    .onSubmit { Task { await vm.submitQuestion() } }
+                    .disabled(vm.ask?.ready != true)
+                Button {
+                    focused = false
+                    Task { await vm.submitQuestion() }
+                } label: {
+                    if vm.isAsking { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(appStyle.font(.title2)) }
+                }
+                .disabled(!vm.canAsk)
+                .tint(appStyle.tenant)
+                .accessibilityLabel("Ask Kaname")
+            }
+            if let left = vm.askLeftText {
+                Text(left).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+            if let a = vm.answer {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let q = vm.askedQuestion {
+                        Text(q).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
+                    }
+                    Text(a)
+                        .font(appStyle.font(.subheadline))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+            }
+        }
     }
 }

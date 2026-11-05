@@ -100,6 +100,9 @@ struct TimeClockView: View {
             .itAppScreen()
             .navigationTitle("Time Clock")
             .navigationBarTitleDisplayMode(.inline)
+            // Otto owns Time (Kaname spec §2): his face, and his line when he needs you.
+            .toolbar { ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") } }
+            .safeAreaInset(edge: .top, spacing: 0) { ScreenHeadLine(slug: "otto") }
             .task { await viewModel.loadStatus() }
             .refreshable { await viewModel.loadStatus(); await driver.refresh() }
             // Clocked in (just now, or already when the app opened): if this shift hasn't
@@ -397,4 +400,5 @@ struct TimeClockView: View {
 #Preview {
     TimeClockView(authSession: AuthSession())
         .environmentObject(AuthSession())
+        .environmentObject(ReadyBriefStore())
 }

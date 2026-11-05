@@ -538,6 +538,8 @@ struct ReceiptsView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Penny owns Receipts (Kaname spec §2). Her "needs receipts" card is already on this screen, so no line.
+        ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "penny") }
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(appStyle.font(.headline, weight: .semibold))
@@ -729,5 +731,5 @@ private struct ExpenseRow: View {
 }
 
 #Preview {
-    ReceiptsView().environmentObject(AuthSession())
+    ReceiptsView().environmentObject(AuthSession()).environmentObject(ReadyBriefStore())
 }
