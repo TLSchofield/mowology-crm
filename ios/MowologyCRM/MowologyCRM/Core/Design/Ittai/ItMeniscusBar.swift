@@ -34,11 +34,15 @@ struct ItMeniscusBar: View {
             selected = index
         }
         .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
-        // The surface carries on under the home indicator.
-        .background(alignment: .bottom) {
-            style.surface
-                .frame(height: Self.barHeight)
-                .ignoresSafeArea(.container, edges: .bottom)
+        // The surface carries on under the home indicator. A fixed-height fill cannot grow into the safe area
+        // (1.3.67 on Tim's iPhone showed the page through the home-indicator strip), so the fill is flexible:
+        // clear above the bar's edge, surface below it, and the stack itself ignores the bottom safe area.
+        .background {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: ItMeniscusGeometry.rise + ItMeniscusGeometry.depth)
+                style.surface
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .onAppear { position = CGFloat(selected) }
         .onChange(of: selected) { _, new in
