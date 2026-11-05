@@ -9,9 +9,18 @@
 
 import SwiftUI
 
+/// Which head the AI Office is showing (its root is Charlie's brief), so the top bar can light that face.
+@MainActor
+final class ItOfficeFocus: ObservableObject {
+    static let shared = ItOfficeFocus()
+    @Published var head = "charlie"
+}
+
 /// Persistent, compact navigation for the seven AI workspaces.
 struct ItOfficeBar: View {
     let members: [ItOfficeMember]
+    /// The face to light: the head on screen, or none while another tab is showing.
+    var highlighted: String? = nil
     var connectionUnavailable = false
     var portraitURL: (String) -> URL? = { _ in nil }
     let onSelect: (String) -> Void
@@ -25,11 +34,12 @@ struct ItOfficeBar: View {
                 if let member = members.first(where: { $0.id == slug }) {
                     Button { onSelect(slug) } label: { portrait(member) }
                         .disabled(!member.available)
-                        .buttonStyle(ItOfficeBarButtonStyle(selected: slug == "charlie", selectedColor: it.selected))
+                        .buttonStyle(ItOfficeBarButtonStyle(selected: slug == highlighted, selectedColor: it.selected))
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .contentShape(Rectangle())
                         .accessibilityLabel(accessibilityLabel(member))
                         .accessibilityHint("Opens \(member.name)'s workspace in AI Office")
+                        .accessibilityAddTraits(slug == highlighted ? .isSelected : [])
                 }
             }
         }

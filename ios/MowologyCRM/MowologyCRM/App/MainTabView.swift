@@ -42,6 +42,7 @@ struct MainTabView: View {
     @ObservedObject private var notificationRouter = NotificationRouter.shared
     /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
+    @ObservedObject private var officeFocus = ItOfficeFocus.shared
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var readyBriefStore = ReadyBriefStore()
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
@@ -138,6 +139,7 @@ struct MainTabView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if selectedTab != .schedule && authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 ItOfficeBar(members: officeBarMembers,
+                            highlighted: selectedTab == .account ? officeFocus.head : nil,
                             connectionUnavailable: readyBriefStore.failed,
                             portraitURL: { slug in TeamHead.all.first { $0.slug == slug }?.faceURL
                                 ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }) { slug in

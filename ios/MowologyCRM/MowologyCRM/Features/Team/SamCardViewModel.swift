@@ -113,7 +113,20 @@ final class SamCardViewModel: ObservableObject {
 
     // MARK: - Load
 
+    private var loading: Task<Void, Never>?
+
+    /// One load at a time, in its own task. A second caller waits for the one in flight (opening a head from the
+    /// top bar asked twice, and the answers could overwrite each other), and a screen that goes away mid-load no
+    /// longer cancels it ("NSURLErrorDomain (-999): cancelled" on Tim's iPhone, 2026-11-04).
     func load() async {
+        if let loading { await loading.value; return }
+        let task = Task { await runLoad() }
+        loading = task
+        await task.value
+        loading = nil
+    }
+
+    private func runLoad() async {
         isLoading = true
         loadError = nil
         do {

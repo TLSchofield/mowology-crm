@@ -198,7 +198,8 @@ struct TeamView: View {
                     if !chase.adminLoaded { await chase.loadAdmin() }
                 }
             }
-            .onAppear { consumeHeadRoute() }
+            .onAppear { consumeHeadRoute(); ItOfficeFocus.shared.head = path.last ?? "charlie" }
+            .onChange(of: path) { _, now in ItOfficeFocus.shared.head = now.last ?? "charlie" }
             .onChange(of: notificationRouter.pendingHead) { _, _ in consumeHeadRoute() }
             .onChange(of: scrollRequest) { _, _ in
                 if ittaiDesignEnabled {

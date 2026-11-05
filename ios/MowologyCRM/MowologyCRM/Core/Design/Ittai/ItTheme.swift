@@ -173,11 +173,17 @@ enum ItIttaiBrandHex {
     static let defaultsKey = "ittai.brand.preview"
 
     static func overlay(_ mode: ItMode) -> [ItColorToken: UInt32] {
+        // `selected` (a pressed or chosen row) leans blue, not green, beside the navy (Tim, 2026-11-04).
         switch mode {
         case .dark:
-            return [.tenant: 0x9CB8E4, .onTenant: 0x0F1512, .tenantMark: 0x4F688F, .tenantSoft: 0x17263F]
-        case .light, .field:
-            return [.tenant: 0x233A5E, .onTenant: 0xFFFFFF, .tenantMark: 0x233A5E, .tenantSoft: 0xE6EFFE]
+            return [.tenant: 0x9CB8E4, .onTenant: 0x0F1512, .tenantMark: 0x4F688F, .tenantSoft: 0x17263F,
+                    .selected: 0x1C2433]
+        case .light:
+            return [.tenant: 0x233A5E, .onTenant: 0xFFFFFF, .tenantMark: 0x233A5E, .tenantSoft: 0xE6EFFE,
+                    .selected: 0xE6EAF0]
+        case .field:
+            return [.tenant: 0x233A5E, .onTenant: 0xFFFFFF, .tenantMark: 0x233A5E, .tenantSoft: 0xE6EFFE,
+                    .selected: 0xE3E8EF]
         }
     }
 }
