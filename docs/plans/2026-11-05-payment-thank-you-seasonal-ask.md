@@ -23,6 +23,12 @@ Can we automate that?"
   carries an offer is a marketing email under CASL, so it needs `MiaWording::compose()` (sender, address,
   unsubscribe link) and the check at send time.
 
+## Scope for the first build (Tim, 2026-11-05)
+**Fall cleanup only**, "until we streamline services and how the system reads them". Mia looks for a fall cleanup
+(by name in CRM visits and Jobber invoices, or the 2× bill clue in Oct–Dec) and asks only about that. The generic
+"any seasonal service" matching below waits for the services clean-up (backlog). The code keeps the service as a
+parameter so widening it later is a list change, not a rewrite.
+
 ## How it works
 1. **Penny records a payment** (e-Transfer, cheque, card, any path that clears an invoice). She hands Mia one event:
    contact, property, amount, invoices paid, and "account now clear" or "balance left".
