@@ -131,4 +131,8 @@ Done well, cancelling QuickBooks is a 10-minute step, not a migration. Building 
   rules: only a property the import CREATES gets the sub-customer link (an existing property's invoices keep their
   customer), and two units at one street get separate buildings. A person's billing address lives on a `clients` row
   (individual, legacy_contact_id); PDFs still print the property address (known limit).
-- Next: deploy G12–G14 (Tim's go), then U6 doc read → G10/G11.
+- G12–G14 LIVE 2026-11-05 (Tim's go): live copies matched the pre-change versions; ContactService,
+  QboOnboardingService, QboSyncService deployed one by one (sizes match); cached code cleared per file with
+  `opcache_invalidate` through prod-run.sh (Chrome was not signed in); new methods confirmed loaded; sites load.
+  Not yet exercised on a real import (rehearsal2 is already imported) — next import or a re-run shows it.
+- Next: U6 doc read → G10/G11.
