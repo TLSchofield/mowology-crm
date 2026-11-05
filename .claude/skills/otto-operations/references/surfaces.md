@@ -42,6 +42,7 @@
 | Supplier form send | server-sent buttons | server-sent buttons | `SupplierFormService` | — |
 | Supplier stop "no receipt yet" (Nothing was bought / I'll find it) | server-sent buttons | server-sent buttons (`otto-card.js`) | `SupplierStopService::ottoItems()` + `OttoActionService::decide()` | — |
 | Supplier stop + Otto's job pick on a receipt (office only) | not built — `ReceiptDetailView` shows nothing | `#expSupplierStop` in the expense modal (`supplier-stop.js`) | `SupplierJobSuggestService::forEditor()` via `supplier-stops.php` (session) | iPhone (needs a JWT read of `forEditor()`) |
+| Schedule day as a timeline (numbered rail, one-line windows, done dimmed, saved-not-sent, next with note + Navigate, on-site card with timer / quick add / Finish visit, left-site nudge; 2026-11-05) | `ScheduleTimelineViews.swift` + pure rules `ScheduleTimelineRules.swift` (checked by `ios/LogicTests/ScheduleTimelineTests.swift`), shown by `DayListView` behind `ScheduleTimelineSwitch` (Automatic = admins, Settings > Schedule layout) | old cards (`mobile-cards.css`) | stops: `day.php` (no new fields: window end = start + estimated duration); my timer `/api/schedule/timer` active; left site = `DepartureAutoStopService` via the GPS upload's `auto_stopped` | Android and web still show the old cards; design in `~/Projects/design-studio/sandbox/ittai-schedule-cards/chosen-a-timeline/` |
 
 When you change a row, change the date in this file's heading.
 

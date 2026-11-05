@@ -33,7 +33,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---

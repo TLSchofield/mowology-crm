@@ -182,6 +182,7 @@ struct ItDesignSettingsRows: View {
     // Ittai is the only design from 1.3.56; what's left to choose is field mode (high contrast, always light).
     @AppStorage("ittai.design.field") private var field = false
     @AppStorage(ItIttaiBrandHex.defaultsKey) private var brandIttai = false
+    @AppStorage(ScheduleTimelineSwitch.defaultsKey) private var timelineSetting = 0
     @Environment(\.itAppStyle) private var style
 
     var body: some View {
@@ -192,5 +193,14 @@ struct ItDesignSettingsRows: View {
         Toggle("Ittai colours (preview)", isOn: $brandIttai)
             .font(style.font(.body)).tint(style.tenant)
             .frame(minHeight: ItSize.targetPhone)
+        // The schedule as a timeline (2026-11-05). Automatic = on for admins, cards for crew.
+        Picker("Schedule layout", selection: $timelineSetting) {
+            Text("Automatic").tag(0)
+            Text("Timeline").tag(1)
+            Text("Cards").tag(2)
+        }
+        .pickerStyle(.menu)
+        .font(style.font(.body)).tint(style.tenant)
+        .frame(minHeight: ItSize.targetPhone)
     }
 }

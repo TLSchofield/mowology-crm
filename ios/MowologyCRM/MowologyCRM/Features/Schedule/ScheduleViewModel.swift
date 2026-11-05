@@ -104,7 +104,10 @@ final class ScheduleViewModel: ObservableObject {
     /// Stops exactly as the server returned them (route order). `stops` is
     /// re-derived from this whenever the data or the device location changes.
     private var rawStops: [Stop] = [] {
-        didSet { stops = Self.sortedForDisplay(rawStops, from: userLocation) }
+        didSet {
+            stops = Self.sortedForDisplay(rawStops, from: userLocation)
+            Task { await refreshTimeline() }
+        }
     }
 
     /// One-shot location source. Shares the tracking service's manager so a
@@ -158,6 +161,17 @@ final class ScheduleViewModel: ObservableObject {
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
+                self?.timerFetchForced = true
+                Task { await self?.silentRefresh() }
+            }
+        // The server stopped my timer because the phone left the site: the event arrives once and is
+        // cleared 0.1 s later, so the timeline remembers it per visit (LeftSiteMemory) for its nudge.
+        autoStopSink = GPSTrackingService.shared.$autoStoppedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in
+                LeftSiteMemory().record(visitId: payload.visitId, at: Date())
+                self?.timerFetchForced = true
                 Task { await self?.silentRefresh() }
             }
         // The pull-forward sheet moved a visit to today / added one and started it.
@@ -169,6 +183,81 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     private var autoStartSink: AnyCancellable?
+    private var autoStopSink: AnyCancellable?
+
+    // MARK: - Timeline layout state (Tim, 2026-11-05; read by DayListView behind ScheduleTimelineSwitch)
+
+    @Published private(set) var timelineInput = ScheduleTimelineInput(
+        context: TimelineContext(myUserId: nil, mineScope: false))
+
+    /// Each refresh takes a number; only the newest may publish (an older one finishing late is dropped).
+    private var timelineGeneration = 0
+    /// When the server last answered the active-timer question, and whether the next refresh must ask again.
+    private var timerFetchedAt: Date?
+    private var timerFetchForced = true
+    /// Schedule polls change the stops often; the timer is asked at most this often unless forced.
+    private static let timerReuseSeconds: TimeInterval = 20
+    /// After this long without a successful answer, a remembered timer is dropped rather than shown.
+    private static let timerStaleSeconds: TimeInterval = 300
+
+    /// My running timer, the finishes still in the offline queue and the left-site memory, for the
+    /// stops just loaded. Only runs while the timeline is switched on for this person.
+    func refreshTimeline() async {
+        guard ScheduleTimelineSwitch.isOn(isAdmin: apiClient.currentUserIsAdmin) else { return }
+        timelineGeneration += 1
+        let generation = timelineGeneration
+
+        // One consistent picture: everything below uses this snapshot, not state read after the await.
+        let stopsNow = rawStops
+        let mineNow = scope == "mine"
+
+        let queue = TransitionQueue()
+        let pending = Set(stopsNow.flatMap { $0.visits.map(\.visitId) }
+            .filter { queue.hasPending(visitId: $0, action: "stop") })
+
+        var activeId = timelineInput.context.activeTimerVisitId
+        var startedAt = timelineInput.timerStartedAt
+        let recent = timerFetchedAt.map { Date().timeIntervalSince($0) < Self.timerReuseSeconds } ?? false
+        if timerFetchForced || !recent {
+            timerFetchForced = false
+            do {
+                let response: ActiveTimerResponse = try await apiClient.request(.scheduleTimerActive)
+                activeId = response.activeTimer?.visitId
+                startedAt = response.activeTimer.map { Date().addingTimeInterval(-Double($0.elapsedSeconds)) }
+                timerFetchedAt = Date()
+            } catch {
+                // Say exactly what failed. Keep the last answer only while it is recent (a signal gap);
+                // an old one is dropped so a stopped timer never lingers on screen.
+                AppDiagnostics.shared.record(category: "schedule.timeline",
+                                             message: "active timer: \(ErrorDetails.describe(error))")
+                let stale = timerFetchedAt.map { Date().timeIntervalSince($0) > Self.timerStaleSeconds } ?? true
+                if stale { activeId = nil; startedAt = nil }
+            }
+        }
+        guard generation == timelineGeneration else { return }   // a newer refresh owns the screen
+
+        // Left-site nudges end per visit: that visit finished/skipped, or its timer is running again.
+        let memory = LeftSiteMemory()
+        var left = memory.current(now: Date())
+        for visit in stopsNow.flatMap(\.visits) where left[visit.visitId] != nil
+            && ["completed", "skipped", "cancelled"].contains(visit.visitStatus.lowercased()) {
+            memory.forget(visitId: visit.visitId)
+            left[visit.visitId] = nil
+        }
+        if let activeId, left[activeId] != nil {
+            memory.forget(visitId: activeId)
+            left[activeId] = nil
+        }
+
+        timelineInput = ScheduleTimelineInput(
+            context: TimelineContext(myUserId: apiClient.currentUserId,
+                                     mineScope: mineNow,
+                                     activeTimerVisitId: activeId,
+                                     pendingFinishVisitIds: pending,
+                                     leftSiteVisitIds: Set(left.keys)),
+            timerStartedAt: startedAt,
+            leftSiteAt: left)
+    }
     private var scheduleChangedSink: AnyCancellable?
 
     // MARK: - Public API
@@ -183,6 +272,7 @@ final class ScheduleViewModel: ObservableObject {
     /// dates cache is left alone — that one is an intentional same-session
     /// optimization, not a "give me current truth" action.)
     func refresh() async {
+        timerFetchForced = true   // pull-to-refresh and first load always ask for my timer
         ScheduleCache.shared.evictOlderThan()
         quizRequired = !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }

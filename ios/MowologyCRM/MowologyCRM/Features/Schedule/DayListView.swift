@@ -27,8 +27,21 @@ struct DayListView: View {
     /// A quick action picked on a card (touch-and-hold menu or the ⋯ button). The visit screen runs it.
     var onAction: ((Stop, VisitQuickAction) -> Void)? = nil
 
+    /// The timeline layout's extra state (timer, offline finishes, left-site). nil = always the card list.
+    var timeline: ScheduleTimelineInput? = nil
+
     /// Tracks whether the one-time initial scroll has already fired.
     @State private var hasAutoScrolled = false
+    /// Timeline auto-scroll: the stop it last scrolled to (see timelineList).
+    @State private var lastAutoScrollTarget: Int?
+
+    /// 0 = default for the role (admins on), 1 = on, 2 = off (ScheduleTimelineSwitch).
+    @AppStorage(ScheduleTimelineSwitch.defaultsKey) private var timelineSetting = 0
+
+    private var useTimeline: Bool {
+        guard timeline != nil else { return false }
+        return timelineSetting == 1 || (timelineSetting == 0 && isAdmin)
+    }
 
     /// The stop ID to scroll to on first load.
     /// Priority: in-progress → first non-complete → nil (stay at top).
@@ -46,8 +59,95 @@ struct DayListView: View {
                 errorBanner(message: message)
             } else if stops.isEmpty && appointments.isEmpty {
                 emptyState
+            } else if useTimeline, let timeline {
+                timelineList(timeline)
             } else {
                 stopList
+            }
+        }
+    }
+
+    // MARK: - Timeline (Tim, 2026-11-05; behind ScheduleTimelineSwitch)
+
+    private func timelineList(_ input: ScheduleTimelineInput) -> some View {
+        let ordered = ScheduleTimelineRules.ordered(stops)
+        let states = ScheduleTimelineRules.states(for: ordered, context: input.context)
+        let state: (Stop) -> TimelineStopState = { states[$0.id] ?? .upcoming }
+        let focusId = ordered.first { ScheduleTimelineRules.expandsOnSite(state($0), context: input.context) }?.id
+        let onAJob = ordered.contains { state($0) == .onSite }
+        let nextIndex = ordered.firstIndex { state($0) == .next }
+        return ScrollViewReader { proxy in
+            List {
+                if isOffline {
+                    Section {
+                        offlineBanner
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+                if let message = errorMessage {
+                    Section {
+                        errorBanner(message: message)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+                ForEach(appointments) { appt in
+                    AppointmentCardView(appointment: appt)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                }
+                ForEach(Array(ordered.enumerated()), id: \.element.id) { index, stop in
+                    let actions = VisitQuickAction.available(for: stop, isAdmin: isAdmin)
+                    TimelineStopRow(
+                        stop: stop,
+                        number: index + 1,
+                        state: state(stop),
+                        expanded: stop.id == focusId,
+                        isFirst: index == 0,
+                        isLast: index == ordered.count - 1,
+                        tenantAbove: nextIndex.map { $0 == index && index > 0 } ?? false,
+                        tenantBelow: nextIndex.map { $0 == index + 1 } ?? false,
+                        // One filled button per screen: no Navigate while a job (running or left) waits on me.
+                        showNavigate: !onAJob && focusId == nil,
+                        input: input,
+                        onSelect: { onSelect?(stop) },
+                        onAction: { action in onAction?(stop, action) }
+                    )
+                    .listRowBackground(appStyle.page)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .id(stop.id)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        if isAdmin, stop.canBeMoved, let onMove {
+                            Button { onMove(stop) } label: { Label("Move", systemImage: "calendar.badge.clock") }
+                                .tint(appStyle.tenant)
+                        }
+                    }
+                    .contextMenu {
+                        if !actions.isEmpty, onAction != nil {
+                            quickActionButtons(actions, for: stop)
+                        } else if isAdmin, stop.canBeMoved, let onMove {
+                            Button { onMove(stop) } label: { Label("Move to another date", systemImage: "calendar.badge.clock") }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(appStyle.page)
+            .refreshable { await onRefresh() }
+            // The job I am on, else my next stop, at the top. Runs when the list appears with its stops
+            // (onChange alone never fired then), and once more if the on-site job becomes known later
+            // (the timer arrives after the stops). Never again after that, so it does not fight the user.
+            .task(id: focusId ?? nextIndex.map { ordered[$0].id }) {
+                guard let target = focusId ?? nextIndex.map({ ordered[$0].id }),
+                      target != lastAutoScrollTarget,
+                      lastAutoScrollTarget == nil || target == focusId else { return }
+                lastAutoScrollTarget = target
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(target, anchor: .top) }
             }
         }
     }

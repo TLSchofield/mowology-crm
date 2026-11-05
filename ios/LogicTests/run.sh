@@ -50,6 +50,11 @@ run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
 run ottoattention -parse-as-library "$SRC/Core/Models/BookkeeperModels.swift" \
   "$SRC/Core/Models/TeamHeadModels.swift" "$ROOT/ios/LogicTests/OttoAttentionTests.swift"
 
+# Schedule timeline (Tim, 2026-11-05): stop states, one-line windows, timer text, next pick, left-site memory, switch.
+cp "$ROOT/ios/LogicTests/ScheduleTimelineTests.swift" "$OUT/main.swift"
+run scheduletimeline "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/ServiceHistory.swift" "$SRC/Core/Models/Visit.swift" \
+  "$SRC/Core/Models/Stop.swift" "$SRC/Features/Schedule/ScheduleTimelineRules.swift" "$OUT/main.swift"
+
 # Display-only schedule names and the 04:00-local first-open assembly gate.
 cp "$ROOT/ios/LogicTests/SchedulePresentationTests.swift" "$OUT/main.swift"
 run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/ServiceHistory.swift" "$SRC/Core/Models/Visit.swift" \

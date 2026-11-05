@@ -36,6 +36,7 @@ final class APIClient: ObservableObject {
 
     /// Who is signed in — the offline queues send only this person's queued actions.
     var currentUserId: Int? { authSession?.user?.id }
+    var currentUserIsAdmin: Bool { authSession?.user?.isAdmin ?? false }
 
     private let session: URLSession
     private let decoder: JSONDecoder

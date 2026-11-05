@@ -120,7 +120,8 @@ struct ScheduleView: View {
                         onRefresh:    { await viewModel.refresh() },
                         onMove:       { movingStop = $0 },
                         onSelect:     { pendingActions[$0.id] = nil; path.append($0) },
-                        onAction:     { stop, action in pendingActions[stop.id] = action; path.append(stop) }
+                        onAction:     { stop, action in pendingActions[stop.id] = action; path.append(stop) },
+                        timeline:     viewModel.timelineInput
                     )
                 } else {
                     DayMapView(
