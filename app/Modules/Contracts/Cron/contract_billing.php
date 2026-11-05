@@ -481,7 +481,6 @@ if ($isCli) {
     echo "  Skipped : " . count($skipped) . "\n";
     echo "  Errors  : " . count($errors) . "\n";
     if ($testSummary !== '') echo "  " . $testSummary . "\n";
-    if ($fanoutSummary !== '') echo "  " . $fanoutSummary . "\n";
     if ($errors) {
         foreach ($errors as $err) { echo "  ERROR: {$err}\n"; }
     }

@@ -11,6 +11,7 @@ class ContractBillingSourceTest extends TestCase
 
         // Other businesses run from BusinessCrons::REGISTRY; no fan-out inside the cron.
         $this->assertStringNotContainsString('BusinessCronFanout', $source);
+        $this->assertStringNotContainsString('$fanout', $source, 'no leftover fan-out variables (undefined variable = ErrorException under this cron\'s handler)');
         $this->assertStringContainsString("'mw_contract_billing_' . Tenant::key()", $source);
         $this->assertSame(2, substr_count($source, '$sender->send('));
         $this->assertSame(2, substr_count($source, 'if (!$sendAllowed)'));
