@@ -495,6 +495,10 @@ class QboSyncService
     /** @return array{ok:bool, qbo_id?:string, message?:string} */
     private function ensureCustomer(array $inv): array
     {
+        if (!empty($inv['property_id'])) {
+            $propertyLink = $this->link('client', 'property:' . (int)$inv['property_id']);
+            if ($propertyLink && $propertyLink['qbo_id']) return ['ok' => true, 'qbo_id' => (string)$propertyLink['qbo_id']];
+        }
         $key = $this->customerKey($inv);
         $l = $this->link('client', $key);
         if ($l && $l['qbo_id']) return ['ok' => true, 'qbo_id' => (string)$l['qbo_id']];

@@ -24,11 +24,11 @@ class QboOnboardingTest extends TestCase
             "CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)",
             "CREATE TABLE qbo_onboarding_parts (id INTEGER PRIMARY KEY, site_id INT, part TEXT, summary TEXT, applied_by INT, applied_at TEXT)",
             "CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, description TEXT)",
-            "CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, notes TEXT, company_id INT)",
-            "CREATE TABLE companies (id INTEGER PRIMARY KEY, primary_contact_id INT)",
-            "CREATE TABLE clients (id INTEGER PRIMARY KEY, legacy_contact_id INT, contact_id INT)",
+            "CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, phone TEXT, mobile TEXT, preferred_contact_method TEXT, receive_sms INT, receive_marketing INT, consent_quote_followup INT, consent_marketing_email INT, consent_sms INT, consent_source TEXT, prospect_status TEXT, notes TEXT, is_active INT, company_id INT)",
+            "CREATE TABLE companies (id INTEGER PRIMARY KEY, company_name TEXT, company_type TEXT, primary_contact_id INT, billing_contact_id INT, billing_email TEXT, billing_phone TEXT, billing_address TEXT, billing_city TEXT, billing_province TEXT, billing_postal_code TEXT, account_status TEXT, payment_terms TEXT, pref_attach_pdf INT)",
+            "CREATE TABLE clients (id INTEGER PRIMARY KEY, site_id INT NOT NULL DEFAULT 1, client_type TEXT, display_name TEXT, billing_address TEXT, billing_city TEXT, billing_province TEXT, billing_postal_code TEXT, billing_email TEXT, billing_phone TEXT, payment_terms TEXT, legacy_contact_id INT, contact_id INT, UNIQUE(site_id, legacy_contact_id))",
             "CREATE TABLE qbo_links (id INTEGER PRIMARY KEY, site_id INT, realm_id TEXT, entity_type TEXT, entity_id TEXT, qbo_id TEXT, sync_token TEXT, request_id TEXT, status TEXT, qbo_total REAL, message TEXT, sent_at TEXT)",
-            "CREATE TABLE properties (id INTEGER PRIMARY KEY, property_name TEXT, address TEXT, city TEXT, province TEXT, postal_code TEXT, latitude REAL, longitude REAL, site_contact_id INT, status TEXT)",
+            "CREATE TABLE properties (id INTEGER PRIMARY KEY, property_name TEXT, address TEXT, city TEXT, province TEXT, postal_code TEXT, latitude REAL, longitude REAL, site_contact_id INT, status TEXT, billing_entity_name TEXT)",
             "CREATE TABLE products (id INTEGER PRIMARY KEY, category_id INT, name TEXT, description TEXT, unit_type_id INT, base_price REAL, taxable INT, active INT, created_by INT)",
             "CREATE TABLE product_categories (id INTEGER PRIMARY KEY, name TEXT, description TEXT, active INT)",
             "CREATE TABLE unit_types (id INTEGER PRIMARY KEY, name TEXT)",
@@ -65,6 +65,14 @@ class QboOnboardingTest extends TestCase
         return $local ? $ob : new QboOnboardingService($db, null, 1, fn() => 1792540800, false);
     }
 
+    private function withCustomers(PDO $db, array $customers, ?QboConnectionService $conn = null): QboOnboardingService
+    {
+        $rows = array_map(fn($c) => ['kind' => 'customer', 'qbo_id' => (string)$c['Id'], 'data' => json_encode($c)], $customers);
+        $ob = new QboOnboardingService($db, $conn, 1, fn() => 1792540800, true);
+        $ob->import((string)json_encode(['v' => 1, 'rows' => $rows]));
+        return $ob;
+    }
+
     public function test_a_snapshot_moves_between_sites_and_the_live_site_never_loads_one(): void
     {
         $db = $this->db();
@@ -97,6 +105,192 @@ class QboOnboardingTest extends TestCase
         $this->assertSame(1, $c['properties'], 'the sub-customer is a job of Oxon, not a client');
         $this->assertSame('A job of Oxon Insurance Agency — kept with that client.', $c['rows'][2]['why']);
         $this->assertCount(3, $c['rows'], 'inactive customers left out');
+    }
+
+    public function test_shared_addresses_and_possible_building_groups_are_previewed_only(): void
+    {
+        $customers = [
+            ['Id' => '1', 'DisplayName' => 'Acme Mgmt - 123 Main', 'ShipAddr' => ['Line1' => '350 West Georgia St']],
+            ['Id' => '2', 'DisplayName' => 'Acme Mgmt – 456 Oak', 'ShipAddr' => ['Line1' => ' 350 WEST GEORGIA ST ']],
+            ['Id' => '3', 'DisplayName' => 'Bob Smith', 'ShipAddr' => ['Line1' => '9 Alone Rd']],
+        ];
+        $ob = $this->withCustomers($this->db(), $customers);
+
+        $clients = $ob->clients();
+
+        $this->assertSame([['address' => '350 West Georgia St', 'count' => 2]], $clients['shared_addresses']);
+        $this->assertSame('2 clients at 350 West Georgia St', $clients['rows'][0]['shared']);
+        $this->assertSame('Acme Mgmt', $clients['rows'][1]['group_hint']);
+        $this->assertSame([['prefix' => 'Acme Mgmt', 'names' => ['Acme Mgmt - 123 Main', 'Acme Mgmt – 456 Oak']]], $clients['groups']);
+        $this->assertStringContainsString('1 shared addresses', $ob->partPreviews()['clients']);
+        $this->assertStringContainsString('1 possible building groups', $ob->partPreviews()['clients']);
+    }
+
+    public function test_two_clients_at_one_street_get_separate_properties_and_rerun_is_idempotent(): void
+    {
+        $db = $this->db();
+        $customers = [
+            ['Id' => '1', 'DisplayName' => 'Alice One', 'GivenName' => 'Alice', 'FamilyName' => 'One', 'ShipAddr' => ['Line1' => '350 West Georgia St', 'CountrySubDivisionCode' => 'ON']],
+            ['Id' => '2', 'DisplayName' => 'Bob Two', 'GivenName' => 'Bob', 'FamilyName' => 'Two', 'ShipAddr' => ['Line1' => '350 West Georgia St', 'CountrySubDivisionCode' => 'ON']],
+        ];
+        $ob = $this->withCustomers($db, $customers);
+
+        $ob->apply('clients', 7);
+        $this->assertSame(2, (int)$db->query('SELECT COUNT(*) FROM properties')->fetchColumn());
+        $this->assertSame(2, (int)$db->query('SELECT COUNT(DISTINCT site_contact_id) FROM properties')->fetchColumn());
+        $this->assertSame('ON', $db->query('SELECT province FROM properties LIMIT 1')->fetchColumn());
+        $ob->apply('clients', 7);
+        $this->assertSame(2, (int)$db->query('SELECT COUNT(*) FROM properties')->fetchColumn());
+    }
+
+    public function test_an_unowned_property_at_the_address_is_reused_and_filled(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id,address,site_contact_id) VALUES (9,'350 West Georgia St',NULL)");
+        $ob = $this->withCustomers($db, [['Id' => '1', 'DisplayName' => 'Alice One', 'ShipAddr' => ['Line1' => '350 West Georgia St']]]);
+
+        $ob->apply('clients', 7);
+
+        $this->assertSame(1, (int)$db->query('SELECT COUNT(*) FROM properties')->fetchColumn());
+        $this->assertSame(1, (int)$db->query('SELECT site_contact_id FROM properties WHERE id=9')->fetchColumn());
+    }
+
+    public function test_a_persons_different_billing_address_is_kept_without_overwriting_it_on_rerun(): void
+    {
+        $db = $this->db();
+        $customer = ['Id' => '1', 'DisplayName' => 'Alice One', 'GivenName' => 'Alice', 'FamilyName' => 'One',
+            'PrimaryEmailAddr' => ['Address' => 'alice@example.ca'], 'PrimaryPhone' => ['FreeFormNumber' => '604-555-0101'],
+            'ShipAddr' => ['Line1' => '1 Work Rd', 'PostalCode' => 'V1V 1V1'],
+            'BillAddr' => ['Line1' => '9 Mail St', 'City' => 'Victoria', 'CountrySubDivisionCode' => 'BC', 'PostalCode' => 'V2V 2V2']];
+        $ob = $this->withCustomers($db, [$customer]);
+
+        $first = $ob->apply('clients', 7);
+        $this->assertStringContainsString('1 billing addresses kept', $first['message']);
+        $row = $db->query('SELECT * FROM clients')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(['9 Mail St', 'Victoria', 'BC', 'V2V 2V2', 1], [$row['billing_address'], $row['billing_city'], $row['billing_province'], $row['billing_postal_code'], (int)$row['legacy_contact_id']]);
+        $db->exec("UPDATE clients SET billing_city='Keep Me'");
+        $ob->apply('clients', 7);
+        $this->assertSame(1, (int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn());
+        $this->assertSame('Keep Me', $db->query('SELECT billing_city FROM clients')->fetchColumn());
+    }
+
+    public function test_company_and_same_site_billing_addresses_do_not_make_client_rows(): void
+    {
+        $db = $this->db();
+        $customers = [
+            ['Id' => '1', 'DisplayName' => 'Alice One', 'CompanyName' => 'Alice Co', 'ShipAddr' => ['Line1' => '1 Work Rd'], 'BillAddr' => ['Line1' => '9 Mail St']],
+            ['Id' => '2', 'DisplayName' => 'Bob Two', 'ShipAddr' => ['Line1' => '2 Same Rd', 'PostalCode' => 'A1A1A1'], 'BillAddr' => ['Line1' => '2 Same Rd', 'PostalCode' => 'A1A 1A1']],
+        ];
+
+        $this->withCustomers($db, $customers)->apply('clients', 7);
+
+        $this->assertSame(0, (int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn());
+    }
+
+    public function test_every_addressed_sub_customer_becomes_a_named_property_link(): void
+    {
+        $db = $this->db();
+        $conn = new class($db) extends QboConnectionService {
+            public function company(): ?array { return ['realm_id' => 'realm']; }
+        };
+        $customers = [
+            ['Id' => '1', 'DisplayName' => 'Acme Mgmt', 'CompanyName' => 'Acme Mgmt', 'PrimaryEmailAddr' => ['Address' => 'parent@example.ca']],
+            ['Id' => '2', 'DisplayName' => 'Acme Mgmt - Harbour Tower', 'ParentRef' => ['value' => '1'], 'BillAddr' => ['Line1' => '123 Harbour Rd'],
+             'BillWithParent' => false, 'PrimaryEmailAddr' => ['Address' => 'tower@example.ca']],
+            ['Id' => '3', 'DisplayName' => 'Acme Mgmt: Missing Tower', 'ParentRef' => ['value' => '1']],
+            ['Id' => '4', 'DisplayName' => 'Acme Mgmt - Shipping Tower', 'ParentRef' => ['value' => '1'], 'ShipAddr' => ['Line1' => '456 Shipping Rd']],
+        ];
+        $ob = $this->withCustomers($db, $customers, $conn);
+
+        $result = $ob->apply('clients', 7);
+
+        $property = $db->query("SELECT * FROM properties WHERE address='123 Harbour Rd'")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('Harbour Tower', $property['property_name']);
+        $this->assertSame('Harbour Tower', $property['billing_entity_name']);
+        $this->assertSame('2', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='property:" . (int)$property['id'] . "'")->fetchColumn());
+        $shippingProperty = $db->query("SELECT * FROM properties WHERE address='456 Shipping Rd'")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('Shipping Tower', $shippingProperty['property_name']);
+        $this->assertSame('4', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='property:" . (int)$shippingProperty['id'] . "'")->fetchColumn());
+        $this->assertSame([['name' => 'Harbour Tower', 'email' => 'tower@example.ca']], $result['own_billing']);
+        $this->assertStringContainsString('1 buildings billed on their own — check who gets their invoices', $result['message']);
+        $this->assertStringContainsString('Missing Tower: no address', $result['message']);
+        $this->assertSame('Building billed on its own — check who gets its invoices.', $ob->clients()['rows'][1]['why']);
+    }
+
+    public function test_two_units_at_one_street_get_their_own_buildings_and_a_rerun_makes_none(): void
+    {
+        $db = $this->db();
+        $conn = new class($db) extends QboConnectionService {
+            public function company(): ?array { return ['realm_id' => 'realm']; }
+        };
+        $ob = $this->withCustomers($db, [
+            ['Id' => '1', 'DisplayName' => 'Acme Mgmt', 'CompanyName' => 'Acme Mgmt', 'PrimaryEmailAddr' => ['Address' => 'parent@example.ca']],
+            ['Id' => '2', 'DisplayName' => 'Acme Mgmt - Unit A', 'ParentRef' => ['value' => '1'], 'ShipAddr' => ['Line1' => '9 Dock St']],
+            ['Id' => '3', 'DisplayName' => 'Acme Mgmt - Unit B', 'ParentRef' => ['value' => '1'], 'ShipAddr' => ['Line1' => '9 Dock St']],
+        ], $conn);
+
+        $ob->apply('clients', 7);
+        $ob->apply('clients', 7);
+
+        $ids = $db->query("SELECT id FROM properties WHERE address='9 Dock St' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertCount(2, $ids, 'one building per unit, none added by the re-run');
+        $this->assertSame('2', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='property:" . (int)$ids[0] . "'")->fetchColumn());
+        $this->assertSame('3', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='property:" . (int)$ids[1] . "'")->fetchColumn());
+    }
+
+    public function test_a_property_that_already_existed_gets_no_sub_customer_link(): void
+    {
+        $db = $this->db();
+        $conn = new class($db) extends QboConnectionService {
+            public function company(): ?array { return ['realm_id' => 'realm']; }
+        };
+        $ob = $this->withCustomers($db, [
+            ['Id' => '1', 'DisplayName' => 'Acme Mgmt', 'CompanyName' => 'Acme Mgmt', 'PrimaryEmailAddr' => ['Address' => 'parent@example.ca']],
+            ['Id' => '2', 'DisplayName' => 'Acme Mgmt - Old Tower', 'ParentRef' => ['value' => '1'], 'ShipAddr' => ['Line1' => '5 Old Rd']],
+        ], $conn);
+        $db->exec("INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status) VALUES ('Old', '5 Old Rd', '', 'BC', '', NULL, 'active')");
+
+        $ob->apply('clients', 7);
+
+        $id = (int)$db->query("SELECT id FROM properties WHERE address='5 Old Rd'")->fetchColumn();
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM properties WHERE address='5 Old Rd'")->fetchColumn());
+        $this->assertFalse($db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='property:$id'")->fetchColumn(),
+            'its earlier invoices keep going to their own customer');
+    }
+
+    public function test_sync_prefers_an_imported_property_customer_link(): void
+    {
+        $sync = new class extends QboSyncService {
+            public function __construct() {}
+            protected function link(string $type, string $id): ?array
+            {
+                return $type === 'client' && $id === 'property:43' ? ['qbo_id' => '900'] : null;
+            }
+        };
+        $method = new ReflectionMethod(QboSyncService::class, 'ensureCustomer');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($sync, ['id' => 10, 'property_id' => 43]);
+
+        $this->assertSame(['ok' => true, 'qbo_id' => '900'], $result);
+    }
+
+    public function test_sync_falls_back_to_the_existing_customer_identity_chain(): void
+    {
+        $sync = new class extends QboSyncService {
+            public function __construct() {}
+            protected function link(string $type, string $id): ?array
+            {
+                if ($id === 'property:43') return null;
+                return $id === 'contact:7' ? ['qbo_id' => '800'] : null;
+            }
+        };
+        $method = new ReflectionMethod(QboSyncService::class, 'ensureCustomer');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($sync, ['id' => 10, 'property_id' => 43, 'contact_id' => 7, 'contact_name' => 'Alice One']);
+
+        $this->assertSame(['ok' => true, 'qbo_id' => '800'], $result);
     }
 
     public function test_a_client_imported_before_is_recognised_even_with_no_email_or_address(): void
@@ -154,11 +348,12 @@ class QboOnboardingTest extends TestCase
         $this->assertSame(2,(int)$db->query('SELECT COUNT(*) FROM contacts')->fetchColumn());
         $this->assertSame(2,(int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn());
         $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM companies')->fetchColumn());
-        $this->assertSame(5,(int)$db->query("SELECT COUNT(*) FROM qbo_links WHERE entity_type='client'")->fetchColumn(),
-                          'conflicting contact plus contact/company/client identities are all represented');
+        $this->assertSame(6,(int)$db->query("SELECT COUNT(*) FROM qbo_links WHERE entity_type='client'")->fetchColumn(),
+                          'conflicting contact plus contact/company/client and sub-customer property identities are all represented');
+        $this->assertSame('3',(string)$db->query("SELECT qbo_id FROM qbo_links WHERE entity_id LIKE 'property:%'")->fetchColumn());
 
         $ob->apply('clients',7);
-        $this->assertSame([2,2,1,5],[(int)$db->query('SELECT COUNT(*) FROM contacts')->fetchColumn(),
+        $this->assertSame([2,2,1,6],[(int)$db->query('SELECT COUNT(*) FROM contacts')->fetchColumn(),
                                     (int)$db->query('SELECT COUNT(*) FROM clients')->fetchColumn(),
                                     (int)$db->query('SELECT COUNT(*) FROM companies')->fetchColumn(),
                                     (int)$db->query("SELECT COUNT(*) FROM qbo_links WHERE entity_type='client'")->fetchColumn()]);

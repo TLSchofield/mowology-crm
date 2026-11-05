@@ -211,6 +211,51 @@ class ContactServiceTest extends TestCase
         $this->assertTrue($result['created']);
     }
 
+    /** @test */
+    public function addOwnPropertyToContact_reuses_an_unowned_match(): void
+    {
+        $pdo = $this->mockPdo();
+        $checkStmt = $this->mockStmt(['id' => 20, 'site_contact_id' => null]);
+        $updateStmt = $this->mockStmt();
+        $pdo->expects($this->exactly(2))->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt);
+        $updateStmt->expects($this->once())->method('execute')->with([3, 20]);
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, ['address' => ' 350 West Georgia St ']);
+
+        $this->assertSame(['property_id' => 20, 'created' => false], $result);
+    }
+
+    /** @test */
+    public function addOwnPropertyToContact_reuses_the_contacts_own_match(): void
+    {
+        $pdo = $this->mockPdo();
+        $pdo->expects($this->once())->method('prepare')->willReturn($this->mockStmt(['id' => 20, 'site_contact_id' => 3]));
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, ['address' => '350 WEST GEORGIA ST']);
+
+        $this->assertSame(['property_id' => 20, 'created' => false], $result);
+    }
+
+    /** @test */
+    public function addOwnPropertyToContact_inserts_when_the_match_belongs_to_someone_else(): void
+    {
+        $pdo = $this->mockPdo();
+        $checkStmt = $this->mockStmt(false);
+        $insertStmt = $this->mockStmt();
+        $pdo->expects($this->exactly(2))->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $insertStmt);
+        $pdo->method('lastInsertId')->willReturn('42');
+        $insertStmt->expects($this->once())->method('execute')->with([
+            'West Georgia Property', '350 West Georgia St', 'Vancouver', 'BC', 'V6B 6B1', null, null, 3,
+        ]);
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, [
+            'address' => '350 West Georgia St', 'city' => 'Vancouver', 'province' => '',
+            'postal_code' => 'V6B 6B1', 'property_name' => 'West Georgia Property',
+        ]);
+
+        $this->assertSame(['property_id' => 42, 'created' => true], $result);
+    }
+
     // ── updateContact ─────────────────────────────────────────────────────────
 
     /** @test */
