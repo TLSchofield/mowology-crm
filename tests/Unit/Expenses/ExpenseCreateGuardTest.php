@@ -73,4 +73,15 @@ class ExpenseCreateGuardTest extends TestCase
         $this->assertSame(408, $r['expense_id'], 'clients read expense_id exactly as after a create');
         $this->assertTrue($r['deduplicated']);
     }
+
+    public function test_only_a_granted_lock_counts(): void
+    {
+        // Codex nightly 2026-11-05: a timed-out GET_LOCK (0) or an error (NULL) used to carry on unlocked.
+        $this->assertTrue(ExpenseCreateGuard::lockAcquired(1));
+        $this->assertTrue(ExpenseCreateGuard::lockAcquired('1'));
+        $this->assertFalse(ExpenseCreateGuard::lockAcquired(0));
+        $this->assertFalse(ExpenseCreateGuard::lockAcquired('0'));
+        $this->assertFalse(ExpenseCreateGuard::lockAcquired(null));
+        $this->assertFalse(ExpenseCreateGuard::lockAcquired(false));
+    }
 }

@@ -131,6 +131,35 @@ class BankTransferDirectionTest extends TestCase
         $this->assertSame(0, $this->repair($db)->plan()['count'], 'a second run finds nothing');
     }
 
+    public function test_a_failed_repost_leaves_the_original_entry_live(): void
+    {
+        // Codex nightly 2026-11-05: the reversal used to commit on its own, so a failed replacement
+        // took a real deposit out of the books while the item read only "failed".
+        $db = $this->db();
+        $this->fixtures($db, true);
+        $entries = (int)$db->query("SELECT COUNT(*) FROM journal_entries")->fetchColumn();
+        $ledger = new class($db) extends LedgerService {
+            private PDO $pdo;
+            public function __construct(PDO $db) { parent::__construct($db); $this->pdo = $db; }
+            public function canRepostSource(): bool { return true; }
+            public function accountId(string $code): int
+            {
+                $s = $this->pdo->prepare("SELECT id FROM chart_of_accounts WHERE code = ?");
+                $s->execute([$code]);
+                return (int)$s->fetchColumn();
+            }
+            public function postManual(array $entry): int { throw new RuntimeException('account lookup failed'); }
+        };
+
+        $r = (new BankTransferDirectionRepair($db, $ledger))->apply(1);
+
+        // Lines that only needed reversing (nothing to post now) still go; every line that needed a replacement fails whole.
+        $this->assertSame(4, $r['fixed'] + $r['failed']);
+        $this->assertGreaterThan(0, $r['failed']);
+        $this->assertSame($entries + $r['fixed'], (int)$db->query("SELECT COUNT(*) FROM journal_entries")->fetchColumn(), 'no reversal kept without its replacement');
+        $this->assertSame($r['fixed'], (int)$db->query("SELECT COUNT(*) FROM journal_entries WHERE reversed_by_entry_id IS NOT NULL")->fetchColumn());
+    }
+
     public function test_judge_ignores_an_entry_that_is_already_right(): void
     {
         $want = ['lines' => [['account_id' => self::BANK, 'debit' => 50, 'credit' => 0], ['account_id' => self::LOAN, 'debit' => 0, 'credit' => 50]]];

@@ -40,6 +40,7 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -56,14 +57,12 @@ try {
             echo json_encode(['success' => false, 'error' => 'Expense not found']);
             exit;
         }
-        if (!$isAdmin && (int)$e['created_by'] !== $userId) {
-            http_response_code(403);
-            echo json_encode(['success' => false, 'error' => 'You can only edit your own expenses']);
-            exit;
-        }
-        if ($e['status'] === 'forwarded' || (int)$e['forwarded_to_accounting'] === 1) {
-            http_response_code(409);
-            echo json_encode(['success' => false, 'error' => 'This expense has been sent to accounting and can no longer be edited']);
+        // The same rule as a header edit (ExpenseService::editBlockReason): own receipts only, never once sent,
+        // and an approved receipt is the office's to change. Lines skipped the approved check (Codex nightly 2026-11-05).
+        $why = ExpenseService::editBlockReason($e, ['id' => $userId, 'is_admin' => $isAdmin]);
+        if ($why !== null) {
+            http_response_code((!$isAdmin && (int)$e['created_by'] !== $userId) ? 403 : 409);
+            echo json_encode(['success' => false, 'error' => $why]);
             exit;
         }
     };

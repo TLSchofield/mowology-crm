@@ -91,6 +91,10 @@ class BankTransferDirectionRepair
         $p = $this->plan();
         $fixed = 0; $failed = 0; $errors = [];
         foreach ($p['items'] as $item) {
+            // Reversal and replacement as ONE change (Codex nightly 2026-11-05): a failed repost used to
+            // leave the line reversed with nothing in its place — a real deposit gone from the books.
+            $own = !$this->db->inTransaction();
+            if ($own) $this->db->beginTransaction();
             try {
                 $this->ledger->reverseEntry((int)$item['entry_id'], $userId,
                     $item['kind'] === 'backwards' ? 'deposit was posted as money out' : 'deposit is carried by its invoice payments', 'owner');
@@ -100,8 +104,10 @@ class BankTransferDirectionRepair
                     $args['proposed_by'] = 'owner';
                     $this->ledger->postManual($args);
                 }
+                if ($own) $this->db->commit();
                 $fixed++;
             } catch (Throwable $e) {
+                if ($own && $this->db->inTransaction()) $this->db->rollBack();
                 $failed++;
                 $errors[] = 'Bank line ' . $item['id'] . ': ' . $e->getMessage();
             }

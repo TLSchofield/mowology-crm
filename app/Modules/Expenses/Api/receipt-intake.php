@@ -70,10 +70,13 @@ try {
     if (!empty($_POST['rescan_media_id'])) {
         $rescanMediaId = (int)$_POST['rescan_media_id'];
         $db = getDB();
-        $mStmt = $db->prepare("SELECT id, file_path, stored_filename FROM media_assets WHERE id = ?");
+        $mStmt = $db->prepare("SELECT id, file_path, stored_filename, created_by FROM media_assets WHERE id = ?");
         $mStmt->execute([$rescanMediaId]);
         $mRow = $mStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$mRow) {
+        // Same rule as opening the photo (Codex nightly 2026-11-05): crew could rescan any media id and read
+        // another person's receipt back as vendor, amounts and lines. Not found and not yours answer alike.
+        require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+        if (!$mRow || !ExpenseService::currentUserCanSeeReceiptMedia($db, $rescanMediaId, $mRow)) {
             echo json_encode(['success' => false, 'error' => 'Media asset not found']);
             exit;
         }

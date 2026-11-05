@@ -122,6 +122,9 @@ class TripAttributionServiceTest extends TestCase
     public function test_the_oakridge_morning_end_to_end(): void
     {
         $db = CostFactsFixture::db();
+        // The gate re-posts an approved receipt's books in the same write (Codex nightly 2026-11-05): an empty
+        // ledger here means "not posted yet", as on a receipt the nightly sync hasn't reached.
+        $db->exec("CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, source_type TEXT, source_id INTEGER, reversed_by_entry_id INTEGER)");
         $svc = new TripAttributionService($db, CostFactsFixture::DATE);
         $this->assertTrue($svc->ready());
 
