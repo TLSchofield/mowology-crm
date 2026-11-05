@@ -8,6 +8,14 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Build queue (Tim, 2026-11-05: "Queue all other items") — in order, one at a time after the payment thank-you
+1. **e-Transfer memos naming invoices without the year** — `docs/plans/2026-11-05-etransfer-memo-invoice-numbers.md` (plan done; money matching, smallest).
+2. **Duplicate receipts on the phone** — `docs/plans/2026-11-05-duplicate-receipts-on-the-phone.md` (plan done; keep the bank-linked one, else the older, until Tim says otherwise).
+3. **Button and icon sizes, styles and positions** — inventory, then rules into v1.2 for Tim's approval, then fix screens (entry below).
+4. **Android Kaname tab** — `docs/plans/kaname-tab-and-screen-heads-spec.md` Android steps (Codex writes, Claude reviews).
+5. **Web: Kaname as a fixed name** — remove the `chief_name` override in `app/Services/HeadIdentity.php` after checking no business set it.
+6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
+
 ## Inbox tidy for every tenant (Yui) — added 2026-10-13
 - **Mowology today:** Yui sorts the iCloud inbox into folders using the CRM's own clients, suppliers
   and payment senders. It is preview-first, moves only, never deletes, and every batch can be undone.
