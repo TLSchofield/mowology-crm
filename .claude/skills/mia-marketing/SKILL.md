@@ -110,7 +110,9 @@ the task:
 | Campaign calendar (dates, audiences, conditions) | `mia_calendar` table + `MiaCalendar` (seed must match `MiaCalendar::defaults()`) | `MiaCampaignService` |
 | Proposing / approving a campaign; copy checks | `MiaCampaignService::propose()`, `MiaCampaignService::approve()`, `MiaCampaignService::problems()` | card, daily cron |
 | Reminders and last calls | `MiaSequenceService::run()` | `mia_email_daily` cron |
-| Best send time per person | `SendTimeService` | campaign approval |
+| Best send time per person — learned from every reply, text, payment, quote acceptance/view and email open | `SendTimeService` (`SendTimeService::recompute()` nightly; `SendTimeService::thanksSlot()` for one-to-one sends) | campaign approval, Mia's desk queue |
+| Payment thank-you (Penny → Mia), with the fall cleanup ask | `MiaThanksService::sweep()` (drafts only) + `MiaSeasonalHistory::lastFallCleanup()` | `MiaDeskService::prepare()`, `campaign_sender` cron |
+| Sending a queued one-to-one email at its best time | `MiaDeskService::sendDue()` | `campaign_sender` cron |
 | Watering stage (Metro Vancouver) | `WaterRestrictionService::refresh()` | daily cron, copy checks |
 | Daily email-hub run | `MiaEmailHubService::daily()` | `app/Modules/Marketing/Cron/mia_email_daily.php` |
 | Actually sending queued campaign email | `app/Modules/Marketing/Cron/campaign_sender.php` (re-checks `canSendMarketing()`) | — |

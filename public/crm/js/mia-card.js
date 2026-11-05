@@ -16,7 +16,7 @@
     var cBox = document.getElementById('mw-mia-camp');
     var camp = null;
     var API = '/crm/api/mia.php';
-    var KIND = { reconnect: 'Reconnect', seasonal: 'This time last year', pm_quiet: 'Quiet property manager', referral: 'Referral ask', consent_ask: 'Keep in touch (consent)' };
+    var KIND = { reconnect: 'Reconnect', seasonal: 'This time last year', pm_quiet: 'Quiet property manager', referral: 'Referral ask', consent_ask: 'Keep in touch (consent)', payment_thanks: 'Thank-you for a payment' };
     var SKIPS = [['not_now', 'Not now'], ['talked', 'Already talked'], ['not_fit', 'Not a fit'], ['never', 'Never']];
     var queue = [], idx = 0, busy = false, prepared = false, armed = null;
 
@@ -191,9 +191,11 @@
               '<div class="mw-mia-to">To ' + esc(s.email || '—') + (s.address ? ' · ' + esc(s.address) : '') + '</div></div>' +
             '<label class="mw-mia-lbl">Subject<input class="mw-mia-in" data-f="subject" value="' + esc(s.subject) + '"></label>' +
             '<label class="mw-mia-lbl">Email<textarea class="mw-mia-in mw-mia-body" data-f="body" rows="9">' + esc(s.body) + '</textarea></label>' +
-            '<div class="mw-mia-nosms">Email only. Sent with the business address and an unsubscribe link; consent is checked again when you send.</div>' +
+            '<div class="mw-mia-nosms">Email only. Sent with the business address and an unsubscribe link; consent is checked again when you send.' +
+              (s.send_at ? ' Goes ' + esc(when(s.send_at)) + (s.send_at_learned ? ', when they usually read email.' : ' (the usual time until I learn theirs).') : '') + '</div>' +
             '<div class="mw-mia-actions">' +
-              '<button type="button" class="mw-mia-send" data-do="send">Send email</button>' +
+              '<button type="button" class="mw-mia-send" data-do="send">' + esc(sendLabel(s)) + '</button>' +
+              (s.send_at ? '<button type="button" class="mw-mia-skip" data-do="now">Send now</button>' : '') +
               '<button type="button" class="mw-mia-skip" data-do="skip">Skip…</button>' +
               '<div class="mw-mia-skips" hidden>' + SKIPS.map(function (k) {
                   return '<button type="button" data-skip="' + k[0] + '">' + k[1] + '</button>';
@@ -202,6 +204,20 @@
             '<div class="mw-mia-msg">' + (msg ? esc(msg) : '') + '</div>';
         grow(root.querySelector('.mw-mia-body'));
     }
+
+    // "today at 7:30 pm" / "tomorrow at 9:30 am" / "Friday at 9:30 am" from the server's send_at (its best time).
+    function when(at) {
+        if (!at) return '';
+        var d = new Date(String(at).replace(' ', 'T'));
+        if (isNaN(d)) return '';
+        var h = d.getHours(), m = d.getMinutes();
+        var t = (h % 12 || 12) + (m ? ':' + (m < 10 ? '0' : '') + m : '') + (h < 12 ? ' am' : ' pm');
+        var day = new Date(); day.setHours(0, 0, 0, 0);
+        var diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - day) / 86400000);
+        var name = diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : d.toLocaleDateString(undefined, { weekday: 'long' });
+        return name + ' at ' + t;
+    }
+    function sendLabel(s) { return s.send_at ? 'Send ' + when(s.send_at) : 'Send email'; }
 
     function grow(t) { if (t) { t.style.height = 'auto'; t.style.height = Math.min(420, t.scrollHeight + 4) + 'px'; } }
     function field(f) { return root.querySelector('[data-f="' + f + '"]'); }
@@ -221,7 +237,7 @@
         clearTimeout(armed);
         armed = null;
         var b = root.querySelector('[data-do="send"]');
-        if (b) { b.textContent = 'Send email'; b.classList.remove('is-armed'); }
+        if (b) { b.textContent = sendLabel(queue[idx] || {}); b.classList.remove('is-armed'); }
     }
 
     root.addEventListener('click', function (e) {
@@ -231,12 +247,23 @@
         if (skipOpen) { var box = root.querySelector('.mw-mia-skips'); box.hidden = !box.hidden; return; }
         var sk = e.target.closest('[data-skip]');
         if (sk && !busy) { decide({ action: 'skip', reason: sk.getAttribute('data-skip') }, 'Skipped — I\'ll remember why.'); return; }
+        var now = e.target.closest('[data-do="now"]');
+        if (now && !busy) {
+            if (now.getAttribute('data-armed') !== '1') {
+                now.textContent = 'Send now to ' + (queue[idx].email || 'them') + '?';
+                now.setAttribute('data-armed', '1');
+                setTimeout(function () { if (now.isConnected) { now.textContent = 'Send now'; now.removeAttribute('data-armed'); } }, 6000);
+                return;
+            }
+            decide({ action: 'send', now: true, subject: field('subject').value, body: field('body').value }, null);
+            return;
+        }
         var send = e.target.closest('[data-do="send"]');
         if (send && !busy) {
             var s = queue[idx];
             if (!armed) {
                 // Second click sends: Tim sees exactly who it goes to first.
-                send.textContent = 'Send to ' + (s.email || 'them') + '?';
+                send.textContent = (s.send_at ? 'Queue for ' + when(s.send_at) + ' to ' : 'Send to ') + (s.email || 'them') + '?';
                 send.classList.add('is-armed');
                 armed = setTimeout(disarm, 6000);
                 return;
@@ -250,7 +277,7 @@
         var s = queue[idx];
         busy = true;
         root.querySelectorAll('.mw-mia-actions button').forEach(function (b) { b.disabled = true; });
-        say(extra.action === 'send' ? 'Sending…' : '');
+        say(extra.action === 'send' ? (s.send_at && !extra.now ? 'Queuing…' : 'Sending…') : '');
         var body = { mode: 'decide', id: s.id };
         for (var k in extra) body[k] = extra[k];
         post(body).then(function (r) {
@@ -262,7 +289,9 @@
                 return;
             }
             var m = okMsg;
-            if (r.status === 'sent') {
+            if (r.status === 'queued') {
+                m = 'Queued for ' + (s.name || s.email) + ', ' + when(r.scheduled_at || s.send_at) + '.';
+            } else if (r.status === 'sent') {
                 m = 'Sent to ' + (s.name || s.email) + '.' +
                     (r.learned ? ' That\'s twice you\'ve written it this way — I\'ll use your wording from now on.' : (r.noted ? ' Write it like this once more and I\'ll use your wording.' : '')) + (r.note ? ' ' + r.note : '');
             }

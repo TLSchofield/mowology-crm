@@ -37,11 +37,13 @@ struct HeadCardResponse: Decodable {
     let post: MiaPostDraft?
     let googleMode: String?
     let canApprove: Bool
+    /// Mia's drafted messages waiting for a tap (marketing.approve; payment thank-yous first). Older servers send none.
+    let suggestions: [MiaSuggestion]
     /// Optional future office roster. A malformed or unknown entry must never break the brief.
     let heads: [String: HeadOfficeState]?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads
+        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads, suggestions
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
@@ -65,6 +67,7 @@ struct HeadCardResponse: Decodable {
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
         googleMode = c.bkString(.googleMode)
         canApprove = c.bkBool(.canApprove) ?? false
+        suggestions = (try? c.decodeIfPresent([MiaSuggestion].self, forKey: .suggestions)) ?? []
         heads = try? c.decodeIfPresent([String: HeadOfficeState].self, forKey: .heads)
     }
 }
@@ -230,6 +233,62 @@ struct UnpinnedProperty: Decodable, Identifiable, Equatable {
 
     init(id: Int, address: String, city: String, nextVisit: String, geocodeAddress: String) {
         self.id = id; self.address = address; self.city = city; self.nextVisit = nextVisit; self.geocodeAddress = geocodeAddress
+    }
+}
+
+/// One of Mia's drafted messages (MiaDeskService::card): a payment thank-you, a seasonal ask, a reconnect…
+/// Sent only on Tim's tap, at the person's best time (send_at) unless he says now.
+struct MiaSuggestion: Decodable, Equatable, Identifiable {
+    let id: Int
+    let kind: String
+    let name: String
+    let email: String
+    let why: String
+    let subject: String
+    let body: String
+    /// "Y-m-d H:i:s", server time (the business's own clock, as the phone's for a local business).
+    let sendAt: String?
+    let sendAtLearned: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, name, email, why, subject, body
+        case sendAt = "send_at", sendAtLearned = "send_at_learned"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        kind = c.bkString(.kind) ?? ""
+        name = c.bkString(.name) ?? ""
+        email = c.bkString(.email) ?? ""
+        why = c.bkString(.why) ?? ""
+        subject = c.bkString(.subject) ?? ""
+        body = c.bkString(.body) ?? ""
+        sendAt = c.bkString(.sendAt)
+        sendAtLearned = c.bkBool(.sendAtLearned) ?? false
+    }
+
+    init(id: Int, kind: String, name: String, email: String, why: String, subject: String, body: String,
+         sendAt: String? = nil, sendAtLearned: Bool = false) {
+        self.id = id; self.kind = kind; self.name = name; self.email = email; self.why = why
+        self.subject = subject; self.body = body; self.sendAt = sendAt; self.sendAtLearned = sendAtLearned
+    }
+
+    /// "today at 7:30 pm" / "tomorrow at 9:30 am" / "Friday at 9:30 am"; nil when there's no time (MiaWhen).
+    static func whenText(_ raw: String?, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        MiaWhen.text(raw, now: now, calendar: calendar)
+    }
+
+    var kindLabel: String {
+        switch kind {
+        case "payment_thanks": return "Thank-you for a payment"
+        case "seasonal": return "This time last year"
+        case "reconnect": return "Reconnect"
+        case "pm_quiet": return "Quiet property manager"
+        case "referral": return "Referral ask"
+        case "consent_ask": return "Keep in touch"
+        default: return kind
+        }
     }
 }
 

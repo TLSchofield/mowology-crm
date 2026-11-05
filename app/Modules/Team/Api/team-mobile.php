@@ -14,7 +14,9 @@
  * POST {mode: 'otto_decide', suggestion_id, choice, …}  Otto's buttons — OttoActionService::decide, exactly the web
  *                                                       card's otto.php {mode: decide} (jobs.edit).
  * POST {mode: 'otto_undo_auto', id}                     Undo a contract visit Otto logged by himself (jobs.edit).
- *        mia:     post {id, title, body, photo_url, cta_type, cta_url} | null, google_mode live|drafts_only
+ *        mia:     post {id, title, body, photo_url, cta_type, cta_url} | null, google_mode live|drafts_only,
+ *                 suggestions [MiaDeskService::card() rows: id, kind, name, email, why, subject, body, send_at,
+ *                 send_at_learned, …] (marketing.approve; payment thank-yous first — added 2026-11-05)
  * POST {mode: 'act', key, what: open|snooze}           Charlie's learning, as the Action Board's
  *                                                       Open / Not now (owner only).
  * POST {mode: 'geocode', property_id, lat, lng}        Otto: save the pin the phone geocoded —
@@ -22,6 +24,9 @@
  * POST {mode: 'gbp_post', id, what: publish|copied|dismiss, body?}
  *                                                       Mia: this week's Google post — exactly the web's
  *                                                       post_decide (publish posts to Google; live mode only).
+ * POST {mode: 'mia_decide', id, action: send|skip|unqueue, subject?, body?, now?, reason?}
+ *                                                       Mia's suggestions — exactly the web card's mia.php {mode: decide}
+ *                                                       (marketing.approve). Send waits for their best time unless now.
  * POST {mode: 'ask', question}                          Charlie answers from CRM data (CharlieAskService,
  *                                                       daily-capped, Tim's tap only).
  * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a routed message (InboundRouteService):
@@ -306,6 +311,19 @@ try {
                 } catch (Throwable $e) {
                     error_log('[team-mobile] Mia post: ' . $e->getMessage());
                 }
+                $out['suggestions'] = [];
+                if ($out['can_approve']) {
+                    try {   // the same queue the web card shows (mia.php ?mode=queue), prepared lazily as there
+                        require_once APP_ROOT . '/Modules/Marketing/Services/MiaDeskService.php';
+                        $mia = new MiaDeskService($db);
+                        if ($mia->ready()) {
+                            $mia->prepare();
+                            $out['suggestions'] = $mia->queue();
+                        }
+                    } catch (Throwable $e) {
+                        error_log('[team-mobile] Mia suggestions: ' . $e->getMessage());
+                    }
+                }
             }
             echo json_encode($out);
             break;
@@ -348,6 +366,21 @@ try {
             }
             // Exactly the web's POST mia-channels.php {mode: post_decide}.
             echo json_encode($ch->decidePost((int)($input['id'] ?? 0), $what, (int)$user['id'], isset($input['body']) ? (string)$input['body'] : null));
+            break;
+        }
+
+        case 'mia_decide': {
+            // Mia's suggestions — exactly the web card's POST mia.php {mode: decide}.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'marketing.approve')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'error' => 'Permission denied: marketing.approve required']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Marketing/Services/MiaDeskService.php';
+            $mia = new MiaDeskService($db);
+            if (!$mia->ready()) { echo json_encode(['ok' => false, 'error' => 'Migration 1160 has not been run yet.']); break; }
+            echo json_encode($mia->decide((int)($input['id'] ?? 0), (string)($input['action'] ?? ''), $input, (array)$user));
             break;
         }
 

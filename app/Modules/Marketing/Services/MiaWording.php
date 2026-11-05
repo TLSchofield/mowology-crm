@@ -18,6 +18,30 @@
 class MiaWording
 {
 
+    /** Mia's exact payment thank-you, optionally carrying one seasonal ask and/or nudge. */
+    public static function thanksDraft(string $firstName, float $amount, bool $cleared, ?array $history, ?string $autodepositAddress, DateTimeImmutable $today): array
+    {
+        $first = trim($firstName);
+        $subject = $first !== '' ? 'Thank you, ' . $first : 'Thank you for your payment';
+        $parts = [$first !== '' ? 'Hi ' . $first . ',' : 'Hi there,'];
+        $parts[] = 'Thank you for your payment of $' . number_format($amount, 2) . ". It's received" . ($cleared ? ', and your account is up to date.' : '.');
+        if ($history) {
+            require_once __DIR__ . '/MiaSeasonalHistory.php';
+            $when = MiaSeasonalHistory::whenPhrase((string)$history['date'], $today);
+            $ask = $today->format('m-d') < '11-01'
+                ? " The leaves are starting to come down, so it's a good time to get it booked."
+                : " Most of the leaves are down now, so it's a good time to do it again.";
+            $parts[] = $when['year'] . ' we did a fall cleanup at your home ' . $when['month'] . '.' . $ask
+                . ' Would you like me to put it on the schedule? Just reply to this email.';
+        }
+        if ($autodepositAddress) {
+            $parts[] = 'One small favour for next time. Could you update the recipient in your banking to ' . $autodepositAddress
+                . "? That address has Auto-deposit turned on, so there's no security question or password to set, and your payment lands straight away.";
+        }
+        $parts[] = self::ownerName() . "\n" . self::businessName() . (self::phone() !== '' ? ' · ' . self::phone() : '');
+        return ['subject' => $subject, 'body' => implode("\n\n", $parts)];
+    }
+
     /** The business's own phone / short name / owner first name (BusinessIdentity). */
     public static function phone(): string
     {

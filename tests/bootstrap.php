@@ -132,6 +132,8 @@ require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.ph
 // Mia — marketing & relationships head
 require_once __DIR__ . '/../app/Modules/Marketing/Services/ArticleGeneratorService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWording.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSeasonalHistory.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaThanksService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';

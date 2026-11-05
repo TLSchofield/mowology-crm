@@ -21,6 +21,9 @@ cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 
 # Meniscus tab bar: notch shape (cups the bead with the gap, joins the edge horizontally, symmetric), slots, nearest tab.
+cp "$ROOT/ios/LogicTests/MiaWhenTests.swift" "$OUT/main.swift"
+run miawhen "$SRC/Features/Team/MiaWhen.swift" "$OUT/main.swift"
+
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
 run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$OUT/main.swift"
 
@@ -48,7 +51,7 @@ run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
 
 # Schedule interrupts only for a recorded, readable pending Otto decision.
 run ottoattention -parse-as-library "$SRC/Core/Models/BookkeeperModels.swift" \
-  "$SRC/Core/Models/TeamHeadModels.swift" "$ROOT/ios/LogicTests/OttoAttentionTests.swift"
+  "$SRC/Core/Models/TeamHeadModels.swift" "$SRC/Features/Team/MiaWhen.swift" "$ROOT/ios/LogicTests/OttoAttentionTests.swift"
 
 # Schedule timeline (Tim, 2026-11-05): stop states, one-line windows, timer text, next pick, left-site memory, switch.
 cp "$ROOT/ios/LogicTests/ScheduleTimelineTests.swift" "$OUT/main.swift"

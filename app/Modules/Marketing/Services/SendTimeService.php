@@ -2,10 +2,14 @@
 /**
  * SendTimeService — when each person is most likely to read a campaign email.
  *
- * Learned per contact from what people DO, not from opens:
- *   reply  (an inbound sales_messages row)          weight 3
+ * Learned per contact from what people DO, not from opens — every channel feeds this one place
+ * (Tim, 2026-11-05: "All emails and comms should feed that"):
+ *   reply  (an inbound sales_messages row: email or text)  weight 3
+ *   pay    (when they sent an e-Transfer)           weight 2
+ *   approve (a quote accepted)                      weight 2
  *   click  (campaign_events click, or clicked_at)   weight 2
- *   open   (campaign_events open)                   weight 0.5 — and only a believable one:
+ *   open   (campaign, Mia one-to-one, invoice and quote email opens, quote page views)  weight 0.5 —
+ *          and only a believable one (invoice/quote opens store no user agent: 10+ minutes after the send):
  *          Apple Mail Privacy Protection opens every email itself through a proxy, so an open
  *          within 2 minutes of the send, or from the proxy's bare "Mozilla/5.0" user agent,
  *          is ignored.
@@ -22,7 +26,8 @@
  */
 class SendTimeService
 {
-    public const WEIGHTS = ['reply' => 3.0, 'click' => 2.0, 'open' => 0.5];
+    public const WEIGHTS = ['reply' => 3.0, 'click' => 2.0, 'open' => 0.5, 'pay' => 2.0, 'approve' => 2.0];
+    public const NO_UA = 'no-ua';
     public const MIN_WEIGHT = 3.0;
     public const MPP_SECONDS = 120;
     public const DEFAULT_PM = '2,3,4@09:30';
@@ -44,6 +49,10 @@ class SendTimeService
     public static function isProxyOpen(?string $userAgent, ?string $openedAt, ?string $sentAt): bool
     {
         $ua = trim((string)$userAgent);
+        if ($ua === self::NO_UA) {
+            if (!$openedAt || !$sentAt) return true;
+            return strtotime($openedAt) - strtotime($sentAt) < 600;
+        }
         if ($ua === '' || $ua === 'Mozilla/5.0' || stripos($ua, 'AppleMailProxy') !== false) return true;
         if ($openedAt && $sentAt) {
             $d = strtotime($openedAt) - strtotime($sentAt);
@@ -177,6 +186,43 @@ class SendTimeService
     }
 
     /**
+     * When one of Mia's one-to-one emails goes after Tim's tap: their learned hour (any day), else the
+     * default (home 7:30 pm any day; property manager 9:30 am on a weekday), from ten minutes on and
+     * within 36 hours, so a thank-you still arrives as one. A default that only fits later (a property
+     * manager paid on Friday evening) waits for it, up to 4 days, rather than going at an odd hour.
+     * @return array{at: DateTimeImmutable, learned: bool}
+     */
+    public function thanksSlot(int $contactId, bool $pm, DateTimeImmutable $now): array
+    {
+        $row = $this->learnedFor([$contactId])[$contactId] ?? null;
+        $learned = [];
+        if ($row) {
+            for ($d = 1; $d <= 7; $d++) $learned[] = [$d, sprintf('%02d:00', (int)$row['best_hour'])];
+        }
+        $defaults = self::parseSlots($pm ? '1,2,3,4,5@09:30' : '1,2,3,4,5,6,7@19:30');
+        $from = $now->modify('+10 minutes');
+        $at = self::firstSlot($learned, $from, $now->modify('+36 hours'));
+        if ($at) return ['at' => $at, 'learned' => true];
+        $at = self::firstSlot($defaults, $from, $now->modify('+36 hours')) ?? self::firstSlot($defaults, $from, $now->modify('+4 days'));
+        return ['at' => $at ?? $from, 'learned' => false];
+    }
+
+    /** The earliest [dow, 'HH:MM'] slot in [$from, $end], or null. Pure. */
+    public static function firstSlot(array $slots, DateTimeImmutable $from, DateTimeImmutable $end): ?DateTimeImmutable
+    {
+        $best = null;
+        foreach ($slots as [$dow, $hm]) {
+            [$h, $m] = array_map('intval', explode(':', $hm));
+            for ($day = $from->setTime(0, 0); $day <= $end; $day = $day->modify('+1 day')) {
+                if ((int)$day->format('N') !== (int)$dow) continue;
+                $at = $day->setTime($h, $m);
+                if ($at >= $from && $at <= $end && ($best === null || $at < $best)) $best = $at;
+            }
+        }
+        return $best;
+    }
+
+    /**
      * scheduled_at for each recipient: their learned slot, else their segment's default,
      * inside the window.
      * @param array $pmIds contact ids that are property managers / strata contacts
@@ -240,6 +286,40 @@ class SendTimeService
             $s->execute([$since]);
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $add((int)$r['contact_id'], 'reply', $r['sent_at']);
         } catch (Throwable $e) { /* no office@ log */ }
+
+        try {
+            $s = $this->db->prepare("SELECT contact_id, kind, at, user_agent, sent_at FROM contact_email_events WHERE at >= ?");
+            $s->execute([$since]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $add((int)$r['contact_id'], (string)$r['kind'], $r['at'], $r['user_agent'], $r['sent_at']);
+        } catch (Throwable $e) { /* migration 1437 not present */ }
+        try {
+            $s = $this->db->prepare("SELECT i.contact_id, n.email_date FROM etransfer_notifications n JOIN invoices i ON i.id=n.recorded_invoice_id WHERE n.email_date >= ?");
+            $s->execute([$since]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $add((int)$r['contact_id'], 'pay', $r['email_date']);
+        } catch (Throwable $e) { /* optional e-transfer inbox columns */ }
+        try {
+            $s = $this->db->prepare("SELECT contact_id, accepted_at FROM quotes WHERE contact_id IS NOT NULL AND accepted_at IS NOT NULL AND accepted_at >= ?");
+            $s->execute([$since]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $add((int)$r['contact_id'], 'approve', $r['accepted_at']);
+        } catch (Throwable $e) { /* older quotes shape */ }
+        // Invoice and quote emails store no user agent: an open counts only 10+ minutes after the send (NO_UA).
+        try {
+            $s = $this->db->prepare("SELECT contact_id, invoice_opened_at, invoice_sent_at FROM invoice_contacts
+                                     WHERE contact_id IS NOT NULL AND invoice_opened_at IS NOT NULL AND invoice_opened_at >= ?");
+            $s->execute([$since]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $add((int)$r['contact_id'], 'open', $r['invoice_opened_at'], self::NO_UA, $r['invoice_sent_at']);
+        } catch (Throwable $e) { /* older invoice_contacts shape */ }
+        try {
+            // Opening the quote email, then opening the quote page itself (viewed_at: first view).
+            $s = $this->db->prepare("SELECT contact_id, email_opened_at, viewed_at, sent_at FROM quotes
+                                     WHERE contact_id IS NOT NULL AND sent_at IS NOT NULL AND sent_at >= ?");
+            $s->execute([$since]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if ($r['email_opened_at']) $add((int)$r['contact_id'], 'open', $r['email_opened_at'], self::NO_UA, $r['sent_at']);
+                if ($r['viewed_at']) $add((int)$r['contact_id'], 'open', $r['viewed_at'], self::NO_UA, $r['sent_at']);
+            }
+        } catch (Throwable $e) { /* older quotes shape */ }
+        // TextBridgeService writes inbound texts into sales_messages, already read above.
 
         $n = 0;
         try {

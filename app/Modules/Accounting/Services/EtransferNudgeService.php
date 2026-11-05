@@ -26,6 +26,8 @@
 class EtransferNudgeService
 {
     public const SETTING = 'penny_etransfer_nudge_enabled';
+    /** Mia's thank-you carries this request while it's on; when Mia has nobody to thank, she hands it back. */
+    public const TRIGGER_MIA_SKIPPED = 'mia_skipped';
 
     /** The e-Transfer auto-deposit address: the business's own (BusinessIdentity), never another's. */
     public static function autodepositAddress(): string
@@ -61,6 +63,8 @@ class EtransferNudgeService
     public function onNotification(int $notificationId, string $trigger = 'ingest'): array
     {
         try {
+            require_once dirname(__DIR__, 2) . '/Marketing/Services/MiaThanksService.php';
+            if ($trigger !== self::TRIGGER_MIA_SKIPPED && MiaThanksService::enabled($this->db)) return ['sent' => false, 'reason' => 'handed_to_mia'];
             $note = $this->loadNote($notificationId);
             if (!$note) return ['sent' => false, 'reason' => 'not_found'];
             $plan = $this->plan($note);

@@ -8,7 +8,7 @@
  * GET  ?mode=brain       What she has learned (for the brain).
  * GET  ?mode=brief       Read-only summary for Charlie.
  * POST {mode: 'prepare', force?, csrf_token}   Find people + draft (at most every few hours).
- * POST {mode: 'decide', id, action: 'send', subject, body, sms?: bool, sms_text?, csrf_token}
+ * POST {mode: 'decide', id, action: 'send'|'unqueue', subject, body, now?, csrf_token}
  *      Tim sends — consent and Sam's open quotes are checked again first.
  * POST {mode: 'decide', id, action: 'skip', reason: not_fit|talked|not_now|never, csrf_token}
  * POST {mode: 'answer', question_id, answer, csrf_token}

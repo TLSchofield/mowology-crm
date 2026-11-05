@@ -9,8 +9,9 @@
  */
 
 $sid = (int)($_GET['sid'] ?? 0);
+$mid = (int)($_GET['m'] ?? 0);
 
-if ($sid > 0) {
+if ($sid > 0 || $mid > 0) {
     try {
         // Minimal bootstrap — just need DB
         $__dir = __DIR__;
@@ -28,12 +29,24 @@ if ($sid > 0) {
             require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
         }
 
-        // Only a signed pixel counts (Fable review 2026-10-12) — anyone could post opens for any id.
-        if (!class_exists('TrackingLinks') || !TrackingLinks::verify($sid, 'open', (string)($_GET['s'] ?? ''))) {
+        $scope = $mid > 0 ? 'mia-open' : 'open';
+        $id = $mid > 0 ? $mid : $sid;
+        // Only a signed, scope-specific pixel counts.
+        if (!class_exists('TrackingLinks') || !TrackingLinks::verify($id, $scope, (string)($_GET['s'] ?? ''))) {
             throw new RuntimeException('unsigned open pixel ignored');
         }
 
         $db = getDB();
+
+        if ($mid > 0) {
+            try {
+                $db->prepare("INSERT INTO contact_email_events (contact_id,source,ref_id,kind,at,user_agent,sent_at)
+                    SELECT contact_id,'mia',id,'open',?,?,sent_at FROM mia_suggestions
+                    WHERE id=? AND sent_at IS NOT NULL AND (SELECT COUNT(*) FROM contact_email_events WHERE source='mia' AND ref_id=? AND kind='open') < 20")
+                    ->execute([date('Y-m-d H:i:s'), substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255), $mid, $mid]);
+            } catch (Throwable $e) { /* migration not present */ }
+            throw new RuntimeException('mia open recorded');
+        }
 
         // Only update if not already opened (first open wins)
         $db->prepare("
@@ -63,7 +76,7 @@ if ($sid > 0) {
 
     } catch (\Throwable $e) {
         // Silent failure — don't break the image
-        if ($e->getMessage() !== 'unsigned open pixel ignored') error_log('track-open error: ' . $e->getMessage());
+        if (!in_array($e->getMessage(), ['unsigned open pixel ignored', 'mia open recorded'], true)) error_log('track-open error: ' . $e->getMessage());
     }
 }
 

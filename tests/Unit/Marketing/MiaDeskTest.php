@@ -37,7 +37,7 @@ class MiaDeskTest extends TestCase
         $this->db->exec("CREATE TABLE mia_suggestions (id INTEGER PRIMARY KEY, kind TEXT, subject_key TEXT, contact_id INT, company_id INT, property_id INT,
             reason_json TEXT, draft_subject TEXT, draft_body TEXT, draft_sms TEXT, status TEXT DEFAULT 'open', edited INT DEFAULT 0,
             sent_subject TEXT, sent_body TEXT, sent_channels TEXT, skip_reason TEXT, decided_by INT, decided_at TEXT,
-            outcome TEXT, outcome_at TEXT, outcome_ref TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            outcome TEXT, outcome_at TEXT, outcome_ref TEXT, scheduled_at TEXT, sent_at TEXT, send_error TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         $this->db->exec("CREATE TABLE mia_mutes (subject_key TEXT PRIMARY KEY, until_date TEXT, reason TEXT, created_by INT, created_at TEXT)");
         $this->db->exec("CREATE TABLE mia_questions (id INTEGER PRIMARY KEY, kind TEXT, subject_key TEXT, question TEXT, status TEXT DEFAULT 'open',
             answer TEXT, answered_by INT, answered_at TEXT, created_at TEXT, UNIQUE(kind, subject_key))");
@@ -111,6 +111,57 @@ class MiaDeskTest extends TestCase
         $this->assertFalse($r['ok']);
         $this->assertStringContainsString('placeholder', $r['error']);
         $this->assertSame('open', $this->db->query("SELECT status FROM mia_suggestions WHERE id = 1")->fetchColumn());
+    }
+
+    public function test_payment_thanks_can_be_queued_and_unqueued_without_sending(): void
+    {
+        $this->db->exec("INSERT INTO consent_ledger (contact_id,channel,consent_type,source,granted_at) VALUES (12,'email','withdrawn','test','2026-11-01')");
+        $this->db->prepare("INSERT INTO mia_suggestions (id,kind,subject_key,contact_id,property_id,reason_json,draft_subject,draft_body,draft_sms) VALUES (10,'payment_thanks','mia:thanks:44',12,5,?,'Thank you, Jane','Hi Jane','')")
+            ->execute([json_encode(['amount'=>100,'ask'=>false,'recipient_email'=>'routed@example.com','priority'=>0,'value'=>100])]);
+        $desk=new MiaDeskService($this->db);
+        $queued=$desk->decide(10,'send',['subject'=>'Thank you, Jane','body'=>'Hi Jane'],['id'=>3]);
+        $this->assertTrue($queued['ok']);
+        $this->assertSame('queued',$queued['status']);
+        $this->assertSame('queued',$this->db->query("SELECT status FROM mia_suggestions WHERE id=10")->fetchColumn());
+        $open=$desk->decide(10,'unqueue',[],['id'=>3]);
+        $this->assertTrue($open['ok']);
+        $this->assertSame('open',$this->db->query("SELECT status FROM mia_suggestions WHERE id=10")->fetchColumn());
+    }
+
+    public function test_due_thanks_downgrades_when_consent_is_denied_and_never_stays_sending(): void
+    {
+        $this->db->exec("INSERT INTO consent_ledger (contact_id,channel,consent_type,source,granted_at) VALUES (12,'email','withdrawn','test','2026-11-01')");
+        $reason=['amount'=>100,'cleared'=>true,'ask'=>true,'history'=>['date'=>'2025-11-01'],'recipient_email'=>'routed@example.com','priority'=>0,'value'=>100];
+        $s=$this->db->prepare("INSERT INTO mia_suggestions (id,kind,subject_key,contact_id,property_id,reason_json,draft_subject,draft_body,draft_sms,status,scheduled_at,sent_subject,sent_body,decided_by) VALUES (11,'payment_thanks','mia:thanks:45',12,5,?,'Old subject','Old body','','queued','2026-11-05 09:00:00','Old subject','Old body',3)");
+        $s->execute([json_encode($reason)]);
+
+        $out=(new MiaDeskService($this->db))->sendDue(new DateTimeImmutable('2026-11-05 10:00:00'));
+        $row=$this->db->query("SELECT status,send_error,reason_json,sent_body FROM mia_suggestions WHERE id=11")->fetch();
+        $updated=json_decode($row['reason_json'],true);
+        $this->assertFalse($updated['ask']);
+        $this->assertSame('no_consent',$updated['why_no_ask']);
+        $this->assertStringNotContainsString('fall cleanup',$row['sent_body']);
+        $this->assertNotSame('sending',$row['status']);
+        $this->assertSame(1,$out['failed']);
+        $this->assertNotSame('',$row['send_error']);
+    }
+
+    /** A run that died mid-send: failed visibly, never sent again on its own (Codex review 2026-11-05). */
+    public function test_a_send_interrupted_for_over_an_hour_fails_instead_of_staying_stuck(): void
+    {
+        $this->db->prepare("INSERT INTO mia_suggestions (id,kind,subject_key,contact_id,reason_json,draft_subject,draft_body,draft_sms,status,scheduled_at) VALUES (12,'seasonal','mia:contact:12',12,'{}','S','B','','sending','2026-11-05 08:00:00')")->execute();
+        $this->db->prepare("INSERT INTO mia_suggestions (id,kind,subject_key,contact_id,reason_json,draft_subject,draft_body,draft_sms,status,scheduled_at) VALUES (13,'seasonal','mia:contact:13',12,'{}','S','B','','sending','2026-11-05 09:40:00')")->execute();
+        (new MiaDeskService($this->db))->sendDue(new DateTimeImmutable('2026-11-05 10:00:00'));
+        $this->assertSame('failed', $this->db->query("SELECT status FROM mia_suggestions WHERE id = 12")->fetchColumn());
+        $this->assertSame('sending', $this->db->query("SELECT status FROM mia_suggestions WHERE id = 13")->fetchColumn(), 'still within the hour: left alone');
+    }
+
+    public function test_send_now_on_one_already_being_sent_is_refused(): void
+    {
+        $this->db->exec("UPDATE mia_suggestions SET status = 'sending' WHERE id = 1");
+        $r = (new MiaDeskService($this->db))->decide(1, 'send', ['subject' => 'Hi', 'body' => 'Hi Jane', 'now' => true], ['id' => 3]);
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('already been dealt with', $r['error']);
     }
 
     public function test_answering_yes_to_a_review_question_ticks_has_reviewed(): void

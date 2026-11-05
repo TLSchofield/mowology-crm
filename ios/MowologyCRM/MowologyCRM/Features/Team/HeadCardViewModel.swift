@@ -90,6 +90,8 @@ final class HeadCardViewModel: ObservableObject {
     @Published private(set) var items: [HeadItem] = []
     @Published private(set) var unpinned: [UnpinnedProperty] = []
     @Published private(set) var post: MiaPostDraft?
+    /// Mia's drafted messages (payment thank-yous first), as the web card's carousel.
+    @Published private(set) var miaSuggestions: [MiaSuggestion] = []
     @Published private(set) var ask: HeadAskStatus?
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoaded = false
@@ -178,6 +180,7 @@ final class HeadCardViewModel: ObservableObject {
         items = r.items
         unpinned = r.unpinned.filter { pinned[$0.id] == nil }
         post = r.post
+        miaSuggestions = r.suggestions
         ask = r.ask
         ottoItems = r.otto?.items ?? []
         ottoTotal = r.otto?.total ?? 0
@@ -355,6 +358,26 @@ final class HeadCardViewModel: ObservableObject {
         case "publish": show("Posted to Google.", error: false)
         case "copied":  show("Noted — posted by you.", error: false)
         default:        show("Skipped this week's post.", error: false)
+        }
+    }
+
+    // MARK: - Mia: drafted messages
+
+    /// Exactly the web card's mia.php {mode: decide}: send (at their best time unless `now`), or skip with a reason.
+    func miaDecide(_ s: MiaSuggestion, action: String, subject: String? = nil, body: String? = nil, now: Bool = false, reason: String? = nil) async {
+        guard !isBusy else { return }
+        var b: [String: Any] = ["mode": "mia_decide", "id": s.id, "action": action]
+        if let subject { b["subject"] = subject }
+        if let body { b["body"] = body }
+        if now { b["now"] = true }
+        if let reason { b["reason"] = reason }
+        guard let r = await perform(b) else { return }
+        miaSuggestions.removeAll { $0.id == s.id }
+        let who = s.name.isEmpty ? s.email : s.name
+        switch r.status {
+        case "queued": show("Queued for \(who), \(MiaSuggestion.whenText(s.sendAt) ?? "at their best time").", error: false)
+        case "sent":   show("Sent to \(who).", error: false)
+        default:       show("Skipped — Mia will remember why.", error: false)
         }
     }
 

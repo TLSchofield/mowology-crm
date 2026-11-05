@@ -11,7 +11,10 @@ require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
  *   queue()    the waiting suggestions, for the card's carousel.
  *   decide()   Tim sends (as written or edited), skips with a reason, or snoozes. Mia NEVER
  *              sends on her own: a send only happens from Tim's click, and consent and Sam's
- *              open quotes are checked again at that moment.
+ *              open quotes are checked again at that moment. Sending waits for the person's
+ *              best time (SendTimeService, migration 1437) unless Tim says now; sendDue()
+ *              (campaign_sender cron) sends it then, checking consent and Sam once more.
+ *              Payment thank-yous (MiaThanksService) are drafted here too, first in line.
  *   stats()    the card's numbers, including how the automatic review requests are doing.
  *   brief()    read-only summary for Charlie (Chief of Staff).
  *
@@ -26,6 +29,10 @@ require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 require_once __DIR__ . '/MiaFinder.php';
 require_once __DIR__ . '/MiaWording.php';
 require_once __DIR__ . '/MiaQuestionService.php';
+require_once __DIR__ . '/MiaThanksService.php';
+require_once __DIR__ . '/SendTimeService.php';
+require_once __DIR__ . '/TrackingLinks.php';
+require_once dirname(__DIR__, 2) . '/Accounting/Services/EtransferNudgeService.php';
 require_once dirname(__DIR__, 2) . '/Consent/Services/ConsentLedgerService.php';
 
 class MiaDeskService
@@ -38,6 +45,7 @@ class MiaDeskService
     private PDO $db;
     private MiaFinder $finder;
     private ConsentLedgerService $ledger;
+    private ?bool $queueReady = null;
 
     public const WORKS_MIN = 3;
 
@@ -67,6 +75,11 @@ class MiaDeskService
     public function prepare(bool $force = false, ?DateTimeImmutable $today = null): array
     {
         $today = $today ?? new DateTimeImmutable('today');
+        if (MiaThanksService::enabled($this->db)) {
+            $thanks = new MiaThanksService($this->db);
+            $thanks->sweep($today);
+            $thanks->tidy(new DateTimeImmutable());
+        }
         $last = $this->finder->setting('mia_last_prepare', 0);
         if (!$force && $last > time() - self::PREPARE_EVERY_HOURS * 3600) {
             return ['created' => 0, 'questions' => 0, 'settled' => 0, 'skipped_run' => true];
@@ -107,7 +120,7 @@ class MiaDeskService
 
         $pmNoContact = [];
         $created = 0;
-        $room = self::MAX_OPEN - (int)$this->db->query("SELECT COUNT(*) FROM mia_suggestions WHERE status = 'open'")->fetchColumn();
+        $room = self::MAX_OPEN - (int)$this->db->query("SELECT COUNT(*) FROM mia_suggestions WHERE status = 'open' AND kind <> 'payment_thanks'")->fetchColumn();
         foreach ($f['keep'] as $c) {
             if (!empty($c['needs_contact'])) {
                 $pmNoContact[] = ['company_id' => $c['company_id'], 'company_name' => $c['company_name']] + $c['reason'];
@@ -212,7 +225,17 @@ class MiaDeskService
         ");
         $s->execute();
         $out = [];
-        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[] = self::card($r);
+        // When each would go if Tim tapped now: their best time (SendTimeService), shown on the button.
+        $times = $this->canQueue() ? new SendTimeService($this->db) : null;
+        $now = new DateTimeImmutable();
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if ($times) {
+                $slot = $times->thanksSlot((int)$r['contact_id'], !empty($r['company_id']), $now);
+                $r['_send_at'] = $slot['at']->format('Y-m-d H:i:s');
+                $r['_send_at_learned'] = $slot['learned'];
+            }
+            $out[] = self::card($r);
+        }
         usort($out, fn($a, $b) => [$a['priority'], -$a['value']] <=> [$b['priority'], -$b['value']]);
         return array_slice($out, 0, $limit);
     }
@@ -229,7 +252,8 @@ class MiaDeskService
             'name'     => $name,
             'company'  => $r['company_name'] ?? null,
             'address'  => $r['address'] ?? null,
-            'email'    => $r['email'] ?? null,
+            // A payment thank-you goes where the invoice's emails go (reason_json.recipient_email), so say that one.
+            'email'    => ($reason['recipient_email'] ?? '') !== '' ? $reason['recipient_email'] : ($r['email'] ?? null),
             'why'      => self::why($r['kind'], $reason, $r['company_name'] ?? null),
             'priority' => (int)($reason['priority'] ?? 2),
             'value'    => (float)($reason['value'] ?? 0),
@@ -237,6 +261,9 @@ class MiaDeskService
             'subject'  => (string)$r['draft_subject'],
             'body'     => (string)$r['draft_body'],
             'sms'      => (string)$r['draft_sms'],
+            'send_at'  => $r['_send_at'] ?? null,
+            'send_at_learned' => !empty($r['_send_at_learned']),
+            'status'   => (string)($r['status'] ?? 'open'),
             'url'      => MiaQuestionService::link($r['kind'] === 'pm_quiet' && $r['company_id'] ? 'mia:company:' . $r['company_id'] : $r['subject_key']),
         ];
     }
@@ -247,6 +274,17 @@ class MiaDeskService
         $when = !empty($r['last_done']) ? date('M Y', strtotime($r['last_done'])) : null;
         $service = MiaWording::serviceLabel($r['service'] ?? null);
         switch ($kind) {
+            case 'payment_thanks':
+                $text = 'Paid $' . number_format((float)($r['amount'] ?? 0), 2) . '. ';
+                if (!empty($r['ask']) && !empty($r['history'])) {
+                    $h = $r['history'];
+                    $text .= 'Fall cleanup ' . date('M Y', strtotime($h['date'])) . ' (' . ucfirst((string)$h['source']) . ' #' . $h['ref'] . ', $' . number_format((float)$h['amount'], 2) . '), nothing booked this year.';
+                } else {
+                    $why = ['no_history'=>'no fall cleanup around this time before','done_this_season'=>'a fall cleanup is already booked','overdue'=>'an invoice is over 60 days late','sam'=>'Sam has an open quote','no_consent'=>'no marketing consent','pm'=>'property manager','late'=>'too late for the ask','not_season'=>'outside fall','muted'=>'customer is muted','other_address'=>'the invoice goes to another address than the contact\'s own'];
+                    $text .= 'Plain thank-you: ' . ($why[$r['why_no_ask'] ?? ''] ?? 'no seasonal ask') . '.';
+                }
+                if (!empty($r['nudge_notification_id'])) $text .= ' Also asks them to use the auto-deposit address.';
+                return $text;
             case 'seasonal':
                 return strtolower($service) === 'yard maintenance'
                     ? "Had work around this time last year ({$when}) and nothing booked since."
@@ -277,11 +315,17 @@ class MiaDeskService
      */
     public function decide(int $id, string $action, array $in, array $user): array
     {
-        $s = $this->db->prepare("SELECT * FROM mia_suggestions WHERE id = ? AND status = 'open'");
-        $s->execute([$id]);
+        $wanted = $action === 'unqueue' ? 'queued' : 'open';
+        $s = $this->db->prepare("SELECT * FROM mia_suggestions WHERE id = ? AND status = ?");
+        $s->execute([$id, $wanted]);
         $sg = $s->fetch(PDO::FETCH_ASSOC);
         if (!$sg) return ['ok' => false, 'error' => 'That one has already been dealt with.'];
         $uid = (int)($user['id'] ?? 0);
+
+        if ($action === 'unqueue') {
+            $this->db->prepare("UPDATE mia_suggestions SET status='open', scheduled_at=NULL WHERE id=? AND status='queued'")->execute([$id]);
+            return ['ok'=>true,'status'=>'open'];
+        }
 
         if ($action === 'skip') {
             $reason = (string)($in['reason'] ?? '');
@@ -297,33 +341,98 @@ class MiaDeskService
         }
         if ($action !== 'send') return ['ok' => false, 'error' => 'Unknown action.'];
 
-        return $this->send($sg, $in, $uid);
+        // Every Mia email waits for the person's best time (Tim, 2026-11-05) unless Tim says "now".
+        // Checked at the tap as at the send, so a refusal is said now, not hours later.
+        if (empty($in['now']) && $this->canQueue()) {
+            $subject = trim((string)($in['subject'] ?? ''));
+            $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
+            if ($problem = $this->validateMessage($sg, $subject, $body, $in)) return $problem;
+            if (!$this->isTransactional($sg, $subject, $body)) {
+                $consent = $this->ledger->allows((int)$sg['contact_id'], 'email');
+                if (empty($consent['ok'])) return ['ok' => false, 'error' => "Not queued: no marketing consent on record ({$consent['reason']})."];
+                if (isset($this->finder->samOwns(new DateTimeImmutable('today'))[(int)$sg['contact_id']])) {
+                    return ['ok' => false, 'error' => 'They have an open quote now — Sam has this one.'];
+                }
+            }
+            $at = (new SendTimeService($this->db))->thanksSlot((int)$sg['contact_id'], !empty($sg['company_id']), new DateTimeImmutable())['at']->format('Y-m-d H:i:s');
+            $this->db->prepare("
+                UPDATE mia_suggestions SET status = 'queued', scheduled_at = ?, sent_subject = ?, sent_body = ?, decided_by = ?, decided_at = NOW()
+                WHERE id = ? AND status = 'open'
+            ")->execute([$at, $subject, $body, $uid, $id]);
+            return ['ok' => true, 'status' => 'queued', 'scheduled_at' => $at];
+        }
+        if (!$this->canQueue()) return $this->send($sg, $in, $uid);
+        // "Send now": claim it first, so a double tap or the web and the phone at once can't both send.
+        $claim = $this->db->prepare("UPDATE mia_suggestions SET status = 'sending' WHERE id = ? AND status = 'open'");
+        $claim->execute([$id]);
+        if ($claim->rowCount() !== 1) return ['ok' => false, 'error' => 'That one has already been dealt with.'];
+        try {
+            $r = $this->send($sg, $in, $uid);
+        } catch (Throwable $e) {
+            $r = ['ok' => false, 'error' => 'The email did not go: ' . $e->getMessage()];
+        }
+        if (empty($r['ok'])) $this->db->prepare("UPDATE mia_suggestions SET status = 'open' WHERE id = ? AND status = 'sending'")->execute([$id]);
+        return $r;
+    }
+
+    /** Migration 1437: the queue columns exist. */
+    private function canQueue(): bool
+    {
+        if ($this->queueReady === null) {
+            try {
+                $this->db->query("SELECT scheduled_at FROM mia_suggestions LIMIT 0");
+                $this->queueReady = true;
+            } catch (Throwable $e) {
+                $this->queueReady = false;
+            }
+        }
+        return $this->queueReady;
+    }
+
+    /**
+     * A plain payment thank-you, as drafted: it confirms a transaction, so it needs no marketing
+     * consent (CASL). With the fall cleanup ask, or reworded by Tim, it's marketing and needs it.
+     */
+    private function isTransactional(array $sg, string $subject, string $body): bool
+    {
+        $reason = json_decode((string)$sg['reason_json'], true) ?: [];
+        return $sg['kind'] === MiaThanksService::KIND && empty($reason['ask'])
+            && $subject === trim((string)$sg['draft_subject']) && $body === trim((string)$sg['draft_body']);
+    }
+
+    private function validateMessage(array $sg, string $subject, string $body, array $in): ?array
+    {
+        if ($subject === '' || $body === '') return ['ok' => false, 'error' => 'The message needs a subject and some words.'];
+        if (preg_match('/\{[a-z_]+\}/', $subject . $body)) return ['ok' => false, 'error' => 'There is still a {placeholder} in the message.'];
+        if (!empty($in['sms'])) return ['ok' => false, 'error' => 'Marketing texts are off: a text cannot carry an unsubscribe link. Email only.'];
+        if ($sg['kind'] === 'consent_ask' && strpos($body, MiaWording::CONFIRM_MARK) === false) return ['ok'=>false,'error'=>'Keep '.MiaWording::CONFIRM_MARK.' in the message — it becomes their own opt-in link.'];
+        return null;
     }
 
     private function send(array $sg, array $in, int $uid): array
     {
         $subject = trim((string)($in['subject'] ?? ''));
         $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
-        if ($subject === '' || $body === '') return ['ok' => false, 'error' => 'The message needs a subject and some words.'];
-        if (preg_match('/\{[a-z_]+\}/', $subject . $body)) return ['ok' => false, 'error' => 'There is still a {placeholder} in the message.'];
-        if (!empty($in['sms'])) return ['ok' => false, 'error' => 'Marketing texts are off: a text cannot carry an unsubscribe link. Email only.'];
-        if ($sg['kind'] === 'consent_ask' && strpos($body, MiaWording::CONFIRM_MARK) === false) {
-            return ['ok' => false, 'error' => 'Keep ' . MiaWording::CONFIRM_MARK . ' in the message — it becomes their own opt-in link.'];
-        }
+        if ($problem = $this->validateMessage($sg, $subject, $body, $in)) return $problem;
 
         $c = $this->db->prepare("SELECT * FROM contacts WHERE id = ?");
         $c->execute([(int)$sg['contact_id']]);
-        $contact = $c->fetch(PDO::FETCH_ASSOC);
-        if (!$contact || empty($contact['email'])) return ['ok' => false, 'error' => 'No email address on file for them.'];
+        $contact = $c->fetch(PDO::FETCH_ASSOC) ?: ['id' => (int)$sg['contact_id']];
+        $reason = json_decode((string)$sg['reason_json'], true) ?: [];
+        $recipientEmail = $sg['kind'] === MiaThanksService::KIND ? trim((string)($reason['recipient_email'] ?? '')) : '';
+        if ($recipientEmail === '') $recipientEmail = trim((string)($contact['email'] ?? ''));
+        if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) return ['ok' => false, 'error' => 'No email address on file for them.'];
+        $contact['email'] = $recipientEmail;
 
         require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
         require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
         // The gate: no consent record, no send — checked now, not when the draft was made.
         $consent = $this->ledger->allows((int)$contact['id'], 'email');
-        if (empty($consent['ok'])) {
+        $transactional = $this->isTransactional($sg, $subject, $body);
+        if (empty($consent['ok']) && !$transactional) {
             return ['ok' => false, 'error' => "Not sent: no marketing consent on record ({$consent['reason']})."];
         }
-        if (isset($this->finder->samOwns(new DateTimeImmutable('today'))[(int)$contact['id']])) {
+        if (isset($this->finder->samOwns(new DateTimeImmutable('today'))[(int)$contact['id']]) && !$transactional) {
             return ['ok' => false, 'error' => 'They have an open quote now — Sam has this one.'];
         }
 
@@ -335,6 +444,7 @@ class MiaDeskService
         }
         $html = MiaWording::compose($sentBody, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
         if ($html === null) return ['ok' => false, 'error' => 'Not sent: the email must name the business and carry an unsubscribe link, and one was missing.'];
+        $html .= '<img src="' . htmlspecialchars(TrackingLinks::miaPixel((int)$sg['id']), ENT_QUOTES, 'UTF-8') . '" width="1" height="1" alt="">';
         $r = sendEmail((string)$contact['email'], $subject, $html, null, MiaWording::ownerName() . ' at ' . MiaWording::businessName());
         if (empty($r['success'])) return ['ok' => false, 'error' => 'The email did not go: ' . ($r['error'] ?? 'unknown error')];
         $channels = 'email';
@@ -343,7 +453,7 @@ class MiaDeskService
 
         $edited = (int)($subject !== trim((string)$sg['draft_subject']) || $body !== trim((string)$sg['draft_body']));
         $this->db->prepare("
-            UPDATE mia_suggestions SET status = 'sent', edited = ?, sent_subject = ?, sent_body = ?, sent_channels = ?, decided_by = ?, decided_at = NOW()
+            UPDATE mia_suggestions SET status = 'sent', edited = ?, sent_subject = ?, sent_body = ?, sent_channels = ?, decided_by = ?, decided_at = NOW(), sent_at=NOW(), send_error=NULL
             WHERE id = ?
         ")->execute([$edited, $subject, $body, $channels, $uid, (int)$sg['id']]);
 
@@ -355,7 +465,85 @@ class MiaDeskService
                     ->execute([(int)$contact['id']]);
             } catch (Throwable $e) {}
         }
+        if ($sg['kind'] === MiaThanksService::KIND) $this->recordNudge($sg);
         return ['ok' => true, 'status' => 'sent', 'channels' => $channels, 'learned' => $learned, 'noted' => $edited && !$learned, 'note' => $smsNote];
+    }
+
+    /**
+     * The queue (campaign_sender cron, every run): send what Tim approved whose best time has come.
+     * Each row is claimed first, so two runs never both send it. Consent and Sam are checked again:
+     * a thank-you whose ask is no longer allowed goes as the plain thank-you instead of not at all.
+     * @return array{sent: int, failed: int}
+     */
+    public function sendDue(DateTimeImmutable $now): array
+    {
+        $out = ['sent' => 0, 'failed' => 0];
+        if (!$this->canQueue()) return $out;
+        // A run that died mid-send: never resent blindly (it may have gone) — it fails visibly, as campaign_sends do.
+        $this->db->prepare("
+            UPDATE mia_suggestions SET status = 'failed', send_error = 'interrupted while sending — check the client''s history before resending'
+            WHERE status = 'sending' AND COALESCE(scheduled_at, decided_at, created_at) < ?
+        ")->execute([$now->modify('-1 hour')->format('Y-m-d H:i:s')]);
+        $s = $this->db->prepare("SELECT * FROM mia_suggestions WHERE status = 'queued' AND scheduled_at <= ? ORDER BY scheduled_at, id LIMIT 20");
+        $s->execute([$now->format('Y-m-d H:i:s')]);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $sg) {
+            $claim = $this->db->prepare("UPDATE mia_suggestions SET status = 'sending' WHERE id = ? AND status = 'queued'");
+            $claim->execute([(int)$sg['id']]);
+            if ($claim->rowCount() !== 1) continue;
+            try {
+                $reason = json_decode((string)$sg['reason_json'], true) ?: [];
+                if ($sg['kind'] === MiaThanksService::KIND && !empty($reason['ask'])) {
+                    $consent = $this->ledger->allows((int)$sg['contact_id'], 'email');
+                    $sam = !empty($consent['ok']) && isset($this->finder->samOwns(new DateTimeImmutable('today'))[(int)$sg['contact_id']]);
+                    if (empty($consent['ok']) || $sam) {
+                        $d = (new MiaThanksService($this->db))->plainDraft($sg, $reason, $now, $sam ? 'sam' : 'no_consent');
+                        $sg['reason_json'] = json_encode($d['reason']);
+                        $sg['draft_subject'] = $sg['sent_subject'] = $d['subject'];
+                        $sg['draft_body'] = $sg['sent_body'] = $d['body'];
+                        $this->db->prepare("UPDATE mia_suggestions SET reason_json = ?, draft_subject = ?, draft_body = ? WHERE id = ?")
+                            ->execute([$sg['reason_json'], $d['subject'], $d['body'], (int)$sg['id']]);
+                    }
+                }
+                $r = $this->send($sg, ['subject' => (string)$sg['sent_subject'], 'body' => (string)$sg['sent_body'], 'now' => 1], (int)$sg['decided_by']);
+                if (!empty($r['ok'])) {
+                    $out['sent']++;
+                } else {
+                    $this->failSend((int)$sg['id'], (string)($r['error'] ?? 'send failed'));
+                    $out['failed']++;
+                }
+            } catch (Throwable $e) {
+                error_log('Mia sendDue #' . (int)$sg['id'] . ': ' . $e->getMessage());
+                $this->failSend((int)$sg['id'], $e->getMessage());
+                $out['failed']++;
+            }
+        }
+        return $out;
+    }
+
+    private function failSend(int $id, string $error): void
+    {
+        try {
+            $this->db->prepare("UPDATE mia_suggestions SET status = 'failed', send_error = ? WHERE id = ?")
+                ->execute([mb_substr($error !== '' ? $error : 'send failed', 0, 255), $id]);
+        } catch (Throwable $e) {
+            error_log('Mia send failed and could not be marked: ' . $e->getMessage());
+        }
+    }
+
+    /** The thank-you asked for the auto-deposit address: log it where Penny looks, so she never asks again. */
+    private function recordNudge(array $sg): void
+    {
+        $r = json_decode((string)$sg['reason_json'], true) ?: [];
+        if (empty($r['nudge_notification_id'])) return;
+        $email = trim((string)($r['recipient_email'] ?? ''));
+        try {
+            $this->db->prepare("
+                INSERT INTO etransfer_address_nudges (notification_id, contact_id, email, email_key, trigger_source, status, created_at, sent_at)
+                VALUES (?, ?, ?, ?, 'mia', 'sent', NOW(), NOW())
+            ")->execute([(int)$r['nudge_notification_id'], (int)$sg['contact_id'] ?: null, $email, mb_substr(strtolower($email), 0, 190)]);
+        } catch (Throwable $e) {
+            // Duplicate key: already logged. Anything else is only the log.
+        }
     }
 
     /** Tim's edited wording becomes the template for this kind when it's reusable. */

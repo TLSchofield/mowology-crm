@@ -26,7 +26,7 @@
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
 | Mia's items (Action Board column) | list with Open / Not now; Open goes to the web | Action Board + card | `MiaDeskService::brief()` via `TeamCardService` | — |
-| One-to-one suggestions (edit, Send, Skip with reason, Snooze) | not built — items open the web | card carousel | `MiaDeskService::decide()` | iPhone (opens the web card) |
+| One-to-one suggestions incl. payment thank-yous (edit, Send at their best time / Send now, Skip with reason) | "Mia's messages" on her card (`MiaSuggestionsSection`, team-mobile `suggestions` + `mia_decide`, 2026-11-05) | card carousel ("Send today at 7:30 pm" + Send now) | `MiaDeskService::decide()`, `MiaDeskService::sendDue()` | none; Snooze is web-only |
 | Campaign proposal + approval | not built | card proposal box, two-tap approve | `MiaCampaignService::approve()` | **planned gap**: wrap `mia.php` `campaign` / `campaign_decide` in team-mobile, test-send first (Tech-Debt-Map 2026-10-10) |
 | Email hub (watering stage, next on calendar, running, what worked) | not shown | card | `MiaEmailHubService` | iPhone |
 | Weekly Google post: publish (live only) / I posted it / skip | yes (`gbp_post`) | yes (`post_decide`) | `MiaChannelsService::decidePost()`, `GbpService::mode()` | none in behaviour |

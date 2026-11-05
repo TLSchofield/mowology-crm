@@ -88,6 +88,23 @@ try {
         echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0]);
         exit;
     }
+    // Mia: payment thank-yous drafted, and every queued Mia email whose best time has come (migration 1437).
+    $miaThanks = ['created' => 0, 'sent' => 0, 'failed' => 0];
+    try {
+        require_once APP_ROOT . '/Modules/Marketing/Services/MiaThanksService.php';
+        require_once APP_ROOT . '/Modules/Marketing/Services/MiaDeskService.php';
+        $now = new DateTimeImmutable();
+        if (MiaThanksService::enabled($db)) {
+            $thanks = new MiaThanksService($db);
+            $miaThanks['created'] = $thanks->sweep($now)['created'];
+            $thanks->tidy($now);
+        }
+        $due = (new MiaDeskService($db))->sendDue($now);
+        $miaThanks['sent'] = $due['sent'];
+        $miaThanks['failed'] = $due['failed'];
+    } catch (Throwable $e) {
+        error_log('campaign_sender: Mia queue failed: ' . $e->getMessage());
+    }
     // A row claimed by a run that died mid-send is not sent again blindly: it fails visibly.
     $db->exec("UPDATE campaign_sends SET status = 'failed', error_message = 'interrupted while sending — check before resending'
                WHERE status = 'sending' AND sent_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)");
@@ -102,10 +119,10 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($campaigns)) {
-        $msg = 'No campaigns in sending status.';
+        $msg = 'No campaigns in sending status. Mia thanks: ' . $miaThanks['created'] . ' drafted, ' . $miaThanks['sent'] . ' sent, ' . $miaThanks['failed'] . ' failed.';
         $logRun('success', $msg);
         if ($isCli) { echo "$msg\n"; exit(0); }
-        echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0]);
+        echo json_encode(['success' => true, 'message' => $msg, 'sent' => 0, 'mia_thanks' => $miaThanks]);
         exit;
     }
 
@@ -327,6 +344,7 @@ try {
         'sent'                => $totalSent,
         'failed'              => $totalFailed,
         'campaigns_processed' => $campaignsProcessed,
+        'mia_thanks'          => $miaThanks,
     ];
 
     $logRun($totalFailed > 0 ? 'warning' : 'success', $result['message'],

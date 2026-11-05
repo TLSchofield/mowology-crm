@@ -159,6 +159,8 @@
 		0BE7CE13ABA043A34E57BE59 /* ScreenHead.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */; };
 		060E021535E3B87F413EB151 /* ScheduleTimelineRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2D39E52E9C6197F0526883 /* ScheduleTimelineRules.swift */; };
 		0E91D609D3BF43538B93AEB9 /* ScheduleTimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8E9DD2B2B3113991FD299B /* ScheduleTimelineViews.swift */; };
+		4FCBC04583E28E8E4B000617 /* MiaSuggestionsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A94EFB0516087BAF508000 /* MiaSuggestionsSection.swift */; };
+		5D0857323E415DEF88521408 /* MiaWhen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -316,6 +318,8 @@
 		F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenHead.swift; sourceTree = "<group>"; };
 		AB2D39E52E9C6197F0526883 /* ScheduleTimelineRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleTimelineRules.swift; sourceTree = "<group>"; };
 		BB8E9DD2B2B3113991FD299B /* ScheduleTimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleTimelineViews.swift; sourceTree = "<group>"; };
+		98A94EFB0516087BAF508000 /* MiaSuggestionsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiaSuggestionsSection.swift; sourceTree = "<group>"; };
+		67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiaWhen.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -604,6 +608,8 @@
 				6BC0F01665BEC7B5747BC24C /* EquipmentAddView.swift */,
 				061ED40ACDB38C11A06748AB /* BusinessIdentityViewModel.swift */,
 				F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */,
+				98A94EFB0516087BAF508000 /* MiaSuggestionsSection.swift */,
+				67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -880,6 +886,8 @@
 				0BE7CE13ABA043A34E57BE59 /* ScreenHead.swift in Sources */,
 				060E021535E3B87F413EB151 /* ScheduleTimelineRules.swift in Sources */,
 				0E91D609D3BF43538B93AEB9 /* ScheduleTimelineViews.swift in Sources */,
+				4FCBC04583E28E8E4B000617 /* MiaSuggestionsSection.swift in Sources */,
+				5D0857323E415DEF88521408 /* MiaWhen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -953,7 +961,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.82;
+				MARKETING_VERSION = 1.3.83;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1039,7 +1047,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.82;
+				MARKETING_VERSION = 1.3.83;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

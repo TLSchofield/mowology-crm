@@ -41,7 +41,7 @@ struct HeadCardView: View {
                     OttoDeskSection(vm: vm)
                     unpinnedSection
                 }
-                if vm.head == "mia" { postSection }
+                if vm.head == "mia" { MiaSuggestionsSection(vm: vm); postSection }
             }
         }
     }

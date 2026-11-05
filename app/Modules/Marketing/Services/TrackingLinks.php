@@ -60,6 +60,13 @@ final class TrackingLinks
         return _idSiteUrl() . '/crm/api/track-open.php?sid=' . $sid . '&s=' . self::sign($sid, 'open', $secret);
     }
 
+    public static function miaPixel(int $suggestionId, ?string $secret = null): string
+    {
+        $secret = $secret ?? self::secret();
+        $sig = self::sign($suggestionId, 'mia-open', $secret);
+        return _idSiteUrl() . '/crm/api/track-open.php?m=' . $suggestionId . '&s=' . $sig;
+    }
+
     /**
      * Invoice email open pixel (invoice_contacts.id). Signed like the campaign pixel: an unsigned
      * hit returns the image but records nothing (Fable review 2026-10-12 — the ids are sequential,
