@@ -25,6 +25,10 @@ expect(ScheduleTimelineRules.windowText(stop(1, start: "09:15", minutes: nil)) =
 expect(ScheduleTimelineRules.windowText(stop(1, start: nil, minutes: 30, arrival: "14:45")) == "2:45\u{2013}3:15", "falls back to the stop's arrival")
 expect(ScheduleTimelineRules.windowText(stop(1, start: nil, minutes: 30)) == nil, "no time at all: nil")
 expect(ScheduleTimelineRules.windowText(stop(1, start: "00:30", minutes: 30)) == "12:30\u{2013}1:00", "just after midnight reads 12:30")
+expect(ScheduleTimelineRules.windowText(stop(1, start: "09:00", minutes: 1393)) == "9:00", "a polluted 23 h estimate: start only")
+expect(ScheduleTimelineRules.windowText(stop(1, start: "09:00", minutes: 1)) == "9:00", "a one-minute estimate: start only")
+expect(ScheduleTimelineRules.windowText(stop(1, start: "09:00", minutes: 480)) == "9:00\u{2013}5:00", "a full 8 h day still shows")
+expect(ScheduleTimelineRules.bookedText(ScheduleTimelineRules.bookedMinutes(stop(1, start: "09:00", minutes: 673))) == nil, "no 'of 11 h' beside a timer")
 
 // Timer and booked length.
 expect(ScheduleTimelineRules.timerText(elapsedSeconds: 42 * 60 + 59) == "0:42", "42 min 59 s reads 0:42")

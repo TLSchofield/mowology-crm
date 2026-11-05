@@ -187,6 +187,7 @@ final class VisitDetailViewModel: ObservableObject {
                 transitionQueue.confirm(visitId: visitId, action: "start")
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "in_progress"
+                scheduleChanged()
                 activeTimerVisitId     = visitId
                 elapsedSeconds         = 0
                 startTicking()
@@ -206,6 +207,7 @@ final class VisitDetailViewModel: ObservableObject {
                 // No signal: the start is saved (with its tap time) and sent when signal returns.
                 // Run the job on screen meanwhile — a day offline must not stop the work.
                 visitStatuses[visitId] = "in_progress"
+                scheduleChanged()
                 activeTimerVisitId     = visitId
                 elapsedSeconds         = max(0, Int(Date().timeIntervalSince(tappedAt)))
                 startTicking()
@@ -282,6 +284,7 @@ final class VisitDetailViewModel: ObservableObject {
                 UserDefaults.standard.removeObject(forKey: Self.stopExtrasKey(visitId: visitId))
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "completed"
+                scheduleChanged()
                 completed = true
 
                 if activeTimerVisitId == visitId {
@@ -296,6 +299,7 @@ final class VisitDetailViewModel: ObservableObject {
             if case APIError.networkError = error {
                 // No signal: the completion (tap time + extras) is saved and sent on reconnect.
                 visitStatuses[visitId] = "completed"
+                scheduleChanged()
                 completed = true
                 if activeTimerVisitId == visitId {
                     activeTimerVisitId = nil
@@ -317,6 +321,12 @@ final class VisitDetailViewModel: ObservableObject {
     /// UserDefaults key carrying the skip reason across an offline replay
     /// (PendingTransition has no free-text field; AppTransitionDrainService reads this).
     static func skipReasonKey(visitId: Int) -> String { "mw.skipReason.\(visitId)" }
+
+    /// Tells the schedule behind this screen that a visit changed, so it redraws now instead of on its
+    /// next 20-second poll (Tim, 2026-11-05: the tick took seconds to appear after finishing a visit).
+    private func scheduleChanged() {
+        NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
+    }
 
     /// UserDefaults key carrying a queued completion's extra work (minutes + note) to the replay.
     static func stopExtrasKey(visitId: Int) -> String { "mw.stopExtras.\(visitId)" }
@@ -344,6 +354,7 @@ final class VisitDetailViewModel: ObservableObject {
             if response.success {
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "skipped"
+                scheduleChanged()
             } else {
                 setError(response.message ?? "Skip visit response success=false; server returned no message field.")
             }
@@ -352,6 +363,7 @@ final class VisitDetailViewModel: ObservableObject {
                 // Leave queued — AppTransitionDrainService replays it on reconnect.
                 haptic.notificationOccurred(.warning)
                 visitStatuses[visitId] = "skipped"
+                scheduleChanged()
                 autoClockInNotice = "Skip saved — will sync when signal returns."
             } else {
                 transitionQueue.confirm(visitId: visitId, action: "skip")

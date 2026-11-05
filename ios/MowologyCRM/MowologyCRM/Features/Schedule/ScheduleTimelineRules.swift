@@ -132,10 +132,13 @@ enum ScheduleTimelineRules {
         return starts.min() ?? minutes(fromHHMM: stop.estimatedArrival)
     }
 
-    /// Booked length: the visits' estimated minutes added up (nil when none is known).
+    /// Booked length: the visits' estimated minutes added up (nil when none is known, or not believable).
+    /// The server relearns each plan's estimate from timer minutes, so a forgotten timer or a one-minute
+    /// test finish shows up here as "9:00–8:13" (Tim, 2026-11-05). Outside these bounds: start time only.
+    static let believableMinutes = 5...480
     static func bookedMinutes(_ stop: Stop) -> Int? {
         let sum = stop.visits.compactMap(\.estimatedDuration).filter { $0 > 0 }.reduce(0, +)
-        return sum > 0 ? sum : nil
+        return believableMinutes.contains(sum) ? sum : nil
     }
 
     /// "8:00–9:00" on one line; "8:00" when the length is unknown; nil when there is no time at all.

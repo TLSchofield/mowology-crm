@@ -209,7 +209,7 @@ struct TimelineStopRow: View {
     private var activeBookedMinutes: Int? {
         if let id = input.context.activeTimerVisitId,
            let visit = stop.visits.first(where: { $0.visitId == id }),
-           let minutes = visit.estimatedDuration, minutes > 0 { return minutes }
+           let minutes = visit.estimatedDuration, ScheduleTimelineRules.believableMinutes.contains(minutes) { return minutes }
         return ScheduleTimelineRules.bookedMinutes(stop)
     }
 

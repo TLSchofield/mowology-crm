@@ -174,11 +174,21 @@ final class ScheduleViewModel: ObservableObject {
                 self?.timerFetchForced = true
                 Task { await self?.silentRefresh() }
             }
-        // The pull-forward sheet moved a visit to today / added one and started it.
+        // The pull-forward sheet moved a visit to today / added one and started it, or a visit was
+        // started, finished or skipped on its own screen. The timeline is redrawn even when the day
+        // did not change (offline: the finish is only in the queue, shown as "saved, not sent yet").
         scheduleChangedSink = NotificationCenter.default.publisher(for: .mwScheduleChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { await self?.silentRefresh() }
+                self?.timerFetchForced = true
+                Task {
+                    // A changed day already redraws the timeline (rawStops didSet); a second refresh
+                    // would take a newer generation and could publish a stale timer over the forced one.
+                    guard let self else { return }
+                    let changed = await self.silentRefresh()
+                    guard !changed else { return }
+                    await self.refreshTimeline()
+                }
             }
     }
 
@@ -377,15 +387,19 @@ final class ScheduleViewModel: ObservableObject {
     /// no cancellation of other in-flight work, and no week-strip refetch —
     /// just "is there anything new," applied only if it actually changed so a
     /// no-op tick never triggers a view diff.
-    private func silentRefresh() async {
+    /// Returns true when the stops changed (and so the timeline is already being redrawn).
+    @discardableResult
+    private func silentRefresh() async -> Bool {
         let dateString = isoDateString(from: selectedDate)
+        var changed = false
         do {
             let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             // The day may have changed while this poll was out: never show Monday's stops under Tuesday.
-            guard dateString == isoDateString(from: selectedDate) else { return }
+            guard dateString == isoDateString(from: selectedDate) else { return false }
             if response.stops != rawStops {
                 rawStops = response.stops
+                changed = true
             }
             applyAppointments(response.appointments, forDate: dateString)
             cacheStops(response.stops, forDate: dateString)
@@ -394,6 +408,7 @@ final class ScheduleViewModel: ObservableObject {
             // Silent by design — a poll tick failing (offline, session hiccup)
             // isn't worth surfacing; the next tick or a manual refresh recovers.
         }
+        return changed
     }
 
     /// Moves the selected date forward or backward by the given number of weeks.
