@@ -38,6 +38,20 @@ class TenantTest extends TestCase
         $this->assertNull(Tenant::resolve(null, 'nobody', $this->reg)['key']);
     }
 
+    public function test_only_explicit_boolean_true_marks_test_config_and_default_is_never_test(): void
+    {
+        $this->assertTrue(Tenant::isTestCfg(['test' => true]));
+        foreach ([[], ['test' => false], ['test' => 1], ['test' => 'true']] as $cfg) {
+            $this->assertFalse(Tenant::isTestCfg($cfg));
+        }
+
+        Tenant::forTests(['key' => 'rehearsal', 'cfg' => ['test' => true]]);
+        $this->assertTrue(Tenant::isTest());
+        Tenant::forTests(['key' => Tenant::DEFAULT, 'cfg' => ['test' => true]]);
+        $this->assertFalse(Tenant::isTest());
+        Tenant::forTests(null);
+    }
+
     public function test_each_business_has_its_own_address_for_links(): void
     {
         Tenant::forTests(['key' => 'greenleaf', 'cfg' => $this->reg['greenleaf']]);
@@ -61,4 +75,3 @@ class TenantTest extends TestCase
         }
     }
 }
-

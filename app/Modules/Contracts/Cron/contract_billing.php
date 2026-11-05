@@ -73,6 +73,8 @@ require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
+require_once APP_ROOT . '/Core/BusinessCronFanout.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 // Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
@@ -84,6 +86,22 @@ $logRun = static function (string $status, string $summary, ?string $error = nul
         error_log('[contract_billing] could not record the run — ' . $e->getMessage());
     }
 };
+$retryOnly = $isCli
+    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
+    : !empty($_POST['retry_only']);
+$fanoutResults = null;
+$runFanout = static function () use (&$fanoutResults, $retryOnly): array {
+    if ($fanoutResults !== null) {
+        return $fanoutResults;
+    }
+    try {
+        $fanoutResults = BusinessCronFanout::run(__FILE__, 600, null, null, $retryOnly ? ['retry-only'] : []);
+    } catch (Throwable $e) {
+        error_log('[contract_billing] business fan-out failed: ' . $e->getMessage());
+        $fanoutResults = [];
+    }
+    return $fanoutResults;
+};
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
@@ -93,9 +111,13 @@ require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 $taxRate  = TaxEngine::gstRate($db);
 // One run at a time: an admin "Run now" during the cron could make two invoices for a contract
 // (the idempotency check is a plain SELECT before the INSERT; review 2026-10-12).
-if ((int)$db->query("SELECT GET_LOCK('mw_contract_billing', 0)")->fetchColumn() !== 1) {
+$lockName = 'mw_contract_billing_' . Tenant::key();
+$lockStmt = $db->prepare('SELECT GET_LOCK(?, 0)');
+$lockStmt->execute([$lockName]);
+if ((int)$lockStmt->fetchColumn() !== 1) {
     $msg = 'contract_billing: another run is in progress — nothing done.';
     $logRun('success', $msg);
+    $runFanout();
     if ($isCli) { echo $msg . "\n"; exit(0); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -105,13 +127,12 @@ $skipped  = [];
 $errors   = [];
 $held     = [];   // not sent: the invoice PDF could not be made (retried next run)
 $retried  = [];   // held invoices from earlier runs, sent now
+$testMade = [];   // created as drafts in a test business; deliberately never sent
 
 // retry-only: just re-send invoices held for a missing PDF; create nothing new.
 // Safe to schedule daily (the monthly line still creates the invoices on the 1st):
 //   15 7 * * * /usr/local/bin/php .../contract_billing.php retry-only
-$retryOnly = $isCli
-    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
-    : !empty($_POST['retry_only']);
+$sendAllowed = ContractBillingPolicy::sendAllowed(Tenant::isTest());
 
 $sender = new ContractInvoiceSender($db, new InvoicePdfGate($db));
 
@@ -122,6 +143,7 @@ try {
         $msg = 'Migration 1007 not applied — invoices.contract_id column missing. Run /crm/api/run-migration-1007.php first.';
         error_log("[contract_billing] {$msg}");
         $logRun('error', 'Migration 1007 not applied', $msg);
+        $runFanout();
         if ($isCli) { echo $msg . PHP_EOL; exit(1); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
@@ -160,6 +182,9 @@ try {
 }
 foreach ($heldIds as $heldId) {
     try {
+        if (!$sendAllowed) {
+            continue;
+        }
         $res = $sender->send($heldId);
         if ($res['status'] === 'sent') {
             $retried[] = 'retry: ' . $res['message'];
@@ -237,6 +262,7 @@ try {
     $msg = 'Failed to query contracts: ' . $e->getMessage();
     error_log("[contract_billing] {$msg}");
     $logRun('error', 'Could not query contracts', $msg);
+    $runFanout();
     if ($isCli) { echo $msg . PHP_EOL; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
@@ -402,14 +428,18 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         // ContractInvoiceSender: no PDF → NOT sent, stays draft, recorded for
         // Charlie + retried at the start of the next run. Sent → status 'sent',
         // autopay, SMS, activity log (same as the old inline code).
-        $res = $sender->send($invoiceId);
-        if ($res['status'] === 'sent') {
-            $created[] = $res['message'];
-        } elseif ($res['status'] === 'held') {
-            $held[]   = $res['message'];
-            $errors[] = "{$ctr['contract_number']}: " . $res['message'];
+        if (!$sendAllowed) {
+            $testMade[] = $invoiceNumber;
         } else {
-            $errors[] = $res['message'];
+            $res = $sender->send($invoiceId);
+            if ($res['status'] === 'sent') {
+                $created[] = $res['message'];
+            } elseif ($res['status'] === 'held') {
+                $held[]   = $res['message'];
+                $errors[] = "{$ctr['contract_number']}: " . $res['message'];
+            } else {
+                $errors[] = $res['message'];
+            }
         }
 
     } catch (Throwable $e) {
@@ -424,6 +454,18 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
 
 // ── 4. Report ─────────────────────────────────────────────────────────────────
 $elapsedMs = (int)(microtime(true) * 1000) - $startMs;
+$fanoutResults = $runFanout();
+$fanoutSummary = BusinessCronFanout::summary($fanoutResults);
+$testSummary = Tenant::isTest()
+    ? 'test business: ' . count($testMade) . ' invoices made, not sent'
+    : '';
+$summaryParts = [
+    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, '
+        . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+];
+if ($testSummary !== '') $summaryParts[] = $testSummary;
+if ($fanoutSummary !== '') $summaryParts[] = $fanoutSummary;
+$runSummary = implode('; ', $summaryParts);
 
 $report = [
     'success'    => true,
@@ -434,6 +476,8 @@ $report = [
     'held'       => count($held),
     'skipped'    => count($skipped),
     'errors'     => count($errors),
+    'test_made'  => count($testMade),
+    'summary'    => $runSummary,
     'elapsed_ms' => $elapsedMs,
     'detail'     => [
         'created' => array_merge($created, $retried),
@@ -443,8 +487,7 @@ $report = [
     ],
 ];
 
-$logRun(count($errors) > 0 ? 'warning' : 'success',
-    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, ' . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+$logRun(count($errors) > 0 ? 'warning' : 'success', $runSummary,
     count($errors) > 0 ? implode(' | ', array_slice($errors, 0, 5)) : null);
 
 if ($isCli) {
@@ -454,6 +497,8 @@ if ($isCli) {
     echo "  Held    : " . count($held) . " (NOT sent — invoice PDF could not be made)\n";
     echo "  Skipped : " . count($skipped) . "\n";
     echo "  Errors  : " . count($errors) . "\n";
+    if ($testSummary !== '') echo "  " . $testSummary . "\n";
+    if ($fanoutSummary !== '') echo "  " . $fanoutSummary . "\n";
     if ($errors) {
         foreach ($errors as $err) { echo "  ERROR: {$err}\n"; }
     }

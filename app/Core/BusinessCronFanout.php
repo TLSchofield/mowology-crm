@@ -13,19 +13,19 @@ final class BusinessCronFanout
             ? rtrim($bindir, '/') . '/php' : $binary;
     }
 
-    public static function commands(array $keys, string $php, string $script): array
+    public static function commands(array $keys, string $php, string $script, array $extraArgs = []): array
     {
         $out = [];
         foreach ($keys as $key) {
             $key = (string)$key;
             // Any key the registry accepts (argv array: no shell, so no quoting to worry about).
             if ($key === Tenant::DEFAULT || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $key)) continue;
-            $out[] = ['key' => $key, 'argv' => [$php, $script, '--tenant=' . $key]];
+            $out[] = ['key' => $key, 'argv' => array_merge([$php, $script, '--tenant=' . $key], $extraArgs)];
         }
         return $out;
     }
 
-    public static function run(string $script, int $timeoutSec = 900, ?callable $spawn = null, ?array $keys = null): array
+    public static function run(string $script, int $timeoutSec = 900, ?callable $spawn = null, ?array $keys = null, array $extraArgs = []): array
     {
         if (PHP_SAPI !== 'cli' || !Tenant::isDefault()) return [];
         $php = self::phpCli((string)PHP_BINARY, (string)PHP_BINDIR);
@@ -63,7 +63,7 @@ final class BusinessCronFanout
         };
 
         $results = [];
-        foreach (self::commands($keys ?? Tenant::registeredKeys(), $php, $script) as $command) {
+        foreach (self::commands($keys ?? Tenant::registeredKeys(), $php, $script, $extraArgs) as $command) {
             $started = microtime(true);
             try {
                 $r = $spawn($command['argv'], $timeoutSec);
