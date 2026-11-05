@@ -458,7 +458,9 @@ struct ScheduleTimelineDemoOverlay: View {
     var body: some View {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
-        if let i = args.firstIndex(of: "-mwTimelineDemo") {
+        if args.contains("-mwBeadDemo") {
+            MeniscusBeadDemo().itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
             let mode = i + 1 < args.count ? args[i + 1] : "day"
             let field = args.contains("-mwTimelineField")
             ScheduleTimelineDemo(mode: mode)
@@ -527,3 +529,23 @@ private struct ScheduleTimelineDemo: View {
 }
 #endif
 
+#if DEBUG
+/// `-mwBeadDemo`: the tab bar with Receipts selected, to see the camera in the bead.
+private struct MeniscusBeadDemo: View {
+    @Environment(\.itAppStyle) private var style
+    @State private var selected = 4
+    var body: some View {
+        VStack(spacing: 0) {
+            style.page
+            ItMeniscusBar(items: [
+                ItMeniscusItem(id: 0, title: "Schedule", icon: Image(systemName: "calendar")),
+                ItMeniscusItem(id: 1, title: "Time", icon: Image(systemName: "clock.fill")),
+                ItMeniscusItem(id: 2, title: "Kaname", icon: Image(systemName: "hexagon")),
+                ItMeniscusItem(id: 3, title: "Search", icon: Image(systemName: "magnifyingglass")),
+                ItMeniscusItem(id: 4, title: "Receipts", icon: Image(systemName: "doc.text.image"),
+                               beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt"),
+            ], selected: $selected)
+        }
+    }
+}
+#endif

@@ -75,17 +75,18 @@ struct ReceiptsView: View {
             .itAppScreen()
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .bottom) {
-                if isSelectMode {
-                    if !selectedIds.isEmpty { bulkActionBar.padding(.bottom, barClearance) }
-                } else {
-                    captureButton   // a bar under the list, never floating over it (owner, 2026-10-19)
-                        .padding(.bottom, barClearance)
+                // The Snap bar is gone: the Receipts bead in the tab bar is the camera (Tim, 2026-11-05).
+                // Label photos and the photo library are in the ⋯ menu.
+                if isSelectMode, !selectedIds.isEmpty {
+                    bulkActionBar.padding(.bottom, barClearance)
                 }
             }
         }
         .sheet(isPresented: $showBulkRejectSheet) {
             bulkRejectSheet
         }
+        // The Receipts bead in the tab bar, tapped while Receipts shows: the receipt camera.
+        .onReceive(NotificationCenter.default.publisher(for: .mwSnapReceipt)) { _ in snap(label: false) }
         .task {
             Task { await chase.loadMine() }   // alongside the list, never in front of it
             await viewModel.loadExpenses()
@@ -112,13 +113,14 @@ struct ReceiptsView: View {
                 onCapture: { image in
                     showCamera = false
                     retakePending = false
+                    let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
                     Task {
                         // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
                         let compressed: Data = await Task.detached(priority: .userInitiated) {
                             ReceiptsView.resizeAndCompress(image)
                         }.value
                         guard !compressed.isEmpty else { return }
-                        await handleCapture(compressed)
+                        await handleCapture(compressed, asLabel: asLabel)
                     }
                 },
                 onCancel: {
@@ -230,7 +232,7 @@ struct ReceiptsView: View {
                     viewModel.uploadError = "Couldn't read that photo — try another, or take a picture of the receipt."
                     return
                 }
-                await handleCapture(compressed)
+                await handleCapture(compressed, asLabel: false)   // the library is for receipts
             }
         }
     }
@@ -251,15 +253,17 @@ struct ReceiptsView: View {
         }
     }
 
-    private func handleCapture(_ compressed: Data) async {
+    /// `asLabel` is fixed when the photo is taken (not read from `labelMode` later): a second snap started while
+    /// this one compresses must not turn this receipt into a label or the other way round.
+    private func handleCapture(_ compressed: Data, asLabel: Bool) async {
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
         // The phone's own text read starts now and runs while the fix settles; upload waits for both.
-        let deviceRead: DeviceTextScanner.Prefetched? = labelMode ? nil : DeviceTextScanner.Prefetched(compressed)
+        let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : DeviceTextScanner.Prefetched(compressed)
         defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
         let loc = await Self.captureFix() ?? locationManager.location
-        if labelMode {
+        if asLabel {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
             if viewModel.labelResult != nil { showLabelResult = true }
             return
@@ -358,7 +362,7 @@ struct ReceiptsView: View {
                 .foregroundStyle(appStyle.meta)
             Text("No receipts yet")
                 .font(appStyle.font(.title2, weight: .bold))
-            Text("Tap + to snap a receipt")
+            Text("Tap the camera in the Receipts tab to snap a receipt")
                 .font(appStyle.font(.subheadline))
                 .foregroundStyle(appStyle.meta)
         }
@@ -366,47 +370,16 @@ struct ReceiptsView: View {
         .background(appStyle.page)
     }
 
-    // MARK: - FAB
+    // MARK: - Snap (the Receipts bead in the tab bar, or "Snap a label" in the ⋯ menu)
 
-    private var captureButton: some View {
-        // AAA: a labelled 56 pt button and a 44 pt switch in a bar of their own — the floating
-        // icon-only button and switch covered "No receipt" and the list text (2026-10-19).
-        HStack(spacing: 12) {
-            // Receipt | Label — what the next photo is.
-            Picker("Capture", selection: $labelMode) {
-                Text("Receipt").tag(false)
-                Text("Label").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 150)
-            .frame(minHeight: 44)
-            .accessibilityHint("Label: photo of a product bag or a machine's nameplate. It is never an expense.")
-
-            Button {
-                impact.impactOccurred()
-                viewModel.uploadError = nil
-                showCamera = true
-            } label: {
-                Label(labelMode ? "Snap a label" : "Snap a receipt", systemImage: labelMode ? "tag.fill" : "camera.fill")
-                    .font(appStyle.font(.headline))
-                    .foregroundStyle(appStyle.onTenant)
-                    .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(appStyle.tenant, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-            }
-            .accessibilityLabel(labelMode ? "Photograph a label" : "Photograph a receipt")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(appStyle.surface)
-        .overlay(alignment: .top) { Rectangle().fill(appStyle.line).frame(height: 1) }
-        .contextMenu {
-            Button {
-                pickerItem = nil
-                showLibrary = true
-            } label: {
-                Label("Choose from Library", systemImage: "photo.on.rectangle")
-            }
-        }
+    /// Opens the camera for a receipt, or for a label (a product bag or a machine's nameplate; never an expense).
+    private func snap(label: Bool) {
+        isSelectMode = false
+        selectedIds.removeAll()
+        labelMode = label
+        impact.impactOccurred()
+        viewModel.uploadError = nil
+        showCamera = true
     }
 
     // MARK: - Library sheet
@@ -570,6 +543,16 @@ struct ReceiptsView: View {
                 // Not role-gated client-side, same rationale as ReceiptDetailView's action
                 // bar — the server enforces expenses.send via jwtUserHasPermission().
                 Menu {
+                    Button { snap(label: true) } label: {
+                        Label("Snap a label", systemImage: "tag.fill")
+                    }
+                    Button {
+                        labelMode = false
+                        pickerItem = nil
+                        showLibrary = true
+                    } label: {
+                        Label("Choose from Library", systemImage: "photo.on.rectangle")
+                    }
                     Button {
                         Task { await performArchiveExport() }
                     } label: {

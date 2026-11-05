@@ -18,6 +18,11 @@ struct ItMeniscusItem: Identifiable {
     /// The Ittai hexagon is a thin outline: at the size of a filled icon it reads small (Tim, 2026-11-04), so it is
     /// drawn larger. Everything else stays 1.
     var iconScale: CGFloat = 1
+    /// What the bead shows while this tab is selected, when a tap on it does something (Receipts: a camera;
+    /// tapping the bead again takes the photo — Tim, 2026-11-05). nil = the tab's own icon.
+    var beadIcon: Image? = nil
+    /// Spoken name of that action ("Snap a receipt"), used for the selected tab instead of its title.
+    var beadLabel: String? = nil
 }
 
 struct ItMeniscusBar: View {
@@ -26,6 +31,8 @@ struct ItMeniscusBar: View {
 
     let items: [ItMeniscusItem]
     @Binding var selected: Int
+    /// A tap on the tab that is already selected (the bead): the tab's own action, e.g. Receipts takes a photo.
+    var onReselect: ((Int) -> Void)? = nil
     /// Animated copy of `selected`, so the bead and notch can be drawn mid-slide.
     @State private var position: CGFloat = 0
 
@@ -34,7 +41,7 @@ struct ItMeniscusBar: View {
 
     var body: some View {
         ItMeniscusBarBody(items: items, selected: selected, position: position, style: style) { index in
-            selected = index
+            if index == selected { onReselect?(index) } else { selected = index }
         }
         .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
         // The surface carries on under the home indicator. A fixed-height fill cannot grow into the safe area
@@ -77,6 +84,8 @@ private struct ItMeniscusBarBody: View, Animatable {
             let cx = ItMeniscusGeometry.beadX(position, count: count, width: width)
             let under = ItMeniscusGeometry.nearest(position, count: count)
             let edgeY = ItMeniscusGeometry.rise
+            // Mid-slide the bead is passing over other slots: it takes no taps and shows no action until it lands.
+            let settled = abs(position - CGFloat(selected)) < 0.01
 
             ZStack(alignment: .topLeading) {
                 ItMeniscusSurface(cx: cx, edgeY: edgeY)
@@ -107,6 +116,7 @@ private struct ItMeniscusBarBody: View, Animatable {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(item.title)
+                        .accessibilityHint(active && item.beadLabel != nil ? "Tap again: \(item.beadLabel!)" : "")
                         .accessibilityAddTraits(active ? [.isSelected] : [])
                     }
                 }
@@ -130,7 +140,8 @@ private struct ItMeniscusBarBody: View, Animatable {
                     .frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
                     .overlay {
                         if items.indices.contains(under) {
-                            items[under].icon
+                            // Settled on the selected tab, a tab with an action shows it (Receipts: the camera).
+                            ((settled && items[under].id == selected ? items[under].beadIcon : nil) ?? items[under].icon)
                                 .renderingMode(.template)
                                 .resizable()
                                 .scaledToFit()
@@ -139,7 +150,11 @@ private struct ItMeniscusBarBody: View, Animatable {
                         }
                     }
                     .offset(x: cx - ItMeniscusGeometry.bead / 2, y: 0)
-                    .allowsHitTesting(false)
+                    // The bead itself is a target: tapping it is tapping its tab (the slot button carries the
+                    // accessibility label, so the bead stays hidden from VoiceOver).
+                    .contentShape(Circle())
+                    .onTapGesture { if settled, items.indices.contains(selected) { onSelect(items[selected].id) } }
+                    .allowsHitTesting(settled)
                     .accessibilityHidden(true)
             }
         }

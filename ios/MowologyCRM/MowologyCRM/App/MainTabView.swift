@@ -70,7 +70,9 @@ struct MainTabView: View {
             case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
             case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
-            case .receipts: return ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"))
+            // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05).
+            case .receipts: return ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"),
+                                                  beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
             case .account:  return ItMeniscusItem(id: index, title: "Account", icon: Image(systemName: "person.fill"))
             }
         }
@@ -120,7 +122,12 @@ struct MainTabView: View {
             if !keyboardUp {
                 ItMeniscusBar(items: meniscusItems, selected: Binding(
                     get: { tabs.firstIndex(of: selectedTab) ?? 0 },
-                    set: { selectedTab = tabs[$0] }))
+                    set: { selectedTab = tabs[$0] }),
+                    onReselect: { index in
+                        if tabs.indices.contains(index), tabs[index] == .receipts {
+                            NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
+                        }
+                    })
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
@@ -355,4 +362,9 @@ extension EnvironmentValues {
         get { self[ItBarClearanceKey.self] }
         set { self[ItBarClearanceKey.self] = newValue }
     }
+}
+
+extension Notification.Name {
+    /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
+    static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
 }
