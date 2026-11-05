@@ -28,6 +28,7 @@ class QboOnboardingTest extends TestCase
             "CREATE TABLE companies (id INTEGER PRIMARY KEY, company_name TEXT, company_type TEXT, primary_contact_id INT, billing_contact_id INT, billing_email TEXT, billing_phone TEXT, billing_address TEXT, billing_city TEXT, billing_province TEXT, billing_postal_code TEXT, account_status TEXT, payment_terms TEXT, pref_attach_pdf INT)",
             "CREATE TABLE clients (id INTEGER PRIMARY KEY, site_id INT NOT NULL DEFAULT 1, client_type TEXT, display_name TEXT, billing_address TEXT, billing_city TEXT, billing_province TEXT, billing_postal_code TEXT, billing_email TEXT, billing_phone TEXT, payment_terms TEXT, legacy_contact_id INT, contact_id INT, UNIQUE(site_id, legacy_contact_id))",
             "CREATE TABLE qbo_links (id INTEGER PRIMARY KEY, site_id INT, realm_id TEXT, entity_type TEXT, entity_id TEXT, qbo_id TEXT, sync_token TEXT, request_id TEXT, status TEXT, qbo_total REAL, message TEXT, sent_at TEXT)",
+            "CREATE TABLE contracts (id INTEGER PRIMARY KEY, title TEXT, created_by INT)",
             "CREATE TABLE properties (id INTEGER PRIMARY KEY, property_name TEXT, address TEXT, city TEXT, province TEXT, postal_code TEXT, latitude REAL, longitude REAL, site_contact_id INT, status TEXT, billing_entity_name TEXT)",
             "CREATE TABLE products (id INTEGER PRIMARY KEY, category_id INT, name TEXT, description TEXT, unit_type_id INT, base_price REAL, taxable INT, active INT, created_by INT)",
             "CREATE TABLE product_categories (id INTEGER PRIMARY KEY, name TEXT, description TEXT, active INT)",
@@ -71,6 +72,49 @@ class QboOnboardingTest extends TestCase
         $ob = new QboOnboardingService($db, $conn, 1, fn() => 1792540800, true);
         $ob->import((string)json_encode(['v' => 1, 'rows' => $rows]));
         return $ob;
+    }
+
+    private function recurringRow(string $id = 'R1', string $customerId = 'C1'): array
+    {
+        return ['id' => $id, 'name' => 'Monthly care ' . $id, 'active' => true, 'recur_type' => 'Automated',
+            'customer_id' => $customerId, 'customer_name' => 'Ada', 'total' => 105, 'subtotal' => 100,
+            'interval' => 'Monthly', 'every' => 1, 'day_of_month' => 1, 'start_date' => '2026-01-01',
+            'end_date' => '', 'next_date' => '2026-12-01', 'lines' => 'Care'];
+    }
+
+    private function withRecurring(PDO $db, array $rows, callable $creator): QboOnboardingService
+    {
+        $snapshotRows = [];
+        foreach ($rows as $row) $snapshotRows[] = ['kind' => 'recurring', 'qbo_id' => $row['id'], 'data' => json_encode($row)];
+        $ob = new QboOnboardingService($db, null, 1, fn() => 1792540800, true, $creator);
+        $ob->import((string)json_encode(['v' => 1, 'rows' => $snapshotRows]));
+        return $ob;
+    }
+
+    private function pullConnection(bool $recurringOk): QboConnectionService
+    {
+        $rawRecurring = ['Invoice' => ['Id' => 'R1', 'TotalAmt' => 105,
+            'CustomerRef' => ['value' => 'C1', 'name' => 'Ada'],
+            'RecurringInfo' => ['Name' => 'Monthly care', 'Active' => true, 'RecurType' => 'Automated',
+                'ScheduleInfo' => ['IntervalType' => 'Monthly', 'NumInterval' => 1, 'NextDate' => '2026-12-01']],
+            'Line' => [['Amount' => 100, 'Description' => 'Care', 'SalesItemLineDetail' => []]]]];
+        $client = new class($recurringOk, $rawRecurring) extends QboClient {
+            private bool $recurringOk;
+            private array $rawRecurring;
+            public function __construct(bool $recurringOk, array $rawRecurring) { $this->recurringOk = $recurringOk; $this->rawRecurring = $rawRecurring; }
+            public function all(string $entity, string $where = ''): array
+            {
+                if ($entity !== 'RecurringTransaction') return ['ok' => true, 'rows' => []];
+                return $this->recurringOk ? ['ok' => true, 'rows' => [$this->rawRecurring]] : ['ok' => false, 'error' => 'Recurring unavailable'];
+            }
+            public function companyInfo(string $realmId): array { return ['ok' => true, 'data' => ['CompanyInfo' => ['CompanyName' => 'Sandbox CA']]]; }
+        };
+        return new class($client) extends QboConnectionService {
+            private QboClient $fakeClient;
+            public function __construct(QboClient $fakeClient) { $this->fakeClient = $fakeClient; }
+            public function client(): QboClient { return $this->fakeClient; }
+            public function company(): ?array { return ['realm_id' => 'realm']; }
+        };
     }
 
     public function test_a_snapshot_moves_between_sites_and_the_live_site_never_loads_one(): void
@@ -465,5 +509,125 @@ class QboOnboardingTest extends TestCase
         $this->assertSame('conflict',QboLinkService::save(...$args));
         $this->assertSame('101',$db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='contact:5'")->fetchColumn());
         $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM qbo_links')->fetchColumn());
+    }
+
+    public function test_pull_keeps_recurring_rows_in_the_snapshot(): void
+    {
+        $db = $this->db();
+        $result = (new QboOnboardingService($db, $this->pullConnection(true), 1, fn() => 1792540800, true))->pull();
+
+        $this->assertTrue($result['ok']);
+        $this->assertStringContainsString('1 recurring invoices', $result['message']);
+        $saved = json_decode((string)$db->query("SELECT data FROM qbo_onboarding_snapshot WHERE kind='recurring'")->fetchColumn(), true);
+        $this->assertSame(['R1', 'C1', 100.0], [$saved['id'], $saved['customer_id'], $saved['subtotal']]);
+    }
+
+    public function test_pull_survives_a_recurring_read_failure(): void
+    {
+        $db = $this->db();
+        $result = (new QboOnboardingService($db, $this->pullConnection(false), 1, fn() => 1792540800, true))->pull();
+
+        $this->assertTrue($result['ok']);
+        $this->assertStringContainsString('Recurring invoices could not be read', $result['message']);
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM qbo_onboarding_snapshot WHERE kind='company'")->fetchColumn());
+    }
+
+    public function test_recurring_sub_customer_matches_its_imported_building_and_contact(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO contacts (id,first_name,last_name) VALUES (8,'Ada','Lovelace')");
+        $db->exec("INSERT INTO properties (id,address,site_contact_id) VALUES (4,'1 Main St',8)");
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES (1,'realm','client','property:4','BUILDING-1','sent')");
+        $preview = $this->withRecurring($db, [$this->recurringRow('R1', 'BUILDING-1')], static fn() => 71)->contracts();
+
+        $this->assertTrue($preview['rows'][0]['offered']);
+        $this->assertSame([8, 4], [$preview['rows'][0]['contact_id'], $preview['rows'][0]['property_id']]);
+    }
+
+    public function test_recurring_invoice_without_an_imported_contact_is_not_offered(): void
+    {
+        $preview = $this->withRecurring($this->db(), [$this->recurringRow()], static fn() => 71)->contracts();
+
+        $this->assertFalse($preview['rows'][0]['offered']);
+        $this->assertSame('Import the client first', $preview['rows'][0]['why']);
+    }
+
+    public function test_an_existing_recurring_link_is_already_done(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES (1,'realm','recurring','contract:44','R1','sent')");
+        $preview = $this->withRecurring($db, [$this->recurringRow()], static fn() => 71)->contracts();
+
+        $this->assertSame(1, $preview['done']);
+        $this->assertSame('Already a contract', $preview['rows'][0]['why']);
+    }
+
+    public function test_only_imports_the_selected_recurring_row(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO contacts (id,first_name,last_name) VALUES (8,'Ada','Lovelace')");
+        $db->exec("INSERT INTO properties (id,address,site_contact_id) VALUES (4,'1 Main St',8)");
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES (1,'realm','client','contact:8','C1','sent')");
+        $made = [];
+        $creator = static function (array $data) use (&$made): int { $made[] = $data['title']; return 70 + count($made); };
+        $ob = $this->withRecurring($db, [$this->recurringRow('R1'), $this->recurringRow('R2')], $creator);
+
+        $result = $ob->apply('contracts', 7, ['R2']);
+
+        $this->assertSame(['Monthly care R2'], $made);
+        $this->assertStringContainsString('1 contracts made', $result['message']);
+        $this->assertStringContainsString('1 skipped', $result['message']);
+        $this->assertSame('R2', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_type='recurring'")->fetchColumn());
+    }
+
+    public function test_contract_is_rolled_back_when_its_recurring_link_is_not_saved(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO contacts (id,first_name,last_name) VALUES (8,'Ada','Lovelace')");
+        $db->exec("INSERT INTO properties (id,address,site_contact_id) VALUES (4,'1 Main St',8)");
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES
+            (1,'realm','client','contact:8','C1','sent'),(1,'snapshot','recurring','contract:71','OTHER','sent')");
+        $calls = 0;
+        $creator = static function (array $data, int $userId) use ($db, &$calls): array {
+            $calls++;
+            $db->prepare('INSERT INTO contracts (id,title,created_by) VALUES (71,?,?)')->execute([$data['title'], $userId]);
+            return ['success' => true, 'contract_id' => 71];
+        };
+        $ob = $this->withRecurring($db, [$this->recurringRow()], $creator);
+
+        $first = $ob->apply('contracts', 7, ['R1']);
+        $second = $ob->apply('contracts', 7, ['R1']);
+
+        $this->assertStringContainsString('1 failed', $first['message']);
+        $this->assertStringContainsString('1 failed', $second['message']);
+        $this->assertSame(2, $calls, 'the retry reaches creation because no false recurring link was committed');
+        $this->assertSame(0, (int)$db->query('SELECT COUNT(*) FROM contracts')->fetchColumn(), 'the unlinked contract is rolled back each time');
+        $this->assertSame('OTHER', $db->query("SELECT qbo_id FROM qbo_links WHERE entity_id='contract:71'")->fetchColumn());
+    }
+
+    public function test_recurring_invoice_preview_and_contract_import_are_idempotent(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO contacts (id,first_name,last_name) VALUES (8,'Ada','Lovelace')");
+        $db->exec("INSERT INTO properties (id,address,site_contact_id) VALUES (4,'1 Main St',8)");
+        $db->exec("INSERT INTO qbo_links (site_id,realm_id,entity_type,entity_id,qbo_id,status) VALUES (1,'realm','client','contact:8','C1','sent')");
+        $passed = [];
+        $creator = static function (array $data, int $userId) use (&$passed): array {
+            $passed[] = [$data, $userId];
+            return ['success' => true, 'contract_id' => 71];
+        };
+        $ob = $this->withRecurring($db, [$this->recurringRow()], $creator);
+        $preview = $ob->contracts();
+        $this->assertSame(1, $preview['new']);
+        $this->assertSame(4, $preview['rows'][0]['property_id']);
+        $this->assertSame('monthly', $preview['rows'][0]['billing_cycle']);
+        $this->assertStringContainsString('1 recurring invoices', $ob->partPreviews()['contracts']);
+
+        $this->assertStringContainsString('1 contracts made', $ob->apply('contracts', 7, ['R1'])['message']);
+        $this->assertSame([100.0, '2026-12-01', 'monthly'], [$passed[0][0]['billing_amount'], $passed[0][0]['start_date'], $passed[0][0]['billing_cycle']]);
+        $this->assertStringContainsString('QuickBooks keeps billing', $passed[0][0]['notes']);
+        $this->assertSame('contract:71', $db->query("SELECT entity_id FROM qbo_links WHERE entity_type='recurring'")->fetchColumn());
+        $this->assertStringContainsString('0 contracts made', $ob->apply('contracts', 7)['message']);
+        $this->assertCount(1, $passed);
     }
 }

@@ -8,6 +8,7 @@ require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboConnectionService.ph
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboOnboardingService.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboSyncService.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboExpenseSyncService.php';
+require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboRecurringService.php';
 require_once dirname(__DIR__, 2) . '/Ledger/Services/AccountantInviteService.php';
 
 final class OnboardingStepService
@@ -70,9 +71,16 @@ final class OnboardingStepService
                 elseif ($do === 'send') {
                     if (!$qbo['connected']) return ['ok' => false, 'error' => 'refused', 'message' => 'Connect QuickBooks first.'];
                     $on = filter_var($in['on'] ?? false, FILTER_VALIDATE_BOOLEAN);
-                    $qbo['sync']->setAuto($on, $on ? self::businessToday($this->db) : null);
+                    if ($qbo['sync']->setAuto($on, $on ? self::businessToday($this->db) : null) === false) {
+                        return ['ok' => false, 'error' => 'refused', 'message' => 'Sending could not be switched ' . ($on ? 'on' : 'off') . '. Nothing was changed.'];
+                    }
                     $qbo['expenses']->setReceipts($on);
-                    $r = ['ok' => true, 'message' => $on ? 'Sending to QuickBooks from today.' : 'Automatic sending is off.'];
+                    $message = $on ? 'Sending to QuickBooks from today.' : 'Automatic sending is off.';
+                    if ($on) {
+                        $prompt = isset($qbo['recurring']) ? $qbo['recurring']->pausePrompt() : (new QboRecurringService($this->db, $qbo['conn'] ?? null))->pausePrompt();
+                        if ($prompt !== null) $message .= ' ' . $prompt;
+                    }
+                    $r = ['ok' => true, 'message' => $message];
                 }
                 else return self::badAction();
                 return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]
@@ -128,7 +136,7 @@ final class OnboardingStepService
         if ($this->qboFactory) return ($this->qboFactory)();
         $conn = new QboConnectionService($this->db);
         $connected = $conn->tablesReady() && $conn->company() !== null;
-        return ['connected' => $connected, 'onboarding' => new QboOnboardingService($this->db, $connected ? $conn : null),
+        return ['connected' => $connected, 'conn' => $connected ? $conn : null, 'onboarding' => new QboOnboardingService($this->db, $connected ? $conn : null),
                 'sync' => new QboSyncService($conn), 'expenses' => new QboExpenseSyncService($conn)];
     }
     private function finish(array $r, OnboardingService $onboarding): array

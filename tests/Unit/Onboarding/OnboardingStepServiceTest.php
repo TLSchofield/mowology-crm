@@ -64,8 +64,11 @@ final class OnboardingStepServiceTest extends TestCase
         $onboarding=new class { public function pull():array{return ['ok'=>true];} public function apply(string $part,int $uid):array{return ['ok'=>true];} };
         $sync=new class { public array $calls=[]; public function setAuto(bool $on,?string $from):bool{$this->calls[]=[$on,$from];return true;} };
         $expenses=new class { public array $calls=[]; public function setReceipts(bool $on):void{$this->calls[]=$on;} };
-        $s=new OnboardingStepService($db,'tenant',null,static fn()=>['connected'=>true,'onboarding'=>$onboarding,'sync'=>$sync,'expenses'=>$expenses]);
-        $this->assertTrue($s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>true])['ok']);
+        $recurring=new class { public function pausePrompt():?string{return 'QuickBooks still makes 1 recurring invoice: Care — $100.00.';} };
+        $s=new OnboardingStepService($db,'tenant',null,static fn()=>['connected'=>true,'onboarding'=>$onboarding,'sync'=>$sync,'expenses'=>$expenses,'recurring'=>$recurring]);
+        $on=$s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>true]);
+        $this->assertTrue($on['ok']);
+        $this->assertStringContainsString('QuickBooks still makes 1 recurring invoice', $on['message']);
         $this->assertSame([[true,OnboardingStepService::businessToday($db)]],$sync->calls); $this->assertSame([true],$expenses->calls);
         $this->assertTrue($s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>false])['ok']);
         $this->assertSame([false,null],$sync->calls[1]); $this->assertSame([true,false],$expenses->calls);

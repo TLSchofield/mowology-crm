@@ -135,4 +135,14 @@ Done well, cancelling QuickBooks is a 10-minute step, not a migration. Building 
   QboOnboardingService, QboSyncService deployed one by one (sizes match); cached code cleared per file with
   `opcache_invalidate` through prod-run.sh (Chrome was not signed in); new methods confirmed loaded; sites load.
   Not yet exercised on a real import (rehearsal2 is already imported) — next import or a re-run shows it.
-- Next: U6 doc read → G10/G11.
+- U6 settled from Intuit's PHP SDK classes (their reference page is JavaScript-only); the exact query JSON is
+  unconfirmed, the code accepts both shapes. G10–G11 BUILT 2026-11-05 (spec `2026-11-05-g10-g11-recurring-spec.md`,
+  not deployed): contract billing (non-default businesses with QuickBooks connected) holds a contract while
+  QuickBooks still bills its client with a recurring invoice; switching sending on lists them to pause; a sixth
+  import part "contracts" turns active recurring invoices into Ittai contracts (no plan → bills nothing until visits are
+  added). Codex review: fixed double-tap duplicate import (GET_LOCK), setAuto failure reported, stale-read hold says so;
+  not changed: a PDF-held draft retry (made when nothing in QuickBooks billed) and future-start templates (they will
+  bill, so holding is right).
+- Before Claudia's day: in the rehearsal2 sandbox, make one recurring invoice, Read, check the Contracts part (confirms
+  the JSON shape), accept, add a plan, check the hold on the next billing run; check the phone apps show a sixth part;
+  check her GST registration (contract billing adds `TaxEngine::gstRate()`).

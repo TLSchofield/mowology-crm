@@ -77,6 +77,8 @@ require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // reso
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboRecurringService.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 // Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
@@ -116,6 +118,20 @@ $errors   = [];
 $held     = [];   // not sent: the invoice PDF could not be made (retried next run)
 $retried  = [];   // held invoices from earlier runs, sent now
 $testMade = [];   // created as drafts in a test business; deliberately never sent
+$recurring = null;
+$recurringUnavailable = null;
+if (class_exists('Tenant') && !Tenant::isDefault()) {
+    try {
+        $qboConnection = new QboConnectionService($db);
+        if ($qboConnection->tablesReady() && $qboConnection->company() !== null) {
+            $recurring = new QboRecurringService($db, $qboConnection, 1);
+            $recurring->read(); // before any contract row is locked
+        }
+    } catch (Throwable $e) {
+        $recurring = null;
+        $recurringUnavailable = 'QuickBooks recurring check unavailable: ' . get_class($e);
+    }
+}
 
 // retry-only: just re-send invoices held for a missing PDF; create nothing new.
 // Safe to schedule daily (the monthly line still creates the invoices on the 1st):
@@ -325,7 +341,8 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         $why = !$fresh || $fresh['status'] !== 'active' ? 'no longer active'
              : ($fresh['billing_cycle'] !== 'monthly' ? 'no longer billed monthly'
              : (!$plan->fetchColumn() ? 'no active plan'
-             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')' : null)));
+             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')'
+             : ($recurring ? $recurring->holdReason(['contact_id' => $contactId, 'property_id' => (int)$ctr['property_id'], 'company_id' => $ctr['company_id'] !== null ? (int)$ctr['company_id'] : null, 'billing_amount' => $fresh['billing_amount']]) : null))));
         if ($why !== null) {
             $db->rollBack();
             $skipped[] = $ctr['contract_number'] . " ({$why})";
@@ -448,6 +465,7 @@ $summaryParts = [
         . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
 ];
 if ($testSummary !== '') $summaryParts[] = $testSummary;
+if ($recurringUnavailable !== null) $summaryParts[] = $recurringUnavailable;
 $runSummary = implode('; ', $summaryParts);
 
 $report = [
