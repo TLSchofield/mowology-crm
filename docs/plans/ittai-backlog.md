@@ -300,3 +300,14 @@ Mowology still shows "mowology" as the sidebar logo, "mowology CRM © 2026" in t
 from business settings); the sidebar head is "Charlie" (should be Kaname); the visit-complete panel ("Job Complete!",
 "Add small job or extras", "Complete & Create Invoice", "Complete — No Invoice") renders unstyled and visible under
 the week grid; dashboard targets show Mowology's ($6,000 week target). All first-impression items for Claudia.
+
+**QuickBooks import field check on rehearsal2 (2026-11-04, `scripts/qbo-import-check.snippet.php`):** 60 clients,
+23 services, 44 suppliers, 13 account mappings, business GST. Names, emails, phones, mobiles, companies, service
+prices and QuickBooks item links all match; a second Accept added nothing (idempotent). Two real gaps:
+1. **Billing address of a person client is dropped** (44 of 60): ContactService stores billing only on `companies`;
+   a QuickBooks customer with no company keeps its service address (property) but loses a different mailing address.
+2. **Two clients at the same street address:** `addPropertyToContact`/createContact reuse the first property with that
+   address, so the second client gets no property of its own (36 here, because the sandbox shares 24 public addresses;
+   in real data: couples entered as two customers, landlord + tenant, duplicate QuickBooks customers).
+Also seen: the QuickBooks page subtitle still says "nothing is sent to QuickBooks yet"; a new business's chart of
+accounts is Mowology's (Lawn Care, Hedge & Shrub, Snow Removal, Landscape Design).
