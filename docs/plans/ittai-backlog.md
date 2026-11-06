@@ -81,6 +81,23 @@ Sam's part (original):
   - site_id on the mail_tidy tables;
   - a settings page with the "Is work" buttons on Yui's inbox card and in the tidy preview.
 
+## Receipt reading — what the outside world does better (research 2026-11-06)
+Sources: open-source (Donut, LayoutLMv3/LiLT, PaddleOCR, docTR, invoice2data) and commercial (Dext, Hubdoc, AutoEntry,
+Veryfi, Taggun, Mindee, Azure Document Intelligence, AWS Textract AnalyzeExpense). Checked against our code the same day.
+1. **Bake-off first:** ~100 stored receipts (gas station, supplier, scanned PDF, invoice table) through AWS Textract
+   AnalyzeExpense and/or Azure prebuilt-receipt (~$8–10 per 1,000 pages, so ~$1.50/month at our volume; Veryfi has
+   100 free/month), scored per field against owner-approved data with the existing parser scorecard. Decides buy vs build
+   for line items. Unknown: whether either splits BC GST from PST. Needs Tim to open an AWS or Azure account (keys in
+   secrets.php). Crop client names before sending.
+2. **AI step sees the photo:** `extractLineItemsWithLlm()` sends OCR text only. Send the cropped image too, keep the
+   "items must add up / be printed" checks. Fixes column-split and invoice-table receipts where the text order is the fault.
+3. **Column-aware rows for the Vision read:** cluster word x-positions into a name column and a price column, pair by y.
+   Also: `reconstructLinesFromVisionResponse()` joins with one space, which `extractLineItems()` does not read as an item
+   (the phone-box builder uses two). Coordinate with the receipt-layout work in ReceiptParser.php.
+4. Not gaps (already here): per-vendor learned layouts (`ReceiptLearning`), per-field confidence, Penny's per-vendor
+   autonomy. Low value: supplier-portal fetch (Dext Fetch, reviewed as weak); self-hosted models (need Python + GPU).
+   Shared: which API wins per receipt type. Private: the receipts themselves.
+
 ## Receipts as the way in (Penny) — council 2026-10-12
 - A free or cheap receipts-only entry tier *inside* Ittai, not a separate app. The upgrade moment is
   "put this receipt on a job" or "bill this cost".
@@ -446,3 +463,8 @@ Tim asked which AreaMap features fit `crm/products/area-measurement.php`. Alread
 Tim: "in general our CRM should take a product our client sells and then search for local suppliers and fetch their prices and/or email them requesting delivery prices etc."
 What exists (verified 2026-11-03): `MarketPriceService` reads published Shopify feeds weekly (My Garden Bag, live, shared regional layer, migration 1375); Otto's supplier directory and finder; `SupplierPriceListService` (a tenant's own trade lists, private); `SupplierFormService` (Otto fills a supplier's form, sends only on Tim's yes, from office@); the vendor knowledge commons for shared facts. Not yet: nothing starts from a PRODUCT and goes looking, nothing asks a supplier for a delivery price, nothing connects the market table to a product's price outside the mulch fact (being wired 2026-11-03: `MulchPriceBand`).
 Shape to plan (own chat, plan first): (1) per product, find candidates (the directory, the web, Tim's names), (2) read published prices where a feed exists (reader per site type; Shopify done), (3) where none exists, draft a "delivery price for <product>, <quantity>, <postcode>" email to the supplier, sent only on Tim's yes from office@mowology.ca, replies read by the existing supplier inbox reader and turned into a price row with the source and date, (4) shared facts (a public price) go to the regional layer, a private quote stays with the tenant, (5) every price carries its source, date and "GST stated or not", never a guess, (6) a read that finds nothing says so. Multi-discipline tenants: no trade words in the schema; the product, not "mulch", is the key. Open for Tim: how many suppliers per product, how often to re-ask, who may be emailed.
+
+## Phone receipt capture: word positions + camera hints (Tim, 2026-11-06, "build all")
+- **Word positions:** the iPhone (Vision `VNRecognizeTextRequest`) and Android (ML Kit) send each recognised line with its bounding box beside the plain text; the server builds rows from them the way `reconstructLinesFromVisionResponse()` does for Google Vision. Why: phone plain text puts Chevron item names in one block and prices in another (most of Chevron's 71 unread receipts, replay 2026-11-06). Keep the upload backwards compatible.
+- **Camera hints:** edge detection with crop or straighten (iOS `VNDetectDocumentSegmentationRequest` / VisionKit; Android ML Kit Document Scanner) and a "hold flat, fill the frame" hint on blurry or skewed photos. Capture-only stays.
+- Needs its own chat started from the desktop app (owns `ios/` + the Android repo + one server row-builder). Could not be started over Remote Control.

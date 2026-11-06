@@ -837,3 +837,10 @@ show several.
 `SHOW COLUMNS ... LIKE ?` fails under native prepares (production), the try/catch answers "column missing", and the
 feature quietly never runs (vendor commons link, header-layout lessons). Quote the value instead. Verify any
 "skip when the migration hasn't run" guard on production with a prod-run preview, not only in SQLite tests.
+
+## 2026-11-06 — a summary-label rule ate real deposit items; a heading carried a price
+Adding a bare `DEPOSIT` to `isTaxOrSummaryLabel()` (meant for a weigh ticket's `Deposit: $0.00`) dropped the
+bottle-deposit items the reader names "Deposit" on four Chevron receipts; treating a lone `AMOUNT` as a heading
+dropped a taxi's fare line ("Amount 21.75"). **Signature:** a replay where a change fixes many receipts and quietly
+breaks a few. **Rule:** every reader change is replayed on the stored receipts (gains AND breaks) before it ships;
+labels match only with their colon (`Deposit:`), and a heading word is dropped only when it can't be an item name.

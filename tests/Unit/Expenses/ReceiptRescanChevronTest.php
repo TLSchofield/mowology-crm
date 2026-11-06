@@ -95,6 +95,18 @@ TXT;
         $this->assertSame([['name' => 'Coffee']], dropTaxLineItems([['name' => 'GST 5.0000 %'], ['name' => 'Coffee']]));
     }
 
+    public function testAdditionalExactSummaryLabelsDoNotHideDepositItems(): void
+    {
+        foreach (['TOTAL FEE', 'TOTAL FUEL: $20.00', 'TOTAL SALE', 'TOTAL SALES 20.00',
+                  'EXTRA FEE: $0.00', 'TOTAL TENDERED: 20.00', 'Deposit:', 'DEPOSIT: $0.00'] as $label) {
+            $this->assertTrue(isTaxOrSummaryLabel($label), $label);
+        }
+        // A bare "Deposit" is a bottle-deposit item the reader made (replay 2026-11-06: four Chevron receipts lost theirs).
+        foreach (['2 Deposit ($0.20)', 'Deposit', 'DEPOSIT 1.20', 'DEPOSIT REFUND BAG', 'MY TOTAL FEE ITEM'] as $label) {
+            $this->assertFalse(isTaxOrSummaryLabel($label), $label);
+        }
+    }
+
     public function testRescanRepairsOnlyImpossibleStoredAmounts(): void
     {
         $stored = ['amount' => '-2.39', 'gst_amount' => '5.00', 'pst_amount' => '0.00', 'total' => '2.61'];
@@ -143,5 +155,13 @@ TXT;
         $this->assertFalse(isColumnHeading('TOTAL'), 'one word is left to the tax/total filter');
         $kept = dropTaxLineItems([['name' => 'QTY PRICE AMOUNT', 'line_total' => 12.49], ['name' => 'HOT BE', 'line_total' => 2.49]]);
         $this->assertSame(['HOT BE'], array_column($kept, 'name'));
+    }
+
+    public function testALoneColumnHeadingIsNotAnItem(): void
+    {
+        $this->assertTrue(isColumnHeading('PRODUCT'));
+        $this->assertTrue(isColumnHeading('Description'));
+        $this->assertFalse(isColumnHeading('PRODUCT CLEANER'), 'a real item that starts with the word');
+        $this->assertSame([], dropTaxLineItems([['name' => 'PRODUCT', 'amount' => '3.69']]));
     }
 }

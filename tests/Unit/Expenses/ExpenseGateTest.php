@@ -61,6 +61,25 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(0, $this->hooks->count('learnConfirmed'), 'not confirmed yet');
     }
 
+    public function test_a_missing_subtotal_is_total_less_taxes_on_create_and_money_edits_only(): void
+    {
+        // Pure rule (2026-11-06: 77 receipts had amount 0.00 beside a total and taxes).
+        $this->assertSame(11.37, ExpenseGate::withDerivedSubtotal([], ['total' => 12.36, 'gst_amount' => 0.55, 'pst_amount' => 0.44, 'amount' => 0.0], true)['amount']);
+        $this->assertSame(10.0, ExpenseGate::withDerivedSubtotal([], ['total' => 10.5, 'gst_amount' => 0.5, 'amount' => 10.0], true)['amount'], 'a read subtotal is kept');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['total' => 12.36, 'amount' => 0], ['notes' => 'x'], false), 'a non-money edit leaves it');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal([], ['total' => 1.0, 'gst_amount' => 1.0], true), 'never zero or negative');
+        $this->assertSame(9.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 9.0, 'amount' => 0.0, 'gst_amount' => 0.0], ['gst_amount' => 0.0], false)['amount'], 'no tax: subtotal = total');
+        // Codex review 2026-11-06: an explicit 0 stands, and a posted receipt's books never move by this.
+        $this->assertSame(0.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 105.0, 'gst_amount' => 5.0], ['amount' => 0.0, 'total' => 105.0], false)['amount'], 'explicit 0 kept');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['status' => 'approved', 'total' => 105.0, 'amount' => 0.0, 'gst_amount' => 5.0], ['total' => 105.0], false), 'posted: never derived');
+
+        // Through the gate: a capture with a total and taxes but no subtotal is saved with one.
+        $res = $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_name_raw' => 'CHEVRON', 'gst_amount' => 0.55, 'pst_amount' => 0.44,
+        ], ['expense_date' => '2026-10-23', 'total' => 12.36, 'status' => 'draft', 'created_by' => 6]), self::TIM, 'upload');
+        $this->assertSame(11.37, (float)$this->row($res['expense_id'])['amount']);
+    }
+
     public function test_an_office_phone_save_teaches_once_on_create(): void
     {
         $this->gate->apply(null, ExpenseGate::rowFromInput([

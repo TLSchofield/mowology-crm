@@ -134,11 +134,14 @@ function enhanceLineItemExtraction(array $ctx): array
         try {
             $subtotal = isset($parsed['subtotal']) && $parsed['subtotal'] !== null && $parsed['subtotal'] !== ''
                 ? (float)$parsed['subtotal'] : null;
-            $llm = extractLineItemsWithLlm($ctx['ocr_text'], $profile['known_names'] ?? [], $subtotal, $parsed['line_items'] ?? []);
+            // The photo goes too when ops_settings.receipt_llm_image is on: the model sees which price sits by which name.
+            $llm = extractLineItemsWithLlm($ctx['ocr_text'], $profile['known_names'] ?? [], $subtotal, $parsed['line_items'] ?? [],
+                                           isset($ctx['file_path']) ? (string)$ctx['file_path'] : null);
             $parsed['llm_attempted'] = true;
             if ($llm['success']) {
                 $parsed['line_items']        = $llm['items'];
                 $parsed['line_items_source'] = 'llm';
+                $parsed['llm_with_image']    = !empty($llm['with_image']);
                 $parsed = array_merge($parsed, assessLineItemQuality($parsed));
                 $ctx['llm_used'] = true;
             } else {

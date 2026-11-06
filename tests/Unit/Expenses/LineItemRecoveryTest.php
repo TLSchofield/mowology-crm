@@ -10,6 +10,16 @@ final class LineItemRecoveryTest extends TestCase
         $parsed = ['line_items' => [['name' => 'Soil', 'amount' => 12.50]]];
         $this->assertSame('inbox', ReceiptInboxService::fittedLineItemChanges($parsed, 12.50, 13.13)['line_items_source']);
         $this->assertSame([], ReceiptInboxService::fittedLineItemChanges($parsed, 20.00, 20.00));
+        $this->assertSame('inbox', ReceiptInboxService::fittedLineItemChanges($parsed, 0.0, 13.13, 0.63, 0.0)['line_items_source']);
+    }
+
+    public function test_auto_apply_uses_tax_fallback_when_subtotal_is_missing(): void
+    {
+        $db = $this->pennyDb();
+        $db->exec("UPDATE expenses SET amount = 0, total = 10.50, gst_amount = 0.50, pst_amount = 0 WHERE id = 1");
+        $gate = new ExpenseGateSpy();
+        $r = (new BookkeeperDeskService($db, null, $gate))->autoApplyPennyItems();
+        $this->assertContains(1, $r['ids']);
     }
 
     private function pennyDb(): PDO
